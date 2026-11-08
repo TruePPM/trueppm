@@ -1,40 +1,80 @@
 #!/usr/bin/env python3
-"""scripts/post-mr-cost.py - post the `## Cost of this MR` comment right after `glab mr create`.
+"""scripts/post-mr-cost.py - the only code that measures and posts an MR's `## Cost of this MR` record.
 
-Why this exists. The cost comment used to appear only when an agent followed the /wave prose
-(Step 5.4 measures, Step 6 posts). Any MR opened another way (a plain /mr, a hand-run
-`glab mr create`) got no comment, and nothing noticed: of !1736-!1744 only !1737 had one. This
-runs as a Claude Code PostToolUse hook on Bash (.claude/settings.json), so the comment no longer
-depends on anyone remembering. It reuses the existing scripts; it measures nothing itself.
+Why this exists. The cost comment used to appear only when an agent followed the /wave prose, and
+the records it posted overlapped: every MR of one session repeated the session's growing total
+(macrodream/blueprint#387). This script owns the whole measure-and-post path so that the records of
+one session add up to that session's spend, with no token counted in two of them.
 
-What it does, only when the Bash command was a `glab mr create` that printed an MR URL:
-  1. Opt-out first. `scripts/cost-ledger enabled` must exit 0 (off or unreadable: do nothing),
-     and the MR description must not carry the `cost-ledger: off` marker.
-  2. Skip when this user already has a `## Cost of this MR` comment on the MR (/wave posts a
-     richer one with named agents; this never overwrites it).
-  2b. When the description already carries ledger lines (a /wave MR), render from them and
-     stop: post_from_description() never measures. Only a plain /mr falls through to step 3.
-  3. Measure this session since the last MR it posted for (or the session start): the
-     orchestrator, every top-level subagent that started in the window, and the estimate.
-  4. Render and post record 1 through scripts/cost-table.py.
-Any failure is fail-soft: the hook exits 0 and tells the model what to run by hand, so a broken
-transcript layout can never block an MR. Opt out for yourself with
-`scripts/cost-ledger off --local`; see docs/harness/cost-ledger.md.
+Three entry points, one measuring path:
+  hook      PostToolUse(Bash) in .claude/settings.json, reads the hook JSON on stdin. Only when the
+            command was a `glab mr create` that printed an MR URL: posts record 1.
+  --round   `post-mr-cost.py --round --mr <iid>`: posts record K (K >= 2) for work done after the MR
+            opened (/fix-mr calls it after its push).
+  --measure `post-mr-cost.py --measure`: prints the `## Gates` ledger lines (`subagent-tokens:`,
+            `orchestrator-tokens:`, `est-cost-usd:`) for the same window, posts nothing and advances
+            nothing. /wave's go-ahead snapshot uses it.
+`--agent <id>` (repeatable; --round and --measure) names exact agents instead of auto-attribution.
+`--measure --agent <id> --pin` also records them for the current branch in a per-session pins file,
+which the hook and --round read, and which leaves those agents out of every other branch's record.
+`--retry --mr <iid>` is what the fail-soft messages print: record 1 if the MR has no cost comment,
+else the next record.
 
-Subagents are found by listing <session>/subagents/agent-*.meta.json without a parentAgentId
-(descendants are added by subagent-tokens.py) and keeping those whose transcript starts in the
-window. /wave names its agents explicitly and stays more exact; this is the fallback.
+The window of a record (non-overlap). Per-session state lives at
+`${CLAUDE_CONFIG_DIR:-~/.claude}/mr-cost-state/<session-id>.json` (one file per session, next to the
+transcripts, NOT per repo: a session spans repos):
+    {"schema": 1, "orchestrator_until": "<UTC Z>", "agents": {"<agent-id>": "<UTC Z>"}}
+written atomically (a temp file in the same directory, then os.replace) and advanced after EVERY
+successful post to the record's `until`, for the orchestrator and for each agent the record
+measured. A record then claims only what no earlier record of the session claimed:
+  orchestrator   [orchestrator_until, now]; with no state, from the session transcript's first entry
+  each agent     [that agent's watermark, now]; with none, from the agent's own first entry
+A watermark is an exclusive lower bound (one microsecond past the stored second), so a response
+stamped exactly at the previous record's end is counted once. The state is per session because a
+session never shares a window with another one; the legacy shared `mr-cost-last-until` marker is
+never read, not even as a fallback, since reading it brings the shared-marker overlap back. A state
+file that exists but cannot be read posts nothing and says so: guessing a window would double count.
+Every post is bracketed by a write-ahead `pending` claim in the state file (written before the post, committed
+after it); a post that landed without its commit is settled against the MR's notes by the next run on any MR
+(resolve_pending), and one that cannot be settled refuses to post. reconcile() remains for a record with no
+pending entry (an older version, or a lost state file).
+A POST that landed while the hook was killed (or while cost-table failed on the response) leaves the
+record on the MR and the state behind it: the next run of the hook, or of `--retry`, finds that record,
+takes the token user's own latest end that is not in the future, and advances the state to it
+(reconcile()), so the tokens are not claimed twice. A failed post never advances the state.
 
-Fix rounds. The hook cannot see them (no `glab mr create`), so /fix-mr calls
-`python3 scripts/post-mr-cost.py --round --mr <iid>` after its push: it posts
-`## Cost of this MR (#N) - record K` (this round's window plus a running total) through
-cost-table.py, and prints one line saying what it did. It posts nothing when the ledger is off,
-the MR opts out, or record 1 is missing or unreadable.
+A cost-ledger setting that cannot be read is reported to the session (it is not read as "off"), an MR
+description that cannot be fetched is reported too (the `cost-ledger: off` marker cannot be checked),
+and every failure also reaches the user as a systemMessage, since additionalContext reaches only the
+model.
 
-Usage: reads the hook JSON on stdin.  python3 scripts/post-mr-cost.py --self-test
-       python3 scripts/post-mr-cost.py --round --mr <iid> [--session <sid>]
-       python3 scripts/post-mr-cost.py --retry --mr <iid> [--session <sid>]   (re-run the hook for an MR)
-Exit:  always 0 as a hook; --self-test 0 ok, 1 failed.
+Which top-level subagents belong to an MR (attribution). A subagent transcript records the session
+root as its cwd and `main` as its branch, so neither can attribute it. Two things in the transcript can:
+  1. WHERE IT ACTS (strongest): the worktree holding most of the agent's Edit/Write/NotebookEdit
+     `file_path`s, else the worktree its Bash `cd <path>` / `git -C <path>` (not show, diff or log) calls
+     target most (a read-only auditor `cd`s into what it audits). When that is known the agent counts for
+     this MR if it is this MR's worktree, and not otherwise; the brief is ignored.
+  2. ITS BRIEF (the text of its first `user` entry), when no home is known: the agent counts if the brief
+     names this MR's source branch, branch leaf or worktree leaf; it is left for another record if it names
+     another branch (feat|fix|docs|chore)/<digits>-... or another `.../<issue>-<slug>` worktree path;
+     otherwise (an unnamed gate) it counts. A brief that names several worktrees (a port agent) is why
+     the home outranks it.
+`--agent` and pins override both. In every case the agent needs usage after its watermark. A descendant
+is measured over its own watermark and goes with its top-level parent. Briefs, paths and commands are
+untrusted text: they are classified and matched, never echoed.
+
+Any failure is fail-soft: the hook exits 0 and prints the command to re-run,
+`python3 scripts/post-mr-cost.py --retry --mr <iid> --session <sid>`, so a broken transcript layout
+can never block an MR. The hook posts only for the repo it runs in: the project in the printed MR URL
+must equal this repo's `origin` project (the hook's cwd is the session's directory, which can be a
+different repo from the one the MR was opened on), and every API call names its project explicitly. Opt out for yourself with `scripts/cost-ledger off --local`;
+see docs/harness/cost-ledger.md.
+
+Usage: reads the hook JSON on stdin.            python3 scripts/post-mr-cost.py --self-test
+       python3 scripts/post-mr-cost.py --round --mr <iid> [--session <sid>] [--agent <id> ...]
+       python3 scripts/post-mr-cost.py --measure [--branch <name>] [--session <sid>] [--agent <id> ... [--pin]]
+       python3 scripts/post-mr-cost.py --retry --mr <iid> [--session <sid>]
+Exit:  always 0 as a hook; --round and --measure 0 (posted, or said why not); --self-test 0 ok, 1 failed.
 """
 
 import contextlib
@@ -44,36 +84,121 @@ import io
 import json
 import os
 import re
-import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
+
+try:
+    import fcntl
+except (
+    ImportError
+):  # not POSIX: no advisory locks, the state writes stay atomic but unserialized
+    fcntl = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "lib"))
 MR_CREATE_RE = re.compile(r"(?:^|[\s;&|(])glab\s+mr\s+create(?:\s|$)")
 MR_URL_RE = re.compile(r"/-/merge_requests/(\d{1,9})(?![\d])")
+# `https://<host>/<namespace/project>/-/merge_requests/<n>`: the project is everything between the host and `/-/`.
+MR_PROJECT_RE = re.compile(
+    r"https?://[^/\s\"']+/([0-9A-Za-z_.-]+(?:/[0-9A-Za-z_.-]+)+)/-/merge_requests/(\d{1,9})(?![\d])"
+)
 SESSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z_-]{0,127}\Z")
-AGENT_RE = re.compile(r"^agent-([0-9A-Za-z][0-9A-Za-z_-]{0,127})\.meta\.json\Z")
+TS_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z")
 TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
-EPOCH = "1970-01-01T00:00:00Z"
-ISSUE_RE = re.compile(r"(?:^|/)(?:feat|fix|docs|chore)/(\d{1,9})-")
 OFF_MARKER_RE = re.compile(r"^\s*(?:[-*]\s*)?cost-ledger:\s*off\s*$", re.I | re.M)
+ISSUE_RE = re.compile(r"(?:^|/)(?:feat|fix|docs|chore)/(\d{1,9})-")
+# A branch name as a brief writes it. The lookbehind lets a path or remote prefix precede it
+# (`origin/feat/1-x`, `../wt/1-x`) but not a longer word; the lookahead stops `feat/1-x` matching
+# inside `feat/1-x-v2`.
+OTHER_BRANCH_RE = re.compile(r"(?<![\w.-])((?:feat|fix|docs|chore)/\d+-[\w.-]*\w)")
+LEAF_RE = re.compile(r"^\d+-\S")
+# A worktree path component in a brief (`.../blueprint-wt/387-cost-records/`): `<digits>-<slug>` after a
+# slash. Briefs usually name the worktree, not the branch, so this is how another branch's agent is seen.
+OTHER_LEAF_RE = re.compile(
+    r"(?<=/)(\d+-[A-Za-z][\w-]*)(?![\w-]|\.\w)"
+)  # not a file name: `3-tier.md`
+BRIEF_CAP = 256 << 10
+STATE_SCHEMA = 1
+NOTE_PAGES = 2  # 200 notes: the hook's time budget (see cost_table_timeout); more reads as unreadable, never as absent
+PROJECT_PATH_RE = re.compile(r"^[0-9A-Za-z_.-]+(?:/[0-9A-Za-z_.-]+)+\Z")
+
+
+def retry_hint(iid, sid):
+    """The fail-soft hint every message prints. `--retry` posts record 1 when the MR has no cost
+    comment yet, else the next record, and advances the session state like any other post. It always
+    names the session, so it works without $CLAUDE_CODE_SESSION_ID; `<iid>` and `<session-id>` are
+    literal placeholders when the value is not known."""
+    return (
+        "Re-run in this repo's checkout: python3 scripts/post-mr-cost.py --retry --mr %s --session %s "
+        "(docs/harness/cost-ledger.md)."
+        % (
+            iid if iid else "<iid>",
+            sid if SESSION_RE.match(sid or "") else "<session-id>",
+        )
+    )
+
+
+def mr_ref(text):
+    """(project path or None, iid or None) from ONE match in `text` (the hook's tool response): the first
+    full `https://<host>/<namespace/project>/-/merge_requests/<n>` URL, else a bare `/-/merge_requests/<n>`
+    (project None). The iid and the project always come from the same match, so a stray path printed
+    before the real URL cannot pair one MR's number with another project."""
+    text = text if isinstance(text, str) else json.dumps(text or "")
+    m = MR_PROJECT_RE.search(text)
+    if m:
+        return m.group(1), int(m.group(2))
+    m = MR_URL_RE.search(text)
+    return (None, int(m.group(1))) if m else (None, None)
+
+
+def mr_project(text):
+    """The `namespace/project` path of the MR URL in `text`, or None (see mr_ref)."""
+    return mr_ref(text)[0]
+
+
+def parse_remote(url):
+    """`namespace/project` from a git remote URL (https, scp-like ssh or ssh://), or None."""
+    u = (url or "").strip()
+    m = re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/]+/(.+?)/?$", u) or re.match(
+        r"^[^@/\s]+@[^:/\s]+:(.+?)/?$", u
+    )
+    if not m:
+        return None
+    path = re.sub(r"\.git$", "", m.group(1))
+    return path if re.match(r"^[0-9A-Za-z_.-]+(?:/[0-9A-Za-z_.-]+)+\Z", path) else None
+
+
+def repo_project(runner, cwd):
+    """The GitLab project of the repo the hook runs in: its `origin` remote, no network."""
+    rc, out, _ = runner(["git", "remote", "get-url", "origin"], cwd)
+    return parse_remote(out) if rc == 0 else None
+
+
+def api_base(project):
+    """`projects/<url-encoded path>` so no call ever resolves `:id` against the wrong repo."""
+    return "projects/%s" % urllib.parse.quote(project, safe="")
 
 
 def now_utc():
     return datetime.datetime.now(datetime.timezone.utc).strftime(TS_FMT)
 
 
+def bound(ts):
+    """The exclusive lower bound after a stored watermark: one microsecond past it. The measuring
+    scripts treat --since as inclusive, so a response stamped exactly at the previous record's end
+    would otherwise be counted in both records."""
+    t = datetime.datetime.strptime(ts, TS_FMT).replace(tzinfo=datetime.timezone.utc)
+    return (t + datetime.timedelta(microseconds=1)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
 def mr_iid(command, response):
     """The new MR's iid when `command` ran `glab mr create` and `response` printed its URL."""
     if not MR_CREATE_RE.search(command or ""):
         return None
-    text = response if isinstance(response, str) else json.dumps(response or "")
-    m = MR_URL_RE.search(text)
-    return int(m.group(1)) if m else None
+    return mr_ref(response)[1]
 
 
 def run(cmd, cwd, env=None, timeout=300):
@@ -88,65 +213,10 @@ def run(cmd, cwd, env=None, timeout=300):
     )
 
 
-def first_timestamp(path):
-    """The first parseable `timestamp` in a transcript, or None."""
-    import transcript_usage as tu
-
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            for _, line in zip(range(50), f):
-                try:
-                    ts = json.loads(line).get("timestamp")
-                except (ValueError, AttributeError):
-                    continue
-                t = tu.parse_time(ts) if isinstance(ts, str) else None
-                if t is not None:
-                    return t
-    except OSError:
-        return None
-    return None
-
-
-def top_level_agents(session_dir, since):
-    """Ids of top-level subagents (no parentAgentId) whose transcript starts at or after `since`."""
-    import transcript_usage as tu
-
-    floor = tu.parse_time(since)
-    ids = []
-    for meta in sorted(
-        glob.glob(
-            os.path.join(glob.escape(session_dir), "subagents", "agent-*.meta.json")
-        )
-    ):
-        m = AGENT_RE.match(os.path.basename(meta))
-        if not m:
-            continue
-        try:
-            with open(meta, encoding="utf-8") as f:
-                if json.load(f).get("parentAgentId"):
-                    continue
-        except (OSError, ValueError, AttributeError):
-            continue
-        started = first_timestamp(meta[: -len(".meta.json")] + ".jsonl")
-        if started is not None and floor is not None and started >= floor:
-            ids.append(m.group(1))
-    return ids
-
-
-def find_session_dir(sid, projects_dir):
-    hits = sorted(
-        h
-        for h in glob.glob(os.path.join(glob.escape(projects_dir), "*", sid))
-        if os.path.isdir(h)
-    )
-    return hits[0] if len(hits) == 1 else None
-
-
-READ_ATTEMPTS = 3
-READ_TIMEOUT = 15
+READ_ATTEMPTS = 2
+READ_TIMEOUT = 12
 BACKOFF = (2, 5)
 SLEEP = [time.sleep]
-TS_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z")
 
 
 def glab_json(path, cwd):
@@ -164,53 +234,17 @@ def glab_json(path, cwd):
     return None
 
 
-_CT = []
-
-
-def _cost_table():
-    """cost-table.py loaded as a module (its constants and parser), once."""
-    if not _CT:
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location(
-            "cost_table_mod", os.path.join(HERE, "cost-table.py")
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _CT.append(mod)
-    return _CT[0]
-
-
-def cost_table_timeout():
-    """Outer timeout for a cost-table.py run: its own worst case (it retries internally, and walks
-    up to NOTES_MAX_PAGES notes pages per attempt) plus margin.
-
-    Derived, not hard-coded: a kill before cost-table's last attempt would lose its stderr reason and
-    leave the window marker un-advanced even when a POST had landed.
-
-    Budget for the hook (600s in .claude/settings.json), all stages at their worst: description
-    read + this hook's 2 notes pages + user read, each 3 x READ_TIMEOUT + backoff = 52s (4 reads,
-    208s), plus this timeout (337s), plus ~30s of local measuring: 575s.
-    """
-    return int(_cost_table().worst_case_seconds()) + 30
-
-
-COST_NOTES_PAGES = (
-    2  # the hook's own time budget; cost-table reads up to NOTES_MAX_PAGES
-)
-
-
-def cost_notes(iid, cwd, max_pages=COST_NOTES_PAGES):
-    """[(body, author id)] of the `## Cost of this MR` notes, [] when none, None when unreadable.
+def already_commented(iid, cwd, project):
+    """[(body, author id)] of the `## Cost of this MR` notes (empty: none), None when unreadable.
 
     Unreadable is not 'exists': treating it as such made a flaky `glab api` skip the comment with
     no trace. The caller reports it and posts nothing, so a flaky API still never duplicates.
-    Pages past 100 notes, up to max_pages (the hook's time budget); more reads as unreadable.
     """
     found = []
-    for page in range(1, max_pages + 1):
+    for page in range(1, NOTE_PAGES + 1):
         notes = glab_json(
-            "projects/:id/merge_requests/%d/notes?per_page=100&page=%d" % (iid, page),
+            "%s/merge_requests/%d/notes?per_page=100&page=%d"
+            % (api_base(project), iid, page),
             cwd,
         )
         if not isinstance(notes, list):
@@ -226,17 +260,85 @@ def cost_notes(iid, cwd, max_pages=COST_NOTES_PAGES):
                 )
         if len(notes) < 100:
             return found
-    return None
+    return None  # more than NOTE_PAGES pages: "definitely absent" cannot be said
 
 
-def window_end(notes, me, now):
-    """The latest window end among THIS token user's existing cost records, or None.
+_CT = []
+
+
+def _cost_table():
+    """cost-table.py loaded as a module (its record parser), once."""
+    if not _CT:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "cost_table_mod", os.path.join(HERE, "cost-table.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _CT.append(mod)
+    return _CT[0]
+
+
+def read_cost_seconds():
+    """Worst case of ONE glab_json read: every attempt hangs to READ_TIMEOUT, plus the backoffs."""
+    return READ_ATTEMPTS * READ_TIMEOUT + sum(
+        BACKOFF[min(i, len(BACKOFF) - 1)] for i in range(READ_ATTEMPTS - 1)
+    )
+
+
+def cost_table_timeout():
+    """Outer timeout for a cost-table.py run: its own worst case (it retries internally, and walks
+    up to NOTES_MAX_PAGES notes pages per attempt) plus margin.
+
+    Derived, not hard-coded: a kill before cost-table's last attempt would lose its stderr reason and
+    leave the session state un-advanced even when a POST had landed."""
+    return int(_cost_table().worst_case_seconds()) + 30
+
+
+# The reads of the hook path, each a glab_json (read_cost_seconds() at worst):
+#   the MR (1); settling a pending claim: the user (1) and NOTE_PAGES notes pages; the "comment
+#   exists" check: NOTE_PAGES pages; and, on the exists branch only, reconcile's user read (1).
+# The posting path adds one cost-table run (cost_table_timeout()); the exists branch posts nothing.
+HOOK_LOCAL_SECONDS = 30  # measuring the three scripts, git calls
+HOOK_TIMEOUT_SECONDS = 600  # .claude/settings.json
+
+
+def hook_reads(posting):
+    return 2 + 2 * NOTE_PAGES if posting else 3 + 2 * NOTE_PAGES
+
+
+def hook_worst_case_seconds():
+    """The longest the hook can run with every call hanging: the larger of the posting path (its reads
+    and one cost-table run) and the comment-exists path (its reads, nothing posted). The self-test
+    pins it under HOOK_TIMEOUT_SECONDS with a margin, and counts the real glab_json calls of both
+    paths against hook_reads()."""
+    return max(
+        hook_reads(True) * read_cost_seconds()
+        + cost_table_timeout()
+        + HOOK_LOCAL_SECONDS,
+        hook_reads(False) * read_cost_seconds() + HOOK_LOCAL_SECONDS,
+    )
+
+
+def reason_of(err, cap=200):
+    """The last non-empty stderr line of a failed script, control characters dropped (it reaches the
+    systemMessage and the log), capped."""
+    lines = [ln.strip() for ln in (err or "").splitlines() if ln.strip()]
+    return _cost_table().clean_text(lines[-1], cap) if lines else ""
+
+
+def window_end(notes, me, now, start):
+    """The end of THIS session's landed record: the latest window end among the token user's cost
+    records whose window STARTS at `start` (this session's current orchestrator watermark, or its first
+    entry when it has none), or None.
 
     Only notes by the token's own user whose body starts with the heading count (as cost-table's
-    read_records does), and an end later than `now` is ignored: a foreign or hand-edited record
-    dated 2099 would otherwise push this session's marker past every later MR's window.
-    """
-    if me is None:
+    read_records does); an end later than `now` is ignored (a hand-edited record dated 2099 must not
+    push the session past every later window); and a record with no `Window: S to U` line (the older
+    go-ahead form) has no start, so it is never adopted. The start is what ties a record to this
+    session: a record another session posted on the same MR starts at that session's own watermark."""
+    if me is None or not start:
         return None
     ct = _cost_table()
     ends = []
@@ -244,24 +346,595 @@ def window_end(notes, me, now):
         if aid != me or not body.lstrip().startswith("## Cost of this MR"):
             continue
         rec = ct.parse_record(body)
-        if rec and isinstance(rec.get("end"), str) and TS_RE.match(rec["end"]):
-            if rec["end"] <= now:
-                ends.append(rec["end"])
+        if (
+            rec
+            and rec.get("start") == start
+            and isinstance(rec.get("end"), str)
+            and TS_RE.match(rec["end"])
+            and rec["end"] <= now
+        ):
+            ends.append(rec["end"])
     return max(ends) if ends else None
 
 
-def measure(runner, cwd, env, sdir, since, until):
-    """Run the three measuring scripts for since..until. Returns (stdout lines, stderr chunks).
+def find_session_dir(sid, projects_dir):
+    hits = sorted(
+        h
+        for h in glob.glob(os.path.join(glob.escape(projects_dir), "*", sid))
+        if os.path.isdir(h)
+    )
+    return hits[0] if len(hits) == 1 else None
 
-    A session that never spawned a subagent has no <sid>/ directory; that is --no-agents, not a failure.
-    """
-    agents = top_level_agents(sdir, since) if sdir else []
-    agent_args = [a for i in agents for a in ("--agent", i)] or ["--no-agents"]
+
+def first_timestamp(path):
+    """The first parseable `timestamp` in a transcript as UTC `...Z`, or None."""
+    import transcript_usage as tu
+
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for _, line in zip(range(200), f):
+                try:
+                    ts = json.loads(line).get("timestamp")
+                except (ValueError, AttributeError, RecursionError):
+                    continue
+                t = tu.parse_time(ts) if isinstance(ts, str) else None
+                if t is not None:
+                    return t.astimezone(datetime.timezone.utc).strftime(TS_FMT)
+    except OSError:
+        return None
+    return None
+
+
+def first_user_text(path):
+    """The text of the first `user` entry of a transcript (the agent's brief), '' when none.
+
+    Untrusted: the caller only matches against it and never prints it."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for _, line in zip(range(200), f):
+                try:
+                    e = json.loads(line)
+                except (ValueError, RecursionError):
+                    continue
+                if not isinstance(e, dict) or e.get("type") != "user":
+                    continue
+                c = (
+                    (e.get("message") or {}).get("content")
+                    if isinstance(e.get("message"), dict)
+                    else None
+                )
+                if isinstance(c, str):
+                    return c[:BRIEF_CAP]
+                if isinstance(c, list):
+                    return "\n".join(
+                        b.get("text", "")
+                        for b in c
+                        if isinstance(b, dict) and isinstance(b.get("text"), str)
+                    )[:BRIEF_CAP]
+                return ""
+    except OSError:
+        return ""
+    return ""
+
+
+def top_level_agents(session_dir):
+    """Ids of top-level subagents (a meta file without parentAgentId) that have a transcript."""
+    import transcript_usage as tu
+
+    ids = []
+    for meta in sorted(
+        glob.glob(
+            os.path.join(glob.escape(session_dir), "subagents", "agent-*.meta.json")
+        )
+    ):
+        aid = os.path.basename(meta)[len("agent-") : -len(".meta.json")]
+        if not tu.AGENT_ID_RE.match(aid):
+            continue
+        try:
+            with open(meta, encoding="utf-8") as f:
+                if json.load(f).get("parentAgentId"):
+                    continue
+        except (OSError, ValueError, AttributeError, RecursionError):
+            continue
+        if os.path.isfile(meta[: -len(".meta.json")] + ".jsonl"):
+            ids.append(aid)
+    return ids
+
+
+def names(brief, token):
+    """True when `token` (a branch or a worktree leaf) appears in the brief as a whole name."""
+    return (
+        bool(token)
+        and re.search(r"(?<![\w.-])" + re.escape(token) + r"(?![\w-])", brief)
+        is not None
+    )
+
+
+def attribution(brief, branch, leaf):
+    """True: the brief names this MR (its branch, its branch's leaf, or its worktree leaf). False: it
+    names another MR (another branch, or another worktree-path component `<issue>-<slug>`) and not
+    this one. None: it names none, so usage alone decides.
+
+    Naming this MR wins over naming another one: a brief that mentions both is this MR's. A leaf is
+    `<issue>-<slug>` (scripts/wt); requiring the digits keeps a repo or checkout name such as
+    `blueprint` from matching `org/blueprint` in a brief and claiming every agent."""
+    own = {
+        x for x in (leaf, (branch or "").rsplit("/", 1)[-1]) if LEAF_RE.match(x or "")
+    }
+    if names(brief, branch) or any(names(brief, x) for x in own):
+        return True
+    if any(m != branch for m in OTHER_BRANCH_RE.findall(brief)) or any(
+        m not in own for m in OTHER_LEAF_RE.findall(brief)
+    ):
+        return False
+    return None
+
+
+# --- per-session state ---------------------------------------------------------------------
+
+
+class StateError(Exception):
+    """The state file exists but is not a valid schema-1 state."""
+
+
+def config_root():
+    """`$CLAUDE_CONFIG_DIR` or `~/.claude`: where Claude Code keeps the transcripts, and so where one
+    file per SESSION lives. The state is not per repo: a session spans repos, and a record in one repo
+    must advance the window every other repo's record starts from."""
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(
+        os.path.expanduser("~"), ".claude"
+    )
+
+
+@contextlib.contextmanager
+def state_lock(sid):
+    """Hold an exclusive advisory lock on `mr-cost-state/<sid>.lock` for a read-modify-write of the
+    session's state (and pins). Two posts in one session (two MRs opened at once, a --round while the
+    hook runs) would otherwise both read the same watermark, claim the same window, and the later write
+    would drop the other's agent watermarks. Blocks until the other holder is done."""
+    if fcntl is None or not SESSION_RE.match(sid or ""):
+        yield
+        return
+    d = os.path.join(config_root(), "mr-cost-state")
+    os.makedirs(d, exist_ok=True)
+    fd = os.open(os.path.join(d, sid + ".lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # closing releases the lock
+
+
+def pin_key(project, branch):
+    """Pins are keyed `<project path>:<branch>` so one branch name in two repos cannot collide."""
+    return "%s:%s" % (project or "?", branch)
+
+
+def state_path(root, sid):
+    return os.path.join(root, "mr-cost-state", sid + ".json")
+
+
+def read_state(root, sid):
+    """{'orchestrator_until': str or None, 'agents': {id: str}}; empty when no state file exists.
+    Raises StateError for one that exists but does not validate (never guessed around)."""
+    import transcript_usage as tu
+
+    try:
+        with open(state_path(root, sid), encoding="utf-8") as f:
+            raw = f.read(1 << 20)
+    except FileNotFoundError:
+        return {"orchestrator_until": None, "agents": {}}
+    except OSError:
+        raise StateError("unreadable")
+    try:
+        d = json.loads(raw)
+    except (ValueError, RecursionError):
+        raise StateError("not JSON")
+    if not isinstance(d, dict) or d.get("schema") != STATE_SCHEMA:
+        raise StateError("unknown schema")
+    ou, ag = d.get("orchestrator_until"), d.get("agents")
+    if not isinstance(ag, dict) or (
+        ou is not None and not (isinstance(ou, str) and TS_RE.match(ou))
+    ):
+        raise StateError("malformed")
+    for k, v in ag.items():
+        if not (
+            isinstance(k, str)
+            and tu.AGENT_ID_RE.match(k)
+            and isinstance(v, str)
+            and TS_RE.match(v)
+        ):
+            raise StateError("malformed")
+    out = {"orchestrator_until": ou, "agents": dict(ag)}
+    pend = d.get("pending")
+    if pend is not None:
+        ok = (
+            isinstance(pend, dict)
+            and isinstance(pend.get("mr"), int)
+            and not isinstance(pend.get("mr"), bool)
+            and isinstance(pend.get("project"), str)
+            and PROJECT_PATH_RE.match(pend["project"])
+            and all(
+                isinstance(pend.get(k), str) and TS_RE.match(pend[k])
+                for k in ("since", "until")
+            )
+            and isinstance(pend.get("agents"), dict)
+            and all(
+                isinstance(k, str)
+                and tu.AGENT_ID_RE.match(k)
+                and isinstance(v, str)
+                and TS_RE.match(v)
+                for k, v in pend["agents"].items()
+            )
+        )
+        if not ok:
+            raise StateError("malformed pending claim")
+        out["pending"] = pend
+    return out
+
+
+def _write_doc(root, sid, doc):
+    """Atomically replace the session's state file with `doc`; True on success."""
+    d = os.path.dirname(state_path(root, sid))
+    try:
+        os.makedirs(d, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".state-", suffix=".tmp", dir=d)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(doc, f, sort_keys=True)
+                f.write("\n")
+            os.replace(tmp, state_path(root, sid))
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+    except OSError:
+        return False
+    return True
+
+
+def write_state(root, sid, state, until, agent_ids):
+    """Advance the session's state to `until` for the orchestrator and every agent in agent_ids,
+    atomically, and drop any pending claim (this is the commit). Returns True on success. A watermark
+    never moves backwards."""
+
+    def later(old, new):
+        return new if old is None or new > old else old
+
+    agents = dict(state["agents"])
+    for a in agent_ids:
+        agents[a] = later(agents.get(a), until)
+    return _write_doc(
+        root,
+        sid,
+        {
+            "schema": STATE_SCHEMA,
+            "orchestrator_until": later(state["orchestrator_until"], until),
+            "agents": agents,
+        },
+    )
+
+
+def write_pending(root, sid, state, pending):
+    """Write-ahead: record the claim a post is about to make, beside the unchanged watermarks. If the
+    post lands but the commit (write_state) never happens, the next run finds this and resolves it
+    against the MR's notes instead of claiming the same window again."""
+    return _write_doc(
+        root,
+        sid,
+        {
+            "schema": STATE_SCHEMA,
+            "orchestrator_until": state["orchestrator_until"],
+            "agents": dict(state["agents"]),
+            "pending": pending,
+        },
+    )
+
+
+# --- agents pinned to a branch (--measure --pin) -------------------------------------------
+
+
+def pins_path(root, sid):
+    return os.path.join(root, "mr-cost-state", sid + ".pins.json")
+
+
+def read_pins(root, sid):
+    """{pin key (`<project>:<branch>`): [agent id]} the orchestrator named for this session, {} when none. Raises StateError.
+
+    Kept apart from the state file so the state schema stays {orchestrator_until, agents}."""
+    import transcript_usage as tu
+
+    try:
+        with open(pins_path(root, sid), encoding="utf-8") as f:
+            d = json.loads(f.read(1 << 20))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, RecursionError):
+        raise StateError("pins unreadable")
+    b = (
+        d.get("branches")
+        if isinstance(d, dict) and d.get("schema") == STATE_SCHEMA
+        else None
+    )
+    if not isinstance(b, dict) or not all(
+        isinstance(k, str)
+        and isinstance(v, list)
+        and all(isinstance(a, str) and tu.AGENT_ID_RE.match(a) for a in v)
+        for k, v in b.items()
+    ):
+        raise StateError("pins malformed")
+    return {k: list(v) for k, v in b.items()}
+
+
+def write_pins(root, sid, key, ids):
+    """Record that these agents belong to the branch `key` (a pin_key), atomically; True on success. An
+    agent pinned to a branch is left out of every other branch's record, so name it once and the hook
+    (record 1) and --round (record K) both attribute it the way --measure did."""
+    pins = read_pins(root, sid)
+    for k in list(pins):
+        pins[k] = [a for a in pins[k] if a not in ids]
+    pins[key] = sorted(set(pins.get(key, [])) | set(ids))
+    d = os.path.dirname(pins_path(root, sid))
+    try:
+        os.makedirs(d, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".pins-", suffix=".tmp", dir=d)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"schema": STATE_SCHEMA, "branches": pins}, f, sort_keys=True)
+                f.write("\n")
+            os.replace(tmp, pins_path(root, sid))
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+    except OSError:
+        return False
+    return True
+
+
+# --- measuring -----------------------------------------------------------------------------
+
+
+class Opts:
+    """Where the measuring scripts read from; overridden by the golden fixture so it is hermetic."""
+
+    def __init__(self, projects_dir=None, prices=None, today=None):
+        self.projects_dir = projects_dir or os.path.join(config_root(), "projects")
+        self.prices = prices
+        self.today = today
+
+
+WT_LEAF_RE = re.compile(r"/[^/\s]*-wt/(\d+-[A-Za-z][\w-]*)(?=/|$)")
+CD_RE = re.compile(r"(?:^|[;&|(\s])cd\s+[\"']?(/[^\s;&|\"')]+)")
+GIT_C_RE = re.compile(r"\bgit\s+-C\s+[\"']?(/[^\s;&|\"')]+)[\"']?\s+([a-z-]+)")
+READ_ONLY_GIT = ("show", "diff", "log")
+WRITE_TOOLS = {
+    "Edit": "file_path",
+    "Write": "file_path",
+    "NotebookEdit": "notebook_path",
+}
+HOME_CAP = 64 << 20
+
+
+def worktrees(runner, cwd):
+    """[(real path, branch or None)] of every worktree of the hook's repo, from `git worktree list
+    --porcelain`: the main checkout and each linked one (a /wave worker's `.claude/worktrees/agent-*`
+    included). A detached worktree has no branch."""
+    rc, out, _ = runner(["git", "worktree", "list", "--porcelain"], cwd)
+    found, cur = [], None
+    for line in (out if rc == 0 else "").splitlines():
+        if line.startswith("worktree "):
+            cur = [os.path.realpath(line[len("worktree ") :].strip()), None]
+            found.append(cur)
+        elif line.startswith("branch ") and cur is not None:
+            cur[1] = re.sub(r"^refs/heads/", "", line[len("branch ") :].strip())
+    return [(p_, b_) for p_, b_ in found]  # git lists the main checkout first
+
+
+def path_home(path, wts):
+    """('branch', name) for a path inside a listed worktree (the deepest one containing it, so a worker's
+    `<main>/.claude/worktrees/agent-*` is never read as the main checkout), ('branch', '') for a detached
+    one, ('leaf', '<n>-<slug>') for a path under a `*-wt/<n>-<slug>/` directory that is in no listed worktree
+    (another repo's, or one already removed), else None. The text is only classified, never kept."""
+    if not isinstance(path, str):
+        return None
+    real = os.path.realpath(path) if path.startswith("/") else path
+    best = None
+    for entry in wts:
+        wpath = entry[0]
+        if (real == wpath or real.startswith(wpath.rstrip("/") + "/")) and (
+            best is None or len(wpath) > len(best[0])
+        ):
+            best = entry
+    if (
+        best
+        and wts
+        and best is wts[0]
+        and real[len(best[0]) :].lstrip("/").startswith(".claude/worktrees/")
+    ):
+        return None  # a worker's worktree that git no longer lists: never the main checkout
+    if best:
+        return ("branch", best[1] or "")
+    m = WT_LEAF_RE.search(path)
+    return ("leaf", m.group(1)) if m else None
+
+
+def agent_home(path, wts):
+    """The worktree an agent ACTS in, read from its own transcript's tool calls, or None.
+
+    A brief can name several worktrees (a port agent reads one and writes another; an auditor reads
+    the one it audits), so attribution by brief text mis-attributes them. What an agent does is
+    firmer: 1. the worktree holding the majority of its Edit/Write/NotebookEdit `file_path`s; else
+    2. the worktree most often the target of a Bash `cd <path>` or `git -C <path> <not show/diff/log>`
+    (a read-only auditor `cd`s into what it audits), when one leads strictly. Paths and commands are
+    untrusted: they are classified into a (kind, name) pair and never echoed."""
+    writes, cds, total_writes, seen = {}, {}, 0, set()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            read = 0
+            for line in f:
+                read += len(line)
+                if read > HOME_CAP:
+                    break
+                if '"tool_use"' not in line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except (ValueError, RecursionError):
+                    continue
+                msg = e.get("message") if isinstance(e, dict) else None
+                content = msg.get("content") if isinstance(msg, dict) else None
+                for b in content if isinstance(content, list) else ():
+                    if (
+                        not (isinstance(b, dict) and b.get("type") == "tool_use")
+                        or b.get("id") in seen
+                    ):
+                        continue
+                    seen.add(b.get("id"))
+                    inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+                    if b.get("name") in WRITE_TOOLS:
+                        total_writes += 1
+                        h = path_home(inp.get(WRITE_TOOLS[b["name"]]), wts)
+                        if h:
+                            writes[h] = writes.get(h, 0) + 1
+                    elif b.get("name") == "Bash" and isinstance(
+                        inp.get("command"), str
+                    ):
+                        cmd = inp["command"]
+                        targets = [m.group(1) for m in CD_RE.finditer(cmd)]
+                        targets += [
+                            m.group(1)
+                            for m in GIT_C_RE.finditer(cmd)
+                            if m.group(2) not in READ_ONLY_GIT
+                        ]
+                        for t in targets:
+                            h = path_home(t, wts)
+                            if h:
+                                cds[h] = cds.get(h, 0) + 1
+    except OSError:
+        return None
+    if writes:
+        top = max(writes, key=writes.get)
+        if writes[top] * 2 > total_writes:
+            return top
+    if cds:
+        ranked = sorted(cds.values(), reverse=True)
+        if len(ranked) == 1 or ranked[0] > ranked[1]:
+            return max(cds, key=cds.get)
+    return None
+
+
+def select_agents(
+    sdir,
+    branch,
+    leaf,
+    explicit,
+    state_agents,
+    until,
+    pinned_elsewhere=frozenset(),
+    wts=(),
+):
+    """(agent ids to measure, notes). A top-level agent counts for this MR by the worktree it acts in
+    (agent_home: where it writes, else where it `cd`s) when that is known, and by its brief (attribution)
+    otherwise; --agent and pins override both. `notes` are fixed strings: no brief or transcript text."""
+    import transcript_usage as tu
+
+    chosen, notes = [], []
+    if not sdir:
+        return chosen, notes
+    until_dt = tu.parse_time(until)
+    for aid in top_level_agents(sdir):
+        path = os.path.join(sdir, "subagents", "agent-%s.jsonl" % aid)
+        forced = aid in explicit
+        if aid in pinned_elsewhere and not forced:
+            continue
+        if not forced:
+            home = agent_home(path, wts)
+            if home is not None:
+                own = {
+                    x
+                    for x in (leaf, (branch or "").rsplit("/", 1)[-1])
+                    if LEAF_RE.match(x or "")
+                }
+                # A home is a branch (a listed worktree) or, for a worktree git does not list, a leaf.
+                if not (
+                    (home[0] == "branch" and home[1] and home[1] == branch)
+                    or (home[0] == "leaf" and home[1] in own)
+                ):
+                    continue
+            elif attribution(first_user_text(path), branch, leaf) is False:
+                continue
+        try:
+            agents, files = tu.subagent_files(sdir, [aid])
+        except ValueError:
+            notes.append("an agent group could not be read and was left out")
+            continue
+        since = {
+            m: tu.parse_time(bound(state_agents[m]))
+            for m, _ in agents
+            if m in state_agents
+        }
+        try:
+            with_usage = tu.measure_rows_sources(
+                tu.agent_sources(files, agents, since), until_dt, side="sidechain"
+            )[1]["messages"]
+        except OSError:
+            with_usage = 0
+        if with_usage:
+            chosen.append(aid)
+        elif forced:
+            notes.append("a named agent had no usage in the window and was left out")
+    for missing in explicit - set(top_level_agents(sdir)):
+        notes.append(
+            "a named agent id is not a top-level agent of this session and was ignored"
+        )
+    return chosen, notes
+
+
+def measure(runner, cwd, sid, sdir, opts, since, until, agent_ids, state_agents):
+    """Run the three measuring scripts. Returns (stdout lines, stderr chunks, every agent id the
+    window measured: the chosen ones and their descendants).
+
+    A window with no agent runs --no-agents, which is a measured 0 and not a forgotten --agent."""
+    import transcript_usage as tu
+
+    members = []
+    sub_args = ["--no-agents"]
+    if agent_ids:
+        try:
+            agents, _ = tu.subagent_files(sdir, agent_ids)
+        except ValueError:
+            agents = [(a, True) for a in agent_ids]
+        members = [a for a, _ in agents]
+        sub_args = []
+        for a, named in agents:
+            if named:
+                sub_args += [
+                    "--agent",
+                    a + ("@" + bound(state_agents[a]) if a in state_agents else ""),
+                ]
+            elif a in state_agents:
+                sub_args += ["--agent-since", a + "@" + bound(state_agents[a])]
+    est_extra = (["--prices", opts.prices] if opts.prices else []) + (
+        ["--today", opts.today] if opts.today else []
+    )
+    env = dict(os.environ, CLAUDE_CODE_SESSION_ID=sid)
+    pd = ["--projects-dir", opts.projects_dir]
     lines, split = [], []
     for script, extra in (
-        ("subagent-tokens.py", agent_args + ["--until", until]),
-        ("orchestrator-tokens.py", ["--since", since, "--until", until]),
-        ("est-cost.py", agent_args + ["--since", since, "--until", until]),
+        ("subagent-tokens.py", sub_args + ["--until", until, "--session", sid] + pd),
+        ("orchestrator-tokens.py", [sid, "--since", since, "--until", until] + pd),
+        (
+            "est-cost.py",
+            sub_args
+            + ["--since", since, "--until", until, "--session", sid]
+            + pd
+            + est_extra,
+        ),
     ):
         rc, out, err = runner(
             [sys.executable, os.path.join(HERE, script)] + extra, cwd, env=env
@@ -269,54 +942,800 @@ def measure(runner, cwd, env, sdir, since, until):
         split.append(err)
         if rc == 0 and out.strip():
             lines.append(out.strip().splitlines()[0])
-    return lines, split
+    return lines, split, members
 
 
 OUTCOME = {"why": ""}
-
-
-def state_path(gitdir, sid):
-    """Where this session's window start lives: <git common dir>/mr-cost-last-until.<sid>.
-
-    Why keyed: the common dir is shared by every worktree and parallel session, but the window is
-    per session. One unkeyed file let session B's MR advance A's window start, so A's next MR
-    undercounted by A's own spend in between.
-    """
-    return os.path.join(gitdir, "mr-cost-last-until." + sid)
-
-
-def read_since(gitdir, sid):
-    """This session's window start. Falls back to the legacy unkeyed file only when no keyed one exists."""
-    for path in (state_path(gitdir, sid), os.path.join(gitdir, "mr-cost-last-until")):
-        try:
-            with open(path, encoding="utf-8") as f:
-                cand = f.read().strip()
-        except OSError:
-            continue
-        if re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z", cand):
-            return cand
-        return EPOCH  # a keyed file that is unreadable text is not a reason to fall through to another session's
-    return EPOCH
-
-
-def write_since(gitdir, sid, until):
-    try:
-        with open(state_path(gitdir, sid), "w", encoding="utf-8") as f:
-            f.write(until + "\n")
-    except OSError:
-        pass
-
-
-def reason_of(err, cap=200):
-    """The last non-empty stderr line of a failed script, capped, for the message and the log."""
-    lines = [ln.strip() for ln in (err or "").splitlines() if ln.strip()]
-    return lines[-1][:cap] if lines else ""
 
 
 def quiet(why):
     """Record why the hook stayed silent (for the log) and return None."""
     OUTCOME["why"] = why
     return None
+
+
+def git_common_dir(runner, cwd):
+    rc, out, _ = runner(["git", "rev-parse", "--git-common-dir"], cwd)
+    return (
+        os.path.abspath(os.path.join(cwd, out.strip()))
+        if rc == 0 and out.strip()
+        else None
+    )
+
+
+def worktree_leaf(runner, cwd):
+    """The directory leaf of a LINKED worktree, else ''. In the main checkout the toplevel's name is
+    the repo's, which says nothing about a branch (and appears in every brief that names the repo)."""
+    rc, top, _ = runner(["git", "rev-parse", "--show-toplevel"], cwd)
+    rc2, gd, _ = runner(["git", "rev-parse", "--absolute-git-dir"], cwd)
+    cd = git_common_dir(runner, cwd)
+    if rc or rc2 or not top.strip() or not gd.strip() or not cd:
+        return ""
+    if os.path.realpath(gd.strip()) == os.path.realpath(cd):
+        return ""
+    return os.path.basename(top.strip())
+
+
+def plan(runner, cwd, sid, gitdir, branch, explicit, opts, until, project=None):
+    """(start, exclusive, sdir, agent ids, state, notes, error) for the next record of this session.
+
+    `start` is where the orchestrator window begins: the session's stored watermark (exclusive, what the
+    previous record already claimed), else the session transcript's first entry (inclusive). It is never
+    clamped to another record on the same MR: records are non-overlapping in TOKENS, not in time, so a
+    record another session posted must not hide this session's own spend between its watermark and that
+    record's end. The caller holds state_lock(sid) from here through write_state."""
+    import transcript_usage as tu
+
+    try:
+        state = read_state(config_root(), sid)
+    except StateError as e:
+        return (None,) * 6 + (
+            "this session's cost state is %s (%s)"
+            % (e, state_path(config_root(), sid)),
+        )
+    sdir = find_session_dir(sid, opts.projects_dir)
+    try:
+        main_path, _ = tu.session_paths(sid, opts.projects_dir)
+    except ValueError:
+        return (None,) * 6 + ("the session transcript was not found",)
+    start, exclusive = state["orchestrator_until"], True
+    if start is None:
+        start, exclusive = first_timestamp(main_path) or "1970-01-01T00:00:00Z", False
+    try:
+        pins = read_pins(config_root(), sid)
+    except StateError as e:
+        return (None,) * 6 + (
+            "this session's pinned agents are %s (%s)"
+            % (e, pins_path(config_root(), sid)),
+        )
+    key = pin_key(project, branch)
+    here = set(pins.get(key, [])) | set(explicit)
+    elsewhere = {a for k, v in pins.items() if k != key for a in v} - here
+    ids, notes = select_agents(
+        sdir,
+        branch,
+        worktree_leaf(runner, cwd),
+        here,
+        state["agents"],
+        until,
+        elsewhere,
+        worktrees(runner, cwd),
+    )
+    return start, exclusive, sdir, ids, state, notes, None
+
+
+def post_record(
+    runner,
+    cwd,
+    iid,
+    gitdir,
+    sid,
+    sdir,
+    opts,
+    since,
+    exclusive,
+    until,
+    ids,
+    state,
+    branch,
+    round_k,
+    project,
+):
+    """Measure, post through cost-table.py and advance the state. Returns (message, ok)."""
+    lines, split, members = measure(
+        runner,
+        cwd,
+        sid,
+        sdir,
+        opts,
+        bound(since) if exclusive else since,
+        until,
+        ids,
+        state["agents"],
+    )
+    # `subagent-tokens: 0` is what --no-agents prints (a measured zero, not usage), so on its own it
+    # must not turn an empty window into a record of zeros.
+    if not any(
+        ln.startswith("orchestrator-tokens:")
+        or (ln.startswith("subagent-tokens:") and ln.split(":")[1].strip() != "0")
+        for ln in lines
+    ):
+        return "nothing measurable in this session window", False
+    # Write ahead: the post may land and the commit below may not happen (a non-zero exit after the POST, a
+    # kill, a timeout); the next run settles this claim against the MR's notes (resolve_pending).
+    if not write_pending(
+        config_root(),
+        sid,
+        state,
+        {
+            "mr": iid,
+            "project": project,
+            "since": since,
+            "until": until,
+            "agents": {m: until for m in members},
+        },
+    ):
+        return "the pending claim could not be written, so nothing was posted", False
+    tmp = tempfile.mkdtemp(prefix="mr-cost-", dir=gitdir)
+    ledger, splitf = os.path.join(tmp, "lines.txt"), os.path.join(tmp, "split.txt")
+    with open(splitf, "w", encoding="utf-8") as f:
+        f.write("".join(split))
+    cmd = [sys.executable, os.path.join(HERE, "cost-table.py"), "--comment"]
+    if not exclusive:
+        cmd += [
+            "--session-start"
+        ]  # no earlier record of this session: the window began at its first entry
+    if round_k:
+        with open(ledger, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        cmd += ["--ledger", ledger, "--since", since]
+    else:
+        with open(ledger, "w", encoding="utf-8") as f:
+            f.write("## Gates\n" + "\n".join(lines) + "\n")
+        cmd += ["--file", ledger, "--since", since]
+    cmd += [
+        "--post",
+        "--mr",
+        str(iid),
+        "--until",
+        until,
+        "--split",
+        splitf,
+        "--project",
+        project,
+    ]
+    m = ISSUE_RE.search(branch or "")
+    if m:
+        cmd += ["--issue", m.group(1)]
+    rc, out, err = runner(cmd, cwd, timeout=cost_table_timeout())
+    for p in (ledger, splitf):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    try:
+        os.rmdir(tmp)
+    except OSError:
+        pass
+    if rc != 0:
+        why_f = reason_of(err)
+        return "cost-table exit %d%s" % (rc, ": " + why_f if why_f else ""), False
+    if not write_state(config_root(), sid, state, until, members):
+        return (
+            "posted, but the commit of the session cost state failed: the pending claim stays in the state file and the next run settles it against the MR's notes",
+            True,
+        )
+    return "", True
+
+
+def mr_branch(iid, cwd, runner, project):
+    """The MR's source branch from the forge, else the checked-out branch."""
+    d = glab_json("%s/merge_requests/%d" % (api_base(project), iid), cwd)
+    if isinstance(d, dict) and isinstance(d.get("source_branch"), str):
+        return d, d["source_branch"]
+    rc, out, _ = runner(["git", "branch", "--show-current"], cwd)
+    return d, out.strip() if rc == 0 else ""
+
+
+def resolve_pending(cwd, sid):
+    """(status, pending) after resolving the session's write-ahead claim; the caller holds state_lock(sid).
+
+    A post is preceded by `pending` in the state file and followed by its commit. A post that landed
+    while its commit did not (cost-table exited non-zero after its POST, the process was killed, a
+    timeout) leaves `pending` behind, and the next run, on ANY MR, must settle it before claiming
+    anything: otherwise it would claim the same window again. Read that MR's notes: a record by the token
+    user whose `Window: S to U` matches exactly was posted, so the claim is committed (status 'adopted');
+    none matches and the notes were read, so it was not posted and the claim is dropped ('discarded', the
+    window is claimed again exactly once); the notes cannot be read, or the state is unreadable, and
+    nothing can be said ('unreadable'): the caller refuses to post. None: nothing was pending."""
+    root = config_root()
+    try:
+        state = read_state(root, sid)
+    except StateError as e:
+        return "badstate", "this session's cost state is %s (%s)" % (
+            e,
+            state_path(root, sid),
+        )
+    pend = state.get("pending")
+    if not pend:
+        return None, None
+    user = glab_json("user", cwd)
+    me = user.get("id") if isinstance(user, dict) else None
+    notes = already_commented(pend["mr"], cwd, pend["project"])
+    if me is None or notes is None:
+        return "unreadable", pend
+    ct = _cost_table()
+    landed = False
+    for body, aid in notes:
+        if aid == me and body.lstrip().startswith("## Cost of this MR"):
+            rec = ct.parse_record(body)
+            if (
+                rec
+                and rec.get("start") == pend["since"]
+                and rec.get("end") == pend["until"]
+            ):
+                landed = True
+                break
+    if landed:
+        ok = write_state(root, sid, state, pend["until"], list(pend["agents"]))
+    else:
+        ok = _write_doc(
+            root,
+            sid,
+            {
+                "schema": STATE_SCHEMA,
+                "orchestrator_until": state["orchestrator_until"],
+                "agents": state["agents"],
+            },
+        )
+    return (("adopted" if landed else "discarded") if ok else "unreadable"), pend
+
+
+def pending_refusal(status, info, sid):
+    """The message when a pending claim cannot be settled; never a guess. `info` is the pending claim
+    ('unreadable') or the specific state error with its file path ('badstate')."""
+    if status == "badstate":
+        # A retry would refuse for the same reason: name the file and say what to do with it.
+        return (
+            "%s, so nothing was posted. Inspect that file; if it is damaged, remove it (the session's next record "
+            "then starts from its first entry) and re-run." % info
+        )
+    return (
+        "an earlier post for !%d (window %s to %s) cannot be confirmed (its notes could not be read, or the state could not be written), and posting "
+        "now could count the same tokens twice, so nothing was posted. Re-run: python3 scripts/post-mr-cost.py "
+        "--retry --mr %d --session %s"
+        % (
+            info["mr"],
+            info["since"],
+            info["until"],
+            info["mr"],
+            sid if SESSION_RE.match(sid or "") else "<session-id>",
+        )
+    )
+
+
+def reconcile(runner, cwd, sid, branch, seen, opts, project=None):
+    """Advance the session state to the end of a record THIS session posted whose state write never
+    happened.
+
+    A hook killed after its POST landed (or a cost-table that failed on the response) leaves the record
+    on the MR and the state behind it, so the session's next record would claim the same tokens again.
+    A record is adopted only if it is the token user's, its window START equals this session's current
+    orchestrator watermark (or its first entry, when it has none), and its end is not in the future: a
+    record another session posted, or a hand-edited one, starts somewhere else and moves nothing. The
+    agents advanced are the ones that record's window would have attributed. The hook calls this when
+    the MR already has a cost comment; --retry calls it too, since it is what the hook's fail-soft
+    message prints. Returns the end the state moved to, else None. A watermark never moves backwards (the
+    start rule makes a record's end later than the watermark it starts at; write_state keeps the later).
+    Only the expected failures (an unreadable state, a missing transcript) read as "nothing to
+    reconcile"; any other exception propagates to the caller, which reports it.
+
+    Records this code posts are settled by the write-ahead `pending` claim (resolve_pending), which also
+    covers a landed post on a DIFFERENT MR; reconcile stays for a record with no pending entry: one posted
+    by an older version, or after the state file was lost, where only the window-start rule can tie a
+    record to this session."""
+    opts = opts or Opts()
+    with state_lock(sid):
+        return _reconcile_safe(runner, cwd, sid, branch, seen, opts, project)
+
+
+def _reconcile_safe(runner, cwd, sid, branch, seen, opts, project):
+    """reconcile() with the session lock held: the expected failures read as nothing to adopt."""
+    import transcript_usage as tu
+
+    try:
+        return _reconcile_locked(runner, cwd, sid, branch, seen, opts, project, tu)
+    except (StateError, OSError, ValueError):
+        return None
+
+
+def _reconcile_locked(runner, cwd, sid, branch, seen, opts, project, tu):
+    """reconcile() with the session lock held."""
+    user = glab_json("user", cwd)
+    me = user.get("id") if isinstance(user, dict) else None
+    if me is None or not SESSION_RE.match(sid or ""):
+        return None
+    state = read_state(config_root(), sid)
+    expected = state["orchestrator_until"]
+    if expected is None:
+        expected = first_timestamp(tu.session_paths(sid, opts.projects_dir)[0])
+    end = window_end(seen, me, now_utc(), expected)
+    if not end:
+        return None
+    _, _, sdir, ids, state, _, err = plan(
+        runner, cwd, sid, None, branch, [], opts, end, project=project
+    )
+    if err:
+        return None
+    try:
+        members = [a for a, _ in tu.subagent_files(sdir, ids)[0]] if ids else []
+    except ValueError:
+        members = list(
+            ids
+        )  # the post path falls back the same way; descendants then keep no watermark
+    return end if write_state(config_root(), sid, state, end, members) else None
+
+
+def process(payload, opts=None, runner=run, project=None):
+    """(message or None). Record 1 for the MR a `glab mr create` just opened.
+
+    The hook's cwd is the SESSION's directory, so a session that started in repo X and ran
+    `glab mr create` for repo Y would read X's MR with Y's iid. The project in the printed MR URL
+    must therefore equal the project of the repo the hook runs in, or nothing is posted (`project`
+    is given only by --retry, which runs inside the right checkout)."""
+    OUTCOME["why"] = ""
+    opts = opts or Opts()
+    if payload.get("tool_name") not in (None, "Bash"):
+        return quiet("not a Bash call")
+    ti = payload.get("tool_input") or {}
+    iid = mr_iid(ti.get("command", ""), payload.get("tool_response"))
+    if iid is None:
+        return quiet(
+            "glab mr create ran but no MR URL was printed"
+            if MR_CREATE_RE.search(ti.get("command", "") or "")
+            else "not an MR create"
+        )
+    cwd = payload.get("cwd") or os.getcwd()
+    sid = payload.get("session_id") or ""
+    manual = retry_hint(iid, sid)
+    rc, _, _ = runner(
+        [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
+    )
+    if rc == 2:
+        # Unreadable is not "off": a person chose off, nobody chose a broken setting file.
+        return (
+            "MR cost comment not posted for !%d: the cost-ledger setting is unreadable (scripts/cost-ledger status). %s"
+            % (iid, manual)
+        )
+    if rc != 0:
+        return quiet("cost-ledger off (enabled exit %d)" % rc)  # the opt-out
+    if project is None:
+        url_project, here = (
+            mr_project(payload.get("tool_response")),
+            repo_project(runner, cwd),
+        )
+        if here is None or url_project != here:
+            return (
+                "MR cost comment skipped for !%d: it was opened on %s, not on this session's repo (%s), so this "
+                "hook cannot read it. Run it in that project's checkout: python3 scripts/post-mr-cost.py "
+                "--retry --mr %d --session %s"
+                % (
+                    iid,
+                    url_project or "an unknown project",
+                    here or "unknown",
+                    iid,
+                    sid if SESSION_RE.match(sid) else "<session-id>",
+                )
+            )
+        project = here
+    if not SESSION_RE.match(sid):
+        return "MR cost comment skipped for !%d: no usable session id. %s" % (
+            iid,
+            manual,
+        )
+    d, branch = mr_branch(iid, cwd, runner, project)
+    if not isinstance(d, dict):
+        # The opt-out marker lives in the description, so an unreadable one cannot be checked.
+        return (
+            "MR cost comment not posted for !%d: could not read its description (glab api failed), so `cost-ledger: off` could not be checked. %s"
+            % (iid, manual)
+        )
+    if OFF_MARKER_RE.search(str(d.get("description", ""))):
+        return quiet("MR description carries cost-ledger: off")
+    gitdir = git_common_dir(runner, cwd)
+    if not gitdir:
+        return "MR cost comment skipped for !%d: not in a git checkout. %s" % (
+            iid,
+            manual,
+        )
+    with state_lock(
+        sid
+    ):  # settle, read the watermark, post, write it back: one post per session at a time
+        status, pend = resolve_pending(cwd, sid)
+        if status in ("unreadable", "badstate"):
+            return "MR cost comment skipped for !%d: %s" % (
+                iid,
+                pending_refusal(status, pend, sid),
+            )
+        seen = already_commented(
+            iid, cwd, project
+        )  # read inside the lock: another post may be landing this record
+        if seen is None:
+            return (
+                "MR cost comment not posted for !%d: could not read its notes (glab api failed). %s"
+                % (iid, manual)
+            )
+        if seen:
+            _reconcile_safe(runner, cwd, sid, branch, seen, opts, project)
+            return quiet("a cost comment already exists")
+        until = now_utc()
+        since, excl, sdir, ids, state, notes, err = plan(
+            runner, cwd, sid, gitdir, branch, [], opts, until, project=project
+        )
+        if err:
+            return "MR cost comment skipped for !%d: %s. %s" % (iid, err, manual)
+        why, ok = post_record(
+            runner,
+            cwd,
+            iid,
+            gitdir,
+            sid,
+            sdir,
+            opts,
+            since,
+            excl,
+            until,
+            ids,
+            state,
+            branch,
+            False,
+            project,
+        )
+    if not ok:
+        return "MR cost comment skipped for !%d: %s. %s" % (iid, why, manual)
+    return (
+        "Posted the `## Cost of this MR` comment on !%d (opt out: scripts/cost-ledger off --local).%s"
+        % (iid, " " + why if why else "")
+    )
+
+
+def process_round(iid, sid, cwd, opts=None, runner=run, explicit=(), project=None):
+    """Post `## Cost of this MR (#N) - record K` for work on an MR that already has record 1.
+
+    Why a separate entry point: the PostToolUse hook only sees `glab mr create`. A fix round has no
+    such event. The window is the session's own state (what no earlier record of this session
+    claimed), whatever other sessions posted on the MR; the MR must already carry a readable record
+    (cost-table.py --next-since). The record, its running total and the "never edit an earlier record"
+    rule are cost-table.py's. Returns a message (never raises)."""
+    opts = opts or Opts()
+    manual = retry_hint(iid, sid)
+    rc, _, _ = runner(
+        [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
+    )
+    if rc == 2:
+        return "cost-ledger setting is unreadable: no record posted for !%d. %s" % (
+            iid,
+            manual,
+        )
+    if rc != 0:
+        return "cost-ledger is off: no record posted for !%d." % iid
+    if not SESSION_RE.match(sid or ""):
+        return "Record skipped for !%d: no usable session id. %s" % (iid, manual)
+    project = project or repo_project(runner, cwd)
+    if project is None:
+        return (
+            "Record skipped for !%d: this checkout has no readable `origin` remote to name its project. %s"
+            % (iid, manual)
+        )
+    d, branch = mr_branch(iid, cwd, runner, project)
+    if not isinstance(d, dict):
+        return (
+            "Record not posted for !%d: could not read its description (glab api failed), so `cost-ledger: off` could not be checked. %s"
+            % (iid, manual)
+        )
+    if OFF_MARKER_RE.search(str(d.get("description", ""))):
+        return "MR !%d carries `cost-ledger: off`: no record posted." % iid
+    rc, out, nerr = runner(
+        [
+            sys.executable,
+            os.path.join(HERE, "cost-table.py"),
+            "--next-since",
+            "--mr",
+            str(iid),
+            "--project",
+            project,
+        ],
+        cwd,
+        timeout=cost_table_timeout(),
+    )
+    if rc not in (0, 1):
+        return (
+            "Record not posted for !%d: could not read its notes (cost-table exit %d%s). %s"
+            % (iid, rc, ": " + reason_of(nerr) if reason_of(nerr) else "", manual)
+        )
+    if rc != 0 or not TS_RE.match(
+        out.strip()
+    ):  # the guard: a round needs a readable record on this MR to follow
+        return (
+            "Record skipped for !%d: it has no readable record 1 to continue from. %s"
+            % (iid, manual)
+        )
+    gitdir = git_common_dir(runner, cwd)
+    if not gitdir:
+        return "Record skipped for !%d: not in a git checkout. %s" % (iid, manual)
+    with state_lock(sid):
+        status, pend = resolve_pending(cwd, sid)
+        if status in ("unreadable", "badstate"):
+            return "Record skipped for !%d: %s" % (
+                iid,
+                pending_refusal(status, pend, sid),
+            )
+        until = now_utc()
+        since, excl, sdir, ids, state, notes, err = plan(
+            runner, cwd, sid, gitdir, branch, explicit, opts, until, project
+        )
+        if err:
+            return "Record skipped for !%d: %s. %s" % (iid, err, manual)
+        if since > until:
+            return (
+                "Record skipped for !%d: nothing measurable between %s and now. %s"
+                % (iid, since, manual)
+            )
+        why, ok = post_record(
+            runner,
+            cwd,
+            iid,
+            gitdir,
+            sid,
+            sdir,
+            opts,
+            since,
+            excl,
+            until,
+            ids,
+            state,
+            branch,
+            True,
+            project,
+        )
+    if not ok:
+        return "Record skipped for !%d: %s. %s" % (iid, why, manual)
+    return "Posted the cost record for this fix round on !%d (window %s to %s).%s" % (
+        iid,
+        since,
+        until,
+        " " + why if why else "",
+    )
+
+
+def process_retry(iid, sid, cwd, opts=None, runner=run):
+    """The command the fail-soft messages print: record 1 when the MR has no cost comment yet (the
+    hook's work), else the next record (--round's). Both advance the session state."""
+    project = repo_project(runner, cwd)
+    if project is None:
+        return (
+            "Retry skipped for !%d: this checkout has no readable `origin` remote to name its project."
+            % iid
+        )
+    if SESSION_RE.match(sid or ""):
+        with state_lock(sid):
+            status, pend = resolve_pending(cwd, sid)
+        if status in ("unreadable", "badstate"):
+            return "Retry skipped for !%d: %s" % (
+                iid,
+                pending_refusal(status, pend, sid),
+            )
+        if status == "adopted" and pend["mr"] == iid:
+            return (
+                "Retry posted nothing for !%d: its cost record (window end %s) had already landed; this "
+                "session's state now starts after it. Run --round for later work."
+                % (iid, pend["until"])
+            )
+    seen = already_commented(iid, cwd, project)
+    if seen is None:
+        return (
+            "Retry skipped for !%d: could not read its notes (glab api failed)." % iid
+        )
+    opts = opts or Opts()
+    if seen:
+        d, branch = mr_branch(iid, cwd, runner, project)
+        moved = reconcile(runner, cwd, sid, branch, seen, opts, project)
+        if moved:
+            # A record landed without this session's state moving: the state now starts after it, so a
+            # round here would only count the same tokens again.
+            return (
+                "Retry posted nothing for !%d: its cost record (window end %s) had already landed; this "
+                "session's state now starts after it. Run --round for later work."
+                % (iid, moved)
+            )
+        return process_round(iid, sid, cwd, opts, runner, project=project)
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "glab mr create"},
+        "tool_response": "/-/merge_requests/%d" % iid,
+        "session_id": sid,
+        "cwd": cwd,
+    }
+    return process(
+        payload, opts, runner, project
+    ) or "Retry posted nothing for !%d: %s." % (
+        iid,
+        OUTCOME["why"] or "see mr-cost-hook.log",
+    )
+
+
+def default_branches(runner, cwd):
+    """Branch names a pin must never use: `main` and whatever origin/HEAD names."""
+    rc, out, _ = runner(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd
+    )
+    names_ = {"main"}
+    if rc == 0 and out.strip():
+        names_.add(re.sub(r"^origin/", "", out.strip()))
+    return names_
+
+
+def process_measure(sid, cwd, branch, opts=None, runner=run, explicit=(), pin=False):
+    """(stdout lines, stderr text, exit code) for --measure: the ledger lines for the window the next
+    record would cover. Never posts and never moves a watermark, so /wave can ask at the go-ahead and the
+    hook still claims the same tokens at `glab mr create`. Its only state writes are the pins (--pin) and
+    settling a pending claim from an earlier post (committing it if the record landed, dropping it if
+    not). A pin is written even when the pending claim cannot be settled. Exit 2 is a refusal or failure
+    of --pin."""
+    opts = opts or Opts()
+    rc, _, _ = runner(
+        [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
+    )
+    if rc != 0:
+        return [], "cost-ledger is off or unreadable: nothing measured.\n", 0
+    if not SESSION_RE.match(sid or ""):
+        return (
+            [],
+            "no usable session id (pass --session or set $CLAUDE_CODE_SESSION_ID).\n",
+            0,
+        )
+    gitdir = git_common_dir(runner, cwd)
+    if not gitdir:
+        return [], "not in a git checkout.\n", 0
+    if not branch:
+        rc, out, _ = runner(["git", "branch", "--show-current"], cwd)
+        branch = out.strip() if rc == 0 else ""
+    warn = ""
+    project = repo_project(runner, cwd)
+    if pin:
+        if not explicit or not branch:
+            return (
+                [],
+                "--pin needs --agent <id> and a branch (run it in the branch's worktree).\n",
+                2,
+            )
+        if branch in default_branches(runner, cwd):
+            return (
+                [],
+                (
+                    "refusing to pin to the default branch %s: no MR has that source branch, so the pinned agents "
+                    "would be left out of every real branch's record and their tokens never claimed. Run --pin in "
+                    "the branch's own worktree (or pass --branch <name>).\n" % branch
+                ),
+                2,
+            )
+        if project is None:
+            return (
+                [],
+                "--pin needs this checkout's `origin` remote to name its project (pins are keyed project:branch).\n",
+                2,
+            )
+    elif explicit:
+        warn = (
+            "post-mr-cost: --agent without --pin applies to this run only; record 1 (the hook) will not "
+            "attribute %s unless they are pinned (add --pin).\n"
+            % ", ".join(sorted(set(explicit)))
+        )
+    with state_lock(
+        sid
+    ):  # the pins file is a read-modify-write, and a pending claim is settled before measuring
+        # A pin never moves a watermark, so it is written whether or not the pending claim can be settled
+        # (the settle failure is reported below); only a genuine failure to write it is an error (exit 2).
+        if pin:
+            try:
+                ok = write_pins(
+                    config_root(), sid, pin_key(project, branch), set(explicit)
+                )
+            except StateError as e:
+                return (
+                    [],
+                    "this session's pinned agents are %s (%s).\n"
+                    % (e, pins_path(config_root(), sid)),
+                    2,
+                )
+            if not ok:
+                return [], "the pinned agents could not be written.\n", 2
+            warn += "post-mr-cost: pinned %s to %s.\n" % (
+                ", ".join(sorted(set(explicit))),
+                branch,
+            )
+        status, pend = resolve_pending(cwd, sid)
+        if status in ("unreadable", "badstate"):
+            return (
+                [],
+                warn + "post-mr-cost: %s\n" % pending_refusal(status, pend, sid),
+                0,
+            )
+        if status:
+            warn += (
+                "post-mr-cost: a pending claim for !%d (window %s to %s) was %s before measuring; --measure "
+                "never posts.\n"
+                % (
+                    pend["mr"],
+                    pend["since"],
+                    pend["until"],
+                    "found posted and committed"
+                    if status == "adopted"
+                    else "found unposted and dropped",
+                )
+            )
+        until = now_utc()
+        since, excl, sdir, ids, state, notes, err = plan(
+            runner, cwd, sid, gitdir, branch, explicit, opts, until, project=project
+        )
+        if err:
+            return [], warn + err + ".\n", 0
+        lines, split, _members = measure(
+            runner,
+            cwd,
+            sid,
+            sdir,
+            opts,
+            bound(since) if excl else since,
+            until,
+            ids,
+            state["agents"],
+        )
+    return (
+        lines,
+        warn + "".join(split) + "".join("post-mr-cost: %s\n" % n for n in notes),
+        0,
+    )
+
+
+def cli_main(argv):
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="post-mr-cost.py")
+    ap.add_argument("--round", action="store_true")
+    ap.add_argument("--retry", action="store_true")
+    ap.add_argument("--pin", action="store_true")
+    ap.add_argument("--measure", action="store_true")
+    ap.add_argument("--mr", type=int)
+    ap.add_argument("--branch", default="")
+    ap.add_argument("--agent", action="append", default=[])
+    ap.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
+    a = ap.parse_args(argv)
+    import transcript_usage as tu
+
+    bad = [x for x in a.agent if not tu.AGENT_ID_RE.match(x)]
+    if (
+        bad
+        or [a.round, a.measure, a.retry].count(True) != 1
+        or ((a.round or a.retry) and not a.mr)
+        or (a.pin and not a.measure)
+    ):
+        ap.error(
+            "exactly one of --round or --retry (each needs --mr) or --measure [--pin]; --agent takes an agentId"
+        )
+    if a.retry:
+        print(process_retry(a.mr, a.session, os.getcwd()))
+        return 0
+    if a.round:
+        print(process_round(a.mr, a.session, os.getcwd(), explicit=a.agent))
+        return 0
+    lines, err, rc = process_measure(
+        a.session, os.getcwd(), a.branch, explicit=a.agent, pin=a.pin
+    )
+    sys.stderr.write(err)
+    for ln in lines:
+        print(ln)
+    return rc
 
 
 def log_firing(cwd, payload, msg):
@@ -355,539 +1774,6 @@ def log_firing(cwd, payload, msg):
         pass
 
 
-SPLIT_NAME = "wave-cost-split.txt"
-SPLIT_MAX_AGE_S = 2 * 3600
-# A cost key at the start of a line, optionally behind a list marker, quote or fence indent. Raw
-# text on purpose: cost-table only reads unfenced `## Gates` lines, but a ledger pasted under
-# `## Notes`, in a fence or in a quote still means the figures were written down by someone.
-LEDGER_KEY_RE = re.compile(
-    r"^[ \t>]*(?:[-*][ \t]+)?(?:subagent-tokens|orchestrator-tokens|est-cost-usd)[ \t]*:",
-    re.I | re.M,
-)
-
-
-def ledger_in_description(description):
-    """True when any cost ledger key appears anywhere in the description, in any shape.
-
-    Why raw text: a re-measured window cannot be right for a wave MR, so once a ledger is written
-    anywhere the hook must never measure. cost-table.py then renders it (a cell may read n/a).
-    """
-    return LEDGER_KEY_RE.search(description or "") is not None
-
-
-def split_matches(description, split_path):
-    """(ok, why): True only when the split's per-model token sums equal the description's lines.
-
-    Reuses cost-table.py's own parsing. Any failure to load or read it drops the split rather than
-    raising: the totals come from the description either way.
-    """
-    try:
-        import importlib.util
-
-        sys.dont_write_bytecode = True
-        spec = importlib.util.spec_from_file_location(
-            "cost_table_for_hook", os.path.join(HERE, "cost-table.py")
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        with open(split_path, encoding="utf-8") as f:
-            sp = mod.parse_split(f.read(4 << 20))
-        fig = mod.figures(description or "")
-        compared = 0
-        for side in ("subagent", "orchestrator"):
-            want = fig[side][0]
-            got = sum(sp["tokens"].get(side, {}).values())
-            if want:
-                compared += 1
-            if want is not None and got != want:
-                return (
-                    False,
-                    "its %s tokens (%d) differ from the description's (%d)"
-                    % (
-                        side,
-                        got,
-                        want,
-                    ),
-                )
-        if not compared:
-            # Nothing non-zero to compare against: a match would be vacuous.
-            return (
-                False,
-                "the description has no non-zero token figure to check it against",
-            )
-        return True, None
-    except Exception as e:  # noqa: BLE001 - a bad import must not disable the comment
-        return False, "it could not be checked (%s)" % type(e).__name__
-
-
-def wave_split(runner, cwd, created_at, description):
-    """(split path, mtime as UTC timestamp, why-not) for this checkout's wave-cost-split.txt.
-
-    /wave writes the file into the implementer worktree's git dir, which is where `glab mr create`
-    ran, so only `git rev-parse --git-dir` from cwd is looked at. It is used only when it is older
-    than the MR, at most two hours older, and its token sums equal the description's lines;
-    otherwise it belongs to some other MR in the same worktree and is ignored.
-    """
-    rc, out, _ = runner(["git", "rev-parse", "--git-dir"], cwd)
-    if rc != 0 or not out.strip():
-        return None, None, "no git dir"
-    path = os.path.join(os.path.abspath(os.path.join(cwd, out.strip())), SPLIT_NAME)
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return None, None, "no %s" % SPLIT_NAME
-    try:
-        made = datetime.datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
-        age = made.timestamp() - mtime
-    except ValueError:
-        return None, None, "MR created_at unreadable"
-    if age <= 0 or age > SPLIT_MAX_AGE_S:
-        return None, None, "%s is not from this MR (stale)" % SPLIT_NAME
-    ok, why = split_matches(description, path)
-    if not ok:
-        return None, None, "%s ignored: %s" % (SPLIT_NAME, why)
-    stamp = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).strftime(
-        TS_FMT
-    )
-    return path, stamp, None
-
-
-def created_at_utc(created_at):
-    """The MR's creation time as fixed-format UTC, or None when it cannot be read."""
-    try:
-        made = datetime.datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
-        if made.tzinfo is None:
-            return None
-        return made.astimezone(datetime.timezone.utc).strftime(TS_FMT)
-    except ValueError:
-        return None
-
-
-def post_from_description(iid, d, cwd, gitdir, command, runner, manual):
-    """Post record 1 from the description's own ledger lines; never re-measures.
-
-    Why: a wave opens its MRs minutes apart with agents started earlier, so a window since the last
-    post excludes this MR's agents and can include another's. The orchestrator already wrote the
-    right figures into the description; the description wins over any measurement.
-
-    Always passes --until (the split's mtime, else the MR's creation time, else now) so record 1 has a readable window end,
-    which `cost-table.py --next-since` and --round need. It does not touch mr-cost-last-until.<sid>:
-    this path measures nothing, and that file is shared by every worktree, so writing the split's
-    older mtime could move the plain-/mr window backward.
-    """
-    desc_text = str(d.get("description", ""))
-    split, until, why = wave_split(runner, cwd, d.get("created_at"), desc_text)
-    tmp = tempfile.mkdtemp(prefix="mr-cost-", dir=gitdir)
-    desc = os.path.join(tmp, "desc.md")
-    with open(desc, "w", encoding="utf-8") as f:
-        f.write(desc_text)
-    cmd = [
-        sys.executable,
-        os.path.join(HERE, "cost-table.py"),
-        "--file",
-        desc,
-        "--comment",
-        "--post",
-        "--mr",
-        str(iid),
-        "--until",
-        until or created_at_utc(d.get("created_at")) or now_utc(),
-    ]
-    if split:
-        cmd += ["--split", split]
-    m = ISSUE_RE.search(str(command)) or ISSUE_RE.search(
-        str(d.get("source_branch", ""))
-    )
-    if m:
-        cmd += ["--issue", m.group(1)]
-    rc, _, err = runner(cmd, cwd, timeout=cost_table_timeout())
-    try:
-        os.remove(desc)
-        os.rmdir(tmp)
-    except OSError:
-        pass
-    if rc != 0:
-        why_f = reason_of(err)
-        return "MR cost comment failed for !%d (cost-table exit %d%s). %s" % (
-            iid,
-            rc,
-            ": " + why_f if why_f else "",
-            manual,
-        )
-    note = (
-        ""
-        if split
-        else " (per-model split n/a: %s; the window end is the MR creation time)" % why
-    )
-    return (
-        "Posted the `## Cost of this MR` comment on !%d from the description's ledger lines%s (opt out: scripts/cost-ledger off --local)."
-        % (iid, note)
-    )
-
-
-def process(payload, projects_dir=None, runner=run):
-    """(message or None). The only function with side effects beyond the scripts it runs."""
-    OUTCOME["why"] = ""
-    if payload.get("tool_name") not in (None, "Bash"):
-        return quiet("not a Bash call")
-    ti = payload.get("tool_input") or {}
-    iid = mr_iid(ti.get("command", ""), payload.get("tool_response"))
-    if iid is None:
-        return quiet(
-            "glab mr create ran but no MR URL was printed"
-            if MR_CREATE_RE.search(ti.get("command", "") or "")
-            else "not an MR create"
-        )
-    cwd = payload.get("cwd") or os.getcwd()
-    sid = payload.get("session_id") or ""
-    manual = (
-        "Retry it with: python3 scripts/post-mr-cost.py --retry --mr %d%s (see docs/harness/cost-ledger.md)."
-        % (iid, " --session " + sid if SESSION_RE.match(sid) else "")
-    )
-    rc, _, _ = runner(
-        [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
-    )
-    if rc == 2:
-        # Unreadable is not "off": a person chose off, nobody chose a broken setting file.
-        return (
-            "MR cost comment not posted for !%d: the cost-ledger setting is unreadable (scripts/cost-ledger status). %s"
-            % (
-                iid,
-                manual,
-            )
-        )
-    if rc != 0:
-        return quiet("cost-ledger off (enabled exit %d)" % rc)  # the opt-out
-    d = glab_json("projects/:id/merge_requests/%d" % iid, cwd)
-    if not isinstance(d, dict):
-        # The opt-out marker lives in the description, so an unreadable one cannot be checked.
-        return (
-            "MR cost comment not posted for !%d: could not read its description (glab api failed), so `cost-ledger: off` could not be checked. %s"
-            % (
-                iid,
-                manual,
-            )
-        )
-    if OFF_MARKER_RE.search(str(d.get("description", ""))):
-        return quiet("MR description carries cost-ledger: off")
-    seen = cost_notes(iid, cwd)
-    if seen is None:
-        return (
-            "MR cost comment not posted for !%d: could not read its notes (glab api failed). %s"
-            % (iid, manual)
-        )
-    if seen:
-        # A comment that landed while the hook was killed or reported a failure: advance this
-        # session's window to its end, or the next MR re-counts the same work.
-        user = glab_json("user", cwd)
-        end = window_end(
-            seen, user.get("id") if isinstance(user, dict) else None, now_utc()
-        )
-        rc, gd, _ = runner(["git", "rev-parse", "--git-common-dir"], cwd)
-        if end and rc == 0 and gd.strip():
-            gd = os.path.abspath(os.path.join(cwd, gd.strip()))
-            if (
-                SESSION_RE.match(sid)
-                and not ledger_in_description(d.get("description"))
-                and end > read_since(gd, sid)
-            ):
-                write_since(gd, sid, end)
-        return quiet("a cost comment already exists")
-    if ledger_in_description(d.get("description")):
-        # Structural: past this return nothing below (the measuring path) can run.
-        rc, gd, _ = runner(["git", "rev-parse", "--git-common-dir"], cwd)
-        if rc != 0 or not gd.strip():
-            return "MR cost comment skipped for !%d: not in a git checkout. %s" % (
-                iid,
-                manual,
-            )
-        return post_from_description(
-            iid,
-            d,
-            cwd,
-            os.path.abspath(os.path.join(cwd, gd.strip())),
-            ti.get("command", ""),
-            runner,
-            manual,
-        )
-    if not SESSION_RE.match(sid):
-        return "MR cost comment skipped for !%d: no usable session id. %s" % (
-            iid,
-            manual,
-        )
-    projects_dir = projects_dir or os.path.join(
-        os.path.expanduser("~"), ".claude", "projects"
-    )
-    sdir = find_session_dir(sid, projects_dir)
-    has_transcript = bool(
-        glob.glob(os.path.join(glob.escape(projects_dir), "*", sid + ".jsonl"))
-    )
-    if sdir is None and not has_transcript:
-        return "MR cost comment skipped for !%d: session transcript not found. %s" % (
-            iid,
-            manual,
-        )
-    rc, gitdir, _ = runner(["git", "rev-parse", "--git-common-dir"], cwd)
-    gitdir = (
-        os.path.abspath(os.path.join(cwd, gitdir.strip()))
-        if rc == 0 and gitdir.strip()
-        else None
-    )
-    if not gitdir:
-        return "MR cost comment skipped for !%d: not in a git checkout. %s" % (
-            iid,
-            manual,
-        )
-    since = read_since(gitdir, sid)
-    until = now_utc()
-    env = dict(os.environ, CLAUDE_CODE_SESSION_ID=sid)
-    lines, split = measure(runner, cwd, env, sdir, since, until)
-    if not any(
-        ln.startswith(("subagent-tokens:", "orchestrator-tokens:")) for ln in lines
-    ):
-        return (
-            "MR cost comment skipped for !%d: nothing measurable in this session window. %s"
-            % (iid, manual)
-        )
-    tmp = tempfile.mkdtemp(prefix="mr-cost-", dir=gitdir)
-    desc, splitf = os.path.join(tmp, "desc.md"), os.path.join(tmp, "split.txt")
-    with open(desc, "w", encoding="utf-8") as f:
-        f.write("## Gates\n" + "\n".join(lines) + "\n")
-    with open(splitf, "w", encoding="utf-8") as f:
-        f.write("".join(split))
-    cmd = [
-        sys.executable,
-        os.path.join(HERE, "cost-table.py"),
-        "--file",
-        desc,
-        "--comment",
-        "--post",
-        "--mr",
-        str(iid),
-        "--until",
-        until,
-        "--split",
-        splitf,
-    ]
-    m = re.search(
-        r"(?:^|/)(?:feat|fix|docs|chore)/(\d{1,9})-", str(ti.get("command", ""))
-    )
-    if not m:
-        m = ISSUE_RE.search(str(d.get("source_branch", "")))
-    if m:
-        cmd += ["--issue", m.group(1)]
-    rc, out, err = runner(cmd, cwd, timeout=cost_table_timeout())
-    for p in (desc, splitf):
-        try:
-            os.remove(p)
-        except OSError:
-            pass
-    try:
-        os.rmdir(tmp)
-    except OSError:
-        pass
-    if rc != 0:
-        why = reason_of(err)
-        return "MR cost comment failed for !%d (cost-table exit %d%s). %s" % (
-            iid,
-            rc,
-            ": " + why if why else "",
-            manual,
-        )
-    write_since(gitdir, sid, until)
-    return (
-        "Posted the `## Cost of this MR` comment on !%d (opt out: scripts/cost-ledger off --local)."
-        % iid
-    )
-
-
-def process_round(iid, sid, cwd, projects_dir=None, runner=run):
-    """Post `## Cost of this MR (#N) - record K` for a fix round on an MR that already has record 1.
-
-    Why a separate entry point: the PostToolUse hook only sees `glab mr create`. A fix round has no
-    such event, and the /fix-mr prose step was the only thing posting its cost, so rounds went
-    unrecorded. /fix-mr calls this after its push. The window is the latest record's end (the
-    cost-table.py --next-since value) to now; the record itself, its running total and the
-    "never edit an earlier record" rule are cost-table.py's. Returns a message (never raises).
-    """
-    manual = (
-        "Retry it from the checkout root with: python3 scripts/post-mr-cost.py --round --mr %d%s "
-        "(see docs/harness/cost-ledger.md)."
-        % (
-            iid,
-            " --session " + sid if SESSION_RE.match(sid or "") else " --session <sid>",
-        )
-    )
-    rc, _, _ = runner(
-        [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
-    )
-    if rc == 2:
-        return "cost-ledger setting is unreadable: no record posted for !%d. %s" % (
-            iid,
-            manual,
-        )
-    if rc != 0:
-        return "cost-ledger is off: no record posted for !%d." % iid
-    if not SESSION_RE.match(sid or ""):
-        return "Record skipped for !%d: no usable session id (pass --session). %s" % (
-            iid,
-            manual,
-        )
-    d = glab_json("projects/:id/merge_requests/%d" % iid, cwd)
-    if not isinstance(d, dict):
-        return (
-            "Record not posted for !%d: could not read its description (glab api failed), so `cost-ledger: off` could not be checked. %s"
-            % (
-                iid,
-                manual,
-            )
-        )
-    if OFF_MARKER_RE.search(str(d.get("description", ""))):
-        return "MR !%d carries `cost-ledger: off`: no record posted." % iid
-    rc, out, nerr = runner(
-        [
-            sys.executable,
-            os.path.join(HERE, "cost-table.py"),
-            "--next-since",
-            "--mr",
-            str(iid),
-        ],
-        cwd,
-        timeout=cost_table_timeout(),
-    )
-    since = out.strip()
-    if rc not in (0, 1):
-        return (
-            "Record not posted for !%d: could not read its notes (cost-table exit %d%s). %s"
-            % (
-                iid,
-                rc,
-                ": " + reason_of(nerr) if reason_of(nerr) else "",
-                manual,
-            )
-        )
-    if rc != 0 or not re.match(
-        r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)\Z", since
-    ):
-        return (
-            "Record skipped for !%d: it has no readable record 1 to continue from. %s"
-            % (iid, manual)
-        )
-    projects_dir = projects_dir or os.path.join(
-        os.path.expanduser("~"), ".claude", "projects"
-    )
-    sdir = find_session_dir(sid, projects_dir)
-    rc, gitdir, _ = runner(["git", "rev-parse", "--git-common-dir"], cwd)
-    gitdir = (
-        os.path.abspath(os.path.join(cwd, gitdir.strip()))
-        if rc == 0 and gitdir.strip()
-        else None
-    )
-    if not gitdir:
-        return "Record skipped for !%d: not in a git checkout. %s" % (iid, manual)
-    until = now_utc()
-    env = dict(os.environ, CLAUDE_CODE_SESSION_ID=sid)
-    lines, split = measure(runner, cwd, env, sdir, since, until)
-    if not any(
-        ln.startswith(("subagent-tokens:", "orchestrator-tokens:")) for ln in lines
-    ):
-        return "Record skipped for !%d: nothing measurable between %s and now. %s" % (
-            iid,
-            since,
-            manual,
-        )
-    tmp = tempfile.mkdtemp(prefix="mr-cost-", dir=gitdir)
-    ledger, splitf = os.path.join(tmp, "lines.txt"), os.path.join(tmp, "split.txt")
-    with open(ledger, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    with open(splitf, "w", encoding="utf-8") as f:
-        f.write("".join(split))
-    cmd = [
-        sys.executable,
-        os.path.join(HERE, "cost-table.py"),
-        "--comment",
-        "--ledger",
-        ledger,
-        "--split",
-        splitf,
-        "--since",
-        since,
-        "--until",
-        until,
-        "--mr",
-        str(iid),
-        "--post",
-    ]
-    rc, br, _ = runner(["git", "branch", "--show-current"], cwd)
-    m = ISSUE_RE.search(br) if rc == 0 else None
-    if m:
-        cmd += ["--issue", m.group(1)]
-    rc, out, err = runner(cmd, cwd, timeout=cost_table_timeout())
-    for p in (ledger, splitf):
-        try:
-            os.remove(p)
-        except OSError:
-            pass
-    try:
-        os.rmdir(tmp)
-    except OSError:
-        pass
-    if rc != 0:
-        why = reason_of(err)
-        return "Record failed for !%d (cost-table exit %d%s). %s" % (
-            iid,
-            rc,
-            ": " + why if why else "",
-            manual,
-        )
-    # Advance this session's marker so its next `glab mr create` does not re-count this round's tokens.
-    write_since(gitdir, sid, until)
-    return "Posted the cost record for this fix round on !%d (window %s to %s)." % (
-        iid,
-        since,
-        until,
-    )
-
-
-def round_main(argv):
-    import argparse
-
-    ap = argparse.ArgumentParser(prog="post-mr-cost.py --round")
-    ap.add_argument("--mr", type=int, required=True)
-    ap.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
-    a = ap.parse_args(argv)
-    print(process_round(a.mr, a.session, os.getcwd()))
-    return 0
-
-
-def retry_main(argv, runner=run, projects_dir=None):
-    """Re-run the hook's own logic for an MR that already exists (the working manual fallback)."""
-    import argparse
-
-    ap = argparse.ArgumentParser(prog="post-mr-cost.py --retry")
-    ap.add_argument("--mr", type=int, required=True)
-    ap.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
-    a = ap.parse_args(argv)
-    payload = {
-        "tool_name": "Bash",
-        "tool_input": {"command": "glab mr create"},
-        "tool_response": "/-/merge_requests/%d" % a.mr,
-        "session_id": a.session,
-        "cwd": os.getcwd(),
-    }
-    msg = process(payload, projects_dir=projects_dir, runner=runner)
-    print(msg or "Nothing to post for !%d: %s." % (a.mr, OUTCOME["why"] or "silent"))
-    return 0
-
-
-def cli(argv, runner=run, projects_dir=None):
-    if argv[:1] == ["--round"]:
-        return round_main(argv[1:])
-    if argv[:1] == ["--retry"]:
-        return retry_main(argv[1:], runner, projects_dir)
-    return main()
-
-
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -897,9 +1783,17 @@ def main():
         ):
             log_firing(payload.get("cwd") or os.getcwd(), payload, msg)
     except Exception as e:  # noqa: BLE001 - a hook must never break the tool call it follows
-        msg = (
-            "MR cost comment hook errored (%s); post it by hand, see docs/harness/cost-ledger.md."
-            % type(e).__name__
+        try:
+            iid = mr_iid(
+                (payload.get("tool_input") or {}).get("command", ""),
+                payload.get("tool_response"),
+            )
+            sid = payload.get("session_id") or ""
+        except Exception:  # noqa: BLE001 - payload may be the thing that was malformed
+            iid, sid = None, ""
+        msg = "MR cost comment hook errored (%s). %s" % (
+            type(e).__name__,
+            retry_hint(iid, sid),
         )
         OUTCOME["why"] = "errored: " + type(e).__name__
     if msg:
@@ -909,33 +1803,1591 @@ def main():
                 "additionalContext": msg,
             }
         }
-        if not msg.startswith("Posted"):
+        if (
+            not msg.startswith("Posted")
+            or "commit of the session cost state failed" in msg
+        ):
             # additionalContext reaches only the model; systemMessage is what the user sees.
             out["systemMessage"] = msg
         print(json.dumps(out))
     return 0
 
 
+# --- self-test -----------------------------------------------------------------------------
+
+GOLDEN = os.path.join(HERE, "tests", "cost-ledger-golden")
+
+
+def golden_cases(check):
+    """Replay scripts/tests/cost-ledger-golden/ through the real hook, --round, state and cost-table
+    with a fake `glab` (no network) and a temp git dir, and compare with expected.json.
+
+    The fixture is one synthetic session whose records must not overlap: see its scenario.json."""
+    import shutil
+    import importlib.util
+
+    with open(os.path.join(GOLDEN, "scenario.json"), encoding="utf-8") as f:
+        sc = json.load(f)
+    with open(os.path.join(GOLDEN, "expected.json"), encoding="utf-8") as f:
+        ex = json.load(f)
+    tmp = tempfile.mkdtemp(prefix="cost-golden-")
+    saved_path, saved_env, saved_now = (
+        os.environ.get("PATH", ""),
+        dict(os.environ),
+        globals()["now_utc"],
+    )
+    try:
+        bindir = os.path.join(tmp, "bin")
+        os.makedirs(bindir)
+        shim = os.path.join(bindir, "glab")
+        with open(shim, "w", encoding="utf-8") as f:
+            f.write(
+                '#!/bin/sh\nexec "%s" "%s" "$@"\n'
+                % (sys.executable, os.path.join(GOLDEN, "fake-glab.py"))
+            )
+        os.chmod(shim, 0o755)
+        gstate = os.path.join(tmp, "glab-state.json")
+        with open(gstate, "w", encoding="utf-8") as f:
+            json.dump({"mrs": sc["mrs"], "notes": {}, "next_id": 1}, f)
+        repo = os.path.join(tmp, "wt-fixture")
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                repo,
+                "remote",
+                "add",
+                "origin",
+                "https://example.test/g/p.git",
+            ],
+            check=True,
+        )
+        empty = os.path.join(tmp, "gitconfig")
+        open(empty, "w").close()
+        os.environ.update(
+            {
+                "PATH": bindir + os.pathsep + saved_path,
+                "FAKE_GLAB_STATE": gstate,
+                "FAKE_GLAB_PROJECT": urllib.parse.quote("g/p", safe=""),
+                "CLAUDE_CONFIG_DIR": os.path.join(tmp, "claude-config"),
+                "GIT_CONFIG_GLOBAL": empty,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            }
+        )
+        rc, _, _ = run(
+            [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], repo
+        )
+        check(
+            "golden: needs the cost ledger on in this checkout (scripts/cost-ledger status)",
+            rc == 0,
+            "enabled exit %d" % rc,
+        )
+        if rc != 0:
+            return
+        projects = os.path.join(tmp, "projects")
+        shutil.copytree(os.path.join(GOLDEN, "projects"), projects)
+        opts = Opts(projects, os.path.join(GOLDEN, "prices.json"), sc["today"])
+        spec = importlib.util.spec_from_file_location(
+            "cost_table_golden", os.path.join(HERE, "cost-table.py")
+        )
+        ct = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ct)
+        gitdir = git_common_dir(run, repo)
+        cfg = config_root()
+        sid = sc["session"]
+        bodies, errs = [], []
+
+        def crun(cmd, cwd, env=None, timeout=300):
+            """run(), keeping the stderr of the three measuring scripts: the per-model split."""
+            rc_, out_, err_ = run(cmd, cwd, env, timeout)
+            if any(
+                os.path.basename(c)
+                in ("subagent-tokens.py", "orchestrator-tokens.py", "est-cost.py")
+                for c in cmd[:2]
+            ):
+                errs.append(err_)
+            return rc_, out_, err_
+
+        def hook_payload(mr):
+            return {
+                "tool_name": "Bash",
+                "tool_input": {"command": "glab mr create --yes"},
+                "tool_response": {
+                    "stdout": "https://example.test/g/p/-/merge_requests/%d\n" % mr
+                },
+                "session_id": sid,
+                "cwd": repo,
+            }
+
+        for step in sc["steps"]:
+            globals()["now_utc"] = lambda t=step["at"]: t
+            want = ex["steps"][step["name"]]
+            if step["kind"] == "pin":
+                lines, _err, _rc = process_measure(
+                    sid, repo, step["branch"], opts, crun, step["agents"], pin=True
+                )
+                check(
+                    "golden %s: --measure --pin prints the window's ledger lines"
+                    % step["name"],
+                    lines == want["lines"],
+                    repr(lines),
+                )
+                check(
+                    "golden %s: --measure advances nothing" % step["name"],
+                    json.loads(open(state_path(cfg, sid), encoding="utf-8").read())
+                    == want["state"],
+                )
+                check(
+                    "golden %s: the pin is recorded for that branch" % step["name"],
+                    read_pins(cfg, sid)
+                    == {pin_key("g/p", step["branch"]): step["agents"]},
+                    repr(read_pins(cfg, sid)),
+                )
+                continue
+            if step["kind"] == "foreign":
+                # A session in this repo ran `glab mr create` for ANOTHER project: nothing may be read or posted.
+                before = (
+                    open(gstate + ".log", encoding="utf-8").read()
+                    if os.path.exists(gstate + ".log")
+                    else ""
+                )
+                payload = hook_payload(step["mr"])
+                payload["tool_response"] = {
+                    "stdout": "https://example.test/%s/-/merge_requests/%d\n"
+                    % (step["project"], step["mr"])
+                }
+                msg = process(payload, opts, crun) or ""
+                after = (
+                    open(gstate + ".log", encoding="utf-8").read()
+                    if os.path.exists(gstate + ".log")
+                    else ""
+                )
+                check(
+                    "golden %s: skipped, naming the project and the --retry command to run there"
+                    % step["name"],
+                    step["project"] in msg
+                    and "--retry --mr %d" % step["mr"] in msg
+                    and "--session %s" % sid in msg
+                    and not msg.startswith("Posted"),
+                    msg,
+                )
+                check("golden %s: no glab call at all" % step["name"], after == before)
+                check(
+                    "golden %s: the state is untouched" % step["name"],
+                    json.loads(open(state_path(cfg, sid), encoding="utf-8").read())
+                    == want["state"],
+                )
+                continue
+            if step["kind"] == "hook":
+                msg = process(hook_payload(step["mr"]), opts, crun) or ""
+            elif step["kind"] == "retry":
+                # The first attempt cannot read the notes: it must print a command that works.
+                real = globals()["already_commented"]
+                globals()["already_commented"] = lambda iid, cwd, project: None
+                try:
+                    hint = process(hook_payload(step["mr"]), opts, crun) or ""
+                finally:
+                    globals()["already_commented"] = real
+                m = re.search(
+                    r"python3 scripts/post-mr-cost\.py --retry --mr (\d+)", hint
+                )
+                check(
+                    "golden %s: the fail-soft message prints a post-mr-cost.py --retry command, with the session"
+                    % step["name"],
+                    m is not None
+                    and int(m.group(1)) == step["mr"]
+                    and "cost-table.py" not in hint
+                    and "--session %s" % sid in hint,
+                    hint,
+                )
+                msg = process_retry(int(m.group(1)), sid, repo, opts, crun) if m else ""
+            else:
+                msg = process_round(step["mr"], sid, repo, opts, crun)
+            with open(gstate, encoding="utf-8") as f:
+                notes = json.load(f)["notes"].get(str(step["mr"]), [])
+            check("golden %s: posted" % step["name"], msg.startswith("Posted"), msg)
+            body = notes[-1]["body"] if notes else ""
+            bodies.append(body)
+            rec = ct.parse_record(body) or {}
+            tot = rec.get("total", {})
+            check(
+                "golden %s: record number" % step["name"],
+                rec.get("k") == want["record"],
+                repr(rec.get("k")),
+            )
+            check(
+                "golden %s: total tokens and cost" % step["name"],
+                tot.get(("tok", "all")) == want["total_tokens"]
+                and str(tot.get(("usd", "all"))) == want["total_usd"],
+                repr(tot),
+            )
+            for line in want["rows"]:
+                check(
+                    "golden %s: row %s" % (step["name"], line[:30]),
+                    line in body.split("\n"),
+                    body,
+                )
+            for text in want["contains"]:
+                check(
+                    "golden %s: contains %s" % (step["name"], text[:40]),
+                    text in body,
+                    body,
+                )
+            for text in want.get("absent", []):
+                check(
+                    "golden %s: does not contain %s" % (step["name"], text[:40]),
+                    text not in body,
+                    body,
+                )
+            for text in ex["forbidden_anywhere"]:
+                check(
+                    "golden %s: never %s" % (step["name"], text), text not in body, body
+                )
+            table = [ln for ln in body.split("\n") if ln.startswith("|")]
+            for text in ex["forbidden_in_table"]:
+                check(
+                    "golden %s: no %s in a table row" % (step["name"], text),
+                    not any(text in ln for ln in table),
+                    "\n".join(table),
+                )
+            check(
+                "golden %s: state after" % step["name"],
+                json.loads(open(state_path(cfg, sid), encoding="utf-8").read())
+                == want["state"],
+                open(state_path(cfg, sid), encoding="utf-8").read(),
+            )
+        split = "".join(errs)
+        check(
+            "golden: the per-model split carries real model lines",
+            "model claude-sonnet-5-5" in split and "model claude-opus-5-5" in split,
+            split,
+        )
+        check(
+            "golden: the per-model split has no `model unknown` line (an all-zero <synthetic> row is dropped at the parser)",
+            "model unknown" not in split and "<synthetic>" not in split,
+            split,
+        )
+        # --retry on an MR that already has a cost comment is the next record's job (--round).
+        globals()["now_utc"] = lambda: "2026-11-07T13:01:00Z"
+        again = process_retry(11, sid, repo, opts, crun)
+        check(
+            "golden: --retry on an MR with a cost comment goes the --round way, and says why nothing was posted",
+            again.startswith(
+                "Record skipped for !11: nothing measurable in this session window."
+            ),
+            again,
+        )
+        _l, warn_err, _rc = process_measure(
+            sid, repo, "feat/101-a", opts, crun, ["c1000000000000001"]
+        )
+        check(
+            "golden: --measure --agent without --pin warns that the hook will not attribute it",
+            "will not attribute c1000000000000001 unless they are pinned" in warn_err
+            and warn_err.count("record 1 (the hook)") == 1,
+            warn_err,
+        )
+        calls_log = open(gstate + ".log", encoding="utf-8").read()
+        check(
+            "golden: every glab call names its project (no `:id` anywhere) and the fake accepted them all",
+            calls_log.strip() != ""
+            and ":id" not in calls_log
+            and "projects/g%2Fp/" in calls_log,
+            calls_log[:300],
+        )
+        # No token is claimed twice: the records add up to the session's usage in [start, last until].
+        import transcript_usage as tu
+
+        last = tu.parse_time(sc["steps"][-1]["at"])
+        every, seen = 0, set()
+        for path in sorted(
+            glob.glob(os.path.join(projects, "**", "*.jsonl"), recursive=True)
+        ):
+            for line in open(path, encoding="utf-8"):
+                e = json.loads(line)
+                u = (
+                    (e.get("message") or {}).get("usage")
+                    if e.get("type") == "assistant"
+                    else None
+                )
+                if (
+                    not u
+                    or e["message"]["id"] in seen
+                    or tu.parse_time(e["timestamp"]) > last
+                ):
+                    continue
+                seen.add(e["message"]["id"])
+                every += sum(u.get(k, 0) for k in tu.FIELDS)
+        got = sum(
+            ((ct.parse_record(b) or {}).get("total", {}).get(("tok", "all")) or 0)
+            for b in bodies
+        )
+        check(
+            "golden: the records add up to the session's usage (nothing claimed twice, nothing dropped)",
+            got == every == ex["session_total_tokens"],
+            "records %d, transcripts %d, expected %d"
+            % (got, every, ex["session_total_tokens"]),
+        )
+        # The legacy shared marker is never read: a stale one must not move any window.
+        marker = os.path.join(gitdir, "mr-cost-last-until")
+        open(marker, "w").write("2999-01-01T00:00:00Z\n")
+        st = read_state(cfg, sid)
+        check(
+            "golden: the state is global, not in the repo: nothing under the git dir",
+            not os.path.exists(os.path.join(gitdir, "mr-cost-state"))
+            and os.path.exists(state_path(cfg, sid)),
+        )
+        check(
+            "golden: a legacy mr-cost-last-until marker is not read",
+            st["orchestrator_until"] == sc["steps"][-1]["at"],
+            repr(st),
+        )
+        # A POST that landed without the state moving (the hook was killed, cost-table failed on the
+        # response): a later run adopts the record, but only a record THIS session posted, i.e. one whose
+        # window starts at the session's current watermark.
+        seen11 = already_commented(11, repo, "g/p")
+        spath = state_path(cfg, sid)
+
+        def plain(doc):
+            return {
+                "orchestrator_until": doc["orchestrator_until"],
+                "agents": doc["agents"],
+            }
+
+        before_rec2 = plain(
+            ex["steps"]["b-record-1"]["state"]
+        )  # the state just before a-record-2 was posted
+        after_rec2 = plain(
+            ex["steps"]["a-record-2"]["state"]
+        )  # ... and the one that post leaves
+        want_end = after_rec2["orchestrator_until"]
+        globals()["now_utc"] = lambda: "2026-11-07T13:30:00Z"
+
+        def roll_back(doc):
+            with open(spath, "w", encoding="utf-8") as f:
+                json.dump(dict(doc, schema=1), f)
+
+        def notes_n():
+            return len(json.load(open(gstate, encoding="utf-8"))["notes"]["11"])
+
+        def note_bodies_11():
+            return [
+                n["body"]
+                for n in json.load(open(gstate, encoding="utf-8"))["notes"]["11"]
+            ]
+
+        n_before = notes_n()
+        roll_back(before_rec2)
+        reconcile(
+            run, repo, sid, "feat/101-a", [(b, 8) for b, _ in seen11], opts, "g/p"
+        )
+        check(
+            "golden: reconcile ignores a record by another user",
+            read_state(cfg, sid) == before_rec2,
+        )
+        check(
+            "golden: reconcile ignores a record dated in the future (and one that starts elsewhere)",
+            window_end(seen11, 7, "2026-11-07T11:30:00Z", "2026-11-07T11:00:00Z")
+            is None
+            and window_end(seen11, 7, "2026-11-07T13:30:00Z", "2026-11-07T11:00:00Z")
+            == want_end
+            and window_end(seen11, 7, "2026-11-07T13:30:00Z", "2026-11-07T10:30:00Z")
+            is None,
+        )
+        old_form = [
+            (
+                re.sub(
+                    r"- Window: \S+ to (\S+)\. .*",
+                    r"- Window end: \1. Both figures stop at the go-ahead to push.",
+                    b,
+                ),
+                a,
+            )
+            for b, a in seen11
+        ]
+        reconcile(run, repo, sid, "feat/101-a", old_form, opts, "g/p")
+        check(
+            "golden: a record with no `Window: S to U` line (the older form) is never adopted",
+            read_state(cfg, sid) == before_rec2,
+        )
+        roll_back(dict(before_rec2, orchestrator_until="2026-11-07T10:30:00Z"))
+        elsewhere = read_state(cfg, sid)
+        hook_other = process(hook_payload(11), opts, crun)
+        check(
+            "golden: a record another session posted (its window starts at a different watermark) moves nothing: "
+            "the hook posts nothing and leaves the state alone",
+            hook_other is None
+            and notes_n() == n_before
+            and read_state(cfg, sid) == elsewhere,
+            repr(read_state(cfg, sid)),
+        )
+        roll_back(before_rec2)
+        moved = reconcile(run, repo, sid, "feat/101-a", seen11, opts, "g/p")
+        check(
+            "golden: reconcile adopts this session's landed record: the orchestrator and the record's agents move to its end",
+            moved == want_end and read_state(cfg, sid) == after_rec2,
+            repr(read_state(cfg, sid)),
+        )
+        reconcile(run, repo, sid, "feat/101-a", seen11[:1], opts, "g/p")
+        check(
+            "golden: reconcile never moves the state backwards",
+            read_state(cfg, sid) == after_rec2,
+        )
+        # The hook: the MR already has the record, the state was rolled back to before it. Nothing is posted and the
+        # state moves to what the post would have left.
+        roll_back(before_rec2)
+        hook_msg = process(hook_payload(11), opts, crun)
+        check(
+            "golden: the hook on an MR whose record landed posts nothing and moves the state to its end",
+            hook_msg is None
+            and notes_n() == n_before
+            and read_state(cfg, sid) == after_rec2,
+            repr((hook_msg, read_state(cfg, sid))),
+        )
+        # --retry after a landed POST runs the same reconcile: no further record (a round would re-count the agents
+        # the landed record measured), and the state moves.
+        roll_back(before_rec2)
+        retried = process_retry(11, sid, repo, opts, crun)
+        check(
+            "golden: --retry after a landed POST posts nothing, says the record had landed, and moves the state",
+            notes_n() == n_before
+            and "had already landed" in retried
+            and read_state(cfg, sid) == after_rec2,
+            repr((retried, read_state(cfg, sid))),
+        )
+        # --retry from the CLI passes no opts: it must still reconcile (a missing default read as "nothing to adopt" and fell through to a round).
+        seen_opts = []
+        real_reconcile = globals()["reconcile"]
+        globals()["reconcile"] = (
+            lambda runner_, cwd_, sid_, branch_, seen_, opts_, project_=None: (
+                seen_opts.append(opts_) or None
+            )
+        )
+        try:
+            process_retry(11, sid, repo, None, crun)
+        finally:
+            globals()["reconcile"] = real_reconcile
+        check(
+            "golden: process_retry defaults its opts (the CLI passes none)",
+            len(seen_opts) == 1 and isinstance(seen_opts[0], Opts),
+            repr(seen_opts),
+        )
+        roll_back(before_rec2)
+        retried_cli = process_retry(11, sid, repo, None, crun)
+        check(
+            "golden: --retry without opts still reconciles against the default projects dir or says nothing is measurable, never raises",
+            isinstance(retried_cli, str),
+        )
+        # An unexpected failure inside reconcile is reported, not swallowed as "nothing to reconcile".
+        real_gj = globals()["glab_json"]
+
+        def boom(path, cwd):
+            raise RuntimeError("unexpected")
+
+        globals()["glab_json"] = boom
+        try:
+            reconcile(run, repo, sid, "feat/101-a", seen11, opts, "g/p")
+            raised = False
+        except RuntimeError:
+            raised = True
+        finally:
+            globals()["glab_json"] = real_gj
+        check(
+            "golden: an unexpected exception in reconcile propagates (only expected failures read as nothing to adopt)",
+            raised,
+        )
+        # Another session's record must not hide THIS session's spend. Model a real foreign record: this MR's
+        # record 2 covers 11:00 to 12:00, but THIS session's watermark is 11:30 (a different session posted it), so
+        # the next record still starts at 11:30 (no clamp to the MR's latest record end), and the running total
+        # sums the records whatever their windows (non-overlapping in tokens, not in time).
+        roll_back(dict(before_rec2, orchestrator_until="2026-11-07T11:30:00Z"))
+        globals()["now_utc"] = lambda: "2026-11-07T13:05:00Z"
+        low = process_round(11, sid, repo, opts, crun)
+        last11 = note_bodies_11()[-1]
+        rec3 = ct.parse_record(last11) or {}
+        check(
+            "golden: a round's window starts at the session's own watermark, not at the MR's latest record end; the total sums",
+            low.startswith("Posted")
+            and rec3.get("k") == 3
+            and rec3.get("start") == "2026-11-07T11:30:00Z"
+            and "Running total: the last row, records 1-3" in last11
+            and "n/a"
+            not in "\n".join(ln for ln in last11.split("\n") if ln.startswith("|")),
+            low + last11[:300],
+        )
+        roll_back(after_rec2)
+
+        # --- the write-ahead pending claim: a post that lands while its state commit does not ---------------
+        pend_ex = ex["pending_phase"]
+        roll_back(
+            plain(ex["steps"]["c-retry"]["state"])
+        )  # the state the sequential steps left: 13:00
+        phase_tokens = []
+
+        def at(hhmmss):
+            globals()["now_utc"] = lambda: "2026-11-07T%sZ" % hhmmss
+
+        def notes_of(mr):
+            return [
+                n["body"]
+                for n in json.load(open(gstate, encoding="utf-8"))["notes"].get(
+                    str(mr), []
+                )
+            ]
+
+        def total_of(body):
+            return (ct.parse_record(body) or {}).get("total", {}).get(("tok", "all"))
+
+        def uncommitted(t, mr):
+            """The post lands, the state commit fails (write_state returns False): `pending` is left behind."""
+            at(t)
+            real_ws = globals()["write_state"]
+            globals()["write_state"] = lambda *a, **k: False
+            try:
+                return process_round(mr, sid, repo, opts, crun)
+            finally:
+                globals()["write_state"] = real_ws
+
+        def unposted(t, mr, fn):
+            """cost-table fails before anything is posted."""
+            at(t)
+
+            def failing_ct(cmd, cwd, env=None, timeout=300):
+                if (
+                    any(os.path.basename(c) == "cost-table.py" for c in cmd[:2])
+                    and "--post" in cmd
+                ):
+                    return 1, "", "glab api POST timed out\n"
+                return crun(cmd, cwd, env, timeout)
+
+            return fn(failing_ct)
+
+        def st_now():
+            return json.loads(open(spath, encoding="utf-8").read())
+
+        def claim(mr, before):
+            got = notes_of(mr)
+            if len(got) == before + 1:
+                phase_tokens.append(total_of(got[-1]))
+                return total_of(got[-1])
+            return None
+
+        n0 = len(notes_of(11))
+        m = uncommitted("13:15:00", 11)
+        check(
+            "golden pending (a): the post lands and the commit fails: the record is on the MR, `pending` is in the state, the watermark has not moved",
+            m.startswith("Posted")
+            and claim(11, n0) == pend_ex["records"][0]
+            and st_now().get("pending", {}).get("mr") == 11
+            and st_now()["orchestrator_until"] == "2026-11-07T13:00:00Z",
+            repr((m, st_now())),
+        )
+        n0 = len(notes_of(11))
+        at("13:35:00")
+        m = process_round(11, sid, repo, opts, crun)
+        check(
+            "golden pending (a): the next --round on the same MR adopts the landed record and claims only what is after it (no double count)",
+            m.startswith("Posted")
+            and claim(11, n0) == pend_ex["records"][1]
+            and "pending" not in st_now()
+            and st_now()["orchestrator_until"] == "2026-11-07T13:35:00Z",
+            repr((m, st_now())),
+        )
+        check(
+            "golden pending (a): adopting the landed record moved the AGENT watermarks too (the subagent usage it measured is not claimed again)",
+            st_now()["agents"].get("a1000000000000001") == "2026-11-07T13:15:00Z",
+            repr(st_now()["agents"]),
+        )
+        n0 = len(notes_of(11))
+        m = uncommitted("13:45:00", 11)
+        check(
+            "golden pending (b): the same failure again",
+            m.startswith("Posted")
+            and claim(11, n0) == pend_ex["records"][2]
+            and "pending" in st_now(),
+            repr((m, st_now())),
+        )
+        at("13:50:00")
+        m = process(hook_payload(15), opts, crun) or ""
+        check(
+            "golden pending (b): the hook on a DIFFERENT MR settles it first, then finds nothing new to claim: no record, no double count",
+            m.startswith("MR cost comment skipped for !15")
+            and notes_of(15) == []
+            and "pending" not in st_now()
+            and st_now()["orchestrator_until"] == "2026-11-07T13:45:00Z",
+            repr((m, st_now())),
+        )
+        n0 = len(notes_of(11))
+        m = unposted("13:57:00", 11, lambda r: process_round(11, sid, repo, opts, r))
+        check(
+            "golden pending (c): cost-table fails before the POST: no record, `pending` stays",
+            m.startswith("Record skipped")
+            and len(notes_of(11)) == n0
+            and "pending" in st_now(),
+            repr((m, st_now())),
+        )
+        at("14:00:00")
+        m = process_round(11, sid, repo, opts, crun)
+        check(
+            "golden pending (c): the record is definitely absent: the claim is discarded and the window is claimed again exactly once",
+            m.startswith("Posted")
+            and claim(11, n0) == pend_ex["records"][3]
+            and "pending" not in st_now()
+            and st_now()["orchestrator_until"] == "2026-11-07T14:00:00Z",
+            repr((m, st_now())),
+        )
+        n0 = len(notes_of(11))
+        unposted("14:10:00", 11, lambda r: process_round(11, sid, repo, opts, r))
+        real_ac = globals()["already_commented"]
+        globals()["already_commented"] = lambda iid, cwd, project: None
+        try:
+            at("14:12:00")
+            m = process_round(11, sid, repo, opts, crun)
+        finally:
+            globals()["already_commented"] = real_ac
+        check(
+            "golden pending (d): the notes cannot be read: nothing is posted, nothing is guessed, the retry command is printed",
+            "cannot be confirmed" in m
+            and "--retry --mr 11 --session" in m
+            and len(notes_of(11)) == n0
+            and "pending" in st_now(),
+            repr((m, st_now())),
+        )
+        at("14:15:00")
+        m = process_round(11, sid, repo, opts, crun)
+        check(
+            "golden pending (d): once the notes read, it is settled and the window is claimed exactly once",
+            m.startswith("Posted")
+            and claim(11, n0) == pend_ex["records"][4]
+            and "pending" not in st_now()
+            and st_now()["orchestrator_until"] == "2026-11-07T14:15:00Z",
+            repr((m, st_now())),
+        )
+        FIRST_RECORD_TEXT = ct.FIRST_RECORD
+        want_phase, seen_phase = 0, set()
+        for path in sorted(
+            glob.glob(os.path.join(projects, "**", "*.jsonl"), recursive=True)
+        ):
+            for line in open(path, encoding="utf-8"):
+                e = json.loads(line)
+                u = (
+                    (e.get("message") or {}).get("usage")
+                    if e.get("type") == "assistant"
+                    else None
+                )
+                if (
+                    u
+                    and e["message"]["id"] not in seen_phase
+                    and "2026-11-07T13:00:00Z"
+                    < e["timestamp"]
+                    <= "2026-11-07T14:15:00Z"
+                ):
+                    seen_phase.add(e["message"]["id"])
+                    want_phase += sum(u.get(k, 0) for k in tu.FIELDS)
+        check(
+            "golden pending: the phase's records add up to the usage in that window (none claimed twice, none dropped)",
+            phase_tokens == pend_ex["records"]
+            and sum(phase_tokens) == want_phase == pend_ex["tokens"],
+            repr((phase_tokens, want_phase)),
+        )
+
+        # --- the guards of resolve_pending, each with a real record the fake glab holds -------------------------------------
+        body_last = notes_of(11)[-1]
+        rec_last = ct.parse_record(body_last)
+        w_since, w_until = rec_last["start"], rec_last["end"]
+        base_state = {"orchestrator_until": w_since, "agents": dict(st_now()["agents"])}
+
+        def seed(pend_since=None, pend_until=None, mr=11, agents=None):
+            doc = dict(
+                base_state,
+                schema=1,
+                pending={
+                    "mr": mr,
+                    "project": "g/p",
+                    "since": pend_since or w_since,
+                    "until": pend_until or w_until,
+                    "agents": agents or {},
+                },
+            )
+            with open(spath, "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+
+        def settle_with(author, **kw):
+            seed(**kw)
+            real_ac2 = globals()["already_commented"]
+            globals()["already_commented"] = lambda iid, cwd, project: [
+                (body_last, author)
+            ]
+            try:
+                return resolve_pending(repo, sid)[0]
+            finally:
+                globals()["already_commented"] = real_ac2
+
+        check(
+            "golden pending guard: the token user's record with BOTH the same start and end is adopted and moves the watermark",
+            settle_with(7) == "adopted"
+            and st_now()["orchestrator_until"] == w_until
+            and "pending" not in st_now(),
+            repr(st_now()),
+        )
+        check(
+            "golden pending guard: another user's record with a matching window is not adopted (the claim is dropped, the watermark stays)",
+            settle_with(8) == "discarded" and st_now()["orchestrator_until"] == w_since,
+            repr(st_now()),
+        )
+        check(
+            "golden pending guard: a record that matches only the START is not adopted",
+            settle_with(7, pend_until="2026-11-07T14:16:00Z") == "discarded"
+            and st_now()["orchestrator_until"] == w_since,
+            repr(st_now()),
+        )
+        check(
+            "golden pending guard: a record that matches only the END is not adopted",
+            settle_with(7, pend_since="2026-11-07T13:59:00Z") == "discarded"
+            and st_now()["orchestrator_until"] == w_since,
+            repr(st_now()),
+        )
+        # --retry: its own settle step and its early "already landed" return
+        seed()
+        n0 = len(notes_of(11))
+        at("14:20:00")
+        r1 = process_retry(11, sid, repo, opts, crun)
+        check(
+            "golden pending retry: --retry on the pending MR settles it, says the record had already landed, and posts nothing",
+            "had already landed" in r1
+            and len(notes_of(11)) == n0
+            and "pending" not in st_now()
+            and st_now()["orchestrator_until"] == w_until,
+            repr((r1, st_now())),
+        )
+        seed()
+        r2 = process_retry(12, sid, repo, opts, crun)
+        check(
+            "golden pending retry: --retry for ANOTHER MR still settles the pending claim first, then carries on for its own MR",
+            "pending" not in st_now()
+            and st_now()["orchestrator_until"] == w_until
+            and "had already landed" not in r2,
+            repr((r2, st_now())),
+        )
+        seed()
+        globals()["already_commented"] = lambda iid, cwd, project: None
+        try:
+            r3 = process_retry(11, sid, repo, opts, crun)
+        finally:
+            globals()["already_commented"] = real_ac
+        check(
+            "golden pending retry: unreadable notes refuse the retry too and keep the claim",
+            "cannot be confirmed" in r3
+            and "--retry --mr 11 --session" in r3
+            and "pending" in st_now(),
+            repr(r3),
+        )
+        # --measure: settles, and --pin is written even when the claim cannot be settled
+        seed()
+        _l, merr, mrc = process_measure(sid, repo, "feat/101-a", opts, crun)
+        check(
+            "golden pending measure: --measure settles a pending claim (commits it) and says so, without posting",
+            "found posted and committed" in merr
+            and "pending" not in st_now()
+            and len(notes_of(11)) == n0
+            and mrc == 0,
+            repr((merr, st_now())),
+        )
+        seed()
+        globals()["already_commented"] = lambda iid, cwd, project: None
+        try:
+            _l, perr, prc = process_measure(
+                sid, repo, "feat/101-a", opts, crun, ["c1000000000000001"], pin=True
+            )
+        finally:
+            globals()["already_commented"] = real_ac
+        check(
+            "golden pending pin: a pin is written (exit 0) even when the pending claim cannot be settled, and the failure is reported",
+            prc == 0
+            and "pinned c1000000000000001" in perr
+            and "cannot be confirmed" in perr
+            and "c1000000000000001"
+            in read_pins(cfg, sid).get(pin_key("g/p", "feat/101-a"), []),
+            repr((prc, perr)),
+        )
+        real_wp = globals()["write_pins"]
+        globals()["write_pins"] = lambda *a, **k: False
+        try:
+            _l, _e, frc = process_measure(
+                sid, repo, "feat/101-a", opts, crun, ["c1000000000000001"], pin=True
+            )
+        finally:
+            globals()["write_pins"] = real_wp
+        check(
+            "golden pending pin: a genuine failure to write the pin exits 2",
+            frc == 2,
+            repr(frc),
+        )
+        # a malformed state names its file and the reason on every entry path, and does not suggest a retry that would refuse too
+        bad = dict(
+            base_state,
+            schema=1,
+            pending={
+                "mr": 11,
+                "project": "not a project",
+                "since": w_since,
+                "until": w_until,
+                "agents": {},
+            },
+        )
+        with open(spath, "w", encoding="utf-8") as f:
+            json.dump(bad, f)
+        hmsg = process(hook_payload(11), opts, crun) or ""
+        rmsg = process_round(11, sid, repo, opts, crun)
+        tmsg = process_retry(11, sid, repo, opts, crun)
+        _l, bmerr, _rc = process_measure(sid, repo, "feat/101-a", opts, crun)
+        check(
+            "golden state: a malformed pending claim is reported with the state file and the reason on every path (hook, round, retry, measure), "
+            "and no retry is suggested",
+            all(
+                spath in m and "malformed pending claim" in m and "--retry" not in m
+                for m in (hmsg, rmsg, tmsg, bmerr)
+            ),
+            repr((hmsg, rmsg, tmsg, bmerr)),
+        )
+        # a post whose commit never happens, in the session-start form (record 1, no earlier state): adopted, agents included
+        os.remove(spath)
+        at("14:30:00")
+        real_ws = globals()["write_state"]
+        globals()["write_state"] = lambda *a, **k: False
+        try:
+            first = process(hook_payload(15), opts, crun) or ""
+        finally:
+            globals()["write_state"] = real_ws
+        first_body = notes_of(15)[-1] if notes_of(15) else ""
+        pend15 = st_now().get("pending", {})
+        check(
+            "golden pending session-start: record 1 in the session-start form lands, its commit fails, `pending` starts at the session's first entry",
+            first.startswith("Posted")
+            and FIRST_RECORD_TEXT in first_body
+            and pend15.get("since") == "2026-11-07T08:55:00Z"
+            and "orchestrator_until" in st_now()
+            and st_now()["orchestrator_until"] is None,
+            repr((first, pend15)),
+        )
+        status15, _p = resolve_pending(repo, sid)
+        check(
+            "golden pending session-start: it is adopted: the orchestrator AND the agents the record measured move to its end",
+            status15 == "adopted"
+            and st_now()["orchestrator_until"] == "2026-11-07T14:30:00Z"
+            and st_now()["agents"].get("a9000000000000001") == "2026-11-07T14:30:00Z"
+            and "pending" not in st_now(),
+            repr(st_now()),
+        )
+        # note pagination: the record is on page 2, and "definitely absent" needs every page
+        gs = json.load(open(gstate, encoding="utf-8"))
+        gs["notes"]["16"] = [
+            {"id": 900 + i, "body": "filler", "system": False, "author": {"id": 7}}
+            for i in range(130)
+        ] + [{"id": 1100, "body": body_last, "system": False, "author": {"id": 7}}]
+        gs["notes"]["17"] = [
+            {"id": 1200 + i, "body": "filler", "system": False, "author": {"id": 7}}
+            for i in range(100)
+        ]
+        json.dump(gs, open(gstate, "w", encoding="utf-8"))
+        found16 = already_commented(16, repo, "g/p")
+        found17 = already_commented(17, repo, "g/p")
+        check(
+            "golden notes: a cost record on page 2 of an MR with 131 notes is found; exactly 100 notes (no record) read as none",
+            found16 is not None and len(found16) == 1 and found17 == [],
+            repr((found16 and len(found16), found17)),
+        )
+        # cost-table failing: the reason reaches the message and the log, and nothing is claimed.
+        gs = json.load(open(gstate, encoding="utf-8"))
+        gs["notes"]["13"] = []
+        json.dump(gs, open(gstate, "w", encoding="utf-8"))
+        roll_back(plain(ex["steps"]["c-retry"]["state"]))
+        state_before = st_now()
+
+        def failing(cmd, cwd, env=None, timeout=300):
+            if (
+                any(os.path.basename(c) == "cost-table.py" for c in cmd[:2])
+                and "--post" in cmd
+            ):
+                return 1, "", "glab api POST timed out after 40s\n"
+            return crun(cmd, cwd, env, timeout)
+
+        globals()["now_utc"] = lambda: "2026-11-07T15:00:00Z"
+        fail_msg = process(hook_payload(13), opts, failing) or ""
+        check(
+            "golden: a failed cost-table names its reason and the --retry command, and posts nothing",
+            fail_msg.startswith(
+                "MR cost comment skipped for !13: cost-table exit 1: glab api POST timed out after 40s"
+            )
+            and "--retry --mr 13 --session %s" % sid in fail_msg
+            and not notes_of(13),
+            fail_msg,
+        )
+        check(
+            "golden: a failed post leaves the orchestrator watermark where it was",
+            st_now().get("orchestrator_until")
+            == state_before.get("orchestrator_until"),
+            repr(st_now()),
+        )
+        log_firing(repo, hook_payload(13), fail_msg)
+        with open(
+            os.path.join(git_common_dir(run, repo), "mr-cost-hook.log"),
+            encoding="utf-8",
+        ) as f:
+            check(
+                "golden: the hook log carries the failure reason",
+                "timed out after 40s" in f.read(),
+            )
+
+        # The hook's time budget is a sum over the REAL call sequence: count the glab_json reads of both
+        # paths with a pending claim to settle and two note pages everywhere, against hook_reads().
+        gs = json.load(open(gstate, encoding="utf-8"))
+        filler = [
+            {"id": 3000 + i, "body": "filler", "system": False, "author": {"id": 7}}
+            for i in range(100)
+        ]
+        gs["notes"]["13"] = list(filler)
+        gs["notes"]["11"] = list(filler) + gs["notes"]["11"]
+        json.dump(gs, open(gstate, "w", encoding="utf-8"))
+        real_gj = globals()["glab_json"]
+        reads = []
+
+        def counting(path, cwd):
+            reads.append(path)
+            return real_gj(path, cwd)
+
+        def pend_for_13():
+            st = st_now()
+            write_pending(
+                config_root(),
+                sid,
+                {
+                    "orchestrator_until": st["orchestrator_until"],
+                    "agents": st["agents"],
+                },
+                {
+                    "mr": 13,
+                    "project": "g/p",
+                    "since": "2026-11-07T14:00:00Z",
+                    "until": "2026-11-07T14:30:00Z",
+                    "agents": {},
+                },
+            )
+
+        roll_back(plain(ex["steps"]["c-retry"]["state"]))
+        pend_for_13()
+        globals()["glab_json"] = counting
+        try:
+            globals()["now_utc"] = lambda: "2026-11-07T16:00:00Z"
+            posted = process(hook_payload(13), opts, crun) or ""
+            n_post = len(reads)
+            reads.clear()
+            roll_back(plain(ex["steps"]["c-retry"]["state"]))
+            pend_for_13()
+            exists = process(hook_payload(11), opts, crun)
+            n_exists = len(reads)
+        finally:
+            globals()["glab_json"] = real_gj
+        check(
+            "golden budget: the posting path reads exactly hook_reads(True) times (MR, user, pending notes x pages, notes x pages)",
+            posted.startswith("Posted") and n_post == hook_reads(True),
+            repr((posted[:60], n_post, hook_reads(True))),
+        )
+        check(
+            "golden budget: the comment-exists path reads exactly hook_reads(False) times (adds reconcile's user read)",
+            exists is None and n_exists == hook_reads(False),
+            repr((exists, n_exists, hook_reads(False))),
+        )
+
+    finally:
+        globals()["now_utc"] = saved_now
+        os.environ.clear()
+        os.environ.update(saved_env)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def golden_two_repos(check):
+    """One session across TWO repos (different `origin` projects), agent briefs that name only worktree
+    paths: scripts/tests/cost-ledger-golden/two-repos/. The state is one file per session, so a record in
+    repo Y starts where repo X's ended and leaves X's agents to X; the three records add up to the
+    transcripts' usage."""
+    import shutil
+    import importlib.util
+
+    root = os.path.join(GOLDEN, "two-repos")
+    with open(os.path.join(root, "scenario.json"), encoding="utf-8") as f:
+        sc = json.load(f)
+    with open(os.path.join(root, "expected.json"), encoding="utf-8") as f:
+        ex = json.load(f)
+    tmp = tempfile.mkdtemp(prefix="cost-golden2-")
+    saved_env, saved_now = dict(os.environ), globals()["now_utc"]
+    try:
+        bindir = os.path.join(tmp, "bin")
+        os.makedirs(bindir)
+        shim = os.path.join(bindir, "glab")
+        with open(shim, "w", encoding="utf-8") as f:
+            f.write(
+                '#!/bin/sh\nexec "%s" "%s" "$@"\n'
+                % (sys.executable, os.path.join(GOLDEN, "fake-glab.py"))
+            )
+        os.chmod(shim, 0o755)
+        empty = os.path.join(tmp, "gitconfig")
+        open(empty, "w").close()
+        os.environ.update(
+            {
+                "PATH": bindir + os.pathsep + saved_env.get("PATH", ""),
+                "GIT_CONFIG_GLOBAL": empty,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "CLAUDE_CONFIG_DIR": os.path.join(tmp, "claude-config"),
+            }
+        )
+        cfg = config_root()
+        projects = os.path.join(tmp, "projects")
+        shutil.copytree(os.path.join(root, "projects"), projects)
+        opts = Opts(projects, os.path.join(GOLDEN, "prices.json"), sc["today"])
+        spec = importlib.util.spec_from_file_location(
+            "cost_table_golden2", os.path.join(HERE, "cost-table.py")
+        )
+        ct = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ct)
+        repos, forge = {}, {}
+        for name, r in sc["repos"].items():
+            path = os.path.join(tmp, "wt-" + name)
+            subprocess.run(["git", "init", "-q", path], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    path,
+                    "remote",
+                    "add",
+                    "origin",
+                    "https://example.test/%s.git" % r["project"],
+                ],
+                check=True,
+            )
+            gstate = os.path.join(tmp, "glab-%s.json" % name)
+            with open(gstate, "w", encoding="utf-8") as f:
+                json.dump({"mrs": r["mrs"], "notes": {}, "next_id": 1}, f)
+            repos[name], forge[name] = (
+                path,
+                (gstate, urllib.parse.quote(r["project"], safe=""), r["project"]),
+            )
+        sid = sc["session"]
+        bodies = []
+        # A stale per-repo state (the old location) must be ignored: it would push every window to 2999.
+        old = os.path.join(git_common_dir(run, repos["y"]), "mr-cost-state")
+        os.makedirs(old)
+        open(os.path.join(old, sid + ".json"), "w").write(
+            '{"schema": 1, "orchestrator_until": "2999-01-01T00:00:00Z", "agents": {}}'
+        )
+        for step in sc["steps"]:
+            globals()["now_utc"] = lambda t=step["at"]: t
+            gstate, enc, project = forge[step["repo"]]
+            os.environ.update({"FAKE_GLAB_STATE": gstate, "FAKE_GLAB_PROJECT": enc})
+            repo, want = repos[step["repo"]], ex["steps"][step["name"]]
+            if step["kind"] == "hook":
+                msg = (
+                    process(
+                        {
+                            "tool_name": "Bash",
+                            "tool_input": {"command": "glab mr create --yes"},
+                            "tool_response": {
+                                "stdout": "https://example.test/%s/-/merge_requests/%d\n"
+                                % (project, step["mr"])
+                            },
+                            "session_id": sid,
+                            "cwd": repo,
+                        },
+                        opts,
+                    )
+                    or ""
+                )
+            else:
+                msg = process_round(step["mr"], sid, repo, opts)
+            n = step["name"]
+            check("golden2 %s: posted" % n, msg.startswith("Posted"), msg)
+            body = (
+                json.load(open(gstate, encoding="utf-8"))["notes"]
+                .get(str(step["mr"]), [{}])[-1]
+                .get("body", "")
+            )
+            bodies.append(body)
+            rec = ct.parse_record(body) or {}
+            tot = rec.get("total", {})
+            check(
+                "golden2 %s: record number and totals" % n,
+                rec.get("k") == want["record"]
+                and tot.get(("tok", "all")) == want["total_tokens"]
+                and str(tot.get(("usd", "all"))) == want["total_usd"],
+                repr(rec),
+            )
+            for line in want["rows"]:
+                check(
+                    "golden2 %s: row %s" % (n, line[:30]),
+                    line in body.split("\n"),
+                    body,
+                )
+            for text in want["contains"]:
+                check("golden2 %s: contains %s" % (n, text[:40]), text in body, body)
+            for text in want["absent"]:
+                check(
+                    "golden2 %s: does not contain %s" % (n, text[:40]),
+                    text not in body,
+                    body,
+                )
+            for text in ex["forbidden_anywhere"]:
+                check("golden2 %s: never %s" % (n, text), text not in body, body)
+            table = [ln for ln in body.split("\n") if ln.startswith("|")]
+            for text in ex["forbidden_in_table"]:
+                check(
+                    "golden2 %s: no %s in a table row" % (n, text),
+                    not any(text in ln for ln in table),
+                    "\n".join(table),
+                )
+            now_state = json.loads(open(state_path(cfg, sid), encoding="utf-8").read())
+            check(
+                "golden2 %s: the session's state after (one file for both repos)" % n,
+                now_state == want["state"],
+                repr(now_state),
+            )
+        import transcript_usage as tu
+
+        last = tu.parse_time(sc["steps"][-1]["at"])
+        every, seen = 0, set()
+        for path in sorted(
+            glob.glob(os.path.join(projects, "**", "*.jsonl"), recursive=True)
+        ):
+            for line in open(path, encoding="utf-8"):
+                e = json.loads(line)
+                u = (
+                    (e.get("message") or {}).get("usage")
+                    if e.get("type") == "assistant"
+                    else None
+                )
+                if (
+                    not u
+                    or e["message"]["id"] in seen
+                    or tu.parse_time(e["timestamp"]) > last
+                ):
+                    continue
+                seen.add(e["message"]["id"])
+                every += sum(u.get(k, 0) for k in tu.FIELDS)
+        got = sum(
+            ((ct.parse_record(b) or {}).get("total", {}).get(("tok", "all")) or 0)
+            for b in bodies
+        )
+        check(
+            "golden2: the records of both repos add up to the session's usage (nothing claimed twice, nothing dropped)",
+            got == every == ex["session_total_tokens"],
+            "records %d, transcripts %d, expected %d"
+            % (got, every, ex["session_total_tokens"]),
+        )
+        check(
+            "golden2: nothing is written under either repo's git dir",
+            not any(
+                os.path.exists(
+                    os.path.join(git_common_dir(run, r), "mr-cost-state", sid + ".json")
+                )
+                and r != repos["y"]
+                for r in repos.values()
+            ),
+        )
+    finally:
+        globals()["now_utc"] = saved_now
+        os.environ.clear()
+        os.environ.update(saved_env)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def golden_worktrees(check):
+    """/wave workers: two linked worktrees under `<repo>/.claude/worktrees/agent-*`, both MRs opened from
+    the MAIN checkout (scripts/tests/cost-ledger-golden/worktrees/). A worker's path is inside the main
+    checkout's directory, so attribution must resolve it to the worktree git lists for it (its branch), not
+    call it the main checkout's. Also two posts at once in one session: the session lock must serialize them."""
+    import shutil
+    import threading
+    import time
+    import importlib.util
+
+    root = os.path.join(GOLDEN, "worktrees")
+    with open(os.path.join(root, "scenario.json"), encoding="utf-8") as f:
+        sc = json.load(f)
+    with open(os.path.join(root, "expected.json"), encoding="utf-8") as f:
+        ex = json.load(f)
+    tmp = tempfile.mkdtemp(prefix="cost-golden3-")
+    saved_env, saved_now = dict(os.environ), globals()["now_utc"]
+    try:
+        bindir = os.path.join(tmp, "bin")
+        os.makedirs(bindir)
+        shim = os.path.join(bindir, "glab")
+        with open(shim, "w", encoding="utf-8") as f:
+            f.write(
+                '#!/bin/sh\nexec "%s" "%s" "$@"\n'
+                % (sys.executable, os.path.join(GOLDEN, "fake-glab.py"))
+            )
+        os.chmod(shim, 0o755)
+        empty = os.path.join(tmp, "gitconfig")
+        open(empty, "w").close()
+        gstate = os.path.join(tmp, "glab-state.json")
+        with open(gstate, "w", encoding="utf-8") as f:
+            json.dump({"mrs": sc["mrs"], "notes": {}, "next_id": 1}, f)
+        os.environ.update(
+            {
+                "PATH": bindir + os.pathsep + saved_env.get("PATH", ""),
+                "GIT_CONFIG_GLOBAL": empty,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "CLAUDE_CONFIG_DIR": os.path.join(tmp, "claude-config"),
+                "FAKE_GLAB_STATE": gstate,
+                "FAKE_GLAB_PROJECT": urllib.parse.quote(sc["project"], safe=""),
+            }
+        )
+        cfg = config_root()
+        repo = os.path.join(tmp, "main-checkout")
+        g = ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "-C", repo]
+        subprocess.run(["git", "init", "-q", "-b", "main", repo], check=True)
+        subprocess.run(
+            g + ["commit", "-q", "--no-verify", "--allow-empty", "-m", "x"], check=True
+        )
+        subprocess.run(
+            g
+            + [
+                "remote",
+                "add",
+                "origin",
+                "https://example.test/%s.git" % sc["project"],
+            ],
+            check=True,
+        )
+        for wname, wbranch in sc["workers"].items():
+            subprocess.run(
+                g
+                + [
+                    "worktree",
+                    "add",
+                    "-q",
+                    "-b",
+                    wbranch,
+                    os.path.join(repo, ".claude", "worktrees", wname),
+                ],
+                check=True,
+            )
+        projects = os.path.join(tmp, "projects")
+        shutil.copytree(os.path.join(root, "projects"), projects)
+        for dirpath, _d, files in os.walk(
+            projects
+        ):  # the fixture names paths as {REPO}: point them at this checkout
+            for fn in files:
+                if fn.endswith(".jsonl"):
+                    fp = os.path.join(dirpath, fn)
+                    text = open(fp, encoding="utf-8").read().replace("{REPO}", repo)
+                    open(fp, "w", encoding="utf-8").write(text)
+        opts = Opts(projects, os.path.join(GOLDEN, "prices.json"), sc["today"])
+        spec = importlib.util.spec_from_file_location(
+            "cost_table_golden3", os.path.join(HERE, "cost-table.py")
+        )
+        ct = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ct)
+        sid = sc["session"]
+        wts = worktrees(run, repo)
+        check(
+            "golden3: git lists the main checkout and both workers' worktrees",
+            len(wts) == 3 and wts[0][1] == "main",
+            repr(wts),
+        )
+
+        def hook(mr, runner):
+            return (
+                process(
+                    {
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "glab mr create --yes"},
+                        "tool_response": {
+                            "stdout": "https://example.test/%s/-/merge_requests/%d\n"
+                            % (sc["project"], mr)
+                        },
+                        "session_id": sid,
+                        "cwd": repo,
+                    },
+                    opts,
+                    runner,
+                )
+                or ""
+            )
+
+        def note_bodies(mr):
+            return [
+                n["body"]
+                for n in json.load(open(gstate, encoding="utf-8"))["notes"].get(
+                    str(mr), []
+                )
+            ]
+
+        bodies = []
+        for step in sc["steps"]:
+            globals()["now_utc"] = lambda t=step["at"]: t
+            n, want = step["name"], ex["steps"][step["name"]]
+            if step["kind"] == "concurrent":
+
+                def slow(cmd, cwd, env=None, timeout=300):
+                    if (
+                        any(os.path.basename(c) == "cost-table.py" for c in cmd[:2])
+                        and "--post" in cmd
+                    ):
+                        time.sleep(
+                            0.5
+                        )  # hold each post open so an unlocked pair would both read the old watermark
+                    return run(cmd, cwd, env, timeout)
+
+                threads = [
+                    threading.Thread(target=hook, args=(mr, slow)) for mr in step["mrs"]
+                ]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+                posted = [b for mr in step["mrs"] for b in note_bodies(mr)]
+                bodies += posted
+                got = [(ct.parse_record(b) or {}).get("total", {}) for b in posted]
+                check(
+                    "golden3 %s: two posts at once in one session: exactly one claims the window"
+                    % n,
+                    len(posted) == want["posted_notes"],
+                    repr(len(posted)),
+                )
+                check(
+                    "golden3 %s: it claims the window's tokens, once" % n,
+                    got
+                    and got[0].get(("tok", "all")) == want["total_tokens"]
+                    and str(got[0].get(("usd", "all"))) == want["total_usd"],
+                    repr(got),
+                )
+                now_state = json.loads(
+                    open(state_path(cfg, sid), encoding="utf-8").read()
+                )
+                check(
+                    "golden3 %s: no watermark is dropped" % n,
+                    now_state == want["state"],
+                    repr(now_state),
+                )
+                continue
+            msg = (
+                hook(step["mr"], run)
+                if step["kind"] == "hook"
+                else process_round(step["mr"], sid, repo, opts)
+            )
+            check("golden3 %s: posted" % n, msg.startswith("Posted"), msg)
+            body = note_bodies(step["mr"])[-1]
+            bodies.append(body)
+            rec = ct.parse_record(body) or {}
+            tot = rec.get("total", {})
+            check(
+                "golden3 %s: record number and totals" % n,
+                rec.get("k") == want["record"]
+                and tot.get(("tok", "all")) == want["total_tokens"]
+                and str(tot.get(("usd", "all"))) == want["total_usd"],
+                repr(rec),
+            )
+            for line in want["rows"]:
+                check(
+                    "golden3 %s: row %s" % (n, line[:30]),
+                    line in body.split("\n"),
+                    body,
+                )
+            for text in want["contains"]:
+                check("golden3 %s: contains %s" % (n, text[:40]), text in body, body)
+            for text in want["absent"]:
+                check(
+                    "golden3 %s: does not contain %s" % (n, text[:40]),
+                    text not in body,
+                    body,
+                )
+            for text in ex["forbidden_anywhere"]:
+                check("golden3 %s: never %s" % (n, text), text not in body, body)
+            table = [ln for ln in body.split("\n") if ln.startswith("|")]
+            for text in ex["forbidden_in_table"]:
+                check(
+                    "golden3 %s: no %s in a table row" % (n, text),
+                    not any(text in ln for ln in table),
+                    "\n".join(table),
+                )
+            now_state = json.loads(open(state_path(cfg, sid), encoding="utf-8").read())
+            check(
+                "golden3 %s: the session's state after" % n,
+                now_state == want["state"],
+                repr(now_state),
+            )
+        import transcript_usage as tu
+
+        last = tu.parse_time(sc["steps"][-1]["at"])
+        every, seen_ids = 0, set()
+        for path in sorted(
+            glob.glob(os.path.join(projects, "**", "*.jsonl"), recursive=True)
+        ):
+            for line in open(path, encoding="utf-8"):
+                e = json.loads(line)
+                u = (
+                    (e.get("message") or {}).get("usage")
+                    if e.get("type") == "assistant"
+                    else None
+                )
+                if (
+                    not u
+                    or e["message"]["id"] in seen_ids
+                    or tu.parse_time(e["timestamp"]) > last
+                ):
+                    continue
+                seen_ids.add(e["message"]["id"])
+                every += sum(u.get(k, 0) for k in tu.FIELDS)
+        got = sum(
+            ((ct.parse_record(b) or {}).get("total", {}).get(("tok", "all")) or 0)
+            for b in bodies
+        )
+        check(
+            "golden3: the records add up to the session's usage (each worker on its own MR, nothing claimed twice)",
+            got == every == ex["session_total_tokens"],
+            "records %d, transcripts %d, expected %d"
+            % (got, every, ex["session_total_tokens"]),
+        )
+    finally:
+        globals()["now_utc"] = saved_now
+        os.environ.clear()
+        os.environ.update(saved_env)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def retained_cases(check):
+    """The hook's robustness, kept from the retry work (trueppm#4861): retried reads, paged notes, the
+    derived cost-table timeout, and the user-visible systemMessage."""
+    real_run, real_sleep = globals()["run"], SLEEP[0]
+    tries = []
+
+    def flaky(cmd, cwd, env=None, timeout=300):
+        tries.append(timeout)
+        return (1, "", "x") if len(tries) == 1 else (0, "[]", "")
+
+    try:
+        globals()["run"], SLEEP[0] = flaky, lambda s: None
+        check(
+            "glab_json retries a failed first read",
+            glab_json("x", ".") == [] and len(tries) == 2,
+        )
+        globals()["run"] = lambda cmd, cwd, env=None, timeout=300: (1, "", "x")
+        check(
+            "glab_json gives up after READ_ATTEMPTS and says None",
+            glab_json("x", ".") is None,
+        )
+    finally:
+        globals()["run"], SLEEP[0] = real_run, real_sleep
+    real_json = globals()["glab_json"]
+    try:
+        note = {"body": "## Cost of this MR (#1)", "author": {"id": 7}}
+        globals()["glab_json"] = lambda path, cwd: (
+            [note] * 100 if "&page=1" in path else [note]
+        )
+        found = already_commented(1, ".", "g/p")
+        check(
+            "already_commented pages past 100 notes",
+            found is not None and len(found) == 101,
+        )
+        globals()["glab_json"] = lambda path, cwd: [{"body": "x"}] * 100
+        check(
+            "more notes than the hook's page budget read as unreadable, not as none",
+            already_commented(1, ".", "g/p") is None,
+        )
+    finally:
+        globals()["glab_json"] = real_json
+    ct = _cost_table()
+    check(
+        "cost-table's outer timeout exceeds its own retry worst case",
+        cost_table_timeout() > ct.worst_case_seconds(),
+        str(cost_table_timeout()),
+    )
+    check(
+        "the hook's worst case (every read hanging, then one cost-table run) fits 600s with a margin",
+        hook_worst_case_seconds() <= HOOK_TIMEOUT_SECONDS - 60,
+        str(hook_worst_case_seconds()),
+    )
+    check(
+        "reason_of drops ANSI escapes and control characters, keeps the 200-char cap",
+        reason_of("x\n\x1b[31mred\x1b]0;t\x07 \x9bok") == "[31mred]0;t ok"
+        and len(reason_of("y" * 500)) == 200,
+        repr(reason_of("x\n\x1b[31mred\x1b]0;t\x07 \x9bok")),
+    )
+    # The hook's output: a failure is shown to the user (systemMessage), a post is not.
+    real_process, real_stdin, real_stdout = globals()["process"], sys.stdin, sys.stdout
+    try:
+        for msg, want in (
+            ("MR cost comment skipped for !9: boom. Re-run", True),
+            ("Posted the cost comment", False),
+        ):
+            globals()["process"] = lambda payload, m=msg: m
+            sys.stdin, sys.stdout = (
+                io.StringIO(json.dumps({"tool_input": {"command": "ls"}})),
+                io.StringIO(),
+            )
+            main()
+            out = json.loads(sys.stdout.getvalue())
+            check(
+                "hook output: systemMessage %s for %r"
+                % ("present" if want else "absent", msg[:12]),
+                ("systemMessage" in out) == want
+                and out["hookSpecificOutput"]["additionalContext"] == msg,
+            )
+    finally:
+        globals()["process"], sys.stdin, sys.stdout = (
+            real_process,
+            real_stdin,
+            real_stdout,
+        )
+
+
+# Variables git itself sets (a hook runs with GIT_DIR and friends) that make EVERY git command, even
+# `git -C <scratch repo>`, act on the outer repository. The self-test builds scratch repos and runs
+# `checkout -B main`, `symbolic-ref` and commits in them, so they must not be inherited.
+REPO_LOCATING_GIT_ENV = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_PREFIX",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NAMESPACE",
+)
+
+
 def self_test():
-    SLEEP[0] = lambda secs: None
-    # A git hook (pre-push) exports GIT_DIR and friends, which would point the throwaway `git init`
-    # repos below at the real checkout.
-    for k in (
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_INDEX_FILE",
-        "GIT_COMMON_DIR",
-        "GIT_PREFIX",
-    ):
-        os.environ.pop(k, None)
+    cfg_tmp = tempfile.mkdtemp(prefix="post-mr-cost-config-")
+    saved = os.environ.get("CLAUDE_CONFIG_DIR")
+    saved_git = {k: os.environ.pop(k) for k in REPO_LOCATING_GIT_ENV if k in os.environ}
+    os.environ["CLAUDE_CONFIG_DIR"] = (
+        cfg_tmp  # never touch the real ~/.claude/mr-cost-state
+    )
+    try:
+        return _self_test()
+    finally:
+        os.environ.update(saved_git)
+        if saved is None:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        else:
+            os.environ["CLAUDE_CONFIG_DIR"] = saved
+
+
+def _self_test():
     fails, n = [], [0]
 
     def check(name, cond, detail=""):
         n[0] += 1
         if not cond:
-            fails.append(name + (" " + detail if detail else ""))
+            fails.append("%s %s" % (name, detail))
 
-    url = "https://gitlab.com/trueppm/trueppm-suite/-/merge_requests/1745\n"
+    check(
+        "no repo-locating GIT_* variable leaks into the self-test (a pre-push hook sets GIT_DIR, and every scratch repo would be the outer one)",
+        not [k for k in REPO_LOCATING_GIT_ENV if k in os.environ],
+        repr([k for k in REPO_LOCATING_GIT_ENV if k in os.environ]),
+    )
+    url = "https://gitlab.com/g/p/-/merge_requests/1745\n"
     check(
         "create + url -> iid",
         mr_iid("glab mr create --title x --yes", {"stdout": url}) == 1745,
@@ -955,6 +3407,10 @@ def self_test():
             calls.append(cmd)
             if cmd[-1:] == ["enabled"]:
                 return enabled_rc, "", ""
+            if cmd[:3] == ["git", "remote", "get-url"]:
+                return 0, "https://gitlab.com/g/p.git\n", ""
+            if cmd[:3] == ["git", "rev-parse", "--git-common-dir"]:
+                return 0, os.path.join(tempfile.gettempdir(), "stub-git-dir") + "\n", ""
             return 0, "", ""
 
         return r
@@ -972,10 +3428,13 @@ def self_test():
         process(payload, runner=runner_for(1)) is None and len(calls) == 1,
     )
     calls.clear()
+    unreadable = process(payload, runner=runner_for(2)) or ""
     check(
-        "ledger unreadable -> reported, nothing else runs",
-        "unreadable" in (process(payload, runner=runner_for(2)) or "")
+        "ledger unreadable -> reported with the retry command, nothing else runs",
+        "setting is unreadable" in unreadable
+        and "--retry --mr 1745 --session abc-123" in unreadable
         and len(calls) == 1,
+        unreadable,
     )
     calls.clear()
     check(
@@ -984,45 +3443,16 @@ def self_test():
         is None
         and not calls,
     )
-    real_glab0 = globals()["glab_json"]
-    try:
-        globals()["glab_json"] = lambda path, cwd: [] if "notes" in path else {}
-        check(
-            "bad session id on a plain /mr is reported, not fatal",
-            "no usable session id"
-            in (process(dict(payload, session_id="../x"), runner=runner_for(0)) or ""),
-        )
-    finally:
-        globals()["glab_json"] = real_glab0
-
-    tmp = tempfile.mkdtemp(prefix="post-mr-cost-test-")
-    sdir = os.path.join(tmp, "slug", "abc-123", "subagents")
-    os.makedirs(sdir)
-    for aid, parent, ts in (
-        ("top1", None, "2026-11-07T10:00:00Z"),
-        ("kid1", "top1", "2026-11-07T10:01:00Z"),
-        ("old1", None, "2026-11-01T10:00:00Z"),
-    ):
-        with open(os.path.join(sdir, "agent-%s.meta.json" % aid), "w") as f:
-            json.dump({"parentAgentId": parent} if parent else {}, f)
-        with open(os.path.join(sdir, "agent-%s.jsonl" % aid), "w") as f:
-            f.write(json.dumps({"type": "assistant", "timestamp": ts}) + "\n")
-    got = top_level_agents(os.path.join(tmp, "slug", "abc-123"), "2026-11-05T00:00:00Z")
     check(
-        "top-level agents in the window only (no descendants, none before since)",
-        got == ["top1"],
+        "bad session id is reported, not fatal",
+        "no usable session id"
+        in (process(dict(payload, session_id="../x"), runner=runner_for(0)) or ""),
     )
-    check(
-        "session dir resolves",
-        find_session_dir("abc-123", tmp) == os.path.join(tmp, "slug", "abc-123"),
-    )
-    check("missing session dir -> None", find_session_dir("zzz", tmp) is None)
     check(
         "off marker regex",
         OFF_MARKER_RE.search("## Gates\ncost-ledger: off\n") is not None
         and OFF_MARKER_RE.search("cost-ledger: on") is None,
     )
-    # The notes read: unreadable is reported (never the old silent 'exists'), readable-and-present is quiet.
     real_glab = globals()["glab_json"]
     try:
         globals()["glab_json"] = lambda path, cwd: (
@@ -1043,7 +3473,6 @@ def self_test():
         )
     finally:
         globals()["glab_json"] = real_glab
-    # The log: one line per seen `glab mr create`, outcome text, no command text.
     gd = tempfile.mkdtemp(prefix="post-mr-cost-log-")
     subprocess.run(["git", "init", "-q", gd], check=False)
     secret = "glab mr create --description SECRET-TOKEN-xyz"
@@ -1059,23 +3488,24 @@ def self_test():
     )
     check("log never carries command text", "SECRET-TOKEN" not in logged)
 
-    # --round: every gate must stop before anything is measured or posted.
-    def round_runner(enabled_rc, since_rc=0, since="2026-11-07T14:00:00Z"):
+    def round_runner(enabled_rc):
         def r(cmd, cwd, env=None, timeout=300):
             calls.append(cmd)
-            if cmd[-1:] == ["enabled"]:
-                return enabled_rc, "", ""
-            if "--next-since" in cmd:
-                return since_rc, since + "\n", ""
-            return 0, "", ""
+            return (enabled_rc, "", "") if cmd[-1:] == ["enabled"] else (0, "", "")
 
         return r
 
     calls.clear()
     check(
         "round: ledger off -> nothing else runs",
-        "is off" in process_round(7, "abc-123", os.getcwd(), runner=round_runner(1))
+        "cost-ledger is off"
+        in process_round(7, "abc-123", os.getcwd(), runner=round_runner(1))
         and len(calls) == 1,
+    )
+    check(
+        "round: an unreadable ledger setting is reported, not read as off",
+        "setting is unreadable"
+        in process_round(7, "abc-123", os.getcwd(), runner=round_runner(2)),
     )
     check(
         "round: bad session id is reported",
@@ -1083,992 +3513,526 @@ def self_test():
         in process_round(7, "../x", os.getcwd(), runner=round_runner(0)),
     )
     check(
-        "round: ISSUE_RE reads the branch",
+        "measure: ledger off -> no lines, nothing run",
+        process_measure("abc-123", os.getcwd(), "", runner=round_runner(1))[0] == [],
+    )
+    # Retry hints, the exception path and the project check (macrodream/blueprint#387).
+    check(
+        "retry hint names the session and the iid",
+        "--retry --mr 7 --session abc-123" in retry_hint(7, "abc-123"),
+    )
+    check(
+        "retry hint with no usable session says <session-id>, never a bare command",
+        "--retry --mr 7 --session <session-id>" in retry_hint(7, "../x"),
+    )
+    check(
+        "retry hint with an unknown iid prints the literal <iid>",
+        "--retry --mr <iid> --session" in retry_hint(None, "abc-123"),
+    )
+    check(
+        "no usable session id: the message carries a --session to pass",
+        "--session <session-id>"
+        in (
+            process(
+                dict(payload, session_id="../x"),
+                runner=lambda *a, **k: (0, "https://gitlab.test/g/p.git", ""),
+            )
+            or ""
+        ),
+    )
+    mixed = "ls /-/merge_requests/3 && https://x.test/g/p/-/merge_requests/9\n"
+    check(
+        "the iid and the project come from ONE match: a bare /-/merge_requests/3 before the full URL is not the MR",
+        mr_ref(mixed) == ("g/p", 9)
+        and mr_iid("glab mr create", mixed) == 9
+        and mr_project(mixed) == "g/p"
+        and mr_ref("see /-/merge_requests/3") == (None, 3)
+        and mr_ref("nothing") == (None, None),
+    )
+    deep = (
+        "/".join("sub%d" % i for i in range(1, 16)) + "/proj"
+    )  # 16 segments, past any fixed cap
+    check(
+        "a deeply nested GitLab project is read from the MR URL, the origin remote and a pending claim",
+        mr_ref("https://h.test/%s/-/merge_requests/4" % deep) == (deep, 4)
+        and parse_remote("git@h.test:%s.git" % deep) == deep
+        and PROJECT_PATH_RE.match(deep) is not None,
+    )
+    check(
+        "the default transcript directory is $CLAUDE_CONFIG_DIR/projects",
+        Opts().projects_dir == os.path.join(config_root(), "projects"),
+    )
+    check(
+        "mr_project reads the namespace/project of the URL",
+        mr_project("https://h.test/ns/sub/p/-/merge_requests/5") == "ns/sub/p"
+        and mr_project({"stdout": "see https://h.test/g/p/-/merge_requests/9\n"})
+        == "g/p"
+        and mr_project("nope") is None,
+    )
+    for url, want in (
+        ("https://h.test/g/p.git", "g/p"),
+        ("git@h.test:g/sub/p.git", "g/sub/p"),
+        ("ssh://git@h.test:2222/g/p", "g/p"),
+        ("https://h.test/g/p/", "g/p"),
+        ("/local/path", None),
+        ("", None),
+    ):
+        check(
+            "parse_remote %r" % url, parse_remote(url) == want, repr(parse_remote(url))
+        )
+    check(
+        "a project from another repo is never posted on (the hook's cwd is the session's repo)",
+        "opened on h/other, not on this session's repo (g/p)"
+        in (
+            process(
+                dict(
+                    payload,
+                    tool_response={
+                        "stdout": "https://x.test/h/other/-/merge_requests/9\n"
+                    },
+                ),
+                runner=lambda cmd, cwd, env=None, timeout=300: (
+                    0,
+                    "https://x.test/g/p.git\n"
+                    if cmd[:3] == ["git", "remote", "get-url"]
+                    else "",
+                    "",
+                ),
+            )
+            or ""
+        ),
+    )
+    errored = io.StringIO()
+    saved_stdin, saved_stdout = sys.stdin, sys.stdout
+    sys.stdin, sys.stdout = (
+        io.StringIO(
+            json.dumps(
+                dict(payload, tool_response={"stdout": "x/-/merge_requests/9"}, cwd=7)
+            )
+        ),
+        errored,
+    )
+    try:
+        main()
+    finally:
+        sys.stdin, sys.stdout = saved_stdin, saved_stdout
+    check(
+        "the hook's exception path names post-mr-cost.py --retry with the iid",
+        "post-mr-cost.py --retry --mr 9 --session abc-123" in errored.getvalue()
+        and "by hand" not in errored.getvalue(),
+        errored.getvalue(),
+    )
+    errored = io.StringIO()
+    sys.stdin, sys.stdout = io.StringIO("not json"), errored
+    try:
+        main()
+    finally:
+        sys.stdin, sys.stdout = saved_stdin, saved_stdout
+    check(
+        "an unreadable hook payload still prints the literal <iid> command",
+        "--retry --mr <iid>" in errored.getvalue(),
+        errored.getvalue(),
+    )
+    check(
+        "ISSUE_RE reads the branch",
         ISSUE_RE.search("fix/1234-thing").group(1) == "1234"
         and ISSUE_RE.search("chore/mr-cost-comment-enforcement") is None,
     )
 
-    # --- paths the stub runner can reach: each has a negative control.
-    base_url = "https://gitlab.com/trueppm/trueppm-suite/-/merge_requests/77\n"
-    pl = {
-        "tool_name": "Bash",
-        "tool_input": {"command": "glab mr create --yes"},
-        "tool_response": {"stdout": base_url},
-        "session_id": "abc-123",
-        "cwd": os.getcwd(),
-    }
-    gdir = tempfile.mkdtemp(prefix="post-mr-cost-git-")
-    pdir = tempfile.mkdtemp(prefix="post-mr-cost-proj-")
-    os.makedirs(os.path.join(pdir, "slug", "abc-123"))
-    open(os.path.join(pdir, "slug", "abc-123.jsonl"), "w").close()
+    # Attribution by brief.
+    br, lf = "feat/101-a", "101-a"
+    check(
+        "brief naming the branch -> this MR",
+        attribution("Implement feat/101-a now", br, lf) is True,
+    )
+    check(
+        "brief naming the worktree leaf (a path) -> this MR",
+        attribution("work in ../wt/101-a/ please", br, lf) is True,
+    )
+    check(
+        "brief naming another branch only -> not this MR",
+        attribution("Fix fix/202-b", br, lf) is False,
+    )
+    check(
+        "brief naming both: this MR wins",
+        attribution("feat/101-a, not fix/202-b", br, lf) is True,
+    )
+    check(
+        "brief naming no branch -> usage decides (None)",
+        attribution("Run the regression check", br, lf) is None,
+    )
+    check(
+        "a longer branch is another branch (feat/101-a-v2 is not feat/101-a)",
+        attribution("on feat/101-a-v2", br, lf) is False,
+    )
+    check(
+        "sentence-final period still matches",
+        attribution("Branch is feat/101-a.", br, lf) is True,
+    )
+    check(
+        "a remote prefix still matches",
+        attribution("origin/feat/101-a", br, lf) is True,
+    )
+    check("an empty leaf matches nothing", attribution("anything", br, "") is None)
 
-    TIMEOUTS = []
+    # The exclusive lower bound.
+    check(
+        "bound is one microsecond past the second",
+        bound("2026-11-07T10:00:00Z") == "2026-11-07T10:00:00.000001Z",
+    )
 
-    def full_runner(
-        log,
-        git_ok=True,
-        measure_ok=True,
-        table_rc=0,
-        table_err="",
-        enabled_rc=0,
-        since_rc=0,
-        next_err="",
-        branch="feat/321-x",
+    # State: atomic write, validation, never backwards, legacy marker not read.
+    gd2 = tempfile.mkdtemp(prefix="post-mr-cost-state-")
+    sid = "sess-1"
+    check(
+        "no state file -> empty state",
+        read_state(gd2, sid) == {"orchestrator_until": None, "agents": {}},
+    )
+    st = read_state(gd2, sid)
+    aid = "a1111111111111111"
+    check(
+        "write_state succeeds", write_state(gd2, sid, st, "2026-11-07T10:00:00Z", [aid])
+    )
+    check(
+        "state round-trips",
+        read_state(gd2, sid)
+        == {
+            "orchestrator_until": "2026-11-07T10:00:00Z",
+            "agents": {aid: "2026-11-07T10:00:00Z"},
+        },
+    )
+    check(
+        "no temp file left behind",
+        [
+            f
+            for f in os.listdir(os.path.join(gd2, "mr-cost-state"))
+            if f.endswith(".tmp")
+        ]
+        == [],
+    )
+    write_state(gd2, sid, read_state(gd2, sid), "2026-11-07T09:00:00Z", [aid])
+    check(
+        "a watermark never moves backwards",
+        read_state(gd2, sid)["orchestrator_until"] == "2026-11-07T10:00:00Z",
+    )
+    open(os.path.join(gd2, "mr-cost-last-until"), "w").write("2999-01-01T00:00:00Z\n")
+    check(
+        "the legacy shared marker is never read",
+        read_state(gd2, sid)["orchestrator_until"] == "2026-11-07T10:00:00Z"
+        and read_state(gd2, "other-session")["orchestrator_until"] is None,
+    )
+    for label, text in (
+        ("not JSON", "{nope"),
+        ("wrong schema", '{"schema": 2, "agents": {}}'),
+        ("bad time", '{"schema": 1, "orchestrator_until": "yesterday", "agents": {}}'),
+        (
+            "bad agent id",
+            '{"schema": 1, "orchestrator_until": null, "agents": {"../x": "2026-11-07T10:00:00Z"}}',
+        ),
     ):
-        def r(cmd, cwd, env=None, timeout=300):
-            log.append(cmd)
-            name = os.path.basename(cmd[1]) if len(cmd) > 1 else cmd[0]
-            if cmd[-1:] == ["enabled"]:
-                return enabled_rc, "", ""
-            if cmd[:2] == ["git", "rev-parse"]:
-                return (0, gdir + "\n", "") if git_ok else (128, "", "")
-            if cmd[:2] == ["git", "branch"]:
-                return 0, branch + "\n", ""
-            if name == "cost-table.py":
-                TIMEOUTS.append(timeout)
-            if "--next-since" in cmd:
-                return since_rc, "2026-11-07T14:00:00Z\n", next_err
-            if name in ("subagent-tokens.py", "orchestrator-tokens.py"):
-                if not measure_ok:
-                    return 3, "", ""
-                line = (
-                    "subagent-tokens: 5"
-                    if name.startswith("sub")
-                    else "orchestrator-tokens: 6"
-                )
-                return 0, line + "\n", ""
-            if name == "est-cost.py":
-                return 0, "", ""
-            if name == "cost-table.py":
-                return table_rc, "", table_err
-            return 0, "", ""
-
-        return r
-
-    marker = state_path(gdir, "abc-123")
-    legacy = os.path.join(gdir, "mr-cost-last-until")
-
-    def posted_until(cmds):
-        """The --until value of the cost-table.py post, i.e. the window end the marker must hold."""
-        for c in cmds:
-            if len(c) > 1 and c[1].endswith("cost-table.py") and "--post" in c:
-                return c[c.index("--until") + 1]
-        return None
-
-    def with_glab(desc, notes, fn):
-        g = globals()["glab_json"]
+        open(state_path(gd2, "bad"), "w").write(text)
         try:
-            globals()["glab_json"] = lambda path, cwd: (
-                notes if "notes" in path else desc
-            )
-            return fn()
-        finally:
-            globals()["glab_json"] = g
+            read_state(gd2, "bad")
+            ok = False
+        except StateError:
+            ok = True
+        check("an invalid state file is an error, never a guess: " + label, ok)
 
-    ok_desc = {"description": "## Summary\nplain /mr, no ledger lines\n"}
-    log = []
-    msg = with_glab(
-        ok_desc, [], lambda: process(pl, projects_dir=pdir, runner=full_runner(log))
-    )
-    check("happy path posts", msg is not None and msg.startswith("Posted"))
     check(
-        "happy path writes mr-cost-last-until",
-        posted_until(log) is not None
-        and os.path.exists(marker)
-        and open(marker).read() == posted_until(log) + "\n",
+        "a repo-name leaf (main checkout) does not match `org/repo` in a brief and swallow the exclusion",
+        attribution("macrodream/blueprint fix/202-b", br, "blueprint") is False,
+    )
+    wd = tempfile.mkdtemp(prefix="post-mr-cost-wt-")
+    main_co = os.path.join(wd, "main-co")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "-C", main_co]
+    subprocess.run(["git", "init", "-q", main_co], check=True)
+    subprocess.run(
+        git + ["commit", "-q", "--no-verify", "--allow-empty", "-m", "x"], check=True
+    )
+    linked = os.path.join(wd, "101-a")
+    subprocess.run(
+        git + ["worktree", "add", "-q", "-b", "feat/101-a", linked], check=True
     )
     check(
-        "happy path passes --issue from the command only when present",
-        any("cost-table.py" in c[1] and "--post" in c for c in log if len(c) > 1),
+        "worktree_leaf: the main checkout has no leaf",
+        worktree_leaf(run, main_co) == "",
     )
-    os.remove(marker)
-    msg = with_glab(
-        ok_desc,
-        [],
-        lambda: process(pl, projects_dir=pdir, runner=full_runner([], table_rc=4)),
+    check(
+        "worktree_leaf: a linked worktree's directory is the leaf",
+        worktree_leaf(run, linked) == "101-a",
     )
-    check("cost-table non-zero is reported", msg is not None and "failed" in msg)
-    check("cost-table failure does not advance the marker", not os.path.exists(marker))
 
-    # --- #4861: reason, working fallback, visible failure, per-session window.
-    why_err = (
-        "cost-table: could not post the note (glab api POST x timed out after 40s)\n"
-    )
-    msg = with_glab(
-        ok_desc,
-        [],
-        lambda: process(
-            pl,
-            projects_dir=pdir,
-            runner=full_runner([], table_rc=4, table_err="noise\n" + why_err),
-        ),
+    # --pin: refuses the default branch, exits non-zero, writes nothing; re-pinning moves an agent.
+    subprocess.run(git + ["checkout", "-q", "-B", "main"], check=True)
+    a_id = "a1111111111111111"
+    lines, err, rc = process_measure(
+        "abc-123", main_co, "", runner=run, explicit=[a_id], pin=True
     )
     check(
-        "failure message carries cost-table's stderr reason",
-        msg is not None and "timed out after 40s" in msg and "exit 4:" in msg,
-        repr(msg),
+        "--pin on main is refused (exit 2) with a clear message and pins nothing",
+        rc == 2
+        and lines == []
+        and "refusing to pin to the default branch main" in err
+        and not os.path.exists(pins_path(config_root(), "abc-123")),
+        repr((rc, err)),
     )
-    gd2 = tempfile.mkdtemp(prefix="post-mr-cost-log2-")
-    subprocess.run(["git", "init", "-q", gd2], check=False)
-    log_firing(gd2, pl, msg)
-    with open(os.path.join(gd2, ".git", "mr-cost-hook.log"), encoding="utf-8") as f:
-        check("hook log carries the reason", "timed out after 40s" in f.read())
-    m = re.search(
-        r"python3 (scripts/post-mr-cost\.py [^ ]+(?: [^ ]+)*?) \(see", msg or ""
+    subprocess.run(
+        git + ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"],
+        check=True,
     )
-    argv = shlex.split(m.group(1))[1:] if m else []
     check(
-        "manual fallback names a real mode with --mr and --session",
-        argv[:1] == ["--retry"] and "--mr" in argv and "--session" in argv,
-        repr(argv),
+        "the default branch is whatever origin/HEAD names",
+        "trunk" in default_branches(run, main_co),
     )
-    # Execute the printed argv shape through the same dispatcher the script's __main__ uses.
-    printed = io.StringIO()
-    cwd0 = os.getcwd()
-    with contextlib.redirect_stdout(printed):
-        rc_cli = with_glab(
-            ok_desc,
-            [],
-            lambda: cli(argv, runner=full_runner([]), projects_dir=pdir),
+    lines, err, rc = process_measure(
+        "abc-123", main_co, "trunk", runner=run, explicit=[a_id], pin=True
+    )
+    check(
+        "--pin on origin/HEAD's branch is refused too",
+        rc == 2 and "default branch trunk" in err,
+        err,
+    )
+    lines, err, rc = process_measure(
+        "abc-123", main_co, "feat/101-a", runner=run, explicit=[], pin=True
+    )
+    check(
+        "--pin without --agent is refused",
+        rc == 2 and "--pin needs --agent" in err,
+        err,
+    )
+    gd3 = tempfile.mkdtemp(prefix="post-mr-cost-pins-")
+    write_pins(gd3, "s1", "feat/1-a", {a_id})
+    write_pins(gd3, "s1", "feat/2-b", {a_id})
+    pins = read_pins(gd3, "s1")
+    check(
+        "re-pinning an agent to another branch removes it from the first (it belongs to one branch)",
+        pins.get("feat/2-b") == [a_id] and a_id not in pins.get("feat/1-a", []),
+        repr(pins),
+    )
+
+    check(
+        "a brief naming this MR AND another keeps this MR (the precedence is pinned)",
+        attribution(
+            "branch feat/101-a; the other one is work-wt/202-b and fix/303-c", br, ""
         )
-    check(
-        "manual fallback runs as printed and posts",
-        rc_cli == 0 and printed.getvalue().startswith("Posted"),
-        printed.getvalue(),
-    )
-    check("manual fallback runs in the checkout it was given", os.getcwd() == cwd0)
-    if os.path.exists(marker):
-        os.remove(marker)
-
-    # G1: the outer cost-table timeout is derived from cost-table's own worst case, with margin.
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "ct_consts", os.path.join(HERE, "cost-table.py")
-    )
-    ctm = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(ctm)
-    TIMEOUTS.clear()
-    with_glab(
-        ok_desc, [], lambda: process(pl, projects_dir=pdir, runner=full_runner([]))
-    )
-    check(
-        "cost-table's outer timeout exceeds its own retry worst case and fits the hook's 600s",
-        TIMEOUTS
-        and all(t == cost_table_timeout() for t in TIMEOUTS)
-        and cost_table_timeout() > ctm.worst_case_seconds()
-        and cost_table_timeout() == 337
-        # reads: description + notes pages (cost_notes default max_pages) + user, each fully retried
-        and cost_table_timeout()
-        + (2 + COST_NOTES_PAGES) * (READ_ATTEMPTS * READ_TIMEOUT + sum(BACKOFF))
-        + 30  # local measuring scripts
-        < 600
-        and ctm.NOTES_MAX_PAGES >= COST_NOTES_PAGES,
-        repr((TIMEOUTS, ctm.worst_case_seconds())),
-    )
-    if os.path.exists(marker):
-        os.remove(marker)
-
-    # A comment that already exists advances the session window, but only from the token user's own
-    # record that starts with the heading and ends no later than now; never backwards.
-    def record(until):
-        return "\n".join(
-            ctm.comment_lines(
-                "## Gates\nsubagent-tokens: 1\norchestrator-tokens: 2\n", 5, until
-            )
+        is True
+        and attribution(
+            "the other one is /ws/work-wt/202-b/ and /ws/work-wt/101-a/ is mine", br, ""
         )
-
-    def with_notes(notes, fn, me=1):
-        g = globals()["glab_json"]
-        try:
-            globals()["glab_json"] = lambda path, cwd: (
-                {"id": me} if path == "user" else notes if "notes" in path else ok_desc
-            )
-            return fn()
-        finally:
-            globals()["glab_json"] = g
-
-    def run_hook():
-        return process(pl, projects_dir=pdir, runner=full_runner([]))
-
-    def marker_value():
-        return open(marker).read().strip() if os.path.exists(marker) else None
-
-    def fresh():
-        for f in (marker, legacy):
-            if os.path.exists(f):
-                os.remove(f)
-
-    OK_END = "2026-11-07T14:00:00Z"
-    fresh()
-    msg = with_notes([{"body": record(OK_END), "author": {"id": 1}}], run_hook)
-    check(
-        "own valid record: quiet, and the window marker moves to its end",
-        msg is None and marker_value() == OK_END,
-        repr((msg, marker_value())),
-    )
-    fresh()
-    with_notes([{"body": record(OK_END), "author": {"id": 2}}], run_hook)
-    check(
-        "a FOREIGN record with a valid past end does not move the marker either",
-        marker_value() is None,
-        repr(marker_value()),
-    )
-    fresh()
-    with_notes(
-        [{"body": record("2099-01-01T00:00:00Z"), "author": {"id": 2}}], run_hook
-    )
-    check(
-        "a FOREIGN record with a far-future end does not move the marker",
-        marker_value() is None,
-        repr(marker_value()),
-    )
-    fresh()
-    msg = with_notes(
-        [{"body": record("2099-01-01T00:00:00Z"), "author": {"id": 1}}], run_hook
-    )
-    check(
-        "an OWN record ending after now does not move the marker past now (still quiet)",
-        msg is None and marker_value() is None,
-        repr(marker_value()),
-    )
-    fresh()
-    with_notes([{"body": "intro\n" + record(OK_END), "author": {"id": 1}}], run_hook)
-    check(
-        "an own note that merely contains the heading (does not start with it) is ignored",
-        marker_value() is None,
-    )
-    fresh()
-    with_notes([{"body": record(OK_END)}], run_hook, me=None)
-    check("an unreadable token user leaves the marker alone", marker_value() is None)
-    write_since(gdir, "abc-123", "2026-11-07T18:00:00Z")
-    with_notes([{"body": record(OK_END), "author": {"id": 1}}], run_hook)
-    check(
-        "existing record never moves the marker backwards",
-        marker_value() == "2026-11-07T18:00:00Z",
-    )
-    fresh()
-    # G2: reads are retried; paging reaches past 100 notes.
-    real_run = globals()["run"]
-    seq = []
-
-    def flaky_run(cmd, cwd, env=None, timeout=300):
-        seq.append(timeout)
-        return (1, "", "boom") if len(seq) == 1 else (0, '{"ok": 1}', "")
-
-    try:
-        globals()["run"] = flaky_run
-        got = glab_json("x", ".")
-        n_after = len(seq)
-        seq.clear()
-        globals()["run"] = lambda cmd, cwd, env=None, timeout=300: (1, "", "boom")
-        got_none = glab_json("x", ".")
-    finally:
-        globals()["run"] = real_run
-    check(
-        "glab_json retries a failed first read",
-        got == {"ok": 1} and n_after == 2 and got_none is None,
-        repr((got, n_after, got_none)),
-    )
-    pages = []
-
-    def paged(path, cwd):
-        pages.append(path)
-        if path.endswith("&page=1"):
-            return [{"body": "x"}] * 99 + [{"body": "## Cost of this MR (#1)"}]
-        return [{"body": "## Cost of this MR (#2)"}]
-
-    try:
-        globals()["glab_json"] = paged
-        found = cost_notes(77, ".")
-    finally:
-        globals()["glab_json"] = real_glab
-    check(
-        "cost_notes pages past 100 notes",
-        found == [("## Cost of this MR (#1)", None), ("## Cost of this MR (#2)", None)]
-        and len(pages) == 2,
-        repr((found, pages)),
-    )
-    # G2: exit 1 (no record) and exit 4 (API failure) are told apart in --round.
-    msg = with_glab(
-        ok_desc,
-        [],
-        lambda: process_round(
-            77,
-            "abc-123",
-            os.getcwd(),
-            projects_dir=pdir,
-            runner=full_runner(
-                [], since_rc=4, next_err="x\ncost-table: HTTP 502 boom\n"
-            ),
-        ),
-    )
-    check(
-        "round: exit 4 says the notes could not be read, with the reason",
-        "could not read its notes" in msg
-        and "HTTP 502 boom" in msg
-        and "no readable record" not in msg,
-        msg,
-    )
-    # G3 + G5(d): the printed fallback commands run as printed, from a sandboxed checkout root, via
-    # subprocess, against a stub glab that dispatches on the full argv and records every call. The
-    # sandbox owns its ledger setting ("on"), transcript and git dir, so nothing depends on the
-    # developer's real environment.
-    sandbox = tempfile.mkdtemp(prefix="post-mr-cost-sandbox-")
-    shutil.copytree(
-        HERE,
-        os.path.join(sandbox, "scripts"),
-        ignore=shutil.ignore_patterns("__pycache__", "tests"),
-    )
-    os.makedirs(os.path.join(sandbox, ".claude"))
-    with open(os.path.join(sandbox, ".claude", "cost-ledger.json"), "w") as f:
-        json.dump({"_doc": "test", "schema": 1, "cost-ledger": "on"}, f)
-    subprocess.run(["git", "init", "-q", sandbox], check=False)
-    home = os.path.join(sandbox, "home")
-    tdir = os.path.join(home, ".claude", "projects", "slug")
-    os.makedirs(tdir)
-    with open(os.path.join(tdir, "abc-123.jsonl"), "w") as f:
-        f.write(
-            json.dumps(
-                {
-                    "type": "assistant",
-                    "timestamp": "2026-11-05T12:00:00Z",
-                    "message": {
-                        "id": "m1",
-                        "model": "claude-sonnet-5-5",
-                        "usage": {
-                            "input_tokens": 10,
-                            "cache_creation_input_tokens": 0,
-                            "cache_read_input_tokens": 0,
-                            "output_tokens": 5,
-                        },
-                    },
-                }
-            )
-            + "\n"
-        )
-    empty_cfg = os.path.join(sandbox, "empty-gitconfig")
-    open(empty_cfg, "w").close()
-    stubdir = os.path.join(sandbox, "bin")
-    os.makedirs(stubdir)
-    calls_file = os.path.join(sandbox, "glab-calls.jsonl")
-    state_file = os.path.join(sandbox, "glab-state.json")
-    with open(os.path.join(stubdir, "glab"), "w") as f:
-        f.write(
-            "#!/usr/bin/env python3\n"
-            "import json, os, re, sys\n"
-            "a = sys.argv[1:]\n"
-            "assert a[:1] == ['api'], a\n"
-            "a = a[1:]\n"
-            "method, path, body, i = 'GET', None, None, 0\n"
-            "while i < len(a):\n"
-            "    if a[i] == '-X': method = a[i + 1]; i += 2\n"
-            "    elif a[i] == '--input': body = sys.stdin.read(); i += 2\n"
-            "    elif a[i] == '-H': i += 2\n"
-            "    elif path is None: path = a[i]; i += 1\n"
-            "    else: i += 1\n"
-            "open(os.environ['STUB_CALLS'], 'a').write(json.dumps({'method': method, 'path': path, 'body': body}) + '\\n')\n"
-            "st = json.load(open(os.environ['STUB_STATE']))\n"
-            "out = {}\n"
-            "if path == 'user': out = {'id': 1}\n"
-            "elif re.search(r'merge_requests/\\d+/notes', path) and method == 'GET':\n"
-            "    pg = int(re.search(r'[?&]page=(\\d+)', path).group(1))\n"
-            "    out = st['notes'][(pg - 1) * 100: pg * 100]\n"
-            "elif re.search(r'notes/(\\d+)$', path) and method == 'PUT':\n"
-            "    nid = int(re.search(r'notes/(\\d+)$', path).group(1))\n"
-            "    for n in st['notes']:\n"
-            "        if n['id'] == nid: n['body'] = json.loads(body)['body']\n"
-            "elif re.search(r'merge_requests/\\d+/notes$', path) and method == 'POST':\n"
-            "    st['notes'].append({'id': 900 + len(st['notes']), 'system': False, 'author': {'id': 1}, 'body': json.loads(body)['body']})\n"
-            "elif re.search(r'merge_requests/\\d+$', path):\n"
-            "    out = {'description': 'x', 'source_branch': 'feat/321-x'}\n"
-            "json.dump(st, open(os.environ['STUB_STATE'], 'w'))\n"
-            "print(json.dumps(out))\n"
-        )
-    os.chmod(os.path.join(stubdir, "glab"), 0o755)
-    penv = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "CLAUDE"))}
-    penv.update(
-        PATH=stubdir + os.pathsep + os.environ.get("PATH", ""),
-        HOME=home,
-        GIT_CONFIG_GLOBAL=empty_cfg,
-        GIT_CONFIG_NOSYSTEM="1",
-        STUB_CALLS=calls_file,
-        STUB_STATE=state_file,
-    )
-
-    def sandbox_run(printed, notes):
-        """Run the printed command line exactly as written, from the sandbox root; (proc, calls, state)."""
-        with open(state_file, "w") as f:
-            json.dump({"notes": notes}, f)
-        if os.path.exists(calls_file):
-            os.remove(calls_file)
-        mm = re.search(r"python3 (scripts/post-mr-cost\.py .*?) \(see", printed or "")
-        pargs = shlex.split(mm.group(1)) if mm else []
-        if not pargs:
-            return None, [], {}
-        r = subprocess.run(
-            [sys.executable] + pargs,
-            cwd=sandbox,
-            env=penv,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        try:
-            with open(calls_file) as f:
-                made = [json.loads(ln) for ln in f if ln.strip()]
-        except OSError:
-            made = []
-        with open(state_file) as f:
-            return r, made, json.load(f)
-
-    rec1_note = {
-        "id": 10,
-        "system": False,
-        "author": {"id": 1},
-        "body": "\n".join(
-            ctm.comment_lines(
-                "## Gates\nsubagent-tokens: 1\norchestrator-tokens: 2\n",
-                5,
-                "2026-11-04T12:00:00Z",
-            )
-        ),
-    }
-    fail_round = with_glab(
-        ok_desc,
-        [],
-        lambda: process_round(
-            77,
-            "abc-123",
-            os.getcwd(),
-            projects_dir=pdir,
-            runner=full_runner([], table_rc=4),
-        ),
-    )
-    fail_hook = with_glab(
-        ok_desc,
-        [],
-        lambda: process(pl, projects_dir=pdir, runner=full_runner([], table_rc=4)),
-    )
-    for label, text, mode in (
-        ("round", fail_round, "--round"),
-        ("retry", fail_hook, "--retry"),
-    ):
-        mm = re.search(r"python3 (scripts/post-mr-cost\.py .*?) \(see", text or "")
-        pargs = shlex.split(mm.group(1)) if mm else []
-        check(
-            "%s message prints a %s command" % (label, mode),
-            pargs[1:2] == [mode] and "..." not in (text or ""),
-            repr(text),
-        )
-        notes = [] if mode == "--retry" else [rec1_note]
-        r, made, state = sandbox_run(text, notes)
-        check(
-            "%s command runs as printed from the checkout root" % label,
-            r is not None
-            and r.returncode == 0
-            and "usage" not in r.stderr.lower()
-            and "error" not in r.stderr.lower(),
-            repr(r and (r.returncode, r.stdout, r.stderr)),
-        )
-        writes = [c for c in made if c["method"] in ("POST", "PUT")]
-        bodies = [json.loads(c["body"])["body"] for c in writes if c["body"]]
-        if mode == "--retry":
-            check(
-                "printed --retry command POSTs a record 1 body",
-                len(writes) == 1
-                and writes[0]["method"] == "POST"
-                and bodies[0].startswith("## Cost of this MR")
-                and "record" not in bodies[0].split("\n")[0],
-                repr((r and r.stdout, r and r.stderr, writes)),
-            )
-        else:
-            check(
-                "printed --round command posts record 2",
-                len(writes) == 1
-                and bodies[0].startswith("## Cost of this MR")
-                and "record 2" in bodies[0].split("\n")[0],
-                repr((r and r.stdout, r and r.stderr, writes)),
-            )
-    # G5(e): a REAL failed cost-table run (stubbed glab exits 1 with stderr) puts its reason in the log line.
-    bad = tempfile.mkdtemp(prefix="post-mr-cost-badglab-")
-    with open(os.path.join(bad, "glab"), "w") as f:
-        f.write("#!/bin/sh\necho 'HTTP 502 boom' >&2\nexit 1\n")
-    os.chmod(os.path.join(bad, "glab"), 0o755)
-    benv = dict(os.environ, PATH=bad + os.pathsep + os.environ.get("PATH", ""))
-    driver = (
-        "import importlib.util,sys;"
-        "s=importlib.util.spec_from_file_location('ct',sys.argv[1]);"
-        "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
-        "m.SLEEP[0]=lambda x:None;"
-        "sys.exit(m.main(sys.argv[2:],enabled=lambda:0))"
-    )
-    base_runner = full_runner([])
-
-    def real_table_runner(cmd, cwd, env=None, timeout=300):
-        if len(cmd) > 1 and cmd[1].endswith("cost-table.py"):
-            return run(
-                [sys.executable, "-c", driver, cmd[1]] + cmd[2:],
-                cwd,
-                env=benv,
-                timeout=120,
-            )
-        return base_runner(cmd, cwd, env=env, timeout=timeout)
-
-    msg = with_glab(
-        ok_desc, [], lambda: process(pl, projects_dir=pdir, runner=real_table_runner)
-    )
-    gd3 = tempfile.mkdtemp(prefix="post-mr-cost-log3-")
-    subprocess.run(["git", "init", "-q", gd3], check=False)
-    log_firing(gd3, pl, msg)
-    with open(os.path.join(gd3, ".git", "mr-cost-hook.log"), encoding="utf-8") as f:
-        logged3 = f.read()
-    check(
-        "a real failed cost-table run: its stderr reason reaches the hook message and log line",
-        "HTTP 502 boom" in (msg or "") and "HTTP 502 boom" in logged3,
-        repr((msg, logged3)),
-    )
-    if os.path.exists(marker):
-        os.remove(marker)
-
-    # A failure reaches the user as a systemMessage; success does not.
-    def hook_out(fn_msg):
-        real_process = globals()["process"]
-        real_stdin = sys.stdin
-        buf = io.StringIO()
-        try:
-            globals()["process"] = lambda payload: fn_msg
-            sys.stdin = io.StringIO(json.dumps(dict(pl)))
-            with contextlib.redirect_stdout(buf):
-                main()
-        finally:
-            globals()["process"] = real_process
-            sys.stdin = real_stdin
-        return json.loads(buf.getvalue()) if buf.getvalue().strip() else None
-
-    out = hook_out("MR cost comment failed for !77 (cost-table exit 4). x")
-    check(
-        "failure emits a systemMessage",
-        out is not None
-        and out.get("systemMessage", "").startswith("MR cost comment failed"),
-        repr(out),
-    )
-    out = hook_out("Posted the `## Cost of this MR` comment on !77")
-    check(
-        "success has no systemMessage", out is not None and "systemMessage" not in out
-    )
-    # Two sessions: neither moves the other's window; the legacy unkeyed file is a fallback only.
-    for f in (marker, legacy, state_path(gdir, "other-9")):
-        if os.path.exists(f):
-            os.remove(f)
-    write_since(gdir, "abc-123", "2026-11-07T10:00:00Z")
-    write_since(gdir, "other-9", "2026-11-07T12:00:00Z")
-    check(
-        "per-session window: each session reads its own",
-        read_since(gdir, "abc-123") == "2026-11-07T10:00:00Z"
-        and read_since(gdir, "other-9") == "2026-11-07T12:00:00Z",
-    )
-    write_since(gdir, "other-9", "2026-11-07T15:00:00Z")
-    check(
-        "per-session window: B's post leaves A's untouched",
-        read_since(gdir, "abc-123") == "2026-11-07T10:00:00Z",
-    )
-    check("no state at all -> epoch", read_since(gdir, "fresh-1") == EPOCH)
-    with open(legacy, "w") as f:
-        f.write("2026-11-06T09:00:00Z\n")
-    check(
-        "legacy unkeyed file is read only when no keyed one exists",
-        read_since(gdir, "fresh-1") == "2026-11-06T09:00:00Z"
-        and read_since(gdir, "abc-123") == "2026-11-07T10:00:00Z",
-    )
-    os.remove(legacy)
-    log = []
-    with_glab(
-        ok_desc, [], lambda: process(pl, projects_dir=pdir, runner=full_runner(log))
-    )
-    check(
-        "process writes only the keyed file",
-        os.path.exists(marker) and not os.path.exists(legacy),
-    )
-    os.remove(marker)
-    log = []
-    msg = with_glab(
-        {"description": "## Gates\ncost-ledger: off\n"},
-        [],
-        lambda: process(pl, projects_dir=pdir, runner=full_runner(log)),
-    )
-    check(
-        "description cost-ledger: off -> quiet, nothing measured",
-        msg is None and not any("cost-table.py" in " ".join(c) for c in log),
-    )
-    log = []
-    msg = with_glab(
-        None, [], lambda: process(pl, projects_dir=pdir, runner=full_runner(log))
-    )
-    check(
-        "unreadable description is reported and nothing is posted",
-        msg is not None
-        and "could not read its description" in msg
-        and not any("cost-table.py" in " ".join(c) for c in log),
-    )
-    msg = with_glab(
-        ok_desc,
-        [],
-        lambda: process(pl, projects_dir=tempfile.mkdtemp(), runner=full_runner([])),
-    )
-    check(
-        "no transcript -> reported", msg is not None and "transcript not found" in msg
-    )
-    msg = with_glab(
-        ok_desc,
-        [],
-        lambda: process(pl, projects_dir=pdir, runner=full_runner([], git_ok=False)),
-    )
-    check(
-        "not a git checkout -> reported",
-        msg is not None and "not in a git checkout" in msg,
-    )
-    msg = with_glab(
-        ok_desc,
-        [],
-        lambda: process(
-            pl, projects_dir=pdir, runner=full_runner([], measure_ok=False)
-        ),
-    )
-    check(
-        "nothing measurable -> reported",
-        msg is not None and "nothing measurable" in msg,
-    )
-    msg = process(pl, runner=full_runner([], enabled_rc=2))
-    check(
-        "unreadable ledger setting is surfaced to the session",
-        msg is not None and "unreadable" in msg,
-    )
-    check(
-        "plain off stays silent",
-        process(pl, runner=full_runner([], enabled_rc=1)) is None,
-    )
-    # Wave-shaped: the description's ledger lines win; the measuring path is unreachable.
-    import importlib.util as ilu
-
-    spec_ = ilu.spec_from_file_location(
-        "ct_selftest", os.path.join(HERE, "cost-table.py")
-    )
-    ctm = ilu.module_from_spec(spec_)
-    spec_.loader.exec_module(ctm)
-    ledger = "## Gates\nsubagent-tokens: 3571566\norchestrator-tokens: 7213540\nest-cost-usd: 3.08\n"
-    created = datetime.datetime(2026, 11, 7, 15, 0, tzinfo=datetime.timezone.utc)
-    ct = created.timestamp()
-    measuring = ("subagent-tokens.py", "orchestrator-tokens.py", "est-cost.py")
-
-    def split_for(sub, orch):
-        return (
-            "subagent-tokens: model claude-sonnet-5-5 %d\n"
-            "orchestrator-tokens: model claude-opus-4-8 %d\n" % (sub, orch)
-        )
-
-    def wave_mr(
-        iid_,
-        description,
-        split_age=None,
-        split_text=None,
-        sid="abc-123",
-        created_at="2026-11-07T15:00:00.000Z",
-    ):
-        """Run the hook for one MR of a wave; return (msg, commands, desc as cost-table saw it)."""
-        for fn in (marker, os.path.join(gdir, SPLIT_NAME)):
-            if os.path.exists(fn):
-                os.remove(fn)
-        if split_age is not None:
-            sp = os.path.join(gdir, SPLIT_NAME)
-            with open(sp, "w") as f:
-                f.write(
-                    split_text
-                    if split_text is not None
-                    else split_for(3571566, 7213540)
-                )
-            os.utime(sp, (ct - split_age, ct - split_age))
-        log_, seen_ = [], []
-        base = full_runner(log_)
-
-        def r(cmd, cwd, env=None, timeout=300):
-            if len(cmd) > 2 and cmd[1].endswith("cost-table.py") and "--file" in cmd:
-                with open(cmd[cmd.index("--file") + 1], encoding="utf-8") as f:
-                    seen_.append(f.read())
-            return base(cmd, cwd, env=env, timeout=timeout)
-
-        pl_ = dict(
-            pl,
-            session_id=sid,
-            tool_response={
-                "stdout": "https://gitlab.com/x/-/merge_requests/%d\n" % iid_
-            },
-        )
-        d_ = {"description": description, "created_at": created_at}
-        m_ = with_glab(d_, [], lambda: process(pl_, projects_dir=pdir, runner=r))
-        return m_, log_, seen_
-
-    def cmds(log_, names):
-        return [c for c in log_ if len(c) > 1 and os.path.basename(c[1]) in names]
-
-    def readable_end(cmd, description):
-        """Render record 1 with the hook's own argv for real and read its window end back."""
-        until_ = cmd[cmd.index("--until") + 1]
-        rec = ctm.parse_record(
-            "\n".join(ctm.comment_lines(description, None, until_, None))
-        )
-        return rec is not None and rec["end"] is not None
-
-    for k, iid_ in enumerate((3245, 3246, 3248)):
-        desc_k = ledger.replace("3571566", str(3571566 + k))
-        m_, log_, seen_ = wave_mr(
-            iid_, desc_k, split_age=600, split_text=split_for(3571566 + k, 7213540)
-        )
-        tbl = cmds(log_, ("cost-table.py",))
-        check(
-            "wave MR %d: posted from the description's ledger" % iid_,
-            m_ is not None and m_.startswith("Posted") and len(tbl) == 1,
-        )
-        check(
-            "wave MR %d: cost-table saw the description's own figures" % iid_,
-            seen_ == [desc_k],
-        )
-        check(
-            "wave MR %d: nothing was re-measured" % iid_,
-            not cmds(log_, measuring),
-        )
-        check(
-            "wave MR %d: a matching split is passed with its mtime as --until" % iid_,
-            "--split" in tbl[0]
-            and tbl[0][tbl[0].index("--until") + 1]
-            == datetime.datetime.fromtimestamp(
-                ct - 600, datetime.timezone.utc
-            ).strftime(TS_FMT),
-        )
-        check(
-            "wave MR %d: neither the keyed nor the legacy marker is written" % iid_,
-            not os.path.exists(marker) and not os.path.exists(legacy),
-        )
-    for label, age, txt in (
-        ("absent", None, None),
-        ("newer than the MR", -60, None),
-        ("more than 2h older than the MR", 3 * 3600, None),
-        ("not matching the description's sums", 600, split_for(5, 6)),
-    ):
-        m_, log_, _ = wave_mr(3249, ledger, split_age=age, split_text=txt)
-        tbl = cmds(log_, ("cost-table.py",))
-        check(
-            "split %s: totals only, --until still passed, never measured" % label,
-            m_ is not None
-            and "split n/a" in m_
-            and len(tbl) == 1
-            and "--split" not in tbl[0]
-            and "--until" in tbl[0]
-            and tbl[0][tbl[0].index("--until") + 1] == "2026-11-07T15:00:00Z"
-            and "MR creation time" in m_
-            and not cmds(log_, measuring),
-        )
-        check(
-            "split %s: record 1 still has a readable window end (--next-since)" % label,
-            len(tbl) == 1 and readable_end(tbl[0], ledger),
-        )
-    m_, log_, _ = wave_mr(3249, ledger, created_at="garbage")
-    tbl = cmds(log_, ("cost-table.py",))
-    check(
-        "unparseable created_at falls back to now for --until",
-        len(tbl) == 1
-        and re.match(
-            r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z", tbl[0][tbl[0].index("--until") + 1]
-        )
-        is not None
-        and tbl[0][tbl[0].index("--until") + 1] != "2026-11-07T15:00:00Z",
-    )
-    # A split with nothing non-zero to compare against is dropped, not vacuously accepted.
-    vac = "## Gates\norchestrator-tokens: current session only\nest-cost-usd: 3.08\n"
-    sp_ = os.path.join(gdir, SPLIT_NAME)
-    with open(sp_, "w") as f:
-        f.write(split_for(0, 7213540))
-    check(
-        "split is dropped when the description has no figure to compare",
-        split_matches(vac, sp_)[0] is False,
-    )
-    zero = "## Gates\nsubagent-tokens: 0\n"
-    with open(sp_, "w") as f:
-        f.write("")
-    check(
-        "a zero figure matching an empty split is vacuous, so dropped",
-        split_matches(zero, sp_)[0] is False,
-    )
-    with open(sp_, "w") as f:
-        f.write(split_for(0, 7213540))
-    check(
-        "one non-zero matching side keeps the split",
-        split_matches(
-            "## Gates\nsubagent-tokens: 0\norchestrator-tokens: 7213540\n", sp_
-        )[0]
         is True,
     )
-    # Marker: never written on this path, so it cannot move backward.
-    with open(marker, "w") as f:
-        f.write("2026-11-07T16:00:00Z\n")
-    base_ = full_runner([])
-    sp_ = os.path.join(gdir, SPLIT_NAME)
-    with open(sp_, "w") as f:
-        f.write(split_for(3571566, 7213540))
-    os.utime(sp_, (ct - 3000, ct - 3000))  # older than the marker
-    with_glab(
-        {"description": ledger, "created_at": "2026-11-07T15:00:00.000Z"},
-        [],
-        lambda: process(pl, projects_dir=pdir, runner=base_),
+    check(
+        "a brief naming only another worktree path is another MR's (no branch token needed)",
+        attribution("Implement in /ws/work-wt/202-other/ and report", br, "") is False
+        and attribution("Implement in /ws/work-wt/202-other/ and report", br, "101-a")
+        is False,
     )
     check(
-        "an older split cannot lower mr-cost-last-until",
-        open(marker).read() == "2026-11-07T16:00:00Z\n",
+        "this MR's own worktree path is this MR's, even in the main checkout (leaf '' falls back to the branch's leaf)",
+        attribution("Implement in /ws/work-wt/101-a/", br, "") is True,
     )
-    # Ledger keys in any shape (Notes, fence, quote, list item) are still a ledger: never measured.
-    for label, body in (
-        ("under ## Notes", "## Notes\nsubagent-tokens: 5\n"),
-        ("in a fence", "## Notes\n```\norchestrator-tokens: 5\n```\n"),
-        ("in a blockquote", "> est-cost-usd: 3.08\n"),
-        ("as a list item", "## Summary\n- subagent-tokens: 5\n"),
-        ("malformed", "## Gates\nest-cost-usd: lots\n"),
-    ):
-        m_, log_, _ = wave_mr(3252, body)
-        check(
-            "ledger key %s: rendered by cost-table, never measured" % label,
-            len(cmds(log_, ("cost-table.py",))) == 1 and not cmds(log_, measuring),
-        )
-    # --retry re-runs process(), so a wave MR must go through the description branch there too.
-    retry_log = []
-    out_ = io.StringIO()
-    with contextlib.redirect_stdout(out_):
-        with_glab(
-            {"description": ledger, "created_at": "2026-11-07T15:00:00.000Z"},
-            [],
-            lambda: cli(
-                ["--retry", "--mr", "3245", "--session", "abc-123"],
-                runner=full_runner(retry_log),
-                projects_dir=pdir,
+    check(
+        "a docs path or a file name is not a worktree leaf",
+        attribution("see guides/3-tier-model.md and /x/2-columns.png", br, "") is None
+        and attribution("dated /notes/2026-11-07/log", br, "") is None,
+    )
+    check(
+        "pins are keyed project:branch",
+        pin_key("g/p", "feat/1-a") == "g/p:feat/1-a"
+        and pin_key("g/q", "feat/1-a") != pin_key("g/p", "feat/1-a"),
+    )
+    check(
+        "the state root is $CLAUDE_CONFIG_DIR, else ~/.claude",
+        config_root() == os.environ["CLAUDE_CONFIG_DIR"],
+    )
+
+    # agent_home: a transcript shaped like the real ones (Bash input.command starting `cd /abs/...-wt/<n>-slug && `,
+    # Edit with an absolute file_path), classified and never echoed.
+    ht = tempfile.mkdtemp(prefix="post-mr-cost-home-")
+
+    def transcript(*calls):
+        path = os.path.join(ht, "t%d.jsonl" % len(os.listdir(ht)))
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "type": "user",
+                        "message": {"role": "user", "content": "SECRET-BRIEF"},
+                    }
+                )
+                + "\n"
+            )
+            for k, (name, inp) in enumerate(calls):
+                f.write(
+                    json.dumps(
+                        {
+                            "type": "assistant",
+                            "message": {
+                                "id": "m%d" % k,
+                                "content": [
+                                    {
+                                        "type": "tool_use",
+                                        "id": "tu%d" % k,
+                                        "name": name,
+                                        "input": inp,
+                                    }
+                                ],
+                            },
+                        }
+                    )
+                    + "\n"
+                )
+        return path
+
+    wa, wb = "/Users/x/repos/proj-wt/101-first", "/Users/x/repos/proj-wt/202-second"
+    top = "/Users/x/repos/proj"
+    wts0 = []  # no listed worktree: the `*-wt/<n>-<slug>` leaf rule
+    check(
+        "home: the majority of Edit/Write paths wins over a cd",
+        agent_home(
+            transcript(
+                ("Edit", {"file_path": wb + "/a.py"}),
+                ("Write", {"file_path": wb + "/b.py"}),
+                ("Bash", {"command": "cd %s && ls" % wa}),
+                ("Bash", {"command": "cd %s && ls" % wa}),
             ),
+            wts0,
         )
-    check(
-        "--retry on a wave MR posts from the description and never measures",
-        "from the description's ledger lines" in out_.getvalue()
-        and len(cmds(retry_log, ("cost-table.py",))) == 1
-        and not cmds(retry_log, measuring),
-        out_.getvalue(),
+        == ("leaf", "202-second"),
     )
     check(
-        "ledger_in_description: plain text is not a ledger",
-        not ledger_in_description(
-            "## Summary\nthe subagent-tokens: figure is in prose\nx"
+        "home: no writes, the cd target leads (a read-only auditor)",
+        agent_home(
+            transcript(
+                ("Bash", {"command": "cd %s && git diff origin/main" % wa}),
+                ("Bash", {"command": "cd %s && git log -1" % wa}),
+                ("Bash", {"command": "cd %s && ls" % wb}),
+            ),
+            wts0,
         )
-        and ledger_in_description("a\n  - Est-Cost-USD : 1.00\n"),
+        == ("leaf", "101-first"),
     )
-    m_, log_, _ = wave_mr(3250, "## Summary\nplain\n")
     check(
-        "plain /mr (no ledger key anywhere) is still measured and posted",
-        m_ is not None
-        and m_.startswith("Posted")
-        and bool(cmds(log_, ("subagent-tokens.py",))),
+        "home: git -C counts unless the command is show, diff or log",
+        agent_home(transcript(("Bash", {"command": "git -C %s status" % wa})), wts0)
+        == ("leaf", "101-first")
+        and agent_home(
+            transcript(
+                ("Bash", {"command": "git -C %s show HEAD" % wa}),
+                ("Bash", {"command": "git -C %s diff" % wa}),
+                ("Bash", {"command": "git -C %s log" % wa}),
+            ),
+            wts0,
+        )
+        is None,
     )
-    m_, log_, _ = wave_mr(3253, ledger, sid="../x")
     check(
-        "a wave MR still gets its comment with no usable session id",
-        m_ is not None and m_.startswith("Posted") and not cmds(log_, measuring),
+        "home: two worktrees written EQUALLY is no home (a strict majority is required), so the cd rule decides, then the brief",
+        agent_home(
+            transcript(
+                ("Edit", {"file_path": wa + "/a"}), ("Edit", {"file_path": wb + "/b"})
+            ),
+            wts0,
+        )
+        is None
+        and agent_home(
+            transcript(
+                ("Edit", {"file_path": wa + "/a"}),
+                ("Edit", {"file_path": wb + "/b"}),
+                ("Bash", {"command": "cd %s && ls" % wb}),
+            ),
+            wts0,
+        )
+        == ("leaf", "202-second"),
     )
-    m_, log_, _ = wave_mr(3254, ledger, sid="no-such-session")
     check(
-        "a wave MR still gets its comment with no transcript",
-        m_ is not None and m_.startswith("Posted") and not cmds(log_, measuring),
+        "home: a tie between two worktrees is no home (the brief decides)",
+        agent_home(
+            transcript(
+                ("Bash", {"command": "cd %s" % wa}), ("Bash", {"command": "cd %s" % wb})
+            ),
+            wts0,
+        )
+        is None,
     )
-    # A cost-table that cannot be loaded drops the split; the comment is not suppressed.
-    real_here = HERE
-    sp_ = os.path.join(gdir, SPLIT_NAME)
-    with open(sp_, "w") as f:
-        f.write(split_for(3571566, 7213540))
-    os.utime(sp_, (ct - 600, ct - 600))
-    broken = tempfile.mkdtemp(prefix="post-mr-cost-broken-")
-    with open(os.path.join(broken, "cost-table.py"), "w") as f:
-        f.write("raise ImportError('boom')\n")
-    try:
-        globals()["HERE"] = broken
-        ok_, why_ = split_matches(ledger, sp_)
-    finally:
-        globals()["HERE"] = real_here
     check(
-        "an unloadable cost-table drops the split instead of raising",
-        ok_ is False and "could not be checked" in why_,
+        "home: writes that are not a majority fall through to the cd rule",
+        agent_home(
+            transcript(
+                ("Edit", {"file_path": wb + "/a.py"}),
+                ("Write", {"file_path": "/tmp/scratch/n.md"}),
+                ("Write", {"file_path": "/tmp/scratch/m.md"}),
+                ("Bash", {"command": "cd %s" % wa}),
+            ),
+            wts0,
+        )
+        == ("leaf", "101-first"),
     )
-    for fn in (marker, sp_):
-        if os.path.exists(fn):
-            os.remove(fn)
-    # process_round
-    msg = with_glab(
-        ok_desc,
-        [],
-        lambda: process_round(
-            77,
-            "abc-123",
-            os.getcwd(),
-            projects_dir=pdir,
-            runner=full_runner([], since_rc=1),
+    wl = [
+        (top, "main"),
+        (top + "/.claude/worktrees/agent-p", "feat/1-p"),
+        (top + "/.claude/worktrees/agent-q", "feat/2-q"),
+    ]
+    check(
+        "home: a path in a listed worktree is that worktree's BRANCH; the deepest wins, so a worker under .claude/worktrees is never the main checkout",
+        agent_home(
+            transcript(
+                ("Edit", {"file_path": top + "/.claude/worktrees/agent-p/x.py"})
+            ),
+            wl,
+        )
+        == ("branch", "feat/1-p")
+        and agent_home(transcript(("Edit", {"file_path": top + "/src/x.py"})), wl)
+        == ("branch", "main"),
+    )
+    check(
+        "home: a path under <toplevel>/.claude/worktrees/ in no LISTED worktree is never the main checkout",
+        path_home(top + "/.claude/worktrees/agent-gone/x.py", wl) is None
+        and path_home(top + "/src/x.py", wl) == ("branch", "main"),
+    )
+    dup = os.path.join(ht, "dup.jsonl")
+    with open(dup, "w", encoding="utf-8") as f:
+        for tid, w in (("t1", wb), ("t1", wb), ("t2", wa), ("t3", wa)):
+            f.write(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "id": "m",
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "id": tid,
+                                    "name": "Edit",
+                                    "input": {"file_path": w + "/a"},
+                                }
+                            ],
+                        },
+                    }
+                )
+                + "\n"
+            )
+    check(
+        "home: a tool_use repeated in the transcript (same id) is counted once",
+        agent_home(dup, wts0) == ("leaf", "101-first"),
+    )
+    check(
+        "home: no tool calls, or an unreadable file, is no home",
+        agent_home(transcript(("Read", {"file_path": wa + "/a"})), wts0) is None
+        and agent_home(os.path.join(ht, "absent"), wts0) is None,
+    )
+    check(
+        "home: the result carries no path or command text",
+        "/Users"
+        not in repr(
+            agent_home(transcript(("Edit", {"file_path": wa + "/a.py"})), wts0)
         ),
     )
-    check("round: record 1 missing -> skipped", "no readable record 1" in msg)
-    log = []
-    msg = with_glab(
-        {"description": "cost-ledger: off"},
-        [],
-        lambda: process_round(
-            77, "abc-123", os.getcwd(), projects_dir=pdir, runner=full_runner(log)
-        ),
-    )
-    check(
-        "round: off marker -> nothing measured",
-        "cost-ledger: off" in msg
-        and not any("cost-table.py" in " ".join(c) for c in log),
-    )
-    msg = with_glab(
-        None,
-        [],
-        lambda: process_round(
-            77, "abc-123", os.getcwd(), projects_dir=pdir, runner=full_runner([])
-        ),
-    )
-    check(
-        "round: unreadable description is reported",
-        "could not read its description" in msg,
-    )
-    check(
-        "round: unreadable ledger setting is reported",
-        "unreadable"
-        in process_round(
-            77, "abc-123", os.getcwd(), runner=full_runner([], enabled_rc=2)
-        ),
-    )
-    if os.path.exists(marker):
-        os.remove(marker)
-    log = []
-    msg = with_glab(
-        ok_desc,
-        [],
-        lambda: process_round(
-            77, "abc-123", os.getcwd(), projects_dir=pdir, runner=full_runner(log)
-        ),
-    )
-    check("round: happy path posts", msg.startswith("Posted"))
-    check(
-        "round: mr-cost-last-until holds the posted window end",
-        posted_until(log) is not None
-        and os.path.exists(marker)
-        and open(marker).read() == posted_until(log) + "\n",
-    )
-    check(
-        "round: issue number comes from the branch name",
-        any("--issue" in c and "321" in c for c in log),
-    )
+
+    retained_cases(check)
+    golden_cases(check)
+    golden_two_repos(check)
+    golden_worktrees(check)
     if fails:
         for f in fails:
             print("self-test FAIL: " + f, file=sys.stderr)
@@ -2080,4 +4044,4 @@ def self_test():
 if __name__ == "__main__":
     if sys.argv[1:] == ["--self-test"]:
         sys.exit(self_test())
-    sys.exit(cli(sys.argv[1:]))
+    sys.exit(cli_main(sys.argv[1:]) if sys.argv[1:] else main())

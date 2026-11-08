@@ -7,8 +7,12 @@ repos:
       - id: ruff
         args: [--fix]
         stages: [pre-commit]
+        exclude: ^scripts/tests/cost-ledger-golden/
       - id: ruff-format
         stages: [pre-commit]
+        # The cost-ledger golden fixture is byte-identical across the repos that carry it
+        # (Blueprint holds the canonical copy); formatting it here would break that (#4865).
+        exclude: ^scripts/tests/cost-ledger-golden/
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.14.1
     hooks:

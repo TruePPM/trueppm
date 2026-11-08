@@ -172,45 +172,45 @@ Rules:
   `scripts/cost-ledger enabled`. Exit 0 (on): write the lines below when you hold their figures.
   Exit 1 (off): write the one line `cost-ledger: off` under the last `gate:` line, and no
   `subagent-tokens:`, `orchestrator-tokens:` or `est-cost-usd:` line; do not run
-  `scripts/subagent-tokens.py`, `scripts/orchestrator-tokens.py` or `scripts/est-cost.py`, and
-  post no cost comment. Exit 2 (unreadable): the same, plus the `## Notes` line "cost ledger
+  `scripts/post-mr-cost.py`, and post no cost comment. Exit 2 (unreadable): the same, plus the `## Notes` line "cost ledger
   setting unreadable; nothing recorded". The marker never names the layer that turned it off.
   `budget-exceeded:` is not a cost line and is written either way. The three lines are **not in
   the template**: a template slot only invites an estimate. `/wave` is the writer that holds real
   figures and sends them in its go-ahead message; paste them under the gates, unchanged.
   - `subagent-tokens: <N>`: digits only. The cumulative usage of the agents the orchestrator
     spawned or resumed for the branch and of their descendants (the implementer's own gate batch),
-    summed per response (input + cache-write + cache-read + output) by
-    `python3 scripts/subagent-tokens.py --agent <id> ... --until <go-ahead, UTC>`. State its scope
+    summed per response (input + cache-write + cache-read + output), the `subagent-tokens:` line
+    `python3 scripts/post-mr-cost.py --measure` prints (trueppm#4865; it posts nothing, and you
+    never run the three measuring scripts by hand). State its scope
     once under `## Notes`: "subagent-tokens: agents the orchestrator named and their descendants,
     up to the go-ahead".
   - `orchestrator-tokens: <N>`: digits only. The orchestrating session's own usage over the
-    branch, from `python3 scripts/orchestrator-tokens.py --since <implementer spawn, UTC> --until
-    <go-ahead, UTC>`. Same unit as `subagent-tokens:`, but session spend over the window, not
-    attribution to the MR: neither line contains the other, so never sum them as the MR's cost,
-    and never sum it across the MRs of one wave. It covers the current session only; on a branch
+    branch, the `orchestrator-tokens:` line `python3 scripts/post-mr-cost.py --measure` prints.
+    Same unit as `subagent-tokens:`, but session spend over the window, not attribution to the MR:
+    neither line contains the other, so never sum them as the MR's cost. The window is what this
+    session has not yet claimed in an earlier cost record, so a snapshot line can still cover a
+    stretch another MR's snapshot covers; the `## Cost of this MR` comments (posted by the hook
+    and `post-mr-cost.py --round`, never typed by hand) are the non-overlapping record. It covers
+    the current session only; on a branch
     resumed from another session, omit it or write "orchestrator-tokens: current session only"
     under `## Notes`.
-  - `est-cost-usd: <N.NN> (prices YYYY-MM-DD)`: the one estimate, the stdout of
-    `python3 scripts/est-cost.py --agent <id> ... --since <implementer spawn, UTC> --until <go-ahead, UTC>`,
+  - `est-cost-usd: <N.NN> (prices YYYY-MM-DD)`: the one estimate, the line
+    `python3 scripts/post-mr-cost.py --measure` prints,
     priced per response at list prices from `.claude/model-prices.json`. Paste it unchanged. It is
     a list-price equivalent, not what a subscription charged, and never a measured figure.
-  - `--no-agents` (to `subagent-tokens.py` and `est-cost.py`, in place of `--agent`) is only for a
-    branch on which **no Agent call was made at all**: `subagent-tokens: 0` is then a measured zero
-    and the estimate prices the orchestrator alone. The pre-MR gates and `completeness-check` are
-    spawned agents here, so a branch that ran any of them names every `agentId` with `--agent`
-    instead; a false `--no-agents` records a 0 that hides their usage. Without either flag both
-    scripts exit 2, so a forgotten `--agent` never becomes a 0.
-  - Outside `/wave` (which holds the real figures, above) there is no implementer spawn: take
-    `--since` as the time work on the branch started in this session (the first commit's author
-    time, `git log --reverse --format=%aI origin/main..HEAD | head -n1`, converted to UTC, or
-    earlier if you know it) and say which in `## Notes`. To get a per-model split for the cost
-    comment, run each script with `2> >(tee -a "$COST_SPLIT" >&2)` after truncating
-    `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; : > "$COST_SPLIT"`, exactly as
-    `/wave` does; otherwise drop `--split` from the cost-comment command below.
-  - One line each per MR. **Omit a line when its script exited non-zero** (an agent id with no
-    transcript, an unresolved session directory, a stale price table) and put the script's
-    `note:` or the reason under `## Notes`. A missing or malformed figure is never written as 0.
+  - Which top-level agents `--measure` counts is decided first by where each agent acts, read from
+    its own transcript (the git worktree, and so the branch, its Edit/Write calls land in, else the
+    one its `cd` / `git -C` calls target), and only when that is unknown by its brief (the first
+    message it was sent): a brief that names this branch or its worktree leaf is counted, one that
+    names another `feat|fix|docs|chore/<N>-` branch or worktree path is left for that branch, and an
+    unnamed gate is counted when it has usage in the window. Name an agent explicitly with `--agent <id>`, and add
+    `--pin` (in the branch's own worktree) to record it for this branch so the hook and `--round`
+    attribute it the same way. Outside `/wave`, run `python3 scripts/post-mr-cost.py --measure` in
+    the branch's worktree: the window is what this session has not yet claimed, so no `--since`
+    is needed.
+  - One line each per MR. **Omit a line `--measure` did not print** (an agent id with no
+    transcript, an unresolved session directory, a stale price table) and put the `note:` or the
+    reason it printed on stderr under `## Notes`. A missing or malformed figure is never written as 0.
     Refresh `.claude/model-prices.json` from its `source` URL when `checked` ages out.
   - **The comment posts automatically.** A PostToolUse hook (`.claude/hooks/post-mr-cost.sh`)
     posts record 1 after `glab mr create` unless `scripts/cost-ledger enabled` is not 0, the
@@ -299,15 +299,11 @@ automatically on push.
 
 **Cost comment.** With `scripts/cost-ledger enabled` exit 0, the hook posts record 1 when
 `glab mr create` returns (see the cost lines above). Check its result: the `additionalContext`
-line, or `mr-cost-hook.log` in `git rev-parse --git-common-dir`. Post by hand only if the hook
-skipped or failed: write the description to a file (or fetch it with
-`glab api projects/:id/merge_requests/<iid>`), run
-`COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`
-(drop `--split` when no per-model split was recorded; the comment then says `n/a` with the
-reason). Do not write `mr-cost-last-until.${CLAUDE_CODE_SESSION_ID:?}`: this path measures nothing, and a
-go-ahead time older than that file's value would move the next plain `/mr` window backward. Exit 3 means the ledger is off or unreadable:
-post nothing. Exit 4 or 5: say so in the report. The format and the later-record rules are in
-`docs/harness/cost-ledger.md` § *The cost records*.
+line, or `mr-cost-hook.log` in `git rev-parse --git-common-dir`. If it skipped or failed, run the
+command its message prints (`python3 scripts/post-mr-cost.py --retry --mr <iid> --session <sid>`)
+and report it; do not run `scripts/cost-table.py` or the measuring scripts by hand, which would
+post a record that does not advance the session state. The format and the later-record rules are in
+`docs/harness/cost-ledger.md` § *The cost records* and § *Non-overlap*.
 
 Emit the `scripts/wt prune` line whenever the branch lives in a worktree (its path is
 under `../trueppm-wt/`); omit it for a branch checked out in the main checkout. **Nothing

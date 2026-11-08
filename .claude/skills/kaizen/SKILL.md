@@ -293,7 +293,9 @@ if usd:
   aged out (`checked` in `.claude/model-prices.json` is over 90 days old) or a model has no
   row; re-copy the table from its `source`.
 - `orchestrator-tokens:` is session spend over a window that several branches of one wave
-  share: never sum it across MRs, and never add it to `subagent-tokens:` as an MR's cost.
+  can share, because the `## Gates` lines are `--measure` snapshots: never sum those lines across
+  MRs, and never add it to `subagent-tokens:` as an MR's cost. The `## Cost of this MR` records
+  are the non-overlapping source; only the snapshots are shared.
 - Fewer than 5 MRs with the line is "not enough data yet", the same rule as yield.
 
 ### 1h. Flow metrics — WIP level and worktree age
