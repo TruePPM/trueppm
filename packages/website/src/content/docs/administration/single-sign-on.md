@@ -131,6 +131,8 @@ case for an identity provider running inside your own cluster — the card shows
 an inline hint pointing at `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` instead of only the
 raw diagnosis; see [Running the identity provider inside your
 cluster](#running-the-identity-provider-inside-your-cluster) below.
+If you have set that variable and the probe still times out, see [If the allow-list
+does not fix it](#if-the-allow-list-does-not-fix-it-check-your-own-networkpolicy).
 
 The **Scopes** shown on the form are fixed by the open-source core
 (`openid email profile` for OIDC, `read:user user:email` for GitHub) and cannot be
