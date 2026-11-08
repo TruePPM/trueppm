@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export interface QueryErrorStateProps {
+interface BaseQueryErrorStateProps {
   /** Short failure message — defaults to a generic load error. */
   message?: ReactNode;
   /**
@@ -19,6 +19,29 @@ export interface QueryErrorStateProps {
   className?: string;
 }
 
+interface PageQueryErrorStateProps {
+  /**
+   * `page` — the shell v2 Pass 2 error state (rule 439): neutral, not red; it
+   * says what still works and carries a short support code. Red is reserved for
+   * critical and blocked (rule 440) — a failed request is neither, and a red
+   * page told people their PROJECT was in trouble when only a fetch was.
+   */
+  variant: 'page';
+  /** One sentence on what failed. */
+  message?: string;
+  /**
+   * What still works while this is down — required, because "everything is
+   * broken" is almost never true and is what a bare error implies.
+   */
+  stillWorks: string;
+  /** Short code support can match to a log line — see `lib/supportCode`. */
+  supportCode: string;
+  onRetry?: () => void;
+  className?: string;
+}
+
+export type QueryErrorStateProps = BaseQueryErrorStateProps | PageQueryErrorStateProps;
+
 /**
  * Shared "couldn't load — Retry" state for TanStack Query fetch failures
  * (issue #1764).
@@ -32,12 +55,17 @@ export interface QueryErrorStateProps {
  * `role="alert"` announces the failure to assistive tech; the Retry control is a
  * real button with a visible focus ring.
  */
-export function QueryErrorState({
+export function QueryErrorState(props: QueryErrorStateProps) {
+  if (props.variant === 'page') return <PageQueryErrorState {...props} />;
+  return <BaseQueryErrorState {...props} />;
+}
+
+function BaseQueryErrorState({
   message = "Couldn't load data.",
   onRetry,
   variant = 'fill',
   className = '',
-}: QueryErrorStateProps) {
+}: BaseQueryErrorStateProps) {
   const retry = onRetry ?? (() => window.location.reload());
   const isFill = variant === 'fill';
 
@@ -72,6 +100,44 @@ export function QueryErrorState({
           Retry
         </button>
       </p>
+    </div>
+  );
+}
+
+/**
+ * Pass 2 page error: left-aligned like the empty state, in ink and hairline
+ * rather than red. `role="alert"` because the surface the person navigated to
+ * did not load — the same reason the `fill` variant is assertive.
+ */
+function PageQueryErrorState({
+  message = "This page couldn't load.",
+  stillWorks,
+  supportCode,
+  onRetry,
+  className = '',
+}: PageQueryErrorStateProps) {
+  const retry = onRetry ?? (() => window.location.reload());
+  return (
+    <div
+      role="alert"
+      data-testid="query-error-state"
+      data-variant="page"
+      className={`flex flex-col items-start gap-2 border-t border-p1-hairline py-8 text-left ${className}`}
+    >
+      <p className="text-[15px] font-semibold leading-[22px] text-p1-text-1">{message}</p>
+      <p className="max-w-[480px] text-[13px] leading-[20px] text-p1-text-2">{stillWorks}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={retry}
+          className="inline-flex h-8 items-center rounded-md border border-p1-hairline-strong bg-p1-surface-1 px-3 text-[13px] font-medium text-p1-text-1 hover:bg-p1-surface-2 focus:outline-none focus:ring-2 focus:ring-p1-focus focus:ring-offset-2 focus:ring-offset-p1-surface-1 [@media(pointer:coarse)]:h-11 max-md:h-11"
+        >
+          Retry
+        </button>
+        <span className="text-xs text-p1-text-3">
+          Support code <span className="font-mono tabular-nums text-p1-text-2">{supportCode}</span>
+        </span>
+      </div>
     </div>
   );
 }

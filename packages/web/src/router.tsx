@@ -134,6 +134,9 @@ const ProgramListPage = lazy(() =>
 const WorkPage = lazy(() =>
   import('@/features/shell2/WorkPage').then((m) => ({ default: m.WorkPage })),
 );
+const KitPage = lazy(() =>
+  import('@/features/shell2/KitPage').then((m) => ({ default: m.KitPage })),
+);
 const ProgramShell = lazy(() =>
   import('@/features/programs/ProgramShell').then((m) => ({ default: m.ProgramShell })),
 );
@@ -1006,6 +1009,16 @@ export const routes: RouteObject[] = [
                   </Suspense>
                 ),
                 handle: { title: 'Work' } satisfies RouteHandle,
+              },
+              // Shell v2 Pass 2 page-kit fixture (#4795); redirects home when the flag is off.
+              {
+                path: 'shell2/kit',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <KitPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Page kit' } satisfies RouteHandle,
               },
               {
                 path: 'programs',

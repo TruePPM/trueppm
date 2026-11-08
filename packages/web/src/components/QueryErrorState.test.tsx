@@ -37,3 +37,31 @@ describe('QueryErrorState', () => {
     expect(inline.className).toMatch(/min-h-24/);
   });
 });
+
+describe('QueryErrorState — Pass 2 page variant (rule 439)', () => {
+  it('is neutral, says what still works, and carries a support code', () => {
+    render(
+      <QueryErrorState
+        variant="page"
+        message="The risk register couldn't load."
+        stillWorks="The schedule still works."
+        supportCode="503-090503"
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent("The risk register couldn't load.");
+    expect(alert).toHaveTextContent('The schedule still works.');
+    expect(alert).toHaveTextContent('Support code 503-090503');
+    // Neutral, not red: red is reserved for critical and blocked (rule 440).
+    expect(alert.innerHTML).not.toMatch(/critical/);
+  });
+
+  it('retries through the handler', async () => {
+    const onRetry = vi.fn();
+    render(
+      <QueryErrorState variant="page" stillWorks="x" supportCode="NET-000000" onRetry={onRetry} />,
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+});

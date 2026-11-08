@@ -29,7 +29,11 @@ describe('EmptyState', () => {
       <EmptyState
         icon={ListIcon}
         title="No tasks yet"
-        action={<button type="button" onClick={onClick}>Add task</button>}
+        action={
+          <button type="button" onClick={onClick}>
+            Add task
+          </button>
+        }
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
@@ -48,5 +52,48 @@ describe('EmptyState', () => {
   it('accepts a className for hosts that must fill their area', () => {
     render(<EmptyState icon={ListIcon} title="x" className="h-full" />);
     expect(screen.getByTestId('empty-state').className).toContain('h-full');
+  });
+});
+
+describe('EmptyState — Pass 2 page variant (rule 439)', () => {
+  it('is left-aligned with no illustration', () => {
+    render(<EmptyState variant="page" title="No risks logged yet" description="Log one." />);
+    const block = screen.getByTestId('empty-state');
+    expect(block).toHaveAttribute('data-variant', 'page');
+    expect(block).toHaveClass('text-left', 'items-start');
+    expect(block.querySelector('svg')).toBeNull();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'No risks logged yet' }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders up to two actions', () => {
+    render(
+      <EmptyState
+        variant="page"
+        title="Empty"
+        actions={[
+          <button key="a" type="button">
+            Log a risk
+          </button>,
+          <button key="b" type="button">
+            Import
+          </button>,
+        ]}
+      />,
+    );
+    expect(screen.getAllByRole('button')).toHaveLength(2);
+  });
+
+  it('refuses a third action at the type level', () => {
+    render(
+      <EmptyState
+        variant="page"
+        title="Empty"
+        // @ts-expect-error — the tuple type caps actions at two.
+        actions={[<span key="1" />, <span key="2" />, <span key="3" />]}
+      />,
+    );
+    expect(screen.getByTestId('empty-state')).toBeInTheDocument();
   });
 });

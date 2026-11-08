@@ -202,6 +202,26 @@ describe.each([
     for (let i = 1; i < vs.length; i += 1) expect(vs[i]).toBeGreaterThan(vs[i - 1]);
   });
 
+  // Pass 2 chip contract (#4795, rule 440): a StatusChip renders on the sheet,
+  // on the canvas (home tiles), and on a hovered table row (surface-2), so its
+  // tint is composited over each before the text is measured.
+  it.each(['surface-0', 'surface-1', 'surface-2'] as const)(
+    'every Pass 2 chip clears 4.5:1 with its tint composited over %s',
+    (ground) => {
+      const g = tokens[ground];
+      const onTint = (text: string, tint: string) => contrastOnTint(tokens[text], tokens[tint], g);
+      expect(onTint('critical', 'critical-tint')).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+      expect(onTint('risk-text', 'risk-tint')).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+      expect(onTint('ok', 'ok-tint')).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+      expect(onTint('info', 'info-tint')).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+    },
+  );
+
+  it('the neutral chip and the avatar fill keep text AA (text-2 on surface-2, text-1 on surface-3)', () => {
+    expect(contrast(tokens['text-2'], tokens['surface-2'])).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+    expect(contrast(tokens['text-1'], tokens['surface-3'])).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  });
+
   it('focus ring clears 3:1 against the sheet (WCAG 1.4.11)', () => {
     expect(contrast(tokens.focus, tokens['surface-1'])).toBeGreaterThanOrEqual(AA_NON_TEXT);
   });

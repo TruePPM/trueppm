@@ -41,8 +41,17 @@ export interface LoadingSkeletonProps {
    *
    * `rows` — a compact stack sized for an in-page settings section, honoring the
    * settings density exception (which covers size, not the skeleton contract).
+   *
+   * `table` — the shell v2 Pass 2 table skeleton (rule 439): real chrome first.
+   * The header renders the REAL column names (pass `columns`) and a known
+   * count (`count`), and only the cell values are ghosts, at the 36px row
+   * height, so nothing moves when the data paints.
    */
-  variant?: 'shell' | 'rows';
+  variant?: 'shell' | 'rows' | 'table';
+  /** `table` only: the real column headers. */
+  columns?: ReadonlyArray<string>;
+  /** `table` only: a count already known before the rows ("24 tasks"), shown as real text. */
+  count?: string;
   /** How many content ghosts to render. */
   rows?: number;
   /** Extra classes on the status wrapper — spacing is the caller's business. */
@@ -62,10 +71,55 @@ export function LoadingSkeleton({
   variant = 'rows',
   rows = 3,
   className = '',
+  columns = [],
+  count,
 }: LoadingSkeletonProps) {
+  if (variant === 'table') {
+    return (
+      <div role="status" aria-label={label} className={`flex flex-col gap-2 ${className}`}>
+        {count && (
+          <p aria-hidden="true" className="text-xs text-p1-text-2">
+            {count}
+          </p>
+        )}
+        <div
+          aria-hidden="true"
+          className="overflow-hidden rounded-md border border-p1-hairline bg-p1-surface-1"
+        >
+          <div className="flex h-8 items-center border-b border-p1-hairline">
+            {columns.map((c) => (
+              <span
+                key={c}
+                className="min-w-0 flex-1 truncate px-3 text-xs font-medium text-p1-text-2"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+          {Array.from({ length: rows }).map((_, i) => (
+            <div
+              key={i}
+              className="flex h-9 items-center border-b border-p1-hairline last:border-b-0"
+            >
+              {columns.map((c) => (
+                <span key={c} className="flex-1 px-3">
+                  <span className="block h-3 w-3/5 rounded motion-safe:animate-pulse bg-p1-surface-3" />
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (variant === 'shell') {
     return (
-      <div role="status" aria-label={label} className={`flex h-full flex-col gap-4 p-4 ${className}`}>
+      <div
+        role="status"
+        aria-label={label}
+        className={`flex h-full flex-col gap-4 p-4 ${className}`}
+      >
         {/* Toolbar band — every surface opens with one, so ghosting it keeps the
             layout from jumping when the real toolbar paints. */}
         <div className="flex items-center gap-3">
