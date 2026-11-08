@@ -86,4 +86,22 @@ test.describe('Program Overview rollup empty state (#4506)', () => {
     await expect(page.getByRole('link', { name: 'Configure rollup' })).toBeVisible();
     await expect(page.getByText(/Enterprise/)).toHaveCount(0);
   });
+
+  test('P80 completion renders as a date that says what it excludes (#4779)', async ({ page }) => {
+    await setup(page, {
+      p80_completion: {
+        available: true,
+        unit: 'date',
+        value: '2027-05-01',
+        as_of: '2026-11-04T09:12:00Z',
+        driver_project_id: 'e2e-project-1',
+        projects_without_forecast: 1,
+      },
+      schedule_health: { available: true, value: 'unknown', reason: 'no_planned_work' },
+    });
+    const kpis = page.getByRole('region', { name: 'Program KPIs' });
+    await expect(kpis.getByText('excludes 1 project without a forecast')).toBeVisible();
+    await expect(kpis.getByText('2027-05-01')).toHaveCount(0);
+    await expect(kpis.getByText('No work planned yet')).toBeVisible();
+  });
 });

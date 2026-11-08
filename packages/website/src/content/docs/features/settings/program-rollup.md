@@ -100,19 +100,7 @@ Defaults are a starting point. Once seeded, the config is yours: changing the pr
 
 ## Health aggregation policy
 
-The aggregation policy decides how the individual project health signals combine into the **one** program health dot shown on the overview.
-
-:::note[Ships in 0.5]
-When 0.5 lands, the program health dot will roll up each project's **health
-band**, the same band that project's own health chip shows: its project
-manager's report when one is filed, otherwise its critical and at-risk task
-counts. A program manager's own health report (General → Health) will be the dot
-when one is set. In
-the current release the dot rolls up each project's schedule performance band
-instead, the same value as the Schedule health KPI.
-:::
-
- It is a single program-wide choice (a radio group), not a per-KPI setting. Because it changes what executives see at a glance, this control uses an **explicit Save** with an "Unsaved changes" prompt rather than saving on every click.
+The aggregation policy decides how the individual project health signals combine into the **one** program health dot shown on the overview. That dot is the rollup of each project's schedule performance band, the same value as the Schedule health KPI; it is not a rollup of the project health chips. It is a single program-wide choice (a radio group), not a per-KPI setting. Because it changes what executives see at a glance, this control uses an **explicit Save** with an "Unsaved changes" prompt rather than saving on every click.
 
 | Policy | Identifier | How project health combines |
 |--------|-----------|------------------------------|

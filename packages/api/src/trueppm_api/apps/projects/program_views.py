@@ -3062,7 +3062,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         could be honored), the contributing project count, and a per-KPI map.
         This endpoint owns the program-level figures (ADR-1314 amendment, #4779):
         it carries ``as_of`` and a ``definitions`` map, ``program_health`` is the
-        project health band rolled up (or the program manager's report), and a
+        SPI schedule-health rollup (ADR-0088), and a
         configured figure with no value carries a ``reason`` instead of being
         dropped.
 

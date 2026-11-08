@@ -350,7 +350,7 @@ Enterprise (ADR-0070, ADR-0088).
 
 | Metric | Owner | Field | as_of |
 |---|---|---|---|
-| Program health | `GET /programs/{id}/rollup/` | `program_health` (+ `program_health_source`, `program_health_reason`) | `as_of` |
+| Program health | `GET /programs/{id}/rollup/` | `program_health` (+ `program_health_reason`) | `as_of` |
 | Schedule performance (program) | rollup | `kpis.schedule_health` | `as_of` |
 | Milestone health | rollup | `kpis.milestone_health` | `as_of` |
 | Critical / at-risk tasks (program) | rollup | `kpis.critical_tasks`, `kpis.at_risk_tasks` | `as_of` |
@@ -366,38 +366,34 @@ keyed by the KPI's name. The sentences live in `METRIC_DEFINITIONS` under
 is also a project figure with its own sentence. The metric-vocabulary page states
 each sentence once, enforced by the existing sync test.
 
-### Program health is the project health band, rolled up
+### Program health stays the SPI rollup
 
-Binding maintainer decision (recorded on #4795, 2026-11-07): the shell v2 RAG chip
-is a presentation of the server health band (rule 397). There is no second health
-vocabulary and no client-side threshold. The design's "Green P80 <= commitment /
-Amber <= 5 working days" rule is not adopted as a metric.
+Decision (maintainer, 2026-11-07, on #4779): `program_health` is unchanged. It is
+the SPI `schedule_health` bands rolled up under the aggregation policy, as
+ADR-0088 defines it, and it is **not** a rollup of the project health band.
 
-`program_health` used to be the SPI `schedule_health` bands rolled up, and this
-ADR defines that figure as "Not the project health band". A program overview
-showing it as health next to project rows that show the project band would bring
-back, one level up, the disagreement this ADR removes. So:
+This amendment first proposed rolling up `compute_health_band`, so that a program
+overview and the project rows beside it could not show two health vocabularies.
+That was rejected on the data: the project band is critical whenever any
+incomplete leaf task is on the critical path, and on real CPM output every project
+with open work has a critical leaf (the longest path is never empty). Rolled up
+under the default worst-case policy, nearly every program would read Critical, so
+the figure would carry no information. The earlier example of a program "late on
+SPI yet on track" cannot arise from CPM data for the same reason, and is not a
+case this ADR relies on.
 
-- each contributing project's band is `compute_health_band` (the project
-  manager's report, else the critical and at-risk counts), the same call
-  status-summary and the my-projects list make, over the same grouped
-  `risk_counts_by_project`;
-- the bands combine under the program's aggregation policy, as before;
-- the program manager's own `Program.health` report, when filed, is the band, the
-  way a project manager's report wins over the counts. `program_health_source` is
-  `reported` or `derived`, for the reason `health_band_source` exists (#3525);
-- `program_health` is `unknown` only for an empty program with no report, with
-  `program_health_reason: no_projects`. The project band is never unknown.
+The disagreement risk is handled by naming instead. The definition of
+`program_health` says it is the SPI rollup and "Not the project health band", the
+way `schedule_health` says "Not the project health band" at project level, so a
+client renders the sentence it is handed rather than its own.
 
-The SPI rollup stays available as the `schedule_health` KPI, defined as "Not the
-program health band". `top_contributing_project`, which names the project in the
-weekly program-health digest, ranks by the same project bands. It returns no
-project when every project is on track, because none of them drags the program
-down.
-
-This changes the value of `program_health` for some programs: a program late on
-SPI but with no critical or low-float work now reads on track, and a project
-manager's Critical report now reaches the program band. That change is intended.
+- `Program.health` (the program manager's filed report) does not feed the payload,
+  as before this amendment, so there is no `program_health_source`.
+- `program_health_reason` is added (rule 119): `no_projects` for an empty program,
+  `no_planned_work` when no contributing project has work planned by today, else
+  null.
+- `top_contributing_project` and the weekly program-health digest keep ranking and
+  filtering on the same SPI bands the headline reads.
 
 ### P80 completion is computed
 

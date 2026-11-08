@@ -11159,7 +11159,7 @@
         "/api/v1/programs/{id}/rollup/": {
             "get": {
                 "operationId": "v1_programs_rollup_retrieve",
-                "description": "Computed rollup of the enabled KPIs across the program's projects.\n\nURL: ``GET /api/v1/programs/{pk}/rollup/``\n\nConsumes the #527 config (``rollup_enabled_kpis`` +\n``rollup_aggregation_policy``) and returns the rolled-up values per\nADR-0088 — the program health band, the active policy (and whether it\ncould be honored), the contributing project count, and a per-KPI map.\nThis endpoint owns the program-level figures (ADR-1314 amendment, #4779):\nit carries ``as_of`` and a ``definitions`` map, ``program_health`` is the\nproject health band rolled up (or the program manager's report), and a\nconfigured figure with no value carries a ``reason`` instead of being\ndropped.\n\nRead-only and computed on demand (no persisted rollup row), so it always\nreflects the projects' current state. Permission: any program member.\n\nThe cost KPIs (``cost_variance`` / ``budget_utilization``) carry values only\nfor a caller who is program Admin+ AND project Admin+ on every contributing\nproject (ADR-1324 §4); everyone else gets\n``{\"available\": False, \"reason\": \"cost_restricted\"}``. A token caller is\njudged by its user's role, so an MCP agent sees what its human would.",
+                "description": "Computed rollup of the enabled KPIs across the program's projects.\n\nURL: ``GET /api/v1/programs/{pk}/rollup/``\n\nConsumes the #527 config (``rollup_enabled_kpis`` +\n``rollup_aggregation_policy``) and returns the rolled-up values per\nADR-0088 — the program health band, the active policy (and whether it\ncould be honored), the contributing project count, and a per-KPI map.\nThis endpoint owns the program-level figures (ADR-1314 amendment, #4779):\nit carries ``as_of`` and a ``definitions`` map, ``program_health`` is the\nSPI schedule-health rollup (ADR-0088), and a\nconfigured figure with no value carries a ``reason`` instead of being\ndropped.\n\nRead-only and computed on demand (no persisted rollup row), so it always\nreflects the projects' current state. Permission: any program member.\n\nThe cost KPIs (``cost_variance`` / ``budget_utilization``) carry values only\nfor a caller who is program Admin+ AND project Admin+ on every contributing\nproject (ADR-1324 §4); everyone else gets\n``{\"available\": False, \"reason\": \"cost_restricted\"}``. A token caller is\njudged by its user's role, so an MCP agent sees what its human would.",
                 "summary": "Compute the program KPI rollup across its projects",
                 "parameters": [
                     {
@@ -66772,22 +66772,13 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "The program's health: the program manager's own report when one is filed, otherwise each contributing project's health band combined under the program's aggregation policy; unknown only when the program has no contributing projects.\n\n* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical\n* `unknown` - unknown"
-                    },
-                    "program_health_source": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/HealthBandSourceEnum"
-                            }
-                        ],
-                        "readOnly": true,
-                        "description": "reported: the program manager's own health report decided the band; derived: it is the rollup of the project health bands.\n\n* `reported` - reported\n* `derived` - derived"
+                        "description": "Each contributing project's schedule performance band (the SPI proxy: completed planned work divided by work planned by today) combined under the program's aggregation policy, leaving out projects with nothing planned yet; unknown when none has. Not the project health band.\n\n* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical\n* `unknown` - unknown"
                     },
                     "program_health_reason": {
                         "type": "string",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "no_projects when program_health is unknown, else null (rule 119)."
+                        "description": "Why program_health is unknown (rule 119): no_projects, or no_planned_work when no contributing project has work planned by today; else null."
                     },
                     "kpis": {
                         "type": "object",
@@ -66820,7 +66811,6 @@
                     "policy_unavailable_reason",
                     "program_health",
                     "program_health_reason",
-                    "program_health_source",
                     "project_count"
                 ]
             },
@@ -66861,7 +66851,7 @@
                     "program_health": {
                         "type": "string",
                         "readOnly": true,
-                        "description": "The program's health: the program manager's own report when one is filed, otherwise each contributing project's health band combined under the program's aggregation policy; unknown only when the program has no contributing projects."
+                        "description": "Each contributing project's schedule performance band (the SPI proxy: completed planned work divided by work planned by today) combined under the program's aggregation policy, leaving out projects with nothing planned yet; unknown when none has. Not the project health band."
                     },
                     "schedule_variance": {
                         "type": "string",

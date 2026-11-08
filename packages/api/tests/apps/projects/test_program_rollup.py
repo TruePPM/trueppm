@@ -5,8 +5,8 @@ Covers:
 - Empty program → project_count 0, program_health "unknown", zero/None KPIs.
 - Only enabled KPIs appear; cost KPIs are cost_restricted for a program Member
   (ADR-1324 — their computation is covered in test_cost.py). Provenance
-  (definitions, as_of, rule-119 reasons, program_health as the project band
-  rolled up, p80_completion) is covered in test_program_rollup_provenance.py.
+  (definitions, as_of, rule-119 reasons, p80_completion) is covered in
+  test_program_rollup_provenance.py.
 - Count/score KPIs (critical_tasks, at_risk_tasks, risk_score) roll up as
   program totals regardless of policy.
 - Health/variance KPIs honor the policy: worst vs average reduce differently.
@@ -294,10 +294,7 @@ def test_schedule_health_worst_takes_the_critical_project(
     _configure(program, [RollupKpi.SCHEDULE_HEALTH.value], AggregationPolicy.WORST.value)
     data = _client(member).get(_url(program)).data
     assert data["kpis"]["schedule_health"]["value"] == "critical"
-    # program_health is the project health band rolled up, not the SPI rollup
-    # (ADR-1314 amendment, #4779): neither project has a critical or low-float
-    # task, so both project bands — and the program's — read on track.
-    assert data["program_health"] == "on_track"
+    assert data["program_health"] == "critical"
 
 
 @pytest.mark.django_db
@@ -367,9 +364,8 @@ def test_top_contributing_project_tie_break_excludes_phase_rows(
     """The worst-project tie-break's critical_counts must not double-count a
     phase on top of the leaf whose `is_critical` it rolled up (#4276).
 
-    Both projects land in the same project health band (critical: each has open
-    critical-path leaf work, the band ``top_contributing_project`` ranks by since
-    #4779). Project "AAA" has ONE real critical leaf
+    Both projects land in the same health band (critical, SPI 0 via
+    :func:`_make_critical_project`). Project "AAA" has ONE real critical leaf
     wrapped in a phase; project "BBB" has TWO separate critical leaf tasks.
     Unfixed, the phase inflates "AAA"'s count to a tie (2 vs 2), and the
     tie-break's ascending-name fallback then picks "AAA" — the wrong project,
@@ -624,14 +620,11 @@ def test_schedule_health_day_boundary_follows_configured_timezone(
     # 23:30 on 2026-06-15 UTC is still the 15th in UTC but already the 16th at UTC+14.
     frozen_now = datetime.datetime(2026, 6, 15, 23, 30, tzinfo=datetime.UTC)
 
-    # The SPI band is the day-boundary-sensitive one; program_health is the project
-    # health band since #4779 and does not read today.
-    _configure(program, [RollupKpi.SCHEDULE_HEALTH.value], AggregationPolicy.WORST.value)
     with patch("django.utils.timezone.now", return_value=frozen_now):
         with override_settings(TIME_ZONE="UTC"):
-            utc_health = compute_program_rollup(program)["kpis"]["schedule_health"]["value"]
+            utc_health = compute_program_rollup(program)["program_health"]
         with override_settings(TIME_ZONE="Pacific/Kiritimati"):
-            kiritimati_health = compute_program_rollup(program)["kpis"]["schedule_health"]["value"]
+            kiritimati_health = compute_program_rollup(program)["program_health"]
 
     # UTC today = 06-15: the task is not yet due → no due-by-today work → unknown.
     assert utc_health == "unknown"

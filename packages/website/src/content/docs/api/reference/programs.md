@@ -45,11 +45,10 @@ the program health band and every KPI the program has enabled in
 non-draft projects only, never another program.
 
 :::note[Ships in 0.5]
-`as_of`, `definitions`, `program_health_source`, `program_health_reason`, the
+`as_of`, `definitions`, `program_health_reason`, the
 per-KPI `reason` on a KPI with no value, and a computed `p80_completion` ship in
-0.5. From 0.5 `program_health` will also change meaning: it will roll up each
-project's health band (or be the program manager's own report) instead of each
-project's schedule performance band. In 0.4 the response carries `aggregation_policy`,
+0.5. `program_health` keeps its meaning: the rollup of each project's
+schedule performance band. In 0.4 the response carries `aggregation_policy`,
 `policy_available`, `policy_unavailable_reason`, `project_count`,
 `program_health` and `kpis`, and `p80_completion` is
 `{"available": false, "reason": "no_montecarlo_store"}`.
@@ -62,7 +61,6 @@ project's schedule performance band. In 0.4 the response carries `aggregation_po
   "policy_unavailable_reason": null,
   "project_count": 3,
   "program_health": "at_risk",
-  "program_health_source": "derived",
   "program_health_reason": null,
   "kpis": {
     "critical_tasks": {"available": true, "value": 4},
@@ -83,11 +81,12 @@ project's schedule performance band. In 0.4 the response carries `aggregation_po
 }
 ```
 
-- `program_health` is `on_track`, `at_risk`, `critical`, or `unknown` (only for a
-  program with no projects and no health report, with `program_health_reason:
-  "no_projects"`). `program_health_source` is `reported` when the program
-  manager's health report decided it and `derived` when it is the rollup of the
-  project health bands.
+- `program_health` is `on_track`, `at_risk`, `critical`, or `unknown`. It is the
+  program's project schedule performance bands (the SPI proxy) combined under the
+  aggregation policy, the same value as the `schedule_health` KPI, and not a
+  rollup of the project health bands. `unknown` comes with a
+  `program_health_reason`: `no_projects` or `no_planned_work`; otherwise the
+  reason is `null`.
 - Each `kpis` entry is `{"available": false, "reason": ...}` when it cannot be
   shown to you (the cost KPIs below program and project manager), and otherwise
   carries `value`. A value of `null`, or `unknown` for a band, comes with a

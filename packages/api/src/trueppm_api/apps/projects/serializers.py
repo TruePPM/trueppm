@@ -3379,18 +3379,13 @@ class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
         read_only=True,
         help_text=METRIC_DEFINITIONS["program_health"],
     )
-    program_health_source = serializers.ChoiceField(
-        choices=["reported", "derived"],
-        read_only=True,
-        help_text=(
-            "reported: the program manager's own health report decided the band; "
-            "derived: it is the rollup of the project health bands."
-        ),
-    )
     program_health_reason = serializers.CharField(
         read_only=True,
         allow_null=True,
-        help_text="no_projects when program_health is unknown, else null (rule 119).",
+        help_text=(
+            "Why program_health is unknown (rule 119): no_projects, or no_planned_work "
+            "when no contributing project has work planned by today; else null."
+        ),
     )
     kpis = serializers.DictField(child=ProgramRollupKpiEntrySerializer(), read_only=True)
     as_of = serializers.DateTimeField(

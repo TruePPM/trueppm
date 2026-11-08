@@ -172,6 +172,66 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(reason.className).not.toMatch(/text-neutral-text-disabled/);
   });
 
+  it('renders an available p80_completion as a date that says what it excludes (#4779)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          p80_completion: {
+            available: true,
+            unit: 'date',
+            value: '2027-05-01',
+            as_of: '2026-11-04T09:12:00+00:00',
+            driver_project_id: 'proj-1',
+            projects_without_forecast: 2,
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('P80 completion')).toBeInTheDocument();
+    // A formatted calendar date, not the raw ISO string.
+    expect(screen.queryByText('2027-05-01')).not.toBeInTheDocument();
+    expect(screen.getByText(/2027/)).toBeInTheDocument();
+    expect(screen.getByText('excludes 2 projects without a forecast')).toBeInTheDocument();
+  });
+
+  it('says why a p80_completion with no forecast has no date (#4779)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          p80_completion: {
+            available: true,
+            unit: 'date',
+            value: null,
+            reason: 'no_forecast',
+            projects_without_forecast: 3,
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('No project has a forecast yet')).toBeInTheDocument();
+  });
+
+  it('renders the reason for a null count and for an unknown band (#4779)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          schedule_health: { available: true, value: 'unknown', reason: 'no_planned_work' },
+          baseline_variance: {
+            available: true,
+            value: null,
+            unit: 'calendar_days',
+            reason: 'no_baseline',
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('No work planned yet')).toBeInTheDocument();
+    expect(screen.getByText('Needs an active baseline')).toBeInTheDocument();
+  });
+
   it('renders a null variance as an em dash', async () => {
     mockApi(
       rollup({

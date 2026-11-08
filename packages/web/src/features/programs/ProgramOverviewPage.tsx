@@ -9,6 +9,7 @@ import { SampleDataBanner } from './SampleDataBanner';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
 import { useProgramId } from '@/hooks/useProgramId';
+import { fmtUtcLong } from '@/lib/formatUtcDate';
 
 // ---------------------------------------------------------------------------
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
@@ -68,10 +69,9 @@ export interface ProgramRollup {
    */
   policy_unavailable_reason?: 'no_budget' | 'cost_restricted' | null;
   project_count: number;
-  /** The project health band rolled up, or the program manager's report (ADR-1314). */
+  /** The SPI schedule-health rollup under the aggregation policy (ADR-0088, ADR-1314). */
   program_health: HealthBand;
-  program_health_source?: 'reported' | 'derived';
-  program_health_reason?: 'no_projects' | null;
+  program_health_reason?: 'no_projects' | 'no_planned_work' | null;
   kpis: Record<string, RollupKpiEntry>;
   /** When the server computed the payload; `p80_completion` carries its own. */
   as_of?: string;
@@ -128,6 +128,22 @@ const DEFERRED_REASON_LABEL: Record<UnavailableKpi['reason'], string> = {
   missing_rates: 'Needs a rate for everyone on the project',
   cost_restricted: 'Restricted to managers of every project',
 };
+
+// Plain-language copy for the rule-119 `reason` a figure carries when its value is
+// null (or a band is `unknown`). Unknown codes fall back to a generic line rather
+// than printing the machine string.
+const NO_VALUE_REASON_LABEL: Record<string, string> = {
+  no_projects: 'No projects in this program',
+  no_planned_work: 'No work planned yet',
+  no_milestones: 'No milestones yet',
+  no_baseline: 'Needs an active baseline',
+  no_completed_work: 'No baselined work complete yet',
+  no_forecast: 'No project has a forecast yet',
+};
+
+function noValueReason(reason: string | undefined): string | undefined {
+  return reason === undefined ? undefined : (NO_VALUE_REASON_LABEL[reason] ?? 'No data yet');
+}
 
 /** The reason line, naming how much is missing when the server says (ADR-1324 §3). */
 function unavailableSub(entry: UnavailableKpi): string {
@@ -299,12 +315,46 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
 
   if (HEALTH_KPIS.has(key)) {
     const band = (entry.value as HealthBand) ?? 'unknown';
-    return { key, label, value: HEALTH_LABEL[band], variant: HEALTH_VARIANT[band], muted: false };
+    return {
+      key,
+      label,
+      value: HEALTH_LABEL[band],
+      sub: band === 'unknown' ? noValueReason(entry.reason) : undefined,
+      variant: HEALTH_VARIANT[band],
+      muted: false,
+    };
   }
 
   if (VARIANCE_KPIS.has(key)) {
     const { display, variant } = formatVariance(entry.value as number | null);
-    return { key, label, value: display, sub: 'vs baseline', variant, muted: false };
+    return {
+      key,
+      label,
+      value: display,
+      sub: entry.value === null ? noValueReason(entry.reason) : 'vs baseline',
+      variant,
+      muted: false,
+    };
+  }
+
+  if (entry.unit === 'date') {
+    // An ISO calendar date, formatted UTC-pinned (web-rule 189). Projects with no
+    // forecast are left out of the date by the server, so the card says so.
+    const date = typeof entry.value === 'string' ? fmtUtcLong(entry.value) : null;
+    const skipped = entry.projects_without_forecast ?? 0;
+    return {
+      key,
+      label,
+      value: date ?? '—',
+      sub:
+        date === null
+          ? noValueReason(entry.reason)
+          : skipped > 0
+            ? `excludes ${skipped} ${skipped === 1 ? 'project' : 'projects'} without a forecast`
+            : undefined,
+      variant: 'neutral',
+      muted: false,
+    };
   }
 
   if (key === 'cost_variance') {
@@ -314,7 +364,12 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       key,
       label,
       value: amount === null ? '—' : formatMoney(amount, entry.unit),
-      sub: amount === null ? undefined : amount < 0 ? 'over budget' : 'under budget',
+      sub:
+        amount === null
+          ? noValueReason(entry.reason)
+          : amount < 0
+            ? 'over budget'
+            : 'under budget',
       variant: amount !== null && amount < 0 ? 'at-risk' : 'neutral',
       muted: false,
     };
@@ -326,7 +381,7 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       key,
       label,
       value: ratio === null ? '—' : `${Math.round(ratio * 100)}%`,
-      sub: ratio === null ? undefined : 'of budget spent',
+      sub: ratio === null ? noValueReason(entry.reason) : 'of budget spent',
       variant: ratio !== null && ratio > 1 ? 'at-risk' : 'neutral',
       muted: false,
     };
@@ -339,6 +394,7 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
     key,
     label,
     value: num === null ? '—' : String(num),
+    sub: num === null ? noValueReason(entry.reason) : undefined,
     variant: isAttentionKpi && (num ?? 0) > 0 ? 'at-risk' : 'neutral',
     muted: false,
   };

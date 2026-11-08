@@ -5,8 +5,9 @@
 - every payload carries ``as_of`` and a ``definitions`` map (``program_health``
   always, each KPI only while enabled), with the sentences from
   ``METRIC_DEFINITIONS``;
-- ``program_health`` is the project health band rolled up — the band each
-  project's status-summary prints — or the program manager's own report;
+- ``program_health`` stays the SPI ``schedule_health`` rollup (ADR-0088), NOT a
+  rollup of the project health band, which reads critical for any project with
+  open work on its critical path;
 - a configured figure that cannot be computed keeps its value (null / unknown)
   and carries a rule-119 ``reason``;
 - ``p80_completion`` is the latest project P80 from the same latest result
@@ -42,6 +43,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     RollupKpi,
     Task,
+    TaskStatus,
 )
 from trueppm_api.apps.projects.program_rollup import (
     ROLLUP_DEFINITION_KEY,
@@ -155,52 +157,78 @@ def test_every_kpi_has_a_definition(member: Any, program: Program) -> None:
 
 
 # ---------------------------------------------------------------------------
-# program_health — the project health band, rolled up
+# program_health — the SPI schedule-health rollup (ADR-0088), not project bands
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.django_db
-def test_program_health_matches_each_projects_status_summary_band(
-    owner: Any, program: Program, calendar: Calendar
-) -> None:
-    """One project: the program band IS that project's band, from its own owner."""
-    p = _project(program, calendar, "Solo")
-    ProjectMembership.objects.create(project=p, user=owner, role=Role.OWNER)
-    Task.objects.create(project=p, name="tight", duration=1, total_float=2)
+def _late_on_spi(project: Project) -> None:
+    """A baselined task due today and not complete: SPI 0 → critical schedule health."""
+    t = Task.objects.create(project=project, name="due", duration=1, early_finish=TODAY)
+    b = Baseline.objects.create(project=project, name="B", is_active=True, has_cpm_dates=True)
+    BaselineTask.objects.create(baseline=b, task_id=t.pk, task_name="due", finish=TODAY, duration=1)
 
-    project_band = (
-        _client(owner).get(f"/api/v1/projects/{p.pk}/status-summary/").data["health_band"]
-    )
-    data = _get(owner, program)
-    assert project_band == "at_risk"
-    assert data["program_health"] == project_band
-    assert data["program_health_source"] == "derived"
+
+@pytest.mark.django_db
+def test_program_health_is_the_schedule_health_rollup(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    _late_on_spi(_project(program, calendar, "Late on SPI"))
+    _configure(program, [RollupKpi.SCHEDULE_HEALTH.value])
+    data = _get(member, program)
+    assert data["kpis"]["schedule_health"]["value"] == "critical"
+    assert data["program_health"] == "critical"
     assert data["program_health_reason"] is None
 
 
 @pytest.mark.django_db
-def test_program_health_honors_a_project_managers_report(
-    member: Any, program: Program, calendar: Calendar
+def test_program_health_is_not_derived_from_project_health_bands(
+    owner: Any, member: Any, program: Program, calendar: Calendar
 ) -> None:
-    """A clean plan whose PM reported Critical rolls up as critical (#3501 one level up)."""
-    _project(program, calendar, "Reported", health=Health.CRITICAL)
-    _project(program, calendar, "Clean")
-    assert _get(member, program)["program_health"] == "critical"
+    """A project with open work on its critical path but healthy SPI is not Critical.
+
+    On real CPM data the longest path always holds an open critical leaf, so the
+    project health band reads critical for nearly every project with open work.
+    Rolling that band up would turn nearly every program Critical (the 0.5 decision
+    to keep the SPI basis). The setup is the realistic one: all work due by today is
+    complete (SPI 1.0) while the remaining critical-path work is still ahead.
+    """
+    p = _project(program, calendar, "On schedule")
+    ProjectMembership.objects.create(project=p, user=owner, role=Role.OWNER)
+    Task.objects.create(
+        project=p,
+        name="done",
+        duration=1,
+        early_finish=TODAY - datetime.timedelta(days=3),
+        status=TaskStatus.COMPLETE,
+        actual_finish=TODAY - datetime.timedelta(days=3),
+    )
+    Task.objects.create(
+        project=p,
+        name="ahead",
+        duration=5,
+        early_finish=TODAY + datetime.timedelta(days=10),
+        is_critical=True,
+    )
+    project_band = (
+        _client(owner).get(f"/api/v1/projects/{p.pk}/status-summary/").data["health_band"]
+    )
+    assert project_band == "critical"  # the project band DOES read critical ...
+    data = _get(member, program)
+    assert data["program_health"] == "on_track"  # ... the program band does not follow it
 
 
 @pytest.mark.django_db
-def test_program_health_is_not_the_schedule_performance_rollup(
+def test_program_health_ignores_a_filed_project_or_program_report(
     member: Any, program: Program, calendar: Calendar
 ) -> None:
-    """A project late on SPI but with no critical or low-float work is on track."""
-    p = _project(program, calendar, "Late on SPI")
-    t = Task.objects.create(project=p, name="due", duration=1, early_finish=TODAY)
-    b = Baseline.objects.create(project=p, name="B", is_active=True, has_cpm_dates=True)
-    BaselineTask.objects.create(baseline=b, task_id=t.pk, task_name="due", finish=TODAY, duration=1)
-    _configure(program, [RollupKpi.SCHEDULE_HEALTH.value])
+    """Neither a project's nor the program's filed Health feeds the rollup (as before #4779)."""
+    _project(program, calendar, "Reported", health=Health.CRITICAL)
+    program.health = Health.CRITICAL
+    program.save(update_fields=["health"])
     data = _get(member, program)
-    assert data["kpis"]["schedule_health"]["value"] == "critical"
-    assert data["program_health"] == "on_track"
+    assert data["program_health"] == "unknown"
+    assert data["program_health_reason"] == "no_planned_work"
+    assert "program_health_source" not in data
 
 
 @pytest.mark.django_db
@@ -211,22 +239,18 @@ def test_program_health_is_not_the_schedule_performance_rollup(
 def test_program_health_follows_the_policy(
     member: Any, program: Program, calendar: Calendar, policy: str, expected: str
 ) -> None:
-    _critical(_project(program, calendar, "A"))  # critical, ordinal 0
-    _project(program, calendar, "B")  # on track, ordinal 2
+    _late_on_spi(_project(program, calendar, "A"))  # critical, ordinal 0
+    ok = _project(program, calendar, "B")  # on track, ordinal 2
+    Task.objects.create(
+        project=ok,
+        name="done",
+        duration=1,
+        early_finish=TODAY,
+        status=TaskStatus.COMPLETE,
+        actual_finish=TODAY,
+    )
     _configure(program, [], policy)
     assert _get(member, program)["program_health"] == expected
-
-
-@pytest.mark.django_db
-def test_program_managers_report_wins_over_the_rollup(
-    member: Any, program: Program, calendar: Calendar
-) -> None:
-    _critical(_project(program, calendar, "A"))
-    program.health = Health.ON_TRACK
-    program.save(update_fields=["health"])
-    data = _get(member, program)
-    assert data["program_health"] == "on_track"
-    assert data["program_health_source"] == "reported"
 
 
 @pytest.mark.django_db
@@ -234,25 +258,18 @@ def test_empty_program_health_is_unknown_with_a_reason(member: Any, program: Pro
     data = _get(member, program)
     assert data["program_health"] == "unknown"
     assert data["program_health_reason"] == "no_projects"
-    # A filed report is a band even with no projects.
-    program.health = Health.AT_RISK
-    program.save(update_fields=["health"])
-    data = _get(member, program)
-    assert (data["program_health"], data["program_health_reason"]) == ("at_risk", None)
 
 
 @pytest.mark.django_db
-def test_top_contributing_project_ranks_by_the_project_band(
+def test_top_contributing_project_ranks_by_schedule_health(
     program: Program, calendar: Calendar
 ) -> None:
     _project(program, calendar, "Fine")
-    _project(program, calendar, "Reported", health=Health.AT_RISK)
+    late = _project(program, calendar, "Late")
+    _late_on_spi(late)
     worst = top_contributing_project(program)
     assert worst is not None
-    assert (worst["name"], worst["health"]) == ("Reported", "at_risk")
-
-    Project.objects.filter(name="Reported").update(health=Health.AUTO)
-    assert top_contributing_project(program) is None  # nothing drags it down
+    assert (worst["name"], worst["health"]) == ("Late", "critical")
 
 
 # ---------------------------------------------------------------------------

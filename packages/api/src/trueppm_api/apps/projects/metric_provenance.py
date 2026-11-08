@@ -139,10 +139,10 @@ METRIC_DEFINITIONS: dict[str, str] = {
     # The payload keys these by KPI name; the "rollup." prefix only keeps them apart
     # from the project-level sentences above (schedule_health is both).
     "program_health": (
-        "The program's health: the program manager's own report when one is filed, "
-        "otherwise each contributing project's health band combined under the "
-        "program's aggregation policy; unknown only when the program has no "
-        "contributing projects."
+        "Each contributing project's schedule performance band (the SPI proxy: "
+        "completed planned work divided by work planned by today) combined under the "
+        "program's aggregation policy, leaving out projects with nothing planned yet; "
+        "unknown when none has. Not the project health band."
     ),
     "rollup.schedule_health": (
         "Each contributing project's schedule performance band (the SPI proxy) "

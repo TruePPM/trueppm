@@ -281,9 +281,7 @@ overview shows a dash with the reason instead of a number.
 When 0.5 lands, no signal is locked. **Cost variance (CV)** and **Budget
 utilization** compute from the [cost model](/features/cost-model/) (project
 budgets and resource rates), and **P80 date** computes from each project's
-latest Monte Carlo forecast (the latest of their P80 dates). The program health
-shown under **Auto** then rolls up each project's health band, the band that
-project's own health chip shows, rather than its schedule performance. A cost KPI
+latest Monte Carlo forecast (the latest of their P80 dates). A cost KPI
 that cannot compute names what is missing instead (a project with no budget,
 or people with no rate), and shows a value only to someone who is Program
 Manager or above on the program **and** Project Manager or above on every

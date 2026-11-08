@@ -627,11 +627,10 @@ def test_digest_uses_the_plain_average_for_a_budget_weighted_program(
 ) -> None:
     """The weekly digest has no cost viewer, so budget weighting never applies to it.
 
-    A: one overdue open critical-path task → critical project health band (ordinal
-    0). B: one task done on time → on_track (ordinal 2). Average = round(1) →
-    at_risk. Weighted by budgets 100 and 9,900 = round(1.98) → on_track. The
-    digest must report the average (at risk), while a PM of every project sees the
-    weighted band on the overview.
+    A: one overdue open task → critical (ordinal 0). B: one task done on time →
+    on_track (ordinal 2). Average = round(1) → at_risk. Weighted by budgets 100 and
+    9,900 = round(1.98) → on_track. The digest must report the average (at risk),
+    while a PM of every project sees the weighted band on the overview.
     """
     from trueppm_api.apps.notifications.digests import build_program_health_digest
     from trueppm_api.apps.projects.models import TaskStatus
@@ -640,9 +639,7 @@ def test_digest_uses_the_plain_average_for_a_budget_weighted_program(
     yesterday = TODAY - datetime.timedelta(days=1)
     a = h.project("Alpha", budget="100.00", program=prog)
     b = h.project("Beta", budget="9900.00", program=prog)
-    Task.objects.create(
-        project=a, name="late", duration=1, early_finish=yesterday, is_critical=True
-    )
+    Task.objects.create(project=a, name="late", duration=1, early_finish=yesterday)
     Task.objects.create(
         project=b,
         name="done",

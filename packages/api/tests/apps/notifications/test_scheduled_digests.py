@@ -78,10 +78,10 @@ def program(db: object) -> Program:
 
 @pytest.fixture
 def late_project(program: Program, calendar: Calendar) -> Project:
-    """A project guaranteed to land in the ``critical`` project health band.
+    """A project guaranteed to land in the ``critical`` schedule-health band.
 
-    Three open critical-path tasks were due well before today, so the band the
-    program rollup reads (#4779) is ``critical`` (and SPI is 0 as well).
+    SPI = complete-by-today / planned-by-today. Three tasks were due well before
+    today and none is complete, so SPI is 0 → ``critical``.
     """
     project = Project.objects.create(
         name="Lander",
@@ -95,8 +95,6 @@ def late_project(program: Program, calendar: Calendar) -> Project:
             name=f"Overdue {i}",
             early_finish=datetime.date(2026, 2, 1),
             status=TaskStatus.IN_PROGRESS,
-            # On the critical path: the project health band the digest reads (#4779).
-            is_critical=True,
         )
     return project
 
@@ -300,7 +298,7 @@ def test_healthy_program_is_not_listed(janet: Any, program: Program, calendar: C
 
 
 def _at_risk_program(name: str, calendar: Calendar) -> Program:
-    """A program guaranteed to earn a digest line (open critical-path work → ``critical``)."""
+    """A program guaranteed to earn a digest line (SPI 0 → ``critical``)."""
     program = Program.objects.create(name=name)
     project = Project.objects.create(
         name=f"{name} Delivery",
@@ -314,8 +312,6 @@ def _at_risk_program(name: str, calendar: Calendar) -> Program:
             name=f"{name} overdue {i}",
             early_finish=datetime.date(2026, 2, 1),
             status=TaskStatus.IN_PROGRESS,
-            # On the critical path: the project health band the digest reads (#4779).
-            is_critical=True,
         )
     return program
 

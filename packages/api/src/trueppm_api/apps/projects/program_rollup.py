@@ -12,12 +12,14 @@ Design (ADR-0088, amended by ADR-1314 for #4779):
   figure it carries, from :data:`~.metric_provenance.METRIC_DEFINITIONS`. A figure
   that is configured but cannot be computed keeps its ``value`` (null, or
   ``unknown`` for a band) and gains a machine ``reason`` — never omitted (rule 119).
-- **``program_health`` is the project health band, rolled up.** Each contributing
-  project's band comes from ``views.compute_health_band`` — the band the shell chip,
-  the my-projects list and status-summary print — and the bands combine under the
-  aggregation policy. The program manager's own ``Program.health`` report, when one
-  is filed, wins over the rollup the way a project manager's report wins over the
-  counts. It is not the SPI ``schedule_health`` rollup, which is a separate KPI.
+- **``program_health`` is the SPI ``schedule_health`` rollup (ADR-0088).** Each
+  contributing project's schedule performance band (the SPI proxy) combined under
+  the aggregation policy. It is deliberately NOT a rollup of the project health
+  band (``views.compute_health_band``): that band reads critical whenever any open
+  leaf sits on the critical path, which on real CPM data is nearly every project
+  with open work, so rolling it up would read Critical for nearly every program.
+  ``Program.health`` (the manager's filed report) does not feed this payload, as
+  before #4779.
 - **``p80_completion``** is the latest P80 among the contributing projects' own
   forecasts, read from the same latest result ``monte-carlo/latest/`` serves (the
   cache entry, else the newest persisted run). Policy-independent: a program
@@ -63,7 +65,6 @@ from trueppm_api.apps.projects.models import (
     AggregationPolicy,
     Baseline,
     BaselineTask,
-    Health,
     Program,
     Project,
     Risk,
@@ -100,14 +101,6 @@ REASON_NO_FORECAST = "no_forecast"  # no project has a Monte Carlo forecast with
 #: Each rollup KPI's key in METRIC_DEFINITIONS. Namespaced because two of the KPI
 #: names (``schedule_health``) are also project-level figures with their own sentence.
 ROLLUP_DEFINITION_KEY: dict[str, str] = {kpi.value: f"rollup.{kpi.value}" for kpi in RollupKpi}
-
-#: The manual ``Program.health`` report mapped onto the band vocabulary. ``AUTO`` is
-#: the "no report" value and is deliberately absent, as on the project side.
-_PROGRAM_REPORT_BAND: dict[str, str] = {
-    Health.ON_TRACK.value: "on_track",
-    Health.AT_RISK.value: "at_risk",
-    Health.CRITICAL.value: "critical",
-}
 
 _COST_KPIS = frozenset({RollupKpi.COST_VARIANCE.value, RollupKpi.BUDGET_UTILIZATION.value})
 
@@ -151,13 +144,6 @@ def compute_program_rollup(
     "cost_restricted"`` (see :func:`_policy_weights`). The weekly digest passes no
     ``cost_viewer``, so its health dot for a budget-weighted program is the average.
 
-    ``program_health`` is the project health band rolled up (ADR-1314 amendment,
-    #4779): one health vocabulary from the project chip to the program hero, so the
-    program's band and the bands on its project rows cannot be two different ideas
-    of "health". The program manager's ``Program.health`` report wins when filed;
-    ``program_health_source`` says which (``reported`` | ``derived``), for the reason
-    ``compute_health_band`` returns its source.
-
     Pure read: deterministic for a given DB state (and Monte Carlo cache), no
     writes, safe to call on every GET.
     """
@@ -179,8 +165,7 @@ def compute_program_rollup(
         # set, so the response stays internally consistent — the agent is told how many
         # projects contributed, never that any were withheld.
         project_qs = project_qs.exclude(pk__in=exclude_project_ids)
-    project_rows = list(project_qs.values_list("id", "health"))
-    project_ids = [pid for pid, _ in project_rows]
+    project_ids = list(project_qs.values_list("id", flat=True))
 
     # One verdict for both budget-derived outputs (ADR-1324 §4/§7): the cost KPIs AND
     # the budget weighting. Only checked when one of them is in play.
@@ -193,21 +178,13 @@ def compute_program_rollup(
     )
     cost_kpis = _cost_kpis(enabled, project_ids, sees_cost=sees_cost)
 
-    # The headline band: the project health band of every contributing project,
-    # rolled up under the policy (ADR-1314 amendment) — or the program manager's own
-    # report when one is filed. Also drives the weekly program-health digest.
-    health_by_project = project_health_bands(project_rows)
-    reported = _PROGRAM_REPORT_BAND.get(program.health)
-    if reported is not None:
-        program_health, program_health_source = reported, "reported"
-    else:
-        program_health = _reduce_health(
-            [health_by_project[pid] for pid in project_ids],
-            effective_policy,
-            task_weights,
-            project_ids,
-        )
-        program_health_source = "derived"
+    # schedule_health per project is always needed: it is both a KPI and the
+    # source of the headline program health dot (ADR-0088). Also drives the weekly
+    # program-health digest.
+    schedule_health_by_project = _schedule_health_by_project(project_ids, today)
+    program_health = _reduce_health(
+        list(schedule_health_by_project.values()), effective_policy, task_weights, project_ids
+    )
 
     kpis = _kpi_entries(
         enabled,
@@ -230,10 +207,12 @@ def compute_program_rollup(
         "policy_unavailable_reason": policy_unavailable_reason,
         "project_count": len(project_ids),
         "program_health": program_health,
-        "program_health_source": program_health_source,
-        # Only an empty program with no report has no band (rule 119): the project
-        # band is never unknown, so one contributing project is enough.
-        "program_health_reason": REASON_NO_PROJECTS if program_health == "unknown" else None,
+        # An unknown band says why (rule 119): no projects, or none has work planned.
+        "program_health_reason": (
+            None
+            if program_health != "unknown"
+            else (REASON_NO_PROJECTS if not project_ids else REASON_NO_PLANNED_WORK)
+        ),
         "kpis": kpis,
         "as_of": as_of.isoformat(),
         "definitions": definitions,
@@ -335,24 +314,6 @@ def _variance_entry(
         REASON_NO_COMPLETED_WORK if has_baseline and completed_work_matters else REASON_NO_BASELINE
     )
     return entry
-
-
-def project_health_bands(project_rows: list[tuple[Any, str]]) -> dict[Any, str]:
-    """project_id → the project health band, for ``(id, Project.health)`` rows.
-
-    The same ``compute_health_band`` the status-summary and the my-projects list
-    call, over the same grouped ``risk_counts_by_project`` counts, so the band the
-    program rolls up is the band each project's own chip prints (rule 397, ADR-1314).
-    One query for any number of projects.
-    """
-    from trueppm_api.apps.projects.views import compute_health_band
-
-    counts = risk_counts_by_project([pid for pid, _ in project_rows])
-    out: dict[Any, str] = {}
-    for pid, health in project_rows:
-        at_risk, critical = counts.get(pid, (0, 0))
-        out[pid] = compute_health_band(health, at_risk, critical)[0]
-    return out
 
 
 def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
@@ -511,45 +472,53 @@ def _cost_kpis(
 def top_contributing_project(program: Program) -> dict[str, Any] | None:
     """Return the project dragging ``program``'s health down, or ``None``.
 
-    "Top contributing" = worst project health band (:func:`project_health_bands`,
-    the band ``program_health`` rolls up), tie-broken by the larger count of open
-    critical-path leaf tasks, then by name for stability. Lives here rather than in
-    the digest builder (ADR-0663) so it reuses the *same* per-project bands the
-    Program Overview rolls up — a digest that named a different project than the
-    screen it deep-links to would be worse than no digest at all.
+    "Top contributing" = worst :func:`_schedule_health_by_project` band, tie-broken
+    by the larger count of open critical-path tasks, then by name for stability.
+    Lives here rather than in the digest builder (ADR-0663) so it reuses the *same*
+    per-project bands the Program Overview renders — a digest that named a different
+    project than the screen it deep-links to would be worse than no digest at all.
 
     Returns ``{"id", "name", "health"}`` for the worst project, or ``None`` when the
-    program has no projects or every project is on track.
+    program has no projects or every project's band is ``unknown`` (no data to
+    attribute the program's state to).
     """
+    today = timezone.localdate()
     # Drafts are excluded (#2962/#3128) for the same reason as compute_program_rollup
     # above, and one more: this function names ONE project in the weekly program-health
     # email. Attributing a program's health to a plan nobody has committed to would
     # deep-link a PMO into a half-built schedule and call it the cause.
     from trueppm_api.apps.projects.lifecycle import visible_projects
 
-    rows = list(
+    project_ids = list(
         visible_projects(Project.objects.filter(program=program, is_deleted=False)).values_list(
-            "id", "health", "name"
+            "id", flat=True
         )
     )
-    if not rows:
+    if not project_ids:
         return None
 
-    bands = project_health_bands([(pid, health) for pid, health, _ in rows])
-    # Only a project below on_track drags the program down; a program whose every
-    # project is on track has no project to attribute its band to.
-    ranked = [(pid, band) for pid, band in bands.items() if _HEALTH_ORDINAL.get(band, 2) < 2]
+    bands = _schedule_health_by_project(project_ids, today)
+    ranked = [(pid, band) for pid, band in bands.items() if band in _HEALTH_ORDINAL]
     if not ranked:
         return None
 
-    # Leaf rows only (#4276): risk_counts_by_project excludes phase rows, whose
-    # `is_critical` is a rollup of their children (ADR-0024/ADR-0293) and would
-    # double-count the leaf and tip the worst-project tie-break.
+    # Leaf rows only (#4276): a phase's `is_critical` is a rollup of its children
+    # (ADR-0024/ADR-0293, `_rollup_one_summary`), not a fact about the phase row
+    # itself, so counting the phase on top of the leaf whose value it rolled up
+    # double-counts that leaf and can tip the worst-project tie-break. See
+    # task_is_phase_expr's docstring.
     critical_counts = {
-        pid: critical
-        for pid, (_, critical) in risk_counts_by_project([pid for pid, _, _ in rows]).items()
+        r["project_id"]: r["c"]
+        for r in (
+            Task.objects.filter(project_id__in=project_ids, is_deleted=False, is_critical=True)
+            .exclude(status__in=_ACTIVE_EXCLUDE)
+            .annotate(_is_phase=task_is_phase_expr())
+            .filter(_is_phase=False)
+            .values("project_id")
+            .annotate(c=Count("id"))
+        )
     }
-    names = {pid: name for pid, _, name in rows}
+    names = dict(Project.objects.filter(id__in=project_ids).values_list("id", "name"))
 
     # Sort by (health ordinal asc = worst first, critical count desc, name asc).
     ranked.sort(

@@ -11,9 +11,7 @@ summary, the forecast's commitment fields (`commitment_date`,
 `burn_status_reason` ship in 0.5. In 0.4 the figures below exist on the same
 endpoints, but without a definition, an `as_of`, or a commitment comparison,
 and the My Work ship-date forecast can lag the project's own forecast by up to
-a day. Also in 0.5: the program rollup's program
-health becomes the project health band rolled up (in 0.4 it is the schedule
-performance rollup), and P80 completion computes (in 0.4 it is unavailable).
+a day. Also in 0.5: P80 completion computes (in 0.4 it is unavailable).
 :::
 
 The same project figure can appear in several places: the project header, the
@@ -67,7 +65,7 @@ keyed by the KPI's name.
 
 | Metric | Field | Owner | As of | Definition |
 |---|---|---|---|---|
-| Program health | `program_health` | `GET /programs/{id}/rollup/` | `as_of` | The program's health: the program manager's own report when one is filed, otherwise each contributing project's health band combined under the program's aggregation policy; unknown only when the program has no contributing projects. |
+| Program health | `program_health` | `GET /programs/{id}/rollup/` | `as_of` | Each contributing project's schedule performance band (the SPI proxy: completed planned work divided by work planned by today) combined under the program's aggregation policy, leaving out projects with nothing planned yet; unknown when none has. Not the project health band. |
 | Schedule performance (program) | `kpis.schedule_health` | `GET /programs/{id}/rollup/` | `as_of` | Each contributing project's schedule performance band (the SPI proxy) combined under the program's aggregation policy, leaving out projects with nothing planned yet. Not the program health band. |
 | Milestone health | `kpis.milestone_health` | `GET /programs/{id}/rollup/` | `as_of` | Each contributing project's milestone band, combined under the program's aggregation policy: critical when an incomplete milestone's forecast finish has passed, at risk when one is due within 7 calendar days, on track otherwise; projects with no milestones are left out. Not the program health band. |
 | Critical tasks (program) | `kpis.critical_tasks` | `GET /programs/{id}/rollup/` | `as_of` | Incomplete leaf tasks on the critical path, summed across the contributing projects. |
@@ -79,12 +77,13 @@ keyed by the KPI's name.
 | Budget utilization | `kpis.budget_utilization` | `GET /programs/{id}/rollup/` | `as_of` | Actual cost across the contributing projects divided by their total budget; 1.0 means the whole budget is spent. |
 | P80 completion | `kpis.p80_completion` | `GET /programs/{id}/rollup/` | `kpis.p80_completion.as_of` | The latest P80 finish among the contributing projects' own Monte Carlo forecasts. Not a joint simulation of the program, whose P80 would be this date or later. |
 
-**Program health is the project health band, rolled up.** Each project's band is
-the one its own health chip shows, from the status summary. The bands are
-combined under the program's aggregation policy. When the program manager files
-a health report on the program, that report is the band, and
-`program_health_source` reads `reported` instead of `derived`. Program health is
-not the schedule performance rollup, which is a separate KPI.
+**Program health is the schedule performance rollup, not the project health
+band.** It is the same value as the `schedule_health` KPI: each project's SPI
+band combined under the program's aggregation policy. It does not roll up the
+project health bands, because that band reads critical whenever any open leaf
+task is on the critical path, which on real schedules is nearly every project
+with open work. A program built from those bands would read Critical almost
+always. A health report filed on the program does not change this figure.
 
 **P80 completion** is the latest of the projects' own P80 finish dates. Each
 project's P80 is the one `GET /projects/{id}/monte-carlo/latest/` returns for it.
@@ -143,7 +142,7 @@ and gains a `reason`:
 - `no_projects`: the program has no contributing project. `program_health`
   carries this as `program_health_reason`.
 - `no_planned_work`: schedule performance, when no project has work planned by
-  today.
+  today. `program_health` carries this as `program_health_reason` too.
 - `no_milestones`: milestone health, when no project has a milestone.
 - `no_baseline`: the two variances, when no project has an active baseline with
   dates.
