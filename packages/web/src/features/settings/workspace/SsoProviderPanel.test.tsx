@@ -166,9 +166,7 @@ describe('SsoProviderPanel — Add mode, provider-type switching', () => {
       screen.getByText(/Gates new account linking and auto-created members only/),
     ).toBeInTheDocument();
     expect(screen.getByText(/no effect on accounts already linked/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/deactivate them or remove this provider/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/deactivate them or remove this provider/)).toBeInTheDocument();
     // Second-order: a blank list fails closed for everyone, stated up front
     // rather than only surfacing as a save-time field error.
     expect(
@@ -339,16 +337,41 @@ describe('SsoProviderPanel — credentials & policy controls', () => {
     expect(secret).toHaveAttribute('type', 'password');
   });
 
-  it('reveals the default-role select only when auto-create is on', async () => {
+  it('keeps the default-role select visible but disabled while auto-create is off, enabling it when on (#3977)', async () => {
     const user = userEvent.setup();
     renderPanel();
-    expect(
-      screen.queryByLabelText('Default role for auto-created members'),
-    ).not.toBeInTheDocument();
+    const select = screen.getByLabelText('Default role for auto-created members');
+    expect(select).toBeDisabled();
+    expect(select).toHaveAccessibleDescription(/applies only when auto-create members is on/i);
     await user.click(
       screen.getByRole('switch', { name: 'Auto-create members on first SSO sign-in' }),
     );
-    expect(screen.getByLabelText('Default role for auto-created members')).toBeInTheDocument();
+    expect(screen.getByLabelText('Default role for auto-created members')).toBeEnabled();
+  });
+
+  it('shows the stored role, not an unsaved draft, while auto-create is off; draft returns on re-enable (#3977)', async () => {
+    const user = userEvent.setup();
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    const toggle = screen.getByRole('switch', { name: 'Auto-create members on first SSO sign-in' });
+    const select = screen.getByLabelText('Default role for auto-created members');
+    expect(select).toHaveValue('100');
+    await user.selectOptions(select, '300');
+    await user.click(toggle);
+    expect(select).toBeDisabled();
+    expect(select).toHaveValue('100');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    const arg = h.updateMutateAsync.mock.calls[0][0] as { body: Record<string, unknown> };
+    expect(arg.body).not.toHaveProperty('default_role');
+    await user.click(toggle);
+    expect(screen.getByLabelText('Default role for auto-created members')).toHaveValue('300');
+  });
+
+  it('create mode hint does not claim a stored role (#3977)', () => {
+    renderPanel();
+    expect(
+      screen.getByLabelText('Default role for auto-created members'),
+    ).toHaveAccessibleDescription(/New members default to Member/);
+    expect(screen.queryByText(/Showing the stored role/)).not.toBeInTheDocument();
   });
 
   it('sends auto_create_members and the chosen default role on save', async () => {
@@ -456,16 +479,16 @@ describe('SsoProviderPanel — Edit mode', () => {
     const user = userEvent.setup();
     // Stored by an Owner (or seed_sso_keycloak) at ADMIN — at/above what the
     // acting admin editing this form may set, and the control that would let
-    // them change it is not rendered while auto-create is off.
+    // them change it is disabled while auto-create is off.
     const noAutoCreate: SsoProvider = {
       ...KEYCLOAK,
       auto_create_members: false,
       default_role: 300,
     };
     renderPanel({ mode: 'edit', existing: noAutoCreate });
-    expect(
-      screen.queryByLabelText('Default role for auto-created members'),
-    ).not.toBeInTheDocument();
+    const roleSelect = screen.getByLabelText('Default role for auto-created members');
+    expect(roleSelect).toBeDisabled();
+    expect(roleSelect).toHaveValue('300');
     expect(
       screen.getByText(/The stored default role is kept but not changed while this is off\./),
     ).toBeInTheDocument();

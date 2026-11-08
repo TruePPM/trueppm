@@ -506,6 +506,10 @@ export function SsoProviderPanel({
   );
   const [autoCreate, setAutoCreate] = useState(existing?.auto_create_members ?? false);
   const [defaultRole, setDefaultRole] = useState(existing?.default_role ?? ROLE_MEMBER);
+  // While auto-create is off the select is display-only and shows what the
+  // server holds, not an unsaved draft. The draft (`defaultRole`) is kept, so
+  // toggling auto-create back on restores the in-progress edit.
+  const storedDefaultRole = existing?.default_role ?? ROLE_MEMBER;
   const [enabled, setEnabled] = useState(existing?.enabled ?? false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Per-field DRF 400 messages, keyed by serializer field name. Drives the
@@ -561,13 +565,12 @@ export function SsoProviderPanel({
       enabled,
       allowed_email_domains: parseDomains(allowedDomains),
       auto_create_members: autoCreate,
-      // Omitted when auto-create is off: the "Default role" control only
-      // renders while auto-create is on (below), so sending a value here
-      // unconditionally would submit a role the admin cannot see or have
-      // changed — and can trip the server's `default_role >= actor_role`
-      // ceiling guard (#3626) on a save that never touched it. The server's
-      // own `"default_role" not in validated_data` early-out (views.py) exists
-      // for exactly this; only send the key when the control is live.
+      // Omitted when auto-create is off: the "Default role" control is then
+      // display-only (disabled, showing the stored role) and must not write.
+      // Sending a value would submit a role the admin did not choose and can
+      // trip the server's `default_role >= actor_role` ceiling guard (#3626)
+      // on a save that never touched it. The server's own `"default_role" not
+      // in validated_data` early-out (views.py) exists for exactly this.
       ...(autoCreate ? { default_role: defaultRole } : {}),
       ...(clientSecret ? { client_secret: clientSecret } : {}),
     };
@@ -863,32 +866,52 @@ export function SsoProviderPanel({
             ariaLabel="Auto-create members on first SSO sign-in"
           />
         </FieldRow>
-        {autoCreate && (
-          <FieldRow
-            label="Default role"
-            hint="Role granted to auto-created members."
-            error={fieldErrors.default_role}
-            errorId={`${roleId}-err`}
-          >
-            <label htmlFor={roleId} className="sr-only">
-              Default role for auto-created members
-            </label>
-            <select
-              id={roleId}
-              value={defaultRole}
-              onChange={(e) => {
-                setDefaultRole(Number(e.target.value));
-                clearError('default_role');
-              }}
-              {...fieldErrorAria(fieldErrors.default_role, `${roleId}-err`)}
-              className={`${SELECT_CLASS} w-full max-w-[180px]`}
-              style={SELECT_STYLE}
-            >
-              <option value={ROLE_MEMBER}>Member</option>
-              <option value={ROLE_ADMIN}>Admin</option>
-            </select>
-          </FieldRow>
-        )}
+        {/* Rendered disabled (not removed) while auto-create is off so the admin
+            can still see the stored value; the save body omits default_role in
+            that state (#3950) so the disabled control never writes. */}
+        <FieldRow
+          label="Default role"
+          hint={
+            autoCreate
+              ? 'Role granted to auto-created members.'
+              : mode === 'add'
+                ? 'Applies only when Auto-create members is on. New members default to Member.'
+                : 'Applies only when Auto-create members is on. Showing the stored role.'
+          }
+          error={autoCreate ? fieldErrors.default_role : undefined}
+          errorId={`${roleId}-err`}
+        >
+          {({ hintId }) => (
+            <>
+              <label htmlFor={roleId} className="sr-only">
+                Default role for auto-created members
+              </label>
+              <select
+                id={roleId}
+                value={autoCreate ? defaultRole : storedDefaultRole}
+                disabled={!autoCreate}
+                onChange={(e) => {
+                  setDefaultRole(Number(e.target.value));
+                  clearError('default_role');
+                }}
+                {...fieldErrorAria(
+                  autoCreate ? fieldErrors.default_role : undefined,
+                  `${roleId}-err`,
+                )}
+                aria-describedby={
+                  [hintId, autoCreate && fieldErrors.default_role ? `${roleId}-err` : undefined]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
+                className={`${SELECT_CLASS} w-full max-w-[180px] disabled:opacity-100 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary`}
+                style={SELECT_STYLE}
+              >
+                <option value={ROLE_MEMBER}>Member</option>
+                <option value={ROLE_ADMIN}>Admin</option>
+              </select>
+            </>
+          )}
+        </FieldRow>
         <FieldRow
           label="Enable this provider"
           hint="Requires a complete configuration above."

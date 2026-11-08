@@ -120,6 +120,9 @@ holding a token cannot list, add, edit, delete, or test a provider; it receives
    an Owner can set it to Admin — the same ceiling that applies when changing an
    existing member's role or sending an invite, so SSO auto-provisioning cannot be
    used to create a peer administrator.
+   While auto-create is off, the **Default role** field stays visible but disabled,
+   showing the stored role; it is kept unchanged and applies only once auto-create
+   is turned on.
 7. **Enable this provider** — turn it on once the configuration is complete, then
    save. A provider cannot be enabled until it is fully configured.
 
