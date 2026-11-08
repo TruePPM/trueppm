@@ -277,10 +277,10 @@ export function useDragCpm({
     });
 
     // resize-move: convert the dragged pixel to a working-day duration through
-    // the SAME snap + no-op math `useScheduleCommit`'s resize-task-end commit
-    // path uses (`resizeMoveFinishIso` / `workingDaysInclusive`, #4237), so the
-    // live preview and the eventual PATCH never disagree about what a given
-    // pixel means. `ev.right` is canvas-origin x of the bar's right edge (rule
+    // the SAME snap + count `useScheduleCommit`'s resize-task-end commit path
+    // uses (`resizeMoveFinishIso` / `countWorkingDaysInclusive` on
+    // `resolveWorkingDayPredicate`, #4237, #4170), so the live preview and the
+    // eventual PATCH never disagree about what a given pixel means. `ev.right` is canvas-origin x of the bar's right edge (rule
     // 57), the resize counterpart of `drag-task-move`'s `ev.left`.
     const offResizeMove = engine.on('resize-task-move', (ev) => {
       const worker = workerRef.current;

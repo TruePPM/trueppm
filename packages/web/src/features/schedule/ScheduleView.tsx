@@ -1776,7 +1776,7 @@ export function ScheduleView() {
     // #4237: the resize preview's pixel→duration conversion needs the
     // project's real weekday mask — same field `useScheduleCommit` already
     // reads for the resize-commit path's working-day count (#2561/#1987).
-    workingDaysMask: projectDetail?.effective_calendar?.working_days ?? null,
+    workingDaysMask: previewCalendar?.working_days ?? null,
     // #4170: the composed calendar the server schedules with, so the cascade
     // steps through holidays and a custom week instead of a fixed Mon–Fri.
     calendar: previewCalendar,
@@ -1806,7 +1806,9 @@ export function ScheduleView() {
   // Publish the project's weekday mask to the reconciliation store so the two
   // leaf date cells can reach it without a prop chain through TaskListRow. It is
   // the only cause the client can actually prove (ADR-0784 §D5).
-  const reconcileMask = projectDetail?.effective_calendar?.working_days ?? MON_FRI_MASK;
+  // The composed mask (base AND layers, #4170) — the week CPM actually uses —
+  // when the server sends it; the base mask from an older server otherwise.
+  const reconcileMask = previewCalendar?.working_days ?? MON_FRI_MASK;
   useEffect(() => {
     setWorkingDaysMask(reconcileMask);
   }, [reconcileMask, setWorkingDaysMask]);
@@ -1818,7 +1820,7 @@ export function ScheduleView() {
     effectiveFloorDate,
     // #2561: the resize popover's working-day count and its no-op guard need the
     // project's real weekday mask (ADR-0441 / #1987), not a Mon–Fri constant.
-    workingDaysMask: projectDetail?.effective_calendar?.working_days ?? null,
+    workingDaysMask: previewCalendar?.working_days ?? null,
     // #4170: the resize label and no-op guard count on the composed calendar,
     // the same rule the server uses to turn `planned_finish` into `duration`.
     calendar: previewCalendar,

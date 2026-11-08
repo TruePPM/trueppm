@@ -312,6 +312,10 @@ subgraph spanning several projects (a program-level drag) would need the map;
 it does not exist today, and the server still reconciles on commit if one is
 ever built without it.
 
+**Malformed rows.** A `CalendarException` whose end precedes its start is skipped,
+with a warning, when the payload is built, so one bad row cannot fail every
+project-detail read on that calendar. The CPM path does not skip it.
+
 **Every client-side working-day count uses the same calendar.** The Schedule
 resolves one value (`scheduling_calendar`, or the base mask from an older
 server) and feeds it to the drag/keyboard cascade, the resize pixel→duration
@@ -324,18 +328,27 @@ across a holiday stored a day too many and landed past the handle. A handle
 dropped *on* a non-working day snaps **back** — that day adds nothing to the
 count, so the finish is the working day before it — on the preview, the
 popover, and the server alike. Whether it should instead consume the next
-working day is still #2562's question.
+working day is still #2562's question. A *start* dropped on a non-working day
+snaps **forward**, as the server snaps a `planned_start`, and the bar, popover
+and optimistic finish step the duration over working days from there (drag,
+keyboard and snap-to-floor alike).
+
+This agreement holds for a **not-started** task. An in-progress task's resize is
+still anchored differently: the client counts from the bar's span start, the
+server from `early_start` (the remaining-work window) — #4896.
 
 **Freshness, and the residual.** The calendar rides on the project detail
 (60 s `staleTime`). The writes this client makes that can change it refetch it:
 the project's applied calendars, a program's calendar, and the workspace
-calendar or its override policy. Writes made elsewhere — another admin editing a
-shared calendar or its holidays, or a program/workspace reassignment — reach an
-open Schedule through `project_calendar_changed`, which now refetches the
-detail (surfacing its actor is #3245's remainder). What stays stale until the
-next refetch is any change that reaches the calendar rows without passing
-through `_enqueue_calendar_recalc` (the event's only emitter), and any change
-made while this client's socket is down. In both cases the preview is wrong in
+calendar or its override policy. Writes made elsewhere reach an open Schedule
+through `project_calendar_changed`, which now refetches the detail (surfacing its
+actor is #3245's remainder). It is emitted by the shared-calendar fan-out
+(`_enqueue_calendar_recalc`: a calendar or holiday edit, a program or workspace
+reassignment) and, since #4170, by `PUT /projects/{id}/calendars/` (one project's
+applied calendars), both deferred to `transaction.on_commit`. What stays stale until the
+next refetch is any change that reaches the calendar rows through neither of
+those two emitters (an import, a script, the Django admin), and any change made
+while this client's socket is down. In both cases the preview is wrong in
 the direction this ADR already handles: the commit lands where the server
 says, and the reconciliation marker shows it.
 

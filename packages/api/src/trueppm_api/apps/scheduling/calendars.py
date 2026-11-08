@@ -98,7 +98,7 @@ def resolve_applied_calendars(project: Project) -> list[Calendar]:
     return result
 
 
-def compose_project_calendar(project: Project) -> Any:
+def compose_project_calendar(project: Project, *, skip_malformed: bool = False) -> Any:
     """Fold a project's applied calendars into one scheduler ``Calendar`` (#906).
 
     ``working_days`` = bitwise-AND of every applied mask; ``exceptions`` = union of
@@ -116,7 +116,9 @@ def compose_project_calendar(project: Project) -> Any:
     from trueppm_scheduler.models import Calendar as SchedCalendar
 
     applied = resolve_applied_calendars(project)
-    return SchedCalendar.compose([build_sched_calendar(c) for c in applied])
+    return SchedCalendar.compose(
+        [build_sched_calendar(c, skip_malformed=skip_malformed) for c in applied]
+    )
 
 
 def scheduling_calendar_payload(project: Project) -> dict[str, Any]:
@@ -142,8 +144,13 @@ def scheduling_calendar_payload(project: Project) -> dict[str, Any]:
     and does not consume them (#826), so a preview has nothing to do with them.
 
     Callers must have prefetched what :func:`compose_project_calendar` documents.
+
+    A malformed exception row (end before start) is skipped with a warning rather
+    than raised (``skip_malformed``): this is on every project-detail GET, and one
+    bad row on a shared calendar must not take down the shell of every project bound
+    to it. The CPM path does not skip — it should fail loudly on the same row.
     """
-    cal = compose_project_calendar(project)
+    cal = compose_project_calendar(project, skip_malformed=True)
     ranges = sorted({(e.start, e.end) for e in cal.exceptions})
     return {
         "working_days": cal.working_days,

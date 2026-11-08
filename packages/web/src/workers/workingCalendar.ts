@@ -204,3 +204,38 @@ export function lastWorkingDayOnOrBefore(
   while (ms > floorMs && !isWorkingDay(ms)) ms -= MS_PER_DAY;
   return new Date(ms).toISOString().slice(0, 10);
 }
+
+/** Upper bound on any snap walk — a century of days, matching the server's span cap. */
+const MAX_SNAP_DAYS = 36_525;
+
+/**
+ * The first working day on or after `iso` — where a start dropped on a
+ * non-working day lands. Mirrors the engine's `_next_working_day` applied to a
+ * `planned_start` (SNET), which CPM snaps FORWARD (#4170).
+ */
+export function firstWorkingDayOnOrAfter(iso: string, isWorkingDay: WorkingDayPredicate): string {
+  let ms = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+  for (let i = 0; i < MAX_SNAP_DAYS && !isWorkingDay(ms); i++) ms += MS_PER_DAY;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Inclusive finish of a task of `durationDays` working days starting at
+ * `startIso` — the engine's `_finish_from_start`: the walk begins on the first
+ * working day on or after the start, and a zero duration (a milestone) finishes
+ * where it starts.
+ */
+export function finishFromStartIso(
+  startIso: string,
+  durationDays: number,
+  isWorkingDay: WorkingDayPredicate,
+): string {
+  if (durationDays <= 0) return startIso.slice(0, 10);
+  let ms = Date.parse(`${firstWorkingDayOnOrAfter(startIso, isWorkingDay)}T00:00:00Z`);
+  let remaining = durationDays - 1;
+  for (let guard = 0; remaining > 0 && guard < MAX_SNAP_DAYS; guard++) {
+    ms += MS_PER_DAY;
+    if (isWorkingDay(ms)) remaining -= 1;
+  }
+  return new Date(ms).toISOString().slice(0, 10);
+}

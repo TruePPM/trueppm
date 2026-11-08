@@ -5162,10 +5162,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if planned_finish is not None and not is_milestone:
             from trueppm_api.apps.projects.services import project_working_day_duration
 
-            # Anchor the duration on the same start the bar paints from — the CPM
-            # ``early_start`` (the web ``task.start``), which is where the left
-            # edge sits and what ``duration`` combines with to produce
-            # ``early_finish``. ``early_start >= planned_start`` always holds, so a
+            # Anchor the duration on the CPM ``early_start`` — what ``duration``
+            # combines with to produce ``early_finish``. For a not-started task this
+            # is also where the bar paints from (the web ``task.start``); for an
+            # in-progress one the web paints from the span start instead, so the two
+            # anchors differ (#4896). ``early_start >= planned_start`` always holds, so a
             # task scheduled purely by CPM (null ``planned_start``) still resolves.
             # A planned_start sent in the same request (combined move) takes
             # precedence; the committed planned_start is the last fallback.
@@ -5189,13 +5190,58 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 raise serializers.ValidationError(
                     {"planned_finish": "Finish date is too far from the start date."}
                 )
-            project = self.instance.project if self.instance is not None else attrs.get("project")
             # The composed calendar (#4170), not ``project.calendar``'s mask: CPM lays
             # the duration on the composed one, so counting on anything else lands
             # the finish off the handle whenever a holiday or layer is in the span.
             attrs["duration"] = max(
-                1, project_working_day_duration(eff_start, planned_finish, project)
+                1,
+                project_working_day_duration(
+                    eff_start,
+                    planned_finish,
+                    None,
+                    calendar=self._composed_calendar_for(attrs),
+                ),
             )
+
+    def _composed_calendar_for(self, attrs: dict[str, Any]) -> Any:
+        """The project's composed scheduler calendar, memoized for this request.
+
+        Composing costs several queries (applied calendars, layers, exceptions,
+        the workspace tier). A bulk edit (``task_bulk``) or a sync upload applies up
+        to hundreds of rows through a fresh ``TaskSerializer`` each, all in one
+        request, so the cache lives on the underlying ``HttpRequest`` — the one
+        object every row's context shares — keyed by project id. Nothing in a task
+        write changes a calendar, so one composition is valid for the whole request.
+        Keyed on the project id, and the ``Project`` row is loaded only on a miss, so
+        a cached row costs no query at all. No request falls back to composing
+        directly; no project at all yields the Mon–Fri default.
+        """
+        from trueppm_scheduler.models import Calendar as SchedCalendar
+
+        from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+
+        project_id = self._task_project_id_from(attrs)
+        if project_id is None:
+            return SchedCalendar()
+
+        def _compose() -> Any:
+            project = attrs.get("project") if self.instance is None else None
+            if project is None:
+                project = Project.objects.get(pk=project_id)
+            return compose_project_calendar(project)
+
+        request = self.context.get("request")
+        holder = getattr(request, "_request", request)
+        if holder is None:
+            return _compose()
+        cache: dict[str, Any] | None = getattr(holder, "_trueppm_composed_calendars", None)
+        if cache is None:
+            cache = {}
+            holder._trueppm_composed_calendars = cache
+        key = str(project_id)
+        if key not in cache:
+            cache[key] = _compose()
+        return cache[key]
 
     def _task_project_id_from(self, attrs: dict[str, Any]) -> Any:
         """The task's project id — from the instance on update, ``attrs`` on create."""

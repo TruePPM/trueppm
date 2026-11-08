@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildWorkingDayPredicate,
   countWorkingDaysInclusive,
+  finishFromStartIso,
+  firstWorkingDayOnOrAfter,
   lastWorkingDayOnOrBefore,
   mergeExceptionRanges,
   resolveWorkingDayPredicate,
@@ -128,5 +130,24 @@ describe('resolveWorkingDayPredicate / countWorkingDaysInclusive / lastWorkingDa
     expect(lastWorkingDayOnOrBefore('2026-03-08', '2026-03-02', p)).toBe('2026-03-06');
     expect(lastWorkingDayOnOrBefore('2026-03-06', '2026-03-02', p)).toBe('2026-03-06');
     expect(lastWorkingDayOnOrBefore('2026-03-08', '2026-03-08', p)).toBe('2026-03-08');
+  });
+});
+
+describe('firstWorkingDayOnOrAfter / finishFromStartIso (#4170)', () => {
+  const p = buildWorkingDayPredicate({
+    working_days: 0b0011111,
+    exceptions: [{ start: '2026-03-05', end: '2026-03-05' }],
+  });
+
+  it('snaps a non-working start forward and leaves a working one alone', () => {
+    expect(firstWorkingDayOnOrAfter('2026-03-05', p)).toBe('2026-03-06');
+    expect(firstWorkingDayOnOrAfter('2026-03-07', p)).toBe('2026-03-09');
+    expect(firstWorkingDayOnOrAfter('2026-03-04', p)).toBe('2026-03-04');
+  });
+
+  it('walks the duration over working days from the snapped start', () => {
+    expect(finishFromStartIso('2026-03-02', 5, p)).toBe('2026-03-09'); // 2,3,4,6,9
+    expect(finishFromStartIso('2026-03-05', 1, p)).toBe('2026-03-06');
+    expect(finishFromStartIso('2026-03-07', 0, p)).toBe('2026-03-07'); // a milestone
   });
 });

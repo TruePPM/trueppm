@@ -13,9 +13,12 @@ import type { Task, ApiSprint } from '@/types';
 import type { CommitAction } from './ScheduleCommitPopover';
 import {
   countWorkingDaysInclusive,
+  finishFromStartIso,
+  firstWorkingDayOnOrAfter,
   lastWorkingDayOnOrBefore,
   resolveWorkingDayPredicate,
   type PreviewCalendar,
+  type WorkingDayPredicate,
 } from '@/workers/workingCalendar';
 
 /**
@@ -103,7 +106,7 @@ export interface UseScheduleCommitOptions {
   /**
    * The project's effective working-day bitmask (`effective_calendar.working_days`,
    * ADR-0441 / #1987). Defaults to Mon–Fri when absent (older payloads / the list
-   * cache), matching the server's own `working_day_duration` fallback. Drives the
+   * cache), matching the server's own Mon–Fri fallback. Drives the
    * resize popover's duration label and the no-op-resize guard (#2561) — only
    * when `calendar` is absent.
    */
@@ -178,7 +181,7 @@ function isoFromUtcMs(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-/** Mon–Fri (1+2+4+8+16) — mirrors the server's `working_day_duration` default. */
+/** Mon–Fri (1+2+4+8+16) — mirrors the server's default calendar. */
 export const MON_FRI_MASK = 31;
 
 /**
@@ -244,17 +247,25 @@ function formatDayLabel(iso: string): string {
   });
 }
 
-function computeNewFinishIso(newStartIso: string, durationDays: number): string {
-  const startMs = new Date(newStartIso + 'T00:00:00Z').getTime();
-  return isoFromUtcMs(startMs + durationDays * DAY_MS);
-}
-
+/**
+ * Where a reschedule to `newStartIso` lands, on the project's composed calendar
+ * (#4170): the start snapped FORWARD off a non-working day — the server snaps a
+ * `planned_start` (SNET) to the next working day — and the finish stepped over
+ * `newDuration` working days from it, exactly as the CPM pass lays the task out.
+ *
+ * The bar, the popover and the optimistic cache entry all read this, so a drop
+ * on a holiday shows the day the commit lands on rather than the holiday. The
+ * PATCH sends the snapped start too: it is the date the server would store in
+ * effect, and the popover names it.
+ */
 function computeRescheduleResize(
   newStartIso: string,
   newDuration: number,
+  isWorkingDay: WorkingDayPredicate,
 ): { newStart: string; newFinish: string; newDuration: number } {
-  const newFinish = computeNewFinishIso(newStartIso, newDuration);
-  return { newStart: newStartIso, newFinish, newDuration };
+  const newStart = firstWorkingDayOnOrAfter(newStartIso, isWorkingDay);
+  const newFinish = finishFromStartIso(newStart, newDuration, isWorkingDay);
+  return { newStart, newFinish, newDuration };
 }
 
 export function useScheduleCommit({
@@ -345,7 +356,14 @@ export function useScheduleCommit({
       // as a one-day move (#4079).
       const newStartIso = dragDropStartIso(left, task, scales);
       if (newStartIso === task.start) return; // No net move — skip popover.
-      const proposed = computeRescheduleResize(newStartIso, task.duration);
+      const proposed = computeRescheduleResize(
+        newStartIso,
+        task.duration,
+        resolveWorkingDayPredicate(calendarRef.current, workingDaysMaskRef.current),
+      );
+      // A drop on the non-working days just before the bar snaps back onto its
+      // own start — no net move after all.
+      if (proposed.newStart === task.start) return;
       // Move the bar visually so the user sees where the change will land. A
       // dropped milestone becomes floor-held by its new SNET — the start of the
       // day, where the pointer let go — as the confirmed write will draw it (#4079).
@@ -406,8 +424,9 @@ export function useScheduleCommit({
       // [start, planned_finish] on the project's COMPOSED calendar
       // (`project_working_day_duration`, #4170). This count is the same rule on
       // the same calendar, so the popover label, the live resize preview
-      // (`useDragCpm`) and the committed duration agree — including across a
-      // holiday, where a mask-only count would have added a day the server
+      // (`useDragCpm`) and the committed duration agree for a not-started task
+      // — including across a holiday (an in-progress task's anchor still
+      // differs: #4896), where a mask-only count would have added a day the server
       // then laid past the handle.
       const isWorkingDay = resolveWorkingDayPredicate(
         calendarRef.current,
@@ -548,7 +567,12 @@ export function useScheduleCommit({
       if (!task) return;
       if (newStartIso === task.start) return; // No net move — nothing to persist.
 
-      const proposed = computeRescheduleResize(newStartIso, task.duration);
+      const proposed = computeRescheduleResize(
+        newStartIso,
+        task.duration,
+        resolveWorkingDayPredicate(calendarRef.current, workingDaysMaskRef.current),
+      );
+      if (proposed.newStart === task.start) return;
 
       // Project-start floor (#868) — same rule as the pointer path. A keyboard
       // nudge below the floor opens the snap/move/cancel prompt instead of
@@ -760,8 +784,13 @@ export function useScheduleCommit({
     }
     // Snap to the effective working-day floor (#884), not the literal start —
     // the literal weekend date would be rejected by the backend floor guard.
-    const snappedStart = p.effectiveFloorDate;
-    const snappedFinish = computeNewFinishIso(snappedStart, p.duration);
+    const snapped = computeRescheduleResize(
+      p.effectiveFloorDate,
+      p.duration,
+      resolveWorkingDayPredicate(calendarRef.current, workingDaysMaskRef.current),
+    );
+    const snappedStart = snapped.newStart;
+    const snappedFinish = snapped.newFinish;
     // Move the preview bar from the attempted (before-start) position to the floor.
     // An SNET holds a milestone at the start of its day (#4079).
     if (engine) {
@@ -817,7 +846,13 @@ export function useScheduleCommit({
       { start_date: p.attemptedStart },
       {
         onSuccess: () => {
-          const finish = computeNewFinishIso(p.attemptedStart, p.duration);
+          // The attempted start stays as the user chose it (the project start
+          // moves to meet it); only the drawn finish steps over working days.
+          const finish = finishFromStartIso(
+            p.attemptedStart,
+            p.duration,
+            resolveWorkingDayPredicate(calendarRef.current, workingDaysMaskRef.current),
+          );
           rescheduleTask.mutate(
             {
               id: p.taskId,

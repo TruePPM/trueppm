@@ -18,7 +18,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
-from trueppm_api.apps.projects.services import working_day_duration
+from trueppm_api.apps.projects.services import project_working_day_duration
 
 User = get_user_model()
 
@@ -69,25 +69,25 @@ _RECALC = "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"
 
 
 # ---------------------------------------------------------------------------
-# Service helper — working_day_duration
+# Service helper — project_working_day_duration
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-def test_working_day_duration_skips_weekend(calendar: Calendar) -> None:
+def test_working_day_duration_skips_weekend(project: Project) -> None:
     # Mon 2026-04-06 → Mon 2026-04-13 spans one weekend: 8 calendar days but
     # only 6 working days (Mon–Fri + the following Mon).
-    assert working_day_duration(date(2026, 4, 6), date(2026, 4, 13), calendar) == 6
+    assert project_working_day_duration(date(2026, 4, 6), date(2026, 4, 13), project) == 6
 
 
 @pytest.mark.django_db
-def test_working_day_duration_single_day(calendar: Calendar) -> None:
-    assert working_day_duration(date(2026, 4, 6), date(2026, 4, 6), calendar) == 1
+def test_working_day_duration_single_day(project: Project) -> None:
+    assert project_working_day_duration(date(2026, 4, 6), date(2026, 4, 6), project) == 1
 
 
-def test_working_day_duration_defaults_to_mon_fri_without_calendar() -> None:
-    # No calendar → Mon–Fri mask (31). Same span, same answer.
-    assert working_day_duration(date(2026, 4, 6), date(2026, 4, 13), None) == 6
+def test_working_day_duration_defaults_to_mon_fri_without_project() -> None:
+    # No project → Mon–Fri. Same span, same answer.
+    assert project_working_day_duration(date(2026, 4, 6), date(2026, 4, 13), None) == 6
 
 
 # ---------------------------------------------------------------------------

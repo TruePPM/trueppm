@@ -2853,8 +2853,23 @@ class ProjectViewSet(
                 ]
             )
 
-            def _dispatch(pid: str = str(project.id)) -> None:
+            # This project's EFFECTIVE calendar changed, so it broadcasts the same
+            # ``project_calendar_changed`` the shared-calendar fan-out emits (#4170):
+            # another member's open Schedule refetches the project detail and its
+            # ``scheduling_calendar``, so their drag preview stops stepping on the
+            # old layers. Deferred to on_commit (a rollback broadcasts nothing), and
+            # the actor label is snapshotted before the closure (broadcast-check H-1).
+            # No audit row: that verb records edits to a SHARED calendar's
+            # definition, and this is one project's own setting.
+            from trueppm_api.apps.workspace.services import _actor_label
+
+            actor_label = _actor_label(request.user)
+
+            def _dispatch(pid: str = str(project.id), actor: str = actor_label) -> None:
+                from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
                 _enqueue_recalculate(pid, reason=ScheduleRequestReason.CALENDAR_CHANGE)
+                broadcast_board_event(pid, "project_calendar_changed", {"id": pid, "actor": actor})
 
             transaction.on_commit(_dispatch)
 

@@ -200,3 +200,40 @@ def test_more_layers_and_exceptions_add_no_queries(db: object) -> None:
     assert resp.status_code == 200
     assert len(resp.data["scheduling_calendar"]["exceptions"]) == 2 + 15 + 10
     assert len(many.captured_queries) == len(few.captured_queries)
+
+
+@pytest.mark.django_db
+def test_an_inverted_exception_row_is_skipped_not_a_500(
+    layered_project: Project, caplog: pytest.LogCaptureFixture
+) -> None:
+    """One malformed row (end before start) — from an admin script or a seed — must
+    not take down the project shell of every project on that calendar. It is left
+    out of the payload, logged, and the rest of the calendar still arrives."""
+    import logging
+
+    base = layered_project.calendar
+    assert base is not None
+    _exc(base, date(2026, 5, 10), date(2026, 5, 1))  # inverted
+    client = _client_for(layered_project, Role.VIEWER, "viewer_bad_row")
+    with caplog.at_level(logging.WARNING):
+        resp = client.get(_url(layered_project))
+    assert resp.status_code == 200
+    ranges = resp.data["scheduling_calendar"]["exceptions"]
+    assert {"start": "2026-05-10", "end": "2026-05-01"} not in ranges
+    assert {"start": "2026-03-04", "end": "2026-03-06"} in ranges
+    assert any("malformed exception" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.django_db
+def test_cpm_still_refuses_an_inverted_exception_row(layered_project: Project) -> None:
+    """Only the display path skips; scheduling keeps failing loudly on the same row."""
+    base = layered_project.calendar
+    assert base is not None
+    _exc(base, date(2026, 5, 10), date(2026, 5, 1))
+    project = (
+        Project.objects.select_related("calendar", "program__calendar")
+        .prefetch_related("calendar__exceptions", "calendar_layers__calendar__exceptions")
+        .get(pk=layered_project.pk)
+    )
+    with pytest.raises(ValueError):
+        compose_project_calendar(project)
