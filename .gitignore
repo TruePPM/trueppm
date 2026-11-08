@@ -62,6 +62,7 @@ Thumbs.db
 # Claude Code runtime state
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.claude/state/
 
 # Playwright test runtime output
 test-results/
