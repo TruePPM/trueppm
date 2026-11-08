@@ -702,31 +702,23 @@ def collect_dependency_edges(data: ProjectData) -> list[tuple[str, str]]:
 def build_children_map(data: ProjectData) -> dict[str, list[str]]:
     """Return ``{summary_uid: [direct_child_uid, ...]}`` in the file's own uid space.
 
-    The hierarchy is derived with :func:`_build_wbs_paths`, the same function
-    :func:`import_project` persists ``wbs_path`` from, so the guard sees the
-    summary/child structure the rows will actually have. Passing this to
-    ``validate_task_graph`` is what lets it expand a summary's edges onto its
-    leaves and refuse a summary-to-own-descendant link, which
-    ``expand_summary_dependencies`` would otherwise raise on at every later
-    recalculation (#4856). A task whose immediate parent path is missing (a skipped
-    outline level) attaches to its nearest existing ancestor.
+    Fed ``(uid, wbs_path)`` pairs from :func:`_build_wbs_paths` — the function
+    :func:`import_project` persists ``wbs_path`` from — into the engine's own
+    ``scheduling.services.build_children_map``, so the import guard and the recalc
+    cannot disagree about which task is a summary. Passing the result to
+    ``validate_task_graph`` is what lets it refuse a summary-to-own-descendant link,
+    which the engine would otherwise raise on at every recalculation (#4856).
     """
+    from types import SimpleNamespace
+
+    from trueppm_api.apps.scheduling.services import build_children_map as engine_children_map
+
     paths = _build_wbs_paths(data.tasks)
-    uid_by_path: dict[str, str] = {}
-    for td, path in zip(data.tasks, paths, strict=True):
-        if path:
-            uid_by_path.setdefault(path, str(td.uid))
-    children: dict[str, list[str]] = {}
-    for td, path in zip(data.tasks, paths, strict=True):
-        uid = str(td.uid)
-        parts = path.split(".") if path else []
-        for end in range(len(parts) - 1, 0, -1):
-            parent_uid = uid_by_path.get(".".join(parts[:end]))
-            if parent_uid is not None:
-                if parent_uid != uid:
-                    children.setdefault(parent_uid, []).append(uid)
-                break
-    return children
+    rows = [
+        SimpleNamespace(id=str(td.uid), wbs_path=path)
+        for td, path in zip(data.tasks, paths, strict=True)
+    ]
+    return engine_children_map(rows)
 
 
 def find_hierarchy_link(
@@ -769,7 +761,9 @@ def describe_bad_graph(
     two reasons distinguished — a self-referencing task is a different edit from
     a multi-task loop.
     """
-    names = {str(td.uid): td.name for td in data.tasks}
+    from trueppm_api.apps.scheduling.graph_guard import printable_label
+
+    names = {str(td.uid): printable_label(td.name) for td in data.tasks}
     if exc.reason == "cyclic_dependency" and edges is not None:
         link = find_hierarchy_link(edges, build_children_map(data))
         if link is not None:

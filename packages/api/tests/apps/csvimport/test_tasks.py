@@ -254,6 +254,81 @@ ID,Name,Duration,Predecessors
 """
 
 
+# A summary row linked to a row OUTSIDE it is legitimate.
+SUMMARY_TO_OUTSIDE_CSV = b"""\
+ID,Name,Duration,Predecessors
+1,Phase,1,
+2,  Design,3,
+3,Ship,1,1
+"""
+
+# Phase > Group > Leaf, the leaf listing the top summary as predecessor.
+SUMMARY_TO_GRANDCHILD_CSV = b"""\
+ID,Name,Duration,Predecessors
+1,Phase,1,
+2,  Group,1,
+3,    Leaf,3,1
+"""
+
+GRANDCHILD_TO_SUMMARY_CSV = b"""\
+ID,Name,Duration,Predecessors
+1,Phase,1,3
+2,  Group,1,
+3,    Leaf,3,
+"""
+
+
+def _run_csv(project: Project, content: bytes) -> tuple[object, CsvImportRequest]:
+    from trueppm_api.apps.csvimport.tasks import import_csv
+
+    req = _make_request(
+        project,
+        file_content_b64=base64.b64encode(content).decode("ascii"),
+        status=CsvImportStatus.DISPATCHED,
+    )
+    result = import_csv.apply(
+        kwargs={
+            "project_id": str(project.pk),
+            "file_content_b64": req.file_content_b64,
+            "filename": req.filename,
+            "import_request_id": str(req.pk),
+        },
+        throw=False,
+    )
+    req.refresh_from_db()
+    return result, req
+
+
+@pytest.mark.django_db
+class TestSummaryLinkEdgeCases:
+    @pytest.mark.parametrize("content", [SUMMARY_TO_GRANDCHILD_CSV, GRANDCHILD_TO_SUMMARY_CSV])
+    def test_summary_to_grandchild_is_refused_in_both_directions(
+        self, project: Project, content: bytes
+    ) -> None:
+        result, req = _run_csv(project, content)
+        assert result.failed()  # type: ignore[attr-defined]
+        assert req.status == CsvImportStatus.DEAD
+        assert "row 2" in req.result_summary["error"]
+        assert "row 4" in req.result_summary["error"]
+        assert Task.objects.filter(project=project).count() == 0
+
+    def test_summary_linked_to_an_outside_task_is_accepted(self, project: Project) -> None:
+        result, req = _run_csv(project, SUMMARY_TO_OUTSIDE_CSV)
+        assert not result.failed()  # type: ignore[attr-defined]
+        assert req.status != CsvImportStatus.DEAD
+        assert Task.objects.filter(project=project).count() == 3
+
+    def test_unexpandable_summary_shape_is_dead_not_redispatched(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("trueppm_scheduler.engine.MAX_EXPANDED_EDGES", 0)
+        result, req = _run_csv(project, SUMMARY_TO_OUTSIDE_CSV)
+        assert result.failed()  # type: ignore[attr-defined]
+        assert req.status == CsvImportStatus.DEAD
+        assert "too many rows" in req.result_summary["error"]
+        assert Task.objects.filter(project=project).count() == 0
+
+
 @pytest.mark.django_db
 class TestImportRejectsSummaryToOwnChild:
     @pytest.mark.parametrize("content", [SUMMARY_TO_CHILD_CSV, CHILD_TO_SUMMARY_CSV])

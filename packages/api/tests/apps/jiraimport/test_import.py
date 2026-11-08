@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 from datetime import date
 from unittest.mock import patch
 
@@ -298,7 +299,46 @@ class TestImportRejectsSummaryToOwnChild:
                 throw=False,
             )
         assert result.failed()
-        assert "InfeasibleGraphError" in repr(result.result)
+        # Celery wraps an exception it cannot unpickle; the wrapper records the class.
+        assert result.result.exc_cls_name == "InfeasibleGraphError"
         req.refresh_from_db()
         assert req.status == JiraImportStatus.DEAD
         assert Task.objects.filter(project=project).count() == 0
+
+
+@pytest.mark.django_db
+def test_unexpandable_summary_shape_marks_request_dead(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.jiraimport.tasks import import_jira
+
+    data = parse_jira_xml(CHAIN_EXPORT)
+    data.tasks[0].outline_number, data.tasks[0].outline_level = "1", 1
+    data.tasks[1].outline_number, data.tasks[1].outline_level = "1.1", 2
+    data.tasks[2].outline_number, data.tasks[2].outline_level = "2", 1
+    # Make the summary (PROJ-1) drive the outside task PROJ-3, so the guard must
+    # expand a summary edge: a legitimate link, but past the patched fan-out cap.
+    link = data.tasks[1].predecessor_links[0]
+    data.tasks[1].predecessor_links = []
+    data.tasks[2].predecessor_links = [dataclasses.replace(link, predecessor_uid=data.tasks[0].uid)]
+    monkeypatch.setattr("trueppm_scheduler.engine.MAX_EXPANDED_EDGES", 0)
+    req = JiraImportRequest.objects.create(
+        project=project,
+        filename="fanout.xml",
+        file_content_b64=base64.b64encode(CHAIN_EXPORT).decode("ascii"),
+        status=JiraImportStatus.DISPATCHED,
+    )
+    with patch("trueppm_api.apps.jiraimport.parser.parse_jira_xml", return_value=data):
+        result = import_jira.apply(
+            kwargs={
+                "project_id": str(project.pk),
+                "file_content_b64": req.file_content_b64,
+                "filename": req.filename,
+                "import_request_id": str(req.pk),
+            },
+            throw=False,
+        )
+    assert result.failed()
+    req.refresh_from_db()
+    assert req.status == JiraImportStatus.DEAD
+    assert Task.objects.filter(project=project).count() == 0

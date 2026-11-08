@@ -142,7 +142,59 @@ SUMMARY_TO_SIBLING_XML = _build_xml(
 )
 
 
+def _leveled(uid: int, name: str, number: str, level: int, preds: list[int] | None = None):
+    """A task whose hierarchy is carried by OutlineLevel only (flat OutlineNumber)."""
+    task = _task(uid, name, number, preds)
+    task["OutlineLevel"] = level
+    return task
+
+
+# Phase (1) > Group (1.1) > Leaf (1.1.1), with the link from the grandchild's side.
+GRANDCHILD_TO_SUMMARY_XML = _build_xml(
+    [
+        _task(1, "Phase", "1"),
+        _task(2, "Group", "1.1"),
+        _task(3, "Leaf", "1.1.1", preds=[1]),
+    ]
+)
+SUMMARY_TO_GRANDCHILD_XML = _build_xml(
+    [
+        _task(1, "Phase", "1", preds=[3]),
+        _task(2, "Group", "1.1"),
+        _task(3, "Leaf", "1.1.1"),
+    ]
+)
+
+# Hierarchy only in OutlineLevel: every OutlineNumber is flat.
+LEVEL_ONLY_XML = _build_xml(
+    [
+        _leveled(1, "Phase", "1", 1),
+        _leveled(2, "Design", "2", 2, preds=[1]),
+    ]
+)
+
+# "1.1" is missing, so the engine treats 1 as a leaf and 1.1.1 as a root.
+OUTLINE_GAP_XML = _build_xml(
+    [
+        _task(1, "Phase", "1"),
+        _task(2, "Deep", "1.1.1", preds=[1]),
+    ]
+)
+
+
 class TestBuildChildrenMap:
+    def test_outline_gap_matches_the_engines_direct_parent_rule(self) -> None:
+        # The guard must not refuse what the engine would schedule.
+        parsed = parse_xml(OUTLINE_GAP_XML)
+        assert build_children_map(parsed) == {}
+        validate_task_graph(
+            collect_dependency_edges(parsed), children_map=build_children_map(parsed)
+        )
+
+    def test_outline_level_only_hierarchy_is_recognized(self) -> None:
+        parsed = parse_xml(LEVEL_ONLY_XML)
+        assert build_children_map(parsed) == {"1": ["2"]}
+
     def test_maps_a_summary_to_its_direct_children(self) -> None:
         parsed = parse_xml(SUMMARY_TO_SIBLING_XML)
         assert build_children_map(parsed) == {"1": ["2"]}
@@ -194,7 +246,16 @@ class TestGuardRejectsBadGraphs:
 class TestGuardRejectsSummaryToOwnDescendant:
     """#4856: the engine refuses these links on every recalculation, so refuse at import."""
 
-    @pytest.mark.parametrize("xml", [SUMMARY_TO_CHILD_XML, CHILD_TO_SUMMARY_XML])
+    @pytest.mark.parametrize(
+        "xml",
+        [
+            SUMMARY_TO_CHILD_XML,
+            CHILD_TO_SUMMARY_XML,
+            GRANDCHILD_TO_SUMMARY_XML,
+            SUMMARY_TO_GRANDCHILD_XML,
+            LEVEL_ONLY_XML,
+        ],
+    )
     def test_link_between_a_summary_and_its_child_is_rejected(self, xml: bytes) -> None:
         parsed = parse_xml(xml)
         edges = collect_dependency_edges(parsed)
@@ -208,6 +269,29 @@ class TestGuardRejectsSummaryToOwnDescendant:
         validate_task_graph(
             collect_dependency_edges(parsed), children_map=build_children_map(parsed)
         )
+
+    def test_message_for_the_child_to_summary_direction(self) -> None:
+        parsed = parse_xml(CHILD_TO_SUMMARY_XML)
+        edges = collect_dependency_edges(parsed)
+        with pytest.raises(InfeasibleGraphError) as exc:
+            validate_task_graph(edges, children_map=build_children_map(parsed))
+        detail = describe_bad_graph(parsed, exc.value, edges)
+        assert "Task Phase (uid 1) is linked to its own sub-task Design (uid 2)" in detail
+
+    def test_message_bounds_and_sanitizes_task_names(self) -> None:
+        xml = _build_xml(
+            [
+                _task(1, "Phase\nforged: line" + "x" * 300, "1"),
+                _task(2, "Design", "1.1", preds=[1]),
+            ]
+        )
+        parsed = parse_xml(xml)
+        edges = collect_dependency_edges(parsed)
+        with pytest.raises(InfeasibleGraphError) as exc:
+            validate_task_graph(edges, children_map=build_children_map(parsed))
+        detail = describe_bad_graph(parsed, exc.value, edges)
+        assert "\n" not in detail
+        assert len(detail) < 300
 
     def test_message_names_the_summary_and_its_child(self) -> None:
         parsed = parse_xml(SUMMARY_TO_CHILD_XML)
@@ -327,6 +411,19 @@ class TestImportTaskRejectsBadGraphs:
         result, req = self._run(project, xml, "nested.xml")
 
         assert result.failed()
+        assert req.status == ImportRequestStatus.DEAD
+        assert Task.objects.filter(project=project).count() == 0
+
+    def test_unexpandable_summary_shape_is_dead_not_redispatched(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # InvalidScheduleInput is as deterministic as a cycle; without DEAD the
+        # orphan drain re-dispatches the file forever (ADR-0092).
+        monkeypatch.setattr("trueppm_scheduler.engine.MAX_EXPANDED_EDGES", 0)
+        result, req = self._run(project, SUMMARY_TO_SIBLING_XML, "fanout.xml")
+
+        assert result.failed()
+        assert "InvalidScheduleInput" in repr(result.result)
         assert req.status == ImportRequestStatus.DEAD
         assert Task.objects.filter(project=project).count() == 0
 

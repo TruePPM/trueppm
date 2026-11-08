@@ -93,6 +93,8 @@ def _reject_infeasible_graph(
     DISPATCHED, so the orphan drain would re-dispatch a deterministically bad file
     forever (ADR-0092) — the same reason a parse failure marks the row DEAD.
     """
+    from trueppm_scheduler import InvalidScheduleInput
+
     from trueppm_api.apps.msproject.importer import (
         build_children_map,
         collect_dependency_edges,
@@ -118,6 +120,13 @@ def _reject_infeasible_graph(
             filename,
             describe_bad_graph(project_data, exc, edges),
         )
+        if import_request_id:
+            _mark_import_dead(import_request_id)
+        raise
+    except InvalidScheduleInput as exc:
+        # A malformed summary shape (fan-out past the engine cap) is as
+        # deterministic as a cycle: DEAD, or the orphan drain re-dispatches forever.
+        logger.warning("import.msproject: rejected %s — %s", filename, exc)
         if import_request_id:
             _mark_import_dead(import_request_id)
         raise

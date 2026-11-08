@@ -169,6 +169,8 @@ def _validate_graph_or_mark_dead(parsed: Any, import_request_id: str | None) -> 
     the next recalc. Validated in uid space — a relabeling of the eventual
     PKs — so nothing is created if the graph is bad.
     """
+    from trueppm_scheduler import InvalidScheduleInput
+
     from trueppm_api.apps.msproject.importer import build_children_map, find_hierarchy_link
     from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError, validate_task_graph
 
@@ -185,6 +187,15 @@ def _validate_graph_or_mark_dead(parsed: Any, import_request_id: str | None) -> 
             _mark_import_dead(
                 import_request_id,
                 _describe_bad_graph(exc, find_hierarchy_link(edges, children_map)),
+            )
+        raise
+    except InvalidScheduleInput:
+        if import_request_id:
+            _mark_import_dead(
+                import_request_id,
+                "The outline nests too many rows under linked summary rows for the "
+                "scheduler to expand. Remove or narrow the summary-row predecessors "
+                "and re-upload.",
             )
         raise
 
