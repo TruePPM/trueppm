@@ -1,14 +1,55 @@
 {
   "id": "p-progress-closed-milestone-non-working-day-after-work",
-  "name": "A milestone closed after work on a day its own calendar does not work is shown at the end of that day, the instant the finish is seeded from (#4641)",
+  "name": "A milestone closed at the end of a day its own calendar does not work is shown at the end of that day, the instant the finish is seeded from (#4641). Completed work can no longer put it there: its FS+4 proposal is shown on Monday, after the Saturday sign-off, so M sits at the start of Saturday (#4703); M2 reaches the end of Saturday through live_day_end_on while its predecessor is still open",
   "start_date": "2026-01-05",
   "tasks": [
-    {"id": "A", "name": "Completed work, no actuals: pinned Mon..Thu", "duration": 345600.0, "percent_complete": 100.0},
-    {"id": "M", "name": "Milestone after A, closed Saturday on a Mon-Fri calendar", "duration": 0.0, "percent_complete": 0.0, "actual_finish": "2026-01-10", "calendar_id": "five-day"},
-    {"id": "X", "name": "Unlinked live work: five days of float, spent by ending Saturday too", "duration": 86400.0}
+    {
+      "id": "A",
+      "name": "Completed work, no actuals: pinned Mon..Thu",
+      "duration": 345600.0,
+      "percent_complete": 100.0
+    },
+    {
+      "id": "M",
+      "name": "Milestone after A, closed Saturday on a Mon-Fri calendar: A's proposal is shown on Monday, after the sign-off, so the start of Saturday (#4703)",
+      "duration": 0.0,
+      "percent_complete": 0.0,
+      "actual_finish": "2026-01-10",
+      "calendar_id": "five-day"
+    },
+    {
+      "id": "A2",
+      "name": "Open work, Mon..Thu",
+      "duration": 345600.0
+    },
+    {
+      "id": "M2",
+      "name": "Milestone after A2, closed Saturday on a Mon-Fri calendar with live_day_end_on Saturday and A2 open: the end of Saturday",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-01-10",
+      "live_day_end_on": "2026-01-10",
+      "calendar_id": "five-day"
+    },
+    {
+      "id": "X",
+      "name": "Unlinked live work: five days of float, spent by ending Saturday too",
+      "duration": 86400.0
+    }
   ],
   "dependencies": [
-    {"predecessor_id": "A", "successor_id": "M", "dep_type": "FS", "lag": 345600.0}
+    {
+      "predecessor_id": "A",
+      "successor_id": "M",
+      "dep_type": "FS",
+      "lag": 345600.0
+    },
+    {
+      "predecessor_id": "A2",
+      "successor_id": "M2",
+      "dep_type": "FS",
+      "lag": 345600.0
+    }
   ],
   "calendar": {
     "working_days": 127,

@@ -137,8 +137,18 @@ Rules:
   no longer binds. Which edge of that day it sits on is the edge it had live: its
   predecessor links compete with the recorded day as a start-of-day floor, exactly as
   the data date or an SNET would have, so it sits at the **end** of the day
-  (`milestone_at_day_end` True) only when work finishing that day (or later) placed
-  it, and at the **start** when no work precedes it or a floor held it. Closing a
+  (`milestone_at_day_end` True) only when work finishing that day placed
+  it, and at the **start** when no work precedes it or a floor held it. (Amended
+  2026-11-09, #4703: this read "that day (or later)". Work recorded as finishing
+  after the sign-off — out of sequence — reached past the end of the recorded day
+  and read as end-of-day, so closing it slipped an already-closed milestone's
+  successors a working day. A link proposal shown on a later day than the recorded
+  one is now dropped from the reading, in both engines, and while one is, a
+  handed-back `live_day_end_on` edge stands as it does for open work: dropping the
+  proposal alone pulled the successors a working day *earlier* on the API path,
+  where that edge is handed back. The rule reads the day a link places the
+  milestone, not the day the work finished, so FS-1d from work finishing the day
+  after the sign-off still gives the end of the day. Known limits, tracked in #4915: a faithful end-of-day hand-back is re-read from the completed work when a closed late predecessor's link places the milestone at or before its day, so successors can move a working day earlier; and several late predecessors with negative lag can drop one late proposal and let another through, so successors move a working day later. A gate at the start of its day has no hand-back value to stand on.) Closing a
   milestone on the day it was forecast therefore moves nothing downstream. (Decided
   2026-10-16, "preserve the live edge": an earlier draft put every closed milestone
   at the start of its day, which pulled a successor of a milestone that follows work
