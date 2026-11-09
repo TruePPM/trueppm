@@ -217,9 +217,11 @@ class Task:
     is_critical: bool = False
     # Progress (ADR-0132). Consumed by both schedule() and monte_carlo() as a
     # remaining-duration driver: an in-progress task contributes only
-    # ``duration * (1 - percent_complete/100)`` of remaining work, scheduled
-    # forward from the project ``status_date`` (the data date), not its full
-    # estimate from project start. Clamped to [0, 100] by the engine.
+    # ``duration - floor(duration * percent_complete/100)`` of remaining work
+    # (10 days at 25% leaves 8; ADR-0132 §2a), scheduled forward from the
+    # project ``status_date`` (the data date), not its full estimate from
+    # project start. A value outside [0, 100] is refused with an error, not
+    # clamped (#4513).
     percent_complete: float = 0.0
 
     # Actuals (ADR-0132). When ``actual_finish`` is set the task is treated as

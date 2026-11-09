@@ -707,6 +707,20 @@ through summary tasks (a summary depending on one of its own descendants):
 find_cycle(edges, children_map={"phase-1": ["design", "build"]})
 ```
 
+With `children_map`, detection runs on the expanded leaf-level edges, so the
+reported path names **leaf tasks, never the summary**. A link between a summary and
+one of its own subtasks collapses to a self-loop on that subtask, and the cycle is
+that subtask repeated:
+
+```python
+find_cycle([("design", "sub")], children_map={"design": ["sub", "other"]}).cycle
+# ['sub', 'sub']  -- names the leaf, not the summary 'design'
+```
+
+A task linked to itself reports the same two-element shape, for example
+`['design', 'design']`. Render a two-element path with equal ends as "this task
+depends on itself" rather than as a route through two tasks.
+
 ### `expand_summary_dependencies()` — flatten summary-level links
 
 A planner can draw a dependency on a *summary* task, but CPM operates on leaves.
