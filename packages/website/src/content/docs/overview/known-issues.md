@@ -1,6 +1,6 @@
 ---
 title: Known Issues
-description: The maintained list of defects and limitations in what 0.4 ships — each one naming its tracking issue and the release that fixes it.
+description: The maintained list of defects and limitations in what 0.4 ships — each one naming its tracking issue and target release where one exists.
 documentedFor: "0.4"
 ---
 
@@ -13,7 +13,7 @@ covers capabilities that were never built. The split is worth keeping straight:
 - *Known issues* (this page) — something that exists but is wrong, incomplete, or
   slower than it should be.
 
-Every entry names the issue tracking it and the release it is fixed in. When an
+Every entry names its tracking issue and target release where one exists. When an
 issue closes, its entry comes off this page.
 
 ## What holds up
