@@ -1,0 +1,9 @@
+# Commits that `git blame` should look through. Use it locally with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub's blame view reads this file automatically).
+#
+# A SHA here goes stale if its commit is rebased or squashed before it merges:
+# re-read it from the merged history and update this line.
+
+# refactor(scheduler): split engine.py into an engine/ package (pure move), #4550
+95b14b762d5a67ae3b80e9f4e8eb94321997a3db
