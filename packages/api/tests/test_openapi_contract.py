@@ -337,6 +337,10 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("post", "/api/v1/me/timesheets/{week_start}/submit"),
         ("post", "/api/v1/paste-many-operations/{id}/undo/"),
         ("post", "/api/v1/programs/{id}/shift-sample-dates/"),
+        # #4858: a project restore that would revive a summary-to-own-descendant
+        # link is refused whole with `{code, detail, offending}`; a key-assignment
+        # failure also answers a bare `{code: [..]}` 400 inside the same handler.
+        ("post", "/api/v1/projects/{id}/restore/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/indent/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/outdent/"),
         ("post", "/api/v1/slip-conflicts/{id}/acknowledge/"),
