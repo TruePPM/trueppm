@@ -229,7 +229,10 @@ Rules:
     names another `feat|fix|docs|chore/<N>-` branch or worktree path is left for that branch, and an
     unnamed gate is counted when it has usage in the window. Name an agent explicitly with `--agent <id>`, and add
     `--pin` (in the branch's own worktree) to record it for this branch so the hook and `--round`
-    attribute it the same way. Outside `/wave`, run `python3 scripts/post-mr-cost.py --measure` in
+    attribute it the same way. `--measure` and the cost records also count another session's
+    subagent whose home (as above) is this MR's source branch, claimed by home only, never by brief;
+    that session's orchestrator spend is not attributed to this MR (the comment gets a line giving
+    the counts and the unclaimed orchestrator tokens; trueppm#4885). Outside `/wave`, run `python3 scripts/post-mr-cost.py --measure` in
     the branch's worktree: the window is what this session has not yet claimed, so no `--since`
     is needed.
   - One line each per MR. **Omit a line `--measure` did not print** (an agent id with no

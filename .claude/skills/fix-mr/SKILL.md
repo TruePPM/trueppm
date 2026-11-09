@@ -296,7 +296,10 @@ on (`scripts/cost-ledger enabled` exits 0; off, unreadable, or no record 1: post
 verbatim. It posts `## Cost of this MR (#N) — record K` through `scripts/cost-table.py`, measuring
 the window this session has not yet claimed (the orchestrator since its previous cost record, and
 each subagent only for usage after its own previous record), and advances the per-session state;
-a re-run with nothing new to claim posts nothing. It never edits an earlier record or the
+a re-run with nothing new to claim posts nothing. It also claims another session's subagents whose
+home (the worktree their Edit/Write calls land in, else their `cd` / `git -C` targets, never their
+brief) is this MR's source branch, but never that session's orchestrator: the comment gets a line
+giving the counts and the unclaimed orchestrator tokens (trueppm#4885). It never edits an earlier record or the
 `## Gates` lines. A rebase that resolved conflicts is a pass too. A pass that spawned no subagent
 needs nothing extra. Do not run the three measuring scripts, `cost-table.py --next-since` or
 `--ledger`, or save a window pair by hand. The steps and the format are in
