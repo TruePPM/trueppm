@@ -287,13 +287,19 @@ behavior is calendar-day lag, as described above.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `early_start` | `date` | Earliest date the task can start |
-| `early_finish` | `date` | Earliest date the task can finish |
+| `early_start` | `date` | Start of the task's **remaining** work. For an in-progress task this is the data date (`status_date`), not the day work began |
+| `scheduled_start` | `date` | Start of the task's **whole span**: `actual_start` for in-progress work, otherwise `early_start`. Draw bars from this |
+| `early_finish` | `date` | Finish of both the remaining work and the whole span |
 | `late_start` | `date` | Latest start without delaying the project |
 | `late_finish` | `date` | Latest finish without delaying the project |
 | `total_float` | `timedelta` | Working days of slack before the task delays the project end |
 | `free_float` | `timedelta` | Working days a task can slip without moving any live successor's early dates (see note) |
 | `is_critical` | `bool` | `True` when `total_float == timedelta(0)` and the task is not complete (a completed task keeps zero float but is never critical) |
+| `milestone_at_day_end` | `bool` | For a zero-duration milestone, `True` when `early_finish` is the end of that day and `False` when it is the start of it. Do not diff two shown days as a slip |
+
+On the result itself, `critical_path` lists every critical task id in lexicographic-topological order (a list of tasks, not one chain; it is empty when no task is critical), and `driving_edges` lists the dependencies that bind their successor or have zero relationship free float.
+
+For example, a 10-day task that began on 2026-01-05 and is 25% complete, scheduled with a `status_date` of 2026-01-12, reports `early_start` 2026-01-12, `early_finish` 2026-01-21, and `scheduled_start` 2026-01-05. Drawing the bar from `early_start` would show 7.5 days of remaining work as the whole task.
 
 :::note
 `free_float`, `total_float`, and `is_critical` all account for **all four**
