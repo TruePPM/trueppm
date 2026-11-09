@@ -273,8 +273,12 @@ in the worktree first (`docs/harness/cost-ledger.md`).
   printed and put stderr's `note:` text under `## Notes`; a figure that cannot be measured is
   omitted, never sent as 0. The `subagent_tokens` field in an agent's completion notification is a
   context size, not usage: it is never recorded, and it is not the ledger's `subagent-tokens:`
-  figure. A branch resumed from another session cannot be read from this one: omit the lines and
-  say so.
+  figure. A branch whose agents ran in another session is still measured: `--measure`, the hook and
+  `--round` also count another session's subagent whose home (where its Edit/Write calls land, else
+  its `cd` targets, never its brief) is this branch's worktree, over that session's own watermark,
+  and never that session's orchestrator, whose spend stays with that session's own records and is
+  not attributed to this MR (port of macrodream/blueprint#389, `docs/harness/cost-ledger.md`
+  § *Non-overlap*). So keep a worker's edits in its branch's worktree.
 
 Only once this clears does the Step 5 agent, resumed, finish the branch:
 
@@ -326,8 +330,9 @@ after the MR is open, and a rebase with conflict resolution before merge (CLAUDE
 sequence"; a clean rebase is not a window). With the ledger on, once that work is pushed, in the
 worktree, run `python3 scripts/post-mr-cost.py --round --mr <iid> [--agent <id> ...]` and relay its
 one-line answer. It posts record K for the window this session has not yet claimed (whatever
-other sessions posted on the MR), counts a resumed agent only for its new usage, and advances the
-session state; it posts nothing, and says why, when the ledger is off, the MR opts out, or record 1
+other sessions posted on the MR), counts a resumed agent only for its new usage, also counts another
+session's subagent that worked in this MR's worktree (over that session's watermark, never that
+session's orchestrator), and advances the session state; it posts nothing, and says why, when the ledger is off, the MR opts out, or record 1
 is missing. Do not run the three measuring scripts, `cost-table.py --next-since` or `--ledger`, and
 do not save a window pair: the state lives in `${CLAUDE_CONFIG_DIR:-~/.claude}/mr-cost-state/` (one file per session, shared by every repo it works in) and is written only
 by `post-mr-cost.py` (`docs/harness/cost-ledger.md` § *Non-overlap*). The `## Gates` lines stay the

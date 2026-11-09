@@ -29,7 +29,8 @@ it, and the meta `description` text is never read or echoed.
 
 Usage:
   python3 scripts/subagent-tokens.py --agent <id>[@<since>] [--agent <id> ...] [--until <ISO 8601>]
-         [--agent-since <id>@<since> ...] [--session <session-id>] [--projects-dir <dir>]
+         [--agent-since <id>@<since> ...] [--session <session-id>] [--also-session <session-id> ...]
+         [--projects-dir <dir>]
   python3 scripts/subagent-tokens.py --no-agents
   python3 scripts/subagent-tokens.py --self-test
 
@@ -43,6 +44,12 @@ Usage:
   is not named, such as a descendant found through `parentAgentId`. An agent with no bound counts
   from its first entry. Without it a resumed agent was counted whole again in the next record.
   scripts/post-mr-cost.py passes these from its per-session state.
+
+  Other sessions (macrodream/blueprint#389): `--also-session <sid>` (repeatable) lets a named agent
+  live in that session's subagents directory instead of --session's, for an agent that worked on
+  the branch from another session. Each id is looked up in --session first; an id in two of the
+  other sessions, or in none, fails closed. Descendants come from the agent's own session. With
+  --also-session, a --session that has no directory (it spawned no subagent) is not an error.
 
   The session id defaults to $CLAUDE_CODE_SESSION_ID. --until is inclusive and must carry a zone.
   The cost-ledger setting is asked first (`scripts/cost-ledger enabled`):
@@ -113,7 +120,7 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
         )
         return 3
     ids, until, sid, none_ran = [], None, None, False
-    since_by_id = {}
+    since_by_id, also = {}, []
     projects_dir = tu.default_projects_dir()
     i = 0
     while i < len(argv):
@@ -127,11 +134,12 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
             "--agent-since",
             "--until",
             "--session",
+            "--also-session",
             "--projects-dir",
         ):
             print(
                 "usage: subagent-tokens.py --agent <id>[@since] [--agent <id>...] [--agent-since <id>@since] "
-                "[--until T] [--session <sid>]",
+                "[--until T] [--session <sid>] [--also-session <sid>...]",
                 file=err,
             )
             return 2
@@ -160,6 +168,11 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
                 return 2
         elif a == "--session":
             sid = v
+        elif a == "--also-session":
+            if not SESSION_RE.match(v):
+                print("usage: --also-session %r is not a session id" % v[:80], file=err)
+                return 2
+            also.append(v)
         else:
             projects_dir = v
         i += 2
@@ -185,10 +198,13 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
     try:
         sdir = session_dir(sid, projects_dir)
     except ValueError as e:
-        print("ERROR: %s" % e, file=err)
-        return 2 if not SESSION_RE.match(sid) else 1
+        if not SESSION_RE.match(sid) or not also:
+            print("ERROR: %s" % e, file=err)
+            return 2 if not SESSION_RE.match(sid) else 1
+        sdir = None  # a session that spawned no subagent of its own: every named agent is in an --also-session
     try:
-        agents, files = tu.subagent_files(sdir, ids)
+        others = [session_dir(o, projects_dir) for o in sorted(set(also) - {sid})]
+        agents, files = tu.subagent_files_across(sdir, others, ids)
     except ValueError as e:
         print("FAIL: %s; no line printed" % e, file=err)
         return 1
@@ -577,6 +593,120 @@ def _cases(tmp, check):
         and "model unknown" not in err
         and "1 empty" in err,
         repr((out, err)),
+    )
+    # Other sessions (macrodream/blueprint#389): an agent in another session's directory, by --also-session.
+    sid_b, sid_c = (
+        "0f0e0d0c-1111-2222-3333-bbbbbbbbbbbb",
+        "0f0e0d0c-1111-2222-3333-cccccccccccc",
+    )
+    fb, fbd = "f1111111111111111", "f2222222222222222"
+    sub_b, sub_c = (
+        os.path.join(base, sid_b, "subagents"),
+        os.path.join(base, sid_c, "subagents"),
+    )
+    write(os.path.join(base, sid_b + ".jsonl"), [entry("bm1", ts, usage, False)])
+    write(os.path.join(sub_b, "agent-%s.jsonl" % fb), [entry("fb1", ts, usage, True)])
+    meta(sub_b, fb)
+    write(os.path.join(sub_b, "agent-%s.jsonl" % fbd), [entry("fb2", ts, usage, True)])
+    meta(sub_b, fbd, parentAgentId=fb)
+    rc, out, err = call("--agent", a1, "--agent", fb, "--session", sid, *pd)
+    check(
+        "an agent of another session is not found without --also-session (fail closed)",
+        rc == 1 and out == "",
+        repr((rc, out)),
+    )
+    rc, out, err = call(
+        "--agent",
+        "a1111111111111111",
+        "--agent",
+        fb + "@" + ts,
+        "--also-session",
+        sid_b,
+        "--session",
+        sid,
+        *pd,
+    )
+    check(
+        "--also-session: the other session's agent and ITS descendant count, beside this session's own (a1 + a2 + a3 + fb + fbd)",
+        rc == 0
+        and out == "subagent-tokens: %d\n" % (5 * 7777)
+        and fbd + " (descendant)" in err,
+        repr((rc, out, err)),
+    )
+    rc, out, _ = call(
+        "--agent",
+        fb,
+        "--agent-since",
+        fbd + "@2026-11-05T00:00:00Z",
+        "--also-session",
+        sid_b,
+        "--session",
+        sid,
+        *pd,
+    )
+    check(
+        "--agent-since cuts another session's descendant too",
+        rc == 0 and out == "subagent-tokens: %d\n" % 7777,
+        repr((rc, out)),
+    )
+    write(os.path.join(sub_c, "agent-%s.jsonl" % fb), [entry("fb1", ts, usage, True)])
+    meta(sub_c, fb)
+    write(os.path.join(base, sid_c + ".jsonl"), [entry("cm1", ts, usage, False)])
+    rc, out, err = call(
+        "--agent",
+        fb,
+        "--also-session",
+        sid_b,
+        "--also-session",
+        sid_c,
+        "--session",
+        sid,
+        *pd,
+    )
+    check(
+        "an agent id in two other sessions fails closed",
+        rc == 1 and out == "" and "more than one" in err,
+        repr((rc, out, err)),
+    )
+    rc, out, _ = call(
+        "--agent", fb, "--also-session", "../" + sid_b, "--session", sid, *pd
+    )
+    check("exit 2: a path-like --also-session", rc == 2 and out == "", repr((rc, out)))
+    rc, out, _ = call(
+        "--agent", fb, "--also-session", "deadbeef", "--session", sid, *pd
+    )
+    check(
+        "exit 1: an --also-session that does not resolve",
+        rc == 1 and out == "",
+        repr((rc, out)),
+    )
+    rc, out, _ = call(
+        "--agent",
+        fb,
+        "--also-session",
+        sid_b,
+        "--session",
+        "0f0e0d0c-1111-2222-3333-dddddddddddd",
+        *pd,
+    )
+    check(
+        "--also-session: a --session with no directory of its own (no subagent) still measures the other session's agent",
+        rc == 0 and out == "subagent-tokens: %d\n" % (2 * 7777),
+        repr((rc, out)),
+    )
+    rc, out, _ = call(
+        "--agent",
+        a1,
+        "--also-session",
+        sid_b,
+        "--session",
+        "0f0e0d0c-1111-2222-3333-dddddddddddd",
+        *pd,
+    )
+    check(
+        "... but an agent in neither fails closed",
+        rc == 1 and out == "",
+        repr((rc, out)),
     )
     # The library's own guards.
     for bad in ("", "../x", "a1/b", "ZZZZZZZZ", "a12"):
