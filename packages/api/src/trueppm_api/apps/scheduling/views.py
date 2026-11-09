@@ -2825,8 +2825,8 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             pk=pk,
             is_deleted=False,
         )
-        # 404 (not 403) for a non-member: the object-scope oracle keeps a project's
-        # existence from leaking to a non-member (mirrors MonteCarloLatestView).
+        # A non-member gets 403, not 404: IsProjectMember refuses here, after the
+        # project lookup (pinned by test_schedule_derivation's non-member test).
         self.check_object_permissions(request, project)
 
         if quantity in _MC_DERIVATION_QUANTITIES:

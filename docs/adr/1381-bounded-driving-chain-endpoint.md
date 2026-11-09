@@ -27,7 +27,7 @@ derivable API-side. **No scheduler change is required.**
    operation id `project_schedule_driving_chain`. Same view posture as
    `ScheduleDerivationView`: `McpReadableViewMixin`, `mcp_scope = PATH`,
    `project_url_kwarg = "pk"`, `[IsAuthenticated, IsProjectMember, IsProjectNotArchived]`,
-   404 for a non-member, `mcp_compute_heavy = True`, `throttle_scope = "cpm_on_read"`.
+   403 for a non-member (same as derivation), `mcp_compute_heavy = True`, `throttle_scope = "cpm_on_read"`.
    Input built by the shared `_build_cpm_sched_project`, so it explains the same
    network `_run_schedule` persisted.
 2. **One pass:** a single `schedule()` call; the chain is walked over
@@ -41,6 +41,12 @@ derivable API-side. **No scheduler change is required.**
 4. **Bounds:** `depth` default 25, max 50 (hops per direction); hard node cap 200 per
    response. Either limit sets `truncated: true` plus `truncated_reason`
    (`depth` | `node_cap`). No uncapped id list anywhere in the payload (#4656).
+   **Cap split:** the task takes one slot and downstream (the path to the finish, the
+   half that answers "why critical") is guaranteed `min(its reachable nodes,
+   node_cap // 2)` slots; upstream gets the rest, and downstream then fills any slots
+   upstream left unused. A fan-in larger than the cap therefore cannot starve the
+   downstream half. When both limits bind, one reason is reported and `node_cap` wins
+   over `depth`.
 5. **Node:** `task_id`, `name`, `status`, `total_float_days`, `is_critical`,
    `is_project_finish`, `sprint` (`{id, finish_date}` or `null`). **No assignee, hours or
    velocity** — the sprint field states only that the node is sprint-bound and when the
@@ -55,7 +61,8 @@ derivable API-side. **No scheduler change is required.**
    and no chain — never a fabricated one. Unknown task id → 404 (same as derivation).
 8. **MCP:** `get_schedule_driving_chain(project_id, task_id, depth?)` in
    `packages/mcp/src/trueppm_mcp/tools.py`, mirroring `_get_schedule_derivation`,
-   returning the server payload unchanged.
+   returning the server payload with null and empty fields omitted (the tool's shared
+   `_compact_mapping`), so an edge with no `via_summary` key is a direct link.
 
 ## Provenance (decided 2026-11-09: option B)
 
@@ -91,3 +98,6 @@ piecemeal". Options:
 - The chain is a bounded view, not a network diagram (epic out-of-scope).
 - `driving_edges` includes zero-free-float links that do not bind (#4704), so a merge
   can show two driving predecessors; the payload says so rather than picking one.
+- Known limitation (unconfirmed, #4906): if `driving_edges` omits a binding link — reported
+  for a calendar-day lag that lands on a weekend, not reproduced — the chain stops one
+  hop short.

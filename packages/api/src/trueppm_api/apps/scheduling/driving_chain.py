@@ -109,7 +109,11 @@ def build_driving_chain(
         db_tasks_by_id: Django ``Task`` rows (``sprint`` selected) keyed by str id.
         task_id: The task the chain is walked through; must be in the network.
         depth: Maximum hops per direction.
-        node_cap: Maximum nodes in the response, the task itself included.
+        node_cap: Maximum nodes in the response, the task itself included. The task
+            takes one slot and downstream is guaranteed ``min(its reachable nodes,
+            node_cap // 2)`` slots; upstream gets the rest, and downstream fills any
+            slots upstream leaves unused. When both ``depth`` and ``node_cap`` bind,
+            ``truncated_reason`` reports ``node_cap``.
 
     Returns:
         ``{nodes, edges, truncated, truncated_reason}`` — see
@@ -122,28 +126,52 @@ def build_driving_chain(
         succs.setdefault(e.predecessor_id, []).append(e)
 
     hops: dict[str, tuple[str, int]] = {task_id: ("self", 0)}
-    truncated_reason: str | None = None
 
-    def walk(direction: str, adjacency: dict[str, list[Any]], far_end: str) -> None:
-        nonlocal truncated_reason
+    def walk(
+        direction: str, adjacency: dict[str, list[Any]], far_end: str, limit: int
+    ) -> str | None:
+        """Breadth-first walk adding nodes until ``len(hops)`` reaches ``limit``.
+
+        Re-walking a direction passes through the nodes an earlier, smaller-limit pass
+        already placed (same BFS order, so the same hops) and continues past them. Returns
+        the limit that cut the walk short, or ``None`` if it reached the chain's end.
+        """
+        reason: str | None = None
+        seen = {task_id}
         queue: deque[tuple[str, int]] = deque([(task_id, 0)])
         while queue:
             node, dist = queue.popleft()
             nexts = sorted({getattr(e, far_end) for e in adjacency.get(node, [])})
             for nxt in nexts:
+                if nxt in seen:
+                    continue
                 if nxt in hops:
+                    seen.add(nxt)
+                    queue.append((nxt, hops[nxt][1]))
                     continue
                 if dist >= depth:
-                    truncated_reason = truncated_reason or "depth"
+                    reason = reason or "depth"
                     break
-                if len(hops) >= node_cap:
-                    truncated_reason = "node_cap"
-                    return
+                if len(hops) >= limit:
+                    return "node_cap"
+                seen.add(nxt)
                 hops[nxt] = (direction, dist + 1)
                 queue.append((nxt, dist + 1))
+        return reason
 
-    walk("upstream", preds, "predecessor_id")
-    walk("downstream", succs, "successor_id")
+    # Fair split of the node cap: downstream (the path to the finish, the half that
+    # answers "why critical") is placed first, up to node_cap // 2 nodes beyond the
+    # task itself; upstream then fills the cap; downstream then takes whatever upstream
+    # left. A fan-in larger than the cap can no longer starve the downstream half.
+    walk("downstream", succs, "successor_id", 1 + node_cap // 2)
+    reasons = {
+        walk("upstream", preds, "predecessor_id", node_cap),
+        walk("downstream", succs, "successor_id", node_cap),
+    }
+    # One reason is reported; node_cap wins over depth when both bind.
+    truncated_reason = (
+        "node_cap" if "node_cap" in reasons else "depth" if "depth" in reasons else None
+    )
 
     # Only the chain's own edges are resolved: matching every expanded edge against
     # every summary link is O(edges x summary links) on a large WBS, and the response

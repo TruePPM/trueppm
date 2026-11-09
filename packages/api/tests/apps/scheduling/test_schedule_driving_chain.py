@@ -90,7 +90,8 @@ class TestDrivingChainAuth:
         c = APIClient()
         c.force_authenticate(user=outsider)
         res = c.get(url(project.pk), {"task_id": str(chain["B"].pk)})
-        assert res.status_code in (403, 404)
+        # 403, same as the derivation view (test_schedule_derivation.py).
+        assert res.status_code == 403
 
     @pytest.mark.parametrize("role", [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.OWNER])
     def test_every_member_role_reads(
@@ -184,6 +185,36 @@ class TestDrivingChain:
         assert data["truncated_reason"] == "node_cap"
         assert data["node_cap"] == 2
         assert len(data["nodes"]) == 2
+        # The cap's downstream half is reserved: the path toward the finish is kept.
+        assert any(n["direction"] == "downstream" for n in data["nodes"])
+
+    def test_fan_in_larger_than_cap_keeps_downstream_to_finish(
+        self,
+        viewer_client: APIClient,
+        project: Project,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from trueppm_api.apps.scheduling import driving_chain
+
+        monkeypatch.setattr(driving_chain, "NODE_CAP", 6)
+        root = Task.objects.create(project=project, name="Root", duration=2)
+        # Ten equal predecessors all drive Root: a fan-in larger than the cap.
+        for i in range(10):
+            p = Task.objects.create(project=project, name=f"P{i}", duration=2)
+            Dependency.objects.create(predecessor=p, successor=root, dep_type="FS", lag=0)
+        prev = root
+        for name in ("S1", "S2", "S3"):
+            nxt = Task.objects.create(project=project, name=name, duration=2)
+            Dependency.objects.create(predecessor=prev, successor=nxt, dep_type="FS", lag=0)
+            prev = nxt
+        data = viewer_client.get(url(project.pk), {"task_id": str(root.pk)}).json()
+        assert data["truncated_reason"] == "node_cap"
+        assert len(data["nodes"]) == 6
+        by_name = {n["name"]: n for n in data["nodes"]}
+        assert {"S1", "S2", "S3"} <= set(by_name)
+        assert by_name["S3"]["is_project_finish"] is True
+        # Upstream still gets the slots downstream did not need.
+        assert sum(n["direction"] == "upstream" for n in data["nodes"]) == 2
 
     def test_chain_is_cycle_free(
         self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
@@ -197,6 +228,9 @@ class TestDrivingChain:
         assert len(ids) == len(set(ids))
         assert all(e["predecessor_id"] != e["successor_id"] for e in data["edges"])
 
+    # TODO(#4906): the engine may omit a driving link whose calendar-day lag lands on a
+    # weekend (unconfirmed); this test's lag is pinned so the successor starts on a
+    # weekday, so it does not exercise that case.
     def test_summary_gated_edge_is_expanded_server_side(
         self, viewer_client: APIClient, project: Project
     ) -> None:
