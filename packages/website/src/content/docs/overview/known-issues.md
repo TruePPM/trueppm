@@ -16,6 +16,21 @@ covers capabilities that were never built. The split is worth keeping straight:
 Every entry names the issue tracking it and the release it is fixed in. When an
 issue closes, its entry comes off this page.
 
+## What holds up
+
+Read the list below with this in mind. An independent assessment of TruePPM 0.4-beta.1
+(2026-09-17) installed `trueppm-scheduler` from PyPI with no `--pre` flag and reproduced all
+three values in the README exactly. It found the Monte Carlo seed-reproducible and ran a
+2,000-task chain through the engine in 0.05 s. The falsifiability claim — that you can
+check our numbers yourself — holds. The assessment did not drive the web UI, so it says
+nothing about the interface.
+
+The deterministic single-project CPM pass is the most mature part of TruePPM and the part
+we are most confident in. Nothing on this page removes that. What follows is where the
+edges are, ordered so that what is most likely to affect your day-to-day work comes first
+and engine internals and test-tooling scope come last. Each entry ends with what it means
+for you, what to do instead, and where it is tracked.
+
 :::caution[0.4 is pre-1.0]
 0.4 is the first release we ask anyone to run a real project on. It is a stable 0.x
 release, not a 1.0 GA, so the public API may still change. The [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway /
@@ -24,8 +39,7 @@ Planned record; where this page and the roadmap disagree, the roadmap wins.
 
 ## Scheduling engine
 
-The deterministic single-project CPM pass is the most mature part of TruePPM and the
-part we are most confident in. These are its edges.
+These are the edges of the scheduling engine.
 
 ### Monte Carlo runs on the request thread — planned for 0.5
 
@@ -123,133 +137,6 @@ same way, so the same caveat applies to the throughput forecast.
   See [Interpreting results](/features/monte-carlo/#velocity-and-throughput-forecasts-are-a-floor).
 - **Fix planned for 0.5** — [#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469).
 
-## The second engine (Rust / WASM)
-
-TruePPM ships two coordinated CPM implementations: the Python library
-(`trueppm-scheduler`, the authority) and a Rust engine compiled to WebAssembly.
-**They are not yet at parity**, and the gap is wider than the architecture diagram
-suggests.
-
-### The WASM engine is not wired into the browser — stretch goal for 0.6
-
-The Rust engine ships as a CI-validated conformance reference. The browser's
-drag-preview path still uses a TypeScript CPM worker that approximates the calendar
-as a fixed Mon–Fri week.
-
-- **Impact:** the sub-100 ms in-browser drag preview is calendar-approximate. The
-  authoritative server CPM reconciles exact dates on commit, so a committed schedule
-  is always correct — but a preview can differ from what lands.
-- **The fix for the holiday and working-week half lands in 0.5** —
-  [#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170) (merged) <!-- known-issues-ack:closed --> sends the project's
-  composed calendar to the browser, so the 0.5 preview steps through its holidays and
-  custom working week the way the server does. That fix does not depend on the WASM
-  engine below.
-- **Stretch goal for 0.6, not committed** — [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) wires
-  the WASM engine in, or retires the parity claim. It lands only if there is time.
-
-### The Rust engine has no Monte Carlo — not scheduled
-
-The Rust engine implements forward pass, backward pass, floats, and incremental
-recompute. It has **no Monte Carlo at all**. Offline and in-browser recompute is
-therefore deterministic-only; every probabilistic answer requires the server.
-
-## Test and quality gates
-
-### Mutation testing does not cover the engine core — planned for 0.5
-
-Mutation testing proves the suite's assertions catch regressions rather than merely
-executing lines. Its scope is `models.py`, `derive.py`, and `cli.py`. **`engine.py`
-— the CPM and Monte Carlo core — is out of scope.** The score floor within that
-scope does gate: `MUTATION_MIN` is 0.92 against an observed 96.8%, and a
-nightly below it reds.
-
-- **Impact:** the strongest available evidence of assertion strength deliberately
-  excludes the code that matters most. Where the roadmap describes "mutation testing
-  on the scheduler", read it as covering the models/serialization layer, not the
-  engine.
-- **Fix planned for 0.5** — [#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468).
-
-## Accessibility
-
-### A foothold, not full WCAG 2.1 AA conformance
-
-The CI pipeline enforces an axe-core WCAG 2.1 A/AA scan inside the Playwright E2E suite,
-and a **critical** or **serious** violation fails the pipeline — that gate runs today, on
-every merge, not just in a future release. The 0.4 remediation pass — focus traps across
-roughly seventy dialogs, drawers, and popovers, 44px touch targets on the board and
-schedule surfaces, contrast fixes in both light and dark themes, live-region
-announcements for route changes and async writes, and keyboard operability on the Gantt,
-board, and outline — shipped with the 0.4 beta. The axe
-gate itself is [#1685](https://gitlab.com/trueppm/trueppm/-/issues/1685) <!-- known-issues-ack:closed -->
-and [#2202](https://gitlab.com/trueppm/trueppm/-/issues/2202) <!-- known-issues-ack:closed -->;
-the remediation ran across the release rather than under one tracking issue.
-
-What that gate does **not** prove:
-
-- **`moderate` axe findings do not block a merge.** They are being ratcheted in route by
-  route as each surface's audit lands, so the enforced floor is narrower than the stated
-  commitment.
-- **There has been no formal, end-to-end WCAG 2.1 AA audit of the product.** The gate
-  above is automated and partial; a professional audit — including manual screen-reader
-  and keyboard-only passes — has not been run.
-
-- **Impact:** an evaluator doing PMO due diligence on accessibility will not find a
-  conformance statement anywhere in the product docs before this page, because there
-  isn't one to give yet. Treat 0.4 as "actively improving, automated-gate-enforced, and
-  not yet audited" — not as "WCAG 2.1 AA compliant."
-- **Fix planned for 0.9** — the formal audit is a GA-hardening item on the
-  [roadmap](/overview/roadmap/).
-
-## Performance and scale
-
-The measured ceilings themselves are covered on
-[What TruePPM Doesn't Do Yet](/overview/what-it-does-not-do/#scale--a-measured-ceiling-and-an-unflattering-one)
-and in the [sizing guide](/administration/sizing/#tested-envelope). These are the
-specific defects behind them.
-
-| Issue | Symptom | Fix planned for |
-|---|---|---|
-| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Each page of the task list skips the rows before it, and skipping a row still evaluates its per-task subqueries — the last page of a 100 000-task project takes 8.7 s against 0.11 s for the first. This is what sets the ~2 000-task comfort ceiling | 0.5 |
-| [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) | The Schedule view loads the whole project before it draws anything — about 2.3 KB of JSON per task, 229 MB at 100 000 tasks | 0.5 |
-| [#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830) | The scheduler refuses a project — or a program with cross-project dependencies, which recalculates as one — whose task durations *sum* past 366 000 days, about 73 000 tasks at a 5-day average | 0.5 |
-| [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) | Schedule recalculation holds about 30 KB of memory per task, so the chart's 2 GiB Celery worker limit is exceeded near 60 000 tasks in one project or one cross-linked program. Raise `resources.limits.memory` on the worker before then | 0.5 |
-| [#3832](https://gitlab.com/trueppm/trueppm/-/issues/3832) | The Schedule has never been measured in a browser at scale: heap size, first paint, and interaction latency above a few thousand tasks are unknown | 0.5 |
-| [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) | The Kanban board renders every card as a DOM node with no virtualization | 0.5 |
-| [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) | A remote `task_updated` event triggers a full multi-page task-list refetch instead of splicing the changed row | 0.5 |
-| [#2346](https://gitlab.com/trueppm/trueppm/-/issues/2346) | `TaskRelationViewSet` is unpaginated and returns every relation across all member projects | 0.5 |
-
-## Findability and filtering
-
-Filtering matured on the Board first and will reach the other views unevenly. Label
-filtering reached the Table/Grid and the Product Backlog in 0.4; the Schedule does
-not have it, and today no view except the Board can save a filter by name.
-
-| Issue | Symptom | Fix planned for |
-|---|---|---|
-| [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | The Schedule is the only task view with no label filter — the Board, Table/Grid, and Product Backlog all get one with 0.4, the Gantt does not | 0.5 |
-| [#2444](https://gitlab.com/trueppm/trueppm/-/issues/2444) | The Schedule has no text search and no owner/status filter — you cannot find a task on the Gantt | 0.5 |
-| [#2445](https://gitlab.com/trueppm/trueppm/-/issues/2445) | Saved views are Board-only; Grid, Schedule, Backlog and My Work cannot save a named filter | 0.5 |
-| [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | Filter state does not survive a view switch, and the vocabulary differs per view | 0.5 |
-| [#2446](https://gitlab.com/trueppm/trueppm/-/issues/2446) | My Work has no project filter, so a PM running several projects gets one undifferentiated list | 0.5 |
-
-## Baselines
-
-### Baseline comparison is a table, not a Gantt overlay — planned for 0.5
-
-0.4 brings baseline capture, management, and comparison into the app, but the
-comparison is a text table in the task drawer. The planned-vs-current **ghost-bar
-overlay on the Gantt is deliberately not in this release** —
-[ADR-0376](/architecture/decisions/) defers it to 0.5 in its own Consequences section.
-
-- **Impact:** you can see that a task slipped and by how much, but you cannot see the
-  slip drawn against the plan on the timeline, which is the reading most people expect
-  from the word "baseline".
-- **Workaround:** none — use the drawer's comparison table.
-- **Fix planned for 0.5**, per ADR-0376's own Consequences section (above). The
-  legend previously carried a stray "Planned baseline" swatch with no matching draw
-  call behind it — that was [#2696](https://gitlab.com/trueppm/trueppm/-/issues/2696) <!-- known-issues-ack:closed -->
-  (closed, fixed): the legend no longer renders it.
-
 ## Resource management and capacity
 
 ### A task with only an assignee contributes no load to any capacity view
@@ -274,6 +161,58 @@ product currently says so.
 - **Tracked on** [#3605](https://gitlab.com/trueppm/trueppm/-/issues/3605), which will
   rule on whether the two paths are reconciled, disclosed in the product, or collapsed.
 
+## Baselines
+
+### Baseline comparison is a table, not a Gantt overlay — planned for 0.5
+
+0.4 brings baseline capture, management, and comparison into the app, but the
+comparison is a text table in the task drawer. The planned-vs-current **ghost-bar
+overlay on the Gantt is deliberately not in this release** —
+[ADR-0376](/architecture/decisions/) defers it to 0.5 in its own Consequences section.
+
+- **Impact:** you can see that a task slipped and by how much, but you cannot see the
+  slip drawn against the plan on the timeline, which is the reading most people expect
+  from the word "baseline".
+- **Workaround:** none — use the drawer's comparison table.
+- **What to do:** capture baselines as usual; the data is all there. Read slippage from
+  the drawer table until the overlay lands.
+- **Fix planned for 0.5**, per ADR-0376's own Consequences section (above). The
+  legend previously carried a stray "Planned baseline" swatch with no matching draw
+  call behind it — that was [#2696](https://gitlab.com/trueppm/trueppm/-/issues/2696) <!-- known-issues-ack:closed -->
+  (closed, fixed): the legend no longer renders it.
+
+## Data import
+
+### Imported assignees match the whole resource catalog, not project membership — planned for 0.5
+
+When a CSV, Excel, MS Project, or Jira import reads an assignee column, it matches
+each value against the **workspace-wide resource catalog by display name**, and
+creates a new resource for anything it does not match. It does not check whether that
+person is a member of the destination project, and it does not accept a UUID, email,
+or username as an identifier.
+
+Two consequences:
+
+- **Name collisions bind to the wrong person.** A cell reading `A. Rivera` attaches to
+  whichever resource in the catalog carries that name, even one used only on projects
+  you have no access to. Nothing tells you it happened.
+- **The catalog grows from cell text.** Every unmatched value becomes a new resource,
+  so a column of inconsistent spellings leaves a trail of near-duplicates behind.
+
+**This is not a disclosure vector.** The resource catalog is already readable by any
+authenticated user by design, so an import reaches nothing you could not already list;
+and an assignment is not project membership, so no permission is granted by one. The
+defect is in what gets *written* — mis-attributed work and a polluted catalog — not in
+what can be read.
+
+- **Impact:** assignments can land on the wrong person's record, and the resource
+  catalog accumulates duplicates that someone has to merge by hand.
+- **Workaround:** before importing, check that the names in your assignee column match
+  the resources you intend, and review **Resources** afterward for near-duplicates. On
+  a first import into a fresh workspace neither problem can arise.
+- **Fix planned for 0.5** — [#2485](https://gitlab.com/trueppm/trueppm/-/issues/2485)
+  moves resolution onto a membership-scoped index that accepts UUID, email, or
+  username, and reports an unmatched value instead of inventing a resource for it.
 
 ## MCP and agents
 
@@ -316,38 +255,139 @@ version* produced the number, inline on the answer itself.
   a refused agent request now carries its `refusal` envelope — verdict, reason and
   constraint — to the MCP client, per [ADR-0809](/architecture/decisions/).
 
-## Data import
+## Findability and filtering
 
-### Imported assignees match the whole resource catalog, not project membership — planned for 0.5
+Filtering matured on the Board first and will reach the other views unevenly. Label
+filtering reached the Table/Grid and the Product Backlog in 0.4; the Schedule does
+not have it, and today no view except the Board can save a filter by name.
 
-When a CSV, Excel, MS Project, or Jira import reads an assignee column, it matches
-each value against the **workspace-wide resource catalog by display name**, and
-creates a new resource for anything it does not match. It does not check whether that
-person is a member of the destination project, and it does not accept a UUID, email,
-or username as an identifier.
+| Issue | Symptom | Fix planned for |
+|---|---|---|
+| [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | The Schedule is the only task view with no label filter — the Board, Table/Grid, and Product Backlog all get one with 0.4, the Gantt does not | 0.5 |
+| [#2444](https://gitlab.com/trueppm/trueppm/-/issues/2444) | The Schedule has no text search and no owner/status filter — you cannot find a task on the Gantt | 0.5 |
+| [#2445](https://gitlab.com/trueppm/trueppm/-/issues/2445) | Saved views are Board-only; Grid, Schedule, Backlog and My Work cannot save a named filter | 0.5 |
+| [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | Filter state does not survive a view switch, and the vocabulary differs per view | 0.5 |
+| [#2446](https://gitlab.com/trueppm/trueppm/-/issues/2446) | My Work has no project filter, so a PM running several projects gets one undifferentiated list | 0.5 |
 
-Two consequences:
+**What to do:** until these land, use the Board or Table/Grid when you need to find or
+filter tasks, and keep a saved filter on the Board if you need it again. Each row is
+tracked by the issue it links; all are planned for 0.5.
 
-- **Name collisions bind to the wrong person.** A cell reading `A. Rivera` attaches to
-  whichever resource in the catalog carries that name, even one used only on projects
-  you have no access to. Nothing tells you it happened.
-- **The catalog grows from cell text.** Every unmatched value becomes a new resource,
-  so a column of inconsistent spellings leaves a trail of near-duplicates behind.
+## Performance and scale
 
-**This is not a disclosure vector.** The resource catalog is already readable by any
-authenticated user by design, so an import reaches nothing you could not already list;
-and an assignment is not project membership, so no permission is granted by one. The
-defect is in what gets *written* — mis-attributed work and a polluted catalog — not in
-what can be read.
+The measured ceilings themselves are covered on
+[What TruePPM Doesn't Do Yet](/overview/what-it-does-not-do/#scale--a-measured-ceiling-and-an-unflattering-one)
+and in the [sizing guide](/administration/sizing/#tested-envelope). These are the
+specific defects behind them.
 
-- **Impact:** assignments can land on the wrong person's record, and the resource
-  catalog accumulates duplicates that someone has to merge by hand.
-- **Workaround:** before importing, check that the names in your assignee column match
-  the resources you intend, and review **Resources** afterward for near-duplicates. On
-  a first import into a fresh workspace neither problem can arise.
-- **Fix planned for 0.5** — [#2485](https://gitlab.com/trueppm/trueppm/-/issues/2485)
-  moves resolution onto a membership-scoped index that accepts UUID, email, or
-  username, and reports an unmatched value instead of inventing a resource for it.
+| Issue | Symptom | Fix planned for |
+|---|---|---|
+| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Each page of the task list skips the rows before it, and skipping a row still evaluates its per-task subqueries — the last page of a 100 000-task project takes 8.7 s against 0.11 s for the first. This is what sets the ~2 000-task comfort ceiling | 0.5 |
+| [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) | The Schedule view loads the whole project before it draws anything — about 2.3 KB of JSON per task, 229 MB at 100 000 tasks | 0.5 |
+| [#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830) | The scheduler refuses a project — or a program with cross-project dependencies, which recalculates as one — whose task durations *sum* past 366 000 days, about 73 000 tasks at a 5-day average | 0.5 |
+| [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) | Schedule recalculation holds about 30 KB of memory per task, so the chart's 2 GiB Celery worker limit is exceeded near 60 000 tasks in one project or one cross-linked program. Raise `resources.limits.memory` on the worker before then | 0.5 |
+| [#3832](https://gitlab.com/trueppm/trueppm/-/issues/3832) | The Schedule has never been measured in a browser at scale: heap size, first paint, and interaction latency above a few thousand tasks are unknown | 0.5 |
+| [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) | The Kanban board renders every card as a DOM node with no virtualization | 0.5 |
+| [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) | A remote `task_updated` event triggers a full multi-page task-list refetch instead of splicing the changed row | 0.5 |
+| [#2346](https://gitlab.com/trueppm/trueppm/-/issues/2346) | `TaskRelationViewSet` is unpaginated and returns every relation across all member projects | 0.5 |
+
+**What to do:** below roughly 2 000 tasks per project none of these bite. Above that,
+split work across projects in a program rather than one large project, raise the Celery
+worker memory limit before 60 000 tasks, and expect the Schedule view to load slowly.
+The sizing guide above has the measured envelope. Each row is tracked by the issue it
+links; all are planned for 0.5.
+
+## Accessibility
+
+### A foothold, not full WCAG 2.1 AA conformance
+
+The CI pipeline enforces an axe-core WCAG 2.1 A/AA scan inside the Playwright E2E suite,
+and a **critical** or **serious** violation fails the pipeline — that gate runs today, on
+every merge, not just in a future release. The 0.4 remediation pass — focus traps across
+roughly seventy dialogs, drawers, and popovers, 44px touch targets on the board and
+schedule surfaces, contrast fixes in both light and dark themes, live-region
+announcements for route changes and async writes, and keyboard operability on the Gantt,
+board, and outline — shipped with the 0.4 beta. The axe
+gate itself is [#1685](https://gitlab.com/trueppm/trueppm/-/issues/1685) <!-- known-issues-ack:closed -->
+and [#2202](https://gitlab.com/trueppm/trueppm/-/issues/2202) <!-- known-issues-ack:closed -->;
+the remediation ran across the release rather than under one tracking issue.
+
+What that gate does **not** prove:
+
+- **`moderate` axe findings do not block a merge.** They are being ratcheted in route by
+  route as each surface's audit lands, so the enforced floor is narrower than the stated
+  commitment.
+- **There has been no formal, end-to-end WCAG 2.1 AA audit of the product.** The gate
+  above is automated and partial; a professional audit — including manual screen-reader
+  and keyboard-only passes — has not been run.
+
+- **Impact:** an evaluator doing PMO due diligence on accessibility will not find a
+  conformance statement anywhere in the product docs before this page, because there
+  isn't one to give yet. Treat 0.4 as "actively improving, automated-gate-enforced, and
+  not yet audited" — not as "WCAG 2.1 AA compliant."
+- **What to do:** if you need a conformance statement, run your own audit against the
+  running app (the axe gate and the remediation above are a sound starting point, not
+  a substitute), and tell us what you find using **Report a bug** below.
+- **Fix planned for 0.9** — the formal audit is a GA-hardening item on the
+  [roadmap](/overview/roadmap/). It has no tracking issue; the roadmap is the record.
+
+## The second engine (Rust / WASM)
+
+TruePPM ships two coordinated CPM implementations: the Python library
+(`trueppm-scheduler`, the authority) and a Rust engine compiled to WebAssembly.
+**They are not yet at parity**, and the gap is wider than the architecture diagram
+suggests.
+
+### The WASM engine is not wired into the browser — stretch goal for 0.6
+
+The Rust engine ships as a CI-validated conformance reference. The browser's
+drag-preview path still uses a TypeScript CPM worker that approximates the calendar
+as a fixed Mon–Fri week.
+
+- **Impact:** the sub-100 ms in-browser drag preview is calendar-approximate. The
+  authoritative server CPM reconciles exact dates on commit, so a committed schedule
+  is always correct — but a preview can differ from what lands.
+- **The fix for the holiday and working-week half lands in 0.5** —
+  [#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170) (merged) <!-- known-issues-ack:closed --> sends the project's
+  composed calendar to the browser, so the 0.5 preview steps through its holidays and
+  custom working week the way the server does. That fix does not depend on the WASM
+  engine below.
+- **What to do:** treat the drag preview as an estimate and read the dates after the
+  drop, once the server has reconciled them. Those are the ones that count.
+- **Stretch goal for 0.6, not committed** — [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) wires
+  the WASM engine in, or retires the parity claim. It lands only if there is time.
+
+### The Rust engine has no Monte Carlo — not scheduled
+
+The Rust engine implements forward pass, backward pass, floats, and incremental
+recompute. It has **no Monte Carlo at all**. Offline and in-browser recompute is
+therefore deterministic-only; every probabilistic answer requires the server.
+
+- **Impact:** offline and in-browser recompute can give you dates but never a P50/P80/P95.
+- **What to do:** run Monte Carlo against the server when you are online; do not expect a
+  confidence band from an offline session.
+- **Tracked:** not scheduled, and no issue tracks adding Monte Carlo to the Rust engine.
+  The decision on the WASM engine's future is [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777), above.
+
+## Test and quality gates
+
+### Mutation testing does not cover the engine core — planned for 0.5
+
+Mutation testing proves the suite's assertions catch regressions rather than merely
+executing lines. Its scope is `models.py`, `derive.py`, and `cli.py`. **`engine.py`
+— the CPM and Monte Carlo core — is out of scope.** The score floor within that
+scope does gate: `MUTATION_MIN` is 0.92 against an observed 96.8%, and a
+nightly below it reds.
+
+- **Impact:** the strongest available evidence of assertion strength deliberately
+  excludes the code that matters most. Where the roadmap describes "mutation testing
+  on the scheduler", read it as covering the models/serialization layer, not the
+  engine.
+- **What to do:** do not cite the 96.8% mutation score as evidence about the CPM or Monte
+  Carlo core. For the engine, rely on the conformance suite and the reproducible
+  README values described above, and run the published package against your own
+  schedules.
+- **Fix planned for 0.5** — [#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468).
 
 ## Reporting a new one
 
