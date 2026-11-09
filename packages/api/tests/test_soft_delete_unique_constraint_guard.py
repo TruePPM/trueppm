@@ -14,18 +14,18 @@ from django.apps import apps
 from django.db import models
 
 # (app_label.ModelName, constraint-or-unique_together key) -> why an unconditional
-# unique is correct. Seeded from the sites the #3437 audit enumerated.
-_REVIVED = "revoke soft-deletes; re-grant revives the tombstone rather than inserting (#3410)"
+# unique is correct. Seeded from an audit of every soft-deletable model.
+_REVIVED = "revoke soft-deletes; re-grant revives the tombstone rather than inserting"
 _HARD_DELETED = (
     "no is_deleted=True writer: the viewset hard-deletes (default destroy), so no tombstone "
-    "exists to collide (grep-verified in #3437)"
+    "exists to collide"
 )
 _ONE_TO_ONE = "UNREVIEWED: one-to-one extension row; delete-then-recreate path not traced"
-_COUNTER = "short_id comes from a server-side counter, so a value is never re-issued (#3437 audit)"
-# UNREVIEWED entries were enumerated by the #3437 audit as carrying an unconditional unique
+_COUNTER = "short_id comes from a server-side counter, so a value is never re-issued"
+# UNREVIEWED entries were enumerated by the audit as carrying an unconditional unique
 # but were not individually traced for a delete-then-recreate path. They are allowlisted so the
 # guard can ship green and still block the NEXT instance; each needs a human verdict.
-_UNREVIEWED = "UNREVIEWED: delete-then-recreate path not traced in #3437"
+_UNREVIEWED = "UNREVIEWED: delete-then-recreate path not traced"
 
 ALLOWLIST: dict[tuple[str, str], str] = {
     ("access.ProjectMembership", "constraint:uniq_project_membership_project_user"): _REVIVED,
@@ -34,11 +34,17 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     (
         "workspace.WorkspaceMembership",
         "constraint:uniq_workspace_membership_workspace_user",
-    ): "UNREVIEWED: get_or_create is tombstone-blind (silently confers nothing); see #3437",
+    ): (
+        "no is_deleted=True writer was found (member removal sets status, not is_deleted); "
+        "UNREVIEWED: the invite get_or_create is tombstone-blind, so a tombstone would matter"
+    ),
     (
         "resources.ProjectResource",
         "constraint:uniq_project_resource_project_resource",
-    ): _HARD_DELETED,
+    ): (
+        "UNREVIEWED: soft-deleted only by the resource-deactivation cascade "
+        "(ResourceViewSet.perform_destroy); restore revives the row; re-add path not traced"
+    ),
     ("resources.ResourceSkill", "constraint:uniq_resource_skill_resource_skill"): _HARD_DELETED,
     ("resources.TaskSkillRequirement", "constraint:uniq_task_skill_req_task_skill"): _HARD_DELETED,
     ("projects.Task", "constraint:unique_task_short_id_per_project"): _COUNTER,
@@ -58,10 +64,25 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("projects.SprintRetro", "field:sprint"): _ONE_TO_ONE,
     ("projects.TaskRecurrenceRule", "field:task"): _ONE_TO_ONE,
     ("resources.Skill", "field:normalized_name"): _UNREVIEWED,
-    ("projects.Dependency", "constraint:unique_dependency"): _UNREVIEWED,
-    ("projects.Program", "constraint:program_code_upper_uniq"): _UNREVIEWED,
-    ("projects.Project", "constraint:project_code_upper_uniq"): _UNREVIEWED,
-    ("projects.ProjectCalendarLayer", "constraint:uniq_project_calendar_layer"): _UNREVIEWED,
+    ("projects.Dependency", "constraint:unique_dependency"): (
+        "UNREVIEWED: delete-then-re-add returns 400 'must make a unique set' (not a 500) because "
+        "DRF's UniqueTogetherValidator ignores soft-deleted state, so a deleted edge cannot be "
+        "re-created. The restore code (cascade_project_children_restore, "
+        "cascade_task_children_restore) relies on this constraint being non-partial, "
+        "so making it conditional needs those paths revisited"
+    ),
+    ("projects.Program", "constraint:program_code_upper_uniq"): (
+        "deliberate never-reuse rule: is_key_taken counts tombstones, so a deleted program's "
+        "code is refused with a 400 rather than reaching the index"
+    ),
+    ("projects.Project", "constraint:project_code_upper_uniq"): (
+        "deliberate never-reuse rule: is_key_taken counts tombstones, so a deleted project's "
+        "code is refused with a 400 rather than reaching the index"
+    ),
+    ("projects.ProjectCalendarLayer", "constraint:uniq_project_calendar_layer"): (
+        "the only writer (the calendars PUT) hard-deletes the old layer rows before "
+        "re-inserting, so no tombstone is left behind"
+    ),
     ("projects.Task", "constraint:unique_recurrence_occurrence_per_date"): _UNREVIEWED,
 }
 
