@@ -193,6 +193,79 @@ def test_validate_refuses_a_dangling_dependency() -> None:
         )
 
 
+def _one_task(**fields: Any) -> dict:
+    return {
+        "version": STRUCTURE_VERSION,
+        "tasks": [{"ref": "a", "name": "A", **fields}],
+    }
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"delivery_mode": "bogus"},
+        {"governance_class": "bogus"},
+        {"type": "bogus"},
+        # Milestone signals disagree, in both directions.
+        {"delivery_mode": "milestone", "is_milestone": False},
+        {"delivery_mode": "milestone"},
+        {"is_milestone": True, "delivery_mode": "waterfall", "duration": 0},
+        {"is_milestone": True},
+        # A milestone with an estimate.
+        {"is_milestone": True, "delivery_mode": "milestone", "duration": 5},
+        # Durations the column or the engine could not hold.
+        {"duration": -1},
+        {"duration": "5"},
+        {"duration": 2.5},
+        {"duration": True},
+        {"duration": 10**9},
+        {"is_milestone": "yes", "delivery_mode": "milestone"},
+    ],
+)
+def test_validate_refuses_a_malformed_task_node(fields: dict) -> None:
+    """The writer assigns these raw and bulk_create skips full_clean (#3315)."""
+    with pytest.raises(TemplateStructureError):
+        validate_structure(_one_task(**fields))
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {},
+        {"delivery_mode": "scrum", "governance_class": "gated", "type": "epic", "duration": 3},
+        {"is_milestone": True, "delivery_mode": "milestone", "duration": 0},
+        {"is_milestone": True, "delivery_mode": "milestone"},
+        # Zero-duration work is legitimate: an unscheduled idea or a rolled-up phase.
+        {"duration": 0},
+        {"duration": None, "delivery_mode": None, "is_milestone": None},
+    ],
+)
+def test_validate_accepts_well_formed_task_nodes(fields: dict) -> None:
+    validate_structure(_one_task(**fields))
+
+
+@pytest.mark.django_db
+def test_malformed_structure_is_refused_before_any_row_is_written(
+    target_project: Project, owner: Any
+) -> None:
+    """A bad node late in the document must not leave earlier rows behind."""
+    template = ProjectTemplate.objects.create(
+        name="Corrupt",
+        owner=owner,
+        structure={
+            "version": STRUCTURE_VERSION,
+            "tasks": [
+                {"ref": "a", "name": "A", "wbs_path": "1"},
+                {"ref": "b", "name": "B", "wbs_path": "2", "delivery_mode": "bogus"},
+            ],
+        },
+    )
+    before = Task.objects.filter(project=target_project).count()
+    with pytest.raises(TemplateStructureError, match="unrecognized delivery_mode"):
+        materialize_structure(template, target_project)
+    assert Task.objects.filter(project=target_project).count() == before
+
+
 def _nested_structure(dep_type: str = "FS", predecessor: str = "p", successor: str = "c") -> dict:
     return {
         "version": STRUCTURE_VERSION,
@@ -615,7 +688,13 @@ def test_apply_records_milestone_and_dependency_counts_for_the_seed_banner(
     from trueppm_api.apps.projects.template_tasks import apply_template
 
     _shape(source_project)
-    milestone = Task.objects.create(project=source_project, name="Ship", is_milestone=True)
+    milestone = Task.objects.create(
+        project=source_project,
+        name="Ship",
+        is_milestone=True,
+        duration=0,
+        delivery_mode="milestone",
+    )
     Dependency.objects.create(
         predecessor=Task.objects.get(project=source_project, name="Build"),
         successor=milestone,
@@ -811,6 +890,7 @@ class TestPublishPreview:
             duration=0,
             wbs_path="1.2",
             is_milestone=True,
+            delivery_mode="milestone",
             governance_class="gated",
         )
         resp = admin_client.get(
@@ -1353,7 +1433,7 @@ def _doc(*paths: str) -> dict[str, Any]:
                 "wbs_path": path,
                 "parent": None,
                 "is_milestone": False,
-                "type": "waterfall",
+                "delivery_mode": "waterfall",
             }
             for i, path in enumerate(paths)
         ],
