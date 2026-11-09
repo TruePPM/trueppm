@@ -586,6 +586,34 @@ class TestShortIdAllocators:
         assert _next_risk_short_id(project.pk) == "1"
         assert _next_risk_short_id(project.pk) == "2"
 
+    def test_task_allocator_is_one_query(
+        self, project: Project, django_assert_num_queries: Any
+    ) -> None:
+        """UPDATE ... RETURNING, not UPDATE + SELECT (#2343)."""
+        with django_assert_num_queries(1):
+            _next_short_id(project.pk)
+
+    def test_risk_allocator_is_one_query(
+        self, project: Project, django_assert_num_queries: Any
+    ) -> None:
+        with django_assert_num_queries(1):
+            _next_risk_short_id(project.pk)
+
+    def test_ids_are_contiguous_across_many_allocations(self, project: Project) -> None:
+        hex_ids = [_next_short_id(project.pk) for _ in range(12)]
+        assert hex_ids == [f"{n:08X}" for n in range(1, 13)]
+        risk_ids = [_next_risk_short_id(project.pk) for _ in range(5)]
+        assert risk_ids == ["1", "2", "3", "4", "5"]
+        project.refresh_from_db()
+        assert project.object_sequence == 12
+        assert project.risk_sequence == 5
+
+    def test_missing_project_raises_does_not_exist(self) -> None:
+        with pytest.raises(Project.DoesNotExist):
+            _next_short_id(uuid.uuid4())
+        with pytest.raises(Project.DoesNotExist):
+            _next_risk_short_id(uuid.uuid4())
+
 
 class TestSignalAudienceRank:
     def test_ladder_is_strictly_ordered(self) -> None:

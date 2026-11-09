@@ -467,12 +467,26 @@ class VersionedModel(models.Model):
 def _next_short_id(project_id: uuid.UUID | str) -> str:
     """Atomically allocate the next short_id for a project.
 
-    Increments Project.object_sequence via F() in a single UPDATE and reads
-    the new value back.  Returns an 8-character uppercase hex string.
+    Increments Project.object_sequence and reads the new value back in one
+    ``UPDATE ... RETURNING`` round-trip (#2343). The statement still takes the
+    project row's write lock, so concurrent creates serialize and the sequence
+    stays contiguous. Returns an 8-character uppercase hex string.
     """
-    Project.objects.filter(pk=project_id).update(object_sequence=F("object_sequence") + 1)
-    seq: int = Project.objects.values_list("object_sequence", flat=True).get(pk=project_id)
-    return f"{seq:08X}"
+    return f"{_draw_project_sequence(project_id, 'object_sequence'):08X}"
+
+
+def _draw_project_sequence(project_id: uuid.UUID | str, field_name: str) -> int:
+    """Increment one ``Project`` counter and return its new value (single statement).
+
+    Raises ``Project.DoesNotExist`` when the project is absent, matching the
+    previous UPDATE-then-``.get()`` behavior callers saw.
+    """
+    from trueppm_api.core.db import increment_returning
+
+    seq = increment_returning(Project, field_name, project_id)
+    if seq is None:
+        raise Project.DoesNotExist(f"Project {project_id} does not exist")
+    return seq
 
 
 def _next_risk_short_id(project_id: uuid.UUID | str) -> str:
@@ -487,9 +501,7 @@ def _next_risk_short_id(project_id: uuid.UUID | str) -> str:
     reads the identifier rather than re-deriving it (the bug this fixes was three
     web formatters independently mis-parsing the hex scheme as decimal).
     """
-    Project.objects.filter(pk=project_id).update(risk_sequence=F("risk_sequence") + 1)
-    seq: int = Project.objects.values_list("risk_sequence", flat=True).get(pk=project_id)
-    return str(seq)
+    return str(_draw_project_sequence(project_id, "risk_sequence"))
 
 
 def format_short_id_display(raw: str, prefix: str) -> str:
