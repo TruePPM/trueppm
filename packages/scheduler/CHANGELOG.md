@@ -89,6 +89,22 @@ change between releases. Pin an exact version (e.g.
   start, so a run can finish before the CPM finish
   ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)).
 
+- **Monte Carlo reads a finish on a completed milestone at the edge of the day
+  `schedule()` gives it, and seeded sensitivity indices change.** A closed
+  milestone stays an instant on the edge of its day it had while open. It sits at
+  the start of that day when nothing precedes it, when work that finished on an
+  earlier day placed it, or when an open predecessor precedes it, unless it was last
+  shown at the end of its day (`live_day_end_on`). Monte Carlo ranked every
+  completed task as work ending at the end of its day, so a deterministic project
+  finishing on such a milestone reported `p50_at_day_start`/`p80_at_day_start`/
+  `p95_at_day_start` as `False`, one working day after the CPM finish, which
+  `schedule()` reads as the start of the day. Each run is now ranked at the
+  milestone's instant, and the percentile reads as the start of the day exactly
+  when `schedule()` does. A project with no spread keeps its percentile dates. A task's
+  `sensitivity` index can change in a project with such a milestone, because the
+  runs it no longer finishes are now ranked by the work that does
+  ([#4601](https://gitlab.com/trueppm/trueppm/-/issues/4601)).
+
 - **Monte Carlo shows a fractional finish on the day it ends in, and seeded
   percentiles move.** Sampled durations are
   continuous, but each run's finish was mapped to a day by rounding to the nearest

@@ -711,9 +711,12 @@ def monte_carlo(
         tid for tid, (_day, start_display) in completed_instants.items() if start_display
     )
     # The floor is a start-of-day reading only when every completed task reaching it
-    # is such a milestone: completed work ending that day ends at the end of it.
+    # is such a milestone, shown at the start of that very day: completed work ending
+    # that day ends at the end of it. A milestone at the end of a non-working day is
+    # recorded as the start of the next day's midnight (#4641) while its shown day
+    # stays the recorded one, so its instant's display flag alone does not say it.
     completed_floor_at_day_start = completed_finish_floor is not None and all(
-        tid in completed_start_ids
+        tid in completed_start_ids and completed_instants[tid][0] == ef_date
         for tid, (_es_date, ef_date) in completed_dates.items()
         if ef_date == completed_finish_floor
     )

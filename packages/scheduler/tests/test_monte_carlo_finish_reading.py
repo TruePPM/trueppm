@@ -17,7 +17,9 @@ import networkx as nx
 import numpy as np
 import pytest
 from hypothesis import example, given
+from hypothesis import strategies as st
 
+from tests.test_contract_fuzz import _PLAUSIBLE_ANCHOR as _ANCHOR
 from tests.test_contract_fuzz import _plausible_projects
 from trueppm_scheduler import (
     Calendar,
@@ -221,6 +223,28 @@ def _readings(mc: MonteCarloResult) -> set[tuple[date, bool]]:
             (_TUE, False),
             id="open-predecessor-recorded-end-of-day",
         ),
+        pytest.param(
+            [
+                Task(id="A", name="A", duration=timedelta(days=1)),
+                _closed("M", actual_finish=_SAT, live_day_end_on=_SAT),
+            ],
+            [("A", "M")],
+            (_SAT, False),
+            id="closed-on-weekend-recorded-end-of-day-open-predecessor",
+        ),
+        pytest.param(
+            [
+                Task(id="A", name="A", duration=timedelta(days=1)),
+                _closed(
+                    "M",
+                    actual_finish=_SAT + timedelta(days=1),
+                    live_day_end_on=_SAT + timedelta(days=1),
+                ),
+            ],
+            [("A", "M")],
+            (_SAT + timedelta(days=1), False),
+            id="closed-on-sunday-recorded-end-of-day-open-predecessor",
+        ),
     ],
 )
 def test_a_closed_milestone_finish_is_read_on_its_cpm_edge(
@@ -251,6 +275,46 @@ def _zero_variance(project: Project) -> Project:
     return project
 
 
+@st.composite
+def _recorded_edge_projects(draw: st.DrawFn) -> Project:
+    """:func:`_plausible_projects` plus a closed milestone carrying the API's recorded edge.
+
+    The shared strategy rarely closes a milestone, never one that finishes the
+    project late in the plan, and never sets ``live_day_end_on``. The API hands that
+    back for every milestone it last showed at the end of a day, and it decides a
+    closed milestone's edge while a predecessor is still open (#4525). So a closed
+    milestone at the end of a weekend day (#4641) never reached this property. This
+    adds one closed milestone in the plan's first weeks, weekends included, that may
+    record the end of its day and may follow an open one-day task, and gives every
+    closed milestone already drawn the same two options. Half the time the drawn tasks
+    are dropped, so the added milestone finishes the project.
+    """
+    project = draw(_plausible_projects())
+    if draw(st.booleans()):
+        # Alone, so it finishes the project: the drawn tasks run up to 40 days.
+        project.tasks, project.dependencies = [], []
+    day = draw(st.dates(min_value=_ANCHOR, max_value=_ANCHOR + timedelta(days=27)))
+    split = draw(st.integers(min_value=0, max_value=3))
+    project.tasks.append(
+        _closed(
+            "closed",
+            actual_start=max(_ANCHOR, day - timedelta(days=split)),
+            actual_finish=day,
+        )
+    )
+    for t in list(project.tasks):
+        recorded = t.actual_finish or t.actual_start
+        if t.duration != timedelta(0) or recorded is None or not engine._is_complete(t):
+            continue
+        if draw(st.booleans()):
+            t.live_day_end_on = recorded
+        if draw(st.booleans()):
+            pred = Task(id=f"{t.id}_open", name="t", duration=timedelta(days=1))
+            project.tasks.append(pred)
+            project.dependencies.append(Dependency(pred.id, t.id))
+    return project
+
+
 @pytest.mark.fuzz
 # The issue's repro: the gate profile's 200 draws rarely close a milestone that
 # finishes the project, so it is pinned rather than left to the search.
@@ -262,7 +326,19 @@ def _zero_variance(project: Project) -> Project:
         tasks=[_closed("M", actual_start=_TUE, actual_finish=_TUE)],
     )
 )
-@given(project=_plausible_projects())
+@example(
+    project=Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 16),
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=1)),
+            _closed("M", actual_finish=_SAT, live_day_end_on=_SAT),
+        ],
+        dependencies=[Dependency("A", "M")],
+    )
+)
+@given(project=_recorded_edge_projects())
 def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
     """Every percentile of a deterministic project is the CPM finish, edge included (#4601).
 
