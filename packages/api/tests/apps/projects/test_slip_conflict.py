@@ -388,3 +388,125 @@ def test_unmodeled_dependency_excludes_accepted_cross_predecessor(calendar: Cale
     # Pending → inert → still unmodeled.
     Dependency.objects.filter(pk=dep.pk).update(pending_acceptance=True)
     assert str(upstream.pk) in _unmodeled_predecessors(milestone)
+
+
+def _slip_inputs(
+    sprint: Sprint, tasks: list[Task], dep: Dependency, pushed_to: date
+) -> list[tuple[Sprint, Task, Dependency, date]]:
+    return [(sprint, t, dep, pushed_to) for t in tasks]
+
+
+def _multi_task_scenario(calendar: Calendar, n: int) -> tuple[Sprint, list[Task], Dependency]:
+    _p, _a, proj_b, _a1, b1, sprint, dep = _scenario(calendar)
+    tasks = [b1] + [
+        Task.objects.create(project=proj_b, name=f"extra-{i}", duration=1, sprint=sprint)
+        for i in range(n - 1)
+    ]
+    return sprint, tasks, dep
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("n", [1, 5])
+def test_upsert_conflicts_is_constant_queries(
+    calendar: Calendar, n: int, django_assert_num_queries: Any
+) -> None:
+    from trueppm_api.apps.projects.slip_conflict import _upsert_conflicts
+
+    sprint, tasks, dep = _multi_task_scenario(calendar, n)
+    slips = _slip_inputs(sprint, tasks, dep, START + timedelta(days=20))
+
+    # create pass: 1 existing-read + SAVEPOINT + INSERT + RELEASE SAVEPOINT
+    with django_assert_num_queries(4):
+        rows = _upsert_conflicts(slips)
+    assert len(rows) == n
+    assert all(r.pk for r in rows)
+
+    # update pass: 1 read + 1 bulk UPDATE (changed pushed_to)
+    slips = _slip_inputs(sprint, tasks, dep, START + timedelta(days=25))
+    with django_assert_num_queries(2):
+        _upsert_conflicts(slips)
+    assert set(CrossProjectSlipConflict.objects.values_list("pushed_to", flat=True)) == {
+        START + timedelta(days=25)
+    }
+
+    # unchanged pass: read only
+    with django_assert_num_queries(1):
+        _upsert_conflicts(slips)
+
+
+@pytest.mark.django_db
+def test_upsert_conflicts_branches(calendar: Calendar) -> None:
+    from trueppm_api.apps.projects.slip_conflict import _upsert_conflicts
+
+    sprint, tasks, dep = _multi_task_scenario(calendar, 4)
+    user = User.objects.create_user(username="sm2", password="pw")
+    base = START + timedelta(days=20)
+    _upsert_conflicts(_slip_inputs(sprint, tasks, dep, base))
+    c = {t.pk: CrossProjectSlipConflict.objects.get(sprint=sprint, task=t) for t in tasks}
+    now = timezone.now()
+    t_ack_worse, t_ack_same, t_resolved, t_plain = tasks
+    for t in (t_ack_worse, t_ack_same):
+        CrossProjectSlipConflict.objects.filter(pk=c[t.pk].pk).update(
+            acknowledged_by=user, acknowledged_at=now
+        )
+    CrossProjectSlipConflict.objects.filter(pk=c[t_resolved.pk].pk).update(
+        resolution=SlipConflictResolution.AUTO_RESOLVED,
+        resolved_at=now,
+        acknowledged_by=user,
+        acknowledged_at=now,
+    )
+    other_dep = Dependency.objects.create(
+        predecessor=t_plain, successor=t_ack_same, dep_type="FS", lag=0
+    )
+
+    later = base + timedelta(days=3)
+    _upsert_conflicts(
+        [
+            (sprint, t_ack_worse, dep, later),
+            (sprint, t_ack_same, dep, base),
+            (sprint, t_resolved, dep, base),
+            (sprint, t_plain, other_dep, base),
+        ]
+    )
+
+    worse = CrossProjectSlipConflict.objects.get(pk=c[t_ack_worse.pk].pk)
+    assert worse.re_slip_count == 1 and worse.acknowledged_at is None
+    assert worse.acknowledged_by_id is None and worse.pushed_to == later
+
+    same = CrossProjectSlipConflict.objects.get(pk=c[t_ack_same.pk].pk)
+    assert same.re_slip_count == 0 and same.acknowledged_at is not None
+
+    reopened = CrossProjectSlipConflict.objects.get(pk=c[t_resolved.pk].pk)
+    assert reopened.resolution == SlipConflictResolution.UNRESOLVED
+    assert reopened.resolved_at is None and reopened.acknowledged_at is None
+    assert reopened.acknowledged_by_id is None
+
+    plain = CrossProjectSlipConflict.objects.get(pk=c[t_plain.pk].pk)
+    assert plain.dependency_id == other_dep.pk
+
+
+@pytest.mark.django_db
+def test_upsert_conflicts_recovers_from_concurrent_insert(calendar: Calendar) -> None:
+    """A row inserted between the existing-read and the INSERT takes the update path."""
+    from trueppm_api.apps.projects import slip_conflict as mod
+
+    sprint, tasks, dep = _multi_task_scenario(calendar, 2)
+    real_bulk_create = CrossProjectSlipConflict.objects.bulk_create
+    raced = {"done": False}
+
+    def racing(objs: Any, *a: Any, **kw: Any) -> Any:
+        if not raced["done"]:
+            raced["done"] = True
+            CrossProjectSlipConflict.objects.create(
+                sprint=sprint, task=tasks[0], dependency=dep, pushed_to=START
+            )
+        return real_bulk_create(objs, *a, **kw)
+
+    with patch.object(type(CrossProjectSlipConflict.objects), "bulk_create", side_effect=racing):
+        rows = mod._upsert_conflicts(_slip_inputs(sprint, tasks, dep, START + timedelta(days=20)))
+
+    assert len(rows) == 2 and all(r.pk for r in rows)
+    assert CrossProjectSlipConflict.objects.count() == 2
+    assert set(CrossProjectSlipConflict.objects.values_list("pushed_to", flat=True)) == {
+        START + timedelta(days=20)
+    }

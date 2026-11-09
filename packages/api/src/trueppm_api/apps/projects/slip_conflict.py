@@ -123,6 +123,7 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
     # nothing, keeping the program recompute quiet on clean schedules.
     affected_project_ids: set[Any] = set()
 
+    slips: list[tuple[Any, Any, Any, date]] = []
     for task_id, dep in attributed.items():
         db_task = db_task_by_id.get(task_id)
         if db_task is None:
@@ -134,9 +135,9 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
 
         detected.add((sprint.pk, db_task.pk))
         affected_project_ids.add(db_task.project_id)
-        row = _upsert_conflict(sprint, db_task, dep, early_finish, now)
-        if row.is_open:
-            open_rows.append(row)
+        slips.append((sprint, db_task, dep, early_finish))
+
+    open_rows.extend(row for row in _upsert_conflicts(slips) if row.is_open)
 
     affected_project_ids.update(_auto_resolve_stale(detected, member_ids, now))
 
@@ -239,50 +240,107 @@ def _auto_resolve_stale(
     return {c.task.project_id for c in stale}
 
 
-def _upsert_conflict(sprint: Any, task: Any, dependency: Any, pushed_to: date, now: Any) -> Any:
-    """Create or update the single conflict row for ``(sprint, task)``; return it."""
+def _upsert_conflicts(slips: list[tuple[Any, Any, Any, date]]) -> list[Any]:
+    """Create or update the conflict row for each ``(sprint, task, dependency, pushed_to)``.
+
+    One read for the existing rows, one ``bulk_create`` and one ``bulk_update`` —
+    O(1) round trips in the number of slipping tasks, inside the program pass's
+    write-back transaction. Returns the rows in input order.
+
+    The create runs in a savepoint and is not ``ignore_conflicts``: that flag
+    returns rows without primary keys on a lost race and would hide the
+    concurrent row from the update branch. On a unique-key collision (a
+    concurrent pass inserted the same ``(sprint, task)``) the savepoint rolls
+    back, the winners are re-read, and they take the update path instead.
+    """
+    from django.db import IntegrityError, transaction
+
     from trueppm_api.apps.projects.models import (
         CrossProjectSlipConflict,
         SlipConflictResolution,
     )
 
-    row, created = CrossProjectSlipConflict.objects.get_or_create(
-        sprint=sprint,
-        task=task,
-        defaults={
-            "dependency": dependency,
-            "pushed_to": pushed_to,
-            "resolution": SlipConflictResolution.UNRESOLVED,
-        },
-    )
-    if created:
-        return row
+    if not slips:
+        return []
 
-    fields: list[str] = []
+    def _load() -> dict[tuple[Any, Any], Any]:
+        return {
+            (r.sprint_id, r.task_id): r
+            for r in CrossProjectSlipConflict.objects.filter(
+                task_id__in={task.pk for _, task, _, _ in slips}
+            )
+        }
 
-    if row.resolution == SlipConflictResolution.AUTO_RESOLVED:
-        # Was resolved, now slipping again — re-open as a fresh, unacknowledged
-        # conflict so the badge re-lights.
-        row.resolution = SlipConflictResolution.UNRESOLVED
-        row.resolved_at = None
-        row.acknowledged_by = None
-        row.acknowledged_at = None
-        fields += ["resolution", "resolved_at", "acknowledged_by", "acknowledged_at"]
-    elif row.acknowledged_at is not None and pushed_to > row.pushed_to:
-        # Slipped *further* after acknowledgment — re-open the badge and record that
-        # it came back worse, rather than silently editing the date under the ack.
-        row.re_slip_count += 1
-        row.acknowledged_by = None
-        row.acknowledged_at = None
-        fields += ["re_slip_count", "acknowledged_by", "acknowledged_at"]
+    existing = _load()
+    to_create = [
+        CrossProjectSlipConflict(
+            sprint=sprint,
+            task=task,
+            dependency=dep,
+            pushed_to=pushed_to,
+            resolution=SlipConflictResolution.UNRESOLVED,
+        )
+        for sprint, task, dep, pushed_to in slips
+        if (sprint.pk, task.pk) not in existing
+    ]
+    if to_create:
+        try:
+            with transaction.atomic():
+                CrossProjectSlipConflict.objects.bulk_create(to_create)
+        except IntegrityError:
+            existing = _load()
+            to_create = [r for r in to_create if (r.sprint_id, r.task_id) not in existing]
+            if to_create:
+                CrossProjectSlipConflict.objects.bulk_create(to_create)
+    created = {(r.sprint_id, r.task_id): r for r in to_create}
 
-    if row.pushed_to != pushed_to:
-        row.pushed_to = pushed_to
-        fields.append("pushed_to")
-    if row.dependency_id != (dependency.pk if dependency else None):
-        row.dependency = dependency
-        fields.append("dependency")
+    changed: list[Any] = []
+    rows: list[Any] = []
+    for sprint, task, dependency, pushed_to in slips:
+        key = (sprint.pk, task.pk)
+        row = existing.get(key)
+        if row is None:
+            rows.append(created[key])
+            continue
+        rows.append(row)
+        dirty = False
 
-    if fields:
-        row.save(update_fields=fields)
-    return row
+        if row.resolution == SlipConflictResolution.AUTO_RESOLVED:
+            # Was resolved, now slipping again — re-open as a fresh, unacknowledged
+            # conflict so the badge re-lights.
+            row.resolution = SlipConflictResolution.UNRESOLVED
+            row.resolved_at = None
+            row.acknowledged_by = None
+            row.acknowledged_at = None
+            dirty = True
+        elif row.acknowledged_at is not None and pushed_to > row.pushed_to:
+            # Slipped *further* after acknowledgment — re-open the badge and record that
+            # it came back worse, rather than silently editing the date under the ack.
+            row.re_slip_count += 1
+            row.acknowledged_by = None
+            row.acknowledged_at = None
+            dirty = True
+
+        if row.pushed_to != pushed_to:
+            row.pushed_to = pushed_to
+            dirty = True
+        if row.dependency_id != (dependency.pk if dependency else None):
+            row.dependency = dependency
+            dirty = True
+        if dirty:
+            changed.append(row)
+
+    if changed:
+        CrossProjectSlipConflict.objects.bulk_update(
+            changed,
+            [
+                "resolution",
+                "resolved_at",
+                "acknowledged_by",
+                "acknowledged_at",
+                "re_slip_count",
+                "pushed_to",
+                "dependency",
+            ],
+        )
+    return rows
