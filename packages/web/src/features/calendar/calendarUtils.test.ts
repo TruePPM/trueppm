@@ -8,6 +8,7 @@ import {
   weekDays,
   monthWeekStarts,
   viewWeekStarts,
+  viewWindowBounds,
   buildChips,
   buildMilestoneMarks,
   nextMonth,
@@ -659,6 +660,29 @@ describe('resolveDayAvailability', () => {
     };
     expect(resolveDayAvailability(SAT, inputs)).toMatchObject({
       calendars: ['Company', 'Workspace'],
+    });
+  });
+});
+
+describe('viewWindowBounds (#3244)', () => {
+  it('spans the full month grid including adjacent-month days', () => {
+    expect(viewWindowBounds(parseUTCDate('2026-03-15'), 'month', 1)).toEqual({
+      start: '2026-02-23',
+      end: '2026-04-05',
+    });
+  });
+
+  it('honors the week start day', () => {
+    expect(viewWindowBounds(parseUTCDate('2026-03-15'), 'month', 0)).toEqual({
+      start: '2026-03-01',
+      end: '2026-04-04',
+    });
+  });
+
+  it('is exactly the anchored week in week view', () => {
+    expect(viewWindowBounds(parseUTCDate('2026-03-18'), 'week', 1)).toEqual({
+      start: '2026-03-16',
+      end: '2026-03-22',
     });
   });
 });

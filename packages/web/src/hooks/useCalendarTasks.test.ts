@@ -118,6 +118,26 @@ describe('useCalendarTasks', () => {
     expect(getMock.mock.calls[1][1]).toBeUndefined();
   });
 
+  it('keys the cache by window so stepping months refetches instead of serving stale data', async () => {
+    getMock.mockResolvedValue({
+      data: { count: 1, previous: null, next: null, results: [apiTask('t1', 'One')] },
+    });
+
+    const { result, rerender } = renderHook(
+      ({ s, f }: { s: string; f: string }) => useCalendarTasks({ startGte: s, finishLte: f }),
+      {
+        wrapper: makeWrapper(qc),
+        initialProps: { s: '2026-02-23', f: '2026-04-05' },
+      },
+    );
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1));
+    rerender({ s: '2026-03-30', f: '2026-05-03' });
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
+    expect(getMock.mock.calls[1][1]).toEqual({
+      params: { project: 'proj-1', start__gte: '2026-03-30', finish__lte: '2026-05-03' },
+    });
+  });
+
   it('returns a single page unchanged when next is null', async () => {
     getMock.mockResolvedValueOnce({
       data: { count: 1, previous: null, next: null, results: [apiTask('t1', 'Only')] },

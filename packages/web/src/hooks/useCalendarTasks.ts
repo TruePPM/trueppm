@@ -62,9 +62,9 @@ function mapTask(t: ApiTask): Task {
 }
 
 interface UseCalendarTasksOptions {
-  /** ISO date string — only tasks finishing on or after this date are returned. */
+  /** ISO date (inclusive) — keeps tasks whose finish is on or after it (overlap, not containment). */
   startGte?: string;
-  /** ISO date string — only tasks starting on or before this date are returned. */
+  /** ISO date (inclusive) — keeps tasks whose start is on or before it (overlap, not containment). */
   finishLte?: string;
 }
 
@@ -94,7 +94,7 @@ export function useCalendarTasks(options: UseCalendarTasksOptions = {}): UseCale
       // `/api/v1` — so handing axios `pathname + search` produced
       // `/api/v1/api/v1/tasks/?page=2` and 404'd page 2 for every project whose
       // window spans more than one page (#3467). `fetchAllPages` strips the
-      // prefix; calendar windows are date-bounded so the page count stays small.
+      // prefix; the window params keep the page count small, so callers must pass them.
       const allTasks = await fetchAllPages<ApiTask>('/tasks/', params);
 
       return allTasks.map(mapTask);

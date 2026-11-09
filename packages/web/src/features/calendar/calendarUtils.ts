@@ -127,6 +127,23 @@ export function viewWeekStarts(
   return view === 'week' ? [weekStart(d, startDay)] : monthWeekStarts(d, startDay);
 }
 
+/**
+ * ISO date bounds of the whole rendered grid for `view` — including the leading
+ * and trailing days of adjacent months that fill the first and last rows. This
+ * is the window the data fetch must cover; `buildChips` clips to the same span.
+ */
+export function viewWindowBounds(
+  d: Date,
+  view: CalViewMode = 'month',
+  startDay: WeekStartDay = DEFAULT_WEEK_START_DAY,
+): { start: string; end: string } {
+  const weeks = viewWeekStarts(d, view, startDay);
+  return {
+    start: formatISODate(weeks[0]),
+    end: formatISODate(addDays(weeks[weeks.length - 1], 6)),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Working time
 // ---------------------------------------------------------------------------
