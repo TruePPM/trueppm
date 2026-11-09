@@ -345,6 +345,14 @@ MAX_INDEX_CELLS = 25_000_000
 # regardless of ``sprint_length_days``. A run past this horizon clamps to it (the
 # same deep-tail truncation the sampler already documents).
 MAX_VELOCITY_SPRINTS = 10_000
+# Ceiling on the uncapped sprint horizon summed over every scrum task (#4695). The span
+# guard charges a story's velocity worst case along its dependency chain only, so it no
+# longer bounds the sampler's total draw count, which sums over parallel stories as
+# well: ``runs x max_sprints`` draws per task. Equal to the old implicit ceiling, which
+# was ``sum(max_sprints * sprint_length_days) <= MAX_PROJECT_SPAN_DAYS`` and so at most
+# this many sprints at ``sprint_length_days=1``. A real story needs a few dozen sprints
+# of horizon, so this admits tens of thousands of stories.
+_MAX_VELOCITY_SPRINT_TOTAL = MAX_PROJECT_SPAN_DAYS
 
 # Default ceiling on the number of tasks returned in a Monte Carlo sensitivity
 # tornado (ADR-0140). The ranking is "the tasks that move the finish most", so a
@@ -991,6 +999,54 @@ def _start_from_finish(finish: date, duration_days: int, calendar: Calendar) -> 
         current = _scan_for_working_day(current, calendar, forward=False)
         remaining -= 1
     return current
+
+
+def _working_days_in_ordinals(lo: int, hi: int, calendar: Calendar) -> int:
+    """Working days of ``calendar`` among the ordinals ``[lo, hi)``, arithmetically."""
+    count = _mask_days_between(lo, hi, calendar.working_days)
+    if calendar.exceptions:
+        count -= calendar._exception_mask_days(lo, hi)
+    return count
+
+
+def _nth_working_day(anchor: date, n: int, calendar: Calendar, *, forward: bool) -> date:
+    """The ``n``-th working day counting from ``anchor`` itself, forward or backward.
+
+    Equal to :func:`_finish_from_start` (``forward=True``) and
+    :func:`_start_from_finish` (``forward=False``) on every input those walks
+    complete, but O(log span x log E) instead of O(n): an exponential then binary
+    search over :func:`_working_days_in_ordinals`. Only the Monte Carlo index
+    *sizing* bounds use it (#4695). Once the span guard stopped summing every scrum
+    story's velocity worst case, the per-task layouts those bounds perform were no
+    longer bounded in total by ``MAX_PROJECT_SPAN_DAYS`` — a thousand parallel
+    stories each with a long worst case would have cost a thousand long day walks.
+    Unlike the walks it does not raise on a calendar gap longer than
+    ``MAX_CALENDAR_SCAN_DAYS``; the working-day index build that follows walks every
+    calendar over the whole horizon and still refuses one.
+    """
+    if n <= 0:
+        return anchor
+    a = anchor.toordinal()
+    limit = (_MAX_ORDINAL - a) if forward else (a - _MIN_ORDINAL)
+
+    def reach(off: int) -> int:
+        if forward:
+            return _working_days_in_ordinals(a, a + off + 1, calendar)
+        return _working_days_in_ordinals(a - off, a + 1, calendar)
+
+    # Invariant: reach(lo_off) < n <= reach(hi_off), with reach(-1) == 0.
+    lo_off, hi_off = -1, min(n - 1, limit)
+    while reach(hi_off) < n:
+        if hi_off >= limit:
+            _safe_offset(anchor, timedelta(days=(limit + 1) if forward else -(limit + 1)))
+        lo_off, hi_off = hi_off, min(limit, 2 * hi_off + 1)
+    while hi_off - lo_off > 1:
+        mid = (lo_off + hi_off) // 2
+        if reach(mid) >= n:
+            hi_off = mid
+        else:
+            lo_off = mid
+    return date.fromordinal(a + hi_off if forward else a - hi_off)
 
 
 def _effective_duration_days(task: Task) -> int:
@@ -4647,15 +4703,22 @@ def _validate_dependencies(project: Project) -> None:
             )
 
 
-def _task_span_totals(project: Project) -> tuple[int, int, int]:
+def _task_span_totals(project: Project) -> tuple[int, int, int, dict[str, int]]:
     """Sum the worst-case task span and find the furthest pin and actual.
 
     The span uses the worst case across the deterministic duration AND every PERT
     estimate: Monte Carlo samples within ``[optimistic, pessimistic]`` but falls back
     to ``most_likely`` when the range is degenerate, so ``most_likely`` — which a
-    partial estimate may set above the deterministic duration — must count too. Scrum
-    tasks count their velocity-sampling worst case; without it an oversized
-    ``story_points`` bypassed this guard entirely (#1067).
+    partial estimate may set above the deterministic duration — must count too.
+
+    A scrum task's velocity worst case is returned per task instead of summed
+    (#4695): it bounds only where Monte Carlo can place the task, not any work the
+    engine does, so it is charged along the longest dependency chain by
+    :func:`_validate_span_bounds`. Summed, every 1-point story cost
+    ``(ceil(sp/mean)*4 + 10) * sprint_length_days`` against the cap whether or not it
+    ran in parallel with every other story. It is still computed here, in the same
+    sweep, so a non-finite ``story_points / mean`` is refused where it always was
+    (#1067, #2178).
 
     Recorded actuals (ADR-0132/0136) anchor a completed task's full-duration span and
     feed the same calendar walk (``_start_from_finish`` / ``_finish_from_start``) as a
@@ -4664,27 +4727,109 @@ def _task_span_totals(project: Project) -> tuple[int, int, int]:
     the representable range (the #951 precedent). ``abs()`` bounds both a far-future
     and a far-past actual.
 
-    Returns ``(total_span, max_snet_days, max_actual_days)``.
+    Returns ``(total_span, max_snet_days, max_actual_days, velocity_days)``, where
+    ``total_span`` excludes the velocity term and ``velocity_days`` maps each scrum
+    task that takes the velocity path to its :func:`_velocity_worst_case_days`.
     """
     total_span = 0
     max_snet_days = 0
     max_actual_days = 0
+    velocity_days: dict[str, int] = {}
     for t in project.tasks:
-        task_max_days = t.duration.days
-        for est in (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration):
-            if est is not None:
-                task_max_days = max(task_max_days, est.days)
-        task_max_days = max(task_max_days, _velocity_worst_case_days(t, project))
-        total_span += max(0, task_max_days)
+        total_span += _task_worst_case_days(t)
+        velocity = _velocity_worst_case_days(t, project)
+        if velocity > 0:
+            velocity_days[t.id] = velocity
         if t.planned_start is not None:
             max_snet_days = max(max_snet_days, (t.planned_start - project.start_date).days)
         for actual in (t.actual_start, t.actual_finish):
             if actual is not None:
                 max_actual_days = max(max_actual_days, abs((actual - project.start_date).days))
-    return total_span, max_snet_days, max_actual_days
+    return total_span, max_snet_days, max_actual_days, velocity_days
+
+
+def _task_worst_case_days(t: Task) -> int:
+    """Largest of a task's deterministic duration and PERT estimates, floored at 0."""
+    task_max_days = t.duration.days
+    for est in (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration):
+        if est is not None:
+            task_max_days = max(task_max_days, est.days)
+    return max(0, task_max_days)
+
+
+def _longest_chain_days(project: Project, weight: dict[str, int]) -> int | None:
+    """Longest dependency chain of ``weight`` plus ``|lag|`` per link, or None if cyclic.
+
+    Kahn's algorithm over the raw dependency list, O(tasks + dependencies); it runs
+    inside :func:`_validate_project`, before the graph is built and before cycles are
+    reported, so a cycle (or a link naming an unknown task, refused later) returns
+    ``None`` and the caller falls back to the serial sum.
+    """
+    indegree = dict.fromkeys(weight, 0)
+    successors: dict[str, list[tuple[str, int]]] = {tid: [] for tid in weight}
+    for dep in project.dependencies:
+        if dep.predecessor_id not in weight or dep.successor_id not in weight:
+            return None
+        successors[dep.predecessor_id].append((dep.successor_id, abs(dep.lag.days)))
+        indegree[dep.successor_id] += 1
+    ready = [tid for tid, deg in indegree.items() if deg == 0]
+    start_at = dict.fromkeys(weight, 0)
+    longest = 0
+    visited = 0
+    while ready:
+        tid = ready.pop()
+        visited += 1
+        finish = start_at[tid] + weight[tid]
+        longest = max(longest, finish)
+        for succ, lag in successors[tid]:
+            start_at[succ] = max(start_at[succ], finish + lag)
+            indegree[succ] -= 1
+            if indegree[succ] == 0:
+                ready.append(succ)
+    return longest if visited == len(weight) else None
 
 
 def _validate_span_bounds(project: Project) -> None:
+    """Refuse a project whose worst-case span cannot be computed in a sane range.
+
+    Two bounds, because the two worst cases cost different things (#4695):
+
+    * **Work span** — every task's deterministic/PERT worst case and every ``|lag|``,
+      summed, plus the furthest pin, data date or actual. This is unchanged and is
+      deliberately a *sum*, not a path: :func:`schedule`'s forward and backward
+      passes walk each task's duration day by day, so the sum bounds their total
+      work as well as the span. It mirrors ``validate_span`` in the Rust engine.
+    * **Chain span** — only when a scrum task takes the velocity path. Each task
+      weighs the larger of its PERT worst case and its velocity worst case, and the
+      bound is the longest dependency chain of those weights plus ``|lag|`` per link,
+      plus the same once-only shift. Velocity durations are only ever *sampled* by
+      Monte Carlo and laid out by index lookups, never walked, so the work they
+      cause is bounded elsewhere (the total sprint budget below, ``max_runs``,
+      ``max_index_cells``); what must stay bounded here is how far a run can reach.
+
+    Why the chain span is an upper bound on any reachable finish, in the guard's own
+    units (working days of duration, calendar days of lag): a task's start is the
+    latest of its floors and its link proposals. Every floor — the project start, its
+    ``planned_start``, the data date, a recorded actual — lies within the once-only
+    shift of the start. Every link, whatever its type, proposes at most the
+    predecessor's finish plus ``max(0, lag)``: an SS/SF anchor is a start, which is no
+    later than the finish, and an FF/SF link constrains the successor's *finish* to
+    that value, so its start is earlier still; a negative lag only pulls work
+    earlier. So by induction in topological order a task finishes no later than
+    ``shift + (longest chain of weights and |lag| ending at it)``. Summing every task
+    instead is the same argument with every task on one chain, which is why it was
+    sound but refused ~1,750 parallel stories. The engine converts these working-day
+    figures to dates per calendar later; the ``* 7`` reach check below and
+    :func:`_mc_horizon` (which re-runs this induction on real calendars) do that
+    conversion conservatively. A cyclic graph has no longest path; it falls back to
+    the serial sum and is reported as a cycle afterwards.
+
+    A hostile ``story_points`` is still refused (#1067): one task is a chain of one,
+    so a velocity worst case above the cap fails the chain span on its own. Its
+    draw cost is bounded separately: the sampler draws ``runs x max_sprints`` per
+    scrum task, and ``max_sprints`` sums over parallel tasks as well as chained ones,
+    so the total uncapped sprint horizon stays under :data:`_MAX_VELOCITY_SPRINT_TOTAL`.
+    """
     # status_date (the data date, ADR-0132) floors all not-yet-finished work, so
     # like a planned_start pin it shifts the schedule directly and is bounded by
     # the same span cap — otherwise a data date in year 9999 drives the Monte
@@ -4701,29 +4846,52 @@ def _validate_span_bounds(project: Project) -> None:
                 "representable date range."
             )
 
-    # Cumulative span: an upper bound on the longest path (and on the Monte Carlo
-    # completion offset, which can sample each task up to its pessimistic
-    # duration). Bounding the sum keeps the day-by-day walk and the working-day
-    # index build from spinning — or overflowing the date range — no matter how
-    # many tasks are chained.
-    total_span, max_snet_days, max_actual_days = _task_span_totals(project)
+    total_span, max_snet_days, max_actual_days, velocity_days = _task_span_totals(project)
     if max_actual_days > MAX_PROJECT_SPAN_DAYS:
         raise InvalidScheduleInput(
             f"A task actual_start/actual_finish is more than {MAX_PROJECT_SPAN_DAYS} "
             "days from the project start; the schedule cannot be computed within a "
             "representable date range."
         )
-    total_span += sum(abs(dep.lag.days) for dep in project.dependencies)
+    lag_total = sum(abs(dep.lag.days) for dep in project.dependencies)
     # A planned_start pin, the data-date floor, and a recorded actual each shift work
     # along the timeline, so the furthest of them adds to the span bound exactly once
     # (they don't accumulate the way durations on a chain do).
-    total_span += max(max_snet_days, max(0, status_offset), max_actual_days)
+    shift = max(max_snet_days, max(0, status_offset), max_actual_days)
+    total_span += lag_total + shift
     if total_span > MAX_PROJECT_SPAN_DAYS:
         raise InvalidScheduleInput(
             f"Total project span ({total_span} days across all task durations and lags) "
             f"exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days; the schedule cannot be "
             "computed within a representable date range."
         )
+
+    reach_span = total_span
+    if velocity_days:
+        weight = {
+            t.id: max(_task_worst_case_days(t), velocity_days.get(t.id, 0)) for t in project.tasks
+        }
+        chain = _longest_chain_days(project, weight)
+        if chain is None:
+            chain = sum(weight.values()) + lag_total
+        chain_span = chain + shift
+        if chain_span > MAX_PROJECT_SPAN_DAYS:
+            raise InvalidScheduleInput(
+                f"Total project span ({chain_span} days along the longest dependency "
+                "chain, counting each scrum task's velocity worst case) exceeds the "
+                f"maximum of {MAX_PROJECT_SPAN_DAYS} days; the schedule cannot be "
+                "computed within a representable date range."
+            )
+        # _velocity_worst_case_days returns max_sprints * sprint_length_days exactly.
+        assert project.sprint_length_days is not None
+        total_sprints = sum(velocity_days.values()) // project.sprint_length_days
+        if total_sprints > _MAX_VELOCITY_SPRINT_TOTAL:
+            raise InvalidScheduleInput(
+                f"Total velocity sprint horizon ({total_sprints} sprints across all scrum "
+                f"tasks) exceeds the maximum of {_MAX_VELOCITY_SPRINT_TOTAL}; reduce "
+                "story_points or the number of scrum tasks."
+            )
+        reach_span = max(reach_span, chain_span)
 
     # date.max overflow guard (#1207). The engine walks in *calendar* days; a valid
     # weekday-only calendar inflates a working-day span by up to 7x, and a single
@@ -4737,11 +4905,11 @@ def _validate_span_bounds(project: Project) -> None:
     # start_date (#4218), reaching back at most the SF chain's durations and leads.
     # Only a start date within that reach of date.min can underflow, and
     # _safe_offset turns it into InvalidScheduleInput rather than an OverflowError.)
-    max_calendar_reach = total_span * 7 + MAX_CALENDAR_SCAN_DAYS
+    max_calendar_reach = reach_span * 7 + MAX_CALENDAR_SCAN_DAYS
     if (date.max - project.start_date).days < max_calendar_reach:
         raise InvalidScheduleInput(
             f"Project start date {project.start_date.isoformat()} is too close to the "
-            f"maximum representable date for a span of {total_span} working days; the "
+            f"maximum representable date for a span of {reach_span} working days; the "
             "schedule would overflow the date range. Use an earlier start date."
         )
 
@@ -5912,23 +6080,32 @@ def _mc_horizon(
 ) -> date:
     """A calendar DATE no task finishes after in any Monte Carlo run.
 
-    The bound is a serial walk in topological order over real calendars: a cursor
-    starts at the latest of the project start, every ``planned_start`` pin (SNET,
-    #1068), the data date (ADR-0132) and every recorded actual (#1821), and each task
-    is then laid out on **its own** calendar from the working day after
-    ``cursor + its largest positive incoming lag``, over its longest possible sampled
-    duration (the pessimistic estimate and the velocity sampler's ``max_sprints``
-    clamp, #1067), advancing the cursor to its finish.
+    The bound is a longest-path walk in topological order over real calendars
+    (#4695). A floor date is the latest of the project start, every ``planned_start``
+    pin (SNET, #1068), the data date (ADR-0132) and every recorded actual (#1821).
+    Each task is then laid out on **its own** calendar from the working day after
+    ``max(floor, max over predecessors of (bound(pred) + max(0, lag)))``, over its
+    longest possible sampled duration (the pessimistic estimate and the velocity
+    sampler's ``max_sprints`` clamp, #1067); its finish is ``bound(task)``. The
+    horizon is the latest bound.
 
-    Why it is an upper bound: by induction over the topological order the cursor is
-    at or after every already-walked task's latest possible finish — and so after
-    every anchor a link out of one can take (a start, a finish, or the day before a
-    start, #4145). A task's real start is the latest of its link proposals and its
-    floors; each proposal is at most ``cursor + lag`` and every floor is at most the
-    cursor's opening value, so its start is at most the walk's start and, since
-    laying out a fixed working-day duration is monotone in the start, its finish at
-    most the walk's finish. An FF/SF successor's finish is pinned at most
-    ``cursor + lag`` too, which the walk's finish already clears.
+    Why it is an upper bound: by induction over the topological order ``bound(p)``
+    is at or after every possible finish of ``p`` — and so after every anchor a link
+    out of ``p`` can take (a start, a finish, or the day before a start, #4145). A
+    task's real start is the latest of its link proposals and its floors; each
+    proposal from ``p`` is at most ``bound(p) + lag`` and every floor is at most the
+    floor date, so its start is at most the walk's start and, since laying out a
+    fixed working-day duration is monotone in the start, its finish at most the
+    walk's finish. An FF/SF successor's finish is pinned at most ``bound(p) + lag``
+    too, which the walk's finish already clears.
+
+    Why a path and not one serial cursor (#4695): the cursor version advanced past
+    *every* earlier task, so it laid every task end to end. For an all-agile project
+    that is every story at its velocity tail one after another — a project whose P95
+    was 2028 got an index to year 3163, and Monte Carlo ran 2.2-2.4x slower. The
+    induction above only ever needs a task's own predecessors to be finished. Each
+    layout is arithmetic (:func:`_nth_working_day`), so the walk costs
+    O((tasks + links) x log span), whatever the durations.
 
     Why it is a DATE and not a working-day count (#4429): a duration of D working
     days on a sparse calendar — a four-day week, Monday-only, a 16-week plant
@@ -5939,28 +6116,29 @@ def _mc_horizon(
     reported P50/P95 weeks to months before ``schedule()``. Expressed as a date, the
     bound is re-counted in each calendar's own working days by :func:`_mc_index_size`.
     """
-    cursor = project.start_date
+    floor = project.start_date
     if project.status_date is not None:
-        cursor = max(cursor, project.status_date)
+        floor = max(floor, project.status_date)
     for t in task_map.values():
         for pinned in (t.planned_start, t.actual_start, t.actual_finish):
             if pinned is not None:
-                cursor = max(cursor, pinned)
+                floor = max(floor, pinned)
+    bound: dict[str, date] = {}
+    horizon = floor
     for tid in topo_order:
         t = task_map[tid]
         d_days = t.duration.days
         if t.pessimistic_duration is not None:
             d_days = max(d_days, t.pessimistic_duration.days)
         d_days = max(0, d_days, _velocity_worst_case_days(t, project))
-        lag_days = max(
-            (g[pred][tid]["dep"].lag.days for pred in g.predecessors(tid)),
-            default=0,
-        )
-        start = _next_working_day(
-            _safe_offset(cursor, timedelta(days=1 + max(0, lag_days))), cal_of[tid]
-        )
-        cursor = max(cursor, _finish_from_start(start, d_days, cal_of[tid]))
-    return cursor
+        anchor = floor
+        for pred in g.predecessors(tid):
+            lag_days = max(0, g[pred][tid]["dep"].lag.days)
+            anchor = max(anchor, _safe_offset(bound[pred], timedelta(days=lag_days)))
+        start = _next_working_day(_safe_offset(anchor, _ONE_DAY), cal_of[tid])
+        bound[tid] = _nth_working_day(start, d_days, cal_of[tid], forward=True)
+        horizon = max(horizon, bound[tid])
+    return horizon
 
 
 def _count_working_days(start: date, end: date, calendar: Calendar) -> int:
@@ -6115,7 +6293,9 @@ def _mc_pre_start_pad_days(
             0 if task.pessimistic_duration is None else task.pessimistic_duration.days,
             _velocity_worst_case_days(task, project),
         )
-        lo[tid] = _start_from_finish(bound, longest, cal) if longest > 0 else bound
+        # Arithmetic, not a day walk: ``longest`` includes a velocity worst case,
+        # which the span guard no longer bounds in total over parallel tasks (#4695).
+        lo[tid] = _nth_working_day(bound, longest, cal, forward=False) if longest > 0 else bound
         record_link_lo(tid)
         earliest = min(earliest, lo[tid])
     return (project.start_date - earliest).days + _MC_PRE_START_PAD_BUFFER_DAYS, sf_linked
