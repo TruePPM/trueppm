@@ -67,3 +67,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             "Hypothesis properties must carry @pytest.mark.fuzz so scheduler:fuzz-deep "
             f"deepens them:\n  {listing}"
         )
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    """Print generator acceptance rates recorded with ``record_property`` (#4671).
+
+    ``-q`` hides a passing test's output, so the rate a property floors would
+    otherwise be visible only on failure.
+    """
+    lines = [
+        f"{report.nodeid}: {value}"
+        for reports in terminalreporter.stats.values()
+        for report in reports
+        for key, value in getattr(report, "user_properties", ())
+        if key == "acceptance_rate" and getattr(report, "when", "call") == "call"
+    ]
+    if lines:
+        terminalreporter.write_sep("-", "generator acceptance rate")
+        for line in lines:
+            terminalreporter.write_line(line)
