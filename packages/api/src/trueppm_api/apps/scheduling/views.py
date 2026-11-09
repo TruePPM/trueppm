@@ -428,8 +428,8 @@ def _build_sched_deps(project_pk: str, included_ids: set[str]) -> list[Any]:
     from trueppm_scheduler.models import DependencyType
 
     db_deps = list(
-        Dependency.live.filter(predecessor__project_id=project_pk).select_related(
-            "predecessor", "successor"
+        Dependency.live.filter(predecessor__project_id=project_pk).only(
+            "id", "predecessor_id", "successor_id", "dep_type", "lag"
         )
     )
     return [
@@ -769,7 +769,6 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             # compose_project_calendar reads the base calendar's exceptions (#1491)
             # AND every applied overlay's (#906); prefetch both to avoid an N+1.
             .prefetch_related(
-                "tasks",
                 "calendar__exceptions",
                 "calendar_layers__calendar__exceptions",
                 # ADR-0441: the resolver reads the program calendar's exceptions when a
@@ -1476,7 +1475,6 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             project = (
                 Project.objects.select_related("calendar", "program__calendar")
                 .prefetch_related(
-                    "tasks",
                     "calendar__exceptions",
                     "calendar_layers__calendar__exceptions",
                     # ADR-0441: the resolver reads the program calendar's exceptions when a
@@ -2815,7 +2813,6 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
 
         project = get_object_or_404(
             Project.objects.select_related("calendar", "program__calendar").prefetch_related(
-                "tasks",
                 "calendar__exceptions",
                 "calendar_layers__calendar__exceptions",
                 # ADR-0441: the resolver reads the program calendar's exceptions when a
