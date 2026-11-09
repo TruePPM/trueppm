@@ -28,7 +28,7 @@ _S3 = "storages.backends.s3.S3Storage"
 def test_local_storage_fails_in_prod() -> None:
     errors = validate_attachment_storage(_LOCAL, debug=False, allow_local=False)
     assert len(errors) == 1
-    assert errors[0].id == "trueppm.E004"
+    assert errors[0].id == "trueppm.E014"
 
 
 def test_local_storage_allowed_in_debug() -> None:
@@ -46,7 +46,7 @@ def test_remote_storage_passes_in_prod() -> None:
 def test_filesystem_dotted_variant_also_flagged() -> None:
     variant = "django.core.files.storage.filesystem.FileSystemStorage"
     errors = validate_attachment_storage(variant, debug=False, allow_local=False)
-    assert {e.id for e in errors} == {"trueppm.E004"}
+    assert {e.id for e in errors} == {"trueppm.E014"}
 
 
 def test_system_check_registered_under_security_deploy_tag() -> None:
@@ -70,7 +70,7 @@ def test_system_check_flags_local_storage_when_debug_off(
     errors = check_attachment_storage()
     assert errors
     assert all(isinstance(e, Error) for e in errors)
-    assert errors[0].id == "trueppm.E004"
+    assert errors[0].id == "trueppm.E014"
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ def test_writes_disabled_false_still_flags_local_storage() -> None:
         _LOCAL, debug=False, allow_local=False, writes_disabled=False
     )
     assert len(errors) == 1
-    assert errors[0].id == "trueppm.E004"
+    assert errors[0].id == "trueppm.E014"
 
 
 def test_system_check_clean_when_demo_read_only(settings: pytest.FixtureRequest) -> None:
@@ -204,7 +204,7 @@ def test_opt_in_with_empty_media_root_is_rejected() -> None:
     """Django's own default. This is the exact #3184 production configuration."""
     errors = validate_attachment_storage(_LOCAL, debug=False, allow_local=True, media_root="")
     assert len(errors) == 1
-    assert errors[0].id == "trueppm.E004"
+    assert errors[0].id == "trueppm.E014"
     assert "working directory" in str(errors[0].msg)
 
 
@@ -229,7 +229,7 @@ def test_opt_in_with_unwritable_media_root_is_rejected(tmp_path: Path) -> None:
             _LOCAL, debug=False, allow_local=True, media_root=target
         )
         assert len(errors) == 1
-        assert errors[0].id == "trueppm.E004"
+        assert errors[0].id == "trueppm.E014"
         assert "not writable" in str(errors[0].msg)
     finally:
         target.chmod(0o700)
@@ -278,7 +278,7 @@ def test_system_check_flags_unwritable_media_root(
     try:
         errors = check_attachment_storage()
         assert len(errors) == 1
-        assert errors[0].id == "trueppm.E004"
+        assert errors[0].id == "trueppm.E014"
     finally:
         target.chmod(0o700)
 
