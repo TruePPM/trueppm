@@ -272,6 +272,10 @@ Rules:
   whole line is silently dropped from the yield table. Always use `/<mode>`, never
   `(<mode>)`. Round 2 and the fix-diff re-check are mutually exclusive per that skill's
   § After round 1 — a branch carries at most one of the two extra lines beyond round 1's.
+- **A gate that stopped at its `/wave` budget carries a `budget-stopped` field**, never a
+  plain count: `- gate: <name> — <N> findings (<model>; budget-stopped)`. Its count is partial.
+  Each such agent also counts in the `budget-exceeded:` line (`.claude/skills/wave/SKILL.md`
+  § Per-agent budget).
 - **`n/a` and `skipped` are different.** `n/a` means the fast-path table or the gate's own
   scope excludes this diff (no models changed → `migration-check — n/a`). `skipped` means
   the gate applied and was deliberately not run — only ever at the user's request, and

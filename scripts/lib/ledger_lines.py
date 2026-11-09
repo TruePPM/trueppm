@@ -171,6 +171,13 @@ def _self_test():
         budget_exceeded(wrap("budget-exceeded: 3 (implementer 2, gate 1)"))[0] == 3,
     )
     check(
+        "budget all three roles incl. completeness-check",
+        budget_exceeded(
+            wrap("budget-exceeded: 3 (implementer 1, gate 1, completeness-check 1)")
+        )
+        == (3, {"implementer": 1, "gate": 1, "completeness-check": 1}),
+    )
+    check(
         "budget role split mismatch is dropped",
         budget_exceeded(wrap("budget-exceeded: 3 (gate 1)")) is None,
     )
