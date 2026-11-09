@@ -717,6 +717,7 @@ def _place_milestone(
     cal_for: Callable[[str], Calendar],
     start_floor: date | None = None,
     completed_only: bool = False,
+    last_day: date | None = None,
 ) -> tuple[_Instant, date, _Instant]:
     """Place a zero-duration task as an instant: ``(shown, day, link)``.
 
@@ -781,6 +782,10 @@ def _place_milestone(
     ``completed_only`` limits the links to completed predecessors — the reading a
     closed milestone's day edge is taken from (:func:`_live_milestone_edge`, #4525),
     and the instant it links from (:func:`_closed_milestone_link`, #4690).
+
+    ``last_day`` drops every link proposal shown on a later day, so only work that
+    places the milestone on or before that day is read — the cap a closed
+    milestone's edge is read under (:func:`_live_milestone_edge`, #4703).
     """
     best: tuple[date, bool, date] | None = None
     pred_best: tuple[date, bool, date] | None = None
@@ -797,18 +802,9 @@ def _place_milestone(
         pred = task_map[pred_id]
         if completed_only and not _is_complete(pred):
             continue
-        dep: Dependency = g[pred_id][node_id]["dep"]
-        assert pred.early_start is not None and pred.early_finish is not None
-        raw, start_display = _milestone_proposal(
-            dep.dep_type,
-            dep.lag,
-            _link_start(pred),
-            pred.early_finish,
-            links.get(pred_id),
-            cal_for(pred_id),
-            cal,
-        )
-        proposal = (raw, start_display, _instant_day(raw, start_display, cal))
+        proposal = _link_proposal(pred_id, node_id, task_map, g, cal, links, cal_for)
+        if last_day is not None and proposal[2] > last_day:
+            continue
         offer(proposal)
         if pred_best is None or proposal[:2] > pred_best[:2]:
             pred_best = proposal
@@ -836,6 +832,35 @@ def _place_milestone(
     if link is None:
         return shown, resolved[2], shown  # NOSONAR
     return shown, resolved[2], (link[0], link[1])  # NOSONAR
+
+
+def _link_proposal(
+    pred_id: str,
+    node_id: str,
+    task_map: dict[str, Task],
+    g: nx.DiGraph[str],
+    cal: Calendar,
+    links: dict[str, _Instant],
+    cal_for: Callable[[str], Calendar],
+) -> tuple[date, bool, date]:
+    """``(instant, start_display, day)`` the link from ``pred_id`` proposes for a milestone.
+
+    One link's candidate in :func:`_place_milestone`, read on the milestone's
+    calendar ``cal``; ``day`` is the day it is shown on (:func:`_instant_day`).
+    """
+    pred = task_map[pred_id]
+    dep: Dependency = g[pred_id][node_id]["dep"]
+    assert pred.early_start is not None and pred.early_finish is not None
+    raw, start_display = _milestone_proposal(
+        dep.dep_type,
+        dep.lag,
+        _link_start(pred),
+        pred.early_finish,
+        links.get(pred_id),
+        cal_for(pred_id),
+        cal,
+    )
+    return raw, start_display, _instant_day(raw, start_display, cal)
 
 
 def _equivalent_link(
@@ -905,6 +930,13 @@ def _closed_milestone_link(
     instead matched the live instant on some shapes and broke more than it fixed.
     ``start_floor`` is the project-start floor, ``None`` for an SF-linked milestone
     (#4218), as :func:`_place_milestone` takes it.
+
+    Unlike the edge, the reading here is not capped at the recorded day
+    (``last_day``, #4703), on purpose: a proposal shown after it can only lose
+    the earlier-midnight test below, so it leaves the start of the recorded day,
+    which is where the milestone links from while that work is open. Capping it
+    would drop that work and let an earlier predecessor's midnight through,
+    pulling a lagged successor a day *earlier* when out-of-sequence work closes.
     """
     if any(not _is_complete(task_map[p]) for p in g.predecessors(node_id)):
         return recorded, True

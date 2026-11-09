@@ -187,6 +187,13 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // two server engines; this engine's adapter cannot feed the actual_finish.
   progress_closed_milestone_non_working_day_after_work:
     'adapter: does not thread actuals/status date',
+  // #4703. A closed milestone takes its end-of-day edge only from work on its
+  // recorded day: the fix is in the two server engines; this engine's adapter
+  // cannot feed the actual_finish or the handed-back live_day_end_on.
+  progress_closed_milestone_predecessor_after_sign_off:
+    'adapter: does not thread actuals/status date',
+  progress_closed_milestone_handed_back_edge_after_sign_off:
+    'adapter: does not thread actuals/status date',
   // #4345. Pins a milestone's free instant reading a work successor's Saturday
   // actual_start at its working-day start. Free float is outside this suite's
   // scope (forward pass only); excluded for the same actuals adapter gap.

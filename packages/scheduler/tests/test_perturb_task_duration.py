@@ -21,6 +21,8 @@ from datetime import date, timedelta
 from itertools import pairwise
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from trueppm_scheduler import (
     Calendar,
@@ -913,31 +915,20 @@ def _velocity_chain(duration_days: int, pct: float, points: float) -> Project:
     )
 
 
-def test_an_exhausted_velocity_task_converts_its_elapsed_days_to_points() -> None:
-    """The input only: 10d at 40% has 4 elapsed days, so a 6-day pull-in is 10 days of
-    points at 2 per day. Where the bands land is a separate question."""
-    perturbed = perturb_task_duration(_velocity_chain(10, 40.0, 40.0), "M", -6)
-    target = _milestone_of(perturbed)
-
-    assert target.story_points == pytest.approx(20.0)
-    assert target.duration == timedelta(0)
-    assert target.actual_finish is None
-
-
-@pytest.mark.xfail(strict=True, reason="#4820")
 @pytest.mark.parametrize(
     ("duration_days", "pct", "points"),
     [
-        pytest.param(10, 40.0, 40.0, id="10d@40-steps-backward"),
-        pytest.param(5, 40.0, 30.0, id="5d@40-later-than-current"),
-        pytest.param(3, 34.0, 20.0, id="3d@34-later-than-current"),
+        pytest.param(10, 40.0, 40.0, id="10d@40-stepped-backward"),
+        pytest.param(5, 40.0, 30.0, id="5d@40-was-later-than-current"),
+        pytest.param(3, 34.0, 20.0, id="3d@34-was-later-than-current"),
     ],
 )
 def test_a_growing_pull_in_never_moves_a_velocity_band_later(
     duration_days: int, pct: float, points: float
 ) -> None:
-    """The correct behavior, not the current one: from the unperturbed forecast onward,
-    each bigger pull-in leaves every band where it was or earlier."""
+    """From the unperturbed forecast onward, each bigger pull-in leaves every band where
+    it was or earlier. These three shapes reported a band later than doing nothing, or
+    later than a smaller pull-in, before #4820."""
     baseline = _velocity_chain(duration_days, pct, points)
     forecasts = [monte_carlo(baseline, runs=RUNS, seed=SEED)] + [
         monte_carlo(perturb_task_duration(baseline, "M", delta), runs=RUNS, seed=SEED)
@@ -947,6 +938,59 @@ def test_a_growing_pull_in_never_moves_a_velocity_band_later(
         assert bigger.p50 <= smaller.p50
         assert bigger.p80 <= smaller.p80
         assert bigger.p95 <= smaller.p95
+
+
+def test_an_exhausted_velocity_task_keeps_no_more_points_than_the_ceiling() -> None:
+    """The input the band ordering rests on: 10d at 40% has 6 remaining days, so the
+    last pull-in that leaves work open is -5 (30 points at 2 per day). The 4 lost
+    elapsed days need one 10-day sprint back, at the fastest observed sprint (25), so
+    the exhausted task keeps at most 5 points whatever the pull-in."""
+    baseline = _velocity_chain(10, 40.0, 40.0)
+    for delta in (-6, -7, -9):
+        assert _milestone_of(perturb_task_duration(baseline, "M", delta)).story_points == (
+            pytest.approx(5.0)
+        )
+    # Past the ceiling the mean-pace conversion keeps lowering the points.
+    assert _milestone_of(perturb_task_duration(baseline, "M", -14)).story_points == (
+        pytest.approx(4.0)
+    )
+    # A pull-in that leaves work open is untouched by the ceiling.
+    assert _milestone_of(perturb_task_duration(baseline, "M", -5)).story_points == (
+        pytest.approx(30.0)
+    )
+
+
+@pytest.mark.fuzz
+@settings(max_examples=30, derandomize=True)
+@given(
+    duration_days=st.integers(min_value=1, max_value=12),
+    pct=st.integers(min_value=1, max_value=95),
+    points=st.integers(min_value=1, max_value=80),
+)
+def test_velocity_bands_are_monotone_in_the_pull_in(
+    duration_days: int, pct: int, points: int
+) -> None:
+    """Seeded p50/p80/p95 never get later as the pull-in grows, from zero to exhaustion.
+
+    A regression pin on one fixture, not a proof. It asserts the ordering over 30
+    derandomized examples, with the default velocity samples, sprint length 10, and no
+    three-point estimates, so it says nothing about other velocity histories, sprint
+    lengths, or estimated tasks (#4909: a zero-point task with an estimate falls to
+    PERT; #4910: the points change the draw layout, so seeded percentiles of two
+    what-ifs need not be ordered). The ceiling in ``_exhausted_points_ceiling``
+    orders the sampled distribution; a fixed seed makes that exact for these examples,
+    while an unbounded search would eventually find percentile noise rather than a bug.
+    """
+    baseline = _velocity_chain(duration_days, float(pct), float(points))
+    remaining = duration_days - int(duration_days * pct / 100)
+    forecasts = [monte_carlo(baseline, runs=RUNS, seed=SEED)] + [
+        monte_carlo(perturb_task_duration(baseline, "M", -n), runs=RUNS, seed=SEED)
+        for n in range(1, remaining + 3)
+    ]
+    for n, (smaller, bigger) in enumerate(pairwise(forecasts), start=1):
+        assert bigger.p50 <= smaller.p50, f"p50 at -{n}"
+        assert bigger.p80 <= smaller.p80, f"p80 at -{n}"
+        assert bigger.p95 <= smaller.p95, f"p95 at -{n}"
 
 
 def test_past_exhaustion_cpm_stops_moving_while_a_risky_tasks_bands_do_not_get_later() -> None:

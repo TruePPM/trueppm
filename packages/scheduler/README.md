@@ -418,7 +418,7 @@ convention. The same list, with the comparison spelled out, is on
 
 **Progress and actuals**
 
-- A **completed** task (`actual_finish` set, or 100%) is pinned to its recorded dates verbatim — even on a non-working day — and is never re-sampled. With no recorded actuals it is pinned at the project start (or its `planned_start`, when later); no predecessor moves it. A completed milestone stays an instant: with no actuals at the start of its pinned day; with actuals on its recorded `actual_finish` (else `actual_start`) day, at the edge of that day it had live — the end when completed work finishing that day placed it, or — while a predecessor is still open — when `Task.live_day_end_on` (the day your previous run showed it at the end of) names that day; otherwise the start. No change to open work moves it, and when you pass your previous run's output back, closing it on its forecast day keeps the edge of the day its successors measure from ([#4433](https://gitlab.com/trueppm/trueppm/-/issues/4433), [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525)). Once every predecessor is complete, that includes the successors' calendar-day lags: a milestone shown at the start of a day can sit at an earlier midnight (Sunday 00:00 shown on Monday, or a point before the project start), and once closed it still links from that midnight, read from its completed predecessors. **Closing a milestone while one of its predecessors is still open can still move its lagged successors, as before:** the open work's forecast is not read, so it links from the start of its recorded day ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)). Recording an `actual_start` on the day a live milestone is shown, or a `planned_start` or data date that falls on, or snaps to, that day (a weekend date snaps to the Monday), moves nothing. For the data date and for a `planned_start` that snaps to the day, this is a change to live schedules, and an earlier-only one: before it, such a date pushed the milestone's lagged successors later ([#4690](https://gitlab.com/trueppm/trueppm/-/issues/4690)). ([ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md))
+- A **completed** task (`actual_finish` set, or 100%) is pinned to its recorded dates verbatim — even on a non-working day — and is never re-sampled. With no recorded actuals it is pinned at the project start (or its `planned_start`, when later); no predecessor moves it. A completed milestone stays an instant: with no actuals at the start of its pinned day; with actuals on its recorded `actual_finish` (else `actual_start`) day, at the edge of that day it had live — the end when a link from completed work places it at the end of that day (a link that places it on a later day — work recorded after the sign-off, out of sequence — does not), or when `Task.live_day_end_on` (the day your previous run showed it at the end of) names that day while a predecessor is still open or completed work places it on a later day; otherwise the start. Closing a single piece of work whose link places the milestone after its day therefore moves nothing when the milestone was at the end of its day and you pass `live_day_end_on` back; a gate that was at the start of its day has no edge to hand back, and moves nothing there too ([#4703](https://gitlab.com/trueppm/trueppm/-/issues/4703)). The link decides, not the finish date: FS+1d from work finishing on the sign-off day places it on the next day, so the start; FS-1d from work finishing the day after places it at the end of the sign-off day, so closing that work moves the successors a working day later. With every predecessor complete and none placing it after its day, a handed-back end-of-day edge is re-read from the completed work, so successors can still move a working day earlier when a closed late predecessor's link places the milestone at or before its day. Several late predecessors with negative lag can still move successors a working day later ([#4915](https://gitlab.com/trueppm/trueppm/-/issues/4915)). No change to open work moves it, and when you pass your previous run's output back, closing it on its forecast day keeps the edge of the day its successors measure from ([#4433](https://gitlab.com/trueppm/trueppm/-/issues/4433), [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525)). Once every predecessor is complete, that includes the successors' calendar-day lags: a milestone shown at the start of a day can sit at an earlier midnight (Sunday 00:00 shown on Monday, or a point before the project start), and once closed it still links from that midnight, read from its completed predecessors. **Closing a milestone while one of its predecessors is still open can still move its lagged successors, as before:** the open work's forecast is not read, so it links from the start of its recorded day ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)). Recording an `actual_start` on the day a live milestone is shown, or a `planned_start` or data date that falls on, or snaps to, that day (a weekend date snaps to the Monday), moves nothing. For the data date and for a `planned_start` that snaps to the day, this is a change to live schedules, and an earlier-only one: before it, such a date pushed the milestone's lagged successors later ([#4690](https://gitlab.com/trueppm/trueppm/-/issues/4690)). ([ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md))
 - An **in-progress** task schedules its remaining `duration − floor(duration × pct / 100)` working days forward from the data date (`status_date`), floored at its unsnapped `actual_start` and at its `planned_start` (SNET), which acts as "resume no earlier than": a later SNET holds the remaining work there while `scheduled_start` stays on `actual_start` ([#4527](https://gitlab.com/trueppm/trueppm/-/issues/4527)). ([ADR-0132](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0132-data-date-aware-progress-forecasting.md))
 
 **Float and output**
@@ -681,7 +681,11 @@ release it is scheduled for:
   open, its frozen day edge (`live_day_end_on`) reflects the last derivation,
   so correcting a completed predecessor's actuals or removing a link is not
   re-read until every predecessor completes
-  ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)); a work-task
+  ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)); closing
+  out-of-sequence work can still move a signed-off milestone's successors when
+  several predecessors are late, or when a faithful hand-back is re-read from
+  the completed work
+  ([#4915](https://gitlab.com/trueppm/trueppm/-/issues/4915)); a work-task
   late-finish seed can ignore a
   start-of-day project finish on wider calendars
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
@@ -734,9 +738,12 @@ release it is scheduled for:
   FF/SF, so the Monte Carlo P50 can land before the CPM date
   ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)); an exhausted what-if pull-in on an SS/SF link reverses the
   forecast
-  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)); velocity bands step backward at the what-if exhaustion
-  boundary
-  ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)); and the API's velocity sampler has drifted from the library
+  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)); what-if changes the
+  velocity draw layout, so seeded bands are not ordered by the pull-in
+  ([#4910](https://gitlab.com/trueppm/trueppm/-/issues/4910)); a what-if pull-in can
+  move a band later when a velocity task's points reach 0 and it falls to its PERT
+  estimate
+  ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)); and the API's velocity sampler has drifted from the library
   on the horizon cap (2000 versus 10,000)
   ([#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)).
 - **Calendars** — a zero-lag milestone-to-milestone link into a narrower
@@ -797,7 +804,7 @@ they will ship with 0.5 or that release will slip:
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
   calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4430](https://gitlab.com/trueppm/trueppm/-/issues/4430), [#4601](https://gitlab.com/trueppm/trueppm/-/issues/4601), [#4696](https://gitlab.com/trueppm/trueppm/-/issues/4696),
-  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
+  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
   in-progress task's sampled duration no longer has its optimistic tail
   truncated by subtracting deterministic elapsed time from the sampled total
   ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).

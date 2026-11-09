@@ -2595,6 +2595,22 @@ class ProjectViewSet(
         request=None,
         responses={
             200: ProjectSerializer,
+            400: state_refusal_400(
+                "Restoring would leave the dependency graph unschedulable (code "
+                "``cyclic_dependency`` or ``self_reference``, with ``offending``): a "
+                "task trashed earlier has a live task at its old WBS position and a "
+                "dependency to it, which would run summary-to-own-descendant (#4858). "
+                "Nothing is restored. A project that was already cyclic as a flat task "
+                "graph is not refused.",
+                codes=("cyclic_dependency", "self_reference"),
+                extra_properties={
+                    "offending": {
+                        "type": "array",
+                        "description": "Ids of the tasks on the cycle.",
+                        "items": {"type": "string"},
+                    },
+                },
+            ),
             404: OpenApiResponse(description="No soft-deleted project with that id in your Trash."),
         },
     )
@@ -2616,6 +2632,11 @@ class ProjectViewSet(
         than re-applying — clients must not rely on a 200 for an already-restored id.
         """
         from trueppm_api.apps.projects.models import cascade_project_children_restore
+        from trueppm_api.apps.projects.task_grouping import (
+            GroupingRejected,
+            assert_graph_feasible,
+            capture_graph_state,
+        )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # Look up the tombstoned row directly — self.get_object() would 404 because the
@@ -2624,43 +2645,66 @@ class ProjectViewSet(
         project = get_object_or_404(self._trashed_queryset(), pk=pk)
         self.check_object_permissions(request, project)
 
-        with transaction.atomic():
-            project.restore()
-            if not project.code:
-                # A seed re-import handed this project's key to its rebuilt
-                # successor (ADR-1237); give the restored original a fresh one
-                # rather than bringing it back unaddressable.
-                from trueppm_api.apps.projects.models import ObjectKeySource
-                from trueppm_api.apps.projects.services import (
-                    KeyAssignmentError,
-                    assign_key,
-                    derive_key,
-                )
-
-                try:
-                    assign_key(
-                        project,
-                        derive_key(project.name, "project", exclude=project),
-                        source=ObjectKeySource.DERIVED,
-                        actor=request.user,
+        try:
+            with transaction.atomic():
+                project.restore()
+                if not project.code:
+                    # A seed re-import handed this project's key to its rebuilt
+                    # successor (ADR-1237); give the restored original a fresh one
+                    # rather than bringing it back unaddressable.
+                    from trueppm_api.apps.projects.models import ObjectKeySource
+                    from trueppm_api.apps.projects.services import (
+                        KeyAssignmentError,
+                        assign_key,
+                        derive_key,
                     )
-                except KeyAssignmentError as exc:
-                    # next_free_key's suffix-attempt cap (security-review Low,
-                    # perf-check Low): astronomically unlikely for a real
-                    # project name, but a 400 the caller can act on beats an
-                    # unhandled 500 mid-restore. Roll back the restore() above —
-                    # returning from inside `with transaction.atomic()` commits
-                    # unless told otherwise.
-                    transaction.set_rollback(True)
-                    return Response({"code": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
-            cascade_project_children_restore(project)
-            cross_edges = cross_project_edge_rows(project_id=project.pk)
-            _record_project_audit_event(
-                event_type="project_restored",
-                actor=request.user,
-                project=project,
-                metadata={"mode": "restore"},
-            )
+
+                    try:
+                        assign_key(
+                            project,
+                            derive_key(project.name, "project", exclude=project),
+                            source=ObjectKeySource.DERIVED,
+                            actor=request.user,
+                        )
+                    except KeyAssignmentError as exc:
+                        # next_free_key's suffix-attempt cap (security-review Low,
+                        # perf-check Low): astronomically unlikely for a real
+                        # project name, but a 400 the caller can act on beats an
+                        # unhandled 500 mid-restore. Roll back the restore() above —
+                        # returning from inside `with transaction.atomic()` commits
+                        # unless told otherwise.
+                        transaction.set_rollback(True)
+                        return Response({"code": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
+                cascade_project_children_restore(project)
+                # #4858: restore-all revives every tombstoned task and edge with no
+                # regard for what the live tree looks like now, so a row trashed
+                # individually and renumbered around earlier can come back under a
+                # live task it links to (summary-to-own-descendant, which every CPM
+                # recalculation refuses, #4705). Refuse the whole restore: a partial
+                # one would hand back a project missing rows the user never chose to
+                # leave behind, which ADR-0202 calls worse than none.
+                #
+                # The baseline is NOT capture-before-restore as in the task restore:
+                # a trashed project has no live tasks, so that graph is empty and
+                # would make every pre-existing cycle look like ours (locking a
+                # project that was already cyclic when trashed out of its own
+                # recovery). Instead the baseline is the restored edges with the
+                # outline flattened: a plain task-to-task cycle was not created by
+                # adoption and is not refused; only a defect the hierarchy adds on
+                # top of an otherwise schedulable graph is.
+                flat_edges, _ = capture_graph_state(project.pk)
+                assert_graph_feasible(project.pk, (flat_edges, {}))
+                cross_edges = cross_project_edge_rows(project_id=project.pk)
+                _record_project_audit_event(
+                    event_type="project_restored",
+                    actor=request.user,
+                    project=project,
+                    metadata={"mode": "restore"},
+                )
+        except GroupingRejected as rejected:
+            # Raised inside the atomic block, so the restore is already rolled back and
+            # nothing below (on_commit broadcast, cross-project fan-out) has registered.
+            return Response(rejected.body, status=rejected.status_code)
 
         project_id = str(project.pk)
         transaction.on_commit(
@@ -6990,9 +7034,23 @@ class TaskViewSet(
             400: state_refusal_400(
                 "The task's parent has no other live child and drives a Start-to-Start "
                 "or Start-to-Finish link: restoring the task would make that parent a "
-                "summary, which ADR-0370 forbids to drive one (#4830).",
-                codes=(SUMMARY_START_LINK_CODE,),
-                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+                "summary, which ADR-0370 forbids to drive one (#4830). Also returned "
+                "(code ``cyclic_dependency`` or ``self_reference``, with ``offending``) "
+                "when restoring would leave the dependency graph unschedulable, e.g. "
+                "the row's old WBS position is now under a live task it is linked to "
+                "(#4858). Nothing is restored.",
+                codes=(SUMMARY_START_LINK_CODE, "cyclic_dependency", "self_reference"),
+                extra_properties={
+                    **BLOCKING_DEPENDENCIES_SCHEMA,
+                    "offending": {
+                        "type": "array",
+                        "description": (
+                            "Present with ``cyclic_dependency`` / ``self_reference``: "
+                            "ids of the tasks on the cycle."
+                        ),
+                        "items": {"type": "string"},
+                    },
+                },
             ),
             409: OpenApiResponse(
                 description=(
@@ -7022,6 +7080,11 @@ class TaskViewSet(
             WbsPathOccupied,
             cascade_task_children_restore,
         )
+        from trueppm_api.apps.projects.task_grouping import (
+            GroupingRejected,
+            assert_graph_feasible,
+            capture_graph_state,
+        )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # Look up the tombstoned row directly — get_queryset() filters is_deleted=False.
@@ -7039,9 +7102,21 @@ class TaskViewSet(
                 block = _restore_parent_summary_start_link_block(task)
                 if block is not None:
                     return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+                before = capture_graph_state(project_id)
                 task.restore()
                 cascade_task_children_restore(task)
+                # #4858: a trashed row keeps its old wbs_path, so a live task that has
+                # since taken the parent path adopts the row (and its revived subtree)
+                # as a descendant. A link between the two then runs summary-to-own-
+                # descendant, which the CPM refuses on every recalculation (#4705).
+                # Refuse and roll back rather than silently drop the link: the user
+                # asked for this row back and must decide which side moves. The
+                # differential guard leaves a project that was already infeasible alone.
+                assert_graph_feasible(project_id, before)
                 cross_edges = cross_project_edge_rows(tasks=task_subtree(task))
+        except GroupingRejected as rejected:
+            # Raised inside the atomic block, so the restore is already rolled back.
+            return Response(rejected.body, status=rejected.status_code)
         except WbsPathOccupied as exc:
             # Refuse rather than re-path (#3071). This is the one restore path with a
             # person on the other end of it: they asked for this row back at this
