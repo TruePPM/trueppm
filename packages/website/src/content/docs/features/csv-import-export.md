@@ -291,6 +291,12 @@ non-numeric or zero cell keeps the 100% default, so a file without the column im
 exactly as before. If the same person is named twice in one cell, the last allocation
 wins.
 
+Two pitfalls. A column headed exactly `Percent` is read as allocation, not progress, so
+rename a progress column with that header (`Percent Complete` maps to progress) or
+remap it in the wizard. And inside a multi-value cell a comma always separates
+assignees, so `Ana:62,5` is read as `Ana:62` and a second assignee named `5`; write the
+decimal with a period (`Ana:62.5`).
+
 ## Dates, durations and percentages
 
 **Durations** may be written as `5`, `5d`, `5 days`, `16 hours` (converted on an
