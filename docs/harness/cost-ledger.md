@@ -116,7 +116,9 @@ lines are only as consistent as the skills that write them.
   not this MR's. Do not add the two lines up as the MR's cost.
 - **The `## Cost of this MR` records of one session do not overlap, so they add up
   (trueppm#4865).** Each record claims only what no earlier record of that session claimed (see
-  *Non-overlap* below). The `## Gates` ledger lines are different: they are
+  *Non-overlap* below). A record can also claim another session's subagents that worked in the MR's
+  worktree, each over its own session's watermark (trueppm#4885), so every claim stays exclusive
+  across all records, and that other session's orchestrator is never attributed to the MR. The `## Gates` ledger lines are different: they are
   `post-mr-cost.py --measure` snapshots taken at the go-ahead, which claim nothing, so the lines of
   two MRs from one session can still cover the same stretch. Read the comments, not the lines, when
   adding up a session.
@@ -133,7 +135,9 @@ lines are only as consistent as the skills that write them.
   read, so summing the rest would read low); record numbers that are not
   exactly 1..n; a duplicate record number or an identical window (S and U both equal), which would
   count a stretch twice; or a record whose cost is `n/a`. Partially overlapping windows are summed:
-  records from different sessions on one MR overlap in time but never in tokens. Every live MR's
+  records from different sessions on one MR overlap in time but never in tokens: a record also counts
+  other sessions' subagents homed on the branch, but every claim is exclusive across records
+  (`post-mr-cost.py` keeps per-session and per-agent watermarks), so nothing is counted twice. Every live MR's
   notes are read, whether or not its description has cost lines (the hook posts records regardless),
   up to a 100-MR cap. The script prints an accounting line whose total is the sum of its terms:
   costed + excluded + not read (the cap) + ledger off. `subagent-tokens:` from `## Gates` is per-branch and is still read from the description.
@@ -323,6 +327,56 @@ interleaved up to that point, and the record's footnote says so.
 
   `--agent` and pins override both. Briefs, paths and commands are untrusted text: they are classified
   and matched, never printed.
+- **Subagents of other sessions (cross-session attribution, macrodream/blueprint#389).** An MR is often
+  opened, or a `--round` run, from a different session than the one its implementer and gate agents ran
+  in. Every measurement (the hook's record 1, `--round`'s record K, `--measure`) therefore also looks at
+  the other sessions' subagents, under the same projects directory, and claims the ones that worked on
+  this MR's branch:
+  1. **Discovery is bounded by the branch's earliest commit or reflog entry.** The bound is a performance filter only (the home
+     rule is what makes a claim correct), so it is conservative: the earliest of the author and committer
+     times of every commit on the MR's source branch (`refs/heads/<branch>`, else
+     `refs/remotes/origin/<branch>`) that is not on the default branch (`origin/HEAD`, else `main` or
+     `master`, remote then local), the branch tip's when it has no commit of its own, and the branch's
+     reflog creation time when there is one, minus a 24-hour margin. An ordinary rebase rewrites committer
+     time but keeps author time, and a branch that is only on origin (after its worktree was removed, or in
+     another clone) has no reflog, so each term covers a case the other misses; one rewrite they both miss
+     is a known limit below. It is never the merge
+     base: a branch that merged the default branch to refresh a stale base has a merge base newer than its
+     implementer's work. Only another session's
+     top-level agent transcripts modified at or after the bound are read. With no bound (no such ref, no
+     default branch) nothing is scanned, and `--measure` says so. A session directory or transcript that is a
+     symlink, a session id found under two project slugs, and an agent id that is also in the posting
+     session's own directory or in two other sessions are never read or claimed.
+  2. **Claimed by home only, never by brief.** Another session's agent counts only when its home (rule 1
+     above: where its `Edit`/`Write` calls land, else its `cd`/`git -C` targets) is this MR's source branch
+     in this repo. An agent with no known home is left to its own session, where the brief rule still
+     applies to it. An agent its own session pinned (`--pin`) to another branch is left out too.
+  3. **Over its owner's watermarks.** It is measured only for usage after its watermark in its OWN
+     session's state file (`mr-cost-state/<its session>.json`), and that watermark is what the post
+     advances (descendants too); nothing about it goes in the posting session's state. Every lock a
+     post needs is taken before it reads any state, in sorted session-id order, so two sessions that post
+     at once and want each other's agents wait in line and never deadlock, and exactly one claims a
+     shared agent's usage. The other sessions are found before the locks are taken; whether an agent has
+     usage to claim is decided with them held.
+  4. **Write-ahead, with the owner advanced first.** The posting session's `pending` claim gains
+     `"foreign": {"<session>": {"<agent>": {"from": <watermark or null>, "to": <until>}}}`, and those
+     watermarks are advanced in their owners' state files **before** the post, keeping the rest of those
+     files (their own orchestrator watermark and their own `pending`). So while the post is in flight or
+     unsettled, no other record, the owner's own included, can claim the same usage. When the claim is
+     settled as posted, nothing more happens; when it is settled as not posted, the claim is dropped first
+     and then each owner's watermark goes back to `from`, but only if it still equals `to`. An agent named
+     in its owner's own unsettled `pending` claim is left out (that claim may have landed), and an owner
+     state that does not validate leaves all of that session's agents out. If an owner's state cannot be
+     written, nothing is posted.
+  5. **The orchestrator stays out.** Another session's orchestrator spend is session-wide, so it is
+     never attributed to this MR. The record says how much of it is unclaimed, in one fixed-text line
+     (see *What a record shows*).
+
+  The session ids and the transcript text of other sessions are classified and counted, never printed:
+  the comment shows only the numbers. One of them is the other session's unclaimed orchestrator total,
+  which is session-wide: it can include that session's work in other repos, as one aggregate count.
+  Discovery reads only regular files (never a symlink, FIFO or device), and re-resolves each session
+  directory under the lock with the same rules.
 - **Empty rows.** Claude Code writes `<synthetic>` assistant entries with all-zero usage on an
   interrupt or an error. The parser drops any response whose four usage values are all zero and
   counts it in the `empty` figure on stderr, so no `model unknown 0` split line exists and the
@@ -332,7 +386,16 @@ interleaved up to that point, and the record's footnote says so.
   the first MR opened, an unnamed gate, a zero-usage row, an agent resumed after its record) replayed
   through the real hook, `--round`, the state files and `cost-table.py` with a fake `glab` and a temp
   git dir. `expected.json` pins each record's totals and rows and that the three records add up to
-  the session's usage with nothing claimed twice. `python3 scripts/post-mr-cost.py --self-test`
+  the session's usage with nothing claimed twice. Its `sessions/` sub-fixture is two sessions on one
+  branch (macrodream/blueprint#389): the MR is opened from the first, its implementer ran in the second
+  and edits the MR's worktree, the second also has an agent for another branch and one with no home,
+  and a third session older than the branch edited the same path; the branch merges main after the
+  second session's last write, so its merge base is newer than that work; and an origin-only branch rebased
+  after a worker's last write is still bounded by its author time. `expected.json` pins that
+  the implementer is claimed once, in the first session's record 1, over the second session's
+  watermark; that the two sessions' records add up to both sessions' usage; that the two sessions
+  posting on one MR at once finish and claim the shared agent once; and the write-ahead claim's
+  advance and rollback of the other session's watermarks. `python3 scripts/post-mr-cost.py --self-test`
   runs it. The directory is byte for byte the same in every repo that carries this harness
   (Blueprint holds the canonical copy), so it names no repo-specific path or issue.
 
@@ -342,10 +405,17 @@ interleaved up to that point, and the record's footnote says so.
   exclusive `flock` on `mr-cost-state/<session-id>.lock` is held from reading the watermark through
   writing it, by the hook, `--round`, `--retry`, reconcile and `--pin`, so two MRs opened at once in one
   session claim consecutive windows instead of the same one, and neither drops the other's agent
-  watermarks. (No locking on a platform without `fcntl`; the writes stay atomic.)
+  watermarks. A post that may claim other sessions' subagents also holds their locks, all taken up front
+  in sorted session-id order (the posting session's included). Settling a dropped claim that names a
+  session whose lock is not held tries it without waiting; if it is busy, nothing is posted and the next
+  run settles it. Another session's lock file that cannot be opened (a symlink, which `O_NOFOLLOW`
+  refuses, or a permission error) is skipped: that session stays unlocked, so none of its agents is
+  claimed and its state is not written, and one planted lock file cannot abort every post that
+  discovers its session. The posting session's own lock file failing to open always raises, since
+  posting without it could claim one window twice. (No locking on a platform without `fcntl`; the writes stay atomic.)
 - **A post that lands while its state write does not (the write-ahead `pending` claim).** Before a post,
-  inside the lock, the state file gets `"pending": {"mr", "project", "since", "until", "agents"}` beside the
-  unchanged watermarks; after a confirmed post the watermarks move to those values and `pending` is removed.
+  inside the lock, the state file gets `"pending": {"mr", "project", "since", "until", "agents"}` (plus
+  `"foreign"` when it claims other sessions' subagents, above) beside the unchanged watermarks; after a confirmed post the watermarks move to those values and `pending` is removed.
   If the POST landed but the commit did not (cost-table exited non-zero after it, a kill, a timeout), the
   next run of the hook, `--round`, `--retry`, `--measure` or `--pin`, on ANY MR, settles it first by reading
   the pending MR's notes: a record by the token user with exactly that `Window: S to U` was posted, so the
@@ -365,11 +435,36 @@ interleaved up to that point, and the record's footnote says so.
 - **Known limit: a `glab` child that outlives `cost-table.py`'s derived timeout (`worst_case_seconds()` + 30 s, about 337 s).** If it lands its POST after
   the pending claim was settled as absent (dropped), that window is claimed again and the record exists
   twice.
-- **Known limit: an agent attributed to a branch that never gets an MR in this session is never claimed.**
-  Attribution sends an agent's tokens to the MR of the branch it works on. If that branch is abandoned,
-  or its MR is opened from another session, no record of this session ever includes the agent. Nothing
-  double counts, but those tokens are in no record. `--agent <id>` on a `--round` for another MR counts
-  them there by hand.
+- **Known limit: an agent attributed to a branch that never gets an MR is never claimed.** Attribution
+  sends an agent's tokens to the MR of the branch it works on. If that branch is abandoned, no record
+  ever includes the agent. Nothing double counts, but those tokens are in no record. `--agent <id>` on a
+  `--round` for another MR of the same session counts them there by hand. (An MR opened from another
+  session than the agent's is no longer a gap: that MR's record claims the agent by its home,
+  macrodream/blueprint#389.)
+- **Known limit: another session's orchestrator is in none of this MR's records.** Its spend is
+  session-wide, so a record never attributes it; it is claimed only by that session's own records, on
+  whatever MR that session posts next, and is in no record if it never posts one. The record's
+  `Other sessions:` line gives how many of its tokens were unclaimed when it posted.
+- **Known limit: another session's agent with no home, or an older one.** A cross-session claim needs the
+  agent's home (an agent with no `Edit`/`Write` majority in one worktree and no `cd`/`git -C` target that
+  leads strictly, such as one that only used `Read` and `Grep`, has none) and a
+  transcript modified at or after the discovery bound (the branch's earliest commit or reflog time, less a day). An agent that misses either is left to its own
+  session's records, where the brief rule can still attribute it.
+- **Known limit: an origin-only branch whose author dates were reset.** A branch with no local ref (so no
+  reflog) that was rewritten with its author dates reset (`rebase --ignore-date` or
+  `--reset-author-date`, `commit --amend --reset-author`, a `reset --soft` squash) has every commit dated
+  at the rewrite, so the discovery bound is the rewrite time less a day. Another session's worker whose
+  transcript was last written more than a day before that rewrite is not read, and so not claimed. A
+  local branch is safe: its reflog's creation entry survives the rewrite.
+- **Known limit: another session's agent whose worktree is gone or moved on.** A home is resolved against
+  the worktree list as it is when the record is posted (`git worktree list`), not as it was when the agent
+  worked. An agent that edited in the main checkout while the main checkout was on the branch now reads as
+  the main checkout's current branch (`main`), and one that worked in a `.claude/worktrees/agent-*` worktree
+  that has since been removed has no home. Neither is claimed by another session's record.
+- **Known limit: a cross-session claim dropped after its owner moved on.** If a post that claimed another
+  session's agents is settled as not posted after that session's own record already claimed past it, the
+  watermark is not rolled back (that would count the owner's record twice), so the claimed stretch is in
+  no record. An undercount, never a double count.
 - **Known limit (trueppm): the hook reads at most 2 notes pages (200 notes).** Blueprint reads 2,000. With
   retried reads (up to `read_cost_seconds()` each) a longer scan could not fit the hook's 600 s. On an MR
   with more than 200 notes, an unsettled pending claim cannot be settled (its notes read as unreadable), so
@@ -503,12 +598,18 @@ token's user could not be read or written; 5 refused, the window belongs to an e
 - **States.** The window, always its actual start and end (record 1 posted by the hook or `--retry` states
   `Window: S to U.`; the older `Window end: X.` form, which assumed the go-ahead, still parses), plus, on a
   session's first record only, that the orchestrator row starts at the session's start and includes work
-  done before this MR's issue, that
+  done before this MR's issue; when the
+  Subagents row includes other sessions' subagents (port of macrodream/blueprint#389), one line: "Other sessions:
+  the Subagents row includes <A> subagent(s) from <S> other session(s), counted because they worked in
+  this MR's worktree. Those sessions' orchestrator spend is not in this record: <T> tokens of it are in no
+  record yet." (numbers only, no session id), and the window sentence then says the record counts the
+  session's work in the window "plus other sessions' subagents' work on this branch since their own previous
+  record, which can be from before the window" instead of "counts only"; that
   the cost is a list-price estimate from `.claude/model-prices.json` with its price date, the
   `budget-exceeded:` count (record K: `n/a`, not measured for a later window), and the
   non-overlap sentence (windowed records only; a record with no complete window says instead that its orchestrator row is not windowed and must not be compared or added): "Records do not overlap: the orchestrator row is this session's spend since
   its previous cost record, across every branch it worked, and each subagent is counted only for
-  usage after its previous record. Records from one session add up to its total." (Comments posted
+  usage after its previous record. Records add up across sessions; nothing is counted twice." (Comments posted
   before trueppm#4865 carry the older never-add sentence and still parse.) A record K states each
   stretch this MR has no record for: before its own window, or between two earlier records. The
   work in such a stretch is in another MR's record from the same session, or in none.

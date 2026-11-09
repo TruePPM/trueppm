@@ -34,7 +34,8 @@ model name.
 
 Usage:
   python3 scripts/est-cost.py --agent <id>[@<since>] [--agent <id> ...] --since <ISO 8601> --until <ISO 8601>
-         [--agent-since <id>@<since> ...] [--session <session-id>] [--projects-dir <dir>] [--prices <file>] [--today YYYY-MM-DD]
+         [--agent-since <id>@<since> ...] [--session <session-id>] [--also-session <session-id> ...]
+         [--projects-dir <dir>] [--prices <file>] [--today YYYY-MM-DD]
   python3 scripts/est-cost.py --no-agents --since <ISO 8601> --until <ISO 8601> [same options]
   python3 scripts/est-cost.py --self-test
 
@@ -47,6 +48,10 @@ Usage:
   Per-agent since (macrodream/blueprint#387), the same as scripts/subagent-tokens.py: `--agent
   <id>@<since>` prices that agent only from `<since>` on, `--agent-since <id>@<since>` sets the bound
   for an agent that is not named (a descendant). `--since` bounds the orchestrator only.
+
+  Other sessions (macrodream/blueprint#389), the same as scripts/subagent-tokens.py: `--also-session
+  <sid>` (repeatable) lets a named agent live in that session's directory; only its subagent usage
+  is priced, never that session's orchestrator.
 
   The session id defaults to $CLAUDE_CODE_SESSION_ID. Times must carry a zone.
   The cost-ledger setting is asked first (`scripts/cost-ledger enabled`): off or unreadable
@@ -202,11 +207,20 @@ def estimate(
     err,
     orchestrator_only=False,
     since_by_id=None,
+    also=(),
 ):
-    """(total Decimal) for the orchestrator window plus the agents; raises Omit."""
+    """(total Decimal) for the orchestrator window plus the agents; raises Omit. `also` are other
+    sessions whose subagents directory may hold a named agent (their orchestrator is never read)."""
     try:
         main_path, sdir = tu.session_paths(sid, projects_dir)
-        agents, files = ([], []) if orchestrator_only else tu.subagent_files(sdir, ids)
+        others = [
+            tu.session_paths(o, projects_dir)[1] for o in sorted(set(also) - {sid})
+        ]
+        agents, files = (
+            ([], [])
+            if orchestrator_only
+            else tu.subagent_files_across(sdir, others, ids)
+        )
     except ValueError as e:
         raise Omit("%s" % e)
 
@@ -284,7 +298,7 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled, today=None
         DEFAULT_PRICES,
         False,
     )
-    since_by_id = {}
+    since_by_id, also = {}, []
     projects_dir = tu.default_projects_dir()
     day = today
     i = 0
@@ -294,6 +308,7 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled, today=None
         "--since",
         "--until",
         "--session",
+        "--also-session",
         "--projects-dir",
         "--prices",
         "--today",
@@ -340,6 +355,11 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled, today=None
                 until = t
         elif a == "--session":
             sid = v
+        elif a == "--also-session":
+            if not tu.SESSION_RE.match(v):
+                print("usage: --also-session %r is not a session id" % v[:80], file=err)
+                return 2
+            also.append(v)
         elif a == "--projects-dir":
             projects_dir = v
         elif a == "--prices":
@@ -375,7 +395,16 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled, today=None
     try:
         table, checked = load_prices(prices_path, day)
         total = estimate(
-            sid, ids, since, until, projects_dir, table, err, none_ran, since_by_id
+            sid,
+            ids,
+            since,
+            until,
+            projects_dir,
+            table,
+            err,
+            none_ran,
+            since_by_id,
+            also,
         )
     except Omit as e:
         print("FAIL: %s; no line printed" % e, file=err)
@@ -944,6 +973,38 @@ def _cases(tmp, check):
         rc == 0 and o.getvalue() == "est-cost-usd: 1.00 (prices 2026-11-03)\n",
         repr((rc, o.getvalue(), e.getvalue())),
     )
+    # Other sessions (macrodream/blueprint#389): an agent of another session is priced with --also-session,
+    # and that session's orchestrator is not.
+    sid3 = "3a3b3c3d-1111-2222-3333-444455556666"
+    fa = "f1111111111111111"
+    write(
+        os.path.join(base, sid3 + ".jsonl"),
+        [entry("o3", ts, u(1000000, 0, 0, 0), False, "m-a")],
+    )
+    write(
+        os.path.join(base, sid3, "subagents", "agent-%s.jsonl" % fa),
+        [entry("f1", ts, u(0, 0, 0, 1000000), True, "m-b")],
+    )
+    with open(
+        os.path.join(base, sid3, "subagents", "agent-%s.meta.json" % fa), "w"
+    ) as f:
+        json.dump({}, f)
+    rc, out, err = call("--agent", fa)
+    check(
+        "an agent of another session is not priced without --also-session (fail closed)",
+        rc == 1 and out == "",
+        repr((rc, out)),
+    )
+    rc, out, err = call("--agent", a1, "--agent", fa, "--also-session", sid3)
+    check(
+        "--also-session prices the other session's agent (30.00) beside this session's, never that session's orchestrator",
+        rc == 0
+        and out == "est-cost-usd: 65.81 (prices 2026-11-03)\n"
+        and "subagent model m-b 60.01 USD" in err,
+        repr((rc, out, err)),
+    )
+    rc, out, _ = call("--agent", fa, "--also-session", "../x")
+    check("exit 2: a path-like --also-session", rc == 2 and out == "", repr((rc, out)))
     # Usage errors and the traversal guard.
     for name, args in [
         ("path-like agent id", ["--agent", "../../etc/passwd"]),

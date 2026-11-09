@@ -45,6 +45,10 @@ Usage:
   python3 scripts/cost-table.py --self-test
   `--split F` is a file holding the stderr of subagent-tokens.py, orchestrator-tokens.py and
   est-cost.py; only their `model` lines are read, and without it the per-model cells read `n/a`.
+  `--other-sessions S:A:T` (record 1 and record K; scripts/post-mr-cost.py passes it,
+  macrodream/blueprint#389) says the Subagents row includes A subagents from S other sessions,
+  whose orchestrators had T tokens no record has claimed yet; it adds one fixed-text line (none
+  when A is 0). Three non-negative integers, nothing else.
   Times are ISO 8601 with a zone.
 
 Exit: 0 rendered (printed, or posted) - 1 no `## Gates` section (or, for --next-since, no
@@ -314,6 +318,34 @@ FIRST_RECORD = (
     "- This is the session's first record, so the orchestrator row starts at the session's start and "
     "includes work done before this MR's issue."
 )
+OTHERS_RE = re.compile(r"^(\d{1,6}):(\d{1,6}):(\d{1,%d})\Z" % MAX_DIGITS)
+
+
+def others_line(others):
+    """The fixed-text line for subagents claimed from other sessions (macrodream/blueprint#389), or None.
+    `others` is (sessions, agents, unclaimed orchestrator tokens of those sessions), integers only: no
+    session id, path or transcript text reaches the comment."""
+    if not others or not others[1]:
+        return None
+    s, a, t = others
+    return (
+        "- Other sessions: the Subagents row includes %d subagent%s from %d other session%s, counted because %s "
+        "in this MR's worktree. Those sessions' orchestrator spend is not in this record: %s tokens of it are in "
+        "no record yet."
+        % (
+            a,
+            "" if a == 1 else "s",
+            s,
+            "" if s == 1 else "s",
+            "it worked" if a == 1 else "they worked",
+            "{:,}".format(t),
+        )
+    )
+
+
+# What the window sentence adds when the Subagents row holds other sessions' subagents: each of them is
+# counted over ITS OWN session's watermark, so its usage can be from before this record's window.
+OTHERS_WINDOW = ", plus other sessions' subagents' work on this branch since their own previous record, which can be from before the window"
 
 
 def _render(
@@ -325,6 +357,7 @@ def _render(
     since=None,
     prior=None,
     session_start=False,
+    others=None,
 ):
     """(lines, own total) of one record. Own total is {column: value or None} for its **Total** row,
     the figures the next record's running total adds up; columns are (kind, family or 'all')."""
@@ -491,10 +524,16 @@ def _render(
     if record == 1 and since is not None and end:
         # The record's actual window (macrodream/blueprint#387): it is posted by the hook or --retry after the
         # MR opened, not at the go-ahead. The parser reads this line back up to the first `. ` (WINK_RE).
-        out.append(
-            "- Window: %s to %s. This record counts only the session's work in this window; later work on this MR "
-            "goes in later records." % (since, end)
-        )
+        if others_line(others):
+            out.append(
+                "- Window: %s to %s. This record counts the session's work in this window%s; later work on this MR "
+                "goes in later records." % (since, end, OTHERS_WINDOW)
+            )
+        else:
+            out.append(
+                "- Window: %s to %s. This record counts only the session's work in this window; later work on this MR "
+                "goes in later records." % (since, end)
+            )
     elif record == 1:
         # The parser reads this line back up to the first `. ` (END1_RE): keep that prefix stable.
         out.append(
@@ -503,10 +542,16 @@ def _render(
         )
         out.append(LEGACY_WINDOW_NOTE)
     else:
-        out.append(
-            "- Window: %s to %s. This record counts only the work in this window; the running-total row adds the earlier records."
-            % (since, end)
-        )
+        if others_line(others):
+            out.append(
+                "- Window: %s to %s. This record counts the work in this window%s; the running-total row adds the "
+                "earlier records." % (since, end, OTHERS_WINDOW)
+            )
+        else:
+            out.append(
+                "- Window: %s to %s. This record counts only the work in this window; the running-total row adds the earlier records."
+                % (since, end)
+            )
         for g0, g1 in prior.get("gaps") or []:
             out.append(
                 "- This MR has no record for %s to %s; the session's work in that stretch is in another MR's record from "
@@ -522,6 +567,8 @@ def _render(
         )
     if session_start:
         out.append(FIRST_RECORD)
+    if others_line(others):
+        out.append(others_line(others))
     if prior.get("foreign"):
         out.append(
             "- %d note(s) with this heading by another user were not read."
@@ -549,7 +596,7 @@ def _render(
         out.append(
             "- Records do not overlap: the orchestrator row is this session's spend since its previous cost record, across "
             "every branch it worked, and each subagent is counted only for usage after its previous record. "
-            "Records from one session add up to its total."
+            "Records add up across sessions; nothing is counted twice."
         )
     out += ["", FOOTER_1 if record == 1 else FOOTER_K]
     return out, own
@@ -598,11 +645,12 @@ def comment_lines(
     since=None,
     prior=None,
     session_start=False,
+    others=None,
 ):
     """The comment as a list of lines."""
-    return _render(body, issue, until, split_text, record, since, prior, session_start)[
-        0
-    ]
+    return _render(
+        body, issue, until, split_text, record, since, prior, session_start, others
+    )[0]
 
 
 # --- reading earlier records back (untrusted note text) --------------------------------------
@@ -975,7 +1023,8 @@ def _read_capped(path, cap):
 
 USAGE = (
     "usage: cost-table.py --comment (--file <description.md> | --ledger <lines.txt> --since T --until T --mr <iid>) "
-    "[--issue N] [--until T] [--since T] [--session-start] [--split F] [--project ns/proj] [--post [--mr <iid>]] | "
+    "[--issue N] [--until T] [--since T] [--session-start] [--split F] [--project ns/proj] [--other-sessions S:A:T] "
+    "[--post [--mr <iid>]] | "
     "--next-since --mr <iid> | --self-test"
 )
 
@@ -991,6 +1040,7 @@ def comment_main(argv, enabled, stdout, stderr, api):
         "--split",
         "--mr",
         "--project",
+        "--other-sessions",
     )
     post_it = next_since = session_start = False
     while i < len(argv):
@@ -1019,6 +1069,16 @@ def comment_main(argv, enabled, stdout, stderr, api):
             print("cost-table: --project must be a namespace/project path", file=stderr)
             return 2
         PROJECT["path"] = proj
+    others = None
+    if "--other-sessions" in opts:
+        m = OTHERS_RE.match(opts.pop("--other-sessions"))
+        if not m:
+            print(
+                "cost-table: --other-sessions must be <sessions>:<agents>:<tokens>, three non-negative integers",
+                file=stderr,
+            )
+            return 2
+        others = tuple(int(g) for g in m.groups())
     nums = {}
     for k in ("--issue", "--mr"):
         v = opts.get(k)
@@ -1105,6 +1165,7 @@ def comment_main(argv, enabled, stdout, stderr, api):
                 split,
                 since=since,
                 session_start=session_start,
+                others=others,
             )
         )
         if not post_it:
@@ -1131,6 +1192,7 @@ def comment_main(argv, enabled, stdout, stderr, api):
                 since=since,
                 prior=prior,
                 session_start=session_start,
+                others=others,
             )
         )
         if not post_it:
@@ -2733,6 +2795,82 @@ def self_test():
         and "- Window: 2026-11-04T15:00:00Z to" in o.getvalue()
         and FIRST_RECORD in o.getvalue(),
         o.getvalue()[:200],
+    )
+
+    # macrodream/blueprint#389: subagents claimed from other sessions get one fixed-text line, numbers only.
+    o = io.StringIO()
+    rc = main(
+        [
+            "--file",
+            dpath,
+            "--comment",
+            "--until",
+            "2026-11-04T16:00:00Z",
+            "--since",
+            "2026-11-04T15:00:00Z",
+            "--other-sessions",
+            "1:2:1234567",
+        ],
+        enabled=on,
+        stdout=o,
+        stderr=io.StringIO(),
+    )
+    want_o = (
+        "- Other sessions: the Subagents row includes 2 subagents from 1 other session, counted because they "
+        "worked in this MR's worktree. Those sessions' orchestrator spend is not in this record: 1,234,567 tokens "
+        "of it are in no record yet."
+    )
+    check(
+        "cli: --other-sessions adds the fixed-text line, and the record still parses",
+        rc == 0
+        and want_o in o.getvalue()
+        and (parse_record(o.getvalue()) or {}).get("start") == "2026-11-04T15:00:00Z",
+        o.getvalue(),
+    )
+    check(
+        "--other-sessions with no agent adds no line",
+        others_line((0, 0, 0)) is None
+        and others_line(None) is None
+        and "1 subagent from 1 other session, counted because it worked"
+        in others_line((1, 1, 0)),
+    )
+    check(
+        "record 1's window sentence says the Subagents row also holds other sessions' work from outside the window, "
+        "only when it does",
+        "- Window: 2026-11-04T15:00:00Z to 2026-11-04T16:00:00Z. This record counts the session's work in "
+        "this window, plus other sessions' subagents' work on this branch since their own previous record, which can be from "
+        "before the window; later work on this MR goes in later records."
+        in o.getvalue()
+        and "counts only the session's work in this window" not in o.getvalue()
+        and "counts only the session's work in this window" in w2,
+        o.getvalue(),
+    )
+    for bad in ("1:2", "a:b:c", "1:2:-3", "1:2:3:4", "1:2:3 x", "1:2:" + "9" * 19):
+        rc = main(
+            ["--file", dpath, "--comment", "--other-sessions", bad],
+            enabled=on,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        check("--other-sessions %r is a usage error" % bad, rc == 2, repr(rc))
+    rc, sent, bx, _ = follow([note(10, w1)], extra=("--other-sessions", "2:3:10"))
+    check(
+        "a record K carries the line too, and its window sentence names the other sessions' work",
+        rc == 0
+        and "includes 3 subagents from 2 other sessions" in bx
+        and ". This record counts the work in this window, plus other sessions' subagents' work on this branch since their own "
+        "previous record, which can be from before the window; the running-total row adds the earlier records."
+        in bx
+        and (parse_record(bx) or {}).get("start") is not None,
+        bx,
+    )
+    rc, sent, bx0, _ = follow([note(10, w1)])
+    check(
+        "a record K without other sessions keeps `counts only the work in this window`",
+        rc == 0
+        and "This record counts only the work in this window;" in bx0
+        and "other sessions' subagents' work" not in bx0,
+        bx0,
     )
 
     # The real setting reader answers with one of its three codes.
