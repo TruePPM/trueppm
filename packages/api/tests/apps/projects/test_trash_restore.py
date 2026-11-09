@@ -405,3 +405,87 @@ def test_trash_shows_legacy_null_deleted_at_with_no_countdown(
 def test_trash_requires_auth(populated_project: Project) -> None:
     resp = APIClient().get("/api/v1/projects/trash/")
     assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Restore — a revived task adopted by a live task it is linked to (#4858)
+# ---------------------------------------------------------------------------
+
+
+def _adopted_row_project(owner: Any, calendar: Calendar) -> tuple[Project, Task, Dependency]:
+    """A project holding a tombstoned child whose old path a live task has since taken.
+
+    The child was trashed individually (renumbering then gave its path 1.1 to a live
+    parent at 1), with its edge to that parent tombstoned beside it.
+    """
+    project = _make_project(owner, calendar, name="Adopt")
+    old_parent = Task.objects.create(project=project, name="Old", duration=1, wbs_path="1")
+    child = Task.objects.create(project=project, name="Child", duration=1, wbs_path="1.1")
+    child.soft_delete()
+    # Renumbering moved the old parent away and gave its path to a different live task.
+    Task.objects.filter(pk=old_parent.pk).update(wbs_path="5")
+    new_parent = Task.objects.create(project=project, name="New", duration=1, wbs_path="1")
+    dep = Dependency.objects.create(predecessor=child, successor=new_parent, dep_type="FS")
+    dep.soft_delete()
+    return project, child, dep
+
+
+@pytest.mark.django_db
+def test_project_restore_refused_when_a_revived_task_would_be_linked_to_its_new_summary(
+    owner: Any, calendar: Calendar
+) -> None:
+    project, _child, dep = _adopted_row_project(owner, calendar)
+    client = _client(owner)
+    _soft_delete(client, project)
+
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast:
+        resp = client.post(f"/api/v1/projects/{project.pk}/restore/")
+
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["code"] in {"cyclic_dependency", "self_reference"}
+    assert resp.json()["offending"]
+    # Whole restore rolled back: project, tasks and edge all still tombstoned.
+    project.refresh_from_db()
+    assert project.is_deleted is True
+    assert not Task.objects.filter(project=project, is_deleted=False).exists()
+    dep.refresh_from_db()
+    assert dep.is_deleted is True
+    assert broadcast.call_count == 0
+
+
+@pytest.mark.django_db
+def test_project_restore_without_an_adopting_link_still_works(
+    owner: Any, calendar: Calendar
+) -> None:
+    project, _child, dep = _adopted_row_project(owner, calendar)
+    # Without the edge the same renumbered tree restores cleanly.
+    Dependency.objects.filter(pk=dep.pk).delete()
+    client = _client(owner)
+    _soft_delete(client, project)
+
+    resp = client.post(f"/api/v1/projects/{project.pk}/restore/")
+
+    assert resp.status_code == 200, resp.content
+    project.refresh_from_db()
+    assert project.is_deleted is False
+    assert Task.objects.filter(project=project, is_deleted=False).count() == 3
+
+
+@pytest.mark.django_db
+def test_project_restore_does_not_refuse_a_project_that_was_already_cyclic(
+    owner: Any, calendar: Calendar
+) -> None:
+    """A flat A->B->A cycle predates the restore; it is not the restore's to refuse."""
+    project = _make_project(owner, calendar, name="Cyclic")
+    a = Task.objects.create(project=project, name="A", duration=1, wbs_path="1")
+    b = Task.objects.create(project=project, name="B", duration=1, wbs_path="2")
+    Dependency.objects.create(predecessor=a, successor=b, dep_type="FS")
+    Dependency.objects.create(predecessor=b, successor=a, dep_type="FS")
+    client = _client(owner)
+    _soft_delete(client, project)
+
+    resp = client.post(f"/api/v1/projects/{project.pk}/restore/")
+
+    assert resp.status_code == 200, resp.content
+    project.refresh_from_db()
+    assert project.is_deleted is False

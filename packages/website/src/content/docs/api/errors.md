@@ -170,8 +170,8 @@ the envelope uses; every other field key is unambiguous.
 | `weak_password` | The new password failed validation | `messages` |
 | `pin_limit_reached` | Pinning this project/program would exceed the account's configured pin cap | — |
 | `invalid_graph_input` | The submitted dependency graph is malformed and cannot be interpreted | — |
-| `self_reference` | A task in the graph depends on itself | `offending` |
-| `cyclic_dependency` | The dependencies form a cycle | `offending` |
+| `self_reference` | A task in the graph depends on itself. Restoring a task from the trash (`POST /tasks/{id}/restore/`) or a whole project (`POST /projects/{id}/restore/`) also returns it, in 400 form, when the restored rows would link a summary to its own subtask (ships in 0.5) | `offending` |
+| `cyclic_dependency` | The dependencies form a cycle. Restoring a task from the trash (`POST /tasks/{id}/restore/`) or a whole project (`POST /projects/{id}/restore/`) also returns it when the restored rows would link a summary to its own subtask; nothing is restored (ships in 0.5) | `offending` |
 | `subtree_too_large` | The targeted subtree exceeds the per-request cascade cap | `matched`, `max` |
 | `calendar_has_no_working_day` | The project's working calendar defines no usable working day, so sprint cadence/dates cannot be generated — fix the calendar in calendar settings first | — |
 | `not_a_sample` | `POST .../programs/{id}/shift-sample-dates/` refused: the program is not sample data, so it has no anchor date to shift from | — |

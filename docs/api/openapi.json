@@ -22807,6 +22807,37 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "cyclic_dependency",
+                                                "self_reference"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
+                                        },
+                                        "offending": {
+                                            "type": "array",
+                                            "description": "Ids of the tasks on the cycle.",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Restoring would leave the dependency graph unschedulable (code ``cyclic_dependency`` or ``self_reference``, with ``offending``): a task trashed earlier has a live task at its old WBS position and a dependency to it, which would run summary-to-own-descendant (#4858). Nothing is restored. A project that was already cyclic as a flat task graph is not refused."
+                    },
                     "404": {
                         "description": "No soft-deleted project with that id in your Trash."
                     },

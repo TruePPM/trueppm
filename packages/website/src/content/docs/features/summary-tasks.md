@@ -150,6 +150,8 @@ its own subtask. Restore will answer `400` with `code: "cyclic_dependency"` and 
 `offending` list of task ids, and nothing will be restored: no task, subtask or link
 comes back. Delete the link or move the other task, then restore again. This applies
 to links on any task that comes back with the restore, not only the one you clicked.
+Restoring a whole project from the trash will apply the same refusal and bring back
+nothing, since a half-restored project is worse than none.
 
 Two other ways to end up with such a link are not refused yet: saving a dependency at
 the same moment someone else makes the move
