@@ -259,8 +259,9 @@ it lets one client spend everybody's budget.
 
 **Cause 1 — the header is absent.** The production branch of the Helm web tier's
 nginx and the `web` image's baked `nginx.conf` now set `X-Forwarded-For` (with
-`$proxy_add_x_forwarded_for`) on `/api/`, `/ws/` and the permitted `/admin/`
-proxy, so routing `/api` through the web tier no longer leaves DRF reading
+`$proxy_add_x_forwarded_for`) on `/api/` and `/ws/`, and Helm production's
+permitted `/admin/` proxy sets it too (the baked image's `/admin/` is a 404, not
+a proxy), so routing `/api` through the web tier no longer leaves DRF reading
 `REMOTE_ADDR` — but that makes the web tier a hop, so set
 `TRUEPPM_NUM_PROXIES` accordingly (see the table below). If you copied an older
 config that omits the header, add it at your edge. The default `ingress.hosts`

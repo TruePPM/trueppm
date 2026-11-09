@@ -256,25 +256,36 @@ assert_forwarded_proto_map() {
   return 0
 }
 
-# (G, #3522) Every `location /api/` and `location /ws/` that proxies upstream
-# must forward X-Forwarded-Proto. The Helm production branch and the baked web
-# image proxied /api with no scheme at all, so a TLS-terminating LB in front of
-# the web tier left Django seeing plain HTTP (#3191's symptoms, no HSTS and
-# http:// URLs). Checked over the whole file with awk; brace depth keeps a
-# nested `if { }` from ending the block early.
+# (G, #3522) Every `location /api/`, `/ws/` and `/admin/` that proxies upstream
+# must forward X-Forwarded-Proto AND X-Forwarded-For. The Helm production branch
+# and the baked web image proxied /api with no scheme at all, so a TLS-terminating
+# LB in front of the web tier left Django seeing plain HTTP (#3191's symptoms, no
+# HSTS and http:// URLs), and without X-Forwarded-For every client looked like the
+# web pod (per-IP throttles collapsed). A `/admin/` that is a fail-closed
+# `return 404` (the baked image) has no proxy_pass and is not flagged; Helm
+# production's permitted /admin/ proxy is. Checked over the whole file with awk;
+# brace depth keeps a nested `if { }` from ending the block early.
 assert_proxy_forwards_proto() {
   local label="$1" text="$2" missing
   missing="$(awk '
-    /^[ \t]*location[ \t]+(\^~[ \t]+)?\/(api|ws)\/[ \t]*\{?[ \t]*$/ { inloc=1; depth=0; proxied=0; fwd=0; name=$0 }
+    /^[ \t]*location[ \t]+(\^~[ \t]+)?\/(api|ws|admin)\/[ \t]*\{?[ \t]*$/ { inloc=1; depth=0; proxied=0; xfp=0; xff=0; name=$0 }
     inloc {
       if ($0 ~ /proxy_pass/) proxied=1
-      if ($0 ~ /X-Forwarded-Proto/) fwd=1
+      if ($0 ~ /X-Forwarded-Proto/) xfp=1
+      if ($0 ~ /X-Forwarded-For/) xff=1
       n=gsub(/\{/,"{"); m=gsub(/\}/,"}"); depth+=n-m
-      if (depth<=0 && ($0 ~ /\}/)) { if (proxied && !fwd) { gsub(/^[ \t]+|[ \t]*\{?[ \t]*$/,"",name); print name }; inloc=0 }
+      if (depth<=0 && ($0 ~ /\}/)) {
+        if (proxied && (!xfp || !xff)) {
+          gsub(/^[ \t]+|[ \t]*\{?[ \t]*$/,"",name)
+          if (!xfp) print name "|X-Forwarded-Proto"
+          if (!xff) print name "|X-Forwarded-For"
+        }
+        inloc=0
+      }
     }' <<<"$text")"
   if [ -n "$missing" ]; then
-    while IFS= read -r loc; do
-      viol "$label" "\`$loc\` proxies upstream without forwarding X-Forwarded-Proto — behind a TLS-terminating LB Django sees plain HTTP: no HSTS, http:// absolute URLs, redirect loop under TRUEPPM_SECURE_SSL_REDIRECT (#3522)."
+    while IFS='|' read -r loc hdr; do
+      viol "$label" "\`$loc\` proxies upstream without forwarding $hdr — behind a TLS-terminating LB Django sees plain HTTP (no HSTS, http:// absolute URLs, redirect loop under TRUEPPM_SECURE_SSL_REDIRECT) and every client appears to be the web pod (#3522)."
     done <<<"$missing"
   fi
   return 0
@@ -606,6 +617,8 @@ $(cache_locations "$(printf '%s\n%s' "$good_headers" "$hsts_line")")
         deny all;
         limit_req zone=admin_login burst=2 nodelay;
         proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 }
 CONF
@@ -775,6 +788,7 @@ $(cache_locations "$good_headers")
     location /admin/ { return 404; }
     location /api/ {
         proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$forwarded_proto;
     }
 }
@@ -792,6 +806,7 @@ $(cache_locations "$(printf '%s\n%s' "$good_headers" "$hsts_line")")
     location /admin/ { return 404; }
     location /api/ {
         proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
@@ -982,6 +997,35 @@ $good_headers
 }
 CONF
 
+  # BAD (G, #3522): /api/ forwards X-Forwarded-Proto but not X-Forwarded-For.
+  cat >"$tmp/bad_xff_missing.conf" <<CONF
+server {
+    listen 8080;
+$good_headers
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /api/ {
+        proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-Proto \$forwarded_proto;
+    }
+}
+CONF
+
+  # BAD (G, #3522): a permitted /admin/ proxy (allowlisted + throttled, so the
+  # fail-closed check passes) that forwards neither forwarding header.
+  cat >"$tmp/bad_admin_no_xff.conf" <<CONF
+server {
+    listen 8080;
+$good_headers
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ {
+        allow 127.0.0.1;
+        deny all;
+        limit_req zone=admin_login burst=2 nodelay;
+        proxy_pass http://api:8000;
+    }
+}
+CONF
+
   # BAD 7: /admin/ proxied with the opening brace on the NEXT line — a common
   # nginx style that must not evade the parser.
   cat >"$tmp/bad_nextline.conf" <<CONF
@@ -1032,6 +1076,8 @@ CONF
   probe bad_xfp_no_map.conf    1 "\$forwarded_proto used with no map definition rejected (#4426)"
   probe bad_xfp_double_map.conf 1 "\$forwarded_proto map defined twice in one file rejected — nginx map is http-context only (#4426)"
   probe bad_xfp_missing.conf   1 "location /api/ proxying with no X-Forwarded-Proto rejected — the #3522 defect"
+  probe bad_xff_missing.conf   1 "location /api/ forwarding X-Forwarded-Proto but no X-Forwarded-For rejected (#3522)"
+  probe bad_admin_no_xff.conf  1 "permitted /admin/ proxy forwarding neither X-Forwarded-* header rejected (#3522)"
   probe bad_referrer_value.conf     1 "Referrer-Policy: unsafe-url rejected"
   probe bad_referrer_downgrade.conf 1 "Referrer-Policy: no-referrer-when-downgrade rejected"
   probe bad_referrer_notalways.conf 1 "Referrer-Policy without \`always\` rejected"
