@@ -30,6 +30,7 @@ import {
   formatDayLabel,
   buildChips,
   buildMilestoneMarks,
+  viewWindowBounds,
   type WeekStartDay,
   type WorkingTimeInputs,
 } from './calendarUtils';
@@ -254,7 +255,6 @@ function CalendarGridArea({
 
 export function CalendarView() {
   const { calView, anchorIso, setCalView, goToToday, goNext, goPrev } = useCalendarFilter();
-  const { tasks, isLoading, error, refetch } = useCalendarTasks();
   const projectId = useProjectId();
   const itl = useIterationLabel(projectId);
   // Server-resolved preset (web-rule 196) — AGILE hides this view's nav entry
@@ -291,6 +291,14 @@ export function CalendarView() {
       calView,
     });
   const label = formatViewLabel(anchor, calView, weekStartDay);
+  // Fetch only tasks overlapping the rendered grid (leading/trailing days of
+  // adjacent months included); the API's start__gte/finish__lte are overlap
+  // filters on early_finish/early_start. Mobile list and grid share this window.
+  const bounds = viewWindowBounds(anchor, calView, weekStartDay);
+  const { tasks, isLoading, error, refetch } = useCalendarTasks({
+    startGte: bounds.start,
+    finishLte: bounds.end,
+  });
 
   // WCAG 4.1.3 — switching mode or stepping the window swaps grid content with
   // no focus change, so a screen-reader user gets nothing. The region is mounted

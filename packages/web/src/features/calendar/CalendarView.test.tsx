@@ -123,6 +123,26 @@ beforeEach(() => {
 });
 afterEach(() => vi.clearAllMocks());
 
+describe('CalendarView fetch window (#3244)', () => {
+  it('requests only the visible month grid, adjacent-month days included', () => {
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    // May 2026 with a Monday week start: the first row begins Mon Apr 27.
+    expect(calendarTasksMock).toHaveBeenCalledWith({
+      startGte: '2026-04-27',
+      finishLte: '2026-05-31',
+    });
+  });
+
+  it('narrows the request to the anchored week in week view', () => {
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(calendarTasksMock).toHaveBeenCalledWith({
+      startGte: '2026-05-04',
+      finishLte: '2026-05-10',
+    });
+  });
+});
+
 describe('CalendarView state branches (#2161)', () => {
   it('shows a busy skeleton while loading — never the empty copy', () => {
     calendarTasksMock.mockReturnValue({ tasks: [], isLoading: true, error: null, refetch });
