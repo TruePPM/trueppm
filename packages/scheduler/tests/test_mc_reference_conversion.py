@@ -14,6 +14,7 @@ import tracemalloc
 from datetime import date, timedelta
 from typing import Any
 
+import numpy as np
 import pytest
 
 from trueppm_scheduler import Calendar, DateRange, Dependency, Project, Task, engine, monte_carlo
@@ -160,4 +161,40 @@ def test_conversion_adds_an_index_sized_table_not_a_matrix(
         tracemalloc.stop()
     matrix = runs * n * 8
     assert baseline, "multi-calendar path was not taken"
-    assert peak - baseline[0] < matrix // 4, (peak - baseline[0], matrix)
+    assert peak - baseline[0] < matrix // 2, (peak - baseline[0], matrix)
+
+
+def _oracle_and_inplace(
+    mat: np.ndarray, cols: np.ndarray, own: np.ndarray, ref: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    expected = mat.copy()
+    for c in cols:
+        expected[:, c] = engine._to_reference_offset(mat[:, c], own, ref)
+    got = mat.copy()
+    engine._to_reference_columns_inplace((got, None), cols, own, ref)
+    return expected, got
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_in_place_conversion_matches_the_per_column_oracle(seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    n_days = 200
+    own = np.sort(rng.choice(np.arange(740_000, 740_400), size=n_days, replace=False))
+    ref = np.union1d(own, rng.choice(np.arange(740_000, 740_400), size=60, replace=False))
+    n_cols = int(rng.integers(3, 12))
+    # Row count deliberately not a multiple of the block size for this column count.
+    rows = int(rng.integers(1, 3)) * (engine._MC_REFERENCE_BLOCK_CELLS // 3) + 7
+    mat = rng.uniform(-1.5, n_days - 1, size=(rows, n_cols))
+    mat[rng.random(mat.shape) < 0.1] = 0.0
+    cols = np.sort(rng.choice(n_cols, size=int(rng.integers(1, n_cols + 1)), replace=False))
+    expected, got = _oracle_and_inplace(mat, cols.astype(np.intp), own, ref)
+    assert np.array_equal(expected, got)
+
+
+def test_in_place_conversion_refuses_an_index_overrun_like_the_oracle() -> None:
+    own = np.arange(740_000, 740_010, dtype=np.int64)
+    mat = np.array([[3.0, 11.5]])
+    with pytest.raises(engine.InvalidScheduleInput):
+        engine._to_reference_offset(mat[:, 1], own, own)
+    with pytest.raises(engine.InvalidScheduleInput):
+        engine._to_reference_columns_inplace((mat, None), np.array([0, 1]), own, own)

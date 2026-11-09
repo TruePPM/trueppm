@@ -7893,6 +7893,8 @@ def _mc_effective_duration(
 _MC_REFERENCE_BLOCK_CELLS = 65_536
 
 
+# Kept as the per-column reference oracle for _to_reference_columns_inplace; the parity
+# test in test_mc_reference_conversion.py compares the two. Not called in production.
 def _to_reference_offset(ef: np.ndarray, wd_ord_own: np.ndarray, ref_ord: np.ndarray) -> np.ndarray:
     """Re-express exclusive-EF offsets from one calendar's space in the reference space.
 
