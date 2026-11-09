@@ -216,7 +216,8 @@ def test_serial_agile_chain_is_still_bounded_by_its_sum() -> None:
 @pytest.mark.parametrize("seed", range(12))
 def test_horizon_clears_every_run_on_mixed_inputs(seed: int) -> None:
     """Soundness: lags (incl. negative), SS/FF/SF, SNET pins, a data date, per-task
-    calendars with exceptions and actuals never push a run past the horizon."""
+    calendars with exceptions, and completed or in-progress tasks with recorded
+    actuals never push any run past the horizon."""
     rng = random.Random(seed)
     sparse = Calendar(
         working_days=0b0001011,
@@ -233,6 +234,21 @@ def test_horizon_clears_every_run_on_mixed_inputs(seed: int) -> None:
             fields["planned_start"] = _START + timedelta(days=rng.randint(0, 120))
         if rng.random() < 0.3:
             fields["calendar_id"] = rng.choice(["dense", "sparse"])
+        progress = rng.random()
+        if progress < 0.15:
+            # Completed: pinned verbatim to its recorded dates, some far out.
+            began = _START + timedelta(days=rng.randint(0, 200))
+            fields.update(
+                actual_start=began,
+                actual_finish=began + timedelta(days=rng.randint(0, 30)),
+                percent_complete=100.0,
+            )
+        elif progress < 0.3:
+            # In progress: a recorded start and only part of the work remaining.
+            fields.update(
+                actual_start=_START + timedelta(days=rng.randint(0, 20)),
+                percent_complete=float(rng.randint(1, 99)),
+            )
         tasks.append(
             Task(
                 id=f"t{i:02d}",
@@ -264,7 +280,7 @@ def test_horizon_clears_every_run_on_mixed_inputs(seed: int) -> None:
         status_date=_START + timedelta(days=rng.randint(0, 20)),
     )
     # The engine's own overrun guard raises if any run lands past the index end;
-    # the percentiles must also sit inside the horizon.
+    # every simulated completion must also sit inside the horizon.
     result = monte_carlo(project, runs=300, seed=seed)
     task_calendars = engine._resolve_task_calendars(project)
     g = engine._build_graph(project)
@@ -278,7 +294,7 @@ def test_horizon_clears_every_run_on_mixed_inputs(seed: int) -> None:
         for tid in topo
     }
     horizon = engine._mc_horizon(project, {t.id: t for t in tasks}, g, topo, cal_of)
-    assert result.p95 <= horizon
+    assert max(result.distribution) <= horizon
     assert schedule(project).project_finish <= horizon
 
 
