@@ -192,8 +192,14 @@ about 269k average context; a completeness-check pass ran 61 tool calls). Recali
 the per-role calls and minutes in the Step 8 report once enough waves have reported them.
 
 **At the budget an agent stops** and reports. It does not push, open an MR, or keep going "to
-finish". The orchestrator decides whether to expand it. The implementer is the orchestrator for
-the pre-MR gate agents it spawns.
+finish". The orchestrator decides whether to expand it.
+
+**Who holds the 25-call / 15-minute gate row.** A subagent never spawns agents (Step 4), so the
+implementer does not spawn gate agents: it runs the fast-path gates inline, under its own
+80-call budget. The gate row applies to a gate run as its own agent, and only you spawn
+one (for example a gate batch you run on a fix round); put that budget in that gate agent's
+brief. A gate the implementer left unfinished because it hit the implementer budget is
+reported as such in Step 5.4 and recorded `budget-stopped`.
 
 - **Strike one**: it stopped with real progress (a commit, a passing test, a narrowed root
   cause). Expand once, by half of the original budget, and say so in the resume message. If
@@ -207,7 +213,9 @@ the pre-MR gate agents it spawns.
 Count every agent that reached a budget, expanded or not, as
 `budget-exceeded: <N> (<role> <k>, ...)` in the MR's `## Gates` section (`/mr` § The Gates
 section), with roles `implementer`, `gate` and `completeness-check`. The implementer's Step 5.4
-report states how many of its own gates hit a budget; add that to the `gate` count.
+report states which of its inline gates it left unfinished at its own budget (that stop is
+counted once, as `implementer`); each gate agent you spawned that hit the gate budget counts
+under `gate`.
 
 **A gate that stopped at its budget has a partial finding count**, so never record it as a
 plain `N findings` line. Record it `gate: <name> — <N> findings (<model>; budget-stopped)`, or
@@ -230,7 +238,8 @@ Every agent finishes the code itself by, in order:
 3. `make pre-push` green. Log it to a **file** — piping it through `tail` loses
    the diagnostic and an OOM kill reads as a bare `exit 144`.
 4. **Stop and report back** — commit SHA, worktree path, which gates from the
-   `CLAUDE.md` fast-path table it ran and their findings. **It does not push and
+   `CLAUDE.md` fast-path table it ran inline and their findings, and any gate it left
+   unfinished because it reached its budget. **It does not push and
    does not open the MR.** Step 6 runs against the not-yet-pushed branch; pushing
    first would just mean redoing the push after completeness-check's fixes.
 
@@ -270,7 +279,13 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    push/MR steps, and have it do items 7–11.
 4. Findings → **resume or fresh (provisional, ported from Blueprint#394).** A fix round
    goes to a **fresh** agent, briefed with the findings only, when the Step 5 agent's
-   context is about **150k tokens or more**, or the round has **fewer than 5 findings**:
+   context is about **150k tokens or more** (you read the implementer's latest per-turn context
+   size: input plus cache-read plus cache-creation tokens of the last assistant entry in its
+   transcript, `~/.claude/projects/<slug>/<session-id>/subagents/agent-<id>.jsonl`, whose
+   per-response usage `scripts/lib/transcript_usage.py` parses; that module exposes no
+   dedicated "latest context" helper, and the `subagent_tokens` field of the agent's
+   completion notification is the same context-size figure when present; if neither is
+   readable, use your own estimate and say so in the Step 8 report), or the round has **fewer than 5 findings**:
    every resume re-reads the implementer's whole context. Resume the original agent only for
    design-level rework (a finding that changes the approach, not one that patches it). The
    fresh agent's brief, nothing more: issue number and title; branch and worktree path; each
@@ -293,7 +308,8 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    rather than restating it, so look there, not here, for the current composition:
    round 2 (full), the fix-diff re-check (narrow), or nothing. Either re-check, if
    selected, is a **fresh, non-author agent** spawned by you, with the model rules
-   in that SKILL's § How to run.
+   in that SKILL's § How to run. Each carries the `completeness-check` budget (40 tool calls,
+   30 minutes) in its brief, like the first pass.
 6. Record whichever ran on the ledger exactly as `completeness-check`'s own
    SKILL.md "Recording it" section specifies — as of this writing that means:
    round 2 (if triggered) gets its own line marked `round 2`; the fix-diff
