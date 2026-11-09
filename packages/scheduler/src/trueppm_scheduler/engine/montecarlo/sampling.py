@@ -659,8 +659,9 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     risk would drop out of the Monte Carlo bands, moving the forecast far more than the
     pull-in asked for. Open, the task still sits behind its predecessors, so with no
     lag and no other floor, finish-to-start and finish-to-finish links out of it move
-    the finish by the remaining days. Two shapes do not get that result yet; see the
-    comments on the return below.
+    the finish by the remaining days. Start-to-start and start-to-finish links do not
+    get that result yet; see the comment on the return below. A velocity-sampled task
+    needs its points capped as well, which :func:`perturb_task_duration` does.
     """
     duration_days = task.duration.days
     pct = min(task.percent_complete or 0.0, 100.0)
@@ -669,14 +670,62 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     if remaining <= 0:
         # TODO(#4819): SS and SF links out of a zero-duration task stop reading the
         # recorded start, so a bigger pull-in can finish later than a smaller one.
-        # TODO(#4820): on a velocity-sampled task the caller converts the elapsed days to
-        # points, and whole-sprint rounding can then move a band backward as the pull-in
-        # grows, or later than the unperturbed forecast.
         return replace(task, duration=timedelta(0))
     new_days = elapsed + remaining
     if int(new_days * pct / 100.0) != elapsed:
         pct = (elapsed + 0.5) * 100.0 / new_days
     return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
+
+
+def _exhausted_points_ceiling(
+    project: Project, target: Task, lost_elapsed: int, points_per_working_day: float
+) -> float:
+    """Most story points a velocity task may keep once a pull-in exhausts it (#4820).
+
+    While work remains, Monte Carlo subtracts the task's ``lost_elapsed`` elapsed days
+    from every sampled duration. At zero duration that subtraction stops, and
+    :func:`perturb_task_duration` lowers the points by those days at the mean pace
+    instead. The velocity branch only ever answers in whole sprints, though, so points
+    worth ``lost_elapsed`` days on average can leave a sampled run on the same sprint
+    count. That run then lost the subtraction and gained nothing back, so its remaining
+    work grew by ``lost_elapsed`` days and the bands moved later than for a smaller
+    pull-in (10d at 40% and 40 points: P80 went from -10 at a 5-day pull-in to -6 at 6).
+
+    The ceiling removes enough points to give back the lost days in **every** run,
+    whatever velocity it draws. ``m = ceil(lost_elapsed / sprint_length_days)`` sprints
+    cover those days, and no sprint delivers more than the largest observation
+    ``v_max``. So in any run of velocity draws, cutting ``m * v_max`` points from the
+    target finishes at least ``m`` sprints sooner: the sum through sprint ``K - m``
+    trails the sum through ``K`` by at most ``m * v_max``. The ceiling starts from the
+    points the last pull-in that leaves work open would have kept (a delta of
+    ``1 - remaining``), so the exhausted task's sampled remaining work is never
+    longer than at that delta, which is never longer than the current forecast. The
+    argument holds run by run for a fixed layout of draws (one run's velocity
+    sequence), so the ordering holds in distribution. It does not prove that seeded
+    percentiles are ordered. Three edges fall outside it: a run the sprint-horizon cap
+    clamps (a deep tail); a ceiling at zero points on a task that also carries a
+    three-point estimate, which then leaves the velocity branch for PERT, whose shifted
+    triple can land a band later (TODO(#4909)); and a what-if that changes the points,
+    because ``_sample_velocity_durations`` sizes ``max_sprints`` from ``story_points``
+    and so changes the draw layout (TODO(#4910)).
+
+    This is a bound and not a conversion at the mean pace, so the bands can jump
+    further than the pull-in at exhaustion: the price of a bound that has to hold for
+    the fastest sprint. Beyond the ceiling, the mean-pace conversion keeps lowering the
+    points, so the bands never step back as the pull-in grows. Sampling itself is
+    unchanged; this only decides what the engine is asked.
+    """
+    # The gate in perturb_task_duration (a velocity mean exists) guarantees these.
+    assert target.story_points is not None and project.sprint_length_days is not None
+    assert project.velocity_samples
+    last_open_delta = 1 - _effective_duration_days(target)
+    sprints_lost = -(-lost_elapsed // project.sprint_length_days)
+    fastest_sprint = max(_velocity_observations(project.velocity_samples))
+    return (
+        target.story_points
+        + last_open_delta * points_per_working_day
+        - sprints_lost * fastest_sprint
+    )
 
 
 def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
@@ -731,10 +780,13 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     drive its successors (see :func:`_shift_remaining_work`). A task's elapsed days stop
     being subtracted from its sampled duration at that point, because they are read off
     ``duration``, so the sampled inputs are lowered by those days as well: the sampled
-    remaining work still moves by ``delta_days``. A milestone has no work to consume, so
-    a negative delta leaves its duration, percentage and actuals alone, and a positive
-    delta turns it into an open task of ``delta_days`` days. A zero delta is an exact
-    identity on every task.
+    remaining work still moves by ``delta_days``. On the velocity branch that is not
+    enough, because it counts whole sprints: the points are capped so, for a fixed
+    draw layout, no band lands later than for a smaller pull-in (see
+    :func:`_exhausted_points_ceiling`). A
+    milestone has no work to consume, so a negative delta leaves its duration,
+    percentage and actuals alone, and a positive delta turns it into an open task of
+    ``delta_days`` days. A zero delta is an exact identity on every task.
 
     Sampling semantics are untouched: this only changes what the engine is asked
     about, never how it answers.
@@ -829,6 +881,12 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
         if mean is not None:
             points_per_working_day = mean / project.sprint_length_days
             story_points = max(0.0, story_points + sampled_delta * points_per_working_day)
+            lost_elapsed = delta_days - sampled_delta
+            if lost_elapsed > 0:
+                ceiling = _exhausted_points_ceiling(
+                    project, target, lost_elapsed, points_per_working_day
+                )
+                story_points = max(0.0, min(story_points, ceiling))
 
     perturbed = replace(
         shifted,

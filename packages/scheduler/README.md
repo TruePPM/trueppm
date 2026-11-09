@@ -738,9 +738,7 @@ release it is scheduled for:
   FF/SF, so the Monte Carlo P50 can land before the CPM date
   ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)); an exhausted what-if pull-in on an SS/SF link reverses the
   forecast
-  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)); velocity bands step backward at the what-if exhaustion
-  boundary
-  ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)); what-if changes the
+  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)); what-if changes the
   velocity draw layout, so seeded bands are not ordered by the pull-in
   ([#4910](https://gitlab.com/trueppm/trueppm/-/issues/4910)); a what-if pull-in can
   move a band later when a velocity task's points reach 0 and it falls to its PERT
@@ -806,7 +804,7 @@ they will ship with 0.5 or that release will slip:
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
   calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4430](https://gitlab.com/trueppm/trueppm/-/issues/4430), [#4601](https://gitlab.com/trueppm/trueppm/-/issues/4601), [#4696](https://gitlab.com/trueppm/trueppm/-/issues/4696),
-  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
+  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
   in-progress task's sampled duration no longer has its optimistic tail
   truncated by subtracting deterministic elapsed time from the sampled total
   ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).
