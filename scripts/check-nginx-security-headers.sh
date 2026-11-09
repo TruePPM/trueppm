@@ -284,8 +284,14 @@ assert_proxy_forwards_proto() {
       }
     }' <<<"$text")"
   if [ -n "$missing" ]; then
+    local why
     while IFS='|' read -r loc hdr; do
-      viol "$label" "\`$loc\` proxies upstream without forwarding $hdr — behind a TLS-terminating LB Django sees plain HTTP (no HSTS, http:// absolute URLs, redirect loop under TRUEPPM_SECURE_SSL_REDIRECT) and every client appears to be the web pod (#3522)."
+      if [ "$hdr" = "X-Forwarded-Proto" ]; then
+        why="behind a TLS-terminating LB Django sees plain HTTP (no HSTS, http:// absolute URLs, redirect loop under TRUEPPM_SECURE_SSL_REDIRECT)"
+      else
+        why="every client appears to be the web pod, so per-IP throttles collapse into one shared bucket"
+      fi
+      viol "$label" "\`$loc\` proxies upstream without forwarding $hdr — $why (#3522)."
     done <<<"$missing"
   fi
   return 0
