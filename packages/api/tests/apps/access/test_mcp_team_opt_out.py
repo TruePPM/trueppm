@@ -1085,12 +1085,13 @@ def test_program_detail_routes_honor_the_program_denial_for_an_agent(
     **Why it exists.** ``ProgramViewSet`` is one of the three MCP-readable viewsets that
     build their queryset from scratch instead of chaining to ``super().get_queryset()``,
     so the mixin's ``get_queryset`` hook is dead code there and ``filter_queryset()`` is
-    the *only* seam holding this. ``ProgramViewSet.get_object()`` overrides DRF's
-    resolution to drop the search/ordering backends (#3420); it does so by removing
+    the *only* seam holding this. ``DetailLookupIgnoresSearchMixin.get_object()``
+    (``core/detail_lookup.py``) overrides DRF's resolution to drop the
+    search/ordering backends (#3420, #3451); it does so by removing
     those two backends by name rather than bypassing ``filter_queryset()``, precisely so
     this narrowing survives. Nothing pinned that before — the existing opt-out detail
     test covers ``ProjectViewSet``, which chains to super and would stay safe either
-    way. Rewrite ``get_object()`` as ``get_object_or_404(self.get_queryset(), …)`` and
+    way. Rewrite the mixin's ``get_object()`` as ``get_object_or_404(self.get_queryset(), …)`` and
     this test is what fails.
 
     The ``project`` fixture pins this alongside a real member project, so it stays

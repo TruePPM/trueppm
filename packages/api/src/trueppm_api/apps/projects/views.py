@@ -337,6 +337,7 @@ from trueppm_api.apps.webhooks.models import (
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
 from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
+from trueppm_api.core.detail_lookup import DetailLookupIgnoresSearchMixin
 from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import (
     ownership_refusal_403,
@@ -1087,7 +1088,9 @@ def _calendar_reference_describer(user: Any) -> Callable[[db_models.Model], dict
         },
     )
 )
-class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
+class CalendarViewSet(
+    DetailLookupIgnoresSearchMixin[Calendar], ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]
+):
     """CRUD for project calendars.
 
     Calendars define working days, hours per day, and holiday exceptions.
@@ -1532,7 +1535,11 @@ _BLOCKED_ROLLUP_QUERY_PARAMS = [
     ),
 )
 class ProjectViewSet(
-    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Project]
+    DetailLookupIgnoresSearchMixin[Project],
+    FieldLevelMergeMixin,
+    McpReadableViewMixin,
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Project],
 ):
     """CRUD for projects.
 
@@ -2448,7 +2455,7 @@ class ProjectViewSet(
         if not project.is_archived:
             project.is_archived = True
             project.archived_at = timezone.now()
-            project.archived_by = request.user
+            project.archived_by = request.user  # type: ignore[assignment]
             project.save(update_fields=["is_archived", "archived_at", "archived_by"])
             project_id = str(project.pk)
             transaction.on_commit(
@@ -4291,8 +4298,8 @@ class ProjectViewSet(
                     {"detail": "Invalid sprint id."}, status=status.HTTP_400_BAD_REQUEST
                 )
         qs = decision_notes_queryset(project.pk, sprint_id=sprint_id or None)
-        page = self.paginate_queryset(qs)
-        serializer = DecisionNoteSerializer(page if page is not None else qs, many=True)
+        page = self.paginate_queryset(qs)  # type: ignore[arg-type]
+        serializer = DecisionNoteSerializer(page if page is not None else qs, many=True)  # type: ignore[arg-type]
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -6253,7 +6260,11 @@ class TaskListPagination(ScheduleFetchPagination):
     ),
 )
 class TaskViewSet(
-    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Task]
+    DetailLookupIgnoresSearchMixin[Task],
+    FieldLevelMergeMixin,
+    McpReadableViewMixin,
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Task],
 ):
     """CRUD for tasks within a project.
 
@@ -7203,9 +7214,9 @@ class TaskViewSet(
 
         task = self.get_object()
         events = task.duration_change_events.select_related("actor", "sprint").all()
-        page = self.paginate_queryset(events)
+        page = self.paginate_queryset(events)  # type: ignore[arg-type]
         if page is not None:
-            serializer = TaskDurationChangeEventSerializer(page, many=True)
+            serializer = TaskDurationChangeEventSerializer(page, many=True)  # type: ignore[arg-type]
             return self.get_paginated_response(serializer.data)
         serializer = TaskDurationChangeEventSerializer(events, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -11057,7 +11068,11 @@ def _record_risk_link_events(
 
 
 class RiskViewSet(
-    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Risk]
+    DetailLookupIgnoresSearchMixin[Risk],
+    FieldLevelMergeMixin,
+    McpReadableViewMixin,
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Risk],
 ):
     """CRUD for risks within a project.
 
@@ -11350,7 +11365,12 @@ def _label_soft_cap() -> int:
     return int(getattr(settings, "TRUEPPM_LABEL_SOFT_CAP", _LABEL_SOFT_CAP_DEFAULT))
 
 
-class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Label]):
+class LabelViewSet(
+    DetailLookupIgnoresSearchMixin[Label],
+    McpReadableViewMixin,
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Label],
+):
     """CRUD for the project-scoped label catalog (ADR-0400).
 
     Permission matrix (adoption-first with a curation floor):
