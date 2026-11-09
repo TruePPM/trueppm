@@ -13,6 +13,7 @@ the per-commit regression signal.
 
 from __future__ import annotations
 
+import sys
 import time
 from datetime import date, timedelta
 
@@ -393,13 +394,36 @@ def _make_realistic_project(n: int) -> Project:
     )
 
 
+def _coverage_active() -> bool:
+    """True when a coverage tracer is collecting in this process.
+
+    ``sys.gettrace()`` covers the C/Python tracers; ``Coverage.current()`` also
+    covers the ``sys.monitoring`` core (3.12+), which installs no trace function.
+    """
+    if sys.gettrace() is not None:
+        return True
+    try:
+        import coverage
+    except ImportError:
+        return False
+    return coverage.Coverage.current() is not None
+
+
 def test_input_validation_stays_a_small_share_of_schedule() -> None:
     """Validation must stay under 15% of ``schedule()`` at 10k tasks (#4711).
 
     It was 24-31% when every valid field built an error-message f-string it never
     used. Both sides are timed in one process and best-of-N, so host speed cancels;
     the ratio sits near 10% with the fast paths and fails if they are lost.
+
+    Skipped under a coverage tracer: tracing charges validation's many short
+    branches far more than ``schedule()``'s loops, moving the same code from ~10%
+    to ~16% — so the budget measured the tracer, not the code, and ``scheduler:test``
+    (``--cov``) failed on every MR. ``scheduler:bench`` runs this file untraced and
+    keeps the gate.
     """
+    if _coverage_active():
+        pytest.skip("ratio is distorted by coverage tracing; gated in scheduler:bench")
     from trueppm_scheduler.engine import _validate_project
 
     project = _make_realistic_project(10_000)
