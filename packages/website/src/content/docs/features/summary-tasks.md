@@ -143,12 +143,20 @@ reparent will answer `400` with `code: "summary_descendant_link"` and the same
 `blocking_dependencies` list, and nothing will move. Delete or change the link, then
 try the move again. Saving such a link as a dependency is already refused.
 
+Restoring a task from the trash will be refused for the same reason. A deleted task
+keeps its old outline position, so if another task now sits above that position and
+the two are linked, bringing the task back would put the link between a summary and
+its own subtask. Restore will answer `400` with `code: "cyclic_dependency"` and an
+`offending` list of task ids, and nothing will be restored: no task, subtask or link
+comes back. Delete the link or move the other task, then restore again. This applies
+to links on any task that comes back with the restore, not only the one you clicked.
+Restoring a whole project from the trash will apply the same refusal and bring back
+nothing, since a half-restored project is worse than none.
+
 Two other ways to end up with such a link are not refused yet: saving a dependency at
 the same moment someone else makes the move
-([#4857](https://gitlab.com/trueppm/trueppm/-/issues/4857)), and restoring a task from
-the trash under a task it is linked to
-([#4858](https://gitlab.com/trueppm/trueppm/-/issues/4858)). An MS Project, CSV or
-Jira import can also bring one in
+([#4857](https://gitlab.com/trueppm/trueppm/-/issues/4857)), and an MS Project, CSV or
+Jira import
 ([#4856](https://gitlab.com/trueppm/trueppm/-/issues/4856)).
 
 ### Phases and sprints

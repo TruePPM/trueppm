@@ -916,3 +916,101 @@ def test_the_side_effect_mocks_do_see_a_successful_indent(
     assert response.status_code == 200, response.data
     assert recalc.call_count >= 1
     assert broadcast.call_count >= 1
+
+
+# ---------------------------------------------------------------------------
+# Trash restore — a restored row adopted by a live task it is linked to (#4858)
+# ---------------------------------------------------------------------------
+
+
+def _trashed_under_new_owner(project: Project) -> tuple[Task, Task]:
+    """Child trashed at 1.1; a different live task has since taken path 1 (renumbering)."""
+    old_parent = _task(project, "Old parent", "1")
+    child = _task(project, "Child", "1.1")
+    child.soft_delete()
+    old_parent.soft_delete()
+    new_parent = _task(project, "New parent", "1")
+    return child, new_parent
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("child_is_predecessor", [True, False])
+def test_restore_refused_when_row_would_be_linked_to_its_new_summary(
+    project: Project, owner_client: APIClient, child_is_predecessor: bool
+) -> None:
+    """Both link directions (summary->descendant and descendant->summary) are refused."""
+    child, new_parent = _trashed_under_new_owner(project)
+    pred, succ = (child, new_parent) if child_is_predecessor else (new_parent, child)
+    # Written while the child is still trashed so the edge starts tombstoned, as a
+    # delete cascade would have left it; the restore revives it.
+    dep = Dependency.objects.create(predecessor=pred, successor=succ, dep_type="FS")
+    dep.soft_delete()
+
+    response = _post(owner_client, f"/api/v1/tasks/{child.pk}/restore/")
+
+    assert response.status_code == 400, response.content
+    assert response.json()["code"] == "cyclic_dependency"
+    child.refresh_from_db()
+    dep.refresh_from_db()
+    assert child.is_deleted is True
+    assert dep.is_deleted is True
+
+
+@pytest.mark.django_db
+def test_restore_refused_when_a_revived_subtree_row_would_be_linked_to_its_new_summary(
+    project: Project, owner_client: APIClient
+) -> None:
+    """The restored row is itself a summary whose trashed child links to the new owner."""
+    old_parent = _task(project, "Old parent", "1")
+    mid = _task(project, "Mid", "1.1")
+    leaf = _task(project, "Leaf", "1.1.1")
+    leaf.soft_delete()
+    mid.soft_delete()
+    old_parent.soft_delete()
+    new_parent = _task(project, "New parent", "1")
+    dep = Dependency.objects.create(predecessor=leaf, successor=new_parent, dep_type="FS")
+    dep.soft_delete()
+
+    response = _post(owner_client, f"/api/v1/tasks/{mid.pk}/restore/")
+
+    assert response.status_code == 400, response.content
+    assert response.json()["code"] == "cyclic_dependency"
+    mid.refresh_from_db()
+    leaf.refresh_from_db()
+    assert mid.is_deleted is True
+    assert leaf.is_deleted is True
+
+
+@pytest.mark.django_db
+def test_restore_under_a_new_owner_without_a_link_still_works(
+    project: Project, owner_client: APIClient
+) -> None:
+    child, _ = _trashed_under_new_owner(project)
+    other = _task(project, "Other", "2")
+    dep = Dependency.objects.create(predecessor=child, successor=other, dep_type="FS")
+    dep.soft_delete()
+
+    response = _post(owner_client, f"/api/v1/tasks/{child.pk}/restore/")
+
+    assert response.status_code == 200, response.content
+    child.refresh_from_db()
+    dep.refresh_from_db()
+    assert child.is_deleted is False
+    assert dep.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_restore_does_not_refuse_a_project_that_was_already_cyclic(
+    project: Project, owner_client: APIClient
+) -> None:
+    """Differential: a cycle that predates the restore is not the restore's to refuse."""
+    a = _task(project, "A", "1")
+    b = _task(project, "B", "2")
+    Dependency.objects.create(predecessor=a, successor=b, dep_type="FS")
+    Dependency.objects.create(predecessor=b, successor=a, dep_type="FS")
+    c = _task(project, "C", "3")
+    c.soft_delete()
+
+    response = _post(owner_client, f"/api/v1/tasks/{c.pk}/restore/")
+
+    assert response.status_code == 200, response.content
