@@ -288,7 +288,7 @@ behavior is calendar-day lag, as described above.
 | Field | Type | Description |
 |-------|------|-------------|
 | `early_start` | `date` | Start of the task's **remaining** work. For an in-progress task this is the data date (`status_date`), not the day work began |
-| `scheduled_start` | `date` | Start of the task's **whole span**: `actual_start` for in-progress work, otherwise `early_start`. Draw bars from this |
+| `scheduled_start` | `date` | Start of the task's **whole span**: `actual_start` when recorded; for in-progress work with no `actual_start`, the full duration backed off from `early_finish`; otherwise (not started or complete) `early_start`. Draw bars from this |
 | `early_finish` | `date` | Finish of both the remaining work and the whole span |
 | `late_start` | `date` | Latest start without delaying the project |
 | `late_finish` | `date` | Latest finish without delaying the project |

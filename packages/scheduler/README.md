@@ -300,7 +300,7 @@ makes a half-done task look like it has barely begun.
 | Field | Meaning |
 |-------|---------|
 | `early_start` | Start of the **remaining** work. For an in-progress task this is the data date (`status_date`), not the day work began. |
-| `scheduled_start` | Start of the task's **whole span**: `actual_start` for in-progress work, otherwise `early_start`. Draw bars from this. |
+| `scheduled_start` | Start of the task's **whole span**: `actual_start` when recorded; for in-progress work with no `actual_start`, the full duration backed off from `early_finish`; otherwise (not started or complete) `early_start`. Draw bars from this. |
 | `early_finish` | Finish of both the remaining work and the whole span. Remaining work ends when the task ends. |
 | `milestone_at_day_end` | For a zero-duration milestone, whether `early_finish` is the end of that day (`True`) or the start of it (`False`). Never diff two shown days as a slip; see the `ScheduleResult` docstring. |
 | `critical_path` | Every critical task id, in lexicographic-topological order (by `early_start`, then id). It is a list of tasks, not one chain, and it is empty when no task is critical, for example when every task is complete. |
