@@ -77,6 +77,32 @@ async function setupBase(page: import('@playwright/test').Page, statusSummary: o
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
     }),
   );
+  // The project DETAIL must be mocked, not left to the catch-all (#4917). The
+  // catch-all 404s it, the query client retries a 404 once (~1 s later), and the
+  // second 404 flips `useProjectUnavailable` to true — which unmounts the
+  // BottomNav and the health chip mid-test. Every assertion in this file then
+  // only passed if it finished inside that ~1 s window, so under CI load it
+  // flaked at whichever step ran past it. HYBRID is the methodology the
+  // BottomNav and the health cluster assertions below are written for.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: FIXTURE_PROJECT_ID,
+        name: 'Health Badge Project',
+        description: '',
+        start_date: '2026-01-01',
+        effective_methodology: 'HYBRID',
+        effective_surface_visibility: {
+          reporting: true,
+          time_tracking: true,
+          baselines: true,
+          monte_carlo: true,
+        },
+      }),
+    }),
+  );
   // The cluster mounts useActiveSprint + useProjectVelocity unconditionally; stub
   // them empty so the cluster doesn't hit the live network for unused data (and the
   // HYBRID Sprint segment reads "No active Sprint").
