@@ -36,6 +36,9 @@ interface ApiTask {
 }
 
 function mapTask(t: ApiTask): Task {
+  // The windowed fetch filters on early_start/early_finish server-side, so a task with
+  // null CPM dates (e.g. backlog items outside the committed schedule) is never returned
+  // and the planned_start fallback is only reachable on an unwindowed request.
   const start = t.early_start ?? t.planned_start ?? '';
   const assignees: TaskAssignee[] = (t.assignments ?? []).map((a) => ({
     resourceId: a.resource_id,
