@@ -265,3 +265,94 @@ def test_range_boundaries_are_accepted(project: Project, edge: int) -> None:
         format="json",
     )
     assert r.status_code == 200
+
+
+# --- program + workspace scope: write gate and range --------------------------
+
+
+def _program_client(prog: Program, role: int) -> APIClient:
+    user = User.objects.create_user(username=f"pm{role}", password="pw")
+    ProgramMembership.objects.create(program=prog, user=user, role=role)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+@pytest.mark.django_db
+def test_program_admin_can_set_and_clear_override() -> None:
+    prog = Program.objects.create(name="Prog")
+    client = _program_client(prog, Role.ADMIN)
+    r = client.patch(
+        f"/api/v1/programs/{prog.pk}/", {"near_critical_threshold_days": 15}, format="json"
+    )
+    assert r.status_code == 200
+    prog.refresh_from_db()
+    assert prog.near_critical_threshold_days == 15
+    r = client.patch(
+        f"/api/v1/programs/{prog.pk}/", {"near_critical_threshold_days": None}, format="json"
+    )
+    assert r.status_code == 200
+    prog.refresh_from_db()
+    assert prog.near_critical_threshold_days is None
+
+
+@pytest.mark.django_db
+def test_program_member_cannot_set_override() -> None:
+    """Program writes are Program-Admin only — unlike the project, Scheduler does not apply."""
+    prog = Program.objects.create(name="Prog")
+    client = _program_client(prog, Role.MEMBER)
+    r = client.patch(
+        f"/api/v1/programs/{prog.pk}/", {"near_critical_threshold_days": 15}, format="json"
+    )
+    assert r.status_code in (400, 403)
+    prog.refresh_from_db()
+    assert prog.near_critical_threshold_days is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", [0, -1, 261])
+def test_program_out_of_range_is_refused(bad: int) -> None:
+    prog = Program.objects.create(name="Prog")
+    client = _program_client(prog, Role.ADMIN)
+    r = client.patch(
+        f"/api/v1/programs/{prog.pk}/", {"near_critical_threshold_days": bad}, format="json"
+    )
+    assert r.status_code == 400
+    prog.refresh_from_db()
+    assert prog.near_critical_threshold_days is None
+
+
+def _workspace_client(*, staff: bool) -> APIClient:
+    user = User.objects.create_user(username=f"ws{staff}", password="pw", is_superuser=staff)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+@pytest.mark.django_db
+def test_workspace_admin_can_set_root_value() -> None:
+    r = _workspace_client(staff=True).patch(
+        "/api/v1/workspace/", {"near_critical_threshold_days": 20}, format="json"
+    )
+    assert r.status_code == 200
+    assert Workspace.load().near_critical_threshold_days == 20
+
+
+@pytest.mark.django_db
+def test_non_admin_cannot_set_workspace_root_value() -> None:
+    r = _workspace_client(staff=False).patch(
+        "/api/v1/workspace/", {"near_critical_threshold_days": 20}, format="json"
+    )
+    assert r.status_code in (400, 403)
+    assert Workspace.load().near_critical_threshold_days == 10  # unchanged default
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", [0, 261, None])
+def test_workspace_out_of_range_or_null_is_refused(bad: int | None) -> None:
+    """The root is non-null: there is nothing above it to inherit from."""
+    r = _workspace_client(staff=True).patch(
+        "/api/v1/workspace/", {"near_critical_threshold_days": bad}, format="json"
+    )
+    assert r.status_code == 400
+    assert Workspace.load().near_critical_threshold_days == 10

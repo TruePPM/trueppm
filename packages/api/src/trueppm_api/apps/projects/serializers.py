@@ -2613,7 +2613,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "effective_estimation_scale",
             "inherited_estimation_scale",
             # Near-critical float threshold OVERRIDE in working days (ADR-1381, #4891).
-            # Nullable: NULL = inherit. Scheduler+-writable at project scope.
+            # Nullable: NULL = inherit. Program-Admin-writable (IsProgramAdmin).
             "near_critical_threshold_days",
             "effective_near_critical_threshold_days",
             "inherited_near_critical_threshold_days",
