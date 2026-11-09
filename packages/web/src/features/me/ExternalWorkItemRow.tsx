@@ -9,6 +9,7 @@
  * intentional rather than broken (the trust-critical treatment).
  */
 import type { ExternalStatusCategory, MyWorkExternalItem, MyWorkExternalSource } from '@/hooks/useMyWork';
+import { safeExternalHref } from '@/lib/safeExternalHref';
 import { SourceMark } from '@/features/integrations/SourceMark';
 
 interface Props {
@@ -72,7 +73,7 @@ export function ExternalWorkItemRow({ item, source }: Props) {
       {/* Title (deep link into the provider, new tab) + source · host line. */}
       <div className="flex-1 min-w-0">
         <a
-          href={item.url}
+          href={safeExternalHref(item.url) ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
           className="group inline-flex max-w-full items-center gap-1 text-sm font-medium
