@@ -13,11 +13,31 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
+
 from trueppm_scheduler import Project, Task, schedule
 
-REPO = Path(__file__).resolve().parents[3]
-README = REPO / "packages/scheduler/README.md"
-WEBSITE = REPO / "packages/website/src/content/docs/features/scheduler.md"
+# The package root, in the checkout and in mutmut's ``mutants/`` sandbox alike:
+# ``also_copy`` puts README.md beside ``mutants/tests/``. A fixed ``parents[3]``
+# lands one level too high in the sandbox and kills the stats pass (#4900).
+README = Path(__file__).resolve().parents[1] / "README.md"
+
+
+def _find_website_page() -> Path:
+    """The scheduler feature page, found by walking up from this file.
+
+    Not a fixed ``parents[N]``: the sandbox sits one level deeper (see
+    ``test_cpm_page_slip_doc.py``, #4880).
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "website/src/content/docs/features/scheduler.md"
+        if candidate.is_file():
+            return candidate
+    return here.parents[2] / "website/src/content/docs/features/scheduler.md"
+
+
+WEBSITE = _find_website_page()
 
 
 def _run() -> Task:
@@ -70,6 +90,7 @@ def test_readme_example_block_quotes_computed_values() -> None:
     assert "percent_complete=25" in body and "timedelta(days=10)" in body
 
 
+@pytest.mark.skipif(not WEBSITE.exists(), reason="website tree not present")
 def test_website_paragraph_quotes_computed_values() -> None:
     t = _run()
     text = WEBSITE.read_text()

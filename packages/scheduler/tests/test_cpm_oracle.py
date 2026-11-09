@@ -1438,9 +1438,67 @@ SS_SLIP_INTO_A_TIED_MONDAY_SNET = _slip_into_a_tied_monday_snet("SS")
 FS_SLIP_INTO_A_TIED_MONDAY_SNET = _slip_into_a_tied_monday_snet("FS")
 FF_SLIP_INTO_A_TIED_MONDAY_SNET = _slip_into_a_tied_monday_snet("FF")
 
+#: #4900, found by the deep nightly fuzz: the smallest #4883 shape yet, on one
+#: Monday-to-Friday calendar with no wider-calendar successor. ``T0(1d) -FS+1d->
+#: T1 -FS+1d-> T2``, ``T1`` a milestone with a Saturday SNET (a Monday one repeats
+#: it). Slipping ``T0`` to Friday makes ``T1``'s link tie the snapped floor, and the
+#: calendar-day lag lets ``T2`` count from the link's earlier midnight: it moves
+#: from the end of Monday 01-12 to its start.
+FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T0": 1, "T1": 0, "T2": 0},
+    links=(RefLink("T0", "T1", "FS", 1), RefLink("T1", "T2", "FS", 1)),
+    calendar=RefCalendar(working_mask=MON_TO_FRI),
+    planned_start={"T1": date(2026, 1, 10)},
+)
+
+
+def _reaches_avoiding(project: RefProject, src: str, dst: str, blocked: set[str]) -> bool:
+    """Whether ``dst`` is downstream of ``src`` by a path through no ``blocked`` task."""
+    seen: set[str] = set()
+    frontier = [src]
+    while frontier:
+        current = frontier.pop()
+        for ln in project.links:
+            if ln.pred != current or ln.succ in seen or ln.succ in blocked:
+                continue
+            if ln.succ == dst:
+                return True
+            seen.add(ln.succ)
+            frontier.append(ln.succ)
+    return False
+
+
+def _behind_a_held_snet_milestone(
+    project: RefProject, tid: str, s: str, base: EngineRun, after: EngineRun
+) -> bool:
+    """TODO(#4883): the known tie shape, excluded by name until fixed.
+
+    ``s`` moved earlier, and every path from ``tid`` to it runs through a milestone
+    whose SNET held it on the same shown position in both runs. Nothing upstream
+    reached ``s`` except through that unmoved milestone, so the earlier move can only
+    be the milestone handing its successors the link's earlier midnight once the
+    slipped link ties the floor (#4690). That is #4883. Any other earlier move,
+    including one with a second path around the milestone, is still reported.
+    """
+    held = {
+        m
+        for m, n in project.durations.items()
+        if n == 0
+        and m != s
+        and m in project.planned_start
+        and _held_at(base.tasks[m], True, project.calendar_of(m))
+        == _held_at(after.tasks[m], True, project.calendar_of(m))
+    }
+    return bool(held) and not _reaches_avoiding(project, tid, s, held)
+
 
 def work_moved_earlier_by_a_slip(
-    project: RefProject, run: Callable[[RefProject], EngineRun], max_slip: int = 7
+    project: RefProject,
+    run: Callable[[RefProject], EngineRun],
+    max_slip: int = 7,
+    *,
+    exclude_4883: bool = True,
 ) -> list[str]:
     """Slipping a live task later never moves a live task downstream of it earlier.
 
@@ -1450,6 +1508,9 @@ def work_moved_earlier_by_a_slip(
     free float reads it (:func:`_held_at`), must be at or after where it was.
     Model-free and metamorphic: a later predecessor can only add to what holds its
     successors.
+
+    ``exclude_4883`` drops the open #4883 tie shape
+    (:func:`_behind_a_held_snet_milestone`); its pinned repros pass ``False``.
     """
     base = run(project)
     out: list[str] = []
@@ -1471,6 +1532,8 @@ def work_moved_earlier_by_a_slip(
                     _held_at(after.tasks[s], is_ms, s_cal),
                 )
                 if now < was:
+                    if exclude_4883 and _behind_a_held_snet_milestone(project, tid, s, base, after):
+                        continue
                     out.append(
                         f"{tid} slipped {slip} wd to {day}: {s} moved earlier {was} -> {now}"
                     )
@@ -1483,6 +1546,7 @@ KNOWN_4883_SHAPES = (
     SS_SLIP_INTO_A_TIED_MONDAY_SNET,
     FS_SLIP_INTO_A_TIED_MONDAY_SNET,
     FF_SLIP_INTO_A_TIED_MONDAY_SNET,
+    FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR,
 )
 
 _4883_XFAIL = pytest.mark.xfail(
@@ -1496,11 +1560,13 @@ _4883_XFAIL = pytest.mark.xfail(
 
 @pytest.mark.fuzz
 @given(progress_projects())
+@example(FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR)
 def test_slipping_a_predecessor_never_moves_work_earlier(project: RefProject) -> None:
     """Live: a later predecessor never moves live work downstream of it earlier.
 
-    The generator does not reach #4883's tie shape on the default run, so no filter
-    carves it out; its known repros are pinned below as strict xfails instead.
+    The deep run reaches #4883's tie shape (#4900), so it is excluded by name
+    (:func:`_behind_a_held_snet_milestone`) and its repros are pinned below as
+    strict xfails; the ``@example`` keeps the exclusion exercised on every run.
     """
     problems = work_moved_earlier_by_a_slip(project, python_run)
     assert not problems, "\n".join([repr(project), *problems])
@@ -1509,7 +1575,7 @@ def test_slipping_a_predecessor_never_moves_work_earlier(project: RefProject) ->
 @_4883_XFAIL
 @pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
 def test_slip_into_a_tied_milestone_floor_moves_nothing_earlier(project: RefProject) -> None:
-    problems = work_moved_earlier_by_a_slip(project, python_run)
+    problems = work_moved_earlier_by_a_slip(project, python_run, exclude_4883=False)
     assert not problems, "\n".join(problems)
 
 
@@ -1518,8 +1584,24 @@ def test_slip_into_a_tied_milestone_floor_moves_nothing_earlier(project: RefProj
 def test_rust_slip_into_a_tied_milestone_floor_moves_nothing_earlier(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
-    problems = work_moved_earlier_by_a_slip(project, rust_engine.run)
+    problems = work_moved_earlier_by_a_slip(project, rust_engine.run, exclude_4883=False)
     assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
+def test_the_4883_exclusion_covers_exactly_its_pinned_shapes(project: RefProject) -> None:
+    """The live property's #4883 filter removes every pinned repro, and only that."""
+    assert work_moved_earlier_by_a_slip(project, python_run, exclude_4883=False) != []
+    assert work_moved_earlier_by_a_slip(project, python_run) == []
+
+
+def test_the_4883_exclusion_keeps_a_move_with_a_path_around_the_milestone() -> None:
+    """A second path from the slipped task past the held milestone is not excused."""
+    p = FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR
+    base, after = python_run(p), python_run(_with_snet(p, "T0", date(2026, 1, 9)))
+    assert _behind_a_held_snet_milestone(p, "T0", "T2", base, after)
+    around = replace(p, links=(*p.links, RefLink("T0", "T2", "FS", 0)))
+    assert not _behind_a_held_snet_milestone(around, "T0", "T2", base, after)
 
 
 @pytest.mark.fuzz
