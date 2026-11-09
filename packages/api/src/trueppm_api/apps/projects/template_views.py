@@ -527,6 +527,10 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
 
         try:
             structure = extract_structure(project)
+            # The same check apply runs: a project whose links are cyclic or join a
+            # summary to its own subtask must not publish into a template that then
+            # refuses to apply (#4856).
+            validate_structure(structure)
         except TemplateStructureError as exc:
             raise ValidationError({"project": str(exc)}) from exc
 
@@ -660,6 +664,10 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
 
         try:
             structure = extract_structure(project)
+            # The same check apply runs: a project whose links are cyclic or join a
+            # summary to its own subtask must not publish into a template that then
+            # refuses to apply (#4856).
+            validate_structure(structure)
         except TemplateStructureError as exc:
             raise ValidationError({"project": str(exc)}) from exc
 

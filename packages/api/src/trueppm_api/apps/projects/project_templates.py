@@ -272,7 +272,53 @@ def validate_structure(structure: Any) -> dict[str, Any]:
     document, tasks = _validate_structure_envelope(structure)
     refs = _validate_task_nodes(tasks)
     _validate_dependency_edges(document.get("dependencies"), refs)
+    _validate_dependency_graph(document)
     return document
+
+
+def _validate_dependency_graph(document: dict[str, Any]) -> None:
+    """Refuse a document whose links are cyclic or join a summary to its own subtask.
+
+    ``materialize_structure`` bulk-creates the edges, bypassing the serializer's
+    cycle check, so a template carrying such a link would otherwise be copied into
+    every adopter and fail every recalculation there (#4856). Runs from
+    ``validate_structure``, which the publish and preview actions call on the freshly
+    extracted structure and the apply action and ``materialize_structure`` call on the
+    stored one. The
+    summary shape comes from the engine's own ``build_children_map`` over the
+    document's ``wbs_path`` values. SS/SF links out of a summary are left out of the
+    check: materialize skips them with a warning rather than refusing the template.
+    """
+    from types import SimpleNamespace
+
+    from trueppm_scheduler import InvalidScheduleInput
+
+    from trueppm_api.apps.scheduling.graph_guard import (
+        InfeasibleGraphError,
+        find_summary_start_links,
+        validate_task_graph,
+    )
+    from trueppm_api.apps.scheduling.services import build_children_map
+
+    triples = [
+        (str(e["predecessor"]), str(e["successor"]), str(e.get("dep_type") or "FS"))
+        for e in document.get("dependencies") or []
+    ]
+    if not triples:
+        return
+    children_map = build_children_map(
+        [SimpleNamespace(id=str(n["ref"]), wbs_path=n.get("wbs_path")) for n in document["tasks"]]
+    )
+    dropped = set(find_summary_start_links(triples, children_map.keys()))
+    edges = [(p, s) for p, s, t in triples if (p, s, t) not in dropped]
+    try:
+        validate_task_graph(edges, children_map=children_map)
+    except (InfeasibleGraphError, InvalidScheduleInput) as exc:
+        raise TemplateStructureError(
+            "This template's dependencies form a cycle, or link a summary task to one of "
+            "its own subtasks, so it cannot be scheduled. Fix the links in the source "
+            "project and publish again."
+        ) from exc
 
 
 def _build_template_task_row(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 from datetime import date
 from unittest.mock import patch
 
@@ -262,3 +263,88 @@ def test_jira_import_persists_mapped_status(project: Project) -> None:
     # would otherwise persist. Non-terminal statuses stay 0%.
     assert by_name["Shipped work"].percent_complete == 100.0
     assert by_name["Active work"].percent_complete == 0.0
+
+
+@pytest.mark.django_db
+class TestImportRejectsSummaryToOwnChild:
+    """#4856: the Jira importer validates with the summary hierarchy (children_map)."""
+
+    def test_summary_to_own_child_link_marks_request_dead_and_creates_no_tasks(
+        self, project: Project
+    ) -> None:
+        from trueppm_api.apps.jiraimport.tasks import import_jira
+
+        # The Jira parser emits a flat WBS today, so nest the first two issues by
+        # hand: PROJ-1 becomes the summary of PROJ-2, which CHAIN_EXPORT already
+        # links PROJ-1 -> PROJ-2.
+        data = parse_jira_xml(CHAIN_EXPORT)
+        data.tasks[0].outline_number, data.tasks[0].outline_level = "1", 1
+        data.tasks[1].outline_number, data.tasks[1].outline_level = "1.1", 2
+        data.tasks[2].outline_number, data.tasks[2].outline_level = "2", 1
+
+        req = JiraImportRequest.objects.create(
+            project=project,
+            filename="nested.xml",
+            file_content_b64=base64.b64encode(CHAIN_EXPORT).decode("ascii"),
+            status=JiraImportStatus.DISPATCHED,
+        )
+        with patch("trueppm_api.apps.jiraimport.parser.parse_jira_xml", return_value=data):
+            result = import_jira.apply(
+                kwargs={
+                    "project_id": str(project.pk),
+                    "file_content_b64": req.file_content_b64,
+                    "filename": req.filename,
+                    "import_request_id": str(req.pk),
+                },
+                throw=False,
+            )
+        assert result.failed()
+        # Celery wraps an exception it cannot unpickle; the wrapper records the class.
+        assert result.result.exc_cls_name == "ImportGraphRejected"
+        # The user-visible TaskRun.error_detail is the described text, not the guard's.
+        from trueppm_api.apps.taskruns.models import TaskRun
+
+        detail = TaskRun.objects.get(project=project).error_detail
+        assert "its own sub-task" in detail
+        assert "cyclic_dependency" not in detail
+        req.refresh_from_db()
+        assert req.status == JiraImportStatus.DEAD
+        assert Task.objects.filter(project=project).count() == 0
+
+
+@pytest.mark.django_db
+def test_unexpandable_summary_shape_marks_request_dead(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.jiraimport.tasks import import_jira
+
+    data = parse_jira_xml(CHAIN_EXPORT)
+    data.tasks[0].outline_number, data.tasks[0].outline_level = "1", 1
+    data.tasks[1].outline_number, data.tasks[1].outline_level = "1.1", 2
+    data.tasks[2].outline_number, data.tasks[2].outline_level = "2", 1
+    # Make the summary (PROJ-1) drive the outside task PROJ-3, so the guard must
+    # expand a summary edge: a legitimate link, but past the patched fan-out cap.
+    link = data.tasks[1].predecessor_links[0]
+    data.tasks[1].predecessor_links = []
+    data.tasks[2].predecessor_links = [dataclasses.replace(link, predecessor_uid=data.tasks[0].uid)]
+    monkeypatch.setattr("trueppm_scheduler.engine.MAX_EXPANDED_EDGES", 0)
+    req = JiraImportRequest.objects.create(
+        project=project,
+        filename="fanout.xml",
+        file_content_b64=base64.b64encode(CHAIN_EXPORT).decode("ascii"),
+        status=JiraImportStatus.DISPATCHED,
+    )
+    with patch("trueppm_api.apps.jiraimport.parser.parse_jira_xml", return_value=data):
+        result = import_jira.apply(
+            kwargs={
+                "project_id": str(project.pk),
+                "file_content_b64": req.file_content_b64,
+                "filename": req.filename,
+                "import_request_id": str(req.pk),
+            },
+            throw=False,
+        )
+    assert result.failed()
+    req.refresh_from_db()
+    assert req.status == JiraImportStatus.DEAD
+    assert Task.objects.filter(project=project).count() == 0

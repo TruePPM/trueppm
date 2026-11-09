@@ -195,6 +195,11 @@ rows that deleting the half that does not apply is a minute's work.
 
 ## Publishing a template
 
+A project whose dependencies form a cycle, or link a summary task to one of its own
+subtasks, cannot be published as a template. Ships in 0.5: publishing refuses such a
+project, and a template already published with such a link refuses to apply until it is
+republished from a source project whose links are fixed.
+
 **Project → Settings → Templates.** The page opens on six counts — tasks, phases,
 gates, dependencies, milestones and methodology — computed by the server from the
 same extraction the publish itself runs, so the number you approve is the number

@@ -243,10 +243,17 @@ References resolve against your **ID column** when the sheet has one, and agains
 sheet work without changes.
 
 :::caution[A circular predecessor column rejects the whole file]
-If your predecessors form a cycle (task 1 depends on 2, and 2 depends on 1) the
+If your predecessors form a cycle (task 1 depends on 2, and 2 depends on 1), or a
+summary row is linked to a row indented under it (in either direction), the
 import is rejected **before anything is written**. A cyclic network has no
 critical path, so importing it would produce a schedule the engine cannot
-compute. Fix the loop in the sheet and re-upload.
+compute. Fix the loop in the sheet and re-upload. The error names the two rows involved.
+:::
+
+:::note[Ships in 0.5]
+Refusing a link between a summary row and a row nested under it ships in 0.5. In
+the current release such a link is imported, and every recalculation of the project
+then fails.
 :::
 
 A Start-to-Start or Start-to-Finish predecessor that points at a **summary row** (a

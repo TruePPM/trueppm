@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from trueppm_api.apps.msproject.dataclasses import (
     CONSTRAINT_TYPES_APPLIED_AS_SNET,
@@ -11,10 +11,8 @@ from trueppm_api.apps.msproject.dataclasses import (
     ProjectData,
     TaskData,
 )
+from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
 from trueppm_api.apps.sync.sequence import allocate_for_projects
-
-if TYPE_CHECKING:
-    from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
 
 logger = logging.getLogger(__name__)
 
@@ -699,7 +697,80 @@ def collect_dependency_edges(data: ProjectData) -> list[tuple[str, str]]:
     ]
 
 
-def describe_bad_graph(data: ProjectData, exc: InfeasibleGraphError) -> str:
+def build_children_map(data: ProjectData) -> dict[str, list[str]]:
+    """Return ``{summary_uid: [direct_child_uid, ...]}`` in the file's own uid space.
+
+    Fed ``(uid, wbs_path)`` pairs from :func:`_build_wbs_paths` — the function
+    :func:`import_project` persists ``wbs_path`` from — into the engine's own
+    ``scheduling.services.build_children_map``, so the import guard and the recalc
+    cannot disagree about which task is a summary. Passing the result to
+    ``validate_task_graph`` is what lets it refuse a summary-to-own-descendant link,
+    which the engine would otherwise raise on at every recalculation (#4856).
+    """
+    from types import SimpleNamespace
+
+    from trueppm_api.apps.scheduling.services import build_children_map as engine_children_map
+
+    paths = _build_wbs_paths(data.tasks)
+    rows = [
+        SimpleNamespace(id=str(td.uid), wbs_path=path)
+        for td, path in zip(data.tasks, paths, strict=True)
+    ]
+    return engine_children_map(rows)
+
+
+def collect_guard_edges(
+    data: ProjectData, children_map: dict[str, list[str]]
+) -> list[tuple[str, str]]:
+    """The edges to hand ``validate_task_graph``: every link the import will persist.
+
+    ``import_project`` drops (with a warning) each SS/SF link out of a summary
+    instead of refusing the file (ADR-0370, #4830), so those links are excluded
+    here by the same predicate (``find_summary_start_links``) rather than refusing
+    the whole file for a link that would never be written.
+    """
+    from trueppm_api.apps.scheduling.graph_guard import find_summary_start_links
+
+    triples = [
+        (str(link.predecessor_uid), str(td.uid), str(link.dep_type))
+        for td in data.tasks
+        for link in td.predecessor_links
+    ]
+    dropped = set(find_summary_start_links(triples, children_map.keys()))
+    return [(p, s) for p, s, t in triples if (p, s, t) not in dropped]
+
+
+def find_hierarchy_link(
+    edges: list[tuple[str, str]], children_map: dict[str, list[str]]
+) -> tuple[str, str] | None:
+    """Return the first ``(summary_uid, descendant_uid)`` pair a link joins, in either direction.
+
+    A link between a summary and a task inside it is what ``validate_task_graph``
+    reports as an opaque self-loop on the descendant; this names the real pair so
+    the message can say what to fix.
+    """
+    parent_of = {child: parent for parent, kids in children_map.items() for child in kids}
+
+    def ancestors(uid: str) -> set[str]:
+        seen: set[str] = set()
+        while uid in parent_of and parent_of[uid] not in seen:
+            uid = parent_of[uid]
+            seen.add(uid)
+        return seen
+
+    for predecessor, successor in edges:
+        if predecessor in ancestors(successor):
+            return predecessor, successor
+        if successor in ancestors(predecessor):
+            return successor, predecessor
+    return None
+
+
+def describe_bad_graph(
+    data: ProjectData,
+    exc: InfeasibleGraphError,
+    edges: list[tuple[str, str]] | None = None,
+) -> str:
     """Name the offending tasks of a rejected graph in the uploader's terms.
 
     Built from ``exc.reason``/``exc.offending`` rather than ``str(exc)``, whose
@@ -709,11 +780,41 @@ def describe_bad_graph(data: ProjectData, exc: InfeasibleGraphError) -> str:
     two reasons distinguished — a self-referencing task is a different edit from
     a multi-task loop.
     """
-    names = {str(td.uid): td.name for td in data.tasks}
+    from trueppm_api.apps.scheduling.graph_guard import printable_label
+
+    names = {str(td.uid): printable_label(td.name) for td in data.tasks}
+    if exc.reason == "cyclic_dependency" and edges is not None:
+        link = find_hierarchy_link(edges, build_children_map(data))
+        if link is not None:
+            summary_uid, child_uid = link
+            return (
+                f"Task {names.get(summary_uid, 'unknown task')} (uid {summary_uid}) is linked "
+                f"to its own sub-task {names.get(child_uid, 'unknown task')} (uid {child_uid}). "
+                "A summary task cannot depend on, or be a predecessor of, a task inside it."
+            )
     labelled = [f"{names.get(uid, 'unknown task')} (uid {uid})" for uid in exc.offending]
     if exc.reason == "self_reference":
         return f"Task {labelled[0]} lists itself as its own predecessor."
     return "Circular dependency: " + " -> ".join(labelled)
+
+
+class ImportGraphRejected(InfeasibleGraphError):
+    """An :class:`InfeasibleGraphError` whose ``str()`` is the uploader-facing sentence.
+
+    ``TaskRunTracker`` persists ``str(exc)`` as the run's ``error_detail`` and that is
+    the only surface a rejected MS Project / Jira import has, so the message has to
+    be the described one: the guard's own text reads a summary-to-child link as an
+    opaque self-loop. Still an ``InfeasibleGraphError`` for callers that branch on
+    ``reason`` / ``offending``.
+    """
+
+    def __init__(self, original: InfeasibleGraphError, detail: str) -> None:
+        super().__init__(original.reason, original.offending, labels=original.labels)
+        self.detail = detail
+        self.args = (detail,)
+
+    def __str__(self) -> str:
+        return self.detail
 
 
 def _import_dependencies(

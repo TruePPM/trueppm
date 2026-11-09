@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from trueppm_api.apps.msproject.importer import (
+    build_children_map,
     collect_dependency_edges,
     describe_bad_graph,
 )
@@ -87,7 +88,7 @@ def _task(uid: int, name: str, outline: str, preds: list[int] | None = None) -> 
         "UID": uid,
         "Name": name,
         "OutlineNumber": outline,
-        "OutlineLevel": 1,
+        "OutlineLevel": outline.count(".") + 1,
         "Duration": "PT8H0M0S",
     }
     if preds:
@@ -113,6 +114,100 @@ ACYCLIC_XML = _build_xml(
         _task(2, "Build", "2", preds=[1]),
     ]
 )
+
+
+# A summary and its own child, linked in the child-depends-on-summary direction (#4856).
+SUMMARY_TO_CHILD_XML = _build_xml(
+    [
+        _task(1, "Phase", "1"),
+        _task(2, "Design", "1.1", preds=[1]),
+    ]
+)
+
+# Same pair, linked the other way: the summary depends on its own child.
+CHILD_TO_SUMMARY_XML = _build_xml(
+    [
+        _task(1, "Phase", "1", preds=[2]),
+        _task(2, "Design", "1.1"),
+    ]
+)
+
+# A summary may depend on a task outside it: the control for the nesting check.
+SUMMARY_TO_SIBLING_XML = _build_xml(
+    [
+        _task(1, "Phase", "1"),
+        _task(2, "Design", "1.1"),
+        _task(3, "Ship", "2", preds=[1]),
+    ]
+)
+
+
+def _leveled(uid: int, name: str, number: str, level: int, preds: list[int] | None = None):
+    """A task whose hierarchy is carried by OutlineLevel only (flat OutlineNumber)."""
+    task = _task(uid, name, number, preds)
+    task["OutlineLevel"] = level
+    return task
+
+
+# Phase (1) > Group (1.1) > Leaf (1.1.1), with the link from the grandchild's side.
+GRANDCHILD_TO_SUMMARY_XML = _build_xml(
+    [
+        _task(1, "Phase", "1"),
+        _task(2, "Group", "1.1"),
+        _task(3, "Leaf", "1.1.1", preds=[1]),
+    ]
+)
+SUMMARY_TO_GRANDCHILD_XML = _build_xml(
+    [
+        _task(1, "Phase", "1", preds=[3]),
+        _task(2, "Group", "1.1"),
+        _task(3, "Leaf", "1.1.1"),
+    ]
+)
+
+# Hierarchy only in OutlineLevel: every OutlineNumber is flat.
+LEVEL_ONLY_XML = _build_xml(
+    [
+        _leveled(1, "Phase", "1", 1),
+        _leveled(2, "Design", "2", 2, preds=[1]),
+    ]
+)
+
+# "1.1" is missing, so the engine treats 1 as a leaf and 1.1.1 as a root.
+OUTLINE_GAP_XML = _build_xml(
+    [
+        _task(1, "Phase", "1"),
+        _task(2, "Deep", "1.1.1", preds=[1]),
+    ]
+)
+
+
+def _ss_task_xml(pred_type: int) -> bytes:
+    """Summary 1 with child 1.1 that lists the summary as predecessor with ``pred_type``."""
+    child = _task(2, "Design", "1.1")
+    child["PredecessorLinks"] = [{"PredecessorUID": 1, "Type": pred_type}]
+    return _build_xml([_task(1, "Phase", "1"), child])
+
+
+class TestBuildChildrenMap:
+    def test_outline_gap_matches_the_engines_direct_parent_rule(self) -> None:
+        # The guard must not refuse what the engine would schedule.
+        parsed = parse_xml(OUTLINE_GAP_XML)
+        assert build_children_map(parsed) == {}
+        validate_task_graph(
+            collect_dependency_edges(parsed), children_map=build_children_map(parsed)
+        )
+
+    def test_outline_level_only_hierarchy_is_recognized(self) -> None:
+        parsed = parse_xml(LEVEL_ONLY_XML)
+        assert build_children_map(parsed) == {"1": ["2"]}
+
+    def test_maps_a_summary_to_its_direct_children(self) -> None:
+        parsed = parse_xml(SUMMARY_TO_SIBLING_XML)
+        assert build_children_map(parsed) == {"1": ["2"]}
+
+    def test_flat_file_has_no_summaries(self) -> None:
+        assert build_children_map(parse_xml(ACYCLIC_XML)) == {}
 
 
 class TestCollectDependencyEdges:
@@ -153,6 +248,67 @@ class TestGuardRejectsBadGraphs:
     def test_acyclic_file_passes(self) -> None:
         parsed = parse_xml(ACYCLIC_XML)
         validate_task_graph(collect_dependency_edges(parsed))
+
+
+class TestGuardRejectsSummaryToOwnDescendant:
+    """#4856: the engine refuses these links on every recalculation, so refuse at import."""
+
+    @pytest.mark.parametrize(
+        "xml",
+        [
+            SUMMARY_TO_CHILD_XML,
+            CHILD_TO_SUMMARY_XML,
+            GRANDCHILD_TO_SUMMARY_XML,
+            SUMMARY_TO_GRANDCHILD_XML,
+            LEVEL_ONLY_XML,
+        ],
+    )
+    def test_link_between_a_summary_and_its_child_is_rejected(self, xml: bytes) -> None:
+        parsed = parse_xml(xml)
+        edges = collect_dependency_edges(parsed)
+        # Blind without the hierarchy: this is the bug.
+        validate_task_graph(edges)
+        with pytest.raises(InfeasibleGraphError):
+            validate_task_graph(edges, children_map=build_children_map(parsed))
+
+    def test_summary_depending_on_an_outside_task_is_accepted(self) -> None:
+        parsed = parse_xml(SUMMARY_TO_SIBLING_XML)
+        validate_task_graph(
+            collect_dependency_edges(parsed), children_map=build_children_map(parsed)
+        )
+
+    def test_message_for_the_child_to_summary_direction(self) -> None:
+        parsed = parse_xml(CHILD_TO_SUMMARY_XML)
+        edges = collect_dependency_edges(parsed)
+        with pytest.raises(InfeasibleGraphError) as exc:
+            validate_task_graph(edges, children_map=build_children_map(parsed))
+        detail = describe_bad_graph(parsed, exc.value, edges)
+        assert "Task Phase (uid 1) is linked to its own sub-task Design (uid 2)" in detail
+
+    def test_message_bounds_and_sanitizes_task_names(self) -> None:
+        xml = _build_xml(
+            [
+                _task(1, "Phase\nforged: line" + "x" * 300, "1"),
+                _task(2, "Design", "1.1", preds=[1]),
+            ]
+        )
+        parsed = parse_xml(xml)
+        edges = collect_dependency_edges(parsed)
+        with pytest.raises(InfeasibleGraphError) as exc:
+            validate_task_graph(edges, children_map=build_children_map(parsed))
+        detail = describe_bad_graph(parsed, exc.value, edges)
+        assert "\n" not in detail
+        assert len(detail) < 300
+
+    def test_message_names_the_summary_and_its_child(self) -> None:
+        parsed = parse_xml(SUMMARY_TO_CHILD_XML)
+        edges = collect_dependency_edges(parsed)
+        with pytest.raises(InfeasibleGraphError) as exc:
+            validate_task_graph(edges, children_map=build_children_map(parsed))
+        detail = describe_bad_graph(parsed, exc.value, edges)
+        assert "Phase" in detail
+        assert "Design" in detail
+        assert "its own sub-task" in detail
 
 
 class TestDescribeBadGraph:
@@ -254,6 +410,57 @@ class TestImportTaskRejectsBadGraphs:
 
         project.refresh_from_db()
         assert project.name == original_name
+
+    @pytest.mark.parametrize("xml", [SUMMARY_TO_CHILD_XML, CHILD_TO_SUMMARY_XML])
+    def test_summary_to_own_child_file_creates_no_tasks_and_is_dead(
+        self, project: Project, xml: bytes
+    ) -> None:
+        result, req = self._run(project, xml, "nested.xml")
+
+        assert result.failed()
+        assert req.status == ImportRequestStatus.DEAD
+        assert Task.objects.filter(project=project).count() == 0
+
+    def test_summary_to_child_error_detail_is_the_described_text(self, project: Project) -> None:
+        from trueppm_api.apps.taskruns.models import TaskRun
+
+        result = import_msproject.apply(
+            kwargs={
+                "project_id": str(project.pk),
+                "file_content_b64": base64.b64encode(SUMMARY_TO_CHILD_XML).decode(),
+                "filename": "nested.xml",
+            },
+            throw=False,
+        )
+        assert result.failed()
+        # What the user sees: TaskRun.error_detail is str(exception).
+        detail = TaskRun.objects.get(project=project).error_detail
+        assert "Phase" in detail
+        assert "its own sub-task" in detail
+        assert "cyclic_dependency" not in detail
+
+    def test_ss_link_from_summary_to_own_child_is_skipped_not_refused(
+        self, project: Project
+    ) -> None:
+        # Type 3 = Start-to-Start. ADR-0370 skips it with a warning; the file imports.
+        result, _req = self._run(project, _ss_task_xml(3), "ss.xml")
+
+        assert not result.failed()
+        assert Task.objects.filter(project=project).count() == 2
+        assert any("skipped" in w for w in result.result["warnings"])
+
+    def test_unexpandable_summary_shape_is_dead_not_redispatched(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # InvalidScheduleInput is as deterministic as a cycle; without DEAD the
+        # orphan drain re-dispatches the file forever (ADR-0092).
+        monkeypatch.setattr("trueppm_scheduler.engine.MAX_EXPANDED_EDGES", 0)
+        result, req = self._run(project, SUMMARY_TO_SIBLING_XML, "fanout.xml")
+
+        assert result.failed()
+        assert "InvalidScheduleInput" in repr(result.result)
+        assert req.status == ImportRequestStatus.DEAD
+        assert Task.objects.filter(project=project).count() == 0
 
     def test_acyclic_file_still_imports(self, project: Project) -> None:
         # The guard must not reject well-formed files.

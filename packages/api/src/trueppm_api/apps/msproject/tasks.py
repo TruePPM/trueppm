@@ -93,8 +93,12 @@ def _reject_infeasible_graph(
     DISPATCHED, so the orphan drain would re-dispatch a deterministically bad file
     forever (ADR-0092) — the same reason a parse failure marks the row DEAD.
     """
+    from trueppm_scheduler import InvalidScheduleInput
+
     from trueppm_api.apps.msproject.importer import (
-        collect_dependency_edges,
+        ImportGraphRejected,
+        build_children_map,
+        collect_guard_edges,
         describe_bad_graph,
     )
     from trueppm_api.apps.scheduling.graph_guard import (
@@ -102,18 +106,29 @@ def _reject_infeasible_graph(
         validate_task_graph,
     )
 
+    children_map = build_children_map(project_data)
+    edges = collect_guard_edges(project_data, children_map)
     try:
-        validate_task_graph(collect_dependency_edges(project_data))
+        # children_map lets the guard see a summary-to-own-descendant link, which
+        # the engine refuses on every recalculation (#4856).
+        validate_task_graph(edges, children_map=children_map)
     except InfeasibleGraphError as exc:
         # ImportRequest has no result_summary column to persist the detail on
         # (unlike CsvImportRequest), so the TaskRunTracker's FAILED message is the
         # only surface that outlives the worker — log the human-readable form for
         # the operator as well (#2714).
-        logger.warning(
-            "import.msproject: rejected %s — %s",
-            filename,
-            describe_bad_graph(project_data, exc),
-        )
+        detail = describe_bad_graph(project_data, exc, edges)
+        logger.warning("import.msproject: rejected %s — %s", filename, detail)
+        if import_request_id:
+            _mark_import_dead(import_request_id)
+        # Re-raised with the described text: it becomes TaskRun.error_detail, the
+        # only user-visible record of a rejected MS Project import (ImportRequest
+        # has no error column).
+        raise ImportGraphRejected(exc, detail) from exc
+    except InvalidScheduleInput as exc:
+        # A malformed summary shape (fan-out past the engine cap) is as
+        # deterministic as a cycle: DEAD, or the orphan drain re-dispatches forever.
+        logger.warning("import.msproject: rejected %s — %s", filename, exc)
         if import_request_id:
             _mark_import_dead(import_request_id)
         raise

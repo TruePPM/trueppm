@@ -104,21 +104,33 @@ def import_jira(
         # Validate in uid space — a relabeling of the eventual PKs — so nothing
         # is created if the graph is bad. The parser already quarantined
         # self-loops and dangling edges; a genuine cycle is rejected here.
+        from trueppm_scheduler import InvalidScheduleInput
+
+        from trueppm_api.apps.msproject.importer import (
+            ImportGraphRejected,
+            build_children_map,
+            collect_guard_edges,
+            describe_bad_graph,
+        )
         from trueppm_api.apps.scheduling.graph_guard import (
             InfeasibleGraphError,
             validate_task_graph,
         )
 
-        edges = [
-            (str(link.predecessor_uid), str(task.uid))
-            for task in project_data.tasks
-            for link in task.predecessor_links
-        ]
+        children_map = build_children_map(project_data)
+        edges = collect_guard_edges(project_data, children_map)
         tracker.update(20, "Validating dependency graph...")
         try:
-            validate_task_graph(edges)
-        except InfeasibleGraphError:
+            validate_task_graph(edges, children_map=children_map)
+        except InfeasibleGraphError as exc:
             # Deterministic: the same export always produces the same cycle.
+            if import_request_id:
+                _mark_import_dead(import_request_id)
+            # JiraImportRequest has no error column; the tracker's error_detail is
+            # the only user-visible surface, so it gets the described text.
+            raise ImportGraphRejected(exc, describe_bad_graph(project_data, exc, edges)) from exc
+        except InvalidScheduleInput:
+            # Deterministic oversized summary fan-out: same terminal handling.
             if import_request_id:
                 _mark_import_dead(import_request_id)
             raise
