@@ -41,14 +41,19 @@ INSECURE_PREFIX = "django-insecure-"
 # ``SILENCED_SYSTEM_CHECKS`` — so they are bound to constants rather than
 # repeated, and must not be renumbered once shipped.
 #
-# E004 is deliberately shared by two unrelated checks: an untrustworthy
-# JWT signing key and an unusable attachment-storage backend. That sharing
-# predates this constant and is asserted by tests in both
-# ``test_signing_key_check.py`` and ``test_secret_key_check.py``; naming it once
-# here does not change it. The cost is that an operator silencing E004 for one
-# also silences the other, which is worth splitting separately rather than as
-# part of a Sonar cleanup.
+# E004 is the JWT signing key check only. It used to be shared with the
+# attachment-storage check, so silencing it for one silenced the other (#3221);
+# attachment storage now has its own id. ``tests/test_check_id_uniqueness.py``
+# fails if two checks ever share an id again.
+#
+# Likewise E005 is the integration-encryption-key check only and E010 the
+# DATABASE_URL placeholder-password check only: the JWT signing-key length rule
+# (was E005) and the project soft-delete retention check (was E010) moved to
+# fresh ids.
 _ID_UNTRUSTED_CONFIG = "trueppm.E004"
+_ID_ATTACHMENT_STORAGE = "trueppm.E014"
+_ID_SIGNING_KEY_LENGTH = "trueppm.E015"
+_ID_SOFT_DELETE_RETENTION = "trueppm.E016"
 
 #: Prefixes of documented placeholder keys, matched case-insensitively (#3187).
 #:
@@ -308,7 +313,7 @@ def validate_signing_key(
                     "A separate JWT signing key must be at least as strong as "
                     "SECRET_KEY, or a leak of it forges tokens for any user. " + _TOKEN_URLSAFE_HINT
                 ),
-                id="trueppm.E005",
+                id=_ID_SIGNING_KEY_LENGTH,
             )
         )
 
@@ -450,7 +455,7 @@ def validate_attachment_storage(
                     "/var/lib/trueppm/media. Or drop the opt-in and point "
                     "TRUEPPM_DEFAULT_FILE_STORAGE at object storage."
                 ),
-                id=_ID_UNTRUSTED_CONFIG,
+                id=_ID_ATTACHMENT_STORAGE,
             )
         ]
 
@@ -468,7 +473,7 @@ def validate_attachment_storage(
                     "backed by a persistent volume (and TRUEPPM_MEDIA_ROOT points at "
                     "that volume)."
                 ),
-                id=_ID_UNTRUSTED_CONFIG,
+                id=_ID_ATTACHMENT_STORAGE,
             )
         ]
     return []
@@ -884,7 +889,7 @@ def validate_project_soft_delete_retention(value: object) -> list[CheckMessage]:
                 "entirely, leave the variable alone and disable the policy in "
                 "Settings → System Health instead."
             ),
-            id="trueppm.E010",
+            id=_ID_SOFT_DELETE_RETENTION,
         )
     ]
 

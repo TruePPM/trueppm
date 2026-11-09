@@ -46,7 +46,7 @@ def test_distinct_strong_signing_key_passes() -> None:
 def test_distinct_short_signing_key_fails() -> None:
     errors = validate_signing_key("b" * (MIN_SECRET_KEY_LENGTH - 1), _STRONG, debug=False)
     ids = {e.id for e in errors}
-    assert ids == {"trueppm.E005"}
+    assert ids == {"trueppm.E015"}
 
 
 def test_distinct_insecure_prefix_signing_key_fails() -> None:
@@ -55,7 +55,7 @@ def test_distinct_insecure_prefix_signing_key_fails() -> None:
     errors = validate_signing_key(key, _STRONG, debug=False)
     ids = {e.id for e in errors}
     assert "trueppm.E004" in ids
-    assert "trueppm.E005" not in ids  # length rule must not also fire
+    assert "trueppm.E015" not in ids  # length rule must not also fire
 
 
 def test_threshold_boundary_passes() -> None:

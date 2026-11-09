@@ -27,7 +27,7 @@ def test_zero_is_rejected() -> None:
     errors = validate_project_soft_delete_retention(0)
     assert len(errors) == 1
     assert isinstance(errors[0], Error)
-    assert errors[0].id == "trueppm.E010"
+    assert errors[0].id == "trueppm.E016"
 
 
 def test_zero_error_names_the_consequence_not_just_the_rule() -> None:
@@ -65,7 +65,7 @@ def test_check_is_registered_with_the_django_registry() -> None:
 def test_registered_check_reads_the_live_setting(settings) -> None:
     settings.TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS = 0
     errors = check_project_soft_delete_retention()
-    assert [e.id for e in errors] == ["trueppm.E010"]
+    assert [e.id for e in errors] == ["trueppm.E016"]
 
     settings.TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS = 30
     assert check_project_soft_delete_retention() == []

@@ -380,6 +380,19 @@ key is `trueppm.E001`, one still carrying the Django `django-insecure-`
 placeholder prefix is `trueppm.E002`, and one shorter than 32 characters is
 `trueppm.E003`. Any of them exits non-zero.
 
+The JWT signing key has its own ids too: a `JWT_SIGNING_KEY` carrying the Django
+placeholder prefix or a documented placeholder value is `trueppm.E004`, and one
+shorter than 32 characters is `trueppm.E015`. Attachment storage on ephemeral
+local disk, or an unusable `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` opt-in, is
+`trueppm.E014`. These ids are what you would put in `SILENCED_SYSTEM_CHECKS`, and
+each now names exactly one rule. `trueppm.E004` used to also cover the
+attachment-storage check; if you silenced it, decide about `trueppm.E014`
+explicitly. Likewise `trueppm.E005` used to also cover the JWT signing-key length
+rule (now `trueppm.E015`; `trueppm.E005` is the integration encryption key only),
+and `trueppm.E010` used to also cover the project soft-delete retention check
+(now `trueppm.E016`; `trueppm.E010` is the `DATABASE_URL` placeholder password
+only).
+
 `secrets.token_urlsafe(50)` produces a ~67-character URL-safe string; store it in
 your `.env` (mode `0600`) or, on Kubernetes, set the `secrets.djangoSecretKey`
 Helm value.
