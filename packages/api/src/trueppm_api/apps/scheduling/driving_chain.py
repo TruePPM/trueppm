@@ -26,6 +26,11 @@ NODE_CAP = 200
 DRIVING_CHAIN_SCHEMA_VERSION = 1
 
 
+def _is_complete(st: Any) -> bool:
+    """Whether the engine treats a scheduled task as finished (same rule as the engine)."""
+    return st.actual_finish is not None or (st.percent_complete or 0) >= 100
+
+
 @dataclass(frozen=True)
 class _EdgeFacts:
     lag_days: int
@@ -266,11 +271,16 @@ def build_driving_chain(
                 "early_start": st.early_start,
                 "early_finish": st.early_finish,
                 "total_float": {"value": st.total_float.days, "unit": "working_days"},
-                # Server-computed so no client re-derives it. The set is OPEN: a
+                # A finished task keeps zero float but is never critical (the engine
+                # leaves it non-critical, #1863), so it gets its own band rather than
+                # "critical" next to is_critical=false. Server-computed so no client
+                # re-derives it. The set is OPEN: a
                 # client must tolerate a value it does not know (a later tier is
                 # additive, not a breaking change).
                 "band": (
-                    "critical"
+                    "complete"
+                    if _is_complete(st)
+                    else "critical"
                     if st.is_critical
                     else float_band(st.total_float.days, near_critical_threshold_days)
                 ),

@@ -931,7 +931,7 @@ class Program(VersionedModel):
         blank=True,
     )
     # Per-scope near-critical float threshold override, in working days (ADR-1381
-    # amendment, #4891). NULL = inherit the workspace value; a non-null value
+    # amendment, #4907). NULL = inherit the workspace value; a non-null value
     # overrides it for every project in this program whose own override is NULL.
     # Resolved computed-on-read in ``apps.projects.near_critical_threshold``. Display
     # band only — never moves a date. Captured by HistoricalRecords (audit).
@@ -1604,7 +1604,7 @@ class Project(VersionedModel):
         blank=True,
     )
     # Per-scope near-critical float threshold override, in working days (ADR-1381
-    # amendment, #4891). NULL = inherit from the program (or workspace, if the program
+    # amendment, #4907). NULL = inherit from the program (or workspace, if the program
     # also inherits); non-null = explicit override for this project. Resolved
     # computed-on-read in ``apps.projects.near_critical_threshold`` and surfaced via
     # the serializer's ``effective_near_critical_threshold_days``. Display band only.

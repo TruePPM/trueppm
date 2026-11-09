@@ -836,7 +836,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # override were cleared (drives the settings "Inherit (X)" affordance).
     effective_estimation_scale = serializers.SerializerMethodField()
     inherited_estimation_scale = serializers.SerializerMethodField()
-    # Server-resolved near-critical float threshold, working days (ADR-1381, #4891):
+    # Server-resolved near-critical float threshold, working days (ADR-1381, #4907):
     # project ?? program ?? workspace. ``inherited_*`` is the value if the override were cleared.
     effective_near_critical_threshold_days = serializers.SerializerMethodField()
     inherited_near_critical_threshold_days = serializers.SerializerMethodField()
@@ -957,7 +957,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "estimation_scale",
             "effective_estimation_scale",
             "inherited_estimation_scale",
-            # Near-critical float threshold OVERRIDE in working days (ADR-1381, #4891).
+            # Near-critical float threshold OVERRIDE in working days (ADR-1381, #4907).
             # Nullable: NULL = inherit. Scheduler+-writable at project scope.
             "near_critical_threshold_days",
             "effective_near_critical_threshold_days",
@@ -2531,7 +2531,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # workspace value the program shows when its own override is cleared.
     effective_estimation_scale = serializers.SerializerMethodField()
     inherited_estimation_scale = serializers.SerializerMethodField()
-    # Server-resolved near-critical float threshold, working days (ADR-1381, #4891):
+    # Server-resolved near-critical float threshold, working days (ADR-1381, #4907):
     # program ?? workspace. ``inherited_*`` is the value if the override were cleared.
     effective_near_critical_threshold_days = serializers.SerializerMethodField()
     inherited_near_critical_threshold_days = serializers.SerializerMethodField()
@@ -2612,7 +2612,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "estimation_scale",
             "effective_estimation_scale",
             "inherited_estimation_scale",
-            # Near-critical float threshold OVERRIDE in working days (ADR-1381, #4891).
+            # Near-critical float threshold OVERRIDE in working days (ADR-1381, #4907).
             # Nullable: NULL = inherit. Program-Admin-writable (IsProgramAdmin).
             "near_critical_threshold_days",
             "effective_near_critical_threshold_days",

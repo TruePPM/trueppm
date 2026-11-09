@@ -13,6 +13,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Program,
     Project,
     Sprint,
     SprintState,
@@ -20,6 +21,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
 )
 from trueppm_api.apps.scheduling.serializers import ScheduleDrivingChainSerializer
+from trueppm_api.apps.workspace.models import Workspace
 
 User = get_user_model()
 
@@ -300,6 +302,81 @@ class TestDrivingChain:
         Project.objects.filter(pk=project.pk).update(near_critical_threshold_days=float_wd - 1)
         node, _ = band_of_e()
         assert node["band"] == "ample"
+
+    def test_band_follows_a_program_override_over_the_workspace_default(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        # The endpoint must use the RESOLVED threshold: program override beats the
+        # workspace default when the project's own value is NULL.
+        e = Task.objects.create(project=project, name="E", duration=1)
+        Dependency.objects.create(predecessor=chain["A"], successor=e, dep_type="FS", lag=0)
+        Dependency.objects.create(predecessor=e, successor=chain["D"], dep_type="FS", lag=0)
+        program = Program.objects.create(name="Prog")
+        Project.objects.filter(pk=project.pk).update(program=program)
+        client = _client(user, project, Role.VIEWER)
+
+        def band_of_e() -> tuple[dict[str, object], dict[str, object]]:
+            data = client.get(url(project.pk), {"task_id": str(e.pk)}).json()
+            return next(n for n in data["nodes"] if n["name"] == "E"), data
+
+        node, data = band_of_e()
+        float_wd = node["total_float"]["value"]
+        assert float_wd >= 2, "fixture must give E real slack"
+        assert node["band"] == "near_critical"  # workspace default 10 covers it
+        Program.objects.filter(pk=program.pk).update(near_critical_threshold_days=float_wd - 1)
+        node, data = band_of_e()
+        assert data["near_critical_threshold"]["value"] == float_wd - 1
+        assert node["band"] == "ample"
+
+    def test_completed_task_gets_the_complete_band_not_critical(
+        self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        Task.objects.filter(pk=chain["B"].pk).update(
+            status=TaskStatus.COMPLETE, percent_complete=100
+        )
+        # Queried directly: the engine drops a finished task's driving edges, so it is
+        # reachable as the chain's own (self) node, which still needs the right band.
+        data = viewer_client.get(url(project.pk), {"task_id": str(chain["B"].pk)}).json()
+        node = next(n for n in data["nodes"] if n["name"] == "B")
+        assert node["is_critical"] is False
+        assert node["total_float"]["value"] == 0
+        assert node["band"] == "complete"
+
+    def test_calendar_id_is_the_project_calendar_when_it_sets_one(
+        self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        data = viewer_client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] == str(project.calendar_id)
+
+    def test_calendar_id_is_inherited_from_the_program(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        prog_cal = Calendar.objects.create(name="Program cal")
+        program = Program.objects.create(name="Prog", calendar=prog_cal)
+        Project.objects.filter(pk=project.pk).update(program=program, calendar=None)
+        client = _client(user, project, Role.VIEWER)
+        data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] == str(prog_cal.pk)
+
+    def test_calendar_id_is_inherited_from_the_workspace(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        ws_cal = Calendar.objects.create(name="Workspace cal")
+        ws = Workspace.load()
+        ws.calendar = ws_cal
+        ws.save()
+        Project.objects.filter(pk=project.pk).update(calendar=None)
+        client = _client(user, project, Role.VIEWER)
+        data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] == str(ws_cal.pk)
+
+    def test_calendar_id_is_null_when_nothing_resolves(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        Project.objects.filter(pk=project.pk).update(calendar=None)
+        client = _client(user, project, Role.VIEWER)
+        data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] is None
 
     def test_non_driving_predecessors_are_counted_not_drawn(
         self, viewer_client: APIClient, project: Project, chain: dict[str, Task]

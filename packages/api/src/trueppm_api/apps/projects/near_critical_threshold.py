@@ -1,4 +1,4 @@
-"""Workspace → Program → Project resolution for the near-critical float threshold (ADR-1381, #4891).
+"""Workspace → Program → Project resolution for the near-critical float threshold (ADR-1381, #4907).
 
 A task is *near-critical* when its total float is above zero but no more than this
 many **working days**; float 0 is critical. The threshold only shades a display band

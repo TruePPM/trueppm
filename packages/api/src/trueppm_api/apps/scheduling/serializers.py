@@ -825,9 +825,10 @@ class DrivingChainNodeSerializer(serializers.Serializer[dict[str, Any]]):
     )
     band = serializers.CharField(
         help_text=(
-            "Float band against the effective near-critical threshold: critical "
-            "(float 0), near_critical (0 < float <= threshold), ample. The set is "
-            "OPEN: a client must tolerate a value it does not know."
+            "Float band against the effective near-critical threshold: complete "
+            "(the task is finished; it keeps zero float but is never critical), "
+            "critical (float 0), near_critical (0 < float <= threshold), ample. The "
+            "set is OPEN: a client must tolerate a value it does not know."
         )
     )
     is_critical = serializers.BooleanField()
@@ -892,7 +893,12 @@ class ScheduleDrivingChainSerializer(serializers.Serializer[dict[str, Any]]):
     near_critical_threshold = NearCriticalThresholdSerializer()
     calendar_id = serializers.CharField(
         allow_null=True,
-        help_text="The project's own calendar id; null when it uses the default calendar.",
+        help_text=(
+            "Id of the base calendar the schedule is computed against: the project's "
+            "own, else its program's, else the workspace's. Null only when none "
+            "resolves and the system default applies. Overlay layers (exceptions, "
+            "resource calendars) are not named."
+        ),
     )
     nodes = DrivingChainNodeSerializer(many=True)
     edges = DrivingChainEdgeSerializer(many=True)

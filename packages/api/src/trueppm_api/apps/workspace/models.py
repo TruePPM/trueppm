@@ -310,7 +310,7 @@ class Workspace(models.Model):
     )
 
     # Workspace default for the near-critical float threshold, in WORKING days (ADR-1381
-    # amendment, #4891) — the non-null root of the Workspace → Program → Project chain.
+    # amendment, #4907) — the non-null root of the Workspace → Program → Project chain.
     # A task whose total float is above zero but no more than this is "near-critical"
     # (band ``near_critical`` on the driving-chain payload); float 0 is ``critical``.
     # Default 10 working days (two weeks): at 2 days a task is effectively an emergency,

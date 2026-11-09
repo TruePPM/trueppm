@@ -112,15 +112,18 @@ threshold setting and its default are the maintainer's decision.
    non-driving dependency links into the task or its *upstream* chain — predecessors
    that carry float and are not drawn. It is scoped upstream because the view shipped on
    this payload is upstream-only; a downstream view would add its own field.
-4. **`band` per node, an open enum** — `critical` (float 0, or late), `near_critical`
-   (`0 < float <= threshold`), `ample`. Server-computed so no client re-derives it. The
+4. **`band` per node, an open enum** — `complete` (the task is finished: it keeps
+   zero float but the engine never marks it critical, #1863), `critical` (float 0, or
+   late), `near_critical` (`0 < float <= threshold`), `ample`. Server-computed so no client re-derives it. The
    set is deliberately open: clients must tolerate a value they do not know, so a later
    tier is additive. The response echoes the effective `near_critical_threshold`
    (`{value, unit: "working_days"}`) it used.
 5. **`via_summary` carries names**, `[{task_id, name}]`. The summary task is usually not
    a node on the chain, so a bare id could not be turned into a label by a client.
-6. **`calendar_id`** in the payload body: the project's own calendar, or `null` for the
-   default. Provenance stays the ADR-0112 §2.1 envelope; there is no schedule version in
+6. **`calendar_id`** in the payload body: the id of the base calendar the pass scheduled
+   against, resolved through the inheritance chain (project, else program, else
+   workspace; a workspace lock wins), `null` only when none resolves and the system
+   default applies. Overlay layers (exceptions, resource calendars) are not named. Provenance stays the ADR-0112 §2.1 envelope; there is no schedule version in
    the API, so `input_hash` is the identity of an answer.
 7. **Near-critical threshold setting.** `near_critical_threshold_days`, an integer in
    working days, 1–260, **default 10** (two weeks; at two days a task is effectively an

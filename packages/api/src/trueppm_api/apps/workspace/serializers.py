@@ -147,7 +147,7 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # (no enforcement seam). Display/input-only — never touches story_points.
             "estimation_scale",
             # Workspace-wide default near-critical float threshold, in working days
-            # (ADR-1381, #4891) — the non-null root of the Workspace → Program → Project
+            # (ADR-1381, #4907) — the non-null root of the Workspace → Program → Project
             # chain. No override_policy: it only shades a display band.
             "near_critical_threshold_days",
             # Workspace-wide default for the sprint story picker's "Ready only" filter
