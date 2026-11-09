@@ -42,6 +42,7 @@ _ARG_VALUES: dict[str, Any] = {
     "duration_delta": 1,
     "new_duration": 2,
     "n_simulations": 100,
+    "depth": 5,
     "quantity": "early_start",
 }
 
