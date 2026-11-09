@@ -31,8 +31,6 @@ export interface DependencyChain {
   chain: ReadonlySet<string>;
 }
 
-const NO_TASKS: readonly Task[] = [];
-
 const EMPTY_CHAIN: DependencyChain = {
   hoveredId: null,
   predecessors: new Set(),
@@ -60,10 +58,7 @@ function buildAdjacency(links: readonly TaskLink[]): AdjacencyMaps {
   return { predsByTask, succsByTask };
 }
 
-function bfs(
-  startId: string,
-  adjacency: Map<string, string[]>,
-): Set<string> {
+function bfs(startId: string, adjacency: Map<string, string[]>): Set<string> {
   const visited = new Set<string>();
   const queue: string[] = [startId];
   while (queue.length > 0) {
@@ -98,10 +93,12 @@ const HOVER_SETTLE_MS = 80;
 export function useDependencyHover(
   hoveredId: string | null,
   links: TaskLink[],
-  tasks: readonly Task[] = NO_TASKS,
+  tasks: readonly Task[],
 ): DependencyChain {
   // A task gated on a summary has no literal link to the summary's children (they
   // are WBS containment), so literal links alone leave it un-highlighted (#3602).
+  // Links without a `type` expand as FS (the SS/SF drop does not apply); fine for
+  // highlighting because the literal links are unioned in below.
   // The expanded leaf edges are UNIONED with the literal ones so hovering a
   // summary itself still follows its own links.
   const adjacency = useMemo(() => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSubgraph } from './buildSubgraph';
+import { buildChildrenMap, buildSubgraph, expandSummaryLinks } from './buildSubgraph';
 import type { Task, TaskLink } from '@/types';
 
 function task(id: string, overrides: Partial<Task> = {}): Task {
@@ -23,7 +23,12 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
   };
 }
 
-function link(id: string, sourceId: string, targetId: string, type: TaskLink['type'] = 'FS'): TaskLink {
+function link(
+  id: string,
+  sourceId: string,
+  targetId: string,
+  type: TaskLink['type'] = 'FS',
+): TaskLink {
   return { id, sourceId, targetId, type, lag: 0, isCritical: false };
 }
 
@@ -255,10 +260,7 @@ describe('buildSubgraph — summary dependency expansion', () => {
       task('C1', { parentId: 'S' }),
       task('B'),
     ];
-    const links = [
-      link('l1', 'A', 'C1'),
-      { ...link('l2', 'S', 'B', 'FF'), lag: 3 },
-    ];
+    const links = [link('l1', 'A', 'C1'), { ...link('l2', 'S', 'B', 'FF'), lag: 3 }];
     const { edges } = buildSubgraph('A', tasks, links);
     expect(edges).toContainEqual({ sourceId: 'C1', targetId: 'B', type: 'FF', lag: 3 });
   });
@@ -288,10 +290,7 @@ describe('buildSubgraph — summary dependency expansion', () => {
   it('drops a self-edge produced by expanding a link inside one phase', () => {
     // S → S' where both resolve onto the same leaf would deadlock the
     // topological sort; the server skips these too.
-    const tasks = [
-      task('S', { isSummary: true }),
-      task('C1', { parentId: 'S' }),
-    ];
+    const tasks = [task('S', { isSummary: true }), task('C1', { parentId: 'S' })];
     const { edges } = buildSubgraph('C1', tasks, [link('l1', 'S', 'S')]);
     expect(edges.some((e) => e.sourceId === e.targetId)).toBe(false);
   });
@@ -315,7 +314,13 @@ describe('buildSubgraph — summary dependency expansion', () => {
       task('C1', { parentId: 'S' }),
       task('B'),
     ];
-    const lagged = (id: string, s: string, t: string, lag: number, type: TaskLink['type'] = 'FS') => ({
+    const lagged = (
+      id: string,
+      s: string,
+      t: string,
+      lag: number,
+      type: TaskLink['type'] = 'FS',
+    ) => ({
       ...link(id, s, t, type),
       lag,
     });
@@ -414,11 +419,7 @@ describe('buildSubgraph — summary dependency expansion', () => {
     // rollup; the preview has no rollup pass, so dropping the node being
     // dragged would leave an empty subgraph. Pre-#3535 behavior is preserved
     // for this one gesture rather than regressed to nothing.
-    const tasks = [
-      task('S', { isSummary: true }),
-      task('C1', { parentId: 'S' }),
-      task('B'),
-    ];
+    const tasks = [task('S', { isSummary: true }), task('C1', { parentId: 'S' }), task('B')];
     const { tasks: subTasks } = buildSubgraph('S', tasks, [link('l1', 'S', 'B')]);
     expect(subTasks.map((t) => t.id).sort()).toEqual(['B', 'S']);
   });
@@ -438,5 +439,20 @@ describe('buildSubgraph — summary dependency expansion', () => {
     const tasks = [task('A', { plannedStart: '2025-02-03' })];
     const { tasks: subTasks } = buildSubgraph('A', tasks, []);
     expect(subTasks[0].plannedStart).toBe('2025-02-03');
+  });
+});
+
+describe('expandSummaryLinks — generic path', () => {
+  it('fans a typeless link out to leaves when there is no start task', () => {
+    const tasks = [
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+      task('C2', { parentId: 'S' }),
+      task('B'),
+    ];
+    const links = [{ sourceId: 'S', targetId: 'B' }];
+    const out = expandSummaryLinks(links, buildChildrenMap(tasks), null);
+    const pairs = out.map((e) => `${e.sourceId}>${e.targetId}`).sort();
+    expect(pairs).toEqual(['C1>B', 'C2>B']);
   });
 });

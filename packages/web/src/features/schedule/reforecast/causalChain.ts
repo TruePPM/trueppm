@@ -68,6 +68,8 @@ export function orderByCausalChain(
   const movedPreds = new Map<string, string[]>();
   // A link to or from a summary reaches its leaves, not the summary row (#3602);
   // unioned with the literal links so a moved summary row keeps its own hop.
+  // ChainLink has no `type`, so expansion treats links as FS (the SS/SF drop does not
+  // apply); fine for attribution because the literal links are unioned in.
   const childrenByParent = buildChildrenMap(tasks as Task[]);
   const effective =
     childrenByParent.size === 0
@@ -114,9 +116,7 @@ export function orderByCausalChain(
 
   // Causes first, then their consequences; stable by name inside a depth so the
   // list does not reshuffle between recomputes for no reason.
-  return rows.sort(
-    (a, b) => a.depth - b.depth || a.taskName.localeCompare(b.taskName),
-  );
+  return rows.sort((a, b) => a.depth - b.depth || a.taskName.localeCompare(b.taskName));
 }
 
 /**

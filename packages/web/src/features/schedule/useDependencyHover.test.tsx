@@ -19,7 +19,7 @@ describe('useDependencyHover', () => {
   ];
 
   it('returns the empty chain when no task is hovered', () => {
-    const { result } = renderHook(() => useDependencyHover(null, links));
+    const { result } = renderHook(() => useDependencyHover(null, links, []));
     expect(result.current.hoveredId).toBeNull();
     expect(result.current.predecessors.size).toBe(0);
     expect(result.current.successors.size).toBe(0);
@@ -27,7 +27,7 @@ describe('useDependencyHover', () => {
   });
 
   it('resolves the transitive predecessor and successor sets via BFS', async () => {
-    const { result } = renderHook(() => useDependencyHover('1.3', links));
+    const { result } = renderHook(() => useDependencyHover('1.3', links, []));
     await waitFor(() => expect(result.current.hoveredId).toBe('1.3'));
     expect(Array.from(result.current.predecessors).sort()).toEqual(['1.1', '1.2']);
     expect(Array.from(result.current.successors).sort()).toEqual(['1.4']);
@@ -35,7 +35,7 @@ describe('useDependencyHover', () => {
   });
 
   it('returns predecessors-only when hovering a leaf', async () => {
-    const { result } = renderHook(() => useDependencyHover('1.4', links));
+    const { result } = renderHook(() => useDependencyHover('1.4', links, []));
     await waitFor(() =>
       expect(Array.from(result.current.predecessors).sort()).toEqual(['1.1', '1.2', '1.3']),
     );
@@ -43,7 +43,7 @@ describe('useDependencyHover', () => {
   });
 
   it('returns successors-only when hovering a root', async () => {
-    const { result } = renderHook(() => useDependencyHover('1.1', links));
+    const { result } = renderHook(() => useDependencyHover('1.1', links, []));
     await waitFor(() =>
       expect(Array.from(result.current.successors).sort()).toEqual(['1.2', '1.3', '1.4']),
     );
@@ -51,7 +51,7 @@ describe('useDependencyHover', () => {
   });
 
   it('returns the empty chain for a task with no dep edges', async () => {
-    const { result } = renderHook(() => useDependencyHover('1.5', links));
+    const { result } = renderHook(() => useDependencyHover('1.5', links, []));
     await waitFor(() => expect(result.current.hoveredId).toBe('1.5'));
     expect(result.current.predecessors.size).toBe(0);
     expect(result.current.successors.size).toBe(0);
@@ -61,18 +61,14 @@ describe('useDependencyHover', () => {
   it('does not loop forever on a cyclic dep graph (defensive)', async () => {
     // The API rejects cycles (ADR-0055) but the BFS must still terminate if
     // bad data ever lands on the client.
-    const cyclic: TaskLink[] = [
-      link('l1', 'a', 'b'),
-      link('l2', 'b', 'c'),
-      link('l3', 'c', 'a'),
-    ];
-    const { result } = renderHook(() => useDependencyHover('a', cyclic));
+    const cyclic: TaskLink[] = [link('l1', 'a', 'b'), link('l2', 'b', 'c'), link('l3', 'c', 'a')];
+    const { result } = renderHook(() => useDependencyHover('a', cyclic, []));
     await waitFor(() => expect(result.current.chain.size).toBe(3));
   });
 
   it('debounces rapid hover transitions through a settle delay', async () => {
     const { result, rerender } = renderHook(
-      ({ id }: { id: string | null }) => useDependencyHover(id, links),
+      ({ id }: { id: string | null }) => useDependencyHover(id, links, []),
       { initialProps: { id: null as string | null } },
     );
     // Three transitions in quick succession — the prior settle timers are
@@ -86,7 +82,7 @@ describe('useDependencyHover', () => {
 
   it('clears the chain immediately when hoveredId transitions to null', async () => {
     const { result, rerender } = renderHook(
-      ({ id }: { id: string | null }) => useDependencyHover(id, links),
+      ({ id }: { id: string | null }) => useDependencyHover(id, links, []),
       { initialProps: { id: '1.3' as string | null } },
     );
     await waitFor(() => expect(result.current.hoveredId).toBe('1.3'));
@@ -113,7 +109,7 @@ describe('useDependencyHover', () => {
       expect(Array.from(result.current.successors)).toContain('B');
     });
 
-    it('still follows the summary row\'s own literal links', async () => {
+    it("still follows the summary row's own literal links", async () => {
       const { result } = renderHook(() => useDependencyHover('S', gated, tasks));
       await waitFor(() => expect(result.current.hoveredId).toBe('S'));
       expect(Array.from(result.current.predecessors)).toContain('A');
