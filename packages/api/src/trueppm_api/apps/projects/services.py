@@ -1214,47 +1214,88 @@ def _burn_baseline_series(
     return _baseline_planned_series(weight_by_task, finishes, days, chart_type=chart_type)
 
 
-def _burn_history_index(
-    project_id: str | uuid.UUID, until: date
+def _windowed_history_by_task(
+    project_id: str | uuid.UUID,
+    window_start: datetime,
+    window_end: datetime,
+    fields: Sequence[str],
+    *,
+    newest_first: bool,
 ) -> dict[Any, list[dict[str, Any]]]:
-    """Index every history row for the project up to ``until``, newest-first per task.
+    """Group a project's history rows by task, bounded to ``[window_start, window_end]``.
 
-    One query — the replay walks the returned lists in memory, so a caller that
-    needs several curves over the same window must build this index once and share
-    it rather than re-querying per curve (#3566).
+    Two queries, merged per task: every row inside the window, plus each task's single
+    latest row strictly *before* ``window_start`` (Postgres ``DISTINCT ON``). The
+    carry-in row is what keeps a task whose last edit predates the window contributing
+    its state to every day of it; a plain ``history_date >= window_start`` filter would
+    silently drop such tasks. Rows older than the carry-in can never be the answer for
+    a day inside the window, so they are never read into Python (#3579) — the database
+    still walks the ``(project_id, history_date)`` index range, but the Python cost is
+    O(rows-in-window + tasks) instead of O(all edits ever).
 
-    Bounded on the *day* axis only: there is no lower date bound, so this reads
-    every history row the project has ever accumulated up to ``until``, not just
-    the rows inside the window. Narrowing it needs a second "latest row strictly
-    before ``since``" query per task to keep the carry-in state correct, which the
-    two sibling flow-metrics replays need in the same shape (#3579).
+    ``history_id`` is the tiebreak for equal ``history_date`` so both queries agree on
+    which of two same-instant rows is "latest". The explicit ``order_by`` clears the
+    history model's ``Meta.ordering``, which would otherwise precede ``DISTINCT ON``'s
+    key and silently turn it into a no-op.
     """
     from trueppm_api.apps.projects.models import Task
 
     HistoricalTask = Task.history.model
+    cols = list(dict.fromkeys(["id", "history_id", "history_date", *fields]))
 
-    end_of_until = datetime.combine(
-        until, datetime.max.time(), tzinfo=timezone.get_current_timezone()
+    window_order = (
+        ("-history_date", "-history_id") if newest_first else ("history_date", "history_id")
     )
-
-    # Newest-first, so the first row on or before a given day is that task's state
-    # on it. Ordering by `history_date` alone (rather than `(id, -history_date)`)
-    # keeps the `(project_id, history_date)` index able to serve the sort — the
-    # rows are grouped by a dict below, so their order *across* tasks is irrelevant
-    # and sorting by task id only bought a Sort node over the whole result.
-    history_rows = list(
+    window_rows = list(
         HistoricalTask.objects.filter(
             project_id=project_id,
-            history_date__lte=end_of_until,
+            history_date__gte=window_start,
+            history_date__lte=window_end,
         )
-        .order_by("-history_date")
-        .values("id", "history_date", "status", "story_points", "history_type", "is_deleted")
+        .order_by("id", *window_order)
+        .values(*cols)
+    )
+    carry_in = list(
+        HistoricalTask.objects.filter(project_id=project_id, history_date__lt=window_start)
+        .order_by("id", "-history_date", "-history_id")
+        .distinct("id")
+        .values(*cols)
     )
 
     by_task: dict[Any, list[dict[str, Any]]] = {}
-    for row in history_rows:
+    for row in window_rows:
         by_task.setdefault(row["id"], []).append(row)
+    for row in carry_in:
+        rows = by_task.setdefault(row["id"], [])
+        # The carry-in is older than every window row: last when newest-first, first
+        # when oldest-first.
+        if newest_first:
+            rows.append(row)
+        else:
+            rows.insert(0, row)
     return by_task
+
+
+def _burn_history_index(
+    project_id: str | uuid.UUID, since: date, until: date
+) -> dict[Any, list[dict[str, Any]]]:
+    """Index the project's history for ``[since, until]``, newest-first per task.
+
+    The replay walks the returned lists in memory, so a caller that needs several
+    curves over the same window must build this index once and share it rather than
+    re-querying per curve (#3566).
+
+    Bounded on both axes (#3579): the rows inside the window plus one carry-in row per
+    task, via :func:`_windowed_history_by_task`.
+    """
+    tz = timezone.get_current_timezone()
+    return _windowed_history_by_task(
+        project_id,
+        datetime.combine(since, datetime.min.time(), tzinfo=tz),
+        datetime.combine(until, datetime.max.time(), tzinfo=tz),
+        ("status", "story_points", "history_type", "is_deleted"),
+        newest_first=True,
+    )
 
 
 def burn_series_combined(
@@ -1295,7 +1336,7 @@ def burn_series_combined(
         )
 
     days = _date_range_inclusive(since, until)
-    by_task = _burn_history_index(project_id, until)
+    by_task = _burn_history_index(project_id, since, until)
 
     series: list[dict[str, Any]] = []
     for day in days:
@@ -1380,7 +1421,7 @@ def burn_series(
         )
 
     days = _date_range_inclusive(since, until)
-    by_task = _burn_history_index(project_id, until)
+    by_task = _burn_history_index(project_id, since, until)
 
     series = _daily_burn_series(by_task, days, chart_type=chart_type, metric=metric)
     _apply_ideal_curve(series, chart_type=chart_type, day_count=len(days))
@@ -5978,6 +6019,12 @@ def flow_metrics(project_id: str | uuid.UUID, *, window_days: int = 90) -> dict[
     window_start = datetime.combine(since_date, datetime.min.time(), tzinfo=tz)
     window_end = datetime.combine(until_date, datetime.max.time(), tzinfo=tz)
 
+    # Deliberately NOT bounded below (#3579), unlike burn and the throughput forecast:
+    # cycle time starts at the first-ever IN_PROGRESS row, lead time at the earliest row
+    # (board entry), and the data_integrity scan compares history_id across a task's whole
+    # trail. A single carry-in row per task cannot answer any of those, so narrowing this
+    # read would change the numbers, not just the cost.
+    #
     # One windowed query: every history row up to the window end, oldest-first per
     # task so each row can be diffed against its predecessor (which may pre-date the
     # window — needed to detect the IN_PROGRESS entry and board-entry time).
@@ -6219,13 +6266,9 @@ def _project_weekly_throughput(
     """Compute the weekly throughput series for the forecast (ADR-0130 D3).
 
     Reuses :func:`flow_metrics`' throughput factoring without rebuilding the CFD —
-    the forecast only needs the weekly completion counts and the window start. One
-    windowed history query.
+    the forecast only needs the weekly completion counts and the window start. Two
+    bounded history queries (window + carry-in).
     """
-    from trueppm_api.apps.projects.models import Task
-
-    HistoricalTask = Task.history.model
-
     # Cap defensively, matching flow_metrics(): the only current caller hardcodes 90,
     # but an unbounded window would scan the full retained history.
     window_days = max(1, min(int(window_days), MAX_FLOW_WINDOW_DAYS))
@@ -6235,14 +6278,12 @@ def _project_weekly_throughput(
     window_start = datetime.combine(since_date, datetime.min.time(), tzinfo=tz)
     window_end = datetime.combine(until_date, datetime.max.time(), tzinfo=tz)
 
-    rows = list(
-        HistoricalTask.objects.filter(project_id=project_id, history_date__lte=window_end)
-        .order_by("id", "history_date")
-        .values("id", "history_date", "status")
+    # Window rows plus a per-task carry-in: _completion_rows only needs the status of the
+    # row *preceding* the window to tell a transition into COMPLETE from an edit while
+    # already COMPLETE, and the carry-in is exactly that row (#3579).
+    by_task = _windowed_history_by_task(
+        project_id, window_start, window_end, ("status",), newest_first=False
     )
-    by_task: dict[Any, list[dict[str, Any]]] = {}
-    for row in rows:
-        by_task.setdefault(row["id"], []).append(row)
 
     completions = [
         r["history_date"].astimezone(tz).date()

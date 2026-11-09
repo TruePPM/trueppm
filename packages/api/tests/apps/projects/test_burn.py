@@ -588,7 +588,7 @@ def test_combined_metric_points(project: Project, member: object) -> None:
 
 @pytest.mark.django_db
 def test_combined_replays_history_once(project: Project, member: object) -> None:
-    """combined derives both curves from ONE history query (#3566).
+    """combined derives both curves from ONE history replay (#3566).
 
     It used to call `burn_series` twice — one query and one full replay per
     curve — for the variant the Reports page defaults to. Counting only the
@@ -606,7 +606,9 @@ def test_combined_replays_history_once(project: Project, member: object) -> None
         )
     assert resp.status_code == 200
     history_queries = [q for q in ctx.captured_queries if "historicaltask" in q["sql"].lower()]
-    assert len(history_queries) == 1, history_queries
+    # One replay = the window read plus the per-task carry-in read (#3579); two
+    # full replays (one per curve) would be four.
+    assert len(history_queries) == 2, history_queries
 
 
 @pytest.mark.django_db
