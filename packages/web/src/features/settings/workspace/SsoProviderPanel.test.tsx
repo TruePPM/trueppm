@@ -555,6 +555,7 @@ describe('SsoProviderPanel — Edit mode', () => {
     // toggle on this page, and names the other subsystems the allow-list affects.
     expect(screen.getByText(/Helm values/)).toBeInTheDocument();
     expect(screen.getByText(/API redeploy/)).toBeInTheDocument();
+    expect(screen.getByText(/only after the API and Celery worker pods restart/)).toBeInTheDocument();
     expect(screen.getByText(/personal-access-token verification/)).toBeInTheDocument();
     expect(screen.getByText(/git-link status refresh/)).toBeInTheDocument();
     expect(screen.getByText(/webhook delivery/)).toBeInTheDocument();

@@ -389,7 +389,7 @@ function TestConnectionSection({
         <h4 className="text-[13px] font-semibold text-neutral-text-primary">Test connection</h4>
         <FieldHelp
           label="Test connection"
-          body="Probes the identity provider from the server: for OIDC, the issuer's discovery document and signing-key endpoint; for GitHub, the API host. The provider must be reachable from inside the cluster, not just from your browser — an in-cluster identity provider needs an egress allow-list entry (see below)."
+          body="Probes the identity provider from the server: for OIDC, the issuer's discovery document and signing-key endpoint; for GitHub, the API host. The provider must be reachable from inside the cluster, not just from your browser — an in-cluster identity provider needs an egress allow-list entry (see below), which takes effect only after the API and Celery worker pods restart."
           docHref="administration/single-sign-on"
         />
       </div>
@@ -438,7 +438,8 @@ function TestConnectionSection({
           </p>
           <p className="mt-1.5">
             This isn&apos;t something you can toggle from this page: it&apos;s a Helm values
-            change and an API redeploy, so loop in your platform team.
+            change and an API redeploy, so loop in your platform team. The setting is read at
+            startup, so it takes effect only after the API and Celery worker pods restart.
           </p>
           <p className="mt-1.5">
             The allow-list is process-wide — an allow-listed host also becomes reachable through

@@ -290,8 +290,8 @@ request somewhere unvalidated afterward.
 
 The one case this guard has to make room for is an identity provider an
 operator runs *inside* their own cluster, which by definition resolves to a
-private address. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is the escape hatch —
-see [Single sign-on](/administration/single-sign-on/#running-the-identity-provider-inside-your-cluster)
+private address. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is the escape hatch (read at
+startup, so a change needs a restart) — see [Single sign-on](/administration/single-sign-on/#running-the-identity-provider-inside-your-cluster)
 for how to configure it, and note there that the allow-list applies to every
 outbound integration sharing the guard, not just SSO, so it should name only a
 host at least as trusted as the identity provider itself.

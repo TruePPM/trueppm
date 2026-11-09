@@ -227,7 +227,7 @@ match, so allow-listing `mail-relay` does not admit
 `mail-relay.attacker.example`). **Set it on the API, Celery worker, and Celery
 beat processes** — the API process validates the host at save time, and the
 worker and beat processes re-run the same check at send time, so a mismatch
-between them fails a save on one process and every actual send on another.
+between them fails a save on one process and every actual send on another. The variable is read at process start, so restart or redeploy all three after changing it (a `helm upgrade` that changes an `env:` value rolls them; a change to an `envFrom` ConfigMap or Secret does not, so restart them yourself).
 After setting it, save the Email & SMTP settings again to re-run validation
 against the now-allowed host.
 
