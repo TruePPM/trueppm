@@ -291,6 +291,38 @@ The same framing, with the underlying math, is in
 > comparison covers exactly, and the ones it does not, are listed in
 > [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md#the-independent-cpm-oracle).
 
+### Reading the result
+
+Each task in `result.tasks` carries several date fields. For a task that has not
+started they coincide; for work in progress they do not, and drawing the wrong one
+makes a half-done task look like it has barely begun.
+
+| Field | Meaning |
+|-------|---------|
+| `early_start` | Start of the **remaining** work. For an in-progress task this is the data date (`status_date`), not the day work began. |
+| `scheduled_start` | Start of the task's **whole span**: `actual_start` when recorded; for in-progress work with no `actual_start`, the full duration backed off from `early_finish`; otherwise (not started or complete) `early_start`. Draw bars from this. |
+| `early_finish` | Finish of both the remaining work and the whole span. Remaining work ends when the task ends. |
+| `milestone_at_day_end` | For a zero-duration milestone, whether `early_finish` is the end of that day (`True`) or the start of it (`False`). Never diff two shown days as a slip; see the `ScheduleResult` docstring. |
+| `critical_path` | Every critical task id, in lexicographic-topological order (by `early_start`, then id). It is a list of tasks, not one chain, and it is empty when no task is critical, for example when every task is complete. |
+| `driving_edges` | The dependencies that bind their successor or have zero relationship free float, sorted deterministically. |
+
+For example, a 10-day task that began on 2026-01-05, is 25% complete, and is
+scheduled with a `status_date` of 2026-01-12:
+
+```python
+task = Task(
+    id="A", name="A", duration=timedelta(days=10),
+    percent_complete=25, actual_start=date(2026, 1, 5),
+)
+result = schedule(Project(
+    id="p", name="p", start_date=date(2026, 1, 5),
+    status_date=date(2026, 1, 12), tasks=[task], dependencies=[],
+))
+# early_start     == date(2026, 1, 12)   remaining work starts at the data date
+# early_finish    == date(2026, 1, 21)
+# scheduled_start == date(2026, 1, 5)    the span began when work did
+```
+
 ## Helpers and result types
 
 Smaller exported names that the sections above do not cover:
