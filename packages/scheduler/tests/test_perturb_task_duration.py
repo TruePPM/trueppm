@@ -970,17 +970,15 @@ def test_an_exhausted_velocity_task_keeps_no_more_points_than_the_ceiling() -> N
 def test_velocity_bands_are_monotone_in_the_pull_in(
     duration_days: int, pct: int, points: int
 ) -> None:
-    """Every band is non-increasing as the pull-in grows, from zero through exhaustion.
+    """Seeded p50/p80/p95 never get later as the pull-in grows, from zero to exhaustion.
 
-    The stronger of the two invariants #4820 names, and it implies the weaker ("a
-    pull-in never moves a band later than current"), since the sweep starts at the
-    unperturbed forecast. It is asserted because the ceiling in
-    ``_exhausted_points_ceiling`` makes it hold for the sampled distribution, not just
-    on average.
-
-    Pinned to a fixed, derandomized budget under every profile: a different points
-    total can change the velocity draw layout, so two forecasts are ordered in
-    distribution, not run by run. A fixed seed keeps that exact for these examples,
+    A regression pin on one fixture, not a proof. It asserts the ordering over 30
+    derandomized examples, with the default velocity samples, sprint length 10, and no
+    three-point estimates, so it says nothing about other velocity histories, sprint
+    lengths, or estimated tasks (#4909: a zero-point task with an estimate falls to
+    PERT; #4910: the points change the draw layout, so seeded percentiles of two
+    what-ifs need not be ordered). The ceiling in ``_exhausted_points_ceiling``
+    orders the sampled distribution; a fixed seed makes that exact for these examples,
     while an unbounded search would eventually find percentile noise rather than a bug.
     """
     baseline = _velocity_chain(duration_days, float(pct), float(points))

@@ -305,11 +305,23 @@ of days than you pulled in.
 :::
 
 On a sprint-delivered task, Monte Carlo counts whole sprints, so its bands move in
-sprint-sized steps rather than day by day. A bigger pull-in never moves a band later.
-When a pull-in uses up the remaining work of a task that has already started, its bands
-can move further than the days you pulled in. The days already worked are taken off the
-task's story points, and the what-if removes enough points that no band can land later
-than for a smaller pull-in, even if the team delivers its fastest sprint.
+sprint-sized steps rather than day by day. When a pull-in uses up the remaining work
+of a task that has already started, its bands can move further than the days you pulled
+in. The days already worked are taken off the task's story points, and the what-if
+removes enough points that a bigger pull-in does not land a band later than the last
+pull-in that leaves work open, even if the team delivers its fastest sprint. That
+ordering holds across the sampled runs, and in the seeded output for the default
+velocity settings in the range the test sweep covers.
+
+Do not rely on that ordering in three cases. A deep-tail run that the sprint-horizon cap
+clamps can break it. So can a task that has a three-point estimate and whose story
+points the what-if reduces to zero: it falls back to the estimate, and a bigger pull-in
+can land a band later
+([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)). And because the number of
+sprints sampled depends on the story points, a what-if that changes the points can change
+the sampled runs, so seeded percentiles for a velocity history or sprint length outside
+the tested range need not be ordered by the pull-in
+([#4910](https://gitlab.com/trueppm/trueppm/-/issues/4910)).
 
 Before the fix
 ([#4432](https://gitlab.com/trueppm/trueppm/-/issues/4432)), the change was spread

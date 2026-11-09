@@ -699,11 +699,15 @@ def _exhausted_points_ceiling(
     trails the sum through ``K`` by at most ``m * v_max``. The ceiling starts from the
     points the last pull-in that leaves work open would have kept (a delta of
     ``1 - remaining``), so the exhausted task's sampled remaining work is never
-    longer than at that delta, which is never longer than the current forecast. It
-    holds for any run of draws, so it holds for the distribution and every percentile.
-    Two edges fall outside the argument: a run the sprint-horizon cap clamps (a deep
-    tail), and a ceiling at zero points on a task that also carries a three-point
-    estimate, which then leaves the velocity branch for PERT.
+    longer than at that delta, which is never longer than the current forecast. The
+    argument holds run by run for a fixed layout of draws (one run's velocity
+    sequence), so the ordering holds in distribution. It does not prove that seeded
+    percentiles are ordered. Three edges fall outside it: a run the sprint-horizon cap
+    clamps (a deep tail); a ceiling at zero points on a task that also carries a
+    three-point estimate, which then leaves the velocity branch for PERT, whose shifted
+    triple can land a band later (TODO(#4909)); and a what-if that changes the points,
+    because ``_sample_velocity_durations`` sizes ``max_sprints`` from ``story_points``
+    and so changes the draw layout (TODO(#4910)).
 
     This is a bound and not a conversion at the mean pace, so the bands can jump
     further than the pull-in at exhaustion: the price of a bound that has to hold for
@@ -777,8 +781,9 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     being subtracted from its sampled duration at that point, because they are read off
     ``duration``, so the sampled inputs are lowered by those days as well: the sampled
     remaining work still moves by ``delta_days``. On the velocity branch that is not
-    enough, because it counts whole sprints: the points are capped so no band lands
-    later than for a smaller pull-in (see :func:`_exhausted_points_ceiling`). A
+    enough, because it counts whole sprints: the points are capped so, for a fixed
+    draw layout, no band lands later than for a smaller pull-in (see
+    :func:`_exhausted_points_ceiling`). A
     milestone has no work to consume, so a negative delta leaves its duration,
     percentage and actuals alone, and a positive delta turns it into an open task of
     ``delta_days`` days. A zero delta is an exact identity on every task.
