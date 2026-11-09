@@ -8546,7 +8546,9 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         against a restructure, which locks in WBS order (parent, then children). A lock
         cycle with one is still possible; PostgreSQL aborts one transaction, so the
         outcome is a failed request, never the forbidden state committed. ``tasks/bulk``
-        can already deadlock across parents in the same way.
+        can already deadlock across parents in the same way. A deadlock abort currently
+        surfaces to the client as a 500 rather than a retryable error;
+        TODO(#4911) tracks that.
 
         Skipped outside a transaction, where ``select_for_update`` is illegal.
         """

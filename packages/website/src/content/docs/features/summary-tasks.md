@@ -143,13 +143,9 @@ reparent will answer `400` with `code: "summary_descendant_link"` and the same
 `blocking_dependencies` list, and nothing will move. Delete or change the link, then
 try the move again. Saving such a link as a dependency is already refused.
 
-Two other ways to end up with such a link are not refused yet: saving a dependency at
-the same moment someone else makes the move
-([#4857](https://gitlab.com/trueppm/trueppm/-/issues/4857)), and restoring a task from
+One other way to end up with such a link is not refused yet: restoring a task from
 the trash under a task it is linked to
-([#4858](https://gitlab.com/trueppm/trueppm/-/issues/4858)). An MS Project, CSV or
-Jira import can also bring one in
-([#4856](https://gitlab.com/trueppm/trueppm/-/issues/4856)).
+([#4858](https://gitlab.com/trueppm/trueppm/-/issues/4858)).
 
 ### Phases and sprints
 

@@ -796,6 +796,18 @@ def test_a_dependency_write_locks_both_endpoint_rows(project: Project, dep_type:
         assert any(needle in sql for sql in locking), f"{dep_type}: {task.name} not locked"
 
 
+def _any_backend_waiting_on_lock() -> bool:
+    """True while another backend of this database is blocked on a heavyweight lock."""
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() "
+            "AND pid <> pg_backend_pid() AND wait_event_type = 'Lock' LIMIT 1"
+        )
+        return cur.fetchone() is not None
+
+
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_fs_save_and_indent_never_store_a_summary_to_descendant_link(
     project: Project,
@@ -864,10 +876,20 @@ def test_concurrent_fs_save_and_indent_never_store_a_summary_to_descendant_link(
         dep_thread.start()
         assert at_hook.wait(timeout=20), "dependency request never reached the cycle check"
         indent_thread.start()
-        time.sleep(1.5)  # let the indent either finish (no lock) or block on the lock
-        release.set()
-        dep_thread.join(timeout=30)
-        indent_thread.join(timeout=30)
+        try:
+            # Release the dependency only once the indent has either finished (no lock:
+            # the unfixed code, so the bad state is reliably produced) or is observably
+            # blocked on a row lock (the fixed code). A fixed sleep would let a loaded
+            # runner commit the dependency first and pass an unfixed build.
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                if not indent_thread.is_alive() or _any_backend_waiting_on_lock():
+                    break
+                time.sleep(0.05)
+        finally:
+            release.set()
+            dep_thread.join(timeout=30)
+            indent_thread.join(timeout=30)
 
     assert not errors, errors
     assert results.keys() == {"dep", "indent"}, results
