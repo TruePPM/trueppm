@@ -78,8 +78,8 @@ finish date; uncertainty in their durations has little effect on the output.
 
 **Phases are not simulated — put your estimates on the leaves.** A summary (phase)
 row is a grouping node: its dates are rolled up from the tasks beneath it and it has
-no duration of its own, so it is excluded from the simulated network exactly as it is
-excluded from the [CPM pass](/features/scheduler/). A three-point estimate on a phase
+no duration of its own, so it is removed from the simulated network, as it is from the
+[CPM pass](/features/scheduler/), by expanding summary dependencies to leaves before the engine runs. The engine itself has no summary concept: a library user passes leaf tasks only. A three-point estimate on a phase
 does nothing. Dependencies drawn to or from a phase are honored — they are applied to
 its leaf tasks — so you do not need to redraw them.
 
