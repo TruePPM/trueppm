@@ -1,6 +1,6 @@
 """``trueppm_scheduler.engine`` stays importable as it was before the package split (#4550).
 
-``engine`` was one module until 0.5 split it into a subpackage. The compatibility
+``engine`` was one module through 0.4; #4550 split it into a subpackage for 0.5. The compatibility
 contract is that every name importable from the 0.4 module is still importable from
 ``trueppm_scheduler.engine``, private helpers included, for the whole 0.5 line, and that
 a pickle naming ``trueppm_scheduler.engine.<Class>`` still loads.

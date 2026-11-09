@@ -111,7 +111,7 @@ scheduler because it is the core IP:
 Mutation testing runs against the `trueppm-scheduler` package. It is scoped (via
 `[tool.mutmut]` in `packages/scheduler/pyproject.toml`) to the pure-logic
 modules — `models.py`, `derive.py`, `cli.py` — where a weak assertion is most
-dangerous; the CPM/Monte-Carlo `engine.py` is the tracked next expansion.
+dangerous; the CPM/Monte-Carlo `engine/` package is the tracked next expansion.
 
 ```bash
 cd packages/scheduler

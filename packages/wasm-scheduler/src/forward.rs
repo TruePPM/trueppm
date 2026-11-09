@@ -1,6 +1,6 @@
 //! CPM forward pass — computes early_start and early_finish for every task.
 //!
-//! Mirrors the Python `_forward_pass` function from `trueppm_scheduler.engine`.
+//! Mirrors the Python `_forward_pass` function from `trueppm_scheduler.engine.forward`.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
