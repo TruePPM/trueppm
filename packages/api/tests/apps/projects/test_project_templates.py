@@ -244,6 +244,29 @@ def test_validate_accepts_well_formed_task_nodes(fields: dict) -> None:
     validate_structure(_one_task(**fields))
 
 
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"is_milestone": True, "delivery_mode": "waterfall"},
+        {"is_milestone": True, "delivery_mode": "milestone", "duration": 5},
+        {"delivery_mode": "bogus"},
+    ],
+)
+def test_task_node_refusal_names_the_task_not_just_its_ref(fields: dict) -> None:
+    """Publish surfaces this from a legacy row, where the ref is an opaque UUID."""
+    doc = {
+        "version": STRUCTURE_VERSION,
+        "tasks": [
+            {"ref": "7d1c-uuid", "name": "Go live", "wbs_path": "1.2", **fields},
+        ],
+    }
+    with pytest.raises(TemplateStructureError) as exc:
+        validate_structure(doc)
+    assert "'Go live'" in str(exc.value)
+    assert "WBS 1.2" in str(exc.value)
+    assert "7d1c-uuid" in str(exc.value)
+
+
 @pytest.mark.django_db
 def test_malformed_structure_is_refused_before_any_row_is_written(
     target_project: Project, owner: Any

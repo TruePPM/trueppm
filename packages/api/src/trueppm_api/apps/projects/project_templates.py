@@ -269,6 +269,12 @@ def _validate_task_node_values(node: dict[str, Any]) -> None:
     )
 
     ref = node["ref"]
+    # A legacy source row can fail these checks at publish time, where the user only
+    # knows the task by name and WBS position, not by its ref (a UUID).
+    label = f"Task {ref!r}"
+    if node.get("name"):
+        label += f" ({node['name']!r}"
+        label += f", WBS {node['wbs_path']})" if node.get("wbs_path") else ")"
     for attr, choices in (
         ("delivery_mode", DeliveryMode),
         ("governance_class", GovernanceClass),
@@ -276,11 +282,11 @@ def _validate_task_node_values(node: dict[str, Any]) -> None:
     ):
         value = node.get(attr)
         if value and value not in choices.values:
-            raise TemplateStructureError(f"Task {ref!r} has an unrecognized {attr} {value!r}.")
+            raise TemplateStructureError(f"{label} has an unrecognized {attr} {value!r}.")
 
     is_milestone = node.get("is_milestone")
     if is_milestone is not None and not isinstance(is_milestone, bool):
-        raise TemplateStructureError(f"Task {ref!r} has a non-boolean is_milestone.")
+        raise TemplateStructureError(f"{label} has a non-boolean is_milestone.")
     duration = node.get("duration")
     if duration is not None and (
         isinstance(duration, bool)
@@ -288,7 +294,7 @@ def _validate_task_node_values(node: dict[str, Any]) -> None:
         or not 0 <= duration <= MAX_TASK_DURATION_DAYS
     ):
         raise TemplateStructureError(
-            f"Task {ref!r} has an invalid duration; it must be a whole number of days "
+            f"{label} has an invalid duration; it must be a whole number of days "
             f"from 0 to {MAX_TASK_DURATION_DAYS}."
         )
 
@@ -297,10 +303,10 @@ def _validate_task_node_values(node: dict[str, Any]) -> None:
     )
     if bool(is_milestone) != is_milestone_mode:
         raise TemplateStructureError(
-            f"Task {ref!r}: is_milestone and delivery_mode 'milestone' must agree."
+            f"{label}: is_milestone and delivery_mode 'milestone' must agree."
         )
     if is_milestone and duration:
-        raise TemplateStructureError(f"Task {ref!r} is a milestone and must have duration 0.")
+        raise TemplateStructureError(f"{label} is a milestone and must have duration 0.")
 
 
 def _validate_dependency_edges(edges: Any, refs: set[str]) -> None:
