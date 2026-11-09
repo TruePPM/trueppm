@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from django.urls import URLPattern, URLResolver, get_resolver
+from rest_framework.generics import GenericAPIView
 
 from trueppm_api.apps.projects.models import Calendar, Label, Program, Project, Risk, Task
 from trueppm_api.apps.resources.models import Resource, Skill
@@ -62,6 +63,11 @@ def test_every_search_viewset_uses_the_detail_lookup_mixin(view: type) -> None:
         f"{view.__name__} declares search_fields but its detail routes will 404 on a "
         "non-matching ?search= — add DetailLookupIgnoresSearchMixin first in its bases"
     )
+    # It must precede GenericAPIView or its get_object() is shadowed by DRF's.
+    mro = view.__mro__
+    assert mro.index(DetailLookupIgnoresSearchMixin) < mro.index(GenericAPIView), (
+        f"{view.__name__}: DetailLookupIgnoresSearchMixin must precede the viewset bases"
+    )
 
 
 @pytest.fixture
@@ -100,6 +106,9 @@ def detail_urls(
     ],
 )
 @pytest.mark.parametrize("query", ["?search=zzz-no-match", "?ordering=-name"])
+# The ?ordering= cases are smoke-only: every ordering_fields entry is a concrete column,
+# so ordering never filtered a pk lookup and a no-op mixin still passes them. Only the
+# ?search= cases can fail without the mixin.
 def test_detail_get_ignores_search_and_ordering(
     name: str, query: str, detail_urls: dict[str, str], owner: Any
 ) -> None:
