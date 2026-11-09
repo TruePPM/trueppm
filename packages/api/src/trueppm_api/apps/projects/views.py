@@ -6990,9 +6990,23 @@ class TaskViewSet(
             400: state_refusal_400(
                 "The task's parent has no other live child and drives a Start-to-Start "
                 "or Start-to-Finish link: restoring the task would make that parent a "
-                "summary, which ADR-0370 forbids to drive one (#4830).",
-                codes=(SUMMARY_START_LINK_CODE,),
-                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+                "summary, which ADR-0370 forbids to drive one (#4830). Also returned "
+                "(code ``cyclic_dependency`` or ``self_reference``, with ``offending``) "
+                "when restoring would leave the dependency graph unschedulable, e.g. "
+                "the row's old WBS position is now under a live task it is linked to "
+                "(#4858). Nothing is restored.",
+                codes=(SUMMARY_START_LINK_CODE, "cyclic_dependency", "self_reference"),
+                extra_properties={
+                    **BLOCKING_DEPENDENCIES_SCHEMA,
+                    "offending": {
+                        "type": "array",
+                        "description": (
+                            "Present with ``cyclic_dependency`` / ``self_reference``: "
+                            "ids of the tasks on the cycle."
+                        ),
+                        "items": {"type": "string"},
+                    },
+                },
             ),
             409: OpenApiResponse(
                 description=(
@@ -7022,6 +7036,11 @@ class TaskViewSet(
             WbsPathOccupied,
             cascade_task_children_restore,
         )
+        from trueppm_api.apps.projects.task_grouping import (
+            GroupingRejected,
+            assert_graph_feasible,
+            capture_graph_state,
+        )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # Look up the tombstoned row directly — get_queryset() filters is_deleted=False.
@@ -7039,9 +7058,21 @@ class TaskViewSet(
                 block = _restore_parent_summary_start_link_block(task)
                 if block is not None:
                     return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+                before = capture_graph_state(project_id)
                 task.restore()
                 cascade_task_children_restore(task)
+                # #4858: a trashed row keeps its old wbs_path, so a live task that has
+                # since taken the parent path adopts the row (and its revived subtree)
+                # as a descendant. A link between the two then runs summary-to-own-
+                # descendant, which the CPM refuses on every recalculation (#4705).
+                # Refuse and roll back rather than silently drop the link: the user
+                # asked for this row back and must decide which side moves. The
+                # differential guard leaves a project that was already infeasible alone.
+                assert_graph_feasible(project_id, before)
                 cross_edges = cross_project_edge_rows(tasks=task_subtree(task))
+        except GroupingRejected as rejected:
+            # Raised inside the atomic block, so the restore is already rolled back.
+            return Response(rejected.body, status=rejected.status_code)
         except WbsPathOccupied as exc:
             # Refuse rather than re-path (#3071). This is the one restore path with a
             # person on the other end of it: they asked for this row back at this
