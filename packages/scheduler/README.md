@@ -736,7 +736,12 @@ release it is scheduled for:
   forecast
   ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)); velocity bands step backward at the what-if exhaustion
   boundary
-  ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)); and the API's velocity sampler has drifted from the library
+  ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)); what-if changes the
+  velocity draw layout, so seeded bands are not ordered by the pull-in
+  ([#4910](https://gitlab.com/trueppm/trueppm/-/issues/4910)); a what-if pull-in can
+  move a band later when a velocity task's points reach 0 and it falls to its PERT
+  estimate
+  ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)); and the API's velocity sampler has drifted from the library
   on the horizon cap (2000 versus 10,000)
   ([#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)).
 - **Calendars** — a zero-lag milestone-to-milestone link into a narrower
