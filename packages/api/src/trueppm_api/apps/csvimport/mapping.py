@@ -107,6 +107,17 @@ TARGET_FIELDS: tuple[FieldSpec, ...] = (
         aliases=("assignee", "owner", "resource", "assignedto", "responsible", "who"),
     ),
     FieldSpec(
+        field="allocation",
+        label="Allocation",
+        required=False,
+        aliases=("allocation", "units", "percent", "capacity"),
+        # Exact-only throughout: a fuzzy hit would steal headers that already map
+        # elsewhere ("Allocation Notes" -> notes, "Percent Complete" -> progress,
+        # "Work Units" -> work). The field must only ever claim a header that
+        # previously mapped to nothing.
+        exact_only=("allocation", "units", "percent", "capacity"),
+    ),
+    FieldSpec(
         field="predecessors",
         label="Predecessors",
         required=False,

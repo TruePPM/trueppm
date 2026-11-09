@@ -135,6 +135,7 @@ the importer does not recognize is one you can map by hand on step 2.
 | Finish | `Finish`, `End`, `Due`, `Due Date`, `Planned Finish` |
 | % complete | `% Complete`, `Percent Complete`, `Done`, `Progress` |
 | Assignee | `Assignee`, `Owner`, `Resource`, `Assigned To`, `Responsible` |
+| Allocation | `Allocation`, `Units`, `Percent`, `Capacity` |
 | Predecessors | `Predecessors`, `Depends On`, `Dependency`, `Blocked By`, `After` |
 | Milestone | `Milestone` |
 | Notes | `Notes`, `Description`, `Comment`, `Detail` |
@@ -262,6 +263,43 @@ from its start ([scheduler conventions](/features/scheduler-conventions/)). The 
 of the file still imports, and the import result's `warnings` list names each skipped
 link. Ships in 0.5; in the current release the link is imported and the project's
 schedule then stops recalculating until it is deleted or retyped.
+
+## Assignee allocation
+
+:::note[Ships in 0.5]
+Allocation columns and `Name:NN` suffixes ship in 0.5. In the current release every
+assignee on an imported row is assigned at 100%, whatever the file says.
+:::
+
+By default every assignee is assigned at 100%. Capacity, utilization and the heat map
+all sum those assignments, so a partly-allocated person looks fully booked unless the
+file says otherwise. Two spellings set the allocation:
+
+- **An Allocation column** (`Allocation`, `Units`, `Percent`, `Capacity`) applies to
+  every assignee on that row.
+- **A `:NN` suffix on a name** sets one person: `Ana:50; Bob` assigns Ana at 50% and
+  Bob at 100%. This is the same grammar as the `@ana:50` token in the schedule grid.
+
+When both are present the per-name suffix wins and the column fills in the names that
+have none. Only a *trailing* `:` followed by a number counts, so a name such as
+`Team: Core` is left alone.
+
+Values are **percentages**: `50`, `50%` and `62.5` are accepted. A bare `0.5` means half
+of one percent, not half a person, because the schedule grid's `@ana:NN` token has no
+fraction form. Values clamp to 1%-200% instead of failing the import. A blank,
+non-numeric or zero cell keeps the 100% default, so a file without the column imports
+exactly as before. If the same person is named twice in one cell, the last allocation
+wins.
+
+Header matching ignores case, punctuation and a trailing plural "s", so `Allocation %`
+and `Unit` also match. Only a whole-header match counts: `Resource Allocation`,
+`Work Units` and `Team Capacity` are not detected and need a remap in the wizard.
+
+Two pitfalls. A column headed exactly `Percent` is read as allocation, not progress, so
+rename a progress column with that header (`Percent Complete` maps to progress) or
+remap it in the wizard. And inside a multi-value cell a comma always separates
+assignees, so `Ana:62,5` is read as `Ana:62` and a second assignee named `5`; write the
+decimal with a period (`Ana:62.5`).
 
 ## Dates, durations and percentages
 

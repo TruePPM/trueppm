@@ -221,3 +221,42 @@ class TestMultiColumnFields:
         assert mappings[1].field == "notes"
         assert mappings[2].field is None
         assert mappings[2].confidence == "duplicate"
+
+
+class TestAllocationDetection:
+    """The allocation field (#3108) must claim only headers that were unmapped."""
+
+    @staticmethod
+    def _field(header: str) -> str | None:
+        return detect_mapping([header])[0].field
+
+    @pytest.mark.parametrize("header", ["Allocation", "Units", "Percent", "Capacity", "UNITS"])
+    def test_exact_headers_map_to_allocation(self, header: str) -> None:
+        assert self._field(header) == "allocation"
+
+    @pytest.mark.parametrize(
+        "header", ["Percent Complete", "% Complete", "Percent Done", "Progress"]
+    )
+    def test_progress_headers_do_not_become_allocation(self, header: str) -> None:
+        assert self._field(header) == "percent_complete"
+
+    @pytest.mark.parametrize(
+        "header", ["Allocation Notes", "Units Notes", "Capacity Notes", "Notes on Capacity"]
+    )
+    def test_notes_headers_still_map_to_notes(self, header: str) -> None:
+        assert self._field(header) == "notes"
+
+    @pytest.mark.parametrize(
+        ("header", "expected"),
+        [
+            ("Resource Allocation", "resource"),
+            ("Resource Capacity", "resource"),
+            ("Effort Units", "duration"),
+            ("Team Capacity", None),
+            ("Work Units", None),
+        ],
+    )
+    def test_previously_mapped_headers_are_unchanged(
+        self, header: str, expected: str | None
+    ) -> None:
+        assert self._field(header) == expected

@@ -32,6 +32,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import io
+import math
 import re
 import zipfile
 from dataclasses import dataclass, field
@@ -1824,6 +1825,38 @@ def _collect_task_labels(
     return dropped, truncated
 
 
+#: Allocation bounds as a percent, mirroring the web ``@name:NN`` token
+#: (``MIN_OWNER_PERCENT`` / ``MAX_OWNER_PERCENT``) and the API's ``[0.01, 2.0]``
+#: fraction range on ``TaskResource.units``.
+_MIN_ALLOCATION_PERCENT = 1.0
+_MAX_ALLOCATION_PERCENT = 200.0
+
+#: A trailing ``:<number>`` (optionally ``%``) on one assignee name. Only a
+#: trailing numeric suffix counts, so a name that merely contains ``:`` is intact.
+_NAME_ALLOCATION_RE = re.compile(r"^(?P<name>.*\S)\s*:\s*(?P<pct>\d+(?:\.\d+)?)\s*%?\s*$")
+
+
+def _parse_allocation_percent(raw: str) -> float | None:
+    """Read one allocation as a percent: ``50``, ``50%``, ``62.5``.
+
+    A bare number is always a percent (``0.5`` is half a percent, not half a
+    person) so the CSV grammar matches the ``@ana:50`` authoring token instead
+    of guessing between percent and fraction. Out-of-range values clamp rather
+    than error; blank, non-numeric or non-positive returns None so the caller
+    keeps the 100% default.
+    """
+    text = raw.strip().replace("%", "").strip()
+    if not text:
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return min(_MAX_ALLOCATION_PERCENT, max(_MIN_ALLOCATION_PERCENT, value))
+
+
 def _build_resources(
     result: ParseResult,
     data_rows: list[list[Any]],
@@ -1835,27 +1868,49 @@ def _build_resources(
     kept, so "J. Smith" and "j. smith" become one resource named as first
     written. ``import_project`` match-or-creates these against the project's
     resource pool.
+
+    Allocation: a per-name ``Ana:50`` suffix wins; otherwise the row's
+    Allocation column applies; otherwise 100%. A name repeated within one cell
+    collapses to one assignment (last wins, as with the ``@`` token) because
+    ``TaskResource`` is unique on (task, resource).
     """
     if "resource" not in by_field:
         return
 
     resources: list[ResourceData] = []
     uid_by_key: dict[str, int] = {}
+    allocation_col = _one(by_field, "allocation") if "allocation" in by_field else None
 
     for task in result.project_data.tasks:
-        raw = _cell(data_rows[task.uid - 1], _one(by_field, "resource")).strip()
+        row = data_rows[task.uid - 1]
+        raw = _cell(row, _one(by_field, "resource")).strip()
         if not raw:
             continue
+        row_percent = (
+            _parse_allocation_percent(_cell(row, allocation_col))
+            if allocation_col is not None
+            else None
+        )
+        units_by_uid: dict[int, float] = {}
         for part in re.split(r"[,;/]", raw):
             name = part.strip()
+            percent = row_percent
+            suffix = _NAME_ALLOCATION_RE.match(name)
+            if suffix:
+                name = suffix.group("name").strip()
+                parsed = _parse_allocation_percent(suffix.group("pct"))
+                if parsed is not None:
+                    percent = parsed
             if not name:
                 continue
             key = name.lower()
             if key not in uid_by_key:
                 uid_by_key[key] = len(resources) + 1
                 resources.append(ResourceData(uid=uid_by_key[key], name=name[:255]))
+            units_by_uid[uid_by_key[key]] = 1.0 if percent is None else percent / 100.0
+        for resource_uid, units in units_by_uid.items():
             task.resource_assignments.append(
-                AssignmentData(task_uid=task.uid, resource_uid=uid_by_key[key], units=1.0)
+                AssignmentData(task_uid=task.uid, resource_uid=resource_uid, units=units)
             )
 
     result.project_data.resources = resources
