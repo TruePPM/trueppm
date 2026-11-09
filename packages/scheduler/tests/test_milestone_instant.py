@@ -119,7 +119,7 @@ def _effective_early_instant(day: date | None, t: Task, cal: Calendar) -> date:
 
     For an ordinary (>0 duration) task every date field is unambiguous. A
     zero-duration task is placed as an instant (:func:`_place_milestone` in
-    ``engine.py``) and *shown* on one of two adjacent working days —
+    ``engine/milestones.py``) and *shown* on one of two adjacent working days —
     ``milestone_at_day_end`` records which, unconditionally, the moment the
     forward pass places it — so two schedules that land the same task on the
     same raw instant by different predecessor paths (one a direct zero-lag
@@ -146,7 +146,7 @@ def _possible_late_positions(day: date | None, t: Task, cal: Calendar) -> set[da
     """The working-time position(s) ``day`` (``t``'s late date) could represent (#4207).
 
     Unlike the early date, ``milestone_at_day_end`` does not tell us how a
-    zero-duration task's *late* date was shown: ``_late_display`` (``engine.py``)
+    zero-duration task's *late* date was shown: ``_late_display`` (``engine/milestones.py``)
     sometimes returns ``task.early_start`` verbatim (so it carries the early
     flag), and otherwise picks between a start-of-day and an end-of-day reading
     of its own, using the early flag (``early[1]``) as one input among several —
@@ -170,7 +170,7 @@ def _float_agrees(t: Task, u: Task) -> bool:
 
     Total float is measured between raw instants, not shown days, but a
     milestone's *own* float is measured to :func:`_float_late_instant`
-    (``engine.py``, #4183), which caps a start-of-day reading's late instant at
+    (``engine/milestones.py``, #4183), which caps a start-of-day reading's late instant at
     the last working day on or before ``project_finish`` and leaves an
     end-of-day reading's alone. That cap is the only place a milestone's early
     reading enters its float, so two schedules that agree on every raw instant

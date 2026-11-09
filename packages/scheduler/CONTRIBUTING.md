@@ -179,6 +179,24 @@ A name used by several modules (`_forward_pass` in both `engine.cpm` and
 it reads. Then prove the patch takes: break the behavior it guards and watch the
 test fail.
 
+### History of the engine modules
+
+The `engine/` modules were cut out of one `engine.py` in a single commit (#4550),
+so each one is a new file to git. `git log --follow` stops at that commit, and so
+does plain `git blame -C -C` for most of the code, as does ignoring the commit
+via `.git-blame-ignore-revs`. To trace a line back to the `engine.py` commit that
+wrote it, use the histogram diff:
+
+```bash
+git -c diff.algorithm=histogram blame -C -C src/trueppm_scheduler/engine/cpm.py
+```
+
+On `engine/cpm.py` that leaves 48 of 255 lines on the split commit (the module's
+new docstring and imports), where plain `blame -C -C` leaves 240. For the
+commits before the split, run `git log <split-commit>^ --
+src/trueppm_scheduler/engine.py`; the split commit is the one listed in
+`.git-blame-ignore-revs`.
+
 ## Linting and type checking
 
 ```bash

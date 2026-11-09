@@ -214,6 +214,14 @@ def test_derive_with_schedules_result_does_not_replay(monkeypatch: pytest.Monkey
     for task in project.tasks:
         for q in QUANTITIES:
             derive_value(project, task.id, q, result)
+    # Positive controls: an absence check passes on a patch that misses, so prove the
+    # patched names are the ones each path reaches. A twin project is not trusted
+    # with the kept state and replays; ``result=None`` runs schedule() itself.
+    twin = dataclasses.replace(project)
+    with pytest.raises(AssertionError, match="replayed the CPM passes"):
+        derive_value(twin, "B", Quantity.LATE_START, result)
+    with pytest.raises(AssertionError, match="replayed the CPM passes"):
+        derive_value(project, "B", Quantity.LATE_START)
 
 
 def test_derive_without_a_result_schedules_once(monkeypatch: pytest.MonkeyPatch) -> None:

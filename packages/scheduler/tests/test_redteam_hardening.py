@@ -1021,6 +1021,10 @@ def test_monte_carlo_sensitivity_cap_is_validated_before_the_simulation(
     with pytest.raises(InvalidScheduleInput, match="sensitivity_cap"):
         monte_carlo(_chain_with_milestone(), runs=4, sensitivity_cap=bad)  # type: ignore[arg-type]
     assert not ran, "the simulation started before sensitivity_cap was checked"
+    # Positive control: `not ran` also holds for a spy monte_carlo never reaches, so
+    # prove a valid call does reach it.
+    monte_carlo(_chain_with_milestone(), runs=4, sensitivity_cap=3)
+    assert ran, "the spy is not on the _build_graph that monte_carlo() calls"
 
 
 @pytest.mark.parametrize(
