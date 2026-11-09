@@ -323,6 +323,63 @@ result = schedule(Project(
 # scheduled_start == date(2026, 1, 5)    the span began when work did
 ```
 
+### Summary tasks
+
+`Project` carries no task hierarchy, and `schedule()` has no concept of a summary
+(phase) row. Every task it is given is scheduled as an ordinary leaf. Pass a phase
+straight in and a 0-duration phase becomes a milestone at the project start, and a
+link from it constrains only its direct successor, not the phase's leaves, with no
+error. If your data has a WBS (an MS Project import, for example), call
+`expand_summary_dependencies(tasks, deps, children_map)` first, then schedule what
+it returns:
+
+```python
+from datetime import date, timedelta
+from trueppm_scheduler import (
+    Calendar,
+    Dependency,
+    DependencyType,
+    Project,
+    Task,
+    expand_summary_dependencies,
+    schedule,
+)
+
+tasks = [
+    Task(id="phase", name="Phase 1", duration=timedelta(0)),  # the summary row
+    Task(id="design", name="Design", duration=timedelta(days=2)),
+    Task(id="build", name="Build", duration=timedelta(days=3)),
+    Task(id="test", name="Test", duration=timedelta(days=2)),
+]
+deps = [
+    Dependency(predecessor_id="design", successor_id="build", dep_type=DependencyType.FS),
+    Dependency(predecessor_id="phase", successor_id="test", dep_type=DependencyType.FS),
+]
+children_map = {"phase": ["design", "build"]}  # summary id -> direct child ids
+
+leaf_tasks, leaf_deps = expand_summary_dependencies(tasks, deps, children_map)
+project = Project(
+    id="p-1",
+    name="With a phase",
+    start_date=date(2026, 1, 5),
+    tasks=leaf_tasks,
+    dependencies=leaf_deps,
+    calendar=Calendar(),
+)
+result = schedule(project)
+test = next(t for t in result.tasks if t.id == "test")
+print(test.early_start)  # 2026-01-12: Test waits for Build, the phase's last leaf
+```
+
+Scheduling `tasks` and `deps` directly, without the expansion, starts Test on
+2026-01-05, because the link from `phase` reaches nothing but Test.
+
+The rules about summary links belong to `expand_summary_dependencies`, not to
+`schedule()`: it removes the summary rows, fans each FS and FF link out to the
+leaves, and rejects an SS or SF link *from* a summary with `InvalidScheduleInput`
+([ADR-0370](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0370-reject-ss-sf-from-summary-tasks.md)).
+`schedule()` never sees a summary, so it never raises for one.
+
 ## Helpers and result types
 
 Smaller exported names that the sections above do not cover:
@@ -357,7 +414,7 @@ convention. The same list, with the comparison spelled out, is on
 - **A data date at or before the project start moves nothing, and neither does such a `planned_start` (SNET) on a task with no SF link.** Snapped to the task's calendar, a bound on or before the project's first working day is the project-start floor, so the engine treats it as that floor: every task that takes the project start already has it, and the places that leave it out (an SF-linked task, and the instant a milestone's successors measure their lags from, both below) do not get it back through it. So adding `status_date <= start_date` changes no task's dates, floats or the finish, a `null` status date schedules exactly like one on the start, and an SNET on or before the start changes nothing on a task with no SF link. This matters because callers often default the data date to today: on a project that starts in the future that is a date before the start, and it used to pull a free milestone's successors up to (start − today) days earlier. The data-date half applies to SF-linked tasks too, which is a decision, not a consequence: a sub-start data date could hold an SF-linked task that its link places even earlier, and it no longer does. An SNET on an SF-linked task is kept verbatim, even before the start: such a task takes no project-start floor, so the SNET can only hold it later than its links place it, and snapping a task to the project start (or moving the start to it) writes exactly that SNET. A recorded `actual_start` is kept verbatim, because a fact may precede the plan. A data date or SNET after the start binds as before. ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635))
 - A zero-duration **milestone** is an instant: at the end of its driver's finish day, or the start of the day a floor holds it to. A lag, or a predecessor's recorded finish on a non-working day, that places it after a weekend or holiday shows it at the start of the next working day — confirmed for the work-driven case against a real MS Project export with all 10 zero-duration milestones in a saved `.mpp` chain. The project start only bounds the day a milestone is shown on: a milestone that a lead or an SF-placed predecessor puts before it is shown on the project's first working day (unless it has an SF link of its own), but its successors' lags count from the earlier point — **unverified** against MS Project or P6 ([#4225](https://gitlab.com/trueppm/trueppm/-/issues/4225)). Its start and finish are one instant, so an FF link into a milestone places it exactly where FS does, a lagged SF link places it on its anchor plus the lag (a positive lag counts from the predecessor's start itself), and an FF link out of it measures a positive lag from that instant; with no lag or a lead it counts from the end of the working day before the milestone, so a longer lead never finishes the successor later. ([#4079](https://gitlab.com/trueppm/trueppm/-/issues/4079), [#4173](https://gitlab.com/trueppm/trueppm/-/issues/4173), [#4225](https://gitlab.com/trueppm/trueppm/-/issues/4225), [#4272](https://gitlab.com/trueppm/trueppm/-/issues/4272), [#4273](https://gitlab.com/trueppm/trueppm/-/issues/4273), [#4323](https://gitlab.com/trueppm/trueppm/-/issues/4323))
 - The **only** date constraint is start-no-earlier-than, via `planned_start`; `planned_finish` is reserved and inert — no deadline, finish, must-start-on or ALAP constraint. **Differs.** ([#3345](https://gitlab.com/trueppm/trueppm/-/issues/3345), [#804](https://gitlab.com/trueppm/trueppm/-/issues/804))
-- An **SS or SF link from a summary task** is rejected (FS/FF from a summary expand to its leaves). **Differs** — MS Project accepts it. ([ADR-0370](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0370-reject-ss-sf-from-summary-tasks.md))
+- An **SS or SF link from a summary task** is rejected by `expand_summary_dependencies` with `InvalidScheduleInput` (FS/FF from a summary expand to its leaves). `schedule()` itself has no summary concept: run the expansion first ([Summary tasks](#summary-tasks)). **Differs** — MS Project accepts it. ([ADR-0370](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0370-reject-ss-sf-from-summary-tasks.md))
 
 **Progress and actuals**
 
