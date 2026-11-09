@@ -16,6 +16,18 @@ import type { Task, TaskLink } from '@/types';
 import type { CpmEdge, CpmTask } from '@/workers/cpmWorker.types';
 
 /**
+ * The minimal edge shape the summary-expansion rule reads. `type` and `lag` are
+ * optional so a caller that carries only endpoints (the reforecast causal chain)
+ * can share the one implementation instead of copying the fan-out rule.
+ */
+export interface ExpandableLink {
+  sourceId: string;
+  targetId: string;
+  type?: string;
+  lag?: number;
+}
+
+/**
  * BFS from `startTaskId` following link edges in the forward direction
  * (sourceId → targetId). Returns the inclusive downstream subgraph as
  * CPM worker types.
@@ -57,7 +69,7 @@ export function buildSubgraph(
  * of it. A task with at least one entry here is a summary, the same predicate
  * `expand_summary_dependencies` applies.
  */
-function buildChildrenMap(tasks: Task[]): Map<string, string[]> {
+export function buildChildrenMap(tasks: Task[]): Map<string, string[]> {
   const childrenByParent = new Map<string, string[]>();
   for (const t of tasks) {
     if (!t.parentId) continue;
@@ -132,9 +144,9 @@ type LinkDisposition = 'keep' | 'drop' | 'expand';
  * docstring above for why each rule exists.
  */
 function classifyLink(
-  link: TaskLink,
+  link: ExpandableLink,
   isSummary: (id: string) => boolean,
-  startTaskId: string,
+  startTaskId: string | null,
 ): LinkDisposition {
   const sourceIsSummary = isSummary(link.sourceId);
   const targetIsSummary = isSummary(link.targetId);
@@ -155,8 +167,11 @@ function classifyLink(
 }
 
 /** The leaf-level cross product of `link`'s endpoints, self-pairs removed. */
-function crossProductEdges(link: TaskLink, leaves: (id: string) => string[]): TaskLink[] {
-  const edges: TaskLink[] = [];
+function crossProductEdges<L extends ExpandableLink>(
+  link: L,
+  leaves: (id: string) => string[],
+): L[] {
+  const edges: L[] = [];
   for (const source of leaves(link.sourceId)) {
     for (const target of leaves(link.targetId)) {
       // A summary→summary link inside one phase expands onto pairs of its own
@@ -184,22 +199,22 @@ function crossProductEdges(link: TaskLink, leaves: (id: string) => string[]): Ta
  * keeps a replaced key's original insertion slot, matching the server's stable
  * output order.
  */
-function mergeEdge(chosen: Map<string, TaskLink>, edge: TaskLink): void {
+function mergeEdge<L extends ExpandableLink>(chosen: Map<string, L>, edge: L): void {
   const key = `${edge.sourceId}\u0000${edge.targetId}`;
   const prior = chosen.get(key);
   if (prior !== undefined) {
     if (prior.type !== edge.type) return;
-    if (edge.lag <= prior.lag) return;
+    if ((edge.lag ?? 0) <= (prior.lag ?? 0)) return;
   }
   chosen.set(key, edge);
 }
 
-function expandSummaryLinks(
-  links: TaskLink[],
+export function expandSummaryLinks<L extends ExpandableLink>(
+  links: readonly L[],
   childrenByParent: Map<string, string[]>,
-  startTaskId: string,
-): TaskLink[] {
-  if (childrenByParent.size === 0) return links;
+  startTaskId: string | null,
+): L[] {
+  if (childrenByParent.size === 0) return [...links];
 
   const leavesOf = new Map<string, string[]>();
   const leaves = (id: string): string[] => {
@@ -213,7 +228,7 @@ function expandSummaryLinks(
   const isSummary = (id: string): boolean => (childrenByParent.get(id)?.length ?? 0) > 0;
 
   // One edge per endpoint pair — see {@link mergeEdge}.
-  const chosen = new Map<string, TaskLink>();
+  const chosen = new Map<string, L>();
 
   for (const link of links) {
     const disposition = classifyLink(link, isSummary, startTaskId);

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { TaskLink } from '@/types';
+import type { Task, TaskLink } from '@/types';
+import { buildChildrenMap, expandSummaryLinks } from './buildSubgraph';
 
 /**
  * Hover-driven chain highlight (#475). Resolves the predecessor and successor
@@ -42,7 +43,7 @@ interface AdjacencyMaps {
   succsByTask: Map<string, string[]>;
 }
 
-function buildAdjacency(links: TaskLink[]): AdjacencyMaps {
+function buildAdjacency(links: readonly TaskLink[]): AdjacencyMaps {
   const predsByTask = new Map<string, string[]>();
   const succsByTask = new Map<string, string[]>();
   for (const link of links) {
@@ -57,10 +58,7 @@ function buildAdjacency(links: TaskLink[]): AdjacencyMaps {
   return { predsByTask, succsByTask };
 }
 
-function bfs(
-  startId: string,
-  adjacency: Map<string, string[]>,
-): Set<string> {
+function bfs(startId: string, adjacency: Map<string, string[]>): Set<string> {
   const visited = new Set<string>();
   const queue: string[] = [startId];
   while (queue.length > 0) {
@@ -95,8 +93,20 @@ const HOVER_SETTLE_MS = 80;
 export function useDependencyHover(
   hoveredId: string | null,
   links: TaskLink[],
+  tasks: readonly Task[],
 ): DependencyChain {
-  const adjacency = useMemo(() => buildAdjacency(links), [links]);
+  // A task gated on a summary has no literal link to the summary's children (they
+  // are WBS containment), so literal links alone leave it un-highlighted (#3602).
+  // Links without a `type` expand as FS (the SS/SF drop does not apply); fine for
+  // highlighting because the literal links are unioned in below.
+  // The expanded leaf edges are UNIONED with the literal ones so hovering a
+  // summary itself still follows its own links.
+  const adjacency = useMemo(() => {
+    const childrenByParent = buildChildrenMap(tasks as Task[]);
+    if (childrenByParent.size === 0) return buildAdjacency(links);
+    const expanded = expandSummaryLinks(links, childrenByParent, null);
+    return buildAdjacency([...links, ...expanded]);
+  }, [links, tasks]);
 
   // Debounce hover activation; clear immediately.
   const [coalesced, setCoalesced] = useState<string | null>(null);

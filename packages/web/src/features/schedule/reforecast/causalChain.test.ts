@@ -98,3 +98,34 @@ describe('summarizeCausalChain — the distinction a flat list destroys', () => 
     expect(summarizeCausalChain([])).toBe('No dates changed.');
   });
 });
+describe('orderByCausalChain summary-gated edges (#3602)', () => {
+  it('attributes a summary child to the task that gates its phase', () => {
+    // A -> S, and c1 lives inside S: no literal A -> c1 link exists.
+    const tasks = [
+      t('A', 'Gate task'),
+      t('S', 'Phase'),
+      { ...t('c1', 'Inside phase'), parentId: 'S' },
+    ];
+    const links: ChainLink[] = [{ sourceId: 'A', targetId: 'S' }];
+    const mv = (...ids: string[]) =>
+      ids.map((id) => ({ taskId: id, taskName: tasks.find((x) => x.id === id)!.name }));
+    const rows = orderByCausalChain(mv('A', 'c1'), links, tasks);
+    const c1 = rows.find((r) => r.taskId === 'c1')!;
+    expect(c1.driverId).toBe('A');
+    expect(c1.depth).toBe(1);
+  });
+
+  it("attributes a row gated by a link OUT of a summary to that summary's leaf", () => {
+    // S -> B, and c1 lives inside S: no literal c1 -> B link exists.
+    const tasks = [
+      t('S', 'Phase'),
+      { ...t('c1', 'Inside phase'), parentId: 'S' },
+      t('B', 'Gated task'),
+    ];
+    const links: ChainLink[] = [{ sourceId: 'S', targetId: 'B' }];
+    const mv = (...ids: string[]) =>
+      ids.map((id) => ({ taskId: id, taskName: tasks.find((x) => x.id === id)!.name }));
+    const rows = orderByCausalChain(mv('c1', 'B'), links, tasks);
+    expect(rows.find((r) => r.taskId === 'B')!.driverId).toBe('c1');
+  });
+});
