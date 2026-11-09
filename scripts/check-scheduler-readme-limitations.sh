@@ -22,6 +22,12 @@
 #       contract is "nothing in this list is fixed yet", so a fixed item comes
 #       off the list.
 #
+# An MR that fixes a listed issue cannot satisfy (b) and (c) from tracker state
+# alone: the issue is open until merge and closed after (#4916). So in an MR
+# pipeline, issues named by `Closes|Fixes|Resolves #N` in
+# CI_MERGE_REQUEST_DESCRIPTION are treated as already closed: (b) skips them and
+# (c) requires the MR to drop their entry.
+#
 # Exit codes:
 #   0  no violations
 #   1  a rule failed, or (default) the tracker could not be read
@@ -166,6 +172,32 @@ CURLMOCK
   fi
   echo "SELF-TEST OK: the label listing pages past the first 100 issues."
 
+  # An MR that closes a listed issue (#4916): open in the tracker, but the
+  # description's Closes line makes the gate read it as closed.
+  { issue 10 opened "fix(scheduler): a defect" scheduler,correctness,release::committed
+    issue 13 opened "scheduler: a bare-title decision" scheduler,correctness
+    issue 999 opened "unrelated" scheduler; } | mkdb
+  mkreadme "10" "11"
+  rc=0
+  CI_MERGE_REQUEST_DESCRIPTION=$'Fix.\n\nCloses #13' bash "$0" "$tmp/README.md" >"$tmp/out.txt" 2>&1 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "SELF-TEST FAILED: an MR closing issue #13 and dropping its entry was rejected (exit ${rc})." >&2
+    cat "$tmp/out.txt" >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: an MR that closes a listed issue may drop its entry while the issue is still open"
+  mkreadme "10 13" "11"
+  rc=0
+  CI_MERGE_REQUEST_DESCRIPTION=$'Fix.\n\nFixes #13' bash "$0" "$tmp/README.md" >"$tmp/out.txt" 2>&1 || rc=$?
+  if [ "$rc" -ne 1 ] || ! grep -q '#13 is closed' "$tmp/out.txt"; then
+    echo "SELF-TEST FAILED: an MR closing #13 but keeping its entry was accepted (exit ${rc})." >&2
+    cat "$tmp/out.txt" >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: an MR that closes a listed issue must drop its entry (rule c, no red main after merge)"
+  mkreadme "10" "11"
+  expect fail "without a Closes line the same missing entry is still rejected (rule b)"
+
   # An unlabeled (no release::) issue in the not-committed list is not a rule (a) violation.
   { issue 10 opened "fix(scheduler): a defect" scheduler,correctness,release::committed
     issue 19 opened "fix(scheduler): untriaged" scheduler,correctness
@@ -242,6 +274,11 @@ refs() { grep -oE "$ISSUE_URL_RE" | grep -oE '[0-9]+$' | sort -un || true; }
 section_ids=$(printf '%s\n' "$section" | refs)
 nc_ids=$(printf '%s\n' "$nc_para" | refs)
 
+# Issues this MR closes on merge (GitLab's own keyword set, case-insensitive).
+closing_ids=$(printf '%s\n' "${CI_MERGE_REQUEST_DESCRIPTION:-}" |
+  grep -oiE '(clos(e|es|ed)|fix(es|ed)?|resolv(e|es|ed))[: ]+#[0-9]+' |
+  grep -oE '[0-9]+$' | sort -un || true)
+
 fail_unreadable() {
   if [ "$ALLOW_UNRESOLVED" = "1" ]; then
     echo "WARN: $1 — SCHEDULER_README_ALLOW_UNRESOLVED=1, skipping." >&2
@@ -271,6 +308,7 @@ done
 
 for id in $section_ids; do
   state=$(printf '%s\n' "$ref_rows" | awk -F'\t' -v i="$id" '$1 == i {print $2}')
+  if grep -qx "$id" <<<"$closing_ids"; then state=closed; fi
   if [ "$state" = "closed" ]; then
     echo "ERROR: #$id is closed but still listed in the Known limitations section — the section's contract is that nothing in it is fixed; remove it." >&2
     violations=$((violations + 1))
@@ -280,6 +318,7 @@ done
 while IFS=$'\t' read -r id _state title _rest; do
   [ -z "$id" ] && continue
   if grep -qE "$EXEMPT_TYPE_RE" <<<"$title"; then continue; fi
+  if grep -qx "$id" <<<"$closing_ids"; then continue; fi
   if ! grep -qx "$id" <<<"$section_ids"; then
     echo "ERROR: open scheduler+correctness issue #$id (\"$title\") is not referenced in the README Known limitations section — add it to its area list." >&2
     violations=$((violations + 1))
