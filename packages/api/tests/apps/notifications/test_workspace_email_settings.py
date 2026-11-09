@@ -652,8 +652,8 @@ def test_egress_blocked_host_error_is_distinct_from_generic_connect_failure(
             "The mail server host is not permitted — it resolves to a non-public "
             "address. If this is a trusted internal relay on a private network, "
             "add its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, "
-            "Celery worker, and Celery beat processes, then save these settings "
-            "again."
+            "Celery worker, and Celery beat processes, restart or redeploy them "
+            "(the setting is read at startup), then save these settings again."
         )
 
     monkeypatch.setattr(email_backend, "probe_transport", blocked)

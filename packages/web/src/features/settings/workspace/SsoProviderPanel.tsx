@@ -438,7 +438,8 @@ function TestConnectionSection({
           </p>
           <p className="mt-1.5">
             This isn&apos;t something you can toggle from this page: it&apos;s a Helm values
-            change and an API redeploy, so loop in your platform team.
+            change and an API redeploy, so loop in your platform team. The setting is read at
+            startup, so it takes effect only after the API and Celery worker pods restart.
           </p>
           <p className="mt-1.5">
             The allow-list is process-wide — an allow-listed host also becomes reachable through

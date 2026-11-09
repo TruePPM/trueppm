@@ -118,7 +118,7 @@ of exact, case-insensitive hostnames exempted from that check:
 TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc.cluster.local,smtp.internal.example.com
 ```
 
-No wildcards. The allow-list is consulted by **every** egress caller (SSO,
+No wildcards. The variable is read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes the value rolls them). The allow-list is consulted by **every** egress caller (SSO,
 webhooks, SMTP, integration credential verification), so only list a host you
 trust at least as much as your identity provider. See
 [Outbound requests](/administration/security/#outbound-requests-ssrf-boundary).

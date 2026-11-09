@@ -455,7 +455,7 @@ hosts — and only those — bypass the private-address check:
 TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc.cluster.local
 ```
 
-Matching is an **exact, case-insensitive hostname** compare — no wildcards and no
+**The variable is read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes the value rolls them).** Matching is an **exact, case-insensitive hostname** compare — no wildcards and no
 suffix matching, so allow-listing `keycloak.sso.svc.cluster.local` never admits a
 lookalike host. Leave the variable unset (the default) unless you actually run an
 IdP on a private address; a public issuer needs no allow-list. This setting is
@@ -482,7 +482,7 @@ allow-list has done its part.
 The two failures look different in **Test connection**:
 
 - **Blocked by the application guard**: the result carries the egress-guard hint
-  that points at `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. Set the variable.
+  that points at `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. Set the variable, then restart the API and Celery worker pods — it is read at startup.
 - **Dropped by a NetworkPolicy**: the connection hangs and times out, so the
   result is a plain "provider unreachable" or `jwks_unreachable` with no
   allow-list hint. If you have set the variable and still see this, suspect the
