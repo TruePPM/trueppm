@@ -107,6 +107,14 @@ TARGET_FIELDS: tuple[FieldSpec, ...] = (
         aliases=("assignee", "owner", "resource", "assignedto", "responsible", "who"),
     ),
     FieldSpec(
+        field="allocation",
+        label="Allocation",
+        required=False,
+        aliases=("allocation", "units", "percent", "capacity"),
+        # "percent" must not fuzzy-match "Percent Complete" (that is progress).
+        exact_only=("percent", "units"),
+    ),
+    FieldSpec(
         field="predecessors",
         label="Predecessors",
         required=False,

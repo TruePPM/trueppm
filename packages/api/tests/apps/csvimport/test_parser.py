@@ -773,3 +773,78 @@ class TestDateOrderOverride:
         # as such rather than omitted.
         assert rows[1]["start"] is None
         assert rows[1]["unreadable"] is True
+
+
+# --- allocation (#3108) -----------------------------------------------------
+
+
+def _units(csv: bytes) -> dict[tuple[str, str], float]:
+    """(task name, resource name) -> units, as the parser hands them to import."""
+    data = parse_spreadsheet(csv, "plan.csv").project_data
+    resources = {r.uid: r.name for r in data.resources}
+    return {
+        (t.name, resources[a.resource_uid]): a.units
+        for t in data.tasks
+        for a in t.resource_assignments
+    }
+
+
+class TestAllocation:
+    def test_allocation_column_imports_partial_units(self) -> None:
+        csv = b"Task,Owner,Allocation\nA,Ana,50\nB,Bob,50%\nC,Cy,\nD,Di,abc\n"
+        assert _units(csv) == {
+            ("A", "Ana"): 0.5,
+            ("B", "Bob"): 0.5,
+            ("C", "Cy"): 1.0,
+            ("D", "Di"): 1.0,
+        }
+
+    def test_per_name_allocation_in_a_multi_value_cell(self) -> None:
+        assert _units(b"Task,Owner\nA,Ana:50; Bob\n") == {("A", "Ana"): 0.5, ("A", "Bob"): 1.0}
+
+    def test_per_name_wins_and_column_fills_names_without_one(self) -> None:
+        csv = b'Task,Owner,Allocation\nA,"Ana:25, Bob",50\n'
+        assert _units(csv) == {("A", "Ana"): 0.25, ("A", "Bob"): 0.5}
+
+    def test_out_of_range_clamps_rather_than_erroring(self) -> None:
+        csv = b"Task,Owner,Allocation\nA,Ana,500\nB,Bob,0.1\nC,Cy,-5\n"
+        assert _units(csv) == {("A", "Ana"): 2.0, ("B", "Bob"): 0.01, ("C", "Cy"): 1.0}
+
+    def test_colon_inside_a_name_is_not_an_allocation(self) -> None:
+        assert _units(b"Task,Owner\nA,Team: Core\n") == {("A", "Team: Core"): 1.0}
+
+    def test_repeated_name_in_one_cell_collapses_last_wins(self) -> None:
+        assert _units(b"Task,Owner\nA,Ana; ana:50\n") == {("A", "Ana"): 0.5}
+
+    def test_no_allocation_column_keeps_full_units(self) -> None:
+        assert set(_units(REFERENCE_CSV).values()) == {1.0}
+
+    def test_percent_complete_column_is_not_taken_as_allocation(self) -> None:
+        csv = b"Task,Owner,Percent Complete\nA,Ana,40\n"
+        assert _units(csv) == {("A", "Ana"): 1.0}
+
+    def test_csv_and_msp_yield_the_same_units(self) -> None:
+        from trueppm_api.apps.msproject.parser import parse_xml
+
+        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Project xmlns="http://schemas.microsoft.com/project"><Name>P</Name>
+<StartDate>2026-03-01T08:00:00</StartDate>
+<Tasks>
+<Task><UID>1</UID><Name>A</Name><Duration>PT8H0M0S</Duration><OutlineLevel>1</OutlineLevel><OutlineNumber>1</OutlineNumber></Task>
+</Tasks>
+<Resources>
+<Resource><UID>1</UID><Name>Ana</Name></Resource>
+<Resource><UID>2</UID><Name>Bob</Name></Resource>
+</Resources>
+<Assignments>
+<Assignment><UID>1</UID><TaskUID>1</TaskUID><ResourceUID>1</ResourceUID><Units>0.5</Units></Assignment>
+<Assignment><UID>2</UID><TaskUID>1</TaskUID><ResourceUID>2</ResourceUID><Units>1</Units></Assignment>
+</Assignments></Project>"""
+        msp = parse_xml(xml)
+        names = {r.uid: r.name for r in msp.resources}
+        msp_units = {
+            (t.name, names[a.resource_uid]): a.units
+            for t in msp.tasks
+            for a in t.resource_assignments
+        }
+        assert _units(b"Task,Owner\nA,Ana:50; Bob\n") == msp_units
