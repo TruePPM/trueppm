@@ -4627,7 +4627,12 @@ scheduler:mutation:
   #
   # Scope is the beachhead in [tool.mutmut]: models.py, derive.py, cli.py. The
   # engine expansion is tracked as phase 2; #4550 split engine.py into the
-  # engine/ package so phase 2 can add it one module at a time.
+  # engine/ package so phase 2 can add it one module at a time. Name those
+  # modules by package path (`*/engine/cpm.py`): a bare `*/forward.py` matches
+  # both engine/forward.py and engine/montecarlo/forward.py. (The matching note
+  # in [tool.mutmut] still says engine.py: scheduler pyproject.toml is an input
+  # of the CI_API_TAG / CI_SCHEDULER_TAG digests, so a comment edit there forces
+  # both CI images to rebuild.)
   extends: .scheduler
   stage: test
   needs:

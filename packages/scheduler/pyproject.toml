@@ -155,11 +155,9 @@ markers = [
 # the MR critical path.
 #
 # Beachhead scope: the pure-logic modules where a weak assertion is most
-# dangerous. The engine/ package (the CPM/Monte-Carlo core, one engine.py until
-# #4550 split it) is the tracked phase-2 expansion — add its modules to
-# `only_mutate` once this baseline is stable so its thousands of mutants don't
-# swamp the first runs. Name them by package path (`*/engine/cpm.py`): a bare
-# `*/forward.py` matches both engine/forward.py and engine/montecarlo/forward.py.
+# dangerous. engine.py (the ~148 KB CPM/Monte-Carlo core) is the tracked phase-2
+# expansion — add it to `only_mutate` once this baseline is stable so its
+# thousands of mutants don't swamp the first runs.
 [tool.mutmut]
 source_paths = ["src/trueppm_scheduler"]
 only_mutate = [
