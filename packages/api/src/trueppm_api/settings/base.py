@@ -2435,6 +2435,16 @@ SPECTACULAR_SETTINGS = {
         "PurgeRunTriggerEnum": "trueppm_api.apps.observability.models.PurgeRun.Trigger",
         "FrequencyEnum": "trueppm_api.apps.observability.models.RetentionSchedule.Frequency",
         "RecurrenceFrequencyEnum": "trueppm_api.apps.projects.models.TaskRecurrenceFrequency",
+        # #4907: the driving-chain payload adds two `unit` choice sets
+        # (Duration.unit = working_days|calendar_days, NearCriticalThreshold.unit =
+        # working_days) beside Task.unit (days|hours) and RetentionPolicyRead.unit.
+        # Unpinned, drf-spectacular disambiguates every `unit` set by prefix, which
+        # re-pointed Task.unit at a `DurationUnitEnum` holding OUR values and removed
+        # the published `UnitEnum` — a silent break for any generated client. Pin the
+        # new sets to their own names so the incumbents keep theirs.
+        "DrivingChainDurationUnitEnum": ["working_days", "calendar_days"],
+        "NearCriticalThresholdUnitEnum": ["working_days"],
+        "UnitEnum": ["days", "hours"],
         # ADR-0102: SprintScopeChange.status (pending|accepted|rejected) introduces
         # a new "status" choice set; without a pin drf-spectacular disambiguates
         # every "status" field by model prefix and renames existing stable

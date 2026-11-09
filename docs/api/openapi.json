@@ -56432,6 +56432,15 @@
                 "description": "* `idea` - Idea\n* `refine` - Refine\n* `ready` - Ready",
                 "x-trueppm-enum": "open"
             },
+            "DrivingChainDurationUnitEnum": {
+                "enum": [
+                    "working_days",
+                    "calendar_days"
+                ],
+                "type": "string",
+                "description": "* `working_days` - working_days\n* `calendar_days` - calendar_days",
+                "x-trueppm-enum": "open"
+            },
             "DrivingChainEdge": {
                 "type": "object",
                 "description": "One driving link between two chain nodes, at leaf level (ADR-1381).",
@@ -56590,7 +56599,7 @@
                         "type": "integer"
                     },
                     "unit": {
-                        "$ref": "#/components/schemas/DurationUnitEnum"
+                        "$ref": "#/components/schemas/DrivingChainDurationUnitEnum"
                     }
                 },
                 "required": [
@@ -56600,11 +56609,11 @@
             },
             "DurationUnitEnum": {
                 "enum": [
-                    "working_days",
-                    "calendar_days"
+                    "days",
+                    "hours"
                 ],
                 "type": "string",
-                "description": "* `working_days` - working_days\n* `calendar_days` - calendar_days",
+                "description": "* `days` - Days\n* `hours` - Hours",
                 "x-trueppm-enum": "open"
             },
             "EditionResponse": {
@@ -73050,7 +73059,7 @@
                         "type": "string"
                     },
                     "unit": {
-                        "$ref": "#/components/schemas/RetentionPolicyReadUnitEnum"
+                        "$ref": "#/components/schemas/UnitEnum"
                     },
                     "value": {
                         "type": "integer"
@@ -73076,15 +73085,6 @@
                     "unit",
                     "value"
                 ]
-            },
-            "RetentionPolicyReadUnitEnum": {
-                "enum": [
-                    "days",
-                    "hours"
-                ],
-                "type": "string",
-                "description": "* `days` - days\n* `hours` - hours",
-                "x-trueppm-enum": "open"
             },
             "RetentionPolicyWriteRequest": {
                 "type": "object",
@@ -82911,6 +82911,15 @@
                 ],
                 "type": "string",
                 "description": "* `depth` - depth\n* `node_cap` - node_cap",
+                "x-trueppm-enum": "open"
+            },
+            "UnitEnum": {
+                "enum": [
+                    "days",
+                    "hours"
+                ],
+                "type": "string",
+                "description": "* `days` - days\n* `hours` - hours",
                 "x-trueppm-enum": "open"
             },
             "UserDefinedMentionGroupRead": {
