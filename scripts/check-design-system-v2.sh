@@ -350,7 +350,7 @@ BASELINE_TINY_TEXT=0
 # widgets/modals on a page whose siblings still work if the query fails. See
 # issue #3542 for the full per-site disposition; #2861 is the parent meta-issue for
 # the defect class itself.
-BASELINE_QUERY_ERROR=44
+BASELINE_QUERY_ERROR=42
 
 # Under an injected scan root every ratchet floor is 0. The baselines above are
 # THIS TREE's grandfathered debt and mean nothing against an arbitrary

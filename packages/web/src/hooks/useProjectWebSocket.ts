@@ -92,6 +92,7 @@ import {
 import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
 import { needsBaselineVarianceRefetch } from '@/lib/baselineFinishVariance';
 import { fetchWsTicket } from '@/api/wsTicket';
+import { fullJitterDelay } from '@/lib/reconnectBackoff';
 import { SeqGate } from '@/hooks/wsSeqGate';
 import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
@@ -1299,7 +1300,7 @@ class ProjectSocketController {
       if (this.stopped) return;
       this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS);
       this.connect();
-    }, this.backoffMs);
+    }, fullJitterDelay(this.backoffMs));
   }
 
   private connect(): void {

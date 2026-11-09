@@ -1,3 +1,4 @@
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 
@@ -34,8 +35,7 @@ export function findTaskByRef(
   return (
     tasks.find((t) => t.id === ref) ??
     tasks.find(
-      (t) =>
-        t.shortIdDisplay?.toUpperCase() === wanted || t.shortId?.toUpperCase() === wanted,
+      (t) => t.shortIdDisplay?.toUpperCase() === wanted || t.shortId?.toUpperCase() === wanted,
     )
   );
 }
@@ -62,7 +62,7 @@ export function TaskDetailPage() {
   const projectId = useProjectId();
   const projectRef = useProjectRef();
   const { taskId } = useParams<{ taskId: string }>();
-  const { tasks, isLoading } = useScheduleTasks(projectId);
+  const { tasks, isLoading, error } = useScheduleTasks(projectId);
   const navigate = useNavigate();
   const location = useLocation();
   const { role: userRole } = useCurrentUserRole(projectId);
@@ -74,7 +74,9 @@ export function TaskDetailPage() {
   // known: `T-10` under a keyed project, the UUID under a keyless one (a bare `T-10`
   // there would be ambiguous across projects). Replace, never push.
   const canonicalTaskRef =
-    task && projectRef && !isUuid(projectRef) && task.shortIdDisplay ? task.shortIdDisplay : task?.id;
+    task && projectRef && !isUuid(projectRef) && task.shortIdDisplay
+      ? task.shortIdDisplay
+      : task?.id;
   useEffect(() => {
     if (!canonicalTaskRef || !taskId || canonicalTaskRef === taskId) return;
     const segments = location.pathname.split('/');
@@ -133,9 +135,13 @@ export function TaskDetailPage() {
         >
           ← Back to schedule
         </Link>
-        <p role="status" className="mt-8 text-center text-sm text-neutral-text-secondary">
-          {isLoading ? 'Loading task…' : 'Task not found.'}
-        </p>
+        {error && !isLoading ? (
+          <QueryErrorState message="Couldn't load this task." className="mt-8" />
+        ) : (
+          <p role="status" className="mt-8 text-center text-sm text-neutral-text-secondary">
+            {isLoading ? 'Loading task…' : 'Task not found.'}
+          </p>
+        )}
       </div>
     );
   }
@@ -152,12 +158,22 @@ export function TaskDetailPage() {
       return;
     }
     if (!canEdit || next === task.name) return;
-    updateTask.mutate({ id: task.id, projectId: projectId ?? '', name: next, baseVersion: task.serverVersion });
+    updateTask.mutate({
+      id: task.id,
+      projectId: projectId ?? '',
+      name: next,
+      baseVersion: task.serverVersion,
+    });
   };
 
   const commitNotes = () => {
     if (!canEdit || draftNotes === (task.notes ?? '')) return;
-    updateTask.mutate({ id: task.id, projectId: projectId ?? '', notes: draftNotes, baseVersion: task.serverVersion });
+    updateTask.mutate({
+      id: task.id,
+      projectId: projectId ?? '',
+      notes: draftNotes,
+      baseVersion: task.serverVersion,
+    });
   };
 
   return (

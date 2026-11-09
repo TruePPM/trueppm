@@ -37,6 +37,18 @@ describe('ExternalWorkItemRow', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
+  it('renders no navigable href for a non-http(s) url (#4475)', () => {
+    wrap(
+      <ExternalWorkItemRow
+        item={{ ...baseItem, url: 'javascript:alert(1)' }}
+        source={jiraSource}
+      />,
+    );
+    const link = screen.getByText(/API gateway returns 502/).closest('a');
+    expect(link).not.toBeNull();
+    expect(link).not.toHaveAttribute('href');
+  });
+
   it('shows the provider key, source · host line, status and due date', () => {
     wrap(<ExternalWorkItemRow item={baseItem} source={jiraSource} />);
     expect(screen.getByText('RIV-482')).toBeInTheDocument();
@@ -55,10 +67,7 @@ describe('ExternalWorkItemRow', () => {
 
   it('falls back to the key when the title is empty and omits due when null', () => {
     wrap(
-      <ExternalWorkItemRow
-        item={{ ...baseItem, title: '', due_date: null }}
-        source={jiraSource}
-      />,
+      <ExternalWorkItemRow item={{ ...baseItem, title: '', due_date: null }} source={jiraSource} />,
     );
     expect(screen.getByRole('link', { name: /RIV-482/ })).toBeInTheDocument();
     expect(screen.queryByText(/^Due /)).not.toBeInTheDocument();

@@ -172,6 +172,36 @@ describe('ProgramScheduleLiveSync — per-project close codes (#4375)', () => {
     expect(socketsFor('proj-a')).toHaveLength(2);
   });
 
+  it('reconnect delay is full-jittered inside the exponential window (#4606)', () => {
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    mount(['proj-a']);
+    act(() => {
+      socketsFor('proj-a')[0].dispatch('close', { code: 1006 });
+    });
+    // Window is 1 s, random 0.5 -> 500 ms: not yet at 499, dialed at 500.
+    act(() => {
+      vi.advanceTimersByTime(499);
+    });
+    expect(socketsFor('proj-a')).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(socketsFor('proj-a')).toHaveLength(2);
+    // Second drop: the window doubled to 2 s -> 1000 ms.
+    act(() => {
+      socketsFor('proj-a')[1].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(socketsFor('proj-a')).toHaveLength(2);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(socketsFor('proj-a')).toHaveLength(3);
+    rnd.mockRestore();
+  });
+
   it('a first 4001 re-mints once; a second in a row stops', () => {
     mount(['proj-a']);
     act(() => {

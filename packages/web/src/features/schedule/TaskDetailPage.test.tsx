@@ -7,6 +7,7 @@ import { TaskDetailPage, findTaskByRef } from './TaskDetailPage';
 
 let TASKS: Partial<Task>[] = [];
 let LOADING = false;
+let ERROR: Error | null = null;
 let ROLE: number | null = 300; // Admin by default so edit affordances render.
 
 const { mutate, sectionListSpy, scheduleStripSpy } = vi.hoisted(() => ({
@@ -16,7 +17,7 @@ const { mutate, sectionListSpy, scheduleStripSpy } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/useScheduleTasks', () => ({
-  useScheduleTasks: () => ({ tasks: TASKS, isLoading: LOADING }),
+  useScheduleTasks: () => ({ tasks: TASKS, isLoading: LOADING, error: ERROR }),
 }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: ROLE }),
@@ -52,6 +53,7 @@ function renderPage() {
 afterEach(() => {
   TASKS = [];
   LOADING = false;
+  ERROR = null;
   ROLE = 300;
   vi.clearAllMocks();
 });
@@ -76,6 +78,15 @@ describe('TaskDetailPage', () => {
     renderPage();
     expect(screen.getByText('Task not found.')).toBeInTheDocument();
     expect(screen.queryByTestId('section-list')).not.toBeInTheDocument();
+  });
+
+  it('shows an error state with Retry, not "Task not found.", when the tasks fetch fails', () => {
+    TASKS = [];
+    ERROR = new Error('boom');
+    renderPage();
+    expect(screen.getByText("Couldn't load this task.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(screen.queryByText('Task not found.')).not.toBeInTheDocument();
   });
 
   it('shows a loading state while tasks resolve', () => {

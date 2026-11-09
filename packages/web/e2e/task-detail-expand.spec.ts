@@ -12,7 +12,13 @@ const PROJECT_ID = 'e2e-expand-0000-0000-0000-000000000013';
 const TASK_ID = 'exp1';
 
 const FIXTURE_PROJECTS = [
-  { id: PROJECT_ID, name: 'Expand Project', description: '', start_date: '2026-04-01', calendar: 'default' },
+  {
+    id: PROJECT_ID,
+    name: 'Expand Project',
+    description: '',
+    start_date: '2026-04-01',
+    calendar: 'default',
+  },
 ];
 
 const FIXTURE_TASKS = [
@@ -52,7 +58,11 @@ test.describe('Task detail expand-to-full-page', () => {
   test.beforeEach(async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);
-    await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID, tasks: FIXTURE_TASKS });
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: PROJECT_ID,
+      tasks: FIXTURE_TASKS,
+    });
   });
 
   test('Expand from the drawer opens the full-page task view', async ({ page }) => {
@@ -65,6 +75,27 @@ test.describe('Task detail expand-to-full-page', () => {
     await expect(page.getByRole('heading', { level: 1, name: /Foundation/ })).toBeAttached();
     await expect(page.getByRole('textbox', { name: 'Task name' })).toHaveValue('Foundation');
     await expect(page.getByRole('link', { name: /Back to schedule/ })).toBeVisible();
+  });
+
+  test('a failed tasks fetch shows the error state with Retry, not "Task not found." (#4619)', async ({
+    page,
+  }) => {
+    // Registered after setupApiMocks so it wins (last route registered matches first).
+    await page.route(
+      (url) => url.pathname === '/api/v1/tasks/',
+      async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'boom' }),
+        });
+      },
+    );
+    await page.goto(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`);
+    await expect(page.getByText("Couldn't load this task.")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: /retry/i })).toBeVisible();
+    await expect(page.getByText('Task not found.')).toHaveCount(0);
   });
 
   test('the full page is reachable directly by URL', async ({ page }) => {

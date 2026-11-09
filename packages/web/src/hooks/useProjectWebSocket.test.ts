@@ -2905,6 +2905,32 @@ describe('useProjectWebSocket — ticket-mint failure path (ADR-0141)', () => {
     expect(useWsConnectionStore.getState().reconnectAttempts).toBe(1);
   });
 
+  it('jitters the reconnect delay inside a window that doubles per attempt (#4606)', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    expect(useWsConnectionStore.getState().reconnectAttempts).toBe(1);
+
+    // Window 1 s x 0.5 = 500 ms.
+    act(() => {
+      vi.advanceTimersByTime(499);
+    });
+    expect(useWsConnectionStore.getState().reconnectAttempts).toBe(1);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(useWsConnectionStore.getState().reconnectAttempts).toBe(2);
+
+    // Window doubled to 2 s x 0.5 = 1000 ms.
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(useWsConnectionStore.getState().reconnectAttempts).toBe(2);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(useWsConnectionStore.getState().reconnectAttempts).toBe(3);
+  });
+
   it('schedules a backoff reconnect that re-attempts the mint on a live-session failure', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
