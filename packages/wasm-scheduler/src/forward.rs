@@ -807,7 +807,7 @@ fn live_milestone_edge(
 /// sign-off, out of sequence. For the hand-back (`Task::live_day_end_on`) it
 /// counts as open work, so the end-of-day edge the previous run showed stands;
 /// otherwise closing that work fell back to the start of the day and pulled the
-/// milestone's successors a working day earlier than with the work open. The
+/// milestone's successors a working day earlier than with the work open.
 /// Mirrors the Python `_completed_after_recorded`.
 fn completed_after_recorded(
     idx: NodeIndex,

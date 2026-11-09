@@ -148,7 +148,7 @@ Rules:
   proposal alone pulled the successors a working day *earlier* on the API path,
   where that edge is handed back. The rule reads the day a link places the
   milestone, not the day the work finished, so FS-1d from work finishing the day
-  after the sign-off still gives the end of the day.) Closing a
+  after the sign-off still gives the end of the day. Known limits, tracked in #4915: a faithful end-of-day hand-back is re-read from the completed work when a closed late predecessor's link places the milestone at or before its day, so successors can move a working day earlier; and several late predecessors with negative lag can drop one late proposal and let another through, so successors move a working day later. A gate at the start of its day has no hand-back value to stand on.) Closing a
   milestone on the day it was forecast therefore moves nothing downstream. (Decided
   2026-10-16, "preserve the live edge": an earlier draft put every closed milestone
   at the start of its day, which pulled a successor of a milestone that follows work

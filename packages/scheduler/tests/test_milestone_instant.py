@@ -2632,7 +2632,7 @@ class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
         - placed on a later day than the sign-off — out of sequence: the result
           equals leaving A open, with or without the hand-back (#4703);
         - placed at the end of the sign-off day — a lagged link reaching back
-          onto it (FS-1 from a Friday finish, SF+1 from a Thursday start): that
+          onto it (FS-1 from a Friday finish, SF+0/SF+1 from a Thursday start): that
           link places it there, so the end of the day, though with A open and
           nothing handed back the start is shown (the known limit);
         - placed earlier, or at the start of the day: the completed facts say no
