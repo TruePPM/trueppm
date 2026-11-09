@@ -464,6 +464,19 @@ data:
     }
 {{- else }}
   default.conf: |
+    # Preserve an upstream load balancer's X-Forwarded-Proto instead of
+    # dropping it (#3522, same fix as #3191/#4426 for the plain-HTTP configs).
+    # Without this the proxied request carries no scheme at all, so Django sees
+    # plain HTTP behind a TLS-terminating LB that fronts the web tier: no HSTS,
+    # http:// absolute URLs, and a redirect loop if TRUEPPM_SECURE_SSL_REDIRECT
+    # is on. Falls back to $scheme when nothing arrived. Only sound when the
+    # proxy in front is the sole way in; the header is client-spoofable
+    # otherwise, and TRUEPPM_NUM_PROXIES governs the X-Forwarded-For chain.
+    map $http_x_forwarded_proto $forwarded_proto {
+        default $scheme;
+        ~.      $http_x_forwarded_proto;
+    }
+
     {{- if and .Values.web.adminAccess.enabled .Values.web.adminAccess.rateLimit.enabled }}
     # Per-source-IP rate limit for the Django admin login surface (#2569),
     # matching nginx/app.conf.template's 5r/m + burst 2. Declared here at http
@@ -534,6 +547,8 @@ data:
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header Authorization $http_authorization;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
             proxy_redirect off;
         }
 
@@ -544,6 +559,8 @@ data:
             proxy_set_header   Upgrade    $http_upgrade;
             proxy_set_header   Connection "upgrade";
             proxy_set_header   Host       $host;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $forwarded_proto;
             proxy_read_timeout 86400s;
         }
 
@@ -577,6 +594,8 @@ data:
             proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
             proxy_redirect off;
         {{- else }}
             return 404;
