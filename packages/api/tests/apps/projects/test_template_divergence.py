@@ -69,7 +69,7 @@ def _structure(*names: str) -> dict[str, Any]:
                 "wbs_path": str(i + 1),
                 "parent": None,
                 "is_milestone": False,
-                "type": "waterfall",
+                "delivery_mode": "waterfall",
             }
             for i, name in enumerate(names)
         ],

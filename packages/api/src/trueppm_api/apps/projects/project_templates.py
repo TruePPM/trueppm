@@ -245,7 +245,72 @@ def _validate_task_nodes(tasks: list[Any]) -> set[str]:
         if not ref or ref in refs:
             raise TemplateStructureError("Every task node needs a unique ref.")
         refs.add(str(ref))
+        _validate_task_node_values(node)
     return refs
+
+
+def _validate_task_node_values(node: dict[str, Any]) -> None:
+    """Refuse a node whose enum or milestone state could not exist on a real task.
+
+    ``_build_template_task_row`` assigns these straight onto an unsaved ``Task`` and
+    ``bulk_create`` skips ``full_clean``; Django emits no CHECK for ``choices``, so
+    nothing downstream would catch a bad value. Absent keys are fine: the writer
+    leaves them at the model default (``waterfall`` / ``flow`` / ``task`` /
+    not-a-milestone), so the coupling below is evaluated on the *effective* values.
+    Only the ``is_milestone`` <=> ``delivery_mode == milestone`` coupling and
+    ``milestone => duration == 0`` are enforced; a zero-duration *non*-milestone is a
+    legitimate row (an unscheduled idea, a phase whose duration rolls up).
+    """
+    from trueppm_api.apps.projects.models import (
+        MAX_TASK_DURATION_DAYS,
+        DeliveryMode,
+        GovernanceClass,
+        TaskType,
+    )
+
+    ref = node["ref"]
+    # A legacy source row can fail these checks at publish time, where the user only
+    # knows the task by name and WBS position, not by its ref (a UUID).
+    label = f"Task {ref!r}"
+    if node.get("name"):
+        # Bounded and repr'd: both values come from a JSONB document that may have
+        # been hand-edited, and they end up in a 400 body.
+        name = str(node["name"])
+        name = name if len(name) <= 80 else name[:79] + "\u2026"
+        label += f" ({name!r}"
+        label += f", WBS {str(node['wbs_path'])[:80]!r})" if node.get("wbs_path") else ")"
+    for attr, choices in (
+        ("delivery_mode", DeliveryMode),
+        ("governance_class", GovernanceClass),
+        ("type", TaskType),
+    ):
+        value = node.get(attr)
+        if value and value not in choices.values:
+            raise TemplateStructureError(f"{label} has an unrecognized {attr} {value!r}.")
+
+    is_milestone = node.get("is_milestone")
+    if is_milestone is not None and not isinstance(is_milestone, bool):
+        raise TemplateStructureError(f"{label} has a non-boolean is_milestone.")
+    duration = node.get("duration")
+    if duration is not None and (
+        isinstance(duration, bool)
+        or not isinstance(duration, int)
+        or not 0 <= duration <= MAX_TASK_DURATION_DAYS
+    ):
+        raise TemplateStructureError(
+            f"{label} has an invalid duration; it must be a whole number of days "
+            f"from 0 to {MAX_TASK_DURATION_DAYS}."
+        )
+
+    is_milestone_mode = (node.get("delivery_mode") or DeliveryMode.WATERFALL) == (
+        DeliveryMode.MILESTONE
+    )
+    if bool(is_milestone) != is_milestone_mode:
+        raise TemplateStructureError(
+            f"{label}: is_milestone and delivery_mode 'milestone' must agree."
+        )
+    if is_milestone and duration:
+        raise TemplateStructureError(f"{label} is a milestone and must have duration 0.")
 
 
 def _validate_dependency_edges(edges: Any, refs: set[str]) -> None:
