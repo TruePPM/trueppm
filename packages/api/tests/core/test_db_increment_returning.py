@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from typing import Any
 
 import pytest
 
@@ -94,3 +95,18 @@ def test_model_save_leaves_server_version_alone_when_the_row_is_gone(project: Pr
     stale._increment_server_version_returning()
 
     assert stale.server_version == 7
+
+
+@pytest.mark.django_db
+def test_by_advances_the_counter_in_one_statement(
+    project: Project, django_assert_num_queries: Any
+) -> None:
+    """A block allocator reserves ``[new - by + 1, new]`` with a single UPDATE (#2343)."""
+    with django_assert_num_queries(1):
+        last = increment_returning(Project, "object_sequence", project.pk, by=5)
+
+    assert last == 5
+    assert increment_returning(Project, "object_sequence", project.pk, by=3) == 8
+    assert increment_returning(Project, "object_sequence", project.pk) == 9
+    project.refresh_from_db()
+    assert project.object_sequence == 9

@@ -391,11 +391,10 @@ def materialize_structure(
     * **No CPM.** The caller enqueues a recalculation through
       ``scheduling.services.enqueue_recalculate`` once the rows commit.
     """
-    from django.db.models import F
-
-    from trueppm_api.apps.projects.models import Dependency, bulk_create_tasks
     from trueppm_api.apps.projects.models import (
-        Project as ProjectModel,
+        Dependency,
+        bulk_create_tasks,
+        draw_project_sequence,
     )
     from trueppm_api.apps.projects.summary_link_guard import (
         skipped_link_warning,
@@ -413,8 +412,7 @@ def materialize_structure(
     # importer does — per-row allocation would be N round-trips and the per-project
     # unique constraint rejects the second blank one.
     count = len(nodes)
-    ProjectModel.objects.filter(pk=project.pk).update(object_sequence=F("object_sequence") + count)
-    end_seq: int = ProjectModel.objects.values_list("object_sequence", flat=True).get(pk=project.pk)
+    end_seq = draw_project_sequence(project.pk, "object_sequence", by=count)
     start_seq = end_seq - count + 1
 
     seeded_at = timezone.now()

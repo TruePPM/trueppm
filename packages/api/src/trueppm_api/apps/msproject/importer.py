@@ -367,17 +367,21 @@ def _create_tasks(
     are written verbatim. On import-into-existing they are shifted past the rows
     already there — see the offset block below.
     """
-    from django.db.models import F
     from django.utils import timezone
 
-    from trueppm_api.apps.projects.models import Project, Task, TaskSource, bulk_create_tasks
+    from trueppm_api.apps.projects.models import (
+        Project,
+        Task,
+        TaskSource,
+        bulk_create_tasks,
+        draw_project_sequence,
+    )
     from trueppm_api.apps.projects.wbs_paths import offset_wbs_path, root_ordinal_offset
 
     # Allocate a batch of short_ids: increment object_sequence by len(tasks)
     # in one UPDATE, then assign sequential hex IDs.
     task_count = len(data.tasks)
-    Project.objects.filter(pk=project_id).update(object_sequence=F("object_sequence") + task_count)
-    end_seq: int = Project.objects.values_list("object_sequence", flat=True).get(pk=project_id)
+    end_seq = draw_project_sequence(project_id, "object_sequence", by=task_count)
     start_seq = end_seq - task_count + 1
     # Fetched once for the ADR-1153 actual-date check every row runs below
     # (#3709) — needs project.start_date and .status_date, neither of which the

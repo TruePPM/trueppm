@@ -44,7 +44,6 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import F
 from django.utils import timezone
 from simple_history.utils import bulk_create_with_history
 
@@ -78,6 +77,7 @@ from trueppm_api.apps.projects.models import (
     TaskSource,
     TaskStatus,
     bulk_create_tasks,
+    draw_project_sequence,
 )
 from trueppm_api.apps.projects.seed.forecast_backfill import (
     backfill_forecast_history,
@@ -593,22 +593,21 @@ class _SeedImporter:
         """Reserve ``count`` consecutive ``short_id`` values for one project.
 
         ``Task.save()`` / ``Sprint.save()`` allocate one at a time from
-        ``Project.object_sequence`` (an ``UPDATE … + 1`` plus a read-back, so two
-        round-trips *per row*). Batched inserts bypass ``save()`` entirely, and a
+        ``Project.object_sequence`` (one ``UPDATE … RETURNING`` round-trip *per
+        row*). Batched inserts bypass ``save()`` entirely, and a
         row that skipped the allocation would carry ``short_id = ""`` — which the
         ``unique_(task|sprint)_short_id_per_project`` constraints turn into an
         IntegrityError on the second row.
 
         Advancing the counter by ``count`` in one statement reserves the whole
-        block atomically: the read-back is the last value, so the block is
-        ``[new - count + 1, new]``. Two round-trips per batch instead of two per
+        block atomically: the returned value is the last one, so the block is
+        ``[new - count + 1, new]``. One round-trip per batch instead of one per
         row, and the values stay in the same hex format and the same shared
         Task/Sprint/Risk sequence as the per-row path.
         """
         if count <= 0:
             return []
-        Project.objects.filter(pk=project_id).update(object_sequence=F("object_sequence") + count)
-        last: int = Project.objects.values_list("object_sequence", flat=True).get(pk=project_id)
+        last = draw_project_sequence(project_id, "object_sequence", by=count)
         return [f"{seq:08X}" for seq in range(last - count + 1, last + 1)]
 
     def _bulk_insert(

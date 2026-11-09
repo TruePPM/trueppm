@@ -41,8 +41,9 @@ def increment_returning(
     pk: Any,
     *,
     instance: models.Model | None = None,
+    by: int = 1,
 ) -> int | None:
-    """Atomically add 1 to one integer column and return its new value.
+    """Atomically add ``by`` (default 1) to one integer column and return its new value.
 
     Args:
         model: The concrete model owning the column.
@@ -50,6 +51,8 @@ def increment_returning(
         pk: Primary key of the row to increment.
         instance: Passed to the database router when the write target depends on
             the row itself; omit when the model alone decides.
+        by: Increment amount, bound as a parameter. A batch allocator reserves
+            ``by`` consecutive values at once: the block is ``[new - by + 1, new]``.
 
     Returns:
         The post-increment value, or ``None`` when the ``UPDATE`` matched no row.
@@ -79,9 +82,9 @@ def increment_returning(
     with connection.cursor() as cursor:
         # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
         cursor.execute(
-            f"UPDATE {table} SET {column} = {column} + 1 "  # nosec B608
+            f"UPDATE {table} SET {column} = {column} + %s "  # nosec B608
             f"WHERE {pk_col} = %s RETURNING {column}",
-            [pk],
+            [by, pk],
         )
         row = cursor.fetchone()
     return int(row[0]) if row is not None else None

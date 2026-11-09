@@ -472,18 +472,20 @@ def _next_short_id(project_id: uuid.UUID | str) -> str:
     project row's write lock, so concurrent creates serialize and the sequence
     stays contiguous. Returns an 8-character uppercase hex string.
     """
-    return f"{_draw_project_sequence(project_id, 'object_sequence'):08X}"
+    return f"{draw_project_sequence(project_id, 'object_sequence'):08X}"
 
 
-def _draw_project_sequence(project_id: uuid.UUID | str, field_name: str) -> int:
-    """Increment one ``Project`` counter and return its new value (single statement).
+def draw_project_sequence(project_id: uuid.UUID | str, field_name: str, by: int = 1) -> int:
+    """Advance one ``Project`` counter by ``by``; return the new value (single statement).
+
+    A batch caller reserves the block ``[new - by + 1, new]``.
 
     Raises ``Project.DoesNotExist`` when the project is absent, matching the
     previous UPDATE-then-``.get()`` behavior callers saw.
     """
     from trueppm_api.core.db import increment_returning
 
-    seq = increment_returning(Project, field_name, project_id)
+    seq = increment_returning(Project, field_name, project_id, by=by)
     if seq is None:
         raise Project.DoesNotExist(f"Project {project_id} does not exist")
     return seq
@@ -501,7 +503,7 @@ def _next_risk_short_id(project_id: uuid.UUID | str) -> str:
     reads the identifier rather than re-deriving it (the bug this fixes was three
     web formatters independently mis-parsing the hex scheme as decimal).
     """
-    return str(_draw_project_sequence(project_id, "risk_sequence"))
+    return str(draw_project_sequence(project_id, "risk_sequence"))
 
 
 def format_short_id_display(raw: str, prefix: str) -> str:
