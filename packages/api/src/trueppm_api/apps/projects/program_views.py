@@ -115,6 +115,7 @@ from trueppm_api.apps.projects.views import (
     pin_limit_detail,
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
+from trueppm_api.core.detail_lookup import DetailLookupIgnoresSearchMixin
 from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import suppress_list_pagination, validation_envelope_400
 from trueppm_api.core.request_body import object_body
@@ -713,7 +714,12 @@ def _group_contention_assignments(rows: Iterable[Any]) -> list[dict[str, Any]]:
     return sorted(resources_map.values(), key=lambda r: r["name"])
 
 
-class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewSet[Program]):
+class ProgramViewSet(
+    DetailLookupIgnoresSearchMixin,
+    McpReadableViewMixin,
+    IdempotencyMixin,
+    viewsets.ModelViewSet[Program],
+):
     """CRUD for programs.
 
     URL: ``/api/v1/programs/``
@@ -745,54 +751,6 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name", "code"]
     ordering_fields = ["name"]
-
-    def get_object(self) -> Program:
-        """Resolve the program by pk without the SEARCH/ORDERING backends (#3420).
-
-        ``GenericAPIView.get_object()`` resolves through
-        ``self.filter_queryset(self.get_queryset())``, so the SearchFilter configured
-        above for the ``list`` route also ran against the **parent lookup** on every
-        detail route. A ``?search=`` intended for a nested action's own queryset was
-        matched against the *program's* name and code instead, and a program whose name
-        did not happen to contain the term was filtered out of its own detail lookup and
-        returned **404** — on ``retrieve``, ``projects``, ``rollup``, ``schedule`` and
-        every other detail route here. That is worse than the silent drop #3420 was
-        filed about, and it is why the ``projects`` action could not simply start
-        calling ``filter_queryset()``: the request never reached the point of filtering
-        the project rows.
-
-        **Suppress the backends, not ``filter_queryset()``.** The obvious fix —
-        resolving with ``get_object_or_404(self.get_queryset(), ...)`` — is wrong.
-        ``McpReadableViewMixin`` enforces the
-        ADR-0678 team MCP opt-out in ``filter_queryset()`` *specifically because*
-        ``ProgramViewSet`` is one of the three viewsets that builds its queryset from
-        scratch instead of chaining to ``super().get_queryset()``, so the mixin's
-        ``get_queryset`` hook never runs here. Bypassing ``filter_queryset()`` on the
-        detail path therefore fails that opt-out **open** — an agent token reads the
-        export of a program that denied it. Emptying ``filter_backends`` for the
-        duration of the lookup keeps the mixin's override in the chain (it calls
-        ``super().filter_queryset()``, which iterates the reduced list) and drops only
-        the two backends that have no business resolving a pk.
-
-        Suppressed **by name**, not by emptying the list. ``filter_backends = []`` would
-        read as "drop whatever is configured", which fails open: a narrowing backend
-        added to this viewset later would be silently skipped on every detail route
-        while this docstring still claimed only the two cosmetic ones were in scope.
-
-        The MCP half is pinned by
-        ``test_program_detail_routes_honor_the_program_denial_for_an_agent``
-        (``tests/apps/access/test_mcp_team_opt_out.py``), which fails against the
-        ``get_object_or_404`` form above. Before this branch nothing covered it: the
-        existing opted-out detail test exercises ``ProjectViewSet``, which *does* chain
-        to ``super().get_queryset()`` and so stays safe by the other hook either way.
-        """
-        suppressed = (filters.SearchFilter, filters.OrderingFilter)
-        original = self.filter_backends
-        self.filter_backends = [b for b in original if b not in suppressed]
-        try:
-            return super().get_object()
-        finally:
-            self.filter_backends = original
 
     def get_permissions(self) -> list[BasePermission]:
         # ADR-0186 §E: append the read-only MCP token guards around the

@@ -337,6 +337,7 @@ from trueppm_api.apps.webhooks.models import (
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
 from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
+from trueppm_api.core.detail_lookup import DetailLookupIgnoresSearchMixin
 from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import (
     ownership_refusal_403,
@@ -1087,7 +1088,9 @@ def _calendar_reference_describer(user: Any) -> Callable[[db_models.Model], dict
         },
     )
 )
-class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
+class CalendarViewSet(
+    DetailLookupIgnoresSearchMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]
+):
     """CRUD for project calendars.
 
     Calendars define working days, hours per day, and holiday exceptions.
@@ -1532,7 +1535,11 @@ _BLOCKED_ROLLUP_QUERY_PARAMS = [
     ),
 )
 class ProjectViewSet(
-    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Project]
+    DetailLookupIgnoresSearchMixin,
+    FieldLevelMergeMixin,
+    McpReadableViewMixin,
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Project],
 ):
     """CRUD for projects.
 
@@ -6253,7 +6260,11 @@ class TaskListPagination(ScheduleFetchPagination):
     ),
 )
 class TaskViewSet(
-    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Task]
+    DetailLookupIgnoresSearchMixin,
+    FieldLevelMergeMixin,
+    McpReadableViewMixin,
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Task],
 ):
     """CRUD for tasks within a project.
 
@@ -11057,7 +11068,11 @@ def _record_risk_link_events(
 
 
 class RiskViewSet(
-    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Risk]
+    DetailLookupIgnoresSearchMixin,
+    FieldLevelMergeMixin,
+    McpReadableViewMixin,
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Risk],
 ):
     """CRUD for risks within a project.
 
@@ -11350,7 +11365,12 @@ def _label_soft_cap() -> int:
     return int(getattr(settings, "TRUEPPM_LABEL_SOFT_CAP", _LABEL_SOFT_CAP_DEFAULT))
 
 
-class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Label]):
+class LabelViewSet(
+    DetailLookupIgnoresSearchMixin,
+    McpReadableViewMixin,
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Label],
+):
     """CRUD for the project-scoped label catalog (ADR-0400).
 
     Permission matrix (adoption-first with a curation floor):

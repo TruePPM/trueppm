@@ -74,6 +74,7 @@ from trueppm_api.apps.resources.services import (
 )
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict, is_workspace_admin
+from trueppm_api.core.detail_lookup import DetailLookupIgnoresSearchMixin
 from trueppm_api.core.protect_conflict import protected_error_response
 
 # Shared 404 detail — matches DRF's default NotFound detail so a missing or
@@ -182,7 +183,7 @@ def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, 
         },
     ),
 )
-class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
+class SkillViewSet(DetailLookupIgnoresSearchMixin, IdempotencyMixin, viewsets.ModelViewSet[Skill]):
     """CRUD for the org-level skill catalog.
 
     Any authenticated user may read. Writes require ``SCHEDULER+`` on at least
@@ -1012,7 +1013,9 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
         ],
     ),
 )
-class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
+class ResourceViewSet(
+    DetailLookupIgnoresSearchMixin, IdempotencyMixin, viewsets.ModelViewSet[Resource]
+):
     """CRUD for the org-level resource catalog (issue #155).
 
     Permission model (ADR-0034):
