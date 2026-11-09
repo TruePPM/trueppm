@@ -84,8 +84,11 @@ a committed, seeded corpus generated *by the reference*
 (``packages/wasm-scheduler/fixtures/oracle/corpus.json``), asserted by
 ``packages/wasm-scheduler/tests/oracle_conformance.rs`` under ``wasm:test``. It
 holds 160 planning networks, since #4633 80 progress networks drawn the way
-``progress_projects(modeled=True)`` draws them, and since #4785 the named shapes
-in ``NAMED_CORPUS_CASES``. The
+``progress_projects(modeled=True)`` drew them before #4671, and since #4785 the named
+shapes in ``NAMED_CORPUS_CASES``. The corpus mirror is deliberately NOT widened with
+the live generators (#4671): that would change the committed fixture, so Rust is held
+in CI to the narrow corpus only, and the widened live properties (the 25-task profile
+included) run against Rust only where a Rust runner exists. The
 corpus tests below keep that file in lock-step with the reference and check the
 Python engine against it too. Regenerate with
 ``REGEN_ORACLE_CORPUS=1 pytest tests/test_cpm_oracle.py -k corpus``.
@@ -98,6 +101,7 @@ import os
 import random
 import shutil
 import subprocess
+from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
@@ -105,7 +109,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import assume, example, given
+from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from tests.oracle.reference_cpm import (
@@ -447,7 +451,11 @@ def random_ref_project(rng: random.Random) -> RefProject:
 
 
 def random_progress_project(rng: random.Random) -> RefProject:
-    """The corpus's progress cases: the shape of ``progress_projects(modeled=True)``.
+    """The corpus's progress cases: the pre-#4671 shape of ``progress_projects(modeled=True)``.
+
+    Deliberately not widened with the live generator (#4671): up to six tasks, durations
+    up to five days, a data date within -21..+8 days and 0..3-day exceptions in the
+    first 30 days, so the committed corpus fixture stays stable.
 
     Drawn from a seeded RNG, and redrawn until the case is one the reference models
     and is not the open #4631 shape (``_ff_out_of_a_non_working_actual_finish``).
@@ -498,7 +506,8 @@ def _random_progress_project(rng: random.Random) -> RefProject:
     progress: dict[str, RefProgress] = {}
     for tid, dur in durations.items():
         if rng.random() < 0.25:
-            # Three weeks before the start, as in progress_projects (#4635).
+            # Three weeks before the start: the pre-#4671 near-start range of
+            # progress_projects, which found #4635.
             planned_start[tid] = day(-21, 12)
         state = rng.choice(("none", "none", "started", "done", "done_recorded"))
         if state == "started":
@@ -893,11 +902,17 @@ _SEVEN_DAY = 0b1111111
 
 
 @st.composite
-def _calendar_with_exceptions(draw: st.DrawFn, mask: int) -> RefCalendar:
+def _calendar_with_exceptions(draw: st.DrawFn, mask: int, near: bool = False) -> RefCalendar:
+    """Up to two exception ranges of up to 16 days, anywhere in the horizon (#4671).
+
+    A shutdown reaching past the early work is what production calendars carry; the
+    old 0..3-day, first-30-days draw never put one across a data date or a long task.
+    ``near`` keeps that old draw (at most one range) for the near-start projects.
+    """
     ranges = []
-    for _ in range(draw(st.integers(0, 1))):
-        lo = _EPOCH + timedelta(days=draw(st.integers(0, 30)))
-        ranges.append((lo, lo + timedelta(days=draw(st.integers(0, 3)))))
+    for _ in range(draw(st.integers(0, 1 if near else 2))):
+        lo = _EPOCH + timedelta(days=draw(st.integers(0, 30 if near else 150)))
+        ranges.append((lo, lo + timedelta(days=draw(st.integers(0, 3 if near else 16)))))
     return RefCalendar(working_mask=mask, exceptions=tuple(ranges))
 
 
@@ -917,7 +932,7 @@ def _progress(draw: st.DrawFn, start: date, n: int) -> RefProgress | None:
     if state == "none":
         return None
     if state == "started":
-        pct = 0.0 if n == 0 else draw(st.sampled_from((0.0, 20.0, 50.0, 80.0)))
+        pct = 0.0 if n == 0 else draw(st.sampled_from((0.0, 20.0, 50.0, 80.0, 99.0, 99.9)))
         actual_start = draw(st.none() | st.just(day(-6, 4)))
         if pct == 0.0 and actual_start is None:
             return None
@@ -950,28 +965,37 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False
     completed milestone only without recorded actuals.
     """
     n = draw(st.integers(1, max_tasks))
+    # A project is either near-start (the narrow ranges the #4635 shape was found in:
+    # several short tasks, small lags and a data date within weeks of the start, all
+    # close together) or far-reaching (production's ranges, #4671). Mixing per
+    # project (three in four near) keeps the old density alongside the new reach;
+    # widening every draw diluted the near-start shapes and made #4635 take far more
+    # examples to find.
+    near = draw(st.integers(0, 3)) > 0
     start = _EPOCH + timedelta(days=draw(st.integers(0, 6)))
-    durations = {f"T{i}": draw(st.integers(0, 5)) for i in range(n)}
+    durations = {f"T{i}": draw(st.integers(0, 5 if near else 20)) for i in range(n)}
     per_task_calendars = draw(st.booleans())
     links = []
+    # Sparse on a large network (about two links per task), dense on a small one.
+    link_one_in = 2 if n <= 8 or near else max(3, n // 2)
     for j in range(n):
         for i in range(j):
-            if draw(st.integers(0, 2)) == 0:
+            if draw(st.integers(0, link_one_in)) == 0:
                 links.append(
                     RefLink(
                         pred=f"T{i}",
                         succ=f"T{j}",
                         kind=draw(st.sampled_from(LINK_TYPES)),
-                        lag=draw(st.integers(-3, 5)),
+                        lag=draw(st.integers(-3, 5) if near else st.integers(-15, 25)),
                     )
                 )
     calendars: dict[str, RefCalendar] = {}
     task_calendar: dict[str, str] = {}
     if per_task_calendars:
         calendars = {
-            "five": draw(_calendar_with_exceptions(MON_TO_FRI)),
-            "four": draw(_calendar_with_exceptions(_FOUR_DAY)),
-            "seven": draw(_calendar_with_exceptions(_SEVEN_DAY)),
+            "five": draw(_calendar_with_exceptions(MON_TO_FRI, near)),
+            "four": draw(_calendar_with_exceptions(_FOUR_DAY, near)),
+            "seven": draw(_calendar_with_exceptions(_SEVEN_DAY, near)),
         }
         for tid in durations:
             cid = draw(st.sampled_from((None, "five", "four", "seven")))
@@ -979,15 +1003,19 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False
                 task_calendar[tid] = cid
     if modeled:
         links = [_on_one_calendar(link, task_calendar) for link in links]
-    # Reaches three weeks before the start (#4635): a data date only a weekend before
-    # it snaps onto the start itself, so the -3 floor this range had almost never
-    # produced a data date the engines read as before the start.
-    status_date = draw(st.none() | st.integers(-21, 8).map(lambda d: start + timedelta(days=d)))
+    # Reaches 40 days before the start (#4635: a data date only a weekend before it
+    # snaps onto the start itself) and 90 days after it (#4671: production's data date
+    # sits weeks in, past the finish of the early work, where the #4439 class lives).
+    lo_status, hi_status = (-21, 8) if near else (-40, 90)
+    status_date = draw(
+        st.none() | st.integers(lo_status, hi_status).map(lambda d: start + timedelta(days=d))
+    )
+    lo_snet, hi_snet = (-21, 12) if near else (-40, 90)
     planned_start = {}
     progress = {}
     for tid, dur in durations.items():
         if draw(st.integers(0, 3)) == 0:
-            planned_start[tid] = start + timedelta(days=draw(st.integers(-21, 12)))
+            planned_start[tid] = start + timedelta(days=draw(st.integers(lo_snet, hi_snet)))
         recorded = draw(_progress(start, dur))
         if modeled and dur == 0 and recorded is not None and recorded.complete:
             recorded = RefProgress(percent_complete=100.0)
@@ -999,7 +1027,7 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False
         start=start,
         durations=durations,
         links=tuple(links),
-        calendar=draw(_calendar_with_exceptions(project_mask)),
+        calendar=draw(_calendar_with_exceptions(project_mask, near)),
         status_date=status_date,
         planned_start=planned_start,
         progress=progress,
@@ -2320,6 +2348,73 @@ def test_rust_engine_matches_reference_with_progress(
 ) -> None:
     assume(not _ff_out_of_a_non_working_actual_finish(project))
     assert_matches_reference(rust_engine.schedule(project), project)
+
+
+#: A 25-task sparse network is ~4x the cost of a 6-task one per example, so it runs
+#: only under the scheduled ``scheduler:fuzz-deep`` profile (#4671), not the MR gate.
+_DEEP_ONLY = pytest.mark.skipif(
+    os.environ.get("HYPOTHESIS_PROFILE") != "deep",
+    reason="the 25-task profile runs under scheduler:fuzz-deep (HYPOTHESIS_PROFILE=deep)",
+)
+
+
+@_DEEP_ONLY
+@pytest.mark.fuzz
+@given(project=progress_projects(max_tasks=25, modeled=True))
+def test_python_engine_matches_reference_on_a_large_sparse_network(project: RefProject) -> None:
+    """Twenty-five tasks, sparse links, the full widened ranges: every compared field."""
+    assume(not _ff_out_of_a_non_working_actual_finish(project))
+    assert_matches_reference(python_engine(project), project)
+
+
+@_DEEP_ONLY
+@pytest.mark.fuzz
+@given(project=progress_projects(max_tasks=25, modeled=True))
+def test_rust_engine_matches_reference_on_a_large_sparse_network(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    assume(not _ff_out_of_a_non_working_actual_finish(project))
+    assert_matches_reference(rust_engine.schedule(project), project)
+
+
+#: The share of draws the reference must accept. A widened range the reference mostly
+#: refuses (or the #4631 filter mostly discards) would leave the sweep checking little.
+MIN_ACCEPTANCE_RATE = 0.8
+_ACCEPTANCE_DRAWS = 300
+
+
+@pytest.mark.fuzz
+def test_the_progress_generator_is_accepted_by_the_reference(
+    record_property: Callable[[str, object], None],
+) -> None:
+    """Draw the generator and floor the share the reference models (scheduler-engine skill).
+
+    A draw is accepted when the reference models it and it is not the excluded #4631
+    shape. Self-contained and seeded, so it holds in any order, selection or worker.
+    The rate is in the assertion message and recorded as the ``acceptance_rate``
+    property, which ``conftest.pytest_terminal_summary`` prints on a green run.
+    """
+    outcomes: Counter[str] = Counter()
+
+    @settings(max_examples=_ACCEPTANCE_DRAWS, derandomize=True, database=None)
+    @given(project=progress_projects(max_tasks=25, modeled=True))
+    def draw_projects(project: RefProject) -> None:
+        if _ff_out_of_a_non_working_actual_finish(project):
+            outcomes["excluded-4631"] += 1
+            return
+        try:
+            reference_schedule(project)
+        except NotImplementedError:
+            outcomes["refused"] += 1
+            return
+        outcomes["accepted"] += 1
+
+    draw_projects()
+    total = sum(outcomes.values())
+    rate = outcomes["accepted"] / total
+    summary = f"{rate:.1%} of {total} draws {dict(outcomes)}"
+    record_property("acceptance_rate", summary)
+    assert rate >= MIN_ACCEPTANCE_RATE, summary
 
 
 # ---------------------------------------------------------------------------
