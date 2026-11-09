@@ -1,4 +1,4 @@
-"""Inheritable near-critical float threshold (ADR-1381 amendment, #4891).
+"""Inheritable near-critical float threshold (ADR-1381 amendment, #4907).
 
 `near_critical_threshold_days` is the number of WORKING days of total float at or below
 which a task is "near-critical" on the driving-chain payload (float 0 is critical). It

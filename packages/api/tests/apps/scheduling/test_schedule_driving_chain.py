@@ -334,8 +334,8 @@ class TestDrivingChain:
         Task.objects.filter(pk=chain["B"].pk).update(
             status=TaskStatus.COMPLETE, percent_complete=100
         )
-        # Queried directly: the engine drops a finished task's driving edges, so it is
-        # reachable as the chain's own (self) node, which still needs the right band.
+        # Queried directly as the chain's own (self) node; a finished predecessor of a live
+        # task can also appear upstream with this band, which this test does not pin.
         data = viewer_client.get(url(project.pk), {"task_id": str(chain["B"].pk)}).json()
         node = next(n for n in data["nodes"] if n["name"] == "B")
         assert node["is_critical"] is False
@@ -366,6 +366,22 @@ class TestDrivingChain:
         ws.calendar = ws_cal
         ws.save()
         Project.objects.filter(pk=project.pk).update(calendar=None)
+        client = _client(user, project, Role.VIEWER)
+        data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] == str(ws_cal.pk)
+
+    def test_calendar_id_follows_the_workspace_when_overrides_are_locked(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        """INHERIT locks per-scope calendars: the workspace calendar wins over the project's."""
+        from trueppm_api.apps.workspace.models import TermOverridePolicy
+
+        ws_cal = Calendar.objects.create(name="Workspace cal")
+        ws = Workspace.load()
+        ws.calendar = ws_cal
+        ws.calendar_override_policy = TermOverridePolicy.INHERIT
+        ws.save()
+        assert project.calendar_id is not None
         client = _client(user, project, Role.VIEWER)
         data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
         assert data["calendar_id"] == str(ws_cal.pk)
