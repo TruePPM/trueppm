@@ -762,12 +762,12 @@ def test_jira_import_goes_through_the_shared_skip(project: Project) -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_an_ss_link_write_locks_its_predecessor_row(project: Project) -> None:
-    """The serializer takes ``FOR UPDATE`` on the predecessor before reading its children.
+@pytest.mark.parametrize("dep_type", ["SS", "FS", "FF"])
+def test_a_dependency_write_locks_both_endpoint_rows(project: Project, dep_type: str) -> None:
+    """The serializer takes ``FOR UPDATE`` on predecessor AND successor, for every type.
 
-    A real two-connection race is not reproducible deterministically here; this pins the
-    lock acquisition the serialization argument rests on (see
-    ``DependencySerializer._lock_predecessor_for_start_link``). An FS write does not lock.
+    The real two-connection interleaving is the next test; this pins the lock
+    acquisition itself (see ``DependencySerializer._lock_endpoints_before_graph_check``).
     """
     from django.db import connection
     from django.test.utils import CaptureQueriesContext
@@ -779,25 +779,106 @@ def test_an_ss_link_write_locks_its_predecessor_row(project: Project) -> None:
     pred = _task(project, "Pred", "1")
     succ = _task(project, "Succ", "2")
 
-    def locked_sql(dep_type: str) -> list[str]:
-        with CaptureQueriesContext(connection) as ctx:
-            response = _post(
-                client,
-                "/api/v1/dependencies/",
-                {"predecessor": str(pred.pk), "successor": str(succ.pk), "dep_type": dep_type},
-            )
-        assert response.status_code == 201, response.content
-        needle = str(pred.pk).replace("-", "")
-        return [
-            q["sql"]
-            for q in ctx.captured_queries
-            if "FOR UPDATE" in q["sql"]
-            and '"projects_task"' in q["sql"]
-            and needle in q["sql"].replace("-", "")
-        ]
+    with CaptureQueriesContext(connection) as ctx:
+        response = _post(
+            client,
+            "/api/v1/dependencies/",
+            {"predecessor": str(pred.pk), "successor": str(succ.pk), "dep_type": dep_type},
+        )
+    assert response.status_code == 201, response.content
+    locking = [
+        q["sql"].replace("-", "")
+        for q in ctx.captured_queries
+        if "FOR UPDATE" in q["sql"] and '"projects_task"' in q["sql"]
+    ]
+    for task in (pred, succ):
+        needle = str(task.pk).replace("-", "")
+        assert any(needle in sql for sql in locking), f"{dep_type}: {task.name} not locked"
 
-    assert locked_sql("SS"), "an SS write must lock the predecessor row"
-    assert not locked_sql("FS")
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_fs_save_and_indent_never_store_a_summary_to_descendant_link(
+    project: Project,
+) -> None:
+    """``Design -FS-> Build`` racing an indent of Build under Design (#4857).
+
+    The dependency request is held after it has locked its endpoints and read the
+    tree (Build is still Design's sibling, so no cycle), while the indent starts. With
+    the endpoint lock the indent waits for the dependency to commit and then refuses on
+    the committed link; without it the indent commits first and the INSERT lands
+    afterwards, storing ``Design{Build} -FS-> Build``. Either winner is acceptable;
+    the stored pair of facts must never coexist.
+    """
+    import threading
+    import time
+
+    from django.db import connection
+
+    from trueppm_api.apps.projects import serializers as serializers_module
+
+    owner = User.objects.create_user(username="race-owner", password="pw")
+    ProjectMembership.objects.create(project=project, user=owner, role=Role.OWNER)
+    design = _task(project, "Design", "1")
+    build = _task(project, "Build", "2")
+
+    at_hook = threading.Event()
+    release = threading.Event()
+    real_loader = serializers_module._load_project_tasks_and_children_map
+    results: dict[str, int] = {}
+    errors: list[BaseException] = []
+
+    def held_loader(*args: Any, **kwargs: Any) -> Any:
+        out = real_loader(*args, **kwargs)  # the tree as the dependency saw it
+        at_hook.set()
+        release.wait(timeout=20)
+        return out
+
+    def run(name: str, url: str, body: dict[str, Any]) -> None:
+        try:
+            client = APIClient()
+            client.force_authenticate(user=owner)
+            results[name] = client.post(url, body, format="json").status_code
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    with (
+        patch("django.db.transaction.on_commit", side_effect=lambda fn, *a, **kw: fn()),
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch.object(serializers_module, "_load_project_tasks_and_children_map", held_loader),
+    ):
+        dep_thread = threading.Thread(
+            target=run,
+            args=(
+                "dep",
+                "/api/v1/dependencies/",
+                {"predecessor": str(design.pk), "successor": str(build.pk), "dep_type": "FS"},
+            ),
+        )
+        indent_thread = threading.Thread(
+            target=run,
+            args=("indent", INDENT_URL.format(pk=project.pk, task_id=build.pk), {}),
+        )
+        dep_thread.start()
+        assert at_hook.wait(timeout=20), "dependency request never reached the cycle check"
+        indent_thread.start()
+        time.sleep(1.5)  # let the indent either finish (no lock) or block on the lock
+        release.set()
+        dep_thread.join(timeout=30)
+        indent_thread.join(timeout=30)
+
+    assert not errors, errors
+    assert results.keys() == {"dep", "indent"}, results
+    build.refresh_from_db()
+    design.refresh_from_db()
+    link_stored = Dependency.live.filter(predecessor=design, successor=build).exists()
+    build_under_design = str(build.wbs_path).startswith(f"{design.wbs_path}.")
+    assert not (link_stored and build_under_design), (
+        f"summary-to-descendant link stored: results={results}, "
+        f"design={design.wbs_path}, build={build.wbs_path}"
+    )
 
 
 # ---------------------------------------------------------------------------

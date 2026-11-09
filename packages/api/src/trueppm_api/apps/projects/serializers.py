@@ -19,7 +19,6 @@ from rest_framework.exceptions import APIException
 from trueppm_scheduler import InvalidScheduleInput, find_cycle
 
 from trueppm_api.apps.scheduling.graph_guard import (
-    SUMMARY_FORBIDDEN_LINK_TYPES,
     TypedEdge,
     validate_expansion_with_edge,
 )
@@ -8375,7 +8374,7 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             self._raise_cycle_error([predecessor, predecessor])
             return
 
-        self._lock_predecessor_for_start_link(predecessor, attrs)
+        self._lock_endpoints_before_graph_check(predecessor, successor)
 
         # Cross-project edges must be cycle-checked over the *merged* program
         # graph (ADR-0120 D1): an A→B cross edge can close a cycle that is only
@@ -8516,45 +8515,51 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         ]
         self._raise_cycle_error(ordered)
 
-    def _lock_predecessor_for_start_link(
-        self, predecessor: Task, attrs: dict[str, Any] | None
-    ) -> None:
-        """Hold the predecessor's row lock before reading its children, for SS/SF links.
+    def _lock_endpoints_before_graph_check(self, predecessor: Task, successor: Task) -> None:
+        """Hold both endpoints' row locks before reading the graph, for every link type.
 
-        The ADR-0370 check reads whether the predecessor has children. The structural
-        paths that can give a task its first child lock that would-be parent row before
-        they decide: indent (the previous-sibling level, ``FOR UPDATE``), outdent (the
-        task itself), reparent (the target), create and ``tasks/bulk`` create under a
-        parent, task restore (the parent), inbound sync (the parent), reorder (every
-        sibling at the level), the trash cascades' retire step, and structural undo
-        (every row of the recorded region, which includes the old parent — capture is
-        "at or under" each region root). Taking the same row lock here first makes the
-        two serialize: whichever commits second re-reads the other's write under READ
-        COMMITTED and refuses (#4830). The lock is effective because
-        ``ATOMIC_REQUESTS`` is on (``settings/base.py``), so it is held to commit.
+        Two structural races turn on a dependency save reading the tree before a
+        concurrent restructure commits, then inserting after it does:
 
-        What it does **not** do: guarantee freedom from deadlock. This path locks one
-        row before its INSERT, but the INSERT then takes FK key-share locks on both
-        endpoints, and a structural edit holding a sibling row ``FOR UPDATE`` can be
-        waiting on the predecessor at the same time — a lock cycle is possible.
-        ``tasks/bulk`` can already deadlock across parents in the same way; that is
-        pre-existing, not introduced here. PostgreSQL detects such a cycle and aborts
-        one transaction, so the outcome is a failed request, never the forbidden state
-        committed.
+        * ADR-0370 (#4830): the check reads whether the predecessor has children, and
+          indent, outdent, reparent, create-under-parent, restore, inbound sync, reorder,
+          the trash cascades and structural undo all lock the would-be parent row before
+          they give it its first child.
+        * Summary-to-own-descendant (#4857): ``Design -FS-> Build`` passes ``find_cycle``
+          while Build is Design's sibling; a concurrent indent of Build under Design then
+          commits, and this INSERT lands with no recheck, leaving ``Design{Build} -FS->
+          Build``, which every later recalculation refuses. The #4705 guard in the
+          restructure views only sees links that are committed when it runs.
 
-        Only SS/SF writes pay for it — no other type is affected by summary status.
+        Taking the same row locks first makes the two serialize, and the graph reads that
+        follow (``_check_no_cycle`` loads the tree after this call) run as new statements
+        under READ COMMITTED, so they see whatever the winner committed and the loser
+        refuses. Every restructure locks the moved task, its whole subtree and the new
+        ancestor, and a link the move could make illegal has one endpoint in the moved
+        set and the other a new ancestor, so locking *both* endpoints always intersects.
+        This is why the lock covers FS/FF too and the successor, not only an SS/SF
+        predecessor. The lock is held to commit because ``ATOMIC_REQUESTS`` is on
+        (``settings/base.py``).
+
+        Endpoints are locked in pk order so two saves over the same pair in opposite
+        directions cannot deadlock each other. What this does **not** do: order itself
+        against a restructure, which locks in WBS order (parent, then children). A lock
+        cycle with one is still possible; PostgreSQL aborts one transaction, so the
+        outcome is a failed request, never the forbidden state committed. ``tasks/bulk``
+        can already deadlock across parents in the same way.
+
         Skipped outside a transaction, where ``select_for_update`` is illegal.
         """
         from django.db import transaction
 
-        dep_type = (attrs or {}).get("dep_type") or (
-            self.instance.dep_type if self.instance is not None else "FS"
-        )
-        if dep_type not in SUMMARY_FORBIDDEN_LINK_TYPES:
-            return
         if not transaction.get_connection().in_atomic_block:
             return
-        Task.objects.select_for_update().filter(pk=predecessor.pk).values_list("pk").first()
+        list(
+            Task.objects.select_for_update()
+            .filter(pk__in={predecessor.pk, successor.pk})
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
 
     def _check_no_type_collision(
         self,
