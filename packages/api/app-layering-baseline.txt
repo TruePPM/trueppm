@@ -1,0 +1,36 @@
+# Recorded layering violations -- a ceiling that can only shrink (scripts/check-app-layering.py).
+# One `<src> -> <dst> <import-site count>` line per violating edge. Fix a violation, then
+# lock it in with `python3 scripts/check-app-layering.py --update-baseline`; that command
+# refuses to add or raise an entry. `platform` is core/fields/permissions/workflows.
+access -> agents 15
+access -> integrations 2
+access -> observability 1
+access -> webhooks 2
+history -> observability 2
+msproject -> observability 1
+notifications -> integrations 3
+platform -> access 6
+platform -> agents 1
+platform -> notifications 2
+platform -> profiles 2
+platform -> projects 2
+platform -> scheduling 1
+platform -> sso 2
+platform -> workflow_engine 2
+projects -> agents 6
+projects -> csvimport 3
+projects -> history 1
+projects -> integrations 6
+projects -> msproject 2
+projects -> observability 2
+projects -> webhooks 4
+scheduling -> observability 4
+scheduling -> webhooks 2
+sync -> integrations 3
+sync -> observability 3
+taskruns -> access 2
+taskruns -> idempotency 1
+taskruns -> observability 2
+taskruns -> projects 1
+taskruns -> sync 1
+webhooks -> observability 1
