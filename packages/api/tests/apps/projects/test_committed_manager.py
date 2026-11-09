@@ -160,6 +160,8 @@ def test_monte_carlo_excludes_backlog_tasks(
         )
 
     assert r.status_code == 200, r.content
+    # Without this, a patch that misses the view's lookup passes on an empty capture.
+    assert captured_task_ids, "the patched monte_carlo was never called"
     assert str(backlog.pk) not in captured_task_ids
 
 

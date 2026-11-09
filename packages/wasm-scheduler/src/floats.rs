@@ -1,6 +1,6 @@
 //! Float computation — total float, free float, and critical flag.
 //!
-//! Mirrors the Python `_compute_floats` function from `trueppm_scheduler.engine`.
+//! Mirrors the Python `_compute_floats` function from `trueppm_scheduler.engine.backward`.
 
 use chrono::NaiveDate;
 use petgraph::graph::NodeIndex;

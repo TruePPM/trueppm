@@ -1,6 +1,6 @@
 //! CPM backward pass — computes late_start and late_finish for every task.
 //!
-//! Mirrors the Python `_backward_pass` function from `trueppm_scheduler.engine`.
+//! Mirrors the Python `_backward_pass` function from `trueppm_scheduler.engine.backward`.
 
 use chrono::NaiveDate;
 use petgraph::graph::NodeIndex;

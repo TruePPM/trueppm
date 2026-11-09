@@ -327,7 +327,9 @@ def test_unexpandable_summary_shape_marks_request_dead(
     link = data.tasks[1].predecessor_links[0]
     data.tasks[1].predecessor_links = []
     data.tasks[2].predecessor_links = [dataclasses.replace(link, predecessor_uid=data.tasks[0].uid)]
-    monkeypatch.setattr("trueppm_scheduler.engine.MAX_EXPANDED_EDGES", 0)
+    # Patch the cap where the engine reads it: the package re-export is a copy.
+    for module in ("graph", "summary"):
+        monkeypatch.setattr(f"trueppm_scheduler.engine.{module}.MAX_EXPANDED_EDGES", 0)
     req = JiraImportRequest.objects.create(
         project=project,
         filename="fanout.xml",

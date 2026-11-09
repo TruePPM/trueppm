@@ -165,6 +165,38 @@ If either test fails, profile before investigating — a warm-up run is included
 to exclude import-time costs, so a failure indicates a genuine algorithmic
 regression.
 
+### Patching engine internals in a test
+
+`trueppm_scheduler.engine` is a package whose `__init__.py` re-exports every
+name. A submodule that uses a helper or a `MAX_*` cap imports its own binding, so
+`monkeypatch.setattr(engine, "_build_graph", spy)` replaces only the re-export
+and the engine never sees it — usually without failing the test. Patch the
+module that **calls** the helper or **reads** the constant: `monte_carlo()`
+builds its graph in `engine.montecarlo.run`, so a spy goes on
+`engine.montecarlo.run._build_graph`, not on `engine.graph`, where it is defined.
+A name used by several modules (`_forward_pass` in both `engine.cpm` and
+`engine.replay`) needs a patch on each. Each submodule's import block lists what
+it reads. Then prove the patch takes: break the behavior it guards and watch the
+test fail.
+
+### History of the engine modules
+
+The `engine/` modules were cut out of one `engine.py` in a single commit (#4550),
+so each one is a new file to git. `git log --follow` stops at that commit, and so
+does plain `git blame -C -C` for most of the code, as does ignoring the commit
+via `.git-blame-ignore-revs`. To trace a line back to the `engine.py` commit that
+wrote it, use the histogram diff:
+
+```bash
+git -c diff.algorithm=histogram blame -C -C src/trueppm_scheduler/engine/cpm.py
+```
+
+On `engine/cpm.py` that leaves 48 of 255 lines on the split commit (the module's
+new docstring and imports), where plain `blame -C -C` leaves 240. For the
+commits before the split, run `git log <split-commit>^ --
+src/trueppm_scheduler/engine.py`; the split commit is the one listed in
+`.git-blame-ignore-revs`.
+
 ## Linting and type checking
 
 ```bash
@@ -217,7 +249,14 @@ packages/scheduler/
 │   └── trueppm_scheduler/
 │       ├── __init__.py     # Public API exports
 │       ├── models.py       # Data classes: Task, Dependency, Project, Calendar
-│       ├── engine.py       # schedule(), monte_carlo(), CPM algorithms
+│       ├── engine/         # schedule(), monte_carlo(), CPM algorithms (a package, #4550)
+│       │   ├── __init__.py #   re-exports every engine name; import from here
+│       │   ├── errors.py, limits.py, results.py   # exceptions, MAX_* caps, result types
+│       │   ├── calendar_math.py, milestones.py     # working-day math, milestone instants
+│       │   ├── graph.py, summary.py, validate.py   # graph + cycles, summary expansion, input checks
+│       │   ├── forward.py, backward.py, cpm.py     # CPM passes and floats; schedule()
+│       │   ├── replay.py                           # milestone state kept for derive.py
+│       │   └── montecarlo/                         # sampling, index, forward, run (monte_carlo())
 │       ├── derive.py       # derive_value() explainability
 │       └── cli.py          # CLI entry point (trueppm-scheduler command)
 ├── tests/

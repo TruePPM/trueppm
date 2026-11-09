@@ -659,8 +659,9 @@ def _resolve_task_pert_estimates(
       three-point values are common file noise from PMs who blanket-applied
       estimates and there's nothing the user needs to do.
     - All-or-none (Q3): the scheduler engine requires all three for PERT-Beta
-      sampling (engine.py:892), so a partial triple would surface as a
-      half-populated UI with no Monte Carlo effect — drop all three and warn.
+      sampling (``trueppm_scheduler.engine.montecarlo.sampling``), so a partial
+      triple would surface as a half-populated UI with no Monte Carlo effect —
+      drop all three and warn.
     - Ordering (#2002): even a complete triple is unusable if it violates
       optimistic <= most_likely <= pessimistic. The engine rejects it
       (engine._validate_project) and, because the importer marks estimates

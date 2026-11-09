@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from trueppm_scheduler import Calendar, DateRange, Dependency, Project, Task, engine, monte_carlo
+from trueppm_scheduler.engine.montecarlo import run as mc_run
 from trueppm_scheduler.models import DependencyType
 
 START = date(2026, 3, 2)  # Monday
@@ -152,7 +153,7 @@ def test_conversion_adds_an_index_sized_table_not_a_matrix(
         tracemalloc.reset_peak()
         return out
 
-    monkeypatch.setattr(engine, "_build_reference_index", spy)
+    monkeypatch.setattr(mc_run, "_build_reference_index", spy)
     tracemalloc.start()
     try:
         monte_carlo(project, runs=runs, seed=1)

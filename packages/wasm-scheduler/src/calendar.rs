@@ -2,7 +2,7 @@
 //!
 //! Mirrors the Python `_next_working_day`, `_prev_working_day`,
 //! `_finish_from_start`, `_start_from_finish`, and `_working_days_between`
-//! functions from `trueppm_scheduler.engine`.
+//! functions from `trueppm_scheduler.engine.calendar_math`.
 
 use chrono::{Datelike, Duration, NaiveDate};
 

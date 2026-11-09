@@ -538,12 +538,11 @@ which also ships inside the wheel.
 
 ### Heads-up: `trueppm_scheduler.engine` becomes a subpackage in 0.5
 
-0.5 will split the single `trueppm_scheduler/engine.py` module into an
-`engine/` subpackage (CPM, Monte Carlo, calendar math, validation, and so on in
-separate files). The split is planned to land on `main` in November–December
-2026 and ship with 0.5
+0.5 will ship `trueppm_scheduler.engine` as an `engine/` subpackage instead of
+the single `trueppm_scheduler/engine.py` module. The split has landed on `main`
+and ships with 0.5
 ([#4550](https://gitlab.com/trueppm/trueppm/-/issues/4550)). It is a pure move:
-scheduling results will not change.
+scheduling results do not change.
 
 **Will keep working, unchanged:**
 
@@ -561,11 +560,30 @@ scheduling results will not change.
   `monkeypatch.setattr(engine, "MAX_DEPENDENCIES", 1)` will replace the
   re-exported name. The code that actually calls the helper or reads the
   constant will still see the original, so the patch stops taking effect,
-  usually without failing the test. Point such patches at the submodule that
-  defines the name once you upgrade.
+  usually without failing the test. Each submodule imports its own binding of
+  what it uses, so point the patch at the submodule that **calls** the helper
+  or **reads** the constant, which is not always the one that defines it:
+  `MAX_DEPENDENCIES` is defined in `engine.limits` but read by
+  `engine.validate`, and `monte_carlo()` builds its graph through
+  `engine.montecarlo.run._build_graph`. A name several submodules use needs a
+  patch on each.
 - Code that reads a class's `__module__`, or tooling keyed on the file path
   `trueppm_scheduler/engine.py` (coverage or lint excludes, for example).
+  `ScheduleResult.__module__`, for instance, will read
+  `trueppm_scheduler.engine.results`.
 - Result objects pickled by 0.5 will not unpickle on 0.4.
+
+Where things will live in 0.5 (every name stays importable from
+`trueppm_scheduler.engine`):
+
+| Submodule | Holds |
+|---|---|
+| `engine.errors`, `engine.limits`, `engine.results` | the exceptions, the `MAX_*`/`MC_*` caps, the result types |
+| `engine.calendar_math`, `engine.milestones` | working-day arithmetic, zero-duration milestones as instants |
+| `engine.graph`, `engine.summary`, `engine.validate` | graph building and `find_cycle`, summary expansion, input validation |
+| `engine.forward`, `engine.backward`, `engine.cpm` | the CPM passes and floats, and `schedule()` |
+| `engine.replay` | the milestone state `derive_value` reads back from a `ScheduleResult` |
+| `engine.montecarlo.sampling`, `.index`, `.forward`, `.run` | duration sampling and `perturb_task_duration`, the working-day index, the vectorized pass, percentiles and `monte_carlo()` |
 
 If you depend only on the public API, there is nothing to do.
 
@@ -705,7 +723,7 @@ they will ship with 0.5 or that release will slip:
   [#4550](https://gitlab.com/trueppm/trueppm/-/issues/4550)) and extending the
   independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
-  phase 2 brings `engine.py` itself into scope
+  phase 2 brings the engine itself into scope
   ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the span-guard
   bug above will be fixed, raising the supported envelope toward 50,000 tasks
   ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830),

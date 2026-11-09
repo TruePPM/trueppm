@@ -48,6 +48,7 @@ from trueppm_scheduler import (
     monte_carlo,
     schedule,
 )
+from trueppm_scheduler.engine.montecarlo import sampling as mc_sampling
 
 # 2026-03-02 is a Monday; 03-07/03-08 and 03-14/03-15 are weekends.
 START = date(2026, 3, 2)
@@ -147,7 +148,7 @@ def _cell(
 @contextmanager
 def _draws(fill: Callable[[int], np.ndarray]) -> Iterator[None]:
     """Replace every PERT column with ``fill(runs)``."""
-    with patch.object(engine, "_sample_pert", lambda _o, _m, _p, n, _rng: fill(n)):
+    with patch.object(mc_sampling, "_sample_pert", lambda _o, _m, _p, n, _rng: fill(n)):
         yield
 
 
@@ -505,7 +506,7 @@ class TestTheFractionFollowsTheLinkAnchor:
                 return np.full(n, value)
             return np.full(n, b_fixed) if b_fixed is not None else real(opt, ml, pess, n, rng)
 
-        with patch.object(engine, "_sample_pert", sample):
+        with patch.object(mc_sampling, "_sample_pert", sample):
             yield
 
     def test_the_reported_ss_network_stays_on_main(self) -> None:
@@ -744,7 +745,7 @@ def test_ff_in_ss_out_steps_back_only_at_the_threshold() -> None:
         def sample(_o: float, _m: float, pess: float, n: int, _rng: Any) -> np.ndarray:
             return np.full(n, by_pessimistic[float(pess)])
 
-        with patch.object(engine, "_sample_pert", sample):
+        with patch.object(mc_sampling, "_sample_pert", sample):
             return monte_carlo(project, runs=2, seed=1).p50
 
     below = [finish_at(d) for d in (0.0, 0.05, 0.2, 0.4, 0.49, 0.4999)]

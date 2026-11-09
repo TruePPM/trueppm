@@ -103,7 +103,7 @@ class DateRange:
             value = getattr(self, name)
             # datetime subclasses date but cannot be ordered against a plain date.
             if not isinstance(value, date) or isinstance(value, datetime):
-                from trueppm_scheduler.engine import InvalidScheduleInput
+                from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
                 raise InvalidScheduleInput(
                     f"DateRange {name} must be a date (got {type(value).__name__})."
@@ -132,7 +132,7 @@ class DateRange:
         """
         # Wrap malformed input in the public InvalidScheduleInput (#826) so the
         # deserialization surface raises one documented exception type.
-        from trueppm_scheduler.engine import InvalidScheduleInput
+        from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
         try:
             return cls(
@@ -335,7 +335,7 @@ class Task:
         # Project.from_dict the same coverage already applied; this closes the
         # direct-call surface. InvalidScheduleInput is re-raised unwrapped so its
         # specific message (bad delivery_mode) survives.
-        from trueppm_scheduler.engine import InvalidScheduleInput
+        from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
         try:
             d = dict(data)
@@ -379,7 +379,7 @@ def _require_str(d: dict[str, Any], field_name: str, owner: str) -> None:
     from the graph. A missing key is left to the caller's existing KeyError path.
     """
     if field_name in d and not isinstance(d[field_name], str):
-        from trueppm_scheduler.engine import InvalidScheduleInput
+        from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
         raise InvalidScheduleInput(
             f"{owner} {field_name} must be a string (got {type(d[field_name]).__name__}: "
@@ -533,7 +533,7 @@ def _coerce_delivery_mode(d: dict[str, Any]) -> None:
     Same first-run-legibility treatment as ``dep_type`` (#947): name the field and
     list the allowed modes instead of surfacing a bare enum ``ValueError``.
     """
-    from trueppm_scheduler.engine import InvalidScheduleInput
+    from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
     if d.get("delivery_mode") is None:
         return
@@ -594,7 +594,7 @@ class Dependency:
         # TypeError/AttributeError/KeyError — e.g. a non-mapping `data` (None, a
         # string, a list) failing `dict()`/`.get()`, or a dict missing a required
         # key (#4522), mirroring Task.from_dict's wrapper (#1209).
-        from trueppm_scheduler.engine import InvalidScheduleInput
+        from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
         try:
             d = dict(data)
@@ -917,7 +917,7 @@ class Calendar:
                 is not an integer bitmask in range, ``exceptions`` is not a
                 list, ``hours_per_day`` is not a number, or ``timezone`` is not a string.
         """
-        from trueppm_scheduler.engine import InvalidScheduleInput
+        from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
         # A non-dict ``calendar`` (e.g. the JSON string ``"weekdays"``) otherwise
         # reaches ``data.get`` and leaks a bare AttributeError past the documented
@@ -1009,7 +1009,7 @@ class Calendar:
             InvalidScheduleInput: If ``calendars`` is not iterable or holds anything
                 other than :class:`Calendar` instances.
         """
-        from trueppm_scheduler.engine import InvalidScheduleInput
+        from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
         try:
             cals = list(calendars)
@@ -1141,7 +1141,7 @@ class Project:
         # complete (#826) — callers catch one exception type, not the internals
         # of dict access / date parsing. Function-local import avoids the
         # models<->engine circular import at module load.
-        from trueppm_scheduler.engine import InvalidScheduleInput
+        from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
         try:
             velocity_samples = data.get("velocity_samples")
@@ -1224,7 +1224,7 @@ class Project:
         # default; reject them so a hostile document can't smuggle a non-finite
         # duration (→ OverflowError) or percent_complete (→ invalid JSON on the
         # way back out) into the engine.
-        from trueppm_scheduler.engine import InvalidScheduleInput
+        from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
         try:
             data = json.loads(
@@ -1391,7 +1391,7 @@ def _parse_timedelta(val: Any) -> timedelta:
 
 def _invalid(msg: str) -> NoReturn:
     """Raise the public :class:`InvalidScheduleInput` (function-local import, no cycle)."""
-    from trueppm_scheduler.engine import InvalidScheduleInput
+    from trueppm_scheduler.engine.errors import InvalidScheduleInput
 
     raise InvalidScheduleInput(msg)
 

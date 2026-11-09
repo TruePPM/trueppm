@@ -18,8 +18,8 @@ repos:
     hooks:
       - id: mypy
         # types-networkx (the modern stub package) supports DiGraph[T]; the older
-        # networkx-stubs package does not, and trueppm_scheduler.engine has used
-        # the generic form since the CPM module was written. Match the dev-extras
+        # networkx-stubs package does not, and the trueppm_scheduler.engine package uses
+        # the generic form throughout. Match the dev-extras
         # pin in packages/scheduler/pyproject.toml so pre-commit and dev runs agree.
         additional_dependencies: ["types-networkx>=3.0", numpy]
         args: [--config-file=packages/scheduler/pyproject.toml]

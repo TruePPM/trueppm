@@ -37,7 +37,7 @@ from trueppm_scheduler import (
     engine,
     schedule,
 )
-from trueppm_scheduler.engine import ScheduleResult
+from trueppm_scheduler.engine import ScheduleResult, cpm, replay
 
 MON = date(2026, 1, 5)
 SAT_CAL = Calendar(working_days=0b0111111)  # Mon-Sat
@@ -205,13 +205,23 @@ def test_derive_with_schedules_result_does_not_replay(monkeypatch: pytest.Monkey
     def boom(*_a: object, **_k: object) -> object:
         raise AssertionError("derive_value replayed the CPM passes")
 
-    monkeypatch.setattr(engine, "_milestone_instants", boom)
-    monkeypatch.setattr(engine, "_project_free_instants", boom)
-    monkeypatch.setattr(engine, "_forward_pass", boom)
-    monkeypatch.setattr(engine, "_backward_pass", boom)
+    # Patch each pass where it is called: schedule() in ``cpm``, the replay in ``replay``.
+    monkeypatch.setattr(replay, "_milestone_instants", boom)
+    monkeypatch.setattr(replay, "_project_free_instants", boom)
+    for module in (cpm, replay):
+        monkeypatch.setattr(module, "_forward_pass", boom)
+        monkeypatch.setattr(module, "_backward_pass", boom)
     for task in project.tasks:
         for q in QUANTITIES:
             derive_value(project, task.id, q, result)
+    # Positive controls: an absence check passes on a patch that misses, so prove the
+    # patched names are the ones each path reaches. A twin project is not trusted
+    # with the kept state and replays; ``result=None`` runs schedule() itself.
+    twin = dataclasses.replace(project)
+    with pytest.raises(AssertionError, match="replayed the CPM passes"):
+        derive_value(twin, "B", Quantity.LATE_START, result)
+    with pytest.raises(AssertionError, match="replayed the CPM passes"):
+        derive_value(project, "B", Quantity.LATE_START)
 
 
 def test_derive_without_a_result_schedules_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -224,7 +234,8 @@ def test_derive_without_a_result_schedules_once(monkeypatch: pytest.MonkeyPatch)
         calls["n"] += 1
         return real(*a, **k)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(engine, "_forward_pass", counting)
+    for module in (cpm, replay):
+        monkeypatch.setattr(module, "_forward_pass", counting)
     derive_value(project, "B", Quantity.LATE_START)
     assert calls["n"] == 1
 
@@ -241,7 +252,7 @@ def test_another_project_object_falls_back_to_the_replay(monkeypatch: pytest.Mon
         calls["n"] += 1
         return real(p)
 
-    monkeypatch.setattr(engine, "_milestone_instants", counting)
+    monkeypatch.setattr(replay, "_milestone_instants", counting)
     assert derive_value(twin, "B", Quantity.LATE_START, result) == derive_value(
         project, "B", Quantity.LATE_START, result
     )

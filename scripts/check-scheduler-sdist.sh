@@ -82,7 +82,7 @@ self_test() {
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
   local good="$tmp/good"
-  { for f in $REQUIRED; do echo "$f"; done; echo "src/trueppm_scheduler/engine.py"; } > "$good"
+  { for f in $REQUIRED; do echo "$f"; done; echo "src/trueppm_scheduler/engine/__init__.py"; } > "$good"
 
   expect() { # expect <pass|fail> <name> <file>
     local want="$1" name="$2" file="$3" got=0

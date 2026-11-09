@@ -12,7 +12,7 @@ of ``Task``/``Project``/``Dependency`` changed at a time, over every init field 
 ``monte_carlo()``), catching ``SchedulerError`` and recording anything else. That
 swept 31 distinct ``(field, entry point, exception)`` leaks across 13 fields, none a
 ``SchedulerError``. This module makes that sweep a permanent regression test rather
-than a one-off finding: ``_validate_project`` was hardened (see ``engine.py``,
+than a one-off finding: ``_validate_project`` was hardened (see ``engine/validate.py``,
 ``#3846``) to close every leak this sweep found, and the sweep itself stays here so
 a future field addition or refactor that reopens one of these gaps fails a test
 instead of shipping silently.

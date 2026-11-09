@@ -1,4 +1,4 @@
-//! Input validation, mirroring `trueppm_scheduler.engine._validate_project` (#749).
+//! Input validation, mirroring `trueppm_scheduler.engine.validate._validate_project` (#749).
 //!
 //! The CPM engine walks the calendar one day at a time, and `chrono`'s default
 //! `NaiveDate + Duration` arithmetic *panics* on overflow — so a calendar with
@@ -13,7 +13,7 @@ use crate::calendar::next_working_day;
 use crate::models::{Calendar, Project, Task};
 
 /// Per-task working-day duration ceiling (~100 years).
-/// Mirrors `trueppm_scheduler.engine.MAX_DURATION_DAYS`.
+/// Mirrors `trueppm_scheduler.engine.limits.MAX_DURATION_DAYS`.
 pub const MAX_DURATION_DAYS: i64 = 36_525;
 /// Per-dependency lead/lag ceiling (~100 years), in either direction.
 pub const MAX_LAG_DAYS: i64 = 36_525;
@@ -22,13 +22,13 @@ pub const MAX_LAG_DAYS: i64 = 36_525;
 pub const MAX_CALENDAR_SCAN_DAYS: i64 = 366 * 100;
 /// Upper bound on the cumulative project span (sum of worst-case task durations
 /// plus the magnitude of every lag). Bounds the day-by-day walk regardless of
-/// task count. Mirrors `trueppm_scheduler.engine.MAX_PROJECT_SPAN_DAYS`.
+/// task count. Mirrors `trueppm_scheduler.engine.limits.MAX_PROJECT_SPAN_DAYS`.
 pub const MAX_PROJECT_SPAN_DAYS: i64 = 366 * 1000;
 /// Ceiling on the raw dependency-edge count as submitted, before any per-edge
 /// pass touches the list. The most fundamental of the edge caps: even the O(E)
 /// validation/graph-build pre-passes and the list's own memory become pathological
 /// for a multi-million-edge payload. Checked from `.len()`, so the guard is O(1).
-/// Mirrors `trueppm_scheduler.engine.MAX_DEPENDENCIES` (#1203).
+/// Mirrors `trueppm_scheduler.engine.limits.MAX_DEPENDENCIES` (#1203).
 pub const MAX_DEPENDENCIES: usize = 100_000;
 /// Ceiling on calendar exception ranges. Mirrors
 /// `trueppm_scheduler.engine.MAX_CALENDAR_EXCEPTIONS` (#1826): a real calendar has

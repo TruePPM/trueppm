@@ -4,7 +4,7 @@
 embedders" table (under "## Errors and input limits") documents the numeric value of
 every exported ``MAX_*``/``MC_*`` validator cap for an embedder deciding whether the
 defaults fit their use case. Nothing else checks that the table's numbers still match
-the constants the engine actually enforces — a cap could be retuned in ``engine.py``
+the constants the engine actually enforces — a cap could be retuned in ``engine/limits.py``
 and the README would keep quoting the old value until a human happened to notice.
 This test parses the table out of the README and asserts every row against
 ``getattr(trueppm_scheduler, name)``, in both directions, so neither a stale README

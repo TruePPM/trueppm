@@ -16,6 +16,30 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+### Changed
+
+- **`trueppm_scheduler.engine` is now a subpackage
+  ([#4550](https://gitlab.com/trueppm/trueppm/-/issues/4550)).** `engine.py` is
+  split into `engine/` (`errors`, `limits`, `results`, `calendar_math`,
+  `milestones`, `graph`, `summary`, `validate`, `forward`, `backward`, `cpm`,
+  `replay`, and `montecarlo/{sampling,index,forward,run}`) as a pure move:
+  scheduling results do not change. Every import from `trueppm_scheduler`, and
+  every `from trueppm_scheduler.engine import X` that worked on 0.4 (private
+  helpers included), still works through re-exports in `engine/__init__.py` for
+  the whole 0.5 line. Three things do change:
+  - **Patches on engine internals.** `mock.patch` / `monkeypatch.setattr` on
+    `trueppm_scheduler.engine.<helper>` or a module constant such as
+    `MAX_DEPENDENCIES` replaces only the re-export, so it silently stops taking
+    effect. Patch the submodule that calls the helper or reads the constant
+    (`engine.validate.MAX_DEPENDENCIES`, `engine.montecarlo.run._build_graph`),
+    which is not always the one that defines it, and patch each one that uses it.
+  - **`__module__`.** Moved classes report their submodule:
+    `ScheduleResult.__module__` is `trueppm_scheduler.engine.results`, and
+    `repr`, Sphinx paths and file-path tooling keyed on
+    `trueppm_scheduler/engine.py` follow.
+  - **Pickles.** A result pickled by 0.4 still loads; one pickled by 0.5 names
+    the new submodule and will not load on 0.4.
+
 ### Fixed
 
 - **`expand_summary_dependencies` now raises `CyclicDependencyError` for a link

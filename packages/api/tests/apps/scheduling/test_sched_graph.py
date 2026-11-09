@@ -175,8 +175,10 @@ def test_the_raw_edge_cap_is_checked_BEFORE_the_per_edge_walk(
     lifted out of the engine's `_validate_project`, which is not reached until
     `schedule()`/`monte_carlo()` is already called.
 
-    `MAX_DEPENDENCIES` is patched on the engine module rather than materializing
-    100k edges: `build_sched_graph` imports it at call time, so the patch takes.
+    `MAX_DEPENDENCIES` is patched on the `trueppm_scheduler.engine` package rather
+    than materializing 100k edges: `build_sched_graph` imports it from there at call
+    time, so the patch takes. The engine's own check reads the copy in
+    `trueppm_scheduler.engine.validate`, which this test deliberately leaves alone.
     """
     import trueppm_scheduler.engine as engine
 

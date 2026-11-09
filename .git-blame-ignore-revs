@@ -1,0 +1,20 @@
+# Commits that `git blame` should look through. Use it locally with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub's blame view reads this file automatically).
+#
+# A SHA here goes stale if its commit is rebased or squashed before it merges:
+# re-read it from the merged history and update this line.
+
+# refactor(scheduler): split engine.py into an engine/ package (pure move), #4550
+#
+# This entry alone does NOT recover history for the engine/ modules. Each one is
+# a new file, and ignoring the commit that created a file still attributes every
+# line to it. Neither `git log --follow` (one commit per module) nor a plain
+# `git blame -C -C` follows a split: on 2026-11-09 the latter still gave 6,342 of
+# the package's 10,168 lines to this commit (engine/cpm.py: 240 of 255). What
+# does trace a moved line back to the engine.py commit that wrote it:
+#   git -c diff.algorithm=histogram blame -C -C <file>
+# That leaves 1,335 lines on this commit (engine/cpm.py: 48 of 255, its new
+# docstring and import block), which are the lines it actually wrote: each
+# module's header and the __init__.py re-export list.
+5ac2ea5dac6a6b6f42e062a5fb6f6830a989f393
