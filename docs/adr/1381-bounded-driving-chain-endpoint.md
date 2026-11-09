@@ -47,15 +47,16 @@ derivable API-side. **No scheduler change is required.**
    upstream left unused. A fan-in larger than the cap therefore cannot starve the
    downstream half. When both limits bind, one reason is reported and `node_cap` wins
    over `depth`.
-5. **Node:** `task_id`, `name`, `status`, `total_float_days`, `is_critical`,
-   `is_project_finish`, `sprint` (`{id, finish_date}` or `null`). **No assignee, hours or
-   velocity** — the sprint field states only that the node is sprint-bound and when the
-   sprint ends.
-6. **Edge:** `predecessor_id`, `successor_id`, `dep_type`, `lag_days`, `is_driving`
-   (always true for an emitted edge in this version; kept so a later "near-driving"
-   widening is additive), `via_summary` (`null`, or the summary id(s) the leaf edge was
-   expanded from). An edge that is both a direct link and a summary fan-out reports the
-   direct link (`via_summary: null`) and the merged lag the engine used.
+5. **Node:** `task_id`, `name`, `status`, `total_float` (`{value, unit: "working_days"}`),
+   `band`, `is_critical`, `is_project_finish`, `sprint` (`{id, finish_date}` or `null`).
+   **No assignee, hours or velocity** — the sprint field states only that the node is
+   sprint-bound and when the sprint ends.
+6. **Edge:** `predecessor_id`, `successor_id`, `dep_type`, `lag` (`{value, unit:
+   "calendar_days"}`), `is_driving` (always true for an emitted edge in this version;
+   kept so a later "near-driving" widening is additive), `via_summary` (`null`, or a list
+   of `{task_id, name}` for the summary task(s) the leaf edge was expanded from). An edge
+   that is both a direct link and a summary fan-out reports the direct link
+   (`via_summary: null`) and the merged lag the engine used.
 7. **Not computable:** a task CPM does not cover returns 200 with
    `{computable: false, reason: "backlog" | "not_committed" | "summary" | "not_in_network"}`
    and no chain — never a fabricated one. Unknown task id → 404 (same as derivation).
@@ -91,6 +92,53 @@ piecemeal". Options:
 - **A rejected:** building `apps/provenance/` and the signal here would pull the stretch issue #2642 into a committed one, add a stable-shape Enterprise hook without its own threat model, and roughly double the branch.
 - **C rejected:** shipping unstamped fails the issue's acceptance criterion and the panel blocker "bounded contract with provenance".
 - **Cost accepted:** this is the piecemeal introduction ADR-0218 warned against. It is contained by copying the §2.1 shape exactly, so #2642 adopts (moves) this helper rather than competing with it; when #2642 lands, `stamp_answer` moves to `apps/provenance/services.py` and gains `actor` and the signal, with no wire change.
+
+## Amendment (2026-11-09, mockup review)
+
+A mockup review surfaced contract gaps before any client shipped on this payload; the
+fields below replace the first draft's bare numbers. Findings that came from a simulated
+persona panel are labelled as such on the issues (it is not user research); the
+threshold setting and its default are the maintainer's decision.
+
+1. **Every duration is `{value, unit}`.** The engine counts float in working days and lag
+   in calendar days, so the first draft's `total_float_days` / `lag_days` invited a
+   client to add two numbers that do not share a unit. The shape matches ADR-0088's
+   `{value, unit}`. Float is always `working_days`; lag is always `calendar_days`.
+2. **`schema_version`** at the top level (ADR-0086), independent of
+   `_provenance.schema_version`. Additive changes keep it.
+3. **Truncation is countable.** `total_links` is the uncapped number of driving links in
+   the whole chain (cheap: a reachability walk over driving edges only), so a consumer
+   can tell a short chain from a cut one. `omitted_non_driving_count` is the number of
+   non-driving dependency links into the task or its *upstream* chain — predecessors
+   that carry float and are not drawn. It is scoped upstream because the view shipped on
+   this payload is upstream-only; a downstream view would add its own field.
+4. **`band` per node, an open enum** — `critical` (float 0, or late), `near_critical`
+   (`0 < float <= threshold`), `ample`. Server-computed so no client re-derives it. The
+   set is deliberately open: clients must tolerate a value they do not know, so a later
+   tier is additive. The response echoes the effective `near_critical_threshold`
+   (`{value, unit: "working_days"}`) it used.
+5. **`via_summary` carries names**, `[{task_id, name}]`. The summary task is usually not
+   a node on the chain, so a bare id could not be turned into a label by a client.
+6. **`calendar_id`** in the payload body: the project's own calendar, or `null` for the
+   default. Provenance stays the ADR-0112 §2.1 envelope; there is no schedule version in
+   the API, so `input_hash` is the identity of an answer.
+7. **Near-critical threshold setting.** `near_critical_threshold_days`, an integer in
+   working days, 1–260, **default 10** (two weeks; at two days a task is effectively an
+   emergency, so the amber band has to start earlier to warn anyone). Inheritable
+   Workspace → Program → Project with a non-null workspace root and nullable
+   program/project overrides (NULL = inherit), resolved computed-on-read in
+   `apps.projects.near_critical_threshold` (ADR-0108) and exposed as
+   `effective_*` / `inherited_*`, like the estimation scale (ADR-0510). It has **no
+   enforcement seam**: it only shades a display band, so no OSS lock exists and a
+   workspace-admin lock would be an Enterprise provider hook if it were ever wanted.
+   Project-scope writes are Scheduler-and-up (it is a schedule-presentation preference,
+   the same tier as the estimation scale); program writes are Program Admin.
+8. **Cost and rate.** One schedule pass per call, under `cpm_on_read`. A throttled caller
+   gets the standard DRF `429` with `Retry-After`. There is **no response cache** in this
+   version. `input_hash` identifies an answer, so a caller can detect an unchanged result,
+   but the server still builds the inputs and runs the pass to compute it.
+9. **Parity.** The text and MCP rendering are views of this payload. Any web view built on
+   it draws only fields present here, so the MCP surface is never a strict subset of the UI.
 
 ## Consequences
 

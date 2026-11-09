@@ -985,10 +985,24 @@ export interface DrivingChainNode {
   hops: number
   early_start: string | null
   early_finish: string | null
-  total_float_days: number
+  total_float: Duration<'working_days'>
+  /** Open set: tolerate a value you do not know. */
+  band: string
   is_critical: boolean
   is_project_finish: boolean
   sprint: DrivingChainSprint | null
+}
+
+/** A duration with its unit spelled out; float is working days, lag calendar days. */
+export interface Duration<U extends string = string> {
+  value: number
+  unit: U
+}
+
+/** A summary task a leaf driving link was expanded from. */
+export interface DrivingChainViaSummary {
+  task_id: string
+  name: string | null
 }
 
 /** One leaf-level driving link; `via_summary` names the summary it was expanded from. */
@@ -996,13 +1010,14 @@ export interface DrivingChainEdge {
   predecessor_id: string
   successor_id: string
   dep_type: 'FS' | 'SS' | 'FF' | 'SF'
-  lag_days: number
+  lag: Duration<'calendar_days'>
   is_driving: boolean
-  via_summary: string[] | null
+  via_summary: DrivingChainViaSummary[] | null
 }
 
 /** Bounded, provenance-stamped driving chain through one task (ADR-1381, #4891). */
 export interface ScheduleDrivingChain {
+  schema_version: number
   project_id: string
   task_id: string
   computable: boolean
@@ -1012,6 +1027,10 @@ export interface ScheduleDrivingChain {
   node_cap: number
   truncated: boolean
   truncated_reason: 'depth' | 'node_cap' | null
+  total_links: number
+  omitted_non_driving_count: number
+  near_critical_threshold: Duration<'working_days'>
+  calendar_id: string | null
   nodes: DrivingChainNode[]
   edges: DrivingChainEdge[]
   _provenance: AnswerProvenance

@@ -930,6 +930,16 @@ class Program(VersionedModel):
         null=True,
         blank=True,
     )
+    # Per-scope near-critical float threshold override, in working days (ADR-1381
+    # amendment, #4891). NULL = inherit the workspace value; a non-null value
+    # overrides it for every project in this program whose own override is NULL.
+    # Resolved computed-on-read in ``apps.projects.near_critical_threshold``. Display
+    # band only — never moves a date. Captured by HistoricalRecords (audit).
+    near_critical_threshold_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(260)],
+    )
     # Per-scope sprint-picker "Ready only" default override (ADR-0758, #2670). NULL
     # = inherit the workspace value; a non-null value overrides it for every
     # project in this program whose own override is NULL. Resolved computed-on-read
@@ -1592,6 +1602,16 @@ class Project(VersionedModel):
         choices=EstimationScale.choices,
         null=True,
         blank=True,
+    )
+    # Per-scope near-critical float threshold override, in working days (ADR-1381
+    # amendment, #4891). NULL = inherit from the program (or workspace, if the program
+    # also inherits); non-null = explicit override for this project. Resolved
+    # computed-on-read in ``apps.projects.near_critical_threshold`` and surfaced via
+    # the serializer's ``effective_near_critical_threshold_days``. Display band only.
+    near_critical_threshold_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(260)],
     )
     # Per-scope sprint-picker "Ready only" default override (ADR-0758, #2670). NULL
     # = inherit from the program (or workspace, if the program also inherits);

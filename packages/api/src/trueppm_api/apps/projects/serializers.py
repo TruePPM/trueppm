@@ -836,6 +836,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # override were cleared (drives the settings "Inherit (X)" affordance).
     effective_estimation_scale = serializers.SerializerMethodField()
     inherited_estimation_scale = serializers.SerializerMethodField()
+    # Server-resolved near-critical float threshold, working days (ADR-1381, #4891):
+    # project ?? program ?? workspace. ``inherited_*`` is the value if the override were cleared.
+    effective_near_critical_threshold_days = serializers.SerializerMethodField()
+    inherited_near_critical_threshold_days = serializers.SerializerMethodField()
     # Server-resolved sprint-picker "Ready only" default (ADR-0758, #2670): project
     # override ?? program ?? workspace. Clients read ``effective_*`` to seed the
     # picker's default filter state; ``inherited_*`` is what the project would
@@ -953,6 +957,11 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "estimation_scale",
             "effective_estimation_scale",
             "inherited_estimation_scale",
+            # Near-critical float threshold OVERRIDE in working days (ADR-1381, #4891).
+            # Nullable: NULL = inherit. Scheduler+-writable at project scope.
+            "near_critical_threshold_days",
+            "effective_near_critical_threshold_days",
+            "inherited_near_critical_threshold_days",
             # Sprint-picker "Ready only" default OVERRIDE (ADR-0758, #2670). Nullable:
             # NULL = inherit program/workspace. Scheduler+-writable — it is in
             # _SCHEDULER_WRITABLE_FIELDS (PO/team territory, beside estimation_scale),
@@ -1080,6 +1089,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_task_duration_change_percent_policy",
             "effective_estimation_scale",
             "inherited_estimation_scale",
+            "effective_near_critical_threshold_days",
+            "inherited_near_critical_threshold_days",
             "effective_sprint_picker_ready_only_default",
             "inherited_sprint_picker_ready_only_default",
             "effective_public_sharing",
@@ -1669,6 +1680,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "board_cadence",
             "estimation_mode",
             "estimation_scale",
+            "near_critical_threshold_days",
             "sprint_picker_ready_only_default",
         }
     )
@@ -1854,6 +1866,16 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         from .estimation_scale import resolve_inherited_estimation_scale
 
         return resolve_inherited_estimation_scale(obj, workspace=self._iteration_workspace())
+
+    def get_effective_near_critical_threshold_days(self, obj: Project) -> int:
+        from .near_critical_threshold import resolve_effective_near_critical_threshold
+
+        return resolve_effective_near_critical_threshold(obj, workspace=self._iteration_workspace())
+
+    def get_inherited_near_critical_threshold_days(self, obj: Project) -> int:
+        from .near_critical_threshold import resolve_inherited_near_critical_threshold
+
+        return resolve_inherited_near_critical_threshold(obj, workspace=self._iteration_workspace())
 
     def get_effective_sprint_picker_ready_only_default(self, obj: Project) -> bool:
         from .sprint_picker_settings import resolve_effective_sprint_picker_ready_only
@@ -2509,6 +2531,10 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # workspace value the program shows when its own override is cleared.
     effective_estimation_scale = serializers.SerializerMethodField()
     inherited_estimation_scale = serializers.SerializerMethodField()
+    # Server-resolved near-critical float threshold, working days (ADR-1381, #4891):
+    # program ?? workspace. ``inherited_*`` is the value if the override were cleared.
+    effective_near_critical_threshold_days = serializers.SerializerMethodField()
+    inherited_near_critical_threshold_days = serializers.SerializerMethodField()
     # Server-resolved sprint-picker "Ready only" default (ADR-0758, #2670): program
     # ?? workspace. Clients read ``effective_*``; ``inherited_*`` is the workspace
     # value the program shows when its own override is cleared.
@@ -2586,6 +2612,11 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "estimation_scale",
             "effective_estimation_scale",
             "inherited_estimation_scale",
+            # Near-critical float threshold OVERRIDE in working days (ADR-1381, #4891).
+            # Nullable: NULL = inherit. Scheduler+-writable at project scope.
+            "near_critical_threshold_days",
+            "effective_near_critical_threshold_days",
+            "inherited_near_critical_threshold_days",
             # Sprint-picker "Ready only" default override for the program (ADR-0758,
             # #2670). Nullable: NULL = inherit workspace. Admin+-gated write (program
             # update is IsProgramAdmin).
@@ -2695,6 +2726,8 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_task_duration_change_percent_policy",
             "effective_estimation_scale",
             "inherited_estimation_scale",
+            "effective_near_critical_threshold_days",
+            "inherited_near_critical_threshold_days",
             "effective_sprint_picker_ready_only_default",
             "inherited_sprint_picker_ready_only_default",
             "effective_public_sharing",
@@ -2906,6 +2939,16 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         from .estimation_scale import resolve_inherited_estimation_scale
 
         return resolve_inherited_estimation_scale(obj, workspace=self._sharing_workspace())
+
+    def get_effective_near_critical_threshold_days(self, obj: Program) -> int:
+        from .near_critical_threshold import resolve_effective_near_critical_threshold
+
+        return resolve_effective_near_critical_threshold(obj, workspace=self._sharing_workspace())
+
+    def get_inherited_near_critical_threshold_days(self, obj: Program) -> int:
+        from .near_critical_threshold import resolve_inherited_near_critical_threshold
+
+        return resolve_inherited_near_critical_threshold(obj, workspace=self._sharing_workspace())
 
     def get_effective_sprint_picker_ready_only_default(self, obj: Program) -> bool:
         from .sprint_picker_settings import resolve_effective_sprint_picker_ready_only

@@ -1011,8 +1011,12 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         project finish from ONE server-side CPM pass. Links gated by a summary task are
         already expanded to the leaf edges the engine scheduled (``via_summary`` names
         the summary) — do not rebuild the chain from stored dependencies, which cannot
-        see those. Bounded: ``truncated`` is true when ``depth`` or the 200-node cap
-        cut the walk. A task CPM does not schedule (backlog, summary, epic) returns
+        see those. Every duration is ``{value, unit}``: float is in WORKING days and lag
+        in CALENDAR days, so never add the two. Each node carries a ``band`` (critical,
+        near_critical, ample — an open set) against the project's near-critical
+        threshold, echoed as ``near_critical_threshold``. Bounded: ``truncated`` is true
+        when ``depth`` or the 200-node cap cut the walk, and ``total_links`` says how long
+        the whole chain is. A task CPM does not schedule (backlog, summary, epic) returns
         ``computable: false`` with a ``reason``, never a guessed chain. Carries a
         ``_provenance`` stamp (engine_version, input_hash) so the answer is citable.
 
