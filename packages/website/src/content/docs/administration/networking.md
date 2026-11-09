@@ -221,9 +221,11 @@ not overwritten: `nginx/app-http.conf.template` (`TLS_MODE=none`, behind an
 external load balancer), `nginx/demo.conf.template` (the Compose public demo),
 and the two demo branches of the Helm web tier's rendered ConfigMap
 (`demo.enabled` / `demo.interactive` — this is the path try.trueppm.com uses,
-behind a Cloudflare Tunnel). `nginx/app.conf.template` and the Helm production
-branch are the opposite case: they either terminate TLS themselves or document
-no `X-Forwarded-Proto` override at all, so they are unaffected.
+behind a Cloudflare Tunnel). The Helm production branch and the `web` image's
+baked `nginx.conf` used to forward no `X-Forwarded-Proto` at all on `/api/` and
+`/ws/` (#3522); they now use the same `$forwarded_proto` map, so routing `/api`
+through the web tier behind a TLS-terminating load balancer keeps the scheme.
+`nginx/app.conf.template` terminates TLS itself and is unaffected.
 
 If you copied one of the affected configs before this was fixed (#3191 finding
 #4, closed for all four paths by #4426), your copy may still contain
@@ -256,11 +258,14 @@ into **one shared bucket** — which does not merely fail to throttle an abuser,
 it lets one client spend everybody's budget.
 
 **Cause 1 — the header is absent.** The production branch of the Helm web tier's
-nginx sets `Host`, `X-Real-IP` and `Authorization` but not `X-Forwarded-For`, so
-routing `/api` through the web tier leaves DRF reading `REMOTE_ADDR` — the web
-pod's own peer. The default `ingress.hosts` sends `/api` and `/ws` straight to
-the API Service, where this does not arise. If you change that, add the header at
-your edge.
+nginx and the `web` image's baked `nginx.conf` now set `X-Forwarded-For` (with
+`$proxy_add_x_forwarded_for`) on `/api/` and `/ws/`, and Helm production's
+permitted `/admin/` proxy sets it too (the baked image's `/admin/` is a 404, not
+a proxy), so routing `/api` through the web tier no longer leaves DRF reading
+`REMOTE_ADDR` — but that makes the web tier a hop, so set
+`TRUEPPM_NUM_PROXIES` accordingly (see the table below). If you copied an older
+config that omits the header, add it at your edge. The default `ingress.hosts`
+sends `/api` and `/ws` straight to the API Service, where this does not arise.
 
 **Cause 2 — the header is present and the hop count is too low.** The *demo*
 branch of that same nginx does set `X-Forwarded-For`, with
