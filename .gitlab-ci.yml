@@ -94,7 +94,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-db6265dba028"
+  CI_API_TAG: "py3.11-8e04f419d124"
 
   # Same mechanism for the ci-scheduler image (#4791): `py3.11-<digest>` over
   # scheduler.Dockerfile plus packages/scheduler/pyproject.toml. A fixed tag let
