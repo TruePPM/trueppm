@@ -262,6 +262,7 @@ public Extension SDK for 0.9.
 ## Related
 
 - [What TruePPM doesn't do yet](/overview/what-it-does-not-do/) — the maintained gap list
+- [Where the free edition ends](/overview/the-oss-enterprise-line/) — the one rule: OSS gives you reality and why, Enterprise gives you alternatives and which
 - [SSO is not an enterprise feature](/overview/sso-is-not-enterprise/) — the full SSO-tax comparison, cited
 - [Computed, not guessed](/overview/computed-not-guessed/) — why the engine, not a model, answers
 - [Roadmap](/overview/roadmap/) — the authoritative Shipped / Underway / Planned record
