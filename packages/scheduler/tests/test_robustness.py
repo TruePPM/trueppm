@@ -586,24 +586,27 @@ class TestMonteCarloLagDeltaCap:
     def test_many_distinct_lags_rejected_by_cell_cap(self) -> None:
         """distinct (dep_type, lag) keys x span over the cap is rejected eagerly.
 
-        A fan of FS edges with all-distinct lags 1..N keeps Σlag (hence the span
+        A chain of FS edges with all-distinct lags 1..N keeps Σlag (hence the span
         guard) satisfied while driving distinct keys x index_size past
-        MAX_LAG_DELTA_CELLS. Must raise the documented type, not allocate.
+        MAX_LAG_DELTA_CELLS. Must raise the documented type, not allocate. A chain,
+        not a fan: the index is sized to the longest path since #4695, so a fan of
+        lags out of one task only spans its largest lag.
         """
         from trueppm_scheduler.engine import MAX_LAG_DELTA_CELLS
 
-        n = 600  # Σlag = 600*601/2 ≈ 180k (< span cap); keys x span ≈ 1.1e8 (> cell cap)
+        n = 600  # Σlag = 600*601/2 ≈ 180k (< span cap); keys x span ≈ 7.8e7 (> cell cap)
         tasks = [task(str(i), 1) for i in range(n + 1)]
         deps = [
-            Dependency("0", str(i), DependencyType.FS, lag=timedelta(days=i))
+            Dependency(str(i - 1), str(i), DependencyType.FS, lag=timedelta(days=i))
             for i in range(1, n + 1)
         ]
         p = make_project(tasks, deps)
         with pytest.raises(InvalidScheduleInput, match="lag-delta table"):
             monte_carlo(p, runs=10, seed=0, max_tasks=None)
         # Sanity: the input otherwise clears the span guard, so the rejection is
-        # the cell cap firing — not some other guard tripping first.
-        assert n * (sum(range(1, n + 1)) + n + 30) > MAX_LAG_DELTA_CELLS
+        # the cell cap firing — not some other guard tripping first. The chain's
+        # calendar-day lags are about 5/7 working days each on the Mon-Fri index.
+        assert n * (sum(range(1, n + 1)) * 5 // 7 + n + 30) > MAX_LAG_DELTA_CELLS
 
     def test_memoized_deltas_preserve_lagged_results(self) -> None:
         """Sharing one array across same-key edges must not change MC output.

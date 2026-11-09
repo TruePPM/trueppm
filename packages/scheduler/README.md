@@ -442,8 +442,13 @@ input up front rather than spinning on a degenerate project:
   estimate) plus the magnitude of every lag, plus one more term added once:
   the furthest of the latest `planned_start` pin (start-no-earlier-than), the
   data date (`status_date`) offset, and the furthest recorded actual from the
-  project start. Three separate refusals sit beside it: a `status_date` more than
-  `MAX_PROJECT_SPAN_DAYS` after the start, an `actual_start`/`actual_finish` more
+  project start. A scrum task's velocity worst case (`(ceil(story_points / mean
+  velocity) * 4 + 10) * sprint_length_days` working days) is not added to that sum:
+  it is charged along the longest dependency chain instead, so parallel stories do
+  not add up, and the same limit applies to that chain. The uncapped sprint horizon
+  summed over every scrum task must also stay under `366_000` sprints, which bounds
+  the velocity sampler's total draws. Three separate refusals sit beside it: a
+  `status_date` more than `MAX_PROJECT_SPAN_DAYS` after the start, an `actual_start`/`actual_finish` more
   than that from the start, and a start date so close to `date.max` that the walk
   would overflow the date range.
 - **Monte Carlo** — `runs` must be `>= 1` and at most `100_000_000` (see the

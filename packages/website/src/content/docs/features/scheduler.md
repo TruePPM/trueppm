@@ -655,6 +655,8 @@ walk to the `date` ceiling and raise an opaque `OverflowError`):
 | `Dependency.lag` | Within `±MAX_LAG_DAYS` (`36_525`). |
 | Dependency count | At most `MAX_DEPENDENCIES` (`100_000`) edges. |
 | Cumulative project span | Sum of every task's worst-case duration + every lag must stay under `MAX_PROJECT_SPAN_DAYS` (`366_000`, ~1000 years), regardless of task count. |
+| Agile (scrum) chain span | A scrum task's velocity worst case (`(ceil(story_points / mean velocity) * 4 + 10) * sprint_length_days` working days) is not added to the sum above. It is charged along the longest dependency chain instead, so parallel stories do not add up, and that chain must also stay under `MAX_PROJECT_SPAN_DAYS`. |
+| Agile sprint total | The uncapped sprint horizon summed over every scrum task must stay under `366_000` sprints, which bounds the velocity sampler's total draws. For an all-agile project this is usually the real ceiling: about 26,000 five-point stories. |
 | `monte_carlo(runs=…)` | Must be `>= 1`. |
 
 `Project.from_json()` rejects the non-standard JSON literals `NaN`, `Infinity`,
