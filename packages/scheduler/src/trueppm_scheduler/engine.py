@@ -7230,7 +7230,9 @@ def _mc_forward_pass(
     es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
     ef_mat = np.zeros((runs, n_tasks), dtype=np.float64)
     # Milestone instants: date ordinal and start-of-day display, per run.
-    instant_mat = np.zeros((runs, n_tasks), dtype=np.int64)
+    # int32: these are date ordinals (at most ~3.7M for year 9999), far inside range, and
+    # the matrix is runs x tasks, so halving it matters (#4710).
+    instant_mat = np.zeros((runs, n_tasks), dtype=np.int32)
     start_display_mat = np.zeros((runs, n_tasks), dtype=bool)
     # How far each link instant's true point lies before its midnight (#4697).
     deficit_mat = np.zeros((runs, n_tasks), dtype=np.float64)
@@ -7887,6 +7889,10 @@ def _mc_effective_duration(
     return eff_dur
 
 
+# Cells per row block when gathering a calendar's columns onto the reference ruler.
+_MC_REFERENCE_BLOCK_CELLS = 65_536
+
+
 def _to_reference_offset(ef: np.ndarray, wd_ord_own: np.ndarray, ref_ord: np.ndarray) -> np.ndarray:
     """Re-express exclusive-EF offsets from one calendar's space in the reference space.
 
@@ -7924,6 +7930,39 @@ def _to_reference_offset(ef: np.ndarray, wd_ord_own: np.ndarray, ref_ord: np.nda
     # project start); it has no "previous working day" to map through, and the
     # generic path would round it up to 1. Keep it where it is.
     return np.where(k <= 0, ef, ref)
+
+
+def _to_reference_columns_inplace(
+    mats: tuple[np.ndarray, np.ndarray | None],
+    cols: np.ndarray,
+    wd_ord_own: np.ndarray,
+    ref_ord: np.ndarray,
+) -> None:
+    """Apply :func:`_to_reference_offset` to ``cols`` of each matrix, in place (#4710).
+
+    The conversion is a fixed function of the calendar, so the reference offset of
+    every own-calendar working day is tabulated once (``table``) and each cell is a
+    gather from it, rather than a ``searchsorted`` per cell. The arithmetic matches
+    :func:`_to_reference_offset` step for step, so the result is bit-identical.
+    Rows are processed in blocks so the gather temporaries stay a bounded size
+    instead of a second copy of the column group.
+    """
+    table = np.searchsorted(ref_ord, wd_ord_own, side="right").astype(np.float64)
+    last = len(wd_ord_own) - 1
+    step = max(1, _MC_REFERENCE_BLOCK_CELLS // max(1, len(cols)))
+    for mat in mats:
+        if mat is None:
+            continue
+        for r0 in range(0, mat.shape[0], step):
+            rows = slice(r0, r0 + step)
+            ef = mat[rows][:, cols]
+            k = _finish_day_key(ef)
+            ki = k.astype(np.int64)
+            if ki.size and int(ki.max()) > len(wd_ord_own):
+                _raise_mc_index_overrun()
+            ki = np.maximum(ki, 0)
+            ref = table[np.clip(ki - 1, 0, last)] + (ef - k)
+            mat[rows, cols] = np.where(k <= 0, ef, ref)
 
 
 def _build_reference_index(
@@ -8530,17 +8569,20 @@ def monte_carlo(
     if len(wd_index_by_cal) > 1:
         ref_ord, wd_index = _build_reference_index(wd_ord_by_cal)
 
-        def _to_reference(mat: np.ndarray) -> np.ndarray:
-            return np.column_stack(
-                [
-                    _to_reference_offset(mat[:, col], wd_ord_by_cal[cal_key_of[tid]], ref_ord)
-                    for col, tid in enumerate(topo_order)
-                ]
+        # One lookup table per calendar, then one gather per calendar's column group,
+        # written back in place: no second runs x tasks matrix (#4710).
+        cols_by_cal: dict[int, list[int]] = {}
+        for col, tid in enumerate(topo_order):
+            cols_by_cal.setdefault(cal_key_of[tid], []).append(col)
+        for cal_key, cal_cols in cols_by_cal.items():
+            _to_reference_columns_inplace(
+                (ef_mat, wt_mat if has_instants else None),
+                np.asarray(cal_cols, dtype=np.intp),
+                wd_ord_by_cal[cal_key],
+                ref_ord,
             )
-
-        ef_mat_ref = _to_reference(ef_mat)
-        wt_mat = _to_reference(wt_mat) if has_instants else ef_mat_ref
-        ef_mat = ef_mat_ref
+        if not has_instants:
+            wt_mat = ef_mat
     shown_offsets = ef_mat.max(axis=1)  # shape (runs,): the day each run is shown on
     completion_offsets = wt_mat.max(axis=1)  # shape (runs,): its working-time position
     # Convert offsets back to dates via the working-day index (reused from above).
