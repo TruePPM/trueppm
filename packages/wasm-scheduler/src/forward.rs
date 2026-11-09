@@ -235,6 +235,10 @@ pub(crate) fn start_reading(
 /// `completed_only` limits the links to completed predecessors — the reading a
 /// closed milestone's day edge is taken from (`live_milestone_edge`, #4525), and
 /// the instant it links from (`closed_milestone_link`, #4690).
+///
+/// `last_day` drops every link proposal shown on a later day, so only work that
+/// places the milestone on or before that day is read — the cap a closed
+/// milestone's edge is read under (`live_milestone_edge`, #4703).
 #[allow(clippy::too_many_arguments)]
 fn place_milestone(
     idx: NodeIndex,
@@ -246,6 +250,7 @@ fn place_milestone(
     start_floor: Option<NaiveDate>,
     links: &[Option<Instant>],
     completed_only: bool,
+    last_day: Option<NaiveDate>,
 ) -> Result<(Instant, NaiveDate, Instant), String> {
     let cal = cals.for_node(idx.index());
     type Proposal = (NaiveDate, bool, NaiveDate);
@@ -277,6 +282,9 @@ fn place_milestone(
             cal,
         )?;
         let proposal = (raw, start_display, instant_day(raw, start_display, cal)?);
+        if last_day.is_some_and(|d| proposal.2 > d) {
+            continue;
+        }
         offer(&mut best, proposal);
         offer(&mut pred_best, proposal);
     }
@@ -581,6 +589,7 @@ pub fn forward_pass(
                 start_floor,
                 &links,
                 false,
+                None,
             )?;
             instants[i] = Some(instant);
             links[i] = Some(link);
@@ -729,8 +738,15 @@ fn pinned_placement(
 /// milestone keeps that edge ("preserve the live edge"). The recorded day is
 /// offered as a start-of-day floor alongside the links — what a data-date or
 /// SNET floor that placed it live amounts to once the actuals supply the date —
-/// so the end of the day wins only when an FS proposal from work reaches past the
-/// start of the recorded day. With no predecessor, the start of its day.
+/// so the end of the day wins only when an FS proposal from work is shown at the
+/// end of the recorded day. With no predecessor, the start of its day.
+///
+/// A proposal shown on a later day than the recorded one is dropped (`last_day`,
+/// #4703): work recorded as finishing after the sign-off did not place the
+/// milestone on that day. Read as the latest proposal it always read as
+/// end-of-day, so closing out-of-sequence work moved an already-closed gate's
+/// successors a working day later; dropping it keeps the start-of-day edge the
+/// gate had while that work was open.
 ///
 /// Only completed predecessors are read (#4525): a closed milestone is pinned out
 /// of network logic (ADR-0136), so its edge must not follow a live predecessor's
@@ -749,8 +765,18 @@ fn live_milestone_edge(
     links: &[Option<Instant>],
     recorded: NaiveDate,
 ) -> Result<bool, String> {
-    let (shown, _, _) =
-        place_milestone(idx, tasks, pg, deps, cals, &[recorded], None, links, true)?;
+    let (shown, _, _) = place_milestone(
+        idx,
+        tasks,
+        pg,
+        deps,
+        cals,
+        &[recorded],
+        None,
+        links,
+        true,
+        Some(recorded),
+    )?;
     Ok(shown.1)
 }
 
@@ -794,6 +820,7 @@ fn closed_milestone_link(
         start_floor,
         links,
         true,
+        None,
     )?;
     Ok(if link.0 < recorded {
         link

@@ -921,6 +921,13 @@ class TestMilestoneAtDayEnd:
         Reopening ``A`` then keeps that edge and moves no successor. Before #4641
         the closing run showed ``M`` at the start of Saturday, nothing was handed
         back, and reopening ``A`` pulled ``S`` a day earlier.
+
+        Since #4703 the closing run reads ``M`` at the start of Saturday: ``A``'s
+        FS+4d proposal is shown on Monday, after the sign-off, so it no longer
+        gives the end of the recorded day. Nothing is handed back, and reopening
+        ``A`` still moves nothing — the property this test exists for. The end of a
+        non-working recorded day stays covered through ``live_day_end_on`` by the
+        ``progress_closed_milestone_non_working_day_after_work`` fixture (``M2``).
         """
         sat = date(2026, 1, 10)
 
@@ -953,11 +960,11 @@ class TestMilestoneAtDayEnd:
             return by_id["M"], by_id["S"]
 
         closed_m, closed_s = run(a_done=True, freeze=None)
-        assert (closed_m.early_finish, closed_m.milestone_at_day_end) == (sat, True)
+        assert (closed_m.early_finish, closed_m.milestone_at_day_end) == (sat, False)
         # What the API persists and hands back on the next run (services.py).
         handed_back = closed_m.early_finish if closed_m.milestone_at_day_end else None
         reopened_m, reopened_s = run(a_done=False, freeze=handed_back)
-        assert reopened_m.milestone_at_day_end is True
+        assert reopened_m.milestone_at_day_end is False
         assert (reopened_s.early_start, reopened_s.early_finish) == (
             closed_s.early_start,
             closed_s.early_finish,
@@ -2521,3 +2528,124 @@ def test_monte_carlo_agrees_with_a_milestone_pinned_on_its_shown_day(placement: 
         finish = schedule(project).project_finish
         mc = monte_carlo(project, runs=16, seed=1)
         assert (mc.p50, mc.p80, mc.p95) == (finish, finish, finish), variant
+
+
+class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
+    """Only completed work placing a closed milestone on its recorded day gives it the end (#4703).
+
+    ``A -X-> M -FS-> B`` with M signed off Thu 2026-03-05. Live, A's proposal is
+    the latest one and wins; for a closed milestone, a proposal shown on a later
+    day than the sign-off is work recorded out of sequence, and it did not place
+    the milestone on the day it was signed off. Reading it as the latest proposal
+    read every such milestone as end-of-day, so closing out-of-sequence work moved
+    the already-closed gate's successors a working day later, though with that
+    work open (#4525) it moved nothing. The cross-engine half of this table is the
+    ``progress_closed_milestone_predecessor_after_sign_off`` conformance fixture.
+    """
+
+    START = date(2026, 3, 2)
+    SIGN = date(2026, 3, 5)
+
+    def _run(
+        self,
+        actuals: tuple[date, date] | None,
+        dep_type: DependencyType = DependencyType.FS,
+        lag: int = 0,
+        task_calendar: bool = False,
+    ) -> tuple[bool, date]:
+        a = _task("A", 3)
+        if actuals is not None:
+            a = Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=3),
+                actual_start=actuals[0],
+                actual_finish=actuals[1],
+                percent_complete=100.0,
+            )
+        m = Task(
+            id="M", name="M", duration=timedelta(0), actual_finish=self.SIGN, percent_complete=100.0
+        )
+        p = Project(
+            id="p",
+            name="p",
+            start_date=self.START,
+            tasks=[a, m, _task("B", 2)],
+            dependencies=[_dep("A", "M", dep_type, lag), _dep("M", "B")],
+        )
+        if task_calendar:
+            a.calendar_id = m.calendar_id = "six"
+            p.calendars = {"six": Calendar(working_days=0b0111111)}
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["B"].early_start is not None
+        return by_id["M"].milestone_at_day_end, by_id["B"].early_start
+
+    @pytest.mark.parametrize("task_calendar", [False, True])
+    @pytest.mark.parametrize(
+        ("actuals", "end_of_day"),
+        [
+            pytest.param(None, False, id="open"),
+            pytest.param((date(2026, 3, 2), date(2026, 3, 4)), False, id="finished-earlier"),
+            pytest.param((date(2026, 3, 2), date(2026, 3, 5)), True, id="finished-same-day"),
+            pytest.param((date(2026, 3, 2), date(2026, 3, 10)), False, id="finished-later"),
+        ],
+    )
+    def test_four_state_table(
+        self, actuals: tuple[date, date] | None, end_of_day: bool, task_calendar: bool
+    ) -> None:
+        """The issue's table: only finishing on the sign-off day gives the end of it."""
+        b_start = date(2026, 3, 6) if end_of_day else self.SIGN
+        assert self._run(actuals, task_calendar=task_calendar) == (end_of_day, b_start)
+
+    @pytest.mark.parametrize("lag", [0, 1])
+    @pytest.mark.parametrize("dep_type", list(DependencyType))
+    @pytest.mark.parametrize(
+        "actuals",
+        [
+            pytest.param((date(2026, 3, 2), date(2026, 3, 10)), id="finished-later"),
+            pytest.param((date(2026, 3, 5), date(2026, 3, 10)), id="started-on-sign-off"),
+            pytest.param((date(2026, 3, 9), date(2026, 3, 10)), id="started-later"),
+        ],
+    )
+    def test_closing_out_of_sequence_work_moves_nothing(
+        self, actuals: tuple[date, date], dep_type: DependencyType, lag: int
+    ) -> None:
+        """Closing work recorded after the sign-off leaves M and B where they were while open.
+
+        Every link type and lag, wherever the closed proposal lands: a proposal
+        shown on the sign-off day may still give the end of it (SF+1 from a
+        Thursday start is the end of Thursday), so the oracle here is the edge
+        the proposal was shown at — never a later day's.
+        """
+        closed = self._run(actuals, dep_type, lag)
+        p_open = self._run(None, dep_type, lag)
+        if dep_type is DependencyType.SF and lag == 1 and actuals[0] == self.SIGN:
+            assert closed == (True, date(2026, 3, 6))
+        else:
+            assert closed == p_open == (False, self.SIGN)
+
+    def test_monte_carlo_agrees_with_cpm(self) -> None:
+        """Zero variance lands on the CPM finish with the out-of-sequence close."""
+        a = Task(
+            id="A",
+            name="A",
+            duration=timedelta(days=3),
+            actual_start=self.START,
+            actual_finish=date(2026, 3, 10),
+            percent_complete=100.0,
+        )
+        m = Task(
+            id="M", name="M", duration=timedelta(0), actual_finish=self.SIGN, percent_complete=100.0
+        )
+        p = Project(
+            id="p",
+            name="p",
+            start_date=self.START,
+            tasks=[a, m, _task("B", 10)],
+            dependencies=[_dep("A", "M"), _dep("M", "B")],
+        )
+        result = schedule(p)
+        mc = monte_carlo(p, runs=48, seed=1, max_runs=None, max_tasks=None)
+        # B dominates the finish, so it is a function of M's edge: Thu 03-05 + 10.
+        assert result.project_finish == date(2026, 3, 18)
+        assert mc.p50 == mc.p80 == mc.p95 == result.project_finish

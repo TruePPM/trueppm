@@ -717,6 +717,7 @@ def _place_milestone(
     cal_for: Callable[[str], Calendar],
     start_floor: date | None = None,
     completed_only: bool = False,
+    last_day: date | None = None,
 ) -> tuple[_Instant, date, _Instant]:
     """Place a zero-duration task as an instant: ``(shown, day, link)``.
 
@@ -781,6 +782,10 @@ def _place_milestone(
     ``completed_only`` limits the links to completed predecessors — the reading a
     closed milestone's day edge is taken from (:func:`_live_milestone_edge`, #4525),
     and the instant it links from (:func:`_closed_milestone_link`, #4690).
+
+    ``last_day`` drops every link proposal shown on a later day, so only work that
+    places the milestone on or before that day is read — the cap a closed
+    milestone's edge is read under (:func:`_live_milestone_edge`, #4703).
     """
     best: tuple[date, bool, date] | None = None
     pred_best: tuple[date, bool, date] | None = None
@@ -809,6 +814,8 @@ def _place_milestone(
             cal,
         )
         proposal = (raw, start_display, _instant_day(raw, start_display, cal))
+        if last_day is not None and proposal[2] > last_day:
+            continue
         offer(proposal)
         if pred_best is None or proposal[:2] > pred_best[:2]:
             pred_best = proposal

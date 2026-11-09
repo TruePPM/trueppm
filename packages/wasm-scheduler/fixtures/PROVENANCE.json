@@ -297,14 +297,19 @@
       "evidence": "b81b09a5c: commit message states snapshot regenerated"
     },
     "expected/progress_closed_milestone_non_working_day_after_work.json": {
-      "provenance": "unknown",
-      "issue": "#4641",
-      "evidence": "3227d252b: last change carries no regeneration or hand-derivation statement"
+      "provenance": "regenerated",
+      "issue": "#4703",
+      "evidence": "REGEN_EXPECTED=1 from the Python engine after #4703 added A2/M2; M's start-of-Saturday edge and X's unchanged late dates (seeded from M2's end of Saturday) checked by hand"
     },
     "expected/progress_closed_milestone_open_predecessor.json": {
       "provenance": "unknown",
       "issue": "#4525",
       "evidence": "75e5166c8: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_closed_milestone_predecessor_after_sign_off.json": {
+      "provenance": "regenerated",
+      "issue": "#4703",
+      "evidence": "REGEN_EXPECTED=1 from the Python engine; each M/B row was checked against the edge and successor start stated by hand in the input fixture's task names before regeneration"
     },
     "expected/progress_completed_actuals_milestone_instant.json": {
       "provenance": "unknown",
@@ -1012,14 +1017,19 @@
       "evidence": "86bf0c1d4: added; no regeneration or hand-derivation statement in history"
     },
     "progress_closed_milestone_non_working_day_after_work.json": {
-      "provenance": "unknown",
-      "issue": "#4641",
-      "evidence": "3227d252b: added; no regeneration or hand-derivation statement in history"
+      "provenance": "hand-verified",
+      "issue": "#4703",
+      "evidence": "#4641 input; #4703 relabeled M (start of Saturday under the recorded-day cap) and added A2/M2 by hand to keep the end-of-a-non-working-day path covered via live_day_end_on"
     },
     "progress_closed_milestone_open_predecessor.json": {
       "provenance": "hand-verified",
       "issue": "#4525",
       "evidence": "8681f4431: commit message states the input fixture was derived by hand; input fixture only, later edits (8f16371ef, 9bfa988f2, 75e5166c8) not re-verified"
+    },
+    "progress_closed_milestone_predecessor_after_sign_off.json": {
+      "provenance": "hand-verified",
+      "issue": "#4703",
+      "evidence": "input derived by hand from the README rule (end of day only from completed work placing the milestone on the recorded day)"
     },
     "progress_completed_actuals_milestone_instant.json": {
       "provenance": "unknown",

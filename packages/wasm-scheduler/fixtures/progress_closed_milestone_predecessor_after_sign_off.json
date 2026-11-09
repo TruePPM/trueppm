@@ -1,0 +1,344 @@
+{
+  "id": "p-progress-closed-milestone-predecessor-after-sign-off",
+  "name": "A closed milestone takes the end-of-day edge only from completed work it places on the recorded day itself; work recorded as finishing (or, for SF, starting) after the sign-off is out of sequence and leaves it at the start of the day, as it was while that work was open, so closing that work moves nothing (#4703)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {
+      "id": "A1",
+      "name": "Predecessor: open: start of Thu",
+      "duration": 259200.0
+    },
+    {
+      "id": "M1",
+      "name": "Milestone closed Thu 03-05: start of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "B1",
+      "name": "Live successor: starts Thu 03-05",
+      "duration": 172800.0
+    },
+    {
+      "id": "A2",
+      "name": "Predecessor: finished Wed, before the sign-off: start of Thu",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-02",
+      "actual_finish": "2026-03-04"
+    },
+    {
+      "id": "M2",
+      "name": "Milestone closed Thu 03-05: start of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "B2",
+      "name": "Live successor: starts Thu 03-05",
+      "duration": 172800.0
+    },
+    {
+      "id": "A3",
+      "name": "Predecessor: finished Thu, the sign-off day: end of Thu",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-02",
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "M3",
+      "name": "Milestone closed Thu 03-05: end of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "B3",
+      "name": "Live successor: starts Fri 03-06",
+      "duration": 172800.0
+    },
+    {
+      "id": "A4",
+      "name": "Predecessor: finished Tue 03-10, after the sign-off: start of Thu, as while open (#4703)",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-02",
+      "actual_finish": "2026-03-10"
+    },
+    {
+      "id": "M4",
+      "name": "Milestone closed Thu 03-05: start of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "B4",
+      "name": "Live successor: starts Thu 03-05",
+      "duration": 172800.0
+    },
+    {
+      "id": "A5",
+      "name": "Predecessor: FF, finished after the sign-off: start of Thu (#4703)",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-02",
+      "actual_finish": "2026-03-10"
+    },
+    {
+      "id": "M5",
+      "name": "Milestone closed Thu 03-05: start of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "B5",
+      "name": "Live successor: starts Thu 03-05",
+      "duration": 172800.0
+    },
+    {
+      "id": "A6",
+      "name": "Predecessor: SF, started after the sign-off: start of Thu (#4703)",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-09",
+      "actual_finish": "2026-03-10"
+    },
+    {
+      "id": "M6",
+      "name": "Milestone closed Thu 03-05: start of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "B6",
+      "name": "Live successor: starts Thu 03-05",
+      "duration": 172800.0
+    },
+    {
+      "id": "A7",
+      "name": "Predecessor: FS+1, finished Thu: the proposal is shown on Fri, after the sign-off: start of Thu (#4703)",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-02",
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "M7",
+      "name": "Milestone closed Thu 03-05: start of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "B7",
+      "name": "Live successor: starts Thu 03-05",
+      "duration": 172800.0
+    },
+    {
+      "id": "A8",
+      "name": "Predecessor: FS+1, finished Wed: the proposal is the end of Thu, the sign-off day: end of Thu",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-02",
+      "actual_finish": "2026-03-04"
+    },
+    {
+      "id": "M8",
+      "name": "Milestone closed Thu 03-05: end of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05"
+    },
+    {
+      "id": "B8",
+      "name": "Live successor: starts Fri 03-06",
+      "duration": 172800.0
+    },
+    {
+      "id": "A9",
+      "name": "Predecessor: task calendar Mon..Sat, finished after the sign-off: start of Thu (#4703)",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-02",
+      "actual_finish": "2026-03-10",
+      "calendar_id": "six"
+    },
+    {
+      "id": "M9",
+      "name": "Milestone closed Thu 03-05: start of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05",
+      "calendar_id": "six"
+    },
+    {
+      "id": "B9",
+      "name": "Live successor: starts Thu 03-05",
+      "duration": 172800.0
+    },
+    {
+      "id": "A10",
+      "name": "Predecessor: task calendar Mon..Sat, finished Thu: end of Thu",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-02",
+      "actual_finish": "2026-03-05",
+      "calendar_id": "six"
+    },
+    {
+      "id": "M10",
+      "name": "Milestone closed Thu 03-05: end of Thu",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2026-03-05",
+      "calendar_id": "six"
+    },
+    {
+      "id": "B10",
+      "name": "Live successor: starts Fri 03-06",
+      "duration": 172800.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "A1",
+      "successor_id": "M1",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M1",
+      "successor_id": "B1",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A2",
+      "successor_id": "M2",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M2",
+      "successor_id": "B2",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A3",
+      "successor_id": "M3",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M3",
+      "successor_id": "B3",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A4",
+      "successor_id": "M4",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M4",
+      "successor_id": "B4",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A5",
+      "successor_id": "M5",
+      "dep_type": "FF",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M5",
+      "successor_id": "B5",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A6",
+      "successor_id": "M6",
+      "dep_type": "SF",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M6",
+      "successor_id": "B6",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A7",
+      "successor_id": "M7",
+      "dep_type": "FS",
+      "lag": 86400.0
+    },
+    {
+      "predecessor_id": "M7",
+      "successor_id": "B7",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A8",
+      "successor_id": "M8",
+      "dep_type": "FS",
+      "lag": 86400.0
+    },
+    {
+      "predecessor_id": "M8",
+      "successor_id": "B8",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A9",
+      "successor_id": "M9",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M9",
+      "successor_id": "B9",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A10",
+      "successor_id": "M10",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M10",
+      "successor_id": "B10",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  },
+  "calendars": {
+    "six": {
+      "working_days": 63,
+      "exceptions": [],
+      "hours_per_day": 8.0,
+      "timezone": "UTC"
+    }
+  }
+}

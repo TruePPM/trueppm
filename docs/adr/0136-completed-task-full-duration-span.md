@@ -137,8 +137,13 @@ Rules:
   no longer binds. Which edge of that day it sits on is the edge it had live: its
   predecessor links compete with the recorded day as a start-of-day floor, exactly as
   the data date or an SNET would have, so it sits at the **end** of the day
-  (`milestone_at_day_end` True) only when work finishing that day (or later) placed
-  it, and at the **start** when no work precedes it or a floor held it. Closing a
+  (`milestone_at_day_end` True) only when work finishing that day placed
+  it, and at the **start** when no work precedes it or a floor held it. (Amended
+  2026-11-09, #4703: this read "that day (or later)". Work recorded as finishing
+  after the sign-off — out of sequence — reached past the end of the recorded day
+  and read as end-of-day, so closing it slipped an already-closed milestone's
+  successors a working day. A link proposal shown on a later day than the recorded
+  one is now dropped from the reading, in both engines.) Closing a
   milestone on the day it was forecast therefore moves nothing downstream. (Decided
   2026-10-16, "preserve the live edge": an earlier draft put every closed milestone
   at the start of its day, which pulled a successor of a milestone that follows work

@@ -477,12 +477,20 @@ def _live_milestone_edge(
     The recorded day is offered as a start-of-day floor alongside the links, which
     is what a data-date or SNET floor that placed the milestone live amounts to
     once the actuals supply the date: the end of the day wins only when an FS
-    proposal from work reaches past the start of the recorded day — the work
-    finished that day (or later). Asking the links alone read every milestone
+    proposal from work is shown at the end of the recorded day — the work
+    finished that day. Asking the links alone read every milestone
     with an FS predecessor as end-of-day, so one whose work finished days before
     it was signed off, or held by a later SNET, slipped its successors a working
     day when it was closed — the #4433 bug again. With no predecessor nothing but
     a floor can place it: the start of its day.
+
+    A proposal shown on a *later* day than the recorded one is dropped
+    (``last_day``, #4703): work recorded as finishing after the sign-off, out of
+    sequence, did not place the milestone on the day it was signed off. Read as
+    the latest proposal, it always reached past the end of the recorded day and
+    read as end-of-day, so closing that work moved an already-closed gate's
+    successors a working day later, while it was open it moved nothing. Dropping
+    it gives the start of the day, the edge the gate had with the work open.
 
     Only **completed** predecessors are read (#4525). A closed milestone is pinned
     out of network logic (ADR-0136), so its edge must be a function of facts
@@ -509,7 +517,15 @@ def _live_milestone_edge(
     successor can still move (#4740).
     """
     shown, _, _ = _place_milestone(
-        node_id, task_map, g, cal, [recorded], links, cal_for, completed_only=True
+        node_id,
+        task_map,
+        g,
+        cal,
+        [recorded],
+        links,
+        cal_for,
+        completed_only=True,
+        last_day=recorded,
     )
     return shown[1]
 
