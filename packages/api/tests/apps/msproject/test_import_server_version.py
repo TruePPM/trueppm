@@ -58,3 +58,21 @@ def test_import_inserts_every_bulk_row_at_server_version_one() -> None:
         (Resource, Resource.objects.filter(name="Imported Person")),
     ):
         assert {r.server_version for r in qs} == {1}, model.__name__
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reimport_recreates_a_soft_deleted_label() -> None:
+    """#3437: the importer's bulk_create must not collide with a label tombstone."""
+    project = Project.objects.create(name="Import target", start_date=date(2026, 3, 2))
+    Label.objects.create(project=project, name="Urgent", is_deleted=True)
+    data = ProjectData(
+        name="Imported",
+        tasks=[
+            TaskData(uid=1, name="First", outline_number="1", outline_level=1, labels=["Urgent"])
+        ],
+    )
+
+    with patch(BROADCAST), patch(RECALC):
+        import_project(str(project.pk), data)
+
+    assert Label.objects.filter(project=project, name="Urgent", is_deleted=False).count() == 1
