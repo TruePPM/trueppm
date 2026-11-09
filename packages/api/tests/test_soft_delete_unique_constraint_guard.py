@@ -16,7 +16,11 @@ from django.db import models
 # (app_label.ModelName, constraint-or-unique_together key) -> why an unconditional
 # unique is correct. Seeded from the sites the #3437 audit enumerated.
 _REVIVED = "revoke soft-deletes; re-grant revives the tombstone rather than inserting (#3410)"
-_NEVER_DELETED = "model is never soft-deleted in practice (#3437 audit)"
+_HARD_DELETED = (
+    "no is_deleted=True writer: the viewset hard-deletes (default destroy), so no tombstone "
+    "exists to collide (grep-verified in #3437)"
+)
+_ONE_TO_ONE = "UNREVIEWED: one-to-one extension row; delete-then-recreate path not traced"
 _COUNTER = "short_id comes from a server-side counter, so a value is never re-issued (#3437 audit)"
 # UNREVIEWED entries were enumerated by the #3437 audit as carrying an unconditional unique
 # but were not individually traced for a delete-then-recreate path. They are allowlisted so the
@@ -34,15 +38,26 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     (
         "resources.ProjectResource",
         "constraint:uniq_project_resource_project_resource",
-    ): _NEVER_DELETED,
-    ("resources.ResourceSkill", "constraint:uniq_resource_skill_resource_skill"): _NEVER_DELETED,
-    ("resources.TaskSkillRequirement", "constraint:uniq_task_skill_req_task_skill"): _NEVER_DELETED,
+    ): _HARD_DELETED,
+    ("resources.ResourceSkill", "constraint:uniq_resource_skill_resource_skill"): _HARD_DELETED,
+    ("resources.TaskSkillRequirement", "constraint:uniq_task_skill_req_task_skill"): _HARD_DELETED,
     ("projects.Task", "constraint:unique_task_short_id_per_project"): _COUNTER,
     ("projects.Risk", "constraint:unique_risk_short_id_per_project"): _COUNTER,
     ("projects.Sprint", "constraint:unique_sprint_short_id_per_project"): _COUNTER,
     ("projects.Baseline", "constraint:unique_active_baseline_per_project"): (
         "conditional on is_active=True, not is_deleted; UNREVIEWED against soft-deleted active rows"
     ),
+    ("projects.ApiToken", "field:token_hash"): (
+        "hash of a freshly generated random secret; a value is never re-issued"
+    ),
+    ("projects.BacklogItem", "field:pulled_task"): _ONE_TO_ONE,
+    ("projects.PhaseGateConfig", "field:program"): _ONE_TO_ONE,
+    ("projects.ProjectDecisionsPolicy", "field:project"): _ONE_TO_ONE,
+    ("projects.ProjectGuardrailPolicy", "field:project"): _ONE_TO_ONE,
+    ("projects.ProjectSignalPrivacyPolicy", "field:project"): _ONE_TO_ONE,
+    ("projects.SprintRetro", "field:sprint"): _ONE_TO_ONE,
+    ("projects.TaskRecurrenceRule", "field:task"): _ONE_TO_ONE,
+    ("resources.Skill", "field:normalized_name"): _UNREVIEWED,
     ("projects.Dependency", "constraint:unique_dependency"): _UNREVIEWED,
     ("projects.Program", "constraint:program_code_upper_uniq"): _UNREVIEWED,
     ("projects.Project", "constraint:project_code_upper_uniq"): _UNREVIEWED,
@@ -62,13 +77,45 @@ def _soft_deletable_models() -> list[type[models.Model]]:
     ]
 
 
+def _excludes_deleted(condition: models.Q | None) -> bool:
+    """True only for a condition that keeps tombstones out of the index.
+
+    ``Q(is_deleted=True)`` mentions the field but does the opposite, so the check is
+    on the literal ``(is_deleted, False)`` child, not on the field name.
+    """
+    return condition is not None and ("is_deleted", False) in _flatten(condition)
+
+
+def _flatten(q: models.Q) -> list[object]:
+    out: list[object] = []
+    if q.connector != models.Q.AND or q.negated:
+        return out  # an OR / NOT does not guarantee tombstones are excluded
+    for child in q.children:
+        if isinstance(child, models.Q):
+            out.extend(_flatten(child))
+        else:
+            out.append(child)
+    return out
+
+
 def _unconditional_uniques(model: type[models.Model]) -> list[str]:
+    """Every uniqueness rule a tombstone could still occupy.
+
+    Covers ``UniqueConstraint``, ``unique_together``, and field-level ``unique=True`` /
+    ``OneToOneField`` (the latter two are an unconditional unique index that no
+    ``Meta`` entry shows). The primary key is excluded.
+    """
     found = []
     for c in model._meta.constraints:
-        if isinstance(c, models.UniqueConstraint) and (
-            c.condition is None or "is_deleted" not in str(c.condition)
-        ):
+        if isinstance(c, models.UniqueConstraint) and not _excludes_deleted(c.condition):
             found.append(f"constraint:{c.name}")
+    for f in model._meta.concrete_fields:
+        if f.primary_key or not f.unique:
+            continue
+        # Skip parent-link one-to-ones created by multi-table inheritance.
+        if isinstance(f, models.OneToOneField) and f.remote_field.parent_link:
+            continue
+        found.append(f"field:{f.name}")
     for fields in model._meta.unique_together:
         found.append("unique_together:" + ",".join(fields))
     return found
@@ -102,3 +149,11 @@ def test_every_unconditional_unique_on_a_soft_deletable_model_is_allowlisted() -
     )
     stale = set(ALLOWLIST) - seen_keys
     assert not stale, f"Stale allowlist entries (constraint gone or now conditional): {stale}"
+
+
+def test_condition_check_rejects_a_condition_that_keeps_tombstones() -> None:
+    assert _excludes_deleted(models.Q(is_deleted=False))
+    assert _excludes_deleted(models.Q(is_deleted=False) & models.Q(project__isnull=False))
+    assert not _excludes_deleted(models.Q(is_deleted=True))
+    assert not _excludes_deleted(models.Q(is_deleted=False) | models.Q(name=""))
+    assert not _excludes_deleted(None)

@@ -754,6 +754,27 @@ def test_pull_carries_tags_as_labels(member: object, program: Program, project: 
 
 
 @pytest.mark.django_db
+def test_pull_coins_a_fresh_label_when_the_tagged_label_was_soft_deleted(
+    member: object, program: Program, project: Project
+) -> None:
+    """#3437: a tombstone must neither be reused nor block coining the tag again."""
+    dead = Label.objects.create(project=project, name="auth", is_deleted=True)
+    item = _item(program, tags=["auth"])
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+
+    task = Task.objects.get(pk=resp.data["task"]["id"])
+    attached = list(task.labels.all())
+    assert len(attached) == 1
+    assert attached[0].pk != dead.pk
+    assert attached[0].is_deleted is False
+
+
+@pytest.mark.django_db
 def test_pull_reuses_existing_label_case_insensitively(
     member: object, program: Program, project: Project
 ) -> None:
