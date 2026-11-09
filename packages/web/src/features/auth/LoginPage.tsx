@@ -8,6 +8,7 @@ import { LogoMark } from '@/components/Icons';
 import { OSSChip } from '@/components/OSSChip';
 import { discoverSsoProviders, ssoLoginUrl, type SsoProviderSummary } from '@/hooks/ssoLogin';
 import { useDemoMode } from '@/hooks/useDemoMode';
+import { docsUrl } from '@/lib/docsUrl';
 import { DemoLoginHint } from './DemoLoginHint';
 import { requestSession } from './demoSession';
 import { clearDemoSessionMarker, markDemoSession } from './demoMarker';
@@ -127,6 +128,9 @@ export function LoginPage() {
   // *enabled* provider, discovered on mount (domain-level only — no account
   // enumeration). `redirectingSlug` marks the provider we are handing off to.
   const [ssoProviders, setSsoProviders] = useState<SsoProviderSummary[]>([]);
+  // Discovery has settled (success or degraded-to-empty). Gates the demo SSO docs link so
+  // it never flashes before a configured provider's buttons replace it.
+  const [ssoDiscovered, setSsoDiscovered] = useState(false);
   const [redirectingSlug, setRedirectingSlug] = useState<string | null>(null);
 
   const emailId = useId();
@@ -153,7 +157,10 @@ export function LoginPage() {
   useEffect(() => {
     let active = true;
     void discoverSsoProviders().then((res) => {
-      if (active) setSsoProviders(res.providers);
+      if (active) {
+        setSsoProviders(res.providers);
+        setSsoDiscovered(true);
+      }
     });
     return () => {
       active = false;
@@ -504,6 +511,24 @@ export function LoginPage() {
                 )}
               </div>
             </>
+          )}
+
+          {/* The public demo seeds no IdP (one shared credential, ADR-1197), so the block
+              above renders nothing and an evaluator never learns SSO exists (#3972). Point
+              at the docs instead. Demo-only: a password-only install keeps showing nothing. */}
+          {demoHint && ssoDiscovered && ssoProviders.length === 0 && (
+            <p className="text-xs text-neutral-text-secondary text-center">
+              SSO/OIDC login is supported —{' '}
+              <a
+                href={docsUrl('administration/single-sign-on/')}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-brand-primary underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                see the docs
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </p>
           )}
         </form>
 

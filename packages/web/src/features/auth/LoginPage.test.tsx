@@ -347,6 +347,16 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
+  it('shows no SSO docs link on a non-demo password-only install (#3972)', async () => {
+    ssoProviders = [];
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- mockedAxios.get is a vi.mocked mock, not a bound method
+    await waitFor(() => expect(mockedAxios.get).toHaveBeenCalled());
+    await screen.findByRole('button', { name: 'Sign in' });
+    expect(screen.queryByText(/SSO\/OIDC login is supported/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /see the docs/i })).not.toBeInTheDocument();
+  });
+
   it('links Forgot? to the self-service password reset flow (issue 765)', () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
 
@@ -488,6 +498,22 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     // This block sits outside the main describe, so its beforeEach does not run here.
     mockNavigate.mockClear();
     mockedAxios.post.mockReset();
+  });
+
+  it('links to the SSO docs when the demo has no SSO provider (#3972)', async () => {
+    ssoProviders = [];
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const link = await screen.findByRole('link', { name: /see the docs/i });
+    expect(link).toHaveAttribute('href', 'https://docs.trueppm.com/administration/single-sign-on/');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(screen.queryByRole('button', { name: /Continue with/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the provider button, not the docs link, when the demo has a provider (#3972)', async () => {
+    ssoProviders = [{ slug: 'keycloak', display_name: 'Keycloak' }];
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    expect(await screen.findByRole('button', { name: 'Continue with Keycloak' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /see the docs/i })).not.toBeInTheDocument();
   });
 
   it('renders nothing demo-related on a server that emits a hint but is not a demo', async () => {

@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures';
+import { setupApiMocks } from './fixtures/api-mocks';
 
 /**
  * Wave 8 — Login screen redesign (#215).
@@ -125,6 +126,35 @@ test.describe('Wave 8 — Login screen', () => {
     // Password form is present; no provider buttons and no dangling OR divider.
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Continue with/i })).toHaveCount(0);
+  });
+
+  test('read-only demo with no provider links to the SSO docs; a normal install shows nothing (#3972)', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      demoReadOnly: true,
+      demoLoginHint: { username: 'demo@trueppm.com', password: 'trueppm-demo' },
+    });
+    await page.route('**/api/v1/auth/oidc/discover/**', (route) =>
+      route.fulfill({ status: 200, json: { provider_present: false, providers: [] } }),
+    );
+    await page.goto('/login');
+
+    const link = page.getByRole('link', { name: /see the docs/i });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute('href', /\/administration\/single-sign-on\/$/);
+    await expect(page.getByRole('button', { name: /Continue with/i })).toHaveCount(0);
+  });
+
+  test('non-demo install with no provider shows no SSO docs link (#3972)', async ({ page }) => {
+    await page.route('**/api/v1/auth/oidc/discover/**', (route) =>
+      route.fulfill({ status: 200, json: { provider_present: false, providers: [] } }),
+    );
+    await page.goto('/login');
+
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /see the docs/i })).toHaveCount(0);
   });
 
   test('SSO hands off to the provider-scoped RP login endpoint on click', async ({ page }) => {
