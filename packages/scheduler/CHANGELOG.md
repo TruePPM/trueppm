@@ -114,12 +114,21 @@ change between releases. Pin an exact version (e.g.
   the #4432 fix. A zero delta now returns every task unchanged
   ([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)).
 
-  Known limits of this behavior. On start-to-start and start-to-finish links out
+  Known limit of this behavior. On start-to-start and start-to-finish links out
   of the task, the link stops reading the recorded start at zero duration, so a
   bigger pull-in can finish later than a smaller one, even with no lag
-  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)). On velocity-sampled
-  tasks, whole-sprint rounding of the converted points can move a band backward as
-  the pull-in grows, or later than the unperturbed forecast
+  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
+
+- **A what-if pull-in never moves a sprint-delivered task's bands later.** When a
+  pull-in used up the remaining work of a started velocity-sampled task, the
+  elapsed days Monte Carlo stops subtracting were converted to story points at the
+  team's mean pace, and whole-sprint rounding could leave a run on the same sprint
+  count. A band could then step backward as the pull-in grew (P80 from -10 to -6
+  working days on a 10-day task at 40% with 40 points) or land later than the
+  current forecast. The exhausted task now keeps at most the points of the last
+  pull-in that leaves work open, less one fastest observed sprint for every sprint
+  the elapsed days span, so every band is non-increasing as the pull-in grows. At
+  exhaustion the bands can move further than the days pulled in
   ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)).
 
 ## [0.4.0] - 2026-10-31

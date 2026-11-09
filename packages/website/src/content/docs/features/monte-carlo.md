@@ -295,19 +295,21 @@ the task finished on the working day before its remaining work would have starte
 its predecessors can drop off the critical path and the bands can move further than
 the pull-in.
 
-Do not rely on a pull-in that uses up the remaining work on these two shapes. Both are
-known defects in the 0.5 behavior:
-
-- **Start-to-start and start-to-finish links out of the task**
-  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)). At zero duration the link
-  stops measuring from the task's recorded start. On a start-to-start link, even with
-  no lag, a bigger pull-in can finish later than a smaller one and can land back at or
-  past the current finish. On a start-to-finish link the finish can move by a different
-  number of days than you pulled in.
-- **Sprint-delivered tasks** ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)).
-  The completed days are converted to story points, and whole-sprint rounding can then
-  move a band backward as the pull-in grows, or later than the current forecast.
+Do not rely on a pull-in that uses up the remaining work on **start-to-start and
+start-to-finish links out of the task**, a known defect in the 0.5 behavior
+([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)). At zero duration the link
+stops measuring from the task's recorded start. On a start-to-start link, even with no
+lag, a bigger pull-in can finish later than a smaller one and can land back at or past
+the current finish. On a start-to-finish link the finish can move by a different number
+of days than you pulled in.
 :::
+
+On a sprint-delivered task, Monte Carlo counts whole sprints, so its bands move in
+sprint-sized steps rather than day by day. A bigger pull-in never moves a band later.
+When a pull-in uses up the remaining work of a task that has already started, its bands
+can move further than the days you pulled in. The days already worked are taken off the
+task's story points, and the what-if removes enough points that no band can land later
+than for a smaller pull-in, even if the team delivers its fastest sprint.
 
 Before the fix
 ([#4432](https://gitlab.com/trueppm/trueppm/-/issues/4432)), the change was spread
