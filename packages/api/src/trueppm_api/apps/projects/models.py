@@ -5058,8 +5058,15 @@ class Label(VersionedModel):
             models.Index(fields=["project", "sync_seq"], name="label_proj_syncseq_idx"),
         ]
         constraints = [
+            # Conditional on liveness: LabelViewSet.perform_destroy soft-deletes, so an
+            # unconditional constraint let a tombstone keep owning its (project, name)
+            # slot and re-creating the name 500'd (#3437). A conditional constraint
+            # (not tombstone revival) because a label is a catalog entry with no
+            # identity beyond its name/color; the old row's TaskLabel history should
+            # stay with the old row rather than silently reattach to a new label.
             models.UniqueConstraint(
                 fields=["project", "name"],
+                condition=Q(is_deleted=False),
                 name="uniq_label_name_per_project",
             ),
         ]

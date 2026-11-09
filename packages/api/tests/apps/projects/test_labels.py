@@ -206,6 +206,31 @@ class TestLabelCatalogCrud:
         # The through-rows are hard-deleted so the label stops rendering as a pill.
         assert not TaskLabel.objects.filter(label=label).exists()
 
+    def test_recreate_name_of_soft_deleted_label_succeeds(
+        self, admin_client: APIClient, project: Project, label: Label, memberships: None
+    ) -> None:
+        """#3437: a tombstone must not keep owning its (project, name) slot."""
+        with _no_broadcast():
+            assert (
+                admin_client.delete(f"/api/v1/projects/{project.pk}/labels/{label.pk}/").status_code
+                == 204
+            )
+            r = admin_client.post(
+                f"/api/v1/projects/{project.pk}/labels/", {"name": label.name}, format="json"
+            )
+        assert r.status_code == 201, r.content
+        assert Label.objects.filter(project=project, name=label.name, is_deleted=False).count() == 1
+        assert Label.objects.filter(project=project, name=label.name, is_deleted=True).count() == 1
+
+    def test_live_duplicate_name_still_refused(
+        self, admin_client: APIClient, project: Project, label: Label, memberships: None
+    ) -> None:
+        with _no_broadcast():
+            r = admin_client.post(
+                f"/api/v1/projects/{project.pk}/labels/", {"name": label.name}, format="json"
+            )
+        assert r.status_code == 400
+
     def test_duplicate_name_case_insensitive_rejected(
         self, member_client: APIClient, project: Project, label: Label, memberships: None
     ) -> None:
