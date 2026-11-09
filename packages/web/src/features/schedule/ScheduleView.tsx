@@ -1038,7 +1038,7 @@ export function ScheduleView() {
   // `useDependencyHover` coalesces through rAF and resolves predecessor +
   // successor sets via BFS over the unfiltered link graph.
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
-  const hoverChain = useDependencyHover(hoveredTaskId, allLinks);
+  const hoverChain = useDependencyHover(hoveredTaskId, allLinks, allTasks);
 
   // #806: if the currently-hovered task is removed from the list (delete,
   // server-side prune, etc.), React's `onMouseLeave` never fires on the

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import type { TaskLink } from '@/types';
+import type { Task, TaskLink } from '@/types';
+import { FIXTURE_TASKS } from '@/fixtures/tasks';
 import { useDependencyHover } from './useDependencyHover';
 
 function link(id: string, sourceId: string, targetId: string): TaskLink {
@@ -93,5 +94,30 @@ describe('useDependencyHover', () => {
     // No settle wait — null applies on the next React tick.
     await waitFor(() => expect(result.current.hoveredId).toBeNull());
     expect(result.current.chain.size).toBe(0);
+  });
+
+  describe('summary-gated edges (#3602)', () => {
+    const tk = (id: string, parentId: string | null): Task => ({
+      ...FIXTURE_TASKS[0],
+      id,
+      parentId,
+    });
+    // A -> S (summary), S contains c1 -> c2. A has no literal link to c1.
+    const tasks = [tk('A', null), tk('S', null), tk('c1', 'S'), tk('c2', 'S'), tk('B', null)];
+    const gated: TaskLink[] = [link('g1', 'A', 'S'), link('g2', 'S', 'B')];
+
+    it('highlights the real predecessor and successor of a summary child', async () => {
+      const { result } = renderHook(() => useDependencyHover('c1', gated, tasks));
+      await waitFor(() => expect(result.current.hoveredId).toBe('c1'));
+      expect(Array.from(result.current.predecessors)).toContain('A');
+      expect(Array.from(result.current.successors)).toContain('B');
+    });
+
+    it('still follows the summary row\'s own literal links', async () => {
+      const { result } = renderHook(() => useDependencyHover('S', gated, tasks));
+      await waitFor(() => expect(result.current.hoveredId).toBe('S'));
+      expect(Array.from(result.current.predecessors)).toContain('A');
+      expect(Array.from(result.current.successors)).toContain('B');
+    });
   });
 });

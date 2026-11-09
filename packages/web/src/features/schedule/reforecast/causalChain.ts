@@ -12,12 +12,15 @@
  * They are the ones worth reading.
  */
 import type { Task } from '@/types';
+import { buildChildrenMap, expandSummaryLinks } from '../buildSubgraph';
 
 export interface ChainLink {
   /** Predecessor. */
   sourceId: string;
   /** Successor. */
   targetId: string;
+  type?: string;
+  lag?: number;
 }
 
 export interface MovedRow {
@@ -63,7 +66,14 @@ export function orderByCausalChain(
   // Predecessors, restricted to the ones that also moved — an unmoved
   // predecessor did not cause anything.
   const movedPreds = new Map<string, string[]>();
-  for (const link of links) {
+  // A link to or from a summary reaches its leaves, not the summary row (#3602);
+  // unioned with the literal links so a moved summary row keeps its own hop.
+  const childrenByParent = buildChildrenMap(tasks as Task[]);
+  const effective =
+    childrenByParent.size === 0
+      ? links
+      : [...links, ...expandSummaryLinks(links, childrenByParent, null)];
+  for (const link of effective) {
     if (!movedIds.has(link.targetId) || !movedIds.has(link.sourceId)) continue;
     const preds = movedPreds.get(link.targetId) ?? [];
     preds.push(link.sourceId);
