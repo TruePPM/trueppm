@@ -17,4 +17,4 @@
 # That leaves 1,335 lines on this commit (engine/cpm.py: 48 of 255, its new
 # docstring and import block), which are the lines it actually wrote: each
 # module's header and the __init__.py re-export list.
-95b14b762d5a67ae3b80e9f4e8eb94321997a3db
+5ac2ea5dac6a6b6f42e062a5fb6f6830a989f393
