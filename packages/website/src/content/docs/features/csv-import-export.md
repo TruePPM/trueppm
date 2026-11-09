@@ -291,6 +291,10 @@ non-numeric or zero cell keeps the 100% default, so a file without the column im
 exactly as before. If the same person is named twice in one cell, the last allocation
 wins.
 
+Header matching ignores case, punctuation and a trailing plural "s", so `Allocation %`
+and `Unit` also match. Only a whole-header match counts: `Resource Allocation`,
+`Work Units` and `Team Capacity` are not detected and need a remap in the wizard.
+
 Two pitfalls. A column headed exactly `Percent` is read as allocation, not progress, so
 rename a progress column with that header (`Percent Complete` maps to progress) or
 remap it in the wizard. And inside a multi-value cell a comma always separates
