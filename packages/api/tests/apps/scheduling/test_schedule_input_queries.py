@@ -72,6 +72,8 @@ def _assert_dependency_load_joins_no_task_columns(selects: list[str]) -> None:
     loads = _dependency_loads(selects)
     assert loads, "no dependency load captured"
     for sql in loads:
+        # SELECT list on purpose: ``predecessor__project_id`` legitimately JOINs
+        # projects_task in the FROM clause, so a FROM-clause check would be wrong.
         select_list = sql.split(" FROM ", 1)[0]
         assert "projects_task" not in select_list
 
@@ -144,3 +146,33 @@ def test_derivation_view_does_not_prefetch_project_tasks(
     assert r.status_code == 200, r.content
     _assert_single_task_load(ctx)
     _assert_dependency_load_joins_no_task_columns(_selects(ctx))
+
+
+@pytest.mark.django_db
+def test_program_graph_dependencies_select_only_project_id_from_task(
+    project: Project, chain: dict[str, Task]
+) -> None:
+    from trueppm_api.apps.projects.models import Program
+    from trueppm_api.apps.projects.program_schedule import gather_program_schedule
+
+    program = Program.objects.create(name="InputQueriesProgram")
+    project.program = program
+    project.save()
+
+    with CaptureQueriesContext(connection) as ctx:
+        graph = gather_program_schedule(program)
+    loads = _dependency_loads(_selects(ctx))
+    assert len(loads) == 1
+    select_list = loads[0].split(" FROM ", 1)[0]
+    task_cols = set(re.findall(r'"projects_task"\."(\w+)"', select_list))
+    # Django always adds the related model's pk to a select_related + only() join.
+    assert task_cols == {"id", "project_id"}, task_cols
+
+    assert len(graph.db_deps) == 1
+    with CaptureQueriesContext(connection) as after:
+        for d in graph.db_deps:
+            assert d.predecessor.project_id == d.successor.project_id
+            assert d.dep_type == "FS"
+            assert d.lag == 0
+            assert d.pk is not None
+    assert len(after) == 0

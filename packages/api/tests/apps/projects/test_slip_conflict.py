@@ -510,3 +510,19 @@ def test_upsert_conflicts_recovers_from_concurrent_insert(calendar: Calendar) ->
     assert set(CrossProjectSlipConflict.objects.values_list("pushed_to", flat=True)) == {
         START + timedelta(days=20)
     }
+
+
+@pytest.mark.django_db
+def test_upsert_conflicts_tolerates_a_repeated_key_in_one_batch(calendar: Calendar) -> None:
+    """A repeated (sprint, task) is one row (last wins), not an IntegrityError."""
+    from trueppm_api.apps.projects.slip_conflict import _upsert_conflicts
+
+    sprint, tasks, dep = _multi_task_scenario(calendar, 1)
+    first = (sprint, tasks[0], dep, START + timedelta(days=20))
+    last = (sprint, tasks[0], dep, START + timedelta(days=22))
+
+    rows = _upsert_conflicts([first, last])
+
+    assert len(rows) == 2 and rows[0] is rows[1] and rows[0].pk
+    assert CrossProjectSlipConflict.objects.count() == 1
+    assert CrossProjectSlipConflict.objects.get().pushed_to == START + timedelta(days=22)

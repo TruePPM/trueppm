@@ -263,6 +263,12 @@ def _upsert_conflicts(slips: list[tuple[Any, Any, Any, date]]) -> list[Any]:
     if not slips:
         return []
 
+    # The unique key is (sprint, task); a repeat inside one batch would put two
+    # rows in ``to_create`` and the second INSERT would raise. Last one wins, and
+    # every input position maps back to the single row for its key.
+    input_keys = [(sprint.pk, task.pk) for sprint, task, _, _ in slips]
+    slips = list({key: slip for key, slip in zip(input_keys, slips, strict=True)}.values())
+
     def _load() -> dict[tuple[Any, Any], Any]:
         return {
             (r.sprint_id, r.task_id): r
@@ -343,4 +349,5 @@ def _upsert_conflicts(slips: list[tuple[Any, Any, Any, date]]) -> list[Any]:
                 "dependency",
             ],
         )
-    return rows
+    row_by_key = {(r.sprint_id, r.task_id): r for r in rows}
+    return [row_by_key[key] for key in input_keys]
