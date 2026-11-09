@@ -97,8 +97,13 @@ function MemberProjectScheduleChannel({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     // A 4001 since the last socket that delivered a frame — see the close handler.
     let authRejected = false;
+    // Per effect run, set by cleanup. The shared mountedRef is re-armed
+    // synchronously by the next run, so it cannot tell this run's late events
+    // from its successor's (#4422).
+    let stopped = false;
 
     const handleMessage = (event: MessageEvent<string>) => {
+      if (stopped) return;
       try {
         const envelope = JSON.parse(event.data) as { event_type?: string };
         if (envelope.event_type && SCHEDULE_AFFECTING_EVENTS.has(envelope.event_type)) {
@@ -110,7 +115,9 @@ function MemberProjectScheduleChannel({
     };
 
     const scheduleReconnect = () => {
+      if (stopped) return;
       retryTimer = setTimeout(() => {
+        if (stopped) return;
         backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
         connect();
       }, backoffMs);
@@ -126,15 +133,17 @@ function MemberProjectScheduleChannel({
       ws.addEventListener(
         'message',
         () => {
+          if (stopped) return;
           authRejected = false;
         },
         { once: true },
       );
       ws.addEventListener('open', () => {
+        if (stopped) return;
         backoffMs = 1_000;
       });
       ws.addEventListener('close', (closeEvent) => {
-        if (!mountedRef.current) return;
+        if (stopped || !mountedRef.current) return;
         // 4003: the caller's role on THIS member project does not get live
         // updates (a Viewer, or not a member). Terminal — every retry is refused
         // again, so stop rather than re-minting a ticket on a 30 s backoff for as
@@ -159,18 +168,18 @@ function MemberProjectScheduleChannel({
     };
 
     const connect = () => {
-      if (!mountedRef.current || !accessToken) return;
+      if (stopped || !mountedRef.current || !accessToken) return;
       // A refusal outlives this effect: the effect re-runs on every access-token
       // refresh (~15 min), and without this guard each run would re-mint a ticket
       // and re-handshake a project that already said no (#4375).
       if (isRefused(projectId)) return;
       void fetchWsTicket()
         .then((ticket) => {
-          if (!mountedRef.current) return;
+          if (stopped || !mountedRef.current) return;
           openSocket(ticket);
         })
         .catch(() => {
-          if (!mountedRef.current) return;
+          if (stopped || !mountedRef.current) return;
           // A failed mint usually means the session expired; the project page's
           // own socket surfaces that. Back off and retry unless expired.
           if (useAuthStore.getState().sessionExpired) return;
@@ -181,6 +190,7 @@ function MemberProjectScheduleChannel({
     connect();
 
     return () => {
+      stopped = true;
       mountedRef.current = false;
       if (retryTimer !== null) clearTimeout(retryTimer);
       if (ws) {

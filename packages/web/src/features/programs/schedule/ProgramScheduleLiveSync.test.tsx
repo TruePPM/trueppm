@@ -7,10 +7,15 @@ import { ProgramScheduleLiveSync } from './ProgramScheduleLiveSync';
 // Synchronous thenable so the socket is created inside connect() and each
 // assertion can count sockets without awaiting the ticket round-trip. Every
 // resolved mint opens exactly one socket, so the socket count is the mint count.
+const ticketControl = vi.hoisted(() => ({
+  defer: false,
+  resolvers: [] as Array<(t: string) => void>,
+}));
 vi.mock('@/api/wsTicket', () => ({
   fetchWsTicket: () => ({
     then(onFulfilled: (t: string) => void) {
-      onFulfilled('test-ticket');
+      if (ticketControl.defer) ticketControl.resolvers.push(onFulfilled);
+      else onFulfilled('test-ticket');
       return this;
     },
     catch() {
@@ -197,5 +202,98 @@ describe('ProgramScheduleLiveSync — per-project close codes (#4375)', () => {
       live.dispatch('close', { code: 4001 });
     });
     expect(socketsFor('proj-a')).toHaveLength(3);
+  });
+});
+
+// --- #4422: a cleaned-up effect run must stay inert -------------------------
+// Cleanup flips the shared mountedRef false and the next effect run flips it back
+// true synchronously, so the old run's late close / in-flight ticket passed the
+// guard and opened a stray socket.
+describe('ProgramScheduleLiveSync — stale effect run is inert (#4422)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    ticketControl.defer = false;
+    ticketControl.resolvers = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true, sessionExpired: false });
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    ticketControl.defer = false;
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false, sessionExpired: false });
+    });
+  });
+
+  function mount() {
+    return render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProgramScheduleLiveSync programId="prog-1" projectIds={['proj-a']} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('a late close on the old socket after a token change opens no extra socket', () => {
+    mount();
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-2' });
+    });
+    expect(socketsFor('proj-a')).toHaveLength(2);
+
+    act(() => {
+      socketsFor('proj-a')[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(socketsFor('proj-a')).toHaveLength(2);
+  });
+
+  it('a ticket that resolves after cleanup opens no socket', () => {
+    ticketControl.defer = true;
+    const { unmount } = mount();
+    expect(ticketControl.resolvers).toHaveLength(1);
+    // Token change re-runs the effect: the first run's mint is now stale.
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-2' });
+    });
+    expect(ticketControl.resolvers).toHaveLength(2);
+
+    act(() => {
+      ticketControl.resolvers[0]('stale-ticket');
+    });
+    expect(socketsFor('proj-a')).toHaveLength(0);
+
+    act(() => {
+      ticketControl.resolvers[1]('live-ticket');
+    });
+    expect(socketsFor('proj-a')).toHaveLength(1);
+    unmount();
+  });
+
+  it('a backoff timer armed before a token change opens no extra socket', () => {
+    mount();
+    act(() => {
+      socketsFor('proj-a')[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      socketsFor('proj-a')[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-2' });
+    });
+    const after = socketsFor('proj-a').length;
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(socketsFor('proj-a')).toHaveLength(after);
   });
 });

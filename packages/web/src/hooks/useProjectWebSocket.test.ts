@@ -3730,3 +3730,135 @@ describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-rela
     },
   );
 });
+
+// --- #4422: a stopped controller must stay inert ---------------------------
+// The effect cleanup flips the shared `mountedRef` false and the next run flips it
+// back true synchronously, so the old socket's asynchronous `close` used to pass
+// that guard and the *stopped* controller scheduled a reconnect, sharing the live
+// cursor. The per-controller `stopped` flag is what makes it inert.
+describe('useProjectWebSocket — stopped controller is inert (#4422)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    wsTicketControl.mode = 'success';
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true, sessionExpired: false });
+      useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false, sessionExpired: false });
+      useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    });
+  });
+
+  const seqFrame = (seq: number) => ({
+    data: JSON.stringify({ event_type: 'task_updated', seq, payload: { id: 't1' } }),
+  });
+
+  it('a late close on the old socket after a token change schedules no reconnect', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', seqFrame(1));
+    });
+
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-2' });
+    });
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(MockWebSocket.instances[1].url).toContain('&since=1');
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1_100);
+    });
+
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(useWsConnectionStore.getState().reconnectAttempts).toBe(0);
+
+    // The live controller still owns the cursor, untouched by the orphan.
+    act(() => {
+      MockWebSocket.instances[1].dispatch('close', { code: 1006 });
+      vi.advanceTimersByTime(1_100);
+    });
+    expect(MockWebSocket.instances.length).toBe(3);
+    expect(MockWebSocket.instances[2].url).toContain('&since=1');
+  });
+
+  it('a late close on the old socket after a project switch schedules no reconnect', () => {
+    const { rerender } = renderHook(({ pid }) => useProjectWebSocket(pid), {
+      wrapper: makeWrapper(qc),
+      initialProps: { pid: 'proj-1' },
+    });
+    rerender({ pid: 'proj-2' });
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(MockWebSocket.instances.every((w, i) => i === 0 || w.url.includes('proj-2'))).toBe(true);
+
+    // The orphan must not feed the previous project's seqs into the new cursor:
+    // a frame on it, then a forced reconnect of the live socket, carries no `since`.
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', seqFrame(1));
+    });
+    act(() => {
+      MockWebSocket.instances[1].dispatch('close', { code: 1006 });
+      vi.advanceTimersByTime(1_100);
+    });
+    expect(MockWebSocket.instances.length).toBe(3);
+    expect(MockWebSocket.instances[2].url).toContain('proj-2');
+    expect(MockWebSocket.instances[2].url).not.toContain('since=');
+  });
+
+  it('a backoff timer armed before stop() cannot reconnect after a token change', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    // Two closes arm two timers; stop() only clears the latest one.
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-2' });
+    });
+    const afterChange = MockWebSocket.instances.length;
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(MockWebSocket.instances.length).toBe(afterChange);
+  });
+
+  it('a late open on the old socket does not mark the new connection live', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-2' });
+    });
+    act(() => {
+      useWsConnectionStore.setState({ state: 'connecting' });
+      MockWebSocket.instances[0].dispatch('open', {});
+    });
+    expect(useWsConnectionStore.getState().state).toBe('connecting');
+  });
+});
