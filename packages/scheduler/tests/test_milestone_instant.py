@@ -2552,7 +2552,13 @@ class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
         dep_type: DependencyType = DependencyType.FS,
         lag: int = 0,
         task_calendar: bool = False,
+        handed_back: bool = False,
     ) -> tuple[bool, date]:
+        """``(M at the end of its day, B's start)``.
+
+        ``handed_back`` sets ``live_day_end_on`` to the sign-off day, as the API
+        does when the previous run showed M at the end of it (services.py).
+        """
         a = _task("A", 3)
         if actuals is not None:
             a = Task(
@@ -2566,6 +2572,8 @@ class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
         m = Task(
             id="M", name="M", duration=timedelta(0), actual_finish=self.SIGN, percent_complete=100.0
         )
+        if handed_back:
+            m.live_day_end_on = self.SIGN
         p = Project(
             id="p",
             name="p",
@@ -2597,32 +2605,174 @@ class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
         b_start = date(2026, 3, 6) if end_of_day else self.SIGN
         assert self._run(actuals, task_calendar=task_calendar) == (end_of_day, b_start)
 
-    @pytest.mark.parametrize("lag", [0, 1])
-    @pytest.mark.parametrize("dep_type", list(DependencyType))
-    @pytest.mark.parametrize(
-        "actuals",
-        [
-            pytest.param((date(2026, 3, 2), date(2026, 3, 10)), id="finished-later"),
-            pytest.param((date(2026, 3, 5), date(2026, 3, 10)), id="started-on-sign-off"),
-            pytest.param((date(2026, 3, 9), date(2026, 3, 10)), id="started-later"),
-        ],
+    LATE = (
+        pytest.param((date(2026, 3, 2), date(2026, 3, 10)), id="finished-later"),
+        pytest.param((date(2026, 3, 2), date(2026, 3, 6)), id="finished-next-day"),
+        pytest.param((date(2026, 3, 5), date(2026, 3, 10)), id="started-on-sign-off"),
+        pytest.param((date(2026, 3, 9), date(2026, 3, 10)), id="started-later"),
     )
+
+    @pytest.mark.parametrize("handed_back", [False, True], ids=["no-hand-back", "hand-back"])
+    @pytest.mark.parametrize("lag", [-2, -1, 0, 1])
+    @pytest.mark.parametrize("dep_type", list(DependencyType))
+    @pytest.mark.parametrize("actuals", LATE)
     def test_closing_out_of_sequence_work_moves_nothing(
-        self, actuals: tuple[date, date], dep_type: DependencyType, lag: int
+        self,
+        actuals: tuple[date, date],
+        dep_type: DependencyType,
+        lag: int,
+        handed_back: bool,
     ) -> None:
         """Closing work recorded after the sign-off leaves M and B where they were while open.
 
-        Every link type and lag, wherever the closed proposal lands: a proposal
-        shown on the sign-off day may still give the end of it (SF+1 from a
-        Thursday start is the end of Thursday), so the oracle here is the edge
-        the proposal was shown at — never a later day's.
+        The oracle is the README rule, applied to where the completed link places
+        the milestone, which a *live* M with the same completed A shows (public
+        API, no engine internals):
+
+        - placed on a later day than the sign-off — out of sequence: the result
+          equals leaving A open, with or without the hand-back (#4703);
+        - placed at the end of the sign-off day — a lagged link reaching back
+          onto it (FS-1 from a Friday finish, SF+1 from a Thursday start): that
+          link places it there, so the end of the day, though with A open and
+          nothing handed back the start is shown (the known limit);
+        - placed earlier, or at the start of the day: the completed facts say no
+          link put M at the end of it, so the start-of-day floor decides and a
+          hand-back is re-read rather than frozen (#4525).
         """
-        closed = self._run(actuals, dep_type, lag)
-        p_open = self._run(None, dep_type, lag)
-        if dep_type is DependencyType.SF and lag == 1 and actuals[0] == self.SIGN:
+        closed = self._run(actuals, dep_type, lag, handed_back=handed_back)
+        opened = self._run(None, dep_type, lag, handed_back=handed_back)
+        assert opened == ((True, date(2026, 3, 6)) if handed_back else (False, self.SIGN))
+        live = {
+            t.id: t
+            for t in schedule(
+                Project(
+                    id="p",
+                    name="p",
+                    start_date=self.START,
+                    tasks=[
+                        Task(
+                            id="A",
+                            name="A",
+                            duration=timedelta(days=3),
+                            actual_start=actuals[0],
+                            actual_finish=actuals[1],
+                            percent_complete=100.0,
+                        ),
+                        _task("M", 0),
+                    ],
+                    dependencies=[_dep("A", "M", dep_type, lag)],
+                )
+            ).tasks
+        }["M"]
+        assert live.early_finish is not None
+        if live.early_finish > self.SIGN:
+            assert closed == opened
+        elif live.early_finish == self.SIGN and live.milestone_at_day_end:
             assert closed == (True, date(2026, 3, 6))
         else:
-            assert closed == p_open == (False, self.SIGN)
+            assert closed == (False, self.SIGN)
+
+    @pytest.mark.parametrize("handed_back", [False, True], ids=["no-hand-back", "hand-back"])
+    def test_closing_late_work_behind_a_handed_back_edge_moves_nothing(
+        self, handed_back: bool
+    ) -> None:
+        """The API path: A forecast to finish on the sign-off day, closed later (#4703).
+
+        Live, A's forecast (Mon-Thu) puts M at the end of Thursday; M is closed
+        that day with A open, so the end of Thursday is handed back and B starts
+        Friday. A is then recorded as finishing Tue 03-10. Its proposal is shown
+        after the sign-off and is dropped, but the hand-back still stands: the
+        facts arrived after the sign-off. Before the fix nothing was open any
+        more, the hand-back stopped applying, and M fell to the start of Thursday,
+        pulling B a working day *earlier*.
+        """
+
+        def run(a_done: bool) -> tuple[bool, date | None]:
+            a = _task("A", 4)
+            if a_done:
+                a = Task(
+                    id="A",
+                    name="A",
+                    duration=timedelta(days=4),
+                    actual_start=self.START,
+                    actual_finish=date(2026, 3, 10),
+                    percent_complete=100.0,
+                )
+            m = Task(
+                id="M",
+                name="M",
+                duration=timedelta(0),
+                actual_finish=self.SIGN,
+                percent_complete=100.0,
+                live_day_end_on=self.SIGN if handed_back else None,
+            )
+            p = Project(
+                id="p",
+                name="p",
+                start_date=self.START,
+                tasks=[a, m, _task("B", 2)],
+                dependencies=[_dep("A", "M"), _dep("M", "B")],
+            )
+            by_id = {t.id: t for t in schedule(p).tasks}
+            return by_id["M"].milestone_at_day_end, by_id["B"].early_start
+
+        expected = (True, date(2026, 3, 6)) if handed_back else (False, self.SIGN)
+        assert run(a_done=False) == run(a_done=True) == expected
+
+    def test_closed_link_instant_stays_uncapped(self) -> None:
+        """Closing a second predecessor out of sequence leaves a lagged successor alone.
+
+        A1 finishes Fri 03-06 and links FS+1d into M, so live M sits at the start
+        of Monday from Sunday 00:00 (#4173); M is closed Mon 03-09 and links FS+1d
+        to B. A2 (FS) is open, then completed on Wed 03-11, out of sequence. The
+        link instant (``_closed_milestone_link``) is deliberately not capped at
+        the recorded day: capping would drop A2 and link from A1's Sunday
+        midnight, pulling B a day earlier than with A2 open. Uncapped, A2's later
+        proposal fails the earlier-midnight test and M links from the start of
+        Monday, as it does with A2 open.
+        """
+
+        def run(a2_done: bool) -> date | None:
+            a1 = Task(
+                id="A1",
+                name="A1",
+                duration=timedelta(days=5),
+                actual_start=self.START,
+                actual_finish=date(2026, 3, 6),
+                percent_complete=100.0,
+            )
+            a2 = _task("A2", 1)
+            if a2_done:
+                a2 = Task(
+                    id="A2",
+                    name="A2",
+                    duration=timedelta(days=1),
+                    actual_start=date(2026, 3, 11),
+                    actual_finish=date(2026, 3, 11),
+                    percent_complete=100.0,
+                )
+            m = Task(
+                id="M",
+                name="M",
+                duration=timedelta(0),
+                actual_finish=date(2026, 3, 9),
+                percent_complete=100.0,
+            )
+            p = Project(
+                id="p",
+                name="p",
+                start_date=self.START,
+                tasks=[a1, a2, m, _task("B", 1)],
+                dependencies=[
+                    _dep("A1", "M", DependencyType.FS, 1),
+                    _dep("A2", "M"),
+                    _dep("M", "B", DependencyType.FS, 1),
+                ],
+            )
+            return {t.id: t for t in schedule(p).tasks}["B"].early_start
+
+        # Monday 00:00 + 1 calendar day: B starts Tuesday 03-10 either way.
+        assert run(a2_done=False) == run(a2_done=True) == date(2026, 3, 10)
 
     def test_monte_carlo_agrees_with_cpm(self) -> None:
         """Zero variance lands on the CPM finish with the out-of-sequence close."""

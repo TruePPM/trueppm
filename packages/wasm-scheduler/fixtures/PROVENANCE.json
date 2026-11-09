@@ -296,6 +296,11 @@
       "issue": "#1505",
       "evidence": "b81b09a5c: commit message states snapshot regenerated"
     },
+    "expected/progress_closed_milestone_handed_back_edge_after_sign_off.json": {
+      "provenance": "regenerated",
+      "issue": "#4703",
+      "evidence": "REGEN_EXPECTED=1 from the Python engine; each M/B row was checked against the edge and successor start stated by hand in the input fixture's task names after regeneration"
+    },
     "expected/progress_closed_milestone_non_working_day_after_work.json": {
       "provenance": "regenerated",
       "issue": "#4703",
@@ -1015,6 +1020,11 @@
       "provenance": "unknown",
       "issue": "#2621",
       "evidence": "86bf0c1d4: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_closed_milestone_handed_back_edge_after_sign_off.json": {
+      "provenance": "hand-verified",
+      "issue": "#4703",
+      "evidence": "input derived by hand from the README rule (a handed-back end-of-day edge stands while a predecessor is open or completed work places the milestone after the recorded day; otherwise re-read from completed work)"
     },
     "progress_closed_milestone_non_working_day_after_work.json": {
       "provenance": "hand-verified",

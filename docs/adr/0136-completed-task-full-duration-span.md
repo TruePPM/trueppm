@@ -143,7 +143,12 @@ Rules:
   after the sign-off — out of sequence — reached past the end of the recorded day
   and read as end-of-day, so closing it slipped an already-closed milestone's
   successors a working day. A link proposal shown on a later day than the recorded
-  one is now dropped from the reading, in both engines.) Closing a
+  one is now dropped from the reading, in both engines, and while one is, a
+  handed-back `live_day_end_on` edge stands as it does for open work: dropping the
+  proposal alone pulled the successors a working day *earlier* on the API path,
+  where that edge is handed back. The rule reads the day a link places the
+  milestone, not the day the work finished, so FS-1d from work finishing the day
+  after the sign-off still gives the end of the day.) Closing a
   milestone on the day it was forecast therefore moves nothing downstream. (Decided
   2026-10-16, "preserve the live edge": an earlier draft put every closed milestone
   at the start of its day, which pulled a successor of a milestone that follows work
