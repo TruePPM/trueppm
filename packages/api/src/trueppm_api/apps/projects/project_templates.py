@@ -273,8 +273,12 @@ def _validate_task_node_values(node: dict[str, Any]) -> None:
     # knows the task by name and WBS position, not by its ref (a UUID).
     label = f"Task {ref!r}"
     if node.get("name"):
-        label += f" ({node['name']!r}"
-        label += f", WBS {node['wbs_path']})" if node.get("wbs_path") else ")"
+        # Bounded and repr'd: both values come from a JSONB document that may have
+        # been hand-edited, and they end up in a 400 body.
+        name = str(node["name"])
+        name = name if len(name) <= 80 else name[:79] + "\u2026"
+        label += f" ({name!r}"
+        label += f", WBS {str(node['wbs_path'])[:80]!r})" if node.get("wbs_path") else ")"
     for attr, choices in (
         ("delivery_mode", DeliveryMode),
         ("governance_class", GovernanceClass),

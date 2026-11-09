@@ -263,8 +263,28 @@ def test_task_node_refusal_names_the_task_not_just_its_ref(fields: dict) -> None
     with pytest.raises(TemplateStructureError) as exc:
         validate_structure(doc)
     assert "'Go live'" in str(exc.value)
-    assert "WBS 1.2" in str(exc.value)
+    assert "WBS '1.2'" in str(exc.value)
     assert "7d1c-uuid" in str(exc.value)
+
+
+def test_task_node_refusal_label_is_bounded_and_escaped() -> None:
+    doc = {
+        "version": STRUCTURE_VERSION,
+        "tasks": [
+            {
+                "ref": "r",
+                "name": "N" * 5000,
+                "wbs_path": "1\n2",
+                "delivery_mode": "bogus",
+            }
+        ],
+    }
+    with pytest.raises(TemplateStructureError) as exc:
+        validate_structure(doc)
+    message = str(exc.value)
+    assert "\n" not in message
+    assert len(message) < 300
+    assert "\u2026" in message
 
 
 @pytest.mark.django_db
