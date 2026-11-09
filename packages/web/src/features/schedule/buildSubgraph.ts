@@ -102,6 +102,11 @@ function collectLeaves(id: string, childrenByParent: Map<string, string[]>): str
  * {@link buildChildrenMap}) — so only the fan-out itself is duplicated, and
  * `cpmEngine.conformance.test.ts` is where a divergence would be caught.
  *
+ * A leaf-pair collision between any two resulting edges (direct or expanded) is
+ * resolved like the server's `_cross_product_edges` (#4434): same type keeps the
+ * larger lag. The one difference is a different-type collision — the server
+ * rejects the run, the preview keeps the first-seen edge (see {@link mergeEdge}).
+ *
  * Two deviations from the server, both deliberate:
  *
  *  - **SS/SF from a summary is dropped, not expanded.** ADR-0370 /
@@ -149,25 +154,44 @@ function classifyLink(
   return 'expand';
 }
 
-/** The leaf-level cross product of `link`'s endpoints, deduped against `seen`. */
-function crossProductEdges(
-  link: TaskLink,
-  leaves: (id: string) => string[],
-  seen: Set<string>,
-): TaskLink[] {
+/** The leaf-level cross product of `link`'s endpoints, self-pairs removed. */
+function crossProductEdges(link: TaskLink, leaves: (id: string) => string[]): TaskLink[] {
   const edges: TaskLink[] = [];
   for (const source of leaves(link.sourceId)) {
     for (const target of leaves(link.targetId)) {
       // A summary→summary link inside one phase expands onto pairs of its own
       // leaves; a self-edge is not a dependency and would deadlock the sort.
       if (source === target) continue;
-      const key = `${source}\u0000${target}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
       edges.push({ ...link, sourceId: source, targetId: target });
     }
   }
   return edges;
+}
+
+/**
+ * Fold `edge` into `chosen`, resolving a leaf-pair collision by MEANING rather
+ * than list order, exactly as the server's `_cross_product_edges` does (#4434).
+ *
+ * - Same type: both read `succ >= pred + lag` on the same anchors, so the larger
+ *   lag implies the smaller — keep the larger.
+ * - Different types: neither implies the other. The server refuses the whole run
+ *   (`InvalidScheduleInput`); a preview cannot throw mid-drag, so it keeps the
+ *   first-seen edge and ignores the later one. The commit will be rejected by
+ *   the server either way, so the preview shows a stand-in, never a result.
+ *
+ * Collisions are checked against direct leaf→leaf links too, since the server
+ * resolves every edge — direct or expanded — through the same pair map. A Map
+ * keeps a replaced key's original insertion slot, matching the server's stable
+ * output order.
+ */
+function mergeEdge(chosen: Map<string, TaskLink>, edge: TaskLink): void {
+  const key = `${edge.sourceId}\u0000${edge.targetId}`;
+  const prior = chosen.get(key);
+  if (prior !== undefined) {
+    if (prior.type !== edge.type) return;
+    if (edge.lag <= prior.lag) return;
+  }
+  chosen.set(key, edge);
 }
 
 function expandSummaryLinks(
@@ -188,21 +212,19 @@ function expandSummaryLinks(
   };
   const isSummary = (id: string): boolean => (childrenByParent.get(id)?.length ?? 0) > 0;
 
-  const expanded: TaskLink[] = [];
-  // Deduplicate on the endpoint pair, matching the server's `_cross_product_edges`:
-  // two summary links landing on the same leaf pair yield one edge.
-  const seen = new Set<string>();
+  // One edge per endpoint pair — see {@link mergeEdge}.
+  const chosen = new Map<string, TaskLink>();
 
   for (const link of links) {
     const disposition = classifyLink(link, isSummary, startTaskId);
     if (disposition === 'drop') continue;
     if (disposition === 'keep') {
-      expanded.push(link);
+      mergeEdge(chosen, link);
       continue;
     }
-    expanded.push(...crossProductEdges(link, leaves, seen));
+    for (const edge of crossProductEdges(link, leaves)) mergeEdge(chosen, edge);
   }
-  return expanded;
+  return [...chosen.values()];
 }
 
 /** Every task id reachable downstream of `startTaskId`, including itself. */

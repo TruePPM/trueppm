@@ -308,6 +308,68 @@ describe('buildSubgraph — summary dependency expansion', () => {
     expect(edges.filter((e) => e.sourceId === 'C1' && e.targetId === 'B')).toHaveLength(1);
   });
 
+  describe('leaf-pair collisions mirror the server (#4434)', () => {
+    const fixture = () => [
+      task('A'),
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+      task('B'),
+    ];
+    const lagged = (id: string, s: string, t: string, lag: number, type: TaskLink['type'] = 'FS') => ({
+      ...link(id, s, t, type),
+      lag,
+    });
+    const pair = (edges: { sourceId: string; targetId: string }[], s: string, t: string) =>
+      edges.filter((e) => e.sourceId === s && e.targetId === t);
+
+    it('keeps the larger lag on a same-type summary collision, whatever the order', () => {
+      for (const order of [
+        [lagged('l1', 'S', 'B', 2), lagged('l2', 'S', 'B', 7), link('l0', 'A', 'C1')],
+        [link('l0', 'A', 'C1'), lagged('l2', 'S', 'B', 7), lagged('l1', 'S', 'B', 2)],
+      ]) {
+        const { edges } = buildSubgraph('A', fixture(), order);
+        expect(pair(edges, 'C1', 'B')).toEqual([
+          { sourceId: 'C1', targetId: 'B', type: 'FS', lag: 7 },
+        ]);
+      }
+    });
+
+    it('resolves a direct leaf link against an expanded one by lag, not order', () => {
+      const tasks = fixture();
+      for (const links of [
+        [lagged('d', 'C1', 'B', 1), lagged('s', 'S', 'B', 5), link('l0', 'A', 'C1')],
+        [lagged('s', 'S', 'B', 5), lagged('d', 'C1', 'B', 1), link('l0', 'A', 'C1')],
+        [lagged('d', 'C1', 'B', 9), lagged('s', 'S', 'B', 5), link('l0', 'A', 'C1')],
+      ]) {
+        const { edges } = buildSubgraph('A', tasks, links);
+        const lag = Math.max(...links.filter((l) => l.id !== 'l0').map((l) => l.lag));
+        expect(pair(edges, 'C1', 'B')).toEqual([
+          { sourceId: 'C1', targetId: 'B', type: 'FS', lag },
+        ]);
+      }
+    });
+
+    it('keeps the first-seen edge on a different-type collision (server rejects the run)', () => {
+      const tasks = fixture();
+      const a = buildSubgraph('A', tasks, [
+        link('l0', 'A', 'C1'),
+        lagged('s', 'S', 'B', 9, 'FS'),
+        lagged('d', 'C1', 'B', 1, 'FF'),
+      ]);
+      expect(pair(a.edges, 'C1', 'B')).toEqual([
+        { sourceId: 'C1', targetId: 'B', type: 'FS', lag: 9 },
+      ]);
+      const b = buildSubgraph('A', tasks, [
+        link('l0', 'A', 'C1'),
+        lagged('d', 'C1', 'B', 1, 'FF'),
+        lagged('s', 'S', 'B', 9, 'FS'),
+      ]);
+      expect(pair(b.edges, 'C1', 'B')).toEqual([
+        { sourceId: 'C1', targetId: 'B', type: 'FF', lag: 1 },
+      ]);
+    });
+  });
+
   it('does not conflate two leaf pairs whose ids concatenate to the same string (issue #3601)', () => {
     // The dedup key that guards the test above joins source/target with a
     // delimiter. A literal NUL byte previously served that role and made git
