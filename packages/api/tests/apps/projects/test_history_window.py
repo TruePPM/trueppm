@@ -125,7 +125,7 @@ def test_windowed_replay_matches_unbounded_replay(project: Project) -> None:
                 _old_index(project, until), days, chart_type=chart_type, metric=metric
             )
             assert new == old, (chart_type, metric)
-    assert any(p["scope"] for p in new)
+            assert any(p["scope"] for p in new), (chart_type, metric)
 
 
 @pytest.mark.django_db
@@ -183,3 +183,22 @@ def test_weekly_throughput_counts_completion_with_carry_in(project: Project) -> 
     weeks, since = _project_weekly_throughput(project.pk, window_days=90)
     assert since == window_start
     assert sum(w["completed_count"] for w in weeks) == 1
+
+
+@pytest.mark.django_db
+def test_equal_history_date_tiebreaks_on_history_id(project: Project) -> None:
+    """Two rows at the same instant: window and carry-in queries pick the same latest."""
+    today = timezone.localdate()
+    since, until = today - timedelta(days=2), today
+    stamp = _at(today - timedelta(days=30))
+    t = Task.objects.create(project=project, name="t", duration=1)
+    _restamp_creation(t, stamp)
+    _edit(t, stamp, status=TaskStatus.COMPLETE)  # same instant, larger history_id
+
+    # Carry-in path: both rows pre-date the window.
+    carry = _burn_history_index(project.pk, since, until)[t.pk]
+    assert [r["status"] for r in carry] == [TaskStatus.COMPLETE]
+
+    # Window path: both rows inside a window containing the instant.
+    win = _burn_history_index(project.pk, today - timedelta(days=40), until)[t.pk]
+    assert [r["status"] for r in win] == [TaskStatus.COMPLETE, TaskStatus.NOT_STARTED]

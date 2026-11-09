@@ -1231,7 +1231,9 @@ def _windowed_history_by_task(
     silently drop such tasks. Rows older than the carry-in can never be the answer for
     a day inside the window, so they are never read into Python (#3579) — the database
     still walks the ``(project_id, history_date)`` index range, but the Python cost is
-    O(rows-in-window + tasks) instead of O(all edits ever).
+    O(rows-in-window + tasks) instead of O(all edits ever). The carry-in query itself
+    returns one row per task that ever existed in the project, deleted ones included, so
+    its cost is O(tasks ever existed).
 
     ``history_id`` is the tiebreak for equal ``history_date`` so both queries agree on
     which of two same-instant rows is "latest". The explicit ``order_by`` clears the
@@ -5982,7 +5984,8 @@ def flow_metrics(project_id: str | uuid.UUID, *, window_days: int = 90) -> dict[
     """Methodology-neutral flow analytics for a project (ADR-0130 D1, #1072).
 
     Computed-on-read from the ``HistoricalTask`` table (the same replay
-    ``burn_series`` / ``sprint_daily_delta`` use): one windowed query ordered by
+    ``burn_series`` / ``sprint_daily_delta`` use): one query for the project's full trail up to the
+    window end (not bounded below, see the note in the body), ordered by
     ``(id, history_date)``, then per-task diffs in Python — no per-task subqueries.
 
     Returns:
@@ -6025,7 +6028,7 @@ def flow_metrics(project_id: str | uuid.UUID, *, window_days: int = 90) -> dict[
     # trail. A single carry-in row per task cannot answer any of those, so narrowing this
     # read would change the numbers, not just the cost.
     #
-    # One windowed query: every history row up to the window end, oldest-first per
+    # One query for the full trail: every history row up to the window end, oldest-first per
     # task so each row can be diffed against its predecessor (which may pre-date the
     # window — needed to detect the IN_PROGRESS entry and board-entry time).
     # Ordered by (id, history_date) for the replay (CFD + cycle/lead), exactly like
