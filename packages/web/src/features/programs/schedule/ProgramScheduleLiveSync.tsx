@@ -20,6 +20,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { fetchWsTicket } from '@/api/wsTicket';
 import { WS_CLOSE_FORBIDDEN, WS_CLOSE_UNAUTHENTICATED } from '@/stores/wsConnectionStore';
+import { fullJitterDelay } from '@/lib/reconnectBackoff';
 
 const WS_BASE = (() => {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -120,7 +121,7 @@ function MemberProjectScheduleChannel({
         if (stopped) return;
         backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
         connect();
-      }, backoffMs);
+      }, fullJitterDelay(backoffMs));
     };
 
     const openSocket = (ticket: string) => {
