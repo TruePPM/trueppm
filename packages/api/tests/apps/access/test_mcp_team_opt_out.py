@@ -411,6 +411,7 @@ _PATH_ROUTES = [
     "sprint-forecast/",
     "monte-carlo/latest/",
     "schedule/derivation/",
+    "schedule/driving-chain/",
 ]
 
 

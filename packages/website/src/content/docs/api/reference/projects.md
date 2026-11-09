@@ -141,6 +141,35 @@ Writing a MIME type that is permanently security-denied (`text/html`,
 [Task collaboration](/features/task-collaboration/) for how the resolved policy
 governs uploads.
 
+### Driving chain
+
+`GET /api/v1/projects/{id}/schedule/driving-chain/` (query: `task_id`, optional `depth`) returns the
+chain of driving links through one task: upstream along the links that hold it to
+the tasks nothing drives, downstream to the project finish. It is read from one
+server-side CPM pass over the network the engine actually schedules, so a link on a
+summary task arrives as the leaf edges it expands to — rebuilding the chain from
+stored dependencies misses those. Any project member (Viewer and up) and an
+`mcp:read` token may read it. It shares the `cpm_on_read` throttle with
+`GET /projects/{id}/schedule/derivation/`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `computable` | `boolean` | `false` for a task the CPM pass does not schedule; `nodes` and `edges` are then empty |
+| `reason` | `string \| null` | Why it is not computable: `backlog`, `not_committed` (an epic or recurring task), `summary`, or `not_in_network` |
+| `depth`, `node_cap` | `integer` | The limits applied: `depth` hops per direction (default 25, max 50) and at most 200 nodes |
+| `truncated`, `truncated_reason` | `boolean`, `string \| null` | `true` when a limit cut the walk, with `depth` or `node_cap` |
+| `project_finish` | `date \| null` | The project finish date of the same pass |
+| `nodes` | `array` | `{task_id, name, status, direction, hops, early_start, early_finish, total_float_days, is_critical, is_project_finish, sprint}`. `direction` is `self`, `upstream` or `downstream`; `sprint` is `{id, finish_date}` or `null`. No assignee, hours or velocity |
+| `edges` | `array` | `{predecessor_id, successor_id, dep_type, lag_days, is_driving, via_summary}`. `via_summary` lists the summary task ids the stored link was expanded from, or `null` for a direct link |
+| `_provenance` | `object` | `{schema_version, engine_version, api_version, input_hash, computed_at}`. The same inputs give the same `input_hash` |
+
+An unknown task id returns 404, and a `depth` outside 1–50 returns 400.
+
+:::note[Ships in 0.5]
+The driving-chain endpoint ships in 0.5 (ADR-1381). In 0.4, call
+`GET /projects/{id}/schedule/derivation/` once per hop.
+:::
+
 ## Project and program keys
 
 Every project and program has a **key**, the short name that appears in its links

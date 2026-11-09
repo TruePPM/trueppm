@@ -15,6 +15,7 @@ from trueppm_api.apps.projects.metric_provenance import (
     METRIC_DEFINITIONS,
     definitions_field,
 )
+from trueppm_api.apps.projects.models import DEPENDENCY_TYPE_CHOICES
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
     MonteCarloRun,
@@ -761,3 +762,84 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
         if not self.context.get("expand_distribution"):
             return None
         return obj.distribution
+
+
+class AnswerProvenanceSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``_provenance`` answer stamp (ADR-0112 §2.1, ADR-1381).
+
+    ``(engine_version, input_hash)`` identifies the exact engine and inputs that
+    produced the answer, so it can be reproduced by re-running that scheduler version.
+    """
+
+    schema_version = serializers.IntegerField()
+    engine_version = serializers.CharField()
+    api_version = serializers.CharField()
+    input_hash = serializers.CharField(help_text="sha256:<hex> over the canonical engine input.")
+    computed_at = serializers.DateTimeField()
+
+
+class DrivingChainSprintSerializer(serializers.Serializer[dict[str, Any]]):
+    """Sprint binding of a chain node — id and end date only, never team internals."""
+
+    id = serializers.CharField()
+    finish_date = serializers.DateField(allow_null=True)
+
+
+class DrivingChainNodeSerializer(serializers.Serializer[dict[str, Any]]):
+    """One task on the driving chain (ADR-1381)."""
+
+    task_id = serializers.CharField()
+    name = serializers.CharField()
+    status = serializers.CharField(allow_null=True)
+    direction = serializers.ChoiceField(choices=["self", "upstream", "downstream"])
+    hops = serializers.IntegerField(help_text="Driving links between this node and the task.")
+    early_start = serializers.DateField(allow_null=True)
+    early_finish = serializers.DateField(allow_null=True)
+    total_float_days = serializers.IntegerField()
+    is_critical = serializers.BooleanField()
+    is_project_finish = serializers.BooleanField()
+    sprint = DrivingChainSprintSerializer(allow_null=True)
+
+
+class DrivingChainEdgeSerializer(serializers.Serializer[dict[str, Any]]):
+    """One driving link between two chain nodes, at leaf level (ADR-1381)."""
+
+    predecessor_id = serializers.CharField()
+    successor_id = serializers.CharField()
+    # The model's own choices, so the schema reuses the shared DepTypeEnum component.
+    dep_type = serializers.ChoiceField(choices=DEPENDENCY_TYPE_CHOICES)
+    lag_days = serializers.IntegerField()
+    is_driving = serializers.BooleanField()
+    via_summary = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text=(
+            "Summary task ids the stored link this leaf edge was expanded from names "
+            "(ADR-0105); null when the edge is a direct link."
+        ),
+    )
+
+
+class ScheduleDrivingChainSerializer(serializers.Serializer[dict[str, Any]]):
+    """Bounded driving chain through one task, from one CPM pass (ADR-1381, #4891).
+
+    ``computable`` is false — with ``reason`` set and empty ``nodes``/``edges`` — for a
+    task the CPM pass does not schedule; no chain is fabricated for it.
+    """
+
+    project_id = serializers.CharField()
+    task_id = serializers.CharField()
+    computable = serializers.BooleanField()
+    reason = serializers.ChoiceField(
+        choices=["backlog", "not_committed", "summary", "not_in_network"], allow_null=True
+    )
+    project_finish = serializers.DateField(allow_null=True)
+    depth = serializers.IntegerField()
+    node_cap = serializers.IntegerField()
+    truncated = serializers.BooleanField()
+    truncated_reason = serializers.ChoiceField(choices=["depth", "node_cap"], allow_null=True)
+    nodes = DrivingChainNodeSerializer(many=True)
+    edges = DrivingChainEdgeSerializer(many=True)
+
+
+ScheduleDrivingChainSerializer._declared_fields["_provenance"] = AnswerProvenanceSerializer()

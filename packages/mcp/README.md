@@ -19,7 +19,8 @@ slip this task three days," it can only guess in prose. This server lets the
 same question hit your actual engine: `whatif` reruns the real Monte Carlo
 simulation in memory and returns the percentile shift, `get_schedule_derivation`
 names the *actual* dependency that set a date instead of a plausible-sounding
-one. The answer is computed, cited, and reproducible — never invented.
+one, and `get_schedule_driving_chain` (0.5) returns the whole chain of driving links
+through a task in one call. The answer is computed, cited, and reproducible — never invented.
 
 **Read-only by design.** This server exposes no write tools; the write surface is
 deliberately held to a later release.

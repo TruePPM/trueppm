@@ -308,6 +308,7 @@
 --+++++  GET api/v1/projects/<str:pk>/monte-carlo/latest/::get
 --+++++  GET api/v1/projects/<str:pk>/monte-carlo/whatif/::get
 --+++++  GET api/v1/projects/<str:pk>/schedule/derivation/::get
+--+++++  GET api/v1/projects/<str:pk>/schedule/driving-chain/::get
 --+++++  GET api/v1/projects/<uuid:pk>/notification-preferences/::get
 -++++++  GET api/v1/projects/<uuid:pk>/sync/::get
 --+++++  GET api/v1/projects/<uuid:project_pk>/members/::list

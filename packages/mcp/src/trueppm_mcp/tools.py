@@ -677,6 +677,20 @@ async def _get_schedule_derivation(
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
 
+async def _get_schedule_driving_chain(
+    client: TruePPMClient,
+    project_id: str,
+    task_id: str,
+    depth: int | None = None,
+) -> dict[str, Any]:
+    """The bounded, provenance-stamped driving chain through one task (ADR-1381)."""
+    params: dict[str, Any] = {"task_id": task_id}
+    if depth is not None:
+        params["depth"] = depth
+    payload = await client.get(f"projects/{project_id}/schedule/driving-chain/", params=params)
+    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+
+
 async def _get_release_forecast(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """P50/P80 sprints and dates to clear the project's committed backlog."""
     payload = await client.get(f"projects/{project_id}/sprint-forecast/")
@@ -986,6 +1000,30 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
                 equals ``early_finish`` (ADR-0752).
         """
         return await _get_schedule_derivation(client, project_id, task_id, quantity)
+
+    @server.tool()
+    async def get_schedule_driving_chain(
+        project_id: str, task_id: str, depth: int | None = None
+    ) -> dict[str, Any]:
+        """The chain of driving links through a task — why it is critical, in one call.
+
+        Walks the engine's driving links upstream to the anchor and downstream to the
+        project finish from ONE server-side CPM pass. Links gated by a summary task are
+        already expanded to the leaf edges the engine scheduled (``via_summary`` names
+        the summary) — do not rebuild the chain from stored dependencies, which cannot
+        see those. Bounded: ``truncated`` is true when ``depth`` or the 200-node cap
+        cut the walk. A task CPM does not schedule (backlog, summary, epic) returns
+        ``computable: false`` with a ``reason``, never a guessed chain. Carries a
+        ``_provenance`` stamp (engine_version, input_hash) so the answer is citable.
+
+        Read-only. Sprint-bound nodes name the sprint and its finish date only.
+
+        Args:
+            project_id: The project's UUID.
+            task_id: The task the chain is walked through.
+            depth: Maximum driving links per direction (1-50, default 25).
+        """
+        return await _get_schedule_driving_chain(client, project_id, task_id, depth)
 
     @server.tool()
     async def get_release_forecast(project_id: str) -> dict[str, Any]:

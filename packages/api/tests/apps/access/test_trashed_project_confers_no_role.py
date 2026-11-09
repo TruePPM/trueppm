@@ -381,6 +381,7 @@ def _same_answer(client: APIClient, method: str, trashed_url: str, missing_url: 
     [
         # Validates its query string before its lookup: a missing id used to 400.
         ("get", "schedule/derivation/"),
+        ("get", "schedule/driving-chain/"),
         # Answers its own "Not found." for a missing id.
         ("get", "monte-carlo/whatif/"),
         # Token-only endpoints: a non-token caller used to reach a 401 for a

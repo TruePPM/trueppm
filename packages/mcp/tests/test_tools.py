@@ -36,6 +36,7 @@ from trueppm_mcp.tools import (
     _get_project_cost,
     _get_release_forecast,
     _get_schedule_derivation,
+    _get_schedule_driving_chain,
     _get_schedule_summary,
     _get_sprint,
     _get_sprint_close_request,
@@ -693,6 +694,33 @@ async def test_get_schedule_derivation_returns_why(settings: Settings) -> None:
         result = await _get_schedule_derivation(client, "p-1", "t-2", "early_start")
     assert result["binding"]["kind"] == "predecessor_fs"
     assert result["pass"] == "forward"
+
+
+async def test_get_schedule_driving_chain_keeps_provenance_and_depth(settings: Settings) -> None:
+    """ADR-1381: the tool forwards depth and returns the server payload, _provenance
+    included — the stamp is what makes the chain citable."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={
+                "task_id": "t-2",
+                "computable": True,
+                "truncated": False,
+                "nodes": [{"task_id": "t-2", "direction": "self"}],
+                "edges": [{"predecessor_id": "t-1", "successor_id": "t-2", "via_summary": None}],
+                "_provenance": {"schema_version": 1, "input_hash": "sha256:ab"},
+            },
+        )
+
+    routes: Routes = {"projects/p-1/schedule/driving-chain/": handler}
+    async with _client(settings, routes) as client:
+        result = await _get_schedule_driving_chain(client, "p-1", "t-2", 3)
+    assert seen == {"task_id": "t-2", "depth": "3"}
+    assert result["_provenance"]["input_hash"] == "sha256:ab"
+    assert result["nodes"][0]["direction"] == "self"
 
 
 async def test_get_schedule_derivation_accepts_scheduled_start(settings: Settings) -> None:
