@@ -681,7 +681,11 @@ release it is scheduled for:
   open, its frozen day edge (`live_day_end_on`) reflects the last derivation,
   so correcting a completed predecessor's actuals or removing a link is not
   re-read until every predecessor completes
-  ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)); a work-task
+  ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)); closing
+  out-of-sequence work can still move a signed-off milestone's successors when
+  several predecessors are late, or when a faithful hand-back is re-read from
+  the completed work
+  ([#4915](https://gitlab.com/trueppm/trueppm/-/issues/4915)); a work-task
   late-finish seed can ignore a
   start-of-day project finish on wider calendars
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
