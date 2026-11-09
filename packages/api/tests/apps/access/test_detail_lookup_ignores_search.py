@@ -20,7 +20,7 @@ from trueppm_api.apps.projects.models import Calendar, Label, Program, Project, 
 from trueppm_api.apps.resources.models import Resource, Skill
 from trueppm_api.core.detail_lookup import DetailLookupIgnoresSearchMixin
 
-from .test_mcp_team_opt_out import (  # noqa: F401  (fixtures)  # noqa: F401
+from .test_mcp_team_opt_out import (  # noqa: F401  (fixtures)
     _agent,
     _human,
     _opt_out,
@@ -112,7 +112,9 @@ def detail_urls(
 def test_detail_get_ignores_search_and_ordering(
     name: str, query: str, detail_urls: dict[str, str], owner: Any
 ) -> None:
-    assert name in {c.__name__ for c in SEARCH_VIEWSETS}
+    # Reverse direction: a new search viewset fails here until it gets an HTTP case.
+    assert set(detail_urls) == {c.__name__ for c in SEARCH_VIEWSETS}
+    assert name in detail_urls
     client = _human(owner)
     url = detail_urls[name]
     assert client.get(url).status_code == 200
@@ -160,3 +162,28 @@ def test_mcp_program_denial_still_enforced_with_search(
     for suffix in ("", "?search=zzz-no-match", f"?search={program.name}"):
         r = agent.get(f"/api/v1/programs/{program.pk}/{suffix}")
         assert r.status_code in (403, 404), (suffix, r.status_code)
+
+
+@pytest.mark.django_db
+def test_detail_patch_ignores_search(project: Project, owner: Any) -> None:
+    """Update resolves its object through ``get_object()`` too."""
+    resp = _human(owner).patch(
+        f"/api/v1/projects/{project.pk}/?search=zzz-no-match", {"name": "Renamed"}, format="json"
+    )
+    assert resp.status_code == 200, (resp.status_code, getattr(resp, "data", None))
+    project.refresh_from_db()
+    assert project.name == "Renamed"
+
+
+@pytest.mark.django_db
+def test_detail_action_ignores_search(program: Program, owner: Any) -> None:
+    """A ``detail=True`` @action also resolves its parent via ``get_object()``.
+
+    Only the program action is exercised: ``ResourceViewSet``'s detail actions are
+    admin-gated, which would need a different fixture for no extra coverage.
+    """
+    url = f"/api/v1/programs/{program.pk}/projects/"
+    client = _human(owner)
+    assert client.get(url).status_code == 200
+    resp = client.get(url + "?search=zzz-no-match")
+    assert resp.status_code == 200, (url, resp.status_code)

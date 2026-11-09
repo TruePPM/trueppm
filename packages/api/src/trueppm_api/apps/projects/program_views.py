@@ -715,7 +715,7 @@ def _group_contention_assignments(rows: Iterable[Any]) -> list[dict[str, Any]]:
 
 
 class ProgramViewSet(
-    DetailLookupIgnoresSearchMixin,
+    DetailLookupIgnoresSearchMixin[Program],
     McpReadableViewMixin,
     IdempotencyMixin,
     viewsets.ModelViewSet[Program],
@@ -2378,7 +2378,7 @@ class ProgramViewSet(
         if not program.is_closed:
             program.is_closed = True
             program.closed_at = timezone.now()
-            program.closed_by = request.user
+            program.closed_by = request.user  # type: ignore[assignment]
             program.save(update_fields=["is_closed", "closed_at", "closed_by"])
             program_id = str(program.pk)
             transaction.on_commit(

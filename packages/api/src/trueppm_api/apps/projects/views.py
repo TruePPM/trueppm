@@ -1089,7 +1089,7 @@ def _calendar_reference_describer(user: Any) -> Callable[[db_models.Model], dict
     )
 )
 class CalendarViewSet(
-    DetailLookupIgnoresSearchMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]
+    DetailLookupIgnoresSearchMixin[Calendar], ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]
 ):
     """CRUD for project calendars.
 
@@ -1535,7 +1535,7 @@ _BLOCKED_ROLLUP_QUERY_PARAMS = [
     ),
 )
 class ProjectViewSet(
-    DetailLookupIgnoresSearchMixin,
+    DetailLookupIgnoresSearchMixin[Project],
     FieldLevelMergeMixin,
     McpReadableViewMixin,
     ProjectScopedViewSet,
@@ -2455,7 +2455,7 @@ class ProjectViewSet(
         if not project.is_archived:
             project.is_archived = True
             project.archived_at = timezone.now()
-            project.archived_by = request.user
+            project.archived_by = request.user  # type: ignore[assignment]
             project.save(update_fields=["is_archived", "archived_at", "archived_by"])
             project_id = str(project.pk)
             transaction.on_commit(
@@ -4298,8 +4298,8 @@ class ProjectViewSet(
                     {"detail": "Invalid sprint id."}, status=status.HTTP_400_BAD_REQUEST
                 )
         qs = decision_notes_queryset(project.pk, sprint_id=sprint_id or None)
-        page = self.paginate_queryset(qs)
-        serializer = DecisionNoteSerializer(page if page is not None else qs, many=True)
+        page = self.paginate_queryset(qs)  # type: ignore[arg-type]
+        serializer = DecisionNoteSerializer(page if page is not None else qs, many=True)  # type: ignore[arg-type]
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -6260,7 +6260,7 @@ class TaskListPagination(ScheduleFetchPagination):
     ),
 )
 class TaskViewSet(
-    DetailLookupIgnoresSearchMixin,
+    DetailLookupIgnoresSearchMixin[Task],
     FieldLevelMergeMixin,
     McpReadableViewMixin,
     ProjectScopedViewSet,
@@ -7214,9 +7214,9 @@ class TaskViewSet(
 
         task = self.get_object()
         events = task.duration_change_events.select_related("actor", "sprint").all()
-        page = self.paginate_queryset(events)
+        page = self.paginate_queryset(events)  # type: ignore[arg-type]
         if page is not None:
-            serializer = TaskDurationChangeEventSerializer(page, many=True)
+            serializer = TaskDurationChangeEventSerializer(page, many=True)  # type: ignore[arg-type]
             return self.get_paginated_response(serializer.data)
         serializer = TaskDurationChangeEventSerializer(events, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -11068,7 +11068,7 @@ def _record_risk_link_events(
 
 
 class RiskViewSet(
-    DetailLookupIgnoresSearchMixin,
+    DetailLookupIgnoresSearchMixin[Risk],
     FieldLevelMergeMixin,
     McpReadableViewMixin,
     ProjectScopedViewSet,
@@ -11366,7 +11366,7 @@ def _label_soft_cap() -> int:
 
 
 class LabelViewSet(
-    DetailLookupIgnoresSearchMixin,
+    DetailLookupIgnoresSearchMixin[Label],
     McpReadableViewMixin,
     ProjectScopedViewSet,
     viewsets.ModelViewSet[Label],

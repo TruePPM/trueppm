@@ -897,12 +897,10 @@ def test_program_detail_routes_survive_a_search_param(
     Covers ``retrieve`` as well as the nested action, because the defect was in the
     shared object resolution rather than in any one action.
 
-    **Scope, stated honestly.** ``ProgramViewSet`` is one of eight viewsets that set
-    ``search_fields`` on top of the project-wide ``DEFAULT_FILTER_BACKENDS``; the other
-    seven — ``ProjectViewSet``, ``TaskViewSet``, ``CalendarViewSet``, ``RiskViewSet``,
-    ``LabelViewSet``, ``SkillViewSet``, ``ResourceViewSet`` — still 404 their own detail
-    routes on an unrelated ``?search=``. Only this one is fixed here, and this test only
-    proves this one. The class fix is #3451.
+    **Scope.** The suppression lives in ``DetailLookupIgnoresSearchMixin``
+    (``core/detail_lookup.py``), shared by every viewset that sets ``search_fields``;
+    this test pins the program nested action, and
+    ``tests/apps/access/test_detail_lookup_ignores_search.py`` covers the rest.
     """
     program = _create_program(_client(owner))
     Project.objects.create(

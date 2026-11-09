@@ -183,7 +183,9 @@ def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, 
         },
     ),
 )
-class SkillViewSet(DetailLookupIgnoresSearchMixin, IdempotencyMixin, viewsets.ModelViewSet[Skill]):
+class SkillViewSet(
+    DetailLookupIgnoresSearchMixin[Skill], IdempotencyMixin, viewsets.ModelViewSet[Skill]
+):
     """CRUD for the org-level skill catalog.
 
     Any authenticated user may read. Writes require ``SCHEDULER+`` on at least
@@ -1014,7 +1016,7 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     ),
 )
 class ResourceViewSet(
-    DetailLookupIgnoresSearchMixin, IdempotencyMixin, viewsets.ModelViewSet[Resource]
+    DetailLookupIgnoresSearchMixin[Resource], IdempotencyMixin, viewsets.ModelViewSet[Resource]
 ):
     """CRUD for the org-level resource catalog (issue #155).
 

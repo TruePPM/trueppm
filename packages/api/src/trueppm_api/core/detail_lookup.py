@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Generic, TypeVar
 
+from django.db.models import Model
 from rest_framework import filters
 
+_M = TypeVar("_M", bound=Model)
+
 if TYPE_CHECKING:
-    from rest_framework.generics import GenericAPIView as _GenericAPIView
+    from rest_framework.generics import GenericAPIView
 
-    _Base = _GenericAPIView[Any]
+    class _Base(GenericAPIView[_M]): ...
+
 else:
-    _Base = object
+
+    class _Base(Generic[_M]): ...
 
 
-class DetailLookupIgnoresSearchMixin(_Base):
+class DetailLookupIgnoresSearchMixin(_Base[_M]):
     """Resolve a detail route's object without SearchFilter/OrderingFilter (#3451).
 
     ``GenericAPIView.get_object()`` resolves through
@@ -38,7 +43,7 @@ class DetailLookupIgnoresSearchMixin(_Base):
 
     _DETAIL_LOOKUP_SUPPRESSED = (filters.SearchFilter, filters.OrderingFilter)
 
-    def get_object(self) -> Any:
+    def get_object(self) -> _M:
         original = self.filter_backends
         self.filter_backends = [
             b for b in original if not issubclass(b, self._DETAIL_LOOKUP_SUPPRESSED)
