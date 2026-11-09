@@ -28,7 +28,6 @@ STALE_PHRASES = ("coin flip", "close to the CPM finish", "close to P50", "even o
 
 _SCHEDULER_SITES = (
     "README.md",
-    "src/trueppm_scheduler/engine.py",
     "src/trueppm_scheduler/cli.py",
     "notebooks/02-monte-carlo.ipynb",
 )
@@ -107,6 +106,10 @@ def test_scheduler_sources_do_not_call_cpm_a_coin_flip() -> None:
     assert root is not None, "scheduler package root not found from any ancestor"
     for rel in _SCHEDULER_SITES:
         _assert_clean(root / rel)
+    engine_modules = sorted((root / "src/trueppm_scheduler/engine").rglob("*.py"))
+    assert engine_modules, "the engine package has no modules to scan"
+    for path in engine_modules:
+        _assert_clean(path)
 
 
 def test_website_pages_do_not_call_cpm_a_coin_flip() -> None:

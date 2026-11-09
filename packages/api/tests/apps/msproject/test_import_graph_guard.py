@@ -454,7 +454,9 @@ class TestImportTaskRejectsBadGraphs:
     ) -> None:
         # InvalidScheduleInput is as deterministic as a cycle; without DEAD the
         # orphan drain re-dispatches the file forever (ADR-0092).
-        monkeypatch.setattr("trueppm_scheduler.engine.MAX_EXPANDED_EDGES", 0)
+        # Patch the cap where the engine reads it: the package re-export is a copy.
+        for module in ("graph", "summary"):
+            monkeypatch.setattr(f"trueppm_scheduler.engine.{module}.MAX_EXPANDED_EDGES", 0)
         result, req = self._run(project, SUMMARY_TO_SIBLING_XML, "fanout.xml")
 
         assert result.failed()

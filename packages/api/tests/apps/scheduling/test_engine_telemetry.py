@@ -40,13 +40,19 @@ def exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
 
 
 def test_scheduler_package_is_otel_free() -> None:
-    """The Apache-2.0 standalone engine must not import opentelemetry (rule #3)."""
-    import inspect
+    """The Apache-2.0 standalone engine must not import opentelemetry (rule #3).
+
+    The engine is a package, so ``inspect.getsource`` of it would read only its
+    ``__init__``: scan every module in it, and fail if there is none to scan.
+    """
+    from pathlib import Path
 
     import trueppm_scheduler.engine as engine
 
-    source = inspect.getsource(engine)
-    assert "opentelemetry" not in source
+    modules = sorted(Path(engine.__file__).parent.rglob("*.py"))
+    assert len(modules) > 1
+    for path in modules:
+        assert "opentelemetry" not in path.read_text(encoding="utf-8"), path
 
 
 class TestCpmSpan:

@@ -337,7 +337,9 @@ class TestSummaryLinkEdgeCases:
     def test_unexpandable_summary_shape_is_dead_not_redispatched(
         self, project: Project, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("trueppm_scheduler.engine.MAX_EXPANDED_EDGES", 0)
+        # Patch the cap where the engine reads it: the package re-export is a copy.
+        for module in ("graph", "summary"):
+            monkeypatch.setattr(f"trueppm_scheduler.engine.{module}.MAX_EXPANDED_EDGES", 0)
         result, req = _run_csv(project, SUMMARY_TO_OUTSIDE_CSV)
         assert result.failed()  # type: ignore[attr-defined]
         assert req.status == CsvImportStatus.DEAD

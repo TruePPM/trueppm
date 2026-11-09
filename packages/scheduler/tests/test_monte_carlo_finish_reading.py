@@ -31,6 +31,7 @@ from trueppm_scheduler import (
     monte_carlo,
     schedule,
 )
+from trueppm_scheduler.engine.montecarlo import run as mc_run
 
 MONDAY = date(2026, 8, 3)
 
@@ -355,7 +356,7 @@ def test_no_start_of_day_finish_reports_the_pre_4204_dates(project: Project) -> 
         captured.append((completion, shown, wd_index, floor))
         return real(completion, shown, wd_index, floor, floor_at_start)
 
-    with patch.object(engine, "_mc_percentiles", spy):
+    with patch.object(mc_run, "_mc_percentiles", spy):
         mc = _simulate(project)
     if mc is None:
         return
@@ -597,7 +598,7 @@ class TestUndersizedIndexRaisesEndToEnd:
     def test_patched_small_bound_raises(self, b_fields: dict[str, object]) -> None:
         project = _chain(**b_fields)
         with (
-            patch.object(engine, "_mc_index_size", return_value=20),
+            patch.object(mc_run, "_mc_index_size", return_value=20),
             pytest.raises(engine.InvalidScheduleInput, match="engine bug"),
         ):
             monte_carlo(project, runs=4, seed=1)

@@ -4626,7 +4626,8 @@ scheduler:mutation:
   # no-op `default=None` were deleted rather than excluded. The floor stays at 0.92.
   #
   # Scope is the beachhead in [tool.mutmut]: models.py, derive.py, cli.py. The
-  # engine.py expansion is tracked as phase 2.
+  # engine expansion is tracked as phase 2; #4550 split engine.py into the
+  # engine/ package so phase 2 can add it one module at a time.
   extends: .scheduler
   stage: test
   needs:
@@ -4662,7 +4663,7 @@ scheduler:mutation:
       allow_failure: true
   # Measured 46 min (2,762 s, ~3,010 mutants at 1.18/s) against GitLab's 1 h
   # default, and the mutant count keeps growing (~2,100 -> ~3,010), so a slow
-  # runner would time out and measure nothing. #2468's engine.py expansion
+  # runner would time out and measure nothing. #2468's engine/ expansion
   # will add more. If this passes ~75 min, or when #2468 lands, shard it
   # (per-file parallel:matrix plus a stats-merge job) rather than raising this
   # again (#4793).

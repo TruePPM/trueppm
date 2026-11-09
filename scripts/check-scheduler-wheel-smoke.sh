@@ -169,7 +169,7 @@ PY
 }
 
 if [ "$negative" -eq 1 ]; then
-  # Gut a COPY of the wheel: drop engine.py, which both smoke modules import.
+  # Gut a COPY of the wheel: drop the engine package, which both smoke modules import.
   gutted="$work/gutted/$(basename "$wheel")"
   mkdir -p "$work/gutted"
   python3 - "$wheel" "$gutted" <<'PY'
@@ -178,18 +178,18 @@ src, dst = sys.argv[1:]
 with zipfile.ZipFile(src) as zi, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zo:
     dropped = 0
     for i in zi.infolist():
-        if i.filename.endswith("trueppm_scheduler/engine.py"):
+        if "trueppm_scheduler/engine/" in i.filename:
             dropped += 1
             continue
         zo.writestr(i, zi.read(i.filename))
-    assert dropped == 1, "negative control found no engine.py to remove"
+    assert dropped > 1, "negative control found no engine package to remove"
 PY
   if run_smoke "$gutted" neg >"$work/neg.log" 2>&1; then
     cat "$work/neg.log"
-    echo "FAIL: negative control — the smoke PASSED against a wheel with engine.py removed; the gate cannot fail."
+    echo "FAIL: negative control — the smoke PASSED against a wheel with the engine package removed; the gate cannot fail."
     exit 1
   fi
-  echo "OK: negative control — smoke fails against a wheel with engine.py removed."
+  echo "OK: negative control — smoke fails against a wheel with the engine package removed."
   exit 0
 fi
 
