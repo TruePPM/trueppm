@@ -216,7 +216,8 @@ cannot reach.
   cluster (e.g. Keycloak at a private service address), the SSRF guard blocks
   discovery to it until you allow-list it via
   `env.TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, documented in `values.yaml` next to
-  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS`. See [Running the identity provider
+  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS`. The setting is read at startup, so it takes
+  effect only after the API and Celery worker pods restart. See [Running the identity provider
   inside your cluster](#running-the-identity-provider-inside-your-cluster)
   below.
 
@@ -455,7 +456,7 @@ hosts — and only those — bypass the private-address check:
 TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc.cluster.local
 ```
 
-**The variable is read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes the value rolls them).** Matching is an **exact, case-insensitive hostname** compare — no wildcards and no
+**The variable is read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes an `env:` value rolls them; a change to an `envFrom` ConfigMap or Secret does not, so restart them yourself).** Matching is an **exact, case-insensitive hostname** compare — no wildcards and no
 suffix matching, so allow-listing `keycloak.sso.svc.cluster.local` never admits a
 lookalike host. Leave the variable unset (the default) unless you actually run an
 IdP on a private address; a public issuer needs no allow-list. This setting is

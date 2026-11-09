@@ -1231,7 +1231,8 @@ env:
   #     git-link refresh, webhooks, SMTP relay, SSO), not scoped to integrations,
   #     so name the specific host and nothing broader. Read once at process
   #     start: a change applies only after the api and celery pods restart
-  #     (a `helm upgrade` that changes this value rolls them).
+  #     (a `helm upgrade` that changes an `env:` value rolls them; a change to
+  #     an `envFrom` ConfigMap or Secret does not — restart them yourself).
   # Both are comma-separated and match on an EXACT, case-insensitive hostname —
   # no wildcards, no suffix matching. A publicly-reachable self-hosted host needs
   # only the first. Both default to empty; uncomment and set to enable:
