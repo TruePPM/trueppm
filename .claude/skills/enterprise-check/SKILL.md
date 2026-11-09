@@ -15,8 +15,8 @@ Enterprise (proprietary, `trueppm-enterprise`) before implementation begins.
 ## Canonical rule
 
 **OSS gives you reality and why. Enterprise gives you alternatives and which.** Computed values,
-their derivation, forecasts, single-project what-if, and the engine's refusal of an infeasible
-change are OSS. Named scenarios, side-by-side comparison, promote-to-plan, financial and
+their derivation, forecasts, single-project what-if, and the engine's rejection of cyclic
+dependencies are OSS (feasibility refusal with derivation, #1062, is planned for 0.6 and is OSS too). Named scenarios, side-by-side comparison, promote-to-plan, financial and
 strategic-coverage deltas, and constraint-solving optimization are Enterprise. Cite
 `packages/website/src/content/docs/overview/the-oss-enterprise-line.md` in the verdict.
 

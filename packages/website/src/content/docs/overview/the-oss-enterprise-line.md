@@ -12,8 +12,8 @@ capability falls on without reading the source.
 
 - **Reality** is what the plan says, computed by the engine: the dates, the critical path, the
   float, the forecast.
-- **Why** is the derivation behind any computed value, and the engine's refusal (with its
-  reason) of a change that cannot be scheduled.
+- **Why** is the derivation behind any computed value, and, on dependency writes, the
+  engine's refusal (with its reason) of a link that would create a cycle.
 - **Alternatives** are several competing futures held side by side, named and kept.
 - **Which** is the decision between them, and the act of committing it to the plan.
 
@@ -31,7 +31,8 @@ Enterprise.* For the same line drawn through identity, see
 Everything in the free-edition table below is in the 0.4 release unless the row says
 otherwise. Rows marked **0.5** or **0.6** are planned, not built, and are written in future
 tense on purpose. The single-project, non-mutating `dry_run` plan mode ships in 0.5; the
-committing write path with the engine as referee ships in 0.6.
+committing write path with the engine as referee ships in 0.6. Only the rows marked as such
+are unreleased; everything else on this page is in the 0.4 release.
 :::
 
 ## What the free edition does
@@ -43,13 +44,13 @@ a bug in this page: [open an issue](https://gitlab.com/trueppm/trueppm/-/issues)
 |---|---|---|
 | Deterministic schedule model: CPM with all four dependency types, cycle detection | The Schedule view; recomputed by `POST /projects/{id}/schedule/`; MCP `get_schedule_summary` | Shipped |
 | Critical path and float, per task | The Schedule view; MCP `get_schedule_summary` | Shipped |
-| Working-time calendars, with calendar-aware lag | The project calendar; applied by the engine on every schedule pass | Shipped |
+| Working-time calendars (durations in working days; lag in calendar days, snapped to a working day) | Project settings, Working calendars; `/calendars/` and `/calendars/{id}/exceptions/`; applied by the engine on every schedule pass | Shipped |
 | Monte Carlo risk analysis (P50 / P80 / P95) | `POST /projects/{id}/monte-carlo/`, `GET /projects/{id}/monte-carlo/latest/`; MCP `get_monte_carlo_forecast` | Shipped |
 | Single-project what-if: perturb one task's duration, recompute CPM and Monte Carlo, persist nothing | `POST /projects/{id}/monte-carlo/whatif/`; MCP `whatif` | Shipped |
 | The derivation behind any computed date, float, or P80 | `GET /projects/{id}/schedule/derivation/`; MCP `get_schedule_derivation` | Shipped |
-| The engine refusing a change that would make the plan infeasible, with the reason | Every human write, through the same engine | Shipped |
+| The engine rejecting a dependency that would create a cycle or a self-reference, with the reason | Dependency writes (`/dependencies/`) and imports | Shipped |
 | Agent plan mode: a proposed change answered with verdict and projected impact, committing nothing | MCP `dry_run` | Ships in 0.5 |
-| Engine as referee for agent writes: an impossible agent write is refused with its derivation | MCP write tools | Ships in 0.6 |
+| Engine as referee: a write that would make the plan infeasible is refused with its derivation, for humans and agents | Write endpoints and MCP write tools | Ships in 0.6 |
 
 None of these is rate-limited, seat-limited, or gated by a flag. Every one of them works on
 a single project or within a single program, which is the unit one PM runs.
@@ -75,7 +76,7 @@ identity governance.
 Ask two questions, in order:
 
 1. **Does it tell you what is true, or why?** A computed value, its derivation, a forecast,
-   or the engine refusing an infeasible change is reality and why. It is free.
+   or the engine rejecting a cyclic dependency is reality and why. It is free.
 2. **Does it hold several alternatives, or choose between them?** A saved scenario, a
    comparison, a promotion into the plan, or a solver that recommends a schedule is
    alternatives and which. It belongs to the enterprise edition.

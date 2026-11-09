@@ -99,7 +99,7 @@ Professional plan and above. [^opmcp] TruePPM's is in the free core. We think ag
 access to your own project data belongs on the same side of the line as logging in:
 it is a way of *reaching* your data, not a way of governing an organization. The
 enterprise counterpart is the governance overlay — approval workflows, org-wide model
-and data-egress policy, cross-team audit — not the endpoint itself.
+and data-egress policy, cross-team audit — not the endpoint itself. The rule behind that line is on [Where the free edition ends](/overview/the-oss-enterprise-line/): OSS gives you reality and why; Enterprise gives you alternatives and which.
 
 ## Where OpenProject beats TruePPM
 
