@@ -9,7 +9,8 @@ from typing import Any
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from trueppm_api.apps.projects.models import (
@@ -585,6 +586,34 @@ class TestShortIdAllocators:
         _next_short_id(project.pk)
         assert _next_risk_short_id(project.pk) == "1"
         assert _next_risk_short_id(project.pk) == "2"
+
+    def test_task_allocator_is_one_query(
+        self, project: Project, django_assert_num_queries: Any
+    ) -> None:
+        """UPDATE ... RETURNING, not UPDATE + SELECT (#2343)."""
+        with django_assert_num_queries(1):
+            _next_short_id(project.pk)
+
+    def test_risk_allocator_is_one_query(
+        self, project: Project, django_assert_num_queries: Any
+    ) -> None:
+        with django_assert_num_queries(1):
+            _next_risk_short_id(project.pk)
+
+    def test_ids_are_contiguous_across_many_allocations(self, project: Project) -> None:
+        hex_ids = [_next_short_id(project.pk) for _ in range(12)]
+        assert hex_ids == [f"{n:08X}" for n in range(1, 13)]
+        risk_ids = [_next_risk_short_id(project.pk) for _ in range(5)]
+        assert risk_ids == ["1", "2", "3", "4", "5"]
+        project.refresh_from_db()
+        assert project.object_sequence == 12
+        assert project.risk_sequence == 5
+
+    def test_missing_project_raises_does_not_exist(self) -> None:
+        with pytest.raises(Project.DoesNotExist):
+            _next_short_id(uuid.uuid4())
+        with pytest.raises(Project.DoesNotExist):
+            _next_risk_short_id(uuid.uuid4())
 
 
 class TestSignalAudienceRank:
@@ -1636,3 +1665,83 @@ class TestModelStringRepresentations:
         )
         assert str(milestone.pk) in str(snapshot)
         assert ForecastBasis.VELOCITY_BAND in str(snapshot)
+
+
+def _assert_single_counter_statement(queries: list[dict[str, str]]) -> None:
+    """The block is reserved by one UPDATE; the old shape also SELECTed the counter alone."""
+    updates = [
+        q for q in queries if q["sql"].startswith("UPDATE") and "object_sequence" in q["sql"]
+    ]
+    readbacks = [
+        q for q in queries if q["sql"].startswith('SELECT "projects_project"."object_sequence" AS')
+    ]
+    assert len(updates) == 1
+    assert readbacks == []
+
+
+@pytest.mark.django_db
+class TestShortIdBlockAllocators:
+    """Batch allocators reserve a contiguous block in one statement (#2343)."""
+
+    def test_seed_short_id_block_is_contiguous_and_one_query(
+        self, project: Project, django_assert_num_queries: Any
+    ) -> None:
+        from trueppm_api.apps.projects.seed.importer import _SeedImporter
+
+        _next_short_id(project.pk)  # counter at 1; the block must start at 2
+        with django_assert_num_queries(1):
+            block = _SeedImporter._short_id_block(project.pk, 4)
+        assert block == ["00000002", "00000003", "00000004", "00000005"]
+        assert _next_short_id(project.pk) == "00000006"
+        assert _SeedImporter._short_id_block(project.pk, 0) == []
+
+    def test_template_materialize_numbers_rows_past_the_counter(self, project: Project) -> None:
+        from trueppm_api.apps.projects.models import ProjectTemplate
+        from trueppm_api.apps.projects.project_templates import (
+            extract_structure,
+            materialize_structure,
+        )
+
+        source = Project.objects.create(
+            name="Src", start_date=project.start_date, calendar=project.calendar
+        )
+        Task.objects.create(project=source, name="A", duration=1, wbs_path="1")
+        Task.objects.create(project=source, name="B", duration=1, wbs_path="2")
+        template = ProjectTemplate.objects.create(name="T", structure=extract_structure(source))
+        _next_short_id(project.pk)
+        _next_short_id(project.pk)
+
+        with CaptureQueriesContext(connection) as ctx:
+            materialize_structure(template, project)
+
+        # One UPDATE ... RETURNING reserves the block; the old shape also SELECTed it.
+        _assert_single_counter_statement(ctx.captured_queries)
+        ids = sorted(Task.objects.filter(project=project).values_list("short_id", flat=True))
+        assert ids == ["000003", "000004"]  # template path pads to 6 hex digits
+        project.refresh_from_db()
+        assert project.object_sequence == 4
+
+    def test_msproject_import_numbers_rows_past_the_counter(self, project: Project) -> None:
+        import pathlib
+        from unittest.mock import patch
+
+        from trueppm_api.apps.msproject.importer import import_project
+        from trueppm_api.apps.msproject.parser import parse_xml
+
+        minimal = pathlib.Path(__file__).parents[1] / "msproject" / "fixtures" / "minimal.xml"
+        data = parse_xml(minimal.read_bytes())
+        _next_short_id(project.pk)
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+            CaptureQueriesContext(connection) as ctx,
+        ):
+            import_project(str(project.pk), data)
+
+        _assert_single_counter_statement(ctx.captured_queries)
+
+        ids = sorted(Task.objects.filter(project=project).values_list("short_id", flat=True))
+        n = len(data.tasks)
+        assert ids == [f"{i:08X}" for i in range(2, n + 2)]
+        project.refresh_from_db()
+        assert project.object_sequence == n + 1
