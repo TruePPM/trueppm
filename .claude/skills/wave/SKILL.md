@@ -154,6 +154,8 @@ named. Include:
 - The exact gates that apply to this diff (from the `CLAUDE.md` fast-path table),
   and which are `n/a`, so the agent does not run the whole battery.
 - The scoped test command — the affected test file, not the whole suite.
+- **Its budget** from *Per-agent budget* below: tool calls and wall-clock minutes for its
+  role, and the instruction to stop and report at either.
 - The completion contract from Step 5 — it **stops and reports after Step 5.4**;
   it does not push or open the MR itself. Tell it up front that **you will
   resume it later**, after an independent completeness-check, to do the push and
@@ -168,6 +170,63 @@ Tell each agent explicitly:
 - **Batch independent tool calls** into one message.
 - **Stop and report** if blocked after two attempts at the same failure, rather
   than looping. A stuck agent is the 166M case.
+- **Stop and report at its budget** (tool calls or wall-clock, whichever comes first), with
+  what it finished, what remains, and the calls and minutes spent. It reads `date` at the
+  start and every few calls.
+
+### Per-agent budget — provisional, two-strike expansion
+
+Spend sits in a few long agents, and the only stop was the agent finishing. Every agent's
+brief states a budget in tool calls and wall-clock minutes. (Tool calls are not the ledger's
+`turns:` unit; keep the two apart.)
+
+| Role | Tool calls | Wall-clock |
+|---|---|---|
+| Implementer | 80 | 45 min |
+| Read-only gate (`regression-check`, `perf-check`, `security-review`, `rbac-check`, ...) | 25 | 15 min |
+| `completeness-check`, each pass | 40 | 30 min |
+
+**These numbers are PROVISIONAL**, ported from Blueprint's `/wave`, where they were set by
+judgment from one wave's spend distribution (trueppm#4895: an Opus implementer ran 117 turns at
+about 269k average context; a completeness-check pass ran 61 tool calls). Recalibrate from
+the per-role calls and minutes in the Step 8 report once enough waves have reported them.
+
+**At the budget an agent stops** and reports. It does not push, open an MR, or keep going "to
+finish". The orchestrator decides whether to expand it.
+
+**Who holds the 25-call / 15-minute gate row.** A subagent never spawns agents (Step 4), so the
+implementer does not spawn gate agents: it runs the fast-path gates inline, under its own
+80-call budget. The gate row applies to a gate run as its own agent, and only you spawn
+one (for example a gate batch you run on a fix round); put that budget in that gate agent's
+brief. A gate the implementer left unfinished because it hit the implementer budget is
+reported as such in Step 5.4 and recorded `budget-stopped`.
+
+- **Strike one**: it stopped with real progress (a commit, a passing test, a narrowed root
+  cause). Expand once, by half of the original budget, and say so in the resume message. If
+  it left no worktree changes, a fresh agent briefed with its report is cheaper than a resume.
+  `completeness-check` is exempt: a stopped pass is never resumed or expanded; a fresh pass of
+  the same model replaces it, briefed with what the stopped pass listed as not audited.
+- **Strike two**: it reaches the expanded budget, or stopped with no progress at all. Stop.
+  Do not expand again: diagnose why it wandered, then continue in a fresh agent, re-scope the
+  issue, escalate per *Model choice*, or take the issue out of the wave.
+
+Count every agent that reached a budget, expanded or not, as
+`budget-exceeded: <N> (<role> <k>, ...)` in the MR's `## Gates` section (`/mr` § The Gates
+section), with roles `implementer`, `gate` and `completeness-check`. The implementer's Step 5.4
+report states which of its inline gates it left unfinished at its own budget (that stop is
+counted once, as `implementer`); each gate agent you spawned that hit the gate budget counts
+under `gate`.
+
+**A gate that stopped at its budget has a partial finding count**, so never record it as a
+plain `N findings` line. Record it `gate: <name> — <N> findings (<model>; budget-stopped)`, or
+re-run it under the expanded budget and record that run. Never present a stopped gate's
+`0 findings` as a clean result. A `completeness-check` that returns no report, or an
+incomplete one, is an unfinished pass, never `CLEAN`.
+
+**No `maxTurns` backstop exists here yet.** Blueprint backs these budgets with `maxTurns` in
+`.claude/agents/*.md` frontmatter; this repo defines its gates as skills and spawns
+`general-purpose` agents, so the budget is enforced by the brief alone. Verify the stop in the
+agent's report rather than assuming it.
 
 ## Step 5 — Finish the code, then stop
 
@@ -179,7 +238,8 @@ Every agent finishes the code itself by, in order:
 3. `make pre-push` green. Log it to a **file** — piping it through `tail` loses
    the diagnostic and an OOM kill reads as a bare `exit 144`.
 4. **Stop and report back** — commit SHA, worktree path, which gates from the
-   `CLAUDE.md` fast-path table it ran and their findings. **It does not push and
+   `CLAUDE.md` fast-path table it ran inline and their findings, and any gate it left
+   unfinished because it reached its budget. **It does not push and
    does not open the MR.** Step 6 runs against the not-yet-pushed branch; pushing
    first would just mean redoing the push after completeness-check's fixes.
 
@@ -203,7 +263,8 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    not your own notes on what Step 5 already checked; a list of known findings
    anchors the audit on them. Tell it explicitly that it is **read-only: no
    commits, no pushes, no tracker changes, no subagents, and no command expected
-   to run longer than about five minutes.** Pass `model` explicitly:
+   to run longer than about five minutes**, and give it the `completeness-check` budget from
+   *Per-agent budget* (40 tool calls, 30 minutes). Pass `model` explicitly:
    - **`opus`** if this issue's Step 4 implementing agent ran on Opus (i.e. met
      one of this skill's escalation criteria), **or** the branch touches an
      authorization boundary (`completeness-check/SKILL.md` § How to run) — same
@@ -216,8 +277,24 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    push or open the MR yourself. If that `SendMessage` is refused, use the same
    fallback as item 4: brief a fresh agent with the worktree, the issue, and the
    push/MR steps, and have it do items 7–11.
-4. Findings → hand them to the **same Step 5 agent** (`SendMessage` — it is
-   stalled, not gone) to fix, with the exact BLOCKER/GAP text. It fixes, re-runs
+4. Findings → **resume or fresh (provisional, ported from Blueprint#394).** A fix round
+   goes to a **fresh** agent, briefed with the findings only, when the Step 5 agent's
+   context is about **150k tokens or more** (you read the implementer's latest per-turn context
+   size: input plus cache-read plus cache-creation tokens of the last assistant entry in its
+   transcript, `~/.claude/projects/<slug>/<session-id>/subagents/agent-<id>.jsonl`, whose
+   per-response usage `scripts/lib/transcript_usage.py` parses; that module exposes no
+   dedicated "latest context" helper, and the `subagent_tokens` field of the agent's
+   completion notification is the same context-size figure when present; if neither is
+   readable, use your own estimate and say so in the Step 8 report), or the round has **fewer than 5 findings**:
+   every resume re-reads the implementer's whole context. Resume the original agent only for
+   design-level rework (a finding that changes the approach, not one that patches it). The
+   fresh agent's brief, nothing more: issue number and title; branch and worktree path; each
+   finding with `file:line`, the auditor's minimal fix and its test; the scoped checks to
+   run; "`source .envrc` first; commit in a new commit, never amend; stop before push; do not
+   widen the fix"; and the implementer budget (80 calls, 45 minutes). It counts as role
+   `implementer` in `budget-exceeded:`. Mark each fix round `fresh` or `resumed` in the Step 8
+   report. To resume instead, `SendMessage` the **same Step 5 agent** (it is stalled, not
+   gone) with the exact BLOCKER/GAP text. It fixes, re-runs
    the affected tests with negative controls, and reports back. If that
    `SendMessage` is refused as out-of-scope (a stalled agent can read added scope
    as injection), do not retry it — brief a **fresh** agent instead with the
@@ -231,7 +308,8 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    rather than restating it, so look there, not here, for the current composition:
    round 2 (full), the fix-diff re-check (narrow), or nothing. Either re-check, if
    selected, is a **fresh, non-author agent** spawned by you, with the model rules
-   in that SKILL's § How to run.
+   in that SKILL's § How to run. Each carries the `completeness-check` budget (40 tool calls,
+   30 minutes) in its brief, like the first pass.
 6. Record whichever ran on the ledger exactly as `completeness-check`'s own
    SKILL.md "Recording it" section specifies — as of this writing that means:
    round 2 (if triggered) gets its own line marked `round 2`; the fix-diff
@@ -385,6 +463,8 @@ state plainly:
   where a script omitted its line, and `cost ledger off` where `scripts/cost-ledger enabled`
   said so. Measured figures and the one labeled estimate, never a guess.
 - The wave's shape: how many agents, how many on Opus.
+- Which agents reached a budget, with role, tool calls and minutes spent (the total is the
+  branch's `budget-exceeded:` line), and each fix round marked `fresh` or `resumed`.
 
 Do not merge anything. Do not start another wave without being asked.
 
@@ -411,6 +491,8 @@ Cache reads were 95.9% of the measured spend. Each of these cuts
   structurally cannot run on itself (Step 6).
 - **No re-delegation** from inside an agent.
 - **Two-strike rule**: an agent stuck on the same failure twice stops and reports.
+- **Per-agent budget**: tool calls and minutes per role, named in every brief (*Per-agent
+  budget*); two-strike expansion; small fix rounds go to a fresh agent.
 - **Long-running work goes to the background**, not to a polling loop.
 
 ## Rules
