@@ -153,9 +153,7 @@ to links on any task that comes back with the restore, not only the one you clic
 Restoring a whole project from the trash will apply the same refusal and bring back
 nothing, since a half-restored project is worse than none.
 
-Two other ways to end up with such a link are not refused yet: saving a dependency at
-the same moment someone else makes the move
-([#4857](https://gitlab.com/trueppm/trueppm/-/issues/4857)), and an MS Project, CSV or
+One other way to end up with such a link is not refused yet: an MS Project, CSV or
 Jira import
 ([#4856](https://gitlab.com/trueppm/trueppm/-/issues/4856)).
 
