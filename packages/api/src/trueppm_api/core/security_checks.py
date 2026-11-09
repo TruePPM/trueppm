@@ -45,8 +45,15 @@ INSECURE_PREFIX = "django-insecure-"
 # attachment-storage check, so silencing it for one silenced the other (#3221);
 # attachment storage now has its own id. ``tests/test_check_id_uniqueness.py``
 # fails if two checks ever share an id again.
+#
+# Likewise E005 is the integration-encryption-key check only and E010 the
+# DATABASE_URL placeholder-password check only: the JWT signing-key length rule
+# (was E005) and the project soft-delete retention check (was E010) moved to
+# fresh ids.
 _ID_UNTRUSTED_CONFIG = "trueppm.E004"
 _ID_ATTACHMENT_STORAGE = "trueppm.E014"
+_ID_SIGNING_KEY_LENGTH = "trueppm.E015"
+_ID_SOFT_DELETE_RETENTION = "trueppm.E016"
 
 #: Prefixes of documented placeholder keys, matched case-insensitively (#3187).
 #:
@@ -306,7 +313,7 @@ def validate_signing_key(
                     "A separate JWT signing key must be at least as strong as "
                     "SECRET_KEY, or a leak of it forges tokens for any user. " + _TOKEN_URLSAFE_HINT
                 ),
-                id="trueppm.E005",
+                id=_ID_SIGNING_KEY_LENGTH,
             )
         )
 
@@ -882,7 +889,7 @@ def validate_project_soft_delete_retention(value: object) -> list[CheckMessage]:
                 "entirely, leave the variable alone and disable the policy in "
                 "Settings → System Health instead."
             ),
-            id="trueppm.E010",
+            id=_ID_SOFT_DELETE_RETENTION,
         )
     ]
 

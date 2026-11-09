@@ -16,15 +16,6 @@ import trueppm_api
 _SRC = Path(trueppm_api.__file__).parent
 _ID_PREFIX = "trueppm."
 
-# Collisions that predate this test, as {id: {function names}}. A ratchet: the
-# test fails on any collision not listed, and on a listed entry that no longer
-# collides, so the list can only shrink. Do not add to it; give the new check a
-# fresh id instead.
-_KNOWN_COLLISIONS: dict[str, set[str]] = {
-    "trueppm.E005": {"validate_signing_key", "validate_integration_encryption_key"},
-    "trueppm.E010": {"validate_service_credentials", "validate_project_soft_delete_retention"},
-}
-
 
 def _is_id(value: object) -> bool:
     # Only Django system-check ids (E/W/I + digits); other ``trueppm.*`` strings
@@ -78,7 +69,7 @@ def test_no_two_checks_share_an_id() -> None:
         for check_id, owners in _all_ids().items()
         if len({o.split(":", 1)[1] for o in owners}) > 1
     }
-    assert collisions == _KNOWN_COLLISIONS, (
+    assert not collisions, (
         "Two distinct checks share a trueppm.* id. Give the newer one a fresh id "
         f"(next free E0NN). Collisions found: {collisions}"
     )
