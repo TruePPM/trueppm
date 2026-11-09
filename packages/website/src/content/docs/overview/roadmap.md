@@ -437,7 +437,7 @@ becomes the next thing we are actually building, it moves up into a numbered rel
 
 ## Planned (enterprise edition)
 
-These features live in a separate proprietary repository and overlay the OSS core:
+These features live in a separate proprietary repository and overlay the OSS core. The rule that decides which side a capability falls on: **OSS gives you reality and why; Enterprise gives you alternatives and which** — computed values and their derivation are free, along with cycle rejection on dependency writes, while named scenarios, side-by-side comparison, promote-to-plan, and optimization are the enterprise edition. See [Where the free edition ends](/overview/the-oss-enterprise-line/).
 
 - Portfolio dashboard and health scores
 - Demand intake and prioritization workspace

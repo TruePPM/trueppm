@@ -277,6 +277,7 @@ export default defineConfig({
             { slug: "overview/how-it-compares" },
             { slug: "overview/what-it-does-not-do" },
             { slug: "overview/known-issues" },
+            { slug: "overview/the-oss-enterprise-line" },
             { slug: "overview/sso-is-not-enterprise" },
             { slug: "overview/team-ownership-not-surveillance" },
             { slug: "overview/how-this-was-built" },

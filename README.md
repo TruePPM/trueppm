@@ -294,6 +294,8 @@ TruePPM follows an *open-core* model: a free, Apache 2.0 core that is complete o
 
 **Enterprise edition** (separate repo, proprietary) adds what an *organization* needs to govern a portfolio across many programs: portfolio analytics, organization-wide identity governance (directory sync and enforced company-wide sign-on via the SAML, SCIM, and LDAP standards), an immutable audit trail, cross-program resource leveling, AI-assisted scheduling, cross-program and portfolio scenario modeling, and the integration hub — org-wide, bidirectional Jira / GitLab / ServiceNow connectors with writeback and conflict resolution (Jira import, a personal Jira source, GitLab/GitHub task links, and Git-event automation are part of the community edition).
 
+The line between them in one sentence: **OSS gives you reality and why; Enterprise gives you alternatives and which.** The engine's dates, critical path, float, Monte Carlo, single-project what-if, derivation of any computed value, and rejection of cyclic dependencies are all free; named portfolio scenarios, side-by-side comparison, promote-to-plan, and optimization are the enterprise edition. See [Where the free edition ends](https://docs.trueppm.com/overview/the-oss-enterprise-line/).
+
 The community edition is fully functional on its own — it never imports from the enterprise repo. The dependency is strictly one-way.
 
 ## Contributing

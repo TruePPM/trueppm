@@ -99,7 +99,7 @@ Professional plan and above. [^opmcp] TruePPM's is in the free core. We think ag
 access to your own project data belongs on the same side of the line as logging in:
 it is a way of *reaching* your data, not a way of governing an organization. The
 enterprise counterpart is the governance overlay — approval workflows, org-wide model
-and data-egress policy, cross-team audit — not the endpoint itself.
+and data-egress policy, cross-team audit — not the endpoint itself. The rule behind that line is on [Where the free edition ends](/overview/the-oss-enterprise-line/): OSS gives you reality and why; Enterprise gives you alternatives and which.
 
 ## Where OpenProject beats TruePPM
 
@@ -262,6 +262,7 @@ public Extension SDK for 0.9.
 ## Related
 
 - [What TruePPM doesn't do yet](/overview/what-it-does-not-do/) — the maintained gap list
+- [Where the free edition ends](/overview/the-oss-enterprise-line/) — the one rule: OSS gives you reality and why, Enterprise gives you alternatives and which
 - [SSO is not an enterprise feature](/overview/sso-is-not-enterprise/) — the full SSO-tax comparison, cited
 - [Computed, not guessed](/overview/computed-not-guessed/) — why the engine, not a model, answers
 - [Roadmap](/overview/roadmap/) — the authoritative Shipped / Underway / Planned record
