@@ -140,7 +140,7 @@ as a fixed Mon–Fri week.
   authoritative server CPM reconciles exact dates on commit, so a committed schedule
   is always correct — but a preview can differ from what lands.
 - **The fix for the holiday and working-week half lands in 0.5** —
-  [#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170) sends the project's
+  [#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170) (merged) <!-- known-issues-ack:closed --> sends the project's
   composed calendar to the browser, so the 0.5 preview steps through its holidays and
   custom working week the way the server does. That fix does not depend on the WASM
   engine below.
