@@ -959,3 +959,60 @@ export interface KeySuggestionResponse {
   /** A free key: derived from `name`, or the next free suffix of `key`. */
   suggestion: string;
 }
+
+/** `_provenance` answer stamp on a computed response (ADR-0112 §2.1, ADR-1381). */
+export interface AnswerProvenance {
+  schema_version: number
+  engine_version: string
+  api_version: string
+  /** `sha256:<hex>` over the canonical engine input. */
+  input_hash: string
+  computed_at: string
+}
+
+/** Sprint binding of a driving-chain node — id and finish date only. */
+export interface DrivingChainSprint {
+  id: string
+  finish_date: string | null
+}
+
+/** One task on a driving chain (`GET /projects/{id}/schedule/driving-chain/`). */
+export interface DrivingChainNode {
+  task_id: string
+  name: string
+  status: string | null
+  direction: 'self' | 'upstream' | 'downstream'
+  hops: number
+  early_start: string | null
+  early_finish: string | null
+  total_float_days: number
+  is_critical: boolean
+  is_project_finish: boolean
+  sprint: DrivingChainSprint | null
+}
+
+/** One leaf-level driving link; `via_summary` names the summary it was expanded from. */
+export interface DrivingChainEdge {
+  predecessor_id: string
+  successor_id: string
+  dep_type: 'FS' | 'SS' | 'FF' | 'SF'
+  lag_days: number
+  is_driving: boolean
+  via_summary: string[] | null
+}
+
+/** Bounded, provenance-stamped driving chain through one task (ADR-1381, #4891). */
+export interface ScheduleDrivingChain {
+  project_id: string
+  task_id: string
+  computable: boolean
+  reason: 'backlog' | 'not_committed' | 'summary' | 'not_in_network' | null
+  project_finish: string | null
+  depth: number
+  node_cap: number
+  truncated: boolean
+  truncated_reason: 'depth' | 'node_cap' | null
+  nodes: DrivingChainNode[]
+  edges: DrivingChainEdge[]
+  _provenance: AnswerProvenance
+}

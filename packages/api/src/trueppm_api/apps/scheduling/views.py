@@ -13,6 +13,7 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -101,6 +102,7 @@ from trueppm_api.apps.scheduling.serializers import (
     MonteCarloWhatIfResponseSerializer,
     ProjectForecastSnapshotSerializer,
     ScheduleCpmDerivationSerializer,
+    ScheduleDrivingChainSerializer,
     ScheduleMonteCarloDerivationSerializer,
     VelocitySuggestionSerializer,
 )
@@ -2634,6 +2636,17 @@ def _build_cpm_sched_project(project: Project, pk: str) -> Any:
     summary's dates are rolled up from its leaves and were never produced by a CPM pass
     that could be explained.
     """
+    return _build_cpm_sched_inputs(project, pk)[0]
+
+
+def _build_cpm_sched_inputs(project: Project, pk: str) -> tuple[Any, Any, list[Any], list[Any]]:
+    """Build :func:`_build_cpm_sched_project`'s scheduler ``Project`` plus its parts.
+
+    Returns ``(sched_project, graph, raw_deps, db_tasks)``. The driving-chain view
+    (ADR-1381) needs the pre-expansion dependency list and the ``children_map`` to
+    report which leaf edges a summary link fanned out to; sharing one builder keeps it
+    explaining exactly the network the derivation and ``_run_schedule`` see.
+    """
     from trueppm_scheduler.models import Project as SchedProject
 
     from trueppm_api.apps.projects.services import scheduler_velocity_inputs
@@ -2660,7 +2673,7 @@ def _build_cpm_sched_project(project: Project, pk: str) -> Any:
 
     graph = build_sched_graph(db_tasks, sched_tasks, sched_deps)
 
-    return SchedProject(
+    sched_project = SchedProject(
         id=str(project.pk),
         name=project.name,
         start_date=project.start_date,
@@ -2671,6 +2684,7 @@ def _build_cpm_sched_project(project: Project, pk: str) -> Any:
         velocity_samples=velocity_samples or None,
         sprint_length_days=sprint_length_days,
     )
+    return sched_project, graph, sched_deps, db_tasks
 
 
 class ScheduleDerivationView(McpReadableViewMixin, APIView):
@@ -2811,8 +2825,8 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             pk=pk,
             is_deleted=False,
         )
-        # 404 (not 403) for a non-member: the object-scope oracle keeps a project's
-        # existence from leaking to a non-member (mirrors MonteCarloLatestView).
+        # A non-member gets 403, not 404: IsProjectMember refuses here, after the
+        # project lookup (pinned by test_schedule_derivation's non-member test).
         self.check_object_permissions(request, project)
 
         if quantity in _MC_DERIVATION_QUANTITIES:
@@ -2937,3 +2951,175 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                 ),
             }
         )
+
+
+class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
+    """The bounded driving chain through one task, from one CPM pass (ADR-1381, #4891).
+
+    ``GET /projects/<pk>/schedule/driving-chain/?task_id=<id>[&depth=<n>]``
+
+    Answers "why is this task critical / what holds it" in one call: upstream along
+    the engine's driving links to the anchor, downstream to the project finish. The
+    chain is walked over the leaf network *after* ADR-0105's summary expansion, so a
+    summary-gated link appears as the leaf edges the engine actually scheduled, each
+    marked with the summary it came from — a client walking stored dependencies cannot
+    see those (#3602). Bounded by ``depth`` and a node cap with an explicit
+    ``truncated`` flag (#4656), and stamped with ``_provenance`` (ADR-0112 §2.1).
+
+    RBAC mirrors :class:`ScheduleDerivationView`: any project member (Viewer+), plus
+    an ``mcp:read`` token on safe methods. Archived projects stay readable.
+    """
+
+    mcp_scope = McpScope.PATH
+    project_url_kwarg = "pk"
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # One full schedule() pass per call — same cost class as the derivation (#2839).
+    mcp_compute_heavy = True
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "cpm_on_read"
+
+    @extend_schema(
+        operation_id="project_schedule_driving_chain",
+        summary="Bounded driving chain through a task",
+        parameters=[
+            OpenApiParameter(
+                name="task_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="The task the chain is walked through.",
+            ),
+            OpenApiParameter(
+                name="depth",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Maximum driving links walked in each direction "
+                    "(default 25, max 50). The response is also capped at 200 nodes; "
+                    "either limit sets truncated=true with truncated_reason."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=ScheduleDrivingChainSerializer,
+                description=(
+                    "The chain, or computable=false with a reason (backlog, "
+                    "not_committed, summary) for a task the CPM pass does not schedule."
+                ),
+            ),
+            400: OpenApiResponse(description="Invalid depth, or invalid schedule input."),
+            404: OpenApiResponse(description="Unknown project or task."),
+        },
+    )
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_scheduler import CyclicDependencyError, schedule
+
+        from trueppm_api.apps.projects.models import TaskStatus, TaskType
+        from trueppm_api.apps.scheduling.answer_stamp import stamp_answer
+        from trueppm_api.apps.scheduling.driving_chain import (
+            DEFAULT_DEPTH,
+            MAX_DEPTH,
+            NODE_CAP,
+            build_driving_chain,
+        )
+
+        project = get_object_or_404(
+            Project.objects.select_related("calendar", "program__calendar").prefetch_related(
+                "calendar__exceptions",
+                "calendar_layers__calendar__exceptions",
+                "program__calendar__exceptions",
+            ),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, project)
+
+        # Validated after the lookup so a trashed or missing project answers 404 before
+        # any 400 for its query string (the trashed-project oracle, #3451).
+        task_id = request.query_params.get("task_id")
+        if not task_id:
+            return Response(
+                {"detail": "The 'task_id' query parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        raw_depth = request.query_params.get("depth")
+        try:
+            depth = int(raw_depth) if raw_depth else DEFAULT_DEPTH
+        except (TypeError, ValueError):
+            depth = -1
+        if not 1 <= depth <= MAX_DEPTH:
+            return Response(
+                {"detail": f"'depth' must be an integer from 1 to {MAX_DEPTH}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            db_task = Task.objects.filter(project=project, pk=task_id, is_deleted=False).first()
+        except (ValueError, DjangoValidationError):
+            db_task = None
+        if db_task is None:
+            return Response(
+                {"detail": f"Task {task_id!r} is not in this project."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            sched_project, graph, raw_deps, db_tasks = _build_cpm_sched_inputs(project, pk)
+            base: dict[str, Any] = {
+                "project_id": str(project.pk),
+                "task_id": str(db_task.pk),
+                "depth": depth,
+                "node_cap": NODE_CAP,
+            }
+            in_network = {t.id for t in sched_project.tasks}
+            if str(db_task.pk) not in in_network:
+                # Never fabricate a chain for a task CPM does not schedule.
+                if str(db_task.pk) in graph.summary_ids:
+                    reason = "summary"
+                elif db_task.status == TaskStatus.BACKLOG:
+                    reason = "backlog"
+                elif db_task.type == TaskType.EPIC or db_task.is_recurring:
+                    reason = "not_committed"
+                else:
+                    reason = "not_in_network"
+                payload = {
+                    **base,
+                    "computable": False,
+                    "reason": reason,
+                    "project_finish": None,
+                    "truncated": False,
+                    "truncated_reason": None,
+                    "nodes": [],
+                    "edges": [],
+                }
+                return Response(stamp_answer(payload, engine_inputs=sched_project.to_dict()))
+
+            result = schedule(sched_project)
+            chain = build_driving_chain(
+                result=result,
+                expanded_deps=graph.dependencies,
+                raw_deps=raw_deps,
+                children_map=graph.children_map,
+                db_tasks_by_id={str(t.pk): t for t in db_tasks},
+                task_id=str(db_task.pk),
+                depth=depth,
+                node_cap=NODE_CAP,
+            )
+            payload = {
+                **base,
+                "computable": True,
+                "reason": None,
+                "project_finish": result.project_finish,
+                **chain,
+            }
+            stamped = stamp_answer(payload, engine_inputs=sched_project.to_dict())
+        except (CyclicDependencyError, ValueError) as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except OverflowError:
+            return Response(
+                {"detail": _DATE_RANGE_EXCEEDED_DETAIL}, status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response(stamped)

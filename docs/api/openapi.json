@@ -23044,6 +23044,91 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/schedule/driving-chain/": {
+            "get": {
+                "operationId": "project_schedule_driving_chain",
+                "description": "The bounded driving chain through one task, from one CPM pass (ADR-1381, #4891).\n\n``GET /projects/<pk>/schedule/driving-chain/?task_id=<id>[&depth=<n>]``\n\nAnswers \"why is this task critical / what holds it\" in one call: upstream along\nthe engine's driving links to the anchor, downstream to the project finish. The\nchain is walked over the leaf network *after* ADR-0105's summary expansion, so a\nsummary-gated link appears as the leaf edges the engine actually scheduled, each\nmarked with the summary it came from — a client walking stored dependencies cannot\nsee those (#3602). Bounded by ``depth`` and a node cap with an explicit\n``truncated`` flag (#4656), and stamped with ``_provenance`` (ADR-0112 §2.1).\n\nRBAC mirrors :class:`ScheduleDerivationView`: any project member (Viewer+), plus\nan ``mcp:read`` token on safe methods. Archived projects stay readable.",
+                "summary": "Bounded driving chain through a task",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "depth",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Maximum driving links walked in each direction (default 25, max 50). The response is also capped at 200 nodes; either limit sets truncated=true with truncated_reason."
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "task_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "The task the chain is walked through.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "scheduling"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ScheduleDrivingChain"
+                                }
+                            }
+                        },
+                        "description": "The chain, or computable=false with a reason (backlog, not_committed, summary) for a task the CPM pass does not schedule."
+                    },
+                    "400": {
+                        "description": "Invalid depth, or invalid schedule input."
+                    },
+                    "404": {
+                        "description": "Unknown project or task."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/sprint-forecast/": {
             "get": {
                 "operationId": "v1_projects_sprint_forecast_retrieve",
@@ -53064,6 +53149,36 @@
                 "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted",
                 "x-trueppm-enum": "open"
             },
+            "AnswerProvenance": {
+                "type": "object",
+                "description": "The ``_provenance`` answer stamp (ADR-0112 §2.1, ADR-1381).\n\n``(engine_version, input_hash)`` identifies the exact engine and inputs that\nproduced the answer, so it can be reproduced by re-running that scheduler version.",
+                "properties": {
+                    "schema_version": {
+                        "type": "integer"
+                    },
+                    "engine_version": {
+                        "type": "string"
+                    },
+                    "api_version": {
+                        "type": "string"
+                    },
+                    "input_hash": {
+                        "type": "string",
+                        "description": "sha256:<hex> over the canonical engine input."
+                    },
+                    "computed_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "api_version",
+                    "computed_at",
+                    "engine_version",
+                    "input_hash",
+                    "schema_version"
+                ]
+            },
             "ApiTokenAuditEntry": {
                 "type": "object",
                 "description": "Read-only serializer for the per-project audit log.\n\nCallers MUST construct this from a queryset with\n``.select_related(\"actor\", \"token\")`` — ``get_actor_email`` accesses\n``obj.actor.email`` and will issue one extra query per row otherwise.\n``ApiTokenAuditView.get_queryset`` provides this; other call sites must\nmatch the pattern.",
@@ -56257,6 +56372,16 @@
                 "description": "* `0` - Monday\n* `1` - Tuesday\n* `2` - Wednesday\n* `3` - Thursday\n* `4` - Friday\n* `5` - Saturday\n* `6` - Sunday",
                 "x-trueppm-enum": "exhaustive"
             },
+            "DirectionEnum": {
+                "enum": [
+                    "self",
+                    "upstream",
+                    "downstream"
+                ],
+                "type": "string",
+                "description": "* `self` - self\n* `upstream` - upstream\n* `downstream` - downstream",
+                "x-trueppm-enum": "open"
+            },
             "DorStateEnum": {
                 "enum": [
                     "idea",
@@ -56266,6 +56391,124 @@
                 "type": "string",
                 "description": "* `idea` - Idea\n* `refine` - Refine\n* `ready` - Ready",
                 "x-trueppm-enum": "open"
+            },
+            "DrivingChainEdge": {
+                "type": "object",
+                "description": "One driving link between two chain nodes, at leaf level (ADR-1381).",
+                "properties": {
+                    "predecessor_id": {
+                        "type": "string"
+                    },
+                    "successor_id": {
+                        "type": "string"
+                    },
+                    "dep_type": {
+                        "$ref": "#/components/schemas/DepTypeEnum"
+                    },
+                    "lag_days": {
+                        "type": "integer"
+                    },
+                    "is_driving": {
+                        "type": "boolean"
+                    },
+                    "via_summary": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "nullable": true,
+                        "description": "Summary task ids the stored link this leaf edge was expanded from names (ADR-0105); null when the edge is a direct link."
+                    }
+                },
+                "required": [
+                    "dep_type",
+                    "is_driving",
+                    "lag_days",
+                    "predecessor_id",
+                    "successor_id",
+                    "via_summary"
+                ]
+            },
+            "DrivingChainNode": {
+                "type": "object",
+                "description": "One task on the driving chain (ADR-1381).",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "direction": {
+                        "$ref": "#/components/schemas/DirectionEnum"
+                    },
+                    "hops": {
+                        "type": "integer",
+                        "description": "Driving links between this node and the task."
+                    },
+                    "early_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "early_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "total_float_days": {
+                        "type": "integer"
+                    },
+                    "is_critical": {
+                        "type": "boolean"
+                    },
+                    "is_project_finish": {
+                        "type": "boolean"
+                    },
+                    "sprint": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DrivingChainSprint"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "direction",
+                    "early_finish",
+                    "early_start",
+                    "hops",
+                    "is_critical",
+                    "is_project_finish",
+                    "name",
+                    "sprint",
+                    "status",
+                    "task_id",
+                    "total_float_days"
+                ]
+            },
+            "DrivingChainSprint": {
+                "type": "object",
+                "description": "Sprint binding of a chain node — id and end date only, never team internals.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "finish_date",
+                    "id"
+                ]
             },
             "DurationUnitEnum": {
                 "enum": [
@@ -73560,6 +73803,102 @@
                     }
                 ]
             },
+            "ScheduleDrivingChain": {
+                "type": "object",
+                "description": "Bounded driving chain through one task, from one CPM pass (ADR-1381, #4891).\n\n``computable`` is false — with ``reason`` set and empty ``nodes``/``edges`` — for a\ntask the CPM pass does not schedule; no chain is fabricated for it.",
+                "properties": {
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "computable": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ScheduleDrivingChainReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "project_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "depth": {
+                        "type": "integer"
+                    },
+                    "node_cap": {
+                        "type": "integer"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "truncated_reason": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TruncatedReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "nodes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DrivingChainNode"
+                        }
+                    },
+                    "edges": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DrivingChainEdge"
+                        }
+                    },
+                    "_provenance": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AnswerProvenance"
+                            }
+                        ],
+                        "title": " provenance"
+                    }
+                },
+                "required": [
+                    "_provenance",
+                    "computable",
+                    "depth",
+                    "edges",
+                    "node_cap",
+                    "nodes",
+                    "project_finish",
+                    "project_id",
+                    "reason",
+                    "task_id",
+                    "truncated",
+                    "truncated_reason"
+                ]
+            },
+            "ScheduleDrivingChainReasonEnum": {
+                "enum": [
+                    "backlog",
+                    "not_committed",
+                    "summary",
+                    "not_in_network"
+                ],
+                "type": "string",
+                "description": "* `backlog` - backlog\n* `not_committed` - not_committed\n* `summary` - summary\n* `not_in_network` - not_in_network",
+                "x-trueppm-enum": "open"
+            },
             "ScheduleHealthEnum": {
                 "enum": [
                     "on_track",
@@ -82340,6 +82679,15 @@
                 ],
                 "type": "string",
                 "description": "* `recompute` - Recompute\n* `scheduled` - Scheduled\n* `manual` - Manual",
+                "x-trueppm-enum": "open"
+            },
+            "TruncatedReasonEnum": {
+                "enum": [
+                    "depth",
+                    "node_cap"
+                ],
+                "type": "string",
+                "description": "* `depth` - depth\n* `node_cap` - node_cap",
                 "x-trueppm-enum": "open"
             },
             "UnitEnum": {

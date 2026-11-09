@@ -1,10 +1,16 @@
 ---
 title: "Optional and advanced settings"
 description: "Optional and advanced environment variables, and the in-product feedback settings."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 ## Optional / advanced settings
+
+:::note[Ships in 0.5]
+The driving-chain read named under `TRUEPPM_THROTTLE_CPM_ON_READ_RATE` ships in
+0.5. In 0.4 that variable limits only the schedule derivation read. Every other
+setting on this page is in 0.4.
+:::
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -41,7 +47,7 @@ documentedFor: "0.4"
 | `TRUEPPM_THROTTLE_OMNI_SEARCH_RATE` | `60/min` | Rate limit for the ⌘K global Epic/Story omni-search, per account, in DRF `<count>/<period>` form. Matches the general user-typeahead rate — snug enough to block a scripted scrape of every title an account can see, loose enough that live typing never trips it. |
 | `TRUEPPM_THROTTLE_RESOLVE_RATE` | `120/min` | Rate limit for the project/program key resolver (`/api/v1/resolve/`) and key suggestion (`/api/v1/keys/`), one bucket per account. It is loose enough for page loads and key checks as you type, and tight enough to stop a script from scanning the key namespace. |
 | `TRUEPPM_THROTTLE_BURN_RATE` | `60/min` | Rate limit for the burn chart and flow metrics reads (`GET /api/v1/projects/{id}/burn/` and `GET /api/v1/projects/{id}/flow-metrics/`), per account, in DRF `<count>/<period>` form. Both reconstruct their series from `HistoricalTask` snapshots, so cost scales with project history even with the per-request window cap; the two endpoints share this bucket since they are the same cost class against the same table. Far above what the Reports page generates on its own — the burn chart hook caches its result for 5 minutes. |
-| `TRUEPPM_THROTTLE_CPM_ON_READ_RATE` | `60/min` | Rate limit for the schedule derivation read (`GET /api/v1/projects/{id}/schedule/derivation/`, the "why" behind a computed date), per account, in DRF `<count>/<period>` form. Explaining a CPM date runs a full critical-path pass on every call, so the endpoint has its own bucket rather than the general per-account default. A person clicking through the reasons for a dozen dates never reaches it. An `mcp:read` token is also held to `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE`. |
+| `TRUEPPM_THROTTLE_CPM_ON_READ_RATE` | `60/min` | Rate limit for the schedule derivation read (`GET /api/v1/projects/{id}/schedule/derivation/`, the "why" behind a computed date) and, from 0.5, the driving-chain read (`GET /api/v1/projects/{id}/schedule/driving-chain/`), which share one bucket per account, in DRF `<count>/<period>` form. Explaining a CPM date runs a full critical-path pass on every call, so the endpoint has its own bucket rather than the general per-account default. A person clicking through the reasons for a dozen dates never reaches it. An `mcp:read` token is also held to `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE`. |
 | `TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE` | `60/min` | Rate limit for the merged program schedule (`GET /api/v1/programs/{id}/schedule/`), per account, in DRF `<count>/<period>` form. Every read runs the critical path over all of the program's member projects at once, and nothing is cached. A 5,000-task program schedule took about 470 ms per read in testing, so one account at the default rate keeps about half a CPU core busy at most. That is the same rate as the schedule derivation, which does less work per read. The limit is per account, so several open tabs or programs share it. An open program page refreshes at most once every 300 ms, however many member projects are changing. Each schedule edit causes about two or three page refreshes: one when the edit lands, and one or two when the critical path finishes recomputing. So the default limit is reached at roughly 20 to 30 edits a minute across the whole program, per viewing account. Comments, reactions, and presence changes do not count. When a refresh is limited, the page keeps showing the last schedule it loaded, says that live updates are paused, and offers **Refresh**. It refreshes again by itself when the server's `Retry-After` time is up (at most a minute), or sooner when the next live update arrives. Raise the rate if your workers have headroom and your teams make that many changes to a program at once. An `mcp:read` token is also held to `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE`. |
 | `TRUEPPM_THROTTLE_SAMPLE_DOWNLOAD_RATE` | `60/min` | Rate limit for downloading a bundled sample fixture (`GET /programs/samples/{key}/download/`), per account, in DRF `<count>/<period>` form. Looser than `TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE` because a download only streams a small file off disk and touches no table — but it is still throttled, since it serves a file keyed by a client-supplied string and would otherwise double as an enumeration oracle. |
 | `TRUEPPM_THROTTLE_TELEMETRY_TEST_RATE` | `6/min` | Rate limit for the admin-only telemetry test-export probe (each call opens a real outbound connection to the configured OTLP collector), per account, in DRF `<count>/<period>` form. Tight enough that the probe cannot be used to hammer the collector. |

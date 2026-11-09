@@ -12,6 +12,7 @@ from trueppm_api.apps.scheduling.views import (
     MonteCarloLatestView,
     MonteCarloWhatIfView,
     ScheduleDerivationView,
+    ScheduleDrivingChainView,
     VelocitySuggestionViewSet,
     run_monte_carlo,
     trigger_schedule,
@@ -31,6 +32,11 @@ urlpatterns: list[URLPattern | URLResolver] = [
         "projects/<str:pk>/schedule/derivation/",
         ScheduleDerivationView.as_view(),
         name="project-schedule-derivation",
+    ),
+    path(
+        "projects/<str:pk>/schedule/driving-chain/",
+        ScheduleDrivingChainView.as_view(),
+        name="project-schedule-driving-chain",
     ),
     path("projects/<str:pk>/monte-carlo/", run_monte_carlo, name="project-monte-carlo"),
     path(

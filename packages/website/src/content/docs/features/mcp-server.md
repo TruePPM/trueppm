@@ -1,7 +1,7 @@
 ---
 title: MCP server (read-only)
 description: Point any MCP client — Claude Desktop, Cursor, Zed — at your self-hosted TruePPM instance and ask real questions of the live schedule. Every answer is computed server-side by the same engine the web UI uses, never guessed by a model, never leaving your box.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 TruePPM ships a read-only [Model Context Protocol](https://modelcontextprotocol.io)
@@ -18,6 +18,14 @@ an engine call, and the CPM/Monte Carlo engine supplies the number. The answer i
 a computation with a derivation, not a language model's opinion. See
 [Computed, not guessed](/architecture/overview/#computed-not-guessed)
 for the full architectural picture.
+
+:::note[Ships in 0.5]
+The `get_schedule_driving_chain` tool and the endpoint behind it
+(`GET /api/v1/projects/{id}/schedule/driving-chain/`) ship in 0.5. In 0.4,
+assemble a chain by calling `get_schedule_derivation` once per hop — each call is
+a full CPM pass, and a chain rebuilt from stored dependencies misses links that
+run through a summary task. Every other tool on this page is in 0.4.
+:::
 
 :::note[Edition]
 The MCP server is part of the **Community (OSS)** edition (Apache 2.0). It
@@ -160,6 +168,7 @@ Planned for 0.5: `get_project` will return the server's own `health_band` (`on_t
 | `get_release_forecast` | `project_id` | Backlog delivery forecast from the team's velocity Monte Carlo: P50/P80 **sprint counts** and calendar dates to clear the committed backlog (plus P95 date). Always a range, never a single date; returns a `warming_up` shape when velocity history is thin. |
 | `whatif` | `project_id`, `task_id`, one of `duration_delta` / `new_duration`, optional `n_simulations` | **What breaks if this task's duration changes.** Perturbs one task and recomputes CPM + Monte Carlo **in memory, persisting nothing**. Returns `current` vs. `whatif` P50/P80/P95, the deterministic CPM finish for each, `critical_path_changed`, and `delta_vs_current` (signed calendar-day shifts, positive = later/worse), plus a compact `why`. |
 | `get_schedule_derivation` | `project_id`, `task_id`, `quantity` | The server-computed *why* behind a value **in full**: the driving predecessor/successor, the binding constraint, lag and calendar contributions, and which pass set it. `quantity` is a CPM value (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `free_float`) or a Monte Carlo percentile (`p50`, `p80`, `p95`). The primary answer tools above carry a one-line `why`; call this for the complete contribution chain. |
+| `get_schedule_driving_chain` | `project_id`, `task_id`, optional `depth` (1–50, default 25) | The **chain of driving links** through a task in one call — why it is critical: upstream along the links that hold it to the anchor, downstream to the project finish, from a single server-side CPM pass. Each node carries float, the critical flag, status, and its sprint (id and finish date only — no assignee, hours, or velocity); each link carries its type, lag, and `via_summary` when it was expanded from a link on a summary task. Null and empty fields are omitted from the tool's output, so a link with no `via_summary` is a direct link. Capped at 200 nodes with an explicit `truncated` flag; a task the CPM pass does not schedule (backlog, summary, epic) returns `computable: false` with a reason. Carries a `_provenance` stamp (`engine_version`, `api_version`, `input_hash`, `computed_at`). Ships in 0.5. |
 | `list_risks` | `project_id` | The project's risk register (impact, probability, status). |
 
 :::tip[Explained by default]
