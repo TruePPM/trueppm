@@ -438,7 +438,7 @@ The task-run payloads (`/projects/{id}/task-runs/`, `/task-runs/{id}/`,
 `/task-runs/active/`) no longer carry `initiated_by`, the raw integer user id of
 whoever started the run; they carry `initiated_by_username` instead, matching the
 scheduler-runs payload. `error_detail` is now an empty string for callers below the
-project Admin role, because it holds raw worker exception text. This is a **Breaking**
+project Admin role (on `/projects/{id}/scheduler-runs/` as well), because it holds raw worker exception text. This is a **Breaking**
 removal, taken without a window because it is a security fix: any project Viewer could
 read user ids and internal error text. Render the run's initiator from
 `initiated_by_username`.

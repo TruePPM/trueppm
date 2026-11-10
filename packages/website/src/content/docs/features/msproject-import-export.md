@@ -232,7 +232,6 @@ curl -H "Authorization: Bearer $JWT" \
 #       "status": "done",
 #       "creates_project": true,
 #       "requested_at": "2026-05-28T13:11:54Z",
-#       "initiated_by": 17,
 #       "initiated_by_username": "marcus",
 #       "task_count": 28,
 #       "warnings": [

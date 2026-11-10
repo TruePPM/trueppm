@@ -231,6 +231,11 @@ release; removed in next minor. Documented in changelog.
 
 #### `initiated_by` exposure
 
+> **Superseded 2026-11-09 by #1726.** Task-run payloads no longer carry `initiated_by`
+> (the raw user id); they carry `initiated_by_username`. `error_detail` is blank below
+> the project Admin role, and the `task_run_failed` WebSocket event sends a generic
+> message. The original decision is kept below as history.
+
 Returned as `{id, display_name}` to all project members. Not redacted.
 Rationale: project members are already inside the project trust boundary; redacting
 breaks Marcus's audit use case. Matches existing `Baseline.created_by` pattern. When

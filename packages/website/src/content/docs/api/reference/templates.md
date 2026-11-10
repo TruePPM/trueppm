@@ -1,7 +1,7 @@
 ---
 title: "Project templates and import API"
 description: "Project templates, import templates, and import provenance."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 ## Project templates
@@ -550,9 +550,16 @@ used by the in-app import wizard, for scripted use — see
 Page-number paginated (`{count, next, previous, results}`; `page`, `page_size`,
 default 50, max 200). Each row carries `id`, `filename`, `status`
 (`pending` / `dispatched` / `done` / `dead`), `creates_project`, `requested_at`,
-`initiated_by` (integer user id), `initiated_by_username` (null once that user is
-deleted), `task_count` (null until the import worker writes its summary), and
+`initiated_by` (integer user id; removed in 0.5, see below), `initiated_by_username`
+(null once that user is deleted), `task_count` (null until the import worker writes its summary), and
 `warnings`.
+
+:::note[Ships in 0.5]
+The current release still returns `initiated_by`. In 0.5 the field will be removed
+without a deprecation window, because any project member could read user ids from this
+list. Render the initiator from `initiated_by_username`, which is unchanged. See
+[API stability](/api/stability/).
+:::
 
 Readable while the project is archived — it is a read-only provenance surface, so
 unlike most project routes it is not gated on `IsProjectNotArchived`.

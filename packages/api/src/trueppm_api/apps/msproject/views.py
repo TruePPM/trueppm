@@ -399,10 +399,10 @@ class ImportRequestProvenanceListView(APIView):
         },
         description=(
             "Page of import-request provenance rows for the project, newest first.\n\n"
-            "`status` is one of pending / dispatched / done / dead. `initiated_by` is "
-            "the user's integer id; `initiated_by_username` carries the name and is "
-            "null once that user is deleted. `task_count` comes from the linked "
-            "TaskRun summary and is null until the import completes.\n\n"
+            "`status` is one of pending / dispatched / done / dead. "
+            "`initiated_by_username` carries the initiator's name and is null once "
+            "that user is deleted. `task_count` comes from the linked TaskRun "
+            "summary and is null until the import completes.\n\n"
             "`warnings` lists everything the import did not carry over — MS Project "
             "constraints, deadlines, baselines, priority, work and cost have no "
             "TruePPM column and are reported with per-family task counts. The strings "
@@ -426,7 +426,6 @@ class ImportRequestProvenanceListView(APIView):
                             "status": "done",
                             "creates_project": False,
                             "requested_at": "2026-05-28T14:03:00Z",
-                            "initiated_by": 17,
                             "initiated_by_username": "sarah",
                             "task_count": 142,
                             "warnings": [
