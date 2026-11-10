@@ -570,3 +570,34 @@ def test_next_delivery_sequence_unknown_webhook_raises(db: object) -> None:
 
     with pytest.raises(Webhook.DoesNotExist):
         _next_delivery_sequence(uuid.uuid4())
+
+
+@pytest.mark.django_db
+def test_dispatch_one_failing_webhook_does_not_drop_the_others(
+    project: Project, user: object
+) -> None:
+    """A webhook whose sequence allocation fails (e.g. deleted concurrently) loses
+    only its own delivery; every other subscriber is still delivered and enqueued."""
+    from trueppm_api.apps.webhooks import dispatch as wh_dispatch
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    hooks = _make_hooks(project, user, 3)
+    bad = sorted(hooks, key=lambda w: str(w.id))[1]
+    from trueppm_api.apps.webhooks import models as wh_models
+
+    original = wh_models._next_delivery_sequence
+
+    def flaky(webhook_id: object) -> int:
+        if webhook_id == bad.id:
+            raise Webhook.DoesNotExist
+        return original(webhook_id)
+
+    with (
+        patch.object(wh_models, "_next_delivery_sequence", flaky),
+        patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()) as delay,
+    ):
+        wh_dispatch.dispatch_webhooks(str(project.pk), "task.created", dict(_FLAT_TASK_PAYLOAD))
+
+    delivered = set(WebhookDelivery.objects.values_list("webhook_id", flat=True))
+    assert delivered == {h.id for h in hooks} - {bad.id}
+    assert delay.call_count == 2

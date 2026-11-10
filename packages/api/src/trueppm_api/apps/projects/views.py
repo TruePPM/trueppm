@@ -16790,8 +16790,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 # Decided by a concurrent call between the id scan and the row lock — skip.
                 continue
             except ScopeAcceptForbidden:
-                # The gate is checked at the viewset layer too; reaching here means
-                # the actor lost membership mid-request — fail the whole call closed.
+                # Defensive only: the gate now runs ONCE per request (#3412), so a
+                # revocation landing mid-request is deliberately NOT detected per row
+                # (the trade-off for dropping two queries per row). Reaching here
+                # means a service refused despite the hoisted check — fail closed.
                 return Response(
                     {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
                     status=status.HTTP_403_FORBIDDEN,

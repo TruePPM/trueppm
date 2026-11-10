@@ -64,6 +64,16 @@ def test_clears_ranks_keeps_history_and_bumps_counters(project: Project) -> None
         assert t.history.filter(sprint_rank__isnull=True).exists()
 
 
+def test_stamps_edited_at_so_closed_tasks_leave_untouched_seeded(project: Project) -> None:
+    """The old per-task save() counted as a touch; the bulk path must too (ADR-0786)."""
+    sprint, tasks = _sprint_with_ranked_tasks(project, 2)
+    Task.objects.filter(pk__in=[t.pk for t in tasks]).update(edited_at=None)
+    _clear_sprint_ranks(sprint)
+    for t in tasks:
+        t.refresh_from_db()
+        assert t.edited_at is not None
+
+
 def test_skips_unranked_and_deleted_tasks(project: Project) -> None:
     sprint, tasks = _sprint_with_ranked_tasks(project, 2)
     Task.objects.filter(pk=tasks[0].pk).update(sprint_rank=None)

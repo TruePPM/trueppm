@@ -258,8 +258,17 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         # render() runs before the row exists, so we pre-allocate the sequence
         # number (#664) and write it as both the body value and ``sequence_number``
         # (ADR-0083 audit invariant: the stored row equals the wire body).
-        sequence = _next_delivery_sequence(webhook.id)
-        body = build_delivery_body(webhook, event_type, payload, sequence, str(project_id))
+        try:
+            sequence = _next_delivery_sequence(webhook.id)
+            body = build_delivery_body(webhook, event_type, payload, sequence, str(project_id))
+        except Exception:
+            # One bad subscription (deleted concurrently, unrenderable body) must
+            # not cost every other subscriber its delivery now that rows are
+            # inserted in a single batch. Drop only this webhook.
+            logger.exception(
+                "dispatch_webhooks: skipping webhook %s for %s", webhook.pk, event_type
+            )
+            continue
         deliveries.append(
             WebhookDelivery(
                 webhook=webhook,

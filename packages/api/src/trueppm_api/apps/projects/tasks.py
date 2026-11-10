@@ -649,8 +649,14 @@ def _clear_sprint_ranks(sprint: Any) -> None:
     (ADR-0686: rows written together may share a cursor value; the delta is
     ``> since``). Without the ``sync_seq`` stamp the cleared rows would sit below
     every client checkpoint and offline clients would keep the stale rank.
+
+    ``edited_at`` is stamped too: the per-task ``save()`` this replaced ran
+    ``Task.save()`` without ``system_write``, so a sprint close counted as a touch
+    and kept the task out of ``TaskManager.untouched_seeded()``, which governs the
+    seeded-data bulk delete (ADR-0786). ``bulk_update_with_history`` skips that hook.
     """
     from django.db.models import F
+    from django.utils import timezone
     from simple_history.utils import bulk_update_with_history
 
     from trueppm_api.apps.projects.models import Task
@@ -662,14 +668,16 @@ def _clear_sprint_ranks(sprint: Any) -> None:
     if not ranked:
         return
     seq = allocate_for_projects([sprint.project_id])
+    now = timezone.now()
     for task in ranked:
         task.sprint_rank = None
+        task.edited_at = now
         task.server_version = F("server_version") + 1
         task.sync_seq = seq
     bulk_update_with_history(
         ranked,
         Task,
-        ["sprint_rank", "server_version", "sync_seq"],
+        ["sprint_rank", "server_version", "sync_seq", "edited_at"],
         batch_size=500,
     )
 

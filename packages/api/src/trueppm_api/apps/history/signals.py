@@ -21,6 +21,16 @@ inside the caller's transaction. ``instance`` is therefore a read-only snapshot
 of a row that may still roll back: receivers must not save it and must defer any
 I/O with ``transaction.on_commit()`` (see ``core/extension_signals.py`` for the
 sender and kwarg conventions this follows).
+
+Known non-firing paths: ``simple_history.utils.bulk_create_with_history`` and
+``bulk_update_with_history`` insert the historical rows with a single
+``bulk_create``, which never sends ``post_save``, so this signal does not fire for
+them. Today that is ``_clear_sprint_ranks`` (sprint close, #1542) and the inbound
+sync write in ``projects/inbound_sync.py``. A receiver that must see every history
+row (immutable audit stamping) has to read those rows from the table rather than
+rely on this signal. The bulk helpers return only a count, so dispatching per row
+would need an extra read-back of the inserted rows; that was judged not worth the
+plumbing on the sprint-close hot path.
 """
 
 from __future__ import annotations

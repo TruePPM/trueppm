@@ -961,6 +961,46 @@ def test_bulk_accept_refuses_revoked_admin_and_decides_nothing(
     assert SprintScopeChange.objects.get(task=a).status == ScopeChangeStatus.PENDING
 
 
+@pytest.mark.parametrize("action", ["accept", "reject"])
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_bulk_hoisted_gate_refuses_past_the_view_layer(
+    _broadcast: object,
+    action: str,
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+    member: object,
+) -> None:
+    """The service gate hoisted into ``_bulk_scope_change`` (#3412) is the ONLY
+    refusal here: the view-layer permission is forced open, and the actor is a live
+    facet-less Member, so removing the hoisted call would let every row through
+    (each row is passed ``gate_verified_for_project``). 403 and nothing decided."""
+    a = _task(project, "A", story_points=1)
+    b = _task(project, "B", story_points=1)
+    _inject(a, sprint, owner)
+    _inject(b, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    with (
+        patch(
+            "trueppm_api.apps.access.permissions.IsProjectScopeManager.has_permission",
+            return_value=True,
+        ),
+        patch(
+            "trueppm_api.apps.access.permissions.IsProjectScopeManager.has_object_permission",
+            return_value=True,
+        ),
+    ):
+        resp = client.post(
+            f"/api/v1/sprints/{sprint.pk}/scope-changes/{action}/", {}, format="json"
+        )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == ScopeAcceptForbidden.code
+    assert set(
+        SprintScopeChange.objects.filter(sprint=sprint).values_list("status", flat=True)
+    ) == {ScopeChangeStatus.PENDING}
+
+
 def test_gate_verified_for_other_project_does_not_waive_gate(
     project: Project, sprint: Sprint, owner: object, member: object
 ) -> None:
