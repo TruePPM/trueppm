@@ -20,7 +20,7 @@ A **program** groups related projects under one team. The program view rolls up 
 
 Every consequential change — membership edits, role changes, settings updates, lifecycle actions — is recorded in a workspace **audit log** that Owners and Admins can read. It answers "who changed what, and when" for day-to-day operations.
 
-Be precise about what this is and isn't: it is an *operational* log for running the workspace. The **immutable, compliance-grade audit trail** with retention guarantees and SOC 2 evidence export is an enterprise capability. If your hard requirement is tamper-evident audit for an auditor, that's the enterprise line.
+Be precise about what this is and isn't: it is an *operational* log for running the workspace. The community edition does ship a tamper-evident, hash-chained record of agent actions (see [Agent oversight](/features/agent-oversight/)). The **immutable, compliance-grade workspace and admin audit trail** — immutability, signing, retention guarantees, external notarization, and SOC 2 evidence export — is an enterprise capability. If your hard requirement is that audit trail for an auditor, that's the enterprise line.
 
 → See [Audit log](/administration/audit-log/)
 
@@ -83,7 +83,7 @@ Then judge it against your real bar. Your top criteria — a one-glance portfoli
 | Basic single sign-on (OIDC/OAuth via your own IdP) | Community | Login federation a self-hoster expects (shipped in 0.4) |
 | Portfolio dashboard & health scores | Enterprise | Visibility *across many programs* |
 | Org identity governance (SAML 2.0, SCIM, LDAP/AD sync, enforced SSO) | Enterprise | Directory-driven provisioning and enforced org-wide SSO |
-| Immutable audit trail, SOC 2 evidence export | Enterprise | Tamper-evident compliance, not operations |
+| Immutable workspace/admin audit trail (signing, retention, notarization), SOC 2 evidence export | Enterprise | Compliance evidence, not operations (the agent-action hash chain is in the community edition) |
 | Cross-program resource leveling & heat map | Enterprise | Capacity *across* programs |
 | Demand intake & prioritization workspace | Enterprise | Portfolio investment governance |
 

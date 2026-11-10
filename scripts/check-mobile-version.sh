@@ -20,7 +20,8 @@
 # Both version fields in package-lock.json are checked too — `npm ci` reads the
 # lock, and leaving it behind is the drift shape #2797 turned on the same class.
 #
-# WHEN MOBILE ACTUALLY SHIPS (native Android, roadmap 0.6, #1599): delete this
+# IF A NATIVE APP EVER SHIPS (none is scheduled; native mobile left the roadmap
+# in #3834, having once been Android at 0.6, #1599): delete this
 # gate and add packages/mobile/package.json to release.sh's bump_manifest list.
 # Do not "fix" it by editing EXPECTED to the new version — the point is that a
 # shipping package belongs on the release train, not on a pin.
