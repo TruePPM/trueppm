@@ -62,6 +62,12 @@ class InviteSenderUnauthorizedError(Exception):
     """Resend refused: the invite's sender no longer holds a role above the invited role (#4589)."""
 
 
+_AMBIGUOUS_INVITE_EMAIL_MESSAGE = (
+    "More than one account uses this invitation's email address, so it cannot be "
+    "accepted automatically. Ask a workspace admin to resolve the duplicate accounts."
+)
+
+
 class InviteError(Exception):
     """Raised when an invite cannot be accepted (invalid/expired token, etc.).
 
@@ -880,12 +886,22 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
     the status flips ``pending → accepted`` under a row lock.
 
     Raises:
-        InviteError: invalid/expired token, or account-creation conflict.
+        InviteError: invalid/expired token, account-creation conflict, or more
+            than one existing account shares the invite email (refused rather than
+            guessing which account receives the role).
     """
     invite = _load_pending_invite(token)
 
     User = get_user_model()
-    user = User.objects.filter(email__iexact=invite.email).first()
+    # ``auth_user.email`` is not unique, and this endpoint is unauthenticated, so
+    # there is no requesting user to disambiguate with. ``.first()`` would grant the
+    # invited role to whichever row the planner returned. SSO account linking treats
+    # the same collision as an account-takeover risk and refuses it (sso/services.py,
+    # "only when unambiguous"); do the same: fetch at most two rows and fail closed.
+    matches = list(User.objects.filter(email__iexact=invite.email)[:2])
+    if len(matches) > 1:
+        raise InviteError(_AMBIGUOUS_INVITE_EMAIL_MESSAGE)
+    user = matches[0] if matches else None
     if user is None and (not username or not password):
         raise InviteError("A username and password are required to accept this invitation.")
 

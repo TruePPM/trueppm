@@ -456,8 +456,13 @@ Workspace Admins send email invitations to bring new users into the workspace.
    - hashes the submitted token and looks up a non-expired pending invite,
    - re-checks that the invite's sender is still an active workspace Admin or
      Owner, and refuses it with the same generic error otherwise,
-   - provisions a new `User` account **or** links the invite to an existing
-     account if the invite email matches,
+   - provisions a new `User` account **or** links the invite to the existing
+     account whose email matches (case-insensitive). If **more than one**
+     account shares that email the invite is refused (`400`, "More than one
+     account uses this invitation's email address…") and stays pending, rather
+     than granting the role to an arbitrary one of them — the same
+     fail-closed stance [Single sign-on](/administration/single-sign-on/) takes
+     on ambiguous emails. An admin must resolve the duplicate accounts first,
    - creates a `WorkspaceMembership` at the invited role,
    - marks the invite `accepted`, stamping `accepted_at` and the accepting user.
 5. Error responses are **generic** ("invalid or expired token") to prevent
