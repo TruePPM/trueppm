@@ -150,6 +150,11 @@ detect gaps and reorder. It is the outbound counterpart to inbound sync ordering
   `transaction.on_commit` callback (autocommit), where a bare `F()+1` + read-back
   would race. Allocation happens once at row creation, so the number is stable
   across the Celery retry chain.
+  > **Superseded by #1545 (2026-11-09):** allocation no longer uses
+  > `select_for_update` inside an explicit `transaction.atomic()`. It is a single
+  > `increment_returning` (`UPDATE ... RETURNING`), which takes the row lock and
+  > returns the new value atomically in one statement, so the sequence stays unique
+  > and monotonic per subscription without a separate transaction or read-back.
 - **Counter lives on the subscription, not derived from deliveries.** The
   retention purge (ADR-0081) deletes terminal `WebhookDelivery` rows; deriving the
   next value from `max(sequence_number)` would reuse numbers after a purge and

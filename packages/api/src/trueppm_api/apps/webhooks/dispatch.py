@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 import redis as redis_lib
+from celery.exceptions import SoftTimeLimitExceeded
 from kombu.exceptions import (
     OperationalError as KombuOperationalError,
 )
@@ -243,7 +244,12 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     webhooks = _drop_webhooks_without_live_member_owner(webhooks, project_id)
     webhooks = _drop_program_webhooks_without_live_program_admin_owner(webhooks, program_id)
 
-    for webhook in webhooks:
+    # Allocate in pk order: when this runs inside a caller's transaction the row
+    # locks are held to commit, and two dispatches over overlapping webhook sets
+    # taking them in opposite orders would deadlock. Each allocation is a single
+    # UPDATE ... RETURNING (#1545).
+    deliveries: list[Any] = []
+    for webhook in sorted(webhooks, key=lambda w: str(w.id)):
         # Render per-webhook: each subscription may have a different format
         # (one project can have a Slack webhook and a generic JSON webhook on
         # the same event). The rendered dict is frozen onto the delivery row,
@@ -251,18 +257,40 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         # of exactly what was sent.
         #
         # render() runs before the row exists, so we pre-allocate the sequence
-        # number (#664) and pass it to create() as both the body value and
-        # ``sequence_number`` — WebhookDelivery.save()'s lazy-allocation guard then
-        # no-ops, keeping this a single write where the stored row equals the wire
-        # body (ADR-0083 audit invariant).
-        sequence = _next_delivery_sequence(webhook.id)
-        body = build_delivery_body(webhook, event_type, payload, sequence, str(project_id))
-        delivery = WebhookDelivery.objects.create(
-            webhook=webhook,
-            event_type=event_type,
-            payload=body,
-            sequence_number=sequence,
+        # number (#664) and write it as both the body value and ``sequence_number``
+        # (ADR-0083 audit invariant: the stored row equals the wire body).
+        try:
+            sequence = _next_delivery_sequence(webhook.id)
+            body = build_delivery_body(webhook, event_type, payload, sequence, str(project_id))
+        except SoftTimeLimitExceeded:
+            # dispatch_webhooks runs inside Celery tasks: the soft limit must stop
+            # the whole dispatch, not be logged as one bad webhook and skipped.
+            raise
+        except Exception:
+            # One bad subscription (deleted concurrently, unrenderable body) must
+            # not cost every other subscriber its delivery now that rows are
+            # inserted in a single batch. Drop only this webhook.
+            logger.exception(
+                "dispatch_webhooks: skipping webhook %s for %s", webhook.pk, event_type
+            )
+            continue
+        deliveries.append(
+            WebhookDelivery(
+                webhook=webhook,
+                event_type=event_type,
+                payload=body,
+                sequence_number=sequence,
+            )
         )
+    # One INSERT for every subscription. bulk_create skips WebhookDelivery.save(),
+    # which only lazily allocates a sequence — already set above. Rows are inserted
+    # (and committed) before any task is enqueued, so a worker never races an
+    # uncommitted row.
+    if deliveries:
+        WebhookDelivery.objects.bulk_create(deliveries)
+
+    for delivery in deliveries:
+        webhook = delivery.webhook
         try:
             deliver_webhook.delay(str(delivery.pk))
             logger.debug(

@@ -3252,9 +3252,21 @@ def assert_scope_gate_for_project(project_id: Any, by: Any) -> None:
     raise ScopeAcceptForbidden
 
 
-def _assert_scope_gate(scope_change: Any, by: Any) -> None:
-    """Enforce the team-owned accept/reject gate (ADR-0102 §3) for a scope change."""
-    assert_scope_gate_for_project(scope_change.task.project_id, by)
+def _assert_scope_gate(
+    scope_change: Any, by: Any, *, gate_verified_for_project: Any = None
+) -> None:
+    """Enforce the team-owned accept/reject gate (ADR-0102 §3) for a scope change.
+
+    ``gate_verified_for_project`` lets a bulk caller that has ALREADY run
+    :func:`assert_scope_gate_for_project` for this actor and project skip the repeat
+    (it costs two queries per row, #3412). It is honored only when it equals this
+    row's own project, so a caller cannot waive the gate for a row in a different
+    project; the default (``None``) always runs the full check.
+    """
+    project_id = scope_change.task.project_id
+    if gate_verified_for_project is not None and str(gate_verified_for_project) == str(project_id):
+        return
+    assert_scope_gate_for_project(project_id, by)
 
 
 def record_sprint_scope_change(
@@ -3363,7 +3375,9 @@ def maybe_record_scope_injection(task: Any, old_sprint_id: Any, by: Any) -> Any 
     return record_sprint_scope_change(task=task, sprint=target_sprint, by=by)
 
 
-def accept_scope_change(scope_change: Any, by: Any) -> Any:
+def accept_scope_change(
+    scope_change: Any, by: Any, *, gate_verified_for_project: Any = None
+) -> Any:
     """Promote a pending scope injection into the sprint commitment (ADR-0102 §4).
 
     Team-owned gate (role>=ADMIN + project membership). Sets ``status=ACCEPTED``
@@ -3387,7 +3401,7 @@ def accept_scope_change(scope_change: Any, by: Any) -> Any:
     )
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-    _assert_scope_gate(scope_change, by)
+    _assert_scope_gate(scope_change, by, gate_verified_for_project=gate_verified_for_project)
 
     with transaction.atomic():
         locked = (
@@ -3432,7 +3446,9 @@ def accept_scope_change(scope_change: Any, by: Any) -> Any:
     return locked
 
 
-def reject_scope_change(scope_change: Any, by: Any) -> Any:
+def reject_scope_change(
+    scope_change: Any, by: Any, *, gate_verified_for_project: Any = None
+) -> Any:
     """Reject a pending scope injection, removing the task from the sprint (ADR-0102 §4).
 
     Team-owned gate (role>=ADMIN + project membership). Sets ``status=REJECTED``,
@@ -3450,7 +3466,7 @@ def reject_scope_change(scope_change: Any, by: Any) -> Any:
     )
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-    _assert_scope_gate(scope_change, by)
+    _assert_scope_gate(scope_change, by, gate_verified_for_project=gate_verified_for_project)
 
     with transaction.atomic():
         locked = (

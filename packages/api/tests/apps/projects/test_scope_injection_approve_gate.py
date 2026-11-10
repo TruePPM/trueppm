@@ -897,3 +897,116 @@ def test_single_reject_endpoint(
     a.refresh_from_db()
     assert a.sprint_id is None  # rejection removed it from the sprint
     assert a.sprint_pending is False
+
+
+# --------------------------------------------------------------------------- #
+# #3412 — the bulk loop resolves the gate once, not per row.
+# --------------------------------------------------------------------------- #
+
+
+def _membership_query_count(
+    owner_client: APIClient, sprint: Sprint, project: Project, n: int, by: object, accept: bool
+) -> int:
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    for i in range(n):
+        _inject(_task(project, f"bulk-{n}-{i}", story_points=1), sprint, by)
+    action = "accept" if accept else "reject"
+    with CaptureQueriesContext(connection) as ctx:
+        resp = owner_client.post(
+            f"/api/v1/sprints/{sprint.pk}/scope-changes/{action}/", {}, format="json"
+        )
+    assert resp.status_code == 200
+    assert len(resp.data["accepted" if accept else "rejected"]) == n
+    return sum(
+        1
+        for q in ctx.captured_queries
+        if "membership" in q["sql"].lower() and q["sql"].lstrip().upper().startswith("SELECT")
+    )
+
+
+@pytest.mark.parametrize("accept", [True, False])
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_bulk_scope_change_membership_queries_do_not_grow_with_row_count(
+    _broadcast: object,
+    accept: bool,
+    owner_client: APIClient,
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+) -> None:
+    """The gate costs the same number of membership reads at 2 rows and at 7 rows."""
+    small = _membership_query_count(owner_client, sprint, project, 2, owner, accept)
+    large = _membership_query_count(owner_client, sprint, project, 7, owner, accept)
+    assert small == large
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_bulk_accept_refuses_revoked_admin_and_decides_nothing(
+    _broadcast: object, project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """Hoisting the gate must still refuse a revoked member (#3386): 403 and every
+    pending row left PENDING."""
+    ProjectMembership.objects.filter(project=project, user=member).update(
+        role=Role.ADMIN, is_deleted=True
+    )
+    _grant_facet(project, member, is_product_owner=True)
+    a = _task(project, "A", story_points=1)
+    _inject(a, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(f"/api/v1/sprints/{sprint.pk}/scope-changes/accept/", {}, format="json")
+    assert resp.status_code in (403, 404)
+    assert SprintScopeChange.objects.get(task=a).status == ScopeChangeStatus.PENDING
+
+
+@pytest.mark.parametrize("action", ["accept", "reject"])
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_bulk_hoisted_gate_refuses_past_the_view_layer(
+    _broadcast: object,
+    action: str,
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+    member: object,
+) -> None:
+    """The service gate hoisted into ``_bulk_scope_change`` (#3412) is the ONLY
+    refusal here: the view-layer permission is forced open, and the actor is a live
+    facet-less Member, so removing the hoisted call would let every row through
+    (each row is passed ``gate_verified_for_project``). 403 and nothing decided."""
+    a = _task(project, "A", story_points=1)
+    b = _task(project, "B", story_points=1)
+    _inject(a, sprint, owner)
+    _inject(b, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    with (
+        patch(
+            "trueppm_api.apps.access.permissions.IsProjectScopeManager.has_permission",
+            return_value=True,
+        ),
+        patch(
+            "trueppm_api.apps.access.permissions.IsProjectScopeManager.has_object_permission",
+            return_value=True,
+        ),
+    ):
+        resp = client.post(
+            f"/api/v1/sprints/{sprint.pk}/scope-changes/{action}/", {}, format="json"
+        )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == ScopeAcceptForbidden.code
+    assert set(
+        SprintScopeChange.objects.filter(sprint=sprint).values_list("status", flat=True)
+    ) == {ScopeChangeStatus.PENDING}
+
+
+def test_gate_verified_for_other_project_does_not_waive_gate(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """``gate_verified_for_project`` only skips the check for the SAME project."""
+    import uuid
+
+    sc = _inject(_task(project, "A", story_points=1), sprint, owner)
+    with pytest.raises(ScopeAcceptForbidden):
+        accept_scope_change(sc, member, gate_verified_for_project=uuid.uuid4())

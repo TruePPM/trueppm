@@ -7,7 +7,7 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
 
 from trueppm_api.apps.integrations.encryption import decrypt_secret, encrypt_secret
@@ -362,22 +362,28 @@ class WebhookEditor(models.Model):
 def _next_delivery_sequence(webhook_id: uuid.UUID | str) -> int:
     """Atomically allocate the next per-subscription delivery sequence number.
 
-    Locks the Webhook row with ``select_for_update`` and increments its
-    ``delivery_sequence`` counter inside an explicit transaction. The lock is
-    held until commit, so concurrent deliveries to the same subscription receive
+    One ``UPDATE ... SET delivery_sequence = delivery_sequence + 1 RETURNING`` (via
+    :func:`trueppm_api.core.db.increment_returning`) — a single statement, so there
+    is no separate ``SELECT FOR UPDATE`` / ``save()`` round-trip pair and no explicit
+    transaction to open (#1545). The UPDATE takes the row's write lock and evaluates
+    the increment under it, so concurrent deliveries to the same subscription receive
     strictly increasing, *contiguous* numbers — a gap at the consumer therefore
     signals a genuinely lost event, which is the whole point of the gap-detection
-    contract (#664).
+    contract (#664). Callers that run inside a transaction (the ping action) keep the
+    lock until commit; ``dispatch_webhooks`` runs from ``on_commit`` in autocommit,
+    where each statement is its own transaction and the single-statement form is what
+    keeps the increment and the read-back from racing.
 
-    The explicit ``transaction.atomic()`` is required because ``dispatch_webhooks``
-    runs from a ``transaction.on_commit`` callback (autocommit context); without
-    the surrounding transaction the increment + read-back would race.
+    Raises:
+        Webhook.DoesNotExist: the subscription was deleted (matches the previous
+            ``select_for_update().get()`` behavior).
     """
-    with transaction.atomic():
-        webhook = Webhook.objects.select_for_update().get(pk=webhook_id)
-        webhook.delivery_sequence += 1
-        webhook.save(update_fields=["delivery_sequence"])
-        return webhook.delivery_sequence
+    from trueppm_api.core.db import increment_returning
+
+    seq = increment_returning(Webhook, "delivery_sequence", webhook_id)
+    if seq is None:
+        raise Webhook.DoesNotExist(f"Webhook {webhook_id} does not exist")
+    return seq
 
 
 class DeliveryStatus(models.TextChoices):
