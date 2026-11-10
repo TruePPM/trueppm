@@ -255,7 +255,7 @@ test.describe('Schedule share — milestone reveal', () => {
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ id: 'u-1', username: 'alice', display_name: 'Alice', initials: 'AL' }),
+        body: pj({ id: 'u-1', username: 'alice', display_name: 'Alice', initials: 'AL', can_access_admin_settings: true }),
       }),
     );
     await page.route('**/api/v1/edition/', (r) =>

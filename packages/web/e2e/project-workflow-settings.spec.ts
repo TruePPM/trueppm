@@ -16,6 +16,7 @@ const ME_ID = 'user-alice';
 const PROJECT_ID = 'e2e-workflow-00000000-0000-0000-0000-000000000521';
 
 const FIXTURE_ME = {
+  can_access_admin_settings: true,
   id: ME_ID,
   username: 'alice',
   display_name: 'Alice',

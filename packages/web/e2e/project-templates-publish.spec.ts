@@ -73,7 +73,7 @@ async function setup(page: Page, captures: Captures, opts: { role?: number } = {
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ id: ME_ID, username: 'alice', email: 'alice@example.com', display_name: 'Alice' }),
+      body: pj({ id: ME_ID, username: 'alice', email: 'alice@example.com', display_name: 'Alice', can_access_admin_settings: true }),
     }),
   );
   await page.route('**/api/v1/edition/', (r) =>

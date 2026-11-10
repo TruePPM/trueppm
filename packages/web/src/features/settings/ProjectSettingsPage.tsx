@@ -124,6 +124,16 @@ export const PROJECT_SETTINGS_ANCHOR_ALIASES: Record<string, string> = Object.fr
   TEAM_WORKFLOW_SUBSECTION_IDS.map((id) => [id, TEAM_WORKFLOW_SECTION_ID]),
 );
 
+/**
+ * Whether the reduced member rail renders. Named for the OUTPUT (rule 379):
+ * anything but an explicit `true` withholds the admin rail.
+ */
+export function shouldShowProjectMemberRail(canAccessAdminSettings: boolean | undefined): boolean {
+  // Affordance polarity (rule 379): only an explicit `true` raises the admin rail;
+  // undefined (loading/errored/missing field) and `false` both withhold it.
+  return canAccessAdminSettings === true ? false : true;
+}
+
 export function buildProjectSettingsMemberNav(): SettingsNavGroup[] {
   return [
     {
@@ -385,10 +395,15 @@ export function ProjectSettingsPage() {
 
   // #2971: a member who is admin nowhere reaches this page (the route no longer
   // bounces them) and gets the reduced rail — today, the divergence digest alone.
-  // Strict `=== false`, matching every other consumer of this flag: an absent or
-  // still-loading signal renders the full rail, so an admin never sees a flash of
-  // the one-row view. The server is still the thing that refuses their writes.
-  const memberView = user?.can_access_admin_settings === false;
+  //
+  // Polarity (#3449, rule 379): the full rail is an AFFORDANCE — it raises
+  // several controls that mutate — so an unresolved signal defaults to WITHHELD.
+  // `/auth/me` loading, errored, or missing the field renders the member rail
+  // (explicit `=== true` for the full one). The cost is a one-row rail for an
+  // admin for the beat before `/auth/me` lands, which is rare because the shell
+  // has already fetched it; the alternative shows a genuine non-admin the full
+  // admin rail of 403-prone controls on a blip. The server still refuses writes.
+  const memberView = shouldShowProjectMemberRail(user?.can_access_admin_settings);
 
   const navGroups: SettingsNavGroup[] = memberView
     ? buildProjectSettingsMemberNav()

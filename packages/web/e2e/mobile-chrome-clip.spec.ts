@@ -121,8 +121,8 @@ function statusSummary({ band, at_risk_count, critical_count }: (typeof BANDS)[n
   };
 }
 
-async function setup(page: Page, band: (typeof BANDS)[number]) {
-  await page.setViewportSize({ width: VIEWPORT_W, height: 812 });
+async function setup(page: Page, band: (typeof BANDS)[number], width = VIEWPORT_W) {
+  await page.setViewportSize({ width, height: 812 });
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -197,4 +197,25 @@ test.describe('Mobile TopBar does not clip at the right edge (#1788)', () => {
       expect(chipBox!.width).toBeGreaterThan(40);
     });
   }
+});
+
+// #3520 — `xs: 320px` is a declared breakpoint, so the bar has to fit it. Worst
+// case only (widest chip word, admin, P80 set): the pinned chrome is shrink-0, so
+// if this width fits the narrower bands do too.
+test.describe('TopBar fits the declared xs breakpoint (#3520)', () => {
+  test('header does not overflow and the account chip stays on screen at 320px', async ({
+    page,
+  }) => {
+    await setup(page, BANDS[0], 320);
+    const header = page.locator('header').first();
+    const userMenu = header.getByRole('button', { name: 'Account — E2E User' });
+    await expect(userMenu).toBeVisible();
+    const overflow = await header.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    const tapRight = await userMenu.evaluate((el) => {
+      const overhang = Number.parseFloat(getComputedStyle(el, '::before').right || '0');
+      return el.getBoundingClientRect().right + Math.max(0, -overhang);
+    });
+    expect(tapRight).toBeLessThanOrEqual(320 + 1);
+  });
 });

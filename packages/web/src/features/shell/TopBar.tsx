@@ -84,7 +84,7 @@ export function TopBar({ onHamburgerClick }: Props) {
   }
 
   return (
-    <header className="flex items-center h-14 px-3 gap-2 bg-chrome-surface border-b border-chrome-border">
+    <header className="flex items-center h-14 px-2 gap-1 sm:px-3 sm:gap-2 bg-chrome-surface border-b border-chrome-border">
       {/* Hamburger — visible only below md (opens the rail drawer) */}
       <button
         type="button"
@@ -137,7 +137,10 @@ export function TopBar({ onHamburgerClick }: Props) {
       {/* Brand — mobile only (desktop carries it in the left rail). Mark-only on a
           phone: the full wordmark crowds the fixed right cluster off the edge
           (#1788); the rail drawer (hamburger) still shows the full lockup. */}
-      <span className="md:hidden shrink-0">
+      {/* Dropped below 360px only (#3520): at the declared xs 320px the shrink-0
+          pinned chrome leaves ~9px too little even after the tighter gutter, and
+          the mark is the one piece the hamburger drawer already shows in full. */}
+      <span className="md:hidden max-[359px]:hidden shrink-0">
         <Logo showWordmark={false} />
       </span>
 
@@ -253,7 +256,7 @@ export function TopBar({ onHamburgerClick }: Props) {
             `document.body` (rule 253), `MCResultPanel` is `position: fixed`, and
             `MethodologyIndicator`'s tooltip portals. Anything added to the scroller
             later must clear that same bar. */}
-        <div className="flex shrink-0 items-center gap-1.5 md:gap-3">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-1.5 md:gap-3">
           {/* Global quick-log time popover (issue 1416, ADR-0185 §C) — log effort
               from anywhere: task picker + duration presets, no timer needed. Anchored
               popover from md up; below md the same form opens in a bottom sheet
@@ -281,8 +284,10 @@ export function TopBar({ onHamburgerClick }: Props) {
 
           {/* Vertical divider fencing the "me" identity chip off from the utility
               cluster (presence, sync, bell) so there is one unambiguous identity
-              affordance (#1736, design §02). Decorative. */}
-          <span className="h-6 w-px shrink-0 bg-chrome-border/40" aria-hidden="true" />
+              affordance (#1736, design §02). Decorative, so it leaves the bar below sm
+              along with the tighter gutter/gaps: the pinned chrome is shrink-0 and
+              320px only fits once ~38px is returned (#3520). */}
+          <span className="hidden sm:block h-6 w-px shrink-0 bg-chrome-border/40" aria-hidden="true" />
 
           {/* User menu — avatar chip; the single home for the theme toggle, plus
               notifications, keyboard shortcuts, and sign out. */}

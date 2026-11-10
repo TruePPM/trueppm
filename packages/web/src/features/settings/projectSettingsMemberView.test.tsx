@@ -1,5 +1,42 @@
-import { describe, it, expect } from 'vitest';
-import { buildProjectSettingsMemberNav, buildProjectSettingsNav } from './ProjectSettingsPage';
+import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { canAuthorPlan } from '@/lib/roles';
+import {
+  buildProjectSettingsMemberNav,
+  buildProjectSettingsNav,
+  shouldShowProjectMemberRail,
+  ProjectSettingsPage,
+} from './ProjectSettingsPage';
+
+const mockUser = vi.hoisted(() => ({
+  user: undefined as { can_access_admin_settings?: boolean } | undefined,
+}));
+
+vi.mock('@/hooks/useCurrentUser', () => ({ useCurrentUser: () => mockUser }));
+vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({ useIsWorkspaceAdmin: () => true }));
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p1' }));
+vi.mock('@/hooks/useProject', () => ({ useProject: () => ({ data: undefined }) }));
+vi.mock('@/hooks/usePrograms', () => ({ usePrograms: () => ({ data: [] }) }));
+vi.mock('@/hooks/useProjects', () => ({ useProjects: () => ({ data: [] }) }));
+vi.mock('./project/ProjectTemplateDivergencePage', () => ({
+  ProjectTemplateDivergencePage: () => <div>divergence stub</div>,
+}));
+vi.mock('./project/ProjectGeneralPage', () => ({
+  ProjectGeneralPage: () => <div>general stub</div>,
+}));
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={['/projects/p1/settings']}>
+      <ProjectSettingsPage />
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  mockUser.user = undefined;
+});
 
 /**
  * The reduced project-settings rail a non-admin member sees (#2971).
@@ -41,5 +78,44 @@ describe('project settings — member view', () => {
     const groups = buildProjectSettingsMemberNav();
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe('Your project');
+  });
+
+  it('withholds the full admin rail until the server says true (#3449, rule 379)', () => {
+    // The full rail is an affordance: loading (undefined), errored (undefined),
+    // and an explicit false all render the member rail; only `true` raises it.
+    expect(shouldShowProjectMemberRail(undefined)).toBe(true);
+    expect(shouldShowProjectMemberRail(false)).toBe(true);
+    expect(shouldShowProjectMemberRail(true)).toBe(false);
+  });
+
+  it('pins the two permission-affordance polarities against each other (rule 379(c))', () => {
+    // Both helpers gate an affordance on a server verdict and both treat an
+    // unresolved one as "withhold": undefined must never raise the control.
+    expect(canAuthorPlan(undefined)).toBe(false);
+    expect(shouldShowProjectMemberRail(undefined)).toBe(true);
+    expect(canAuthorPlan(true)).toBe(true);
+    expect(shouldShowProjectMemberRail(true)).toBe(false);
+  });
+
+  describe('rendered ProjectSettingsPage', () => {
+    it('renders the member rail while /auth/me is pending or errored (user undefined)', () => {
+      mockUser.user = undefined;
+      renderPage();
+      expect(screen.getAllByText('Your project').length).toBeGreaterThan(0);
+      expect(screen.queryByText('How this team works')).toBeNull();
+    });
+
+    it('renders the member rail when can_access_admin_settings is false', () => {
+      mockUser.user = { can_access_admin_settings: false };
+      renderPage();
+      expect(screen.getAllByText('Your project').length).toBeGreaterThan(0);
+      expect(screen.queryByText('How this team works')).toBeNull();
+    });
+
+    it('renders the full rail once can_access_admin_settings is true', () => {
+      mockUser.user = { can_access_admin_settings: true };
+      renderPage();
+      expect(screen.getAllByText('How this team works').length).toBeGreaterThan(0);
+    });
   });
 });

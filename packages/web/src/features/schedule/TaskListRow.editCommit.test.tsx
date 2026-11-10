@@ -23,7 +23,7 @@
  */
 import type { DependencyDirection } from './deps/linkTypes';
 import { useMemo } from 'react';
-import { screen, render, fireEvent, act } from '@testing-library/react';
+import { screen, render, fireEvent, act, cleanup } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router';
@@ -276,6 +276,17 @@ describe('TaskListRow — Name cell commit (build mode)', () => {
 
     expect(mocks.updateMutate).not.toHaveBeenCalled();
     expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
+  });
+
+  // #3813 — the hover `+` is found by scanning, not reached by a gesture on
+  // content, so for an editor who chose Read it is absent (the toolbar mode chip
+  // names the way back), while Author keeps it.
+  it('hides the insert-below + in Read mode and keeps it in Author mode', () => {
+    renderBuild({ readOnly: true });
+    expect(screen.queryByRole('button', { name: /Insert an item below/ })).toBeNull();
+    cleanup();
+    renderBuild({});
+    expect(screen.getByRole('button', { name: /Insert an item below/ })).toBeTruthy();
   });
 
   // #3079 — the reported case. Renaming an existing row committed the edit AND

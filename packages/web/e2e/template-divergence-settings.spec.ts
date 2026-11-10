@@ -228,6 +228,32 @@ test.describe('Project Settings → Template divergence', () => {
     await expect(nav.getByText('Access', { exact: true })).toHaveCount(0);
   });
 
+  test('an /auth/me with no admin verdict gets the reduced rail, not the admin one (#3449)', async ({
+    page,
+  }) => {
+    await setup(page, { role: 300 });
+    // Registered after setup so it wins (LIFO): the verdict field is absent, as
+    // on a payload the client could not interpret.
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'user-alice',
+          username: 'alice',
+          display_name: 'Alice',
+          initials: 'AL',
+          email: 'alice@example.com',
+        }),
+      }),
+    );
+    await page.goto(URL);
+
+    const nav = page.getByRole('navigation', { name: 'Settings sections' });
+    await expect(nav.getByText('Template divergence')).toBeVisible();
+    await expect(nav.getByText('How this team works')).toHaveCount(0);
+  });
+
   test('the rail carries its own row, so the report is findable', async ({ page }) => {
     await setup(page, { role: 1 });
     await page.goto(URL);

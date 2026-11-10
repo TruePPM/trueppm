@@ -27,6 +27,8 @@ const FIXTURE_USER = {
   display_name: 'Alice',
   initials: 'AL',
   email: 'alice@example.com',
+  // Admin+ verdict: the project-settings rail withholds the full nav until /auth/me says so (#3449).
+  can_access_admin_settings: true,
 };
 
 /** A project whose attachment policy is server-resolved ON with a small allow-list. */

@@ -318,6 +318,31 @@ test.describe('Demo landing — tray and framing (#4050 A3/A4)', () => {
     await expect(page.getByRole('button', { name: 'Collapse unscheduled tasks' })).toHaveCount(0);
   });
 
+  test('the tray collapses when /edition/ resolves late (#4089)', async ({ page }) => {
+    await landing(page);
+    // Registered after landing(), so it takes precedence over the default
+    // /edition/ mock: the demo flag arrives ~1s after the first task rows.
+    await page.route('**/api/v1/edition/', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          edition: 'community',
+          demo_read_only: true,
+          demo_login_hint: DEMO_HINT,
+          demo_reset_schedule: null,
+        }),
+      });
+    });
+    await page.goto(URL);
+    await expect(page.getByRole('option', { name: /Performance tuning/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Expand unscheduled tasks' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('button', { name: 'Collapse unscheduled tasks' })).toHaveCount(0);
+  });
+
   test('an expand inside the visit is session-only — nothing is written', async ({ page }) => {
     await landing(page);
     await page.goto(URL);
