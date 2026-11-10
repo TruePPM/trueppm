@@ -679,3 +679,51 @@ def test_milestone_after_work_hit_on_the_next_monday_still_reads_late(
     _complete_on(m, MON)
     assert _task_row(client, project, m)["schedule_variance_days"] == 3
     assert _schedule_variance_by_project([project.pk]) == {project.pk: 3.0}
+
+
+@pytest.mark.django_db
+def test_task_list_completed_milestone_variance_query_count_is_flat(
+    client: APIClient, project: Project, admin: Any, django_assert_num_queries: Any
+) -> None:
+    """#4460: completed baselined milestones add no per-row work-predecessor query."""
+    baseline = Baseline.objects.create(
+        project=project, name="B", created_by=admin, is_active=True, has_cpm_dates=True
+    )
+
+    def add(n: int) -> None:
+        for i in range(n):
+            ms = Task.objects.create(
+                project=project,
+                name=f"CM{Task.objects.count()}-{i}",
+                duration=0,
+                is_milestone=True,
+                early_start=MON,
+                early_finish=MON,
+                actual_finish=MON,
+            )
+            BaselineTask.objects.create(
+                baseline=baseline,
+                task_id=ms.pk,
+                task_name=ms.name,
+                start=FRI,
+                finish=FRI,
+                duration=0,
+                finish_at_day_start=True,
+            )
+
+    def fetch() -> list[dict[str, Any]]:
+        res = client.get(f"/api/v1/tasks/?project={project.pk}&page_size=500")
+        assert res.status_code == 200, res.content
+        body = res.json()
+        return body["results"] if isinstance(body, dict) else body
+
+    add(1)
+    fetch()
+    with CaptureQueriesContext(connection) as ctx:
+        rows = fetch()
+    assert all(r["schedule_variance_days"] is not None for r in rows)
+    one = len(ctx.captured_queries)
+    add(4)
+    with django_assert_num_queries(one):
+        rows = fetch()
+    assert len(rows) == 5

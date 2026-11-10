@@ -4902,6 +4902,13 @@ def annotate_tasks_queryset(
     # Dependency edge.  Used by TaskSerializer.get_readiness() to distinguish
     # 'estimated' (has owner, no predecessors) from 'ready' (has owner + predecessors).
     qs = qs.annotate(has_predecessors=Exists(Dependency.objects.filter(successor=OuterRef("pk"))))
+    # #4460: whether a live non-milestone predecessor exists, read by
+    # get_schedule_variance_days so a completed milestone costs no per-row query.
+    from trueppm_api.apps.scheduling.finish_reading import live_work_predecessor_edges
+
+    qs = qs.annotate(
+        has_work_predecessor=Exists(live_work_predecessor_edges().filter(successor=OuterRef("pk")))
+    )
 
     # Board batch 3 (#182, #188) — PPM signal annotations consumed by BoardCard:
     #   predecessor_count       — count of live incoming Dependency edges.
@@ -13861,7 +13868,7 @@ class ProjectAttentionView(APIView):
         return out
 
     def _overallocation_items(self, project: Project) -> list[dict[str, Any]]:
-        """Resources whose committed units exceed their capacity on open tasks.
+        """Resources whose peak single-day load exceeds their capacity on open tasks.
 
         Capacity is the resource's **per-project** figure — the roster's
         ``units_override`` when one is set, else ``Resource.max_units`` (#3574).

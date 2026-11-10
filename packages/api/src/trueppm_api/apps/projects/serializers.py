@@ -6190,8 +6190,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             milestones_without_work_predecessor,
         )
 
-        # One indexed lookup, only for a completed milestone that has a baseline.
-        no_work_pred = obj.is_milestone and bool(milestones_without_work_predecessor([obj.pk]))
+        # ``has_work_predecessor`` is annotated on the list queryset (no per-row query);
+        # a non-annotated instance falls back to one indexed lookup.
+        if not obj.is_milestone:
+            no_work_pred = False
+        else:
+            annotated = getattr(obj, "has_work_predecessor", None)
+            no_work_pred = (
+                not annotated
+                if annotated is not None
+                else bool(milestones_without_work_predecessor([obj.pk]))
+            )
         return self._finish_vs_baseline_days(
             obj,
             (baseline, getattr(obj, "baseline_finish_at_day_start", None)),

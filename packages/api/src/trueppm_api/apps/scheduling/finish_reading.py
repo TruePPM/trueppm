@@ -93,6 +93,21 @@ def values_finish_at_day_start(row: Mapping[str, Any]) -> bool | None:
     return task_finish_at_day_start(SimpleNamespace(**{f: row[f] for f in FINISH_READING_FIELDS}))
 
 
+def live_work_predecessor_edges() -> Any:
+    """Dependency rows whose predecessor is live, non-milestone work (#4460).
+
+    The single predicate behind "has a work predecessor", shared by the batch
+    lookup below and the task-list ``Exists`` annotation so they cannot drift.
+    """
+    from trueppm_api.apps.projects.models import Dependency
+
+    return Dependency.objects.filter(
+        is_deleted=False,
+        predecessor__is_milestone=False,
+        predecessor__is_deleted=False,
+    )
+
+
 def milestones_without_work_predecessor(milestone_ids: Iterable[Any]) -> set[Any]:
     """The subset of ``milestone_ids`` that no live work task precedes (#4460).
 
@@ -100,18 +115,13 @@ def milestones_without_work_predecessor(milestone_ids: Iterable[Any]) -> set[Any
     engine reads it at the START of its day. One that follows work ends at the end
     of its day. "Work" is any non-milestone, non-deleted predecessor.
     """
-    from trueppm_api.apps.projects.models import Dependency
-
     ids = list(milestone_ids)
     if not ids:
         return set()
     has_work = set(
-        Dependency.objects.filter(
-            successor_id__in=ids,
-            is_deleted=False,
-            predecessor__is_milestone=False,
-            predecessor__is_deleted=False,
-        ).values_list("successor_id", flat=True)
+        live_work_predecessor_edges()
+        .filter(successor_id__in=ids)
+        .values_list("successor_id", flat=True)
     )
     return {i for i in ids if i not in has_work}
 
