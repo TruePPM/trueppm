@@ -1481,33 +1481,27 @@ FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR = RefProject(
 )
 
 
-def _reaches_avoiding(project: RefProject, src: str, dst: str, blocked: set[str]) -> bool:
-    """Whether ``dst`` is downstream of ``src`` by a path through no ``blocked`` task."""
-    seen: set[str] = set()
-    frontier = [src]
-    while frontier:
-        current = frontier.pop()
-        for ln in project.links:
-            if ln.pred != current or ln.succ in seen or ln.succ in blocked:
-                continue
-            if ln.succ == dst:
-                return True
-            seen.add(ln.succ)
-            frontier.append(ln.succ)
-    return False
-
-
 def _behind_a_held_snet_milestone(
-    project: RefProject, tid: str, s: str, base: EngineRun, after: EngineRun
+    project: RefProject,
+    run: Callable[[RefProject], EngineRun],
+    tid: str,
+    day: date,
+    s: str,
+    base: EngineRun,
+    after: EngineRun,
 ) -> bool:
     """TODO(#4883): the known tie shape, excluded by name until fixed.
 
-    ``s`` moved earlier, and every path from ``tid`` to it runs through a milestone
-    whose SNET held it on the same shown position in both runs. Nothing upstream
-    reached ``s`` except through that unmoved milestone, so the earlier move can only
-    be the milestone handing its successors the link's earlier midnight once the
-    slipped link ties the floor (#4690). That is #4883. Any other earlier move,
-    including one with a second path around the milestone, is still reported.
+    ``s`` moved earlier after ``tid`` slipped to ``day``. The move is excused only
+    if it flows through a milestone whose SNET held it on the same shown position in
+    both runs: cut every link leaving such a held milestone and replay the same slip;
+    if ``s`` no longer moves earlier, the milestone was handing it the link's earlier
+    midnight once the slipped link tied the floor (#4690). That is #4883.
+
+    A counterfactual rather than path reachability, because a path around the
+    milestone from a predecessor that slipped *later* can only push ``s`` later, so
+    it cannot explain an earlier move and must not defeat the excuse. A slip the cut
+    project does not realize, or a move that survives the cut, is not excused.
     """
     held = {
         m
@@ -1518,7 +1512,17 @@ def _behind_a_held_snet_milestone(
         and _held_at(base.tasks[m], True, project.calendar_of(m))
         == _held_at(after.tasks[m], True, project.calendar_of(m))
     }
-    return bool(held) and not _reaches_avoiding(project, tid, s, held)
+    if not held:
+        return False
+    cut = replace(project, links=tuple(ln for ln in project.links if ln.pred not in held))
+    cut_base, cut_after = run(cut), run(_with_snet(cut, tid, day))
+    cal = project.calendar_of(tid)
+    if first_working_on_or_after(cut_after.tasks[tid].early_start, cal) != day:
+        return False
+    is_ms, s_cal = project.durations[s] == 0, project.calendar_of(s)
+    return not (
+        _held_at(cut_after.tasks[s], is_ms, s_cal) < _held_at(cut_base.tasks[s], is_ms, s_cal)
+    )
 
 
 def work_moved_earlier_by_a_slip(
@@ -1560,13 +1564,32 @@ def work_moved_earlier_by_a_slip(
                     _held_at(after.tasks[s], is_ms, s_cal),
                 )
                 if now < was:
-                    if exclude_4883 and _behind_a_held_snet_milestone(project, tid, s, base, after):
+                    if exclude_4883 and _behind_a_held_snet_milestone(
+                        project, run, tid, day, s, base, after
+                    ):
                         continue
                     out.append(
                         f"{tid} slipped {slip} wd to {day}: {s} moved earlier {was} -> {now}"
                     )
     return out
 
+
+#: #4922, found by the deep nightly fuzz: #4900's shape plus a second path that
+#: skips the held milestone, ``T0 -FS-> T4`` beside ``T0 -> T1 -> T3 -> T4``.
+#: Slipping ``T0`` to Friday still moves ``T3`` and ``T4`` earlier through ``T1``;
+#: the around-path only pushes ``T4`` later, so it is not an excuse to report.
+FS_LAG_SLIP_INTO_A_TIED_SNET_WITH_A_PATH_AROUND = RefProject(
+    start=date(2026, 1, 6),
+    durations={"T0": 1, "T1": 0, "T3": 0, "T4": 0},
+    links=(
+        RefLink("T0", "T1", "FS", 1),
+        RefLink("T1", "T3", "FS", 1),
+        RefLink("T0", "T4", "FS", 0),
+        RefLink("T3", "T4", "FS", 0),
+    ),
+    calendar=RefCalendar(working_mask=MON_TO_FRI),
+    planned_start={"T1": date(2026, 1, 10)},
+)
 
 #: The open #4883 shapes: each moves work earlier when a predecessor slips.
 KNOWN_4883_SHAPES = (
@@ -1575,6 +1598,7 @@ KNOWN_4883_SHAPES = (
     FS_SLIP_INTO_A_TIED_MONDAY_SNET,
     FF_SLIP_INTO_A_TIED_MONDAY_SNET,
     FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR,
+    FS_LAG_SLIP_INTO_A_TIED_SNET_WITH_A_PATH_AROUND,
 )
 
 _4883_XFAIL = pytest.mark.xfail(
@@ -1589,6 +1613,7 @@ _4883_XFAIL = pytest.mark.xfail(
 @pytest.mark.fuzz
 @given(progress_projects())
 @example(FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR)
+@example(FS_LAG_SLIP_INTO_A_TIED_SNET_WITH_A_PATH_AROUND)
 def test_slipping_a_predecessor_never_moves_work_earlier(project: RefProject) -> None:
     """Live: a later predecessor never moves live work downstream of it earlier.
 
@@ -1623,13 +1648,29 @@ def test_the_4883_exclusion_covers_exactly_its_pinned_shapes(project: RefProject
     assert work_moved_earlier_by_a_slip(project, python_run) == []
 
 
-def test_the_4883_exclusion_keeps_a_move_with_a_path_around_the_milestone() -> None:
-    """A second path from the slipped task past the held milestone is not excused."""
+def test_the_4883_exclusion_excuses_a_move_despite_a_path_around_the_milestone() -> None:
+    """A second path past the held milestone does not defeat the excuse: it can only
+    push the successor later, and cutting the milestone's links removes the move."""
     p = FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR
-    base, after = python_run(p), python_run(_with_snet(p, "T0", date(2026, 1, 9)))
-    assert _behind_a_held_snet_milestone(p, "T0", "T2", base, after)
     around = replace(p, links=(*p.links, RefLink("T0", "T2", "FS", 0)))
-    assert not _behind_a_held_snet_milestone(around, "T0", "T2", base, after)
+    assert work_moved_earlier_by_a_slip(around, python_run, exclude_4883=False) != []
+    assert work_moved_earlier_by_a_slip(around, python_run) == []
+
+
+def test_the_4883_exclusion_reports_a_move_that_survives_cutting_the_milestone() -> None:
+    """Negative control: an engine that moves work earlier on its own, with the held
+    milestone's links gone, is a different bug from #4883 and is still reported."""
+    p = FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR
+
+    def wrong_run(project: RefProject) -> EngineRun:
+        run = python_run(project)
+        if "T0" not in project.planned_start:
+            return run
+        t2 = run.tasks["T2"]
+        tasks = {**run.tasks, "T2": replace(t2, early_start=t2.early_start - timedelta(days=3))}
+        return replace(run, tasks=tasks)
+
+    assert work_moved_earlier_by_a_slip(p, wrong_run) != []
 
 
 @pytest.mark.fuzz
