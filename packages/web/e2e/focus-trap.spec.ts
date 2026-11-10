@@ -237,7 +237,7 @@ test.describe('aria-modal pairing migration — settings MoveProgramDialog (#408
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ id: 'u-alice', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@example.com' }),
+        body: pj({ id: 'u-alice', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@example.com', can_access_admin_settings: true }),
       }),
     );
     await page.route('**/api/v1/edition/', (r) =>
@@ -279,6 +279,7 @@ test.describe('aria-modal pairing migration — settings MoveProgramDialog (#408
 });
 
 const PAT_ME = {
+  can_access_admin_settings: true,
   id: 'u-alice',
   username: 'alice',
   display_name: 'Alice',

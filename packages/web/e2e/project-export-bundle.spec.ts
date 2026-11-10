@@ -15,6 +15,7 @@ const PROJECT_ID = 'e2e-export-00000000-0000-0000-0000-000000001266';
 const JOB_ID = 'job-00000000-0000-0000-0000-000000001266';
 
 const FIXTURE_ME = {
+  can_access_admin_settings: true,
   id: ME_ID,
   username: 'alice',
   display_name: 'Alice',

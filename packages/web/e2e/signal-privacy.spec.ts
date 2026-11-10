@@ -19,7 +19,7 @@ const FIXTURE_PROJECT = {
   methodology: 'HYBRID',
 };
 
-const FIXTURE_ME = { id: 'user-alice', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@example.com' };
+const FIXTURE_ME = { id: 'user-alice', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@example.com', can_access_admin_settings: true };
 
 function policy(over: Record<string, unknown> = {}) {
   return {

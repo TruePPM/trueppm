@@ -102,7 +102,7 @@ async function setup(page: Page, patchRef: { body: Record<string, unknown> | nul
   await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
-    r.fulfill(json({ id: ME_ID, username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@example.com' })),
+    r.fulfill(json({ id: ME_ID, username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@example.com', can_access_admin_settings: true })),
   );
   await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));
   await page.route('**/api/v1/projects/', (r) =>

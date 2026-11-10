@@ -30,6 +30,7 @@ const FIXTURE_PROJECT = {
 };
 
 const FIXTURE_ME = {
+  can_access_admin_settings: true,
   id: 'u-alice',
   username: 'alice',
   display_name: 'Alice',

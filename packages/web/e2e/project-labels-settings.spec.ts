@@ -14,6 +14,7 @@ const ME_ID = 'user-alice';
 const PROJECT_ID = 'e2e-labels-00000000-0000-0000-0000-000000001089';
 
 const FIXTURE_ME = {
+  can_access_admin_settings: true,
   id: ME_ID,
   username: 'alice',
   display_name: 'Alice',

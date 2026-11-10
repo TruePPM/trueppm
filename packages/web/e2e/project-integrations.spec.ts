@@ -27,6 +27,7 @@ const FIXTURE_PROJECT = {
 const FIXTURE_PROJECT_TWO = { ...FIXTURE_PROJECT, id: PROJECT_ID_TWO, name: 'Second Project' };
 
 const FIXTURE_ME = {
+  can_access_admin_settings: true,
   id: 'user-alice',
   username: 'alice',
   display_name: 'Alice',

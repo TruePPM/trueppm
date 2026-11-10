@@ -78,6 +78,7 @@ async function baseSetup(page: Page) {
         display_name: 'Alice',
         initials: 'AL',
         email: 'alice@example.com',
+        can_access_admin_settings: true,
       }),
     ),
   );
