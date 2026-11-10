@@ -245,7 +245,7 @@ for f in "${TRANSCRIPT_SURFACES[@]}"; do
   [ -f "$f" ] || continue
   # Join each file's wrapped lines so a quote broken across lines is compared whole.
   while IFS=: read -r ln rest; do
-    quoted=$(printf '%s' "$rest" | grep -o 'OK: no trueppm-enterprise[^"`]*' | head -n 1 || true)
+    quoted=$(printf '%s' "$rest" | grep -o 'OK: no trueppm-enterprise[^"`]*' | sed -n 1p || true)
     [ -n "$quoted" ] || continue
     [ "$quoted" = "$real_msg" ] && continue
     # A quote wrapped across lines ends the line without closing: compare as a
