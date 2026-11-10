@@ -873,10 +873,22 @@ def _validate_span_bounds(project: Project) -> None:
     weight = {
         t.id: max(_task_worst_case_days(t), velocity_days.get(t.id, 0)) for t in project.tasks
     }
-    chain = _longest_chain_days(project, weight)
-    if chain is None:
-        chain = sum(weight.values()) + lag_total
-    chain_span = chain + shift
+    serial = sum(weight.values()) + lag_total
+    serial_span = serial + shift
+    # The longest chain never exceeds the serial sum, and both checks below only get
+    # stricter as the span grows, so when the serial bound already passes the span cap
+    # and the date-overflow reach check, the exact chain would pass them too: skip the
+    # O(tasks + dependencies) walk. This is what keeps validation a small share of
+    # schedule() on ordinary projects (#4711); refusals are unchanged, so the Rust
+    # engine, which always walks, stays in conformance.
+    if (
+        serial_span <= MAX_PROJECT_SPAN_DAYS
+        and (date.max - project.start_date).days >= serial_span * 7 + MAX_CALENDAR_SCAN_DAYS
+    ):
+        chain_span = serial_span
+    else:
+        chain = _longest_chain_days(project, weight)
+        chain_span = (serial if chain is None else chain) + shift
     if chain_span > MAX_PROJECT_SPAN_DAYS:
         what = (
             "along the longest dependency chain, counting each scrum task's velocity worst case"
