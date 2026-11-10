@@ -20,10 +20,12 @@ from __future__ import annotations
 import ast
 import inspect
 import re
+import sys
 import textwrap
 from pathlib import Path
 from typing import Any
 
+import pytest
 from django.urls import URLPattern, URLResolver, get_resolver
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -693,6 +695,12 @@ def _effective_permission_names(cls: type, action: str | None, method: str) -> s
     view.format_kwarg = None
     view.kwargs = {}
     view.request = Request(APIRequestFactory().generic(method, "/"))
+    # DRF applies an `@action(permission_classes=[...])` override as an init kwarg on the
+    # instance, so a bare `cls()` would report the CLASS default and miss it (#3642).
+    handler = getattr(cls, action, None) if action else None
+    override = getattr(handler, "kwargs", {}).get("permission_classes")
+    if override is not None:
+        view.permission_classes = override
     return {type(permission).__name__ for permission in view.get_permissions()}
 
 
@@ -806,15 +814,64 @@ def _entry_key(path: str, action: str | None, method: str) -> str:
     return f"{path}::{action or method.lower()}"
 
 
+def _model_resolves_project(cls: type, *, max_depth: int = 3) -> bool:
+    """Does the view's queryset model have a forward-FK path to ``projects.Project``?
+
+    A fact about the data model, not a human decision: a route cannot un-declare it by
+    editing a set or dropping a permission class (#3642). It is the discovery signal for
+    a route whose project-scope is carried only by an in-body check — pinning such a
+    route in ``ARCHIVED_BODY_ENTRIES`` used to be its *own* discovery signal, which made
+    the pin circular (removing it removed the route from the surface it was checked
+    against, and with it all archived coverage, silently).
+
+    Walks concrete NON-NULL forward FKs (and one-to-ones) breadth-first to ``max_depth`` hops. A
+    viewset without a class-level ``queryset`` yields False and must carry another
+    signal.
+    """
+    queryset = getattr(cls, "queryset", None)
+    if queryset is None:
+        return False
+    seen: set[type] = set()
+    frontier = [queryset.model]
+    for _ in range(max_depth):
+        nxt: list[type] = []
+        for model in frontier:
+            if model in seen:
+                continue
+            seen.add(model)
+            for field in model._meta.get_fields():
+                if not (field.many_to_one or field.one_to_one) or not field.concrete:
+                    continue
+                if field.null:
+                    # A nullable hop can be NULL at runtime, so it cannot be relied on
+                    # to name a project (`FailedTask.project` is the live example: an
+                    # operator row that survives the project's deletion).
+                    continue
+                target = field.related_model
+                if target is None or isinstance(target, str):
+                    continue
+                if target.__name__ == "Project" and target._meta.app_label == "projects":
+                    return True
+                nxt.append(target)
+        frontier = nxt
+    return False
+
+
 def _project_scoped_write_entries() -> list[
     tuple[str, str, URLPattern, str | None, set[str], list[str]]
 ]:
     """Every (write route, action) pair that touches a single project.
 
-    Discovery is a union of five runtime signals rather than one, because no single one
+    Discovery is a union of runtime signals rather than one, because no single one
     covers the surface: `slip-conflicts/<pk>/acknowledge/` names no project and applies
     no project-scoped class (its gate is in the body), while `project-resources/` names
     no project but applies four.
+
+    The signals are: the URL names a project; the view declares `project_url_kwarg`; a
+    project-resolving permission class is applied; one is inherited but dropped for this
+    action; the view's queryset model has an FK path to `Project`
+    (`_model_resolves_project`). Membership in `ARCHIVED_BODY_ENTRIES` is deliberately
+    NOT a signal (#3642).
 
     Returns `(key, path, entry, action, effective_permission_names, why_project_scoped)`.
     """
@@ -847,18 +904,12 @@ def _project_scoped_write_entries() -> list[
                 # body check, and dropping it from the denominator would excuse exactly
                 # the actions most likely to have lost the gate by accident.
                 why.append(f"inherits {sorted(inherited & scoped)}")
-            if key in ARCHIVED_BODY_ENTRIES:
-                # A route pinned here can have no permission class left to discover it
-                # by (#3569 dropped `TaskSkillRequirementViewSet`'s declared-but-inert
-                # `IsProjectNotArchived` — it could never fire on `create` anyway, and
-                # keeping it declared just to be found by this scan is the exact
-                # "declared class that cannot fire" anti-pattern this file's own
-                # rationale above argues against). Being pinned in
-                # `ARCHIVED_BODY_ENTRIES` is itself the human decision that the route is
-                # project-scoped, so it has to count as a discovery signal in its own
-                # right — otherwise the route silently falls out of the enumerated
-                # surface the moment its last permission-class trace is removed.
-                why.append("pinned in ARCHIVED_BODY_ENTRIES")
+            if _model_resolves_project(cls):
+                # Structural, so a route held only by an in-body check (#3569 dropped
+                # `TaskSkillRequirementViewSet`'s declared-but-inert class) is still found.
+                # Deliberately NOT "is pinned in ARCHIVED_BODY_ENTRIES": that made discovery
+                # circular — removing the pin removed the route from the surface (#3642).
+                why.append("model resolves a project")
             if why:
                 rows.append((key, path, entry, action, effective, why))
     return rows
@@ -927,6 +978,9 @@ ARCHIVED_BODY_ENTRIES: frozenset[str] = frozenset(
         "api/v1/^project-resources/$::create",
         "api/v1/^task-resources/$::create",
         "api/v1/^task-skill-requirements/$::create",
+        "api/v1/^task-skill-requirements/(?P<pk>[^/.]+)/$::update",
+        "api/v1/^task-skill-requirements/(?P<pk>[^/.]+)/$::partial_update",
+        "api/v1/^task-skill-requirements/(?P<pk>[^/.]+)/$::destroy",
         "api/v1/^slip-conflicts/(?P<pk>[^/.]+)/acknowledge/$::acknowledge",
         "api/v1/integrations/projects/<uuid:project_pk>/git-webhook/::post",
         "api/v1/projects/<str:pk>/monte-carlo/::post",
@@ -1059,6 +1113,35 @@ ARCHIVED_EXEMPT_ENTRIES: frozenset[str] = frozenset(
 )
 
 
+def test_dropping_a_body_pin_is_not_a_silent_loss_of_archived_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Removing a pin must leave the route in the surface AND failing (#3642).
+
+    `task-skill-requirements/$::create` is held only by an in-body check, so it is the
+    pin-only route. Its discovery must come from the model's FK path to Project, not from
+    the pin: with the pin removed the route must still be enumerated, and with nothing
+    to certify its in-body check it must be reported unenforced.
+    """
+    key = "api/v1/^task-skill-requirements/$::create"
+    assert key in ARCHIVED_BODY_ENTRIES
+    monkeypatch.setattr(
+        sys.modules[__name__], "ARCHIVED_BODY_ENTRIES", ARCHIVED_BODY_ENTRIES - {key}
+    )
+    rows = {row[0]: row for row in _project_scoped_write_entries()}
+    assert key in rows, "route left the surface when its pin was removed"
+    k, path, entry, action, effective, why = rows[key]
+    assert "model resolves a project" in why
+    assert _archived_enforcement_path(k, path, entry, action, effective) is None
+
+
+def test_every_body_pin_is_discovered_without_the_pin() -> None:
+    """No pinned entry may depend on being pinned to be enumerated (#3642)."""
+    found = {row[0]: row[5] for row in _project_scoped_write_entries()}
+    for key in ARCHIVED_BODY_ENTRIES:
+        assert found.get(key), f"{key} is enumerated only because it is pinned (or not at all)"
+
+
 def test_the_archived_scan_is_not_vacuous() -> None:
     """Guard the guard.
 
@@ -1085,6 +1168,10 @@ def test_the_archived_scan_is_not_vacuous() -> None:
     ):
         assert probe in keys, f"{probe} dropped out of the project-scoped write surface"
 
+    # Discovery must not depend on the pin (#3642): a pinned entry that is only found
+    # because it is pinned is circular, and removing the pin would silently drop all its
+    # archived coverage. Pins are discovered above without consulting the set, so this
+    # also catches a stale pin for a route that was renamed or deleted.
     assert keys >= ARCHIVED_BODY_ENTRIES, (
         "ARCHIVED_BODY_ENTRIES names entry/entries outside the enumerated surface: "
         f"{sorted(ARCHIVED_BODY_ENTRIES - keys)}"
