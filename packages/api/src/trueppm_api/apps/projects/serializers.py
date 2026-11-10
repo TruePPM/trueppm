@@ -9170,6 +9170,11 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
         return normalized
 
 
+#: Caps on each ``filter_*`` facet list of a saved board view (#2395).
+FACET_LIST_MAX_ENTRIES = 200
+FACET_ENTRY_MAX_LENGTH = 128
+
+
 class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
     """Read/write serializer for BoardSavedView.
 
@@ -9238,6 +9243,18 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
         raw = value.get(key, [])
         if not isinstance(raw, list) or not all(isinstance(v, str) for v in raw):
             raise serializers.ValidationError(f"config.{key} must be a list of strings")
+        # Bounded before anything else (#2395): a saved view is re-served to every
+        # member on every board load, so an unbounded list is storage plus response
+        # amplification. Refuse rather than truncate — a silently shortened filter
+        # is the same fail-open class #2385 fixed.
+        if len(raw) > FACET_LIST_MAX_ENTRIES:
+            raise serializers.ValidationError(
+                f"config.{key} may contain at most {FACET_LIST_MAX_ENTRIES} entries"
+            )
+        if any(len(v) > FACET_ENTRY_MAX_LENGTH for v in raw):
+            raise serializers.ValidationError(
+                f"config.{key} entries may be at most {FACET_ENTRY_MAX_LENGTH} characters"
+            )
         if valid_values is not None:
             unknown = [v for v in raw if v not in valid_values]
             if unknown:
