@@ -37,7 +37,7 @@
 # issue) or a tracker write fails.
 #
 # Tokens: gates read with ISSUES_API_TOKEN (read_api) as everywhere else.
-# Writes need TRACKER_DRIFT_TOKEN — a masked, protected project access token
+# Writes need TRACKER_DRIFT_TOKEN (creating it is tracked in #4927) — a masked, protected project access token
 # with `api` scope and at least Reporter role (Issues write). It is required
 # only when a write is needed; without it the job prints the report and fails.
 # The token is sent only as a request header and never echoed; never run this

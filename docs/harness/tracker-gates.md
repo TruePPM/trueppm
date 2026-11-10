@@ -108,7 +108,7 @@ needed and no write token is set.
 
 - Reads use `ISSUES_API_TOKEN` (`read_api`), the same token as the gates. The
   job token is never sent to the Issues or MR API (#3043).
-- Writes use `TRACKER_DRIFT_TOKEN`, a masked, protected project access token
+- Writes use `TRACKER_DRIFT_TOKEN` (creating it is tracked in #4927), a masked, protected project access token
   with `api` scope and Reporter role or higher. It is sent only as a request
   header and is never echoed. The self-test asserts that it does not reach the
   job log.
