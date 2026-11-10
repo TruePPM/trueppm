@@ -95,3 +95,24 @@ def test_invite_accept_envelope(schema: dict, db: object) -> None:
     assert resp.status_code == 200, resp.content
     assert_declared_properties_match_body(schema, resp, ACCEPT, "post")
     assert_response_matches_schema(schema, resp, ACCEPT, "post")
+
+
+# Ratchet: operations whose 200/201 still declares no ``content``. Declare an
+# envelope for the next one you touch and lower this; never raise it.
+BODYLESS_2XX_CEILING = 20
+
+
+def test_bodyless_2xx_operations_do_not_grow(schema: dict) -> None:
+    bodyless = sorted(
+        f"{method.upper()} {path} {code}"
+        for path, ops in schema["paths"].items()
+        for method, op in ops.items()
+        if method in {"get", "post", "put", "patch", "delete"}
+        for code, resp in op.get("responses", {}).items()
+        if code in {"200", "201"} and not resp.get("content")
+    )
+    assert len(bodyless) <= BODYLESS_2XX_CEILING, (
+        f"{len(bodyless)} operations declare a 200/201 with no body "
+        f"(ceiling {BODYLESS_2XX_CEILING}). Declare an envelope for the new one, "
+        f"or lower the ceiling if you fixed some:\n" + "\n".join(bodyless)
+    )

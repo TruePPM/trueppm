@@ -108,14 +108,17 @@ class TestTaskListAnnotation:
     def test_query_count_does_not_scale_with_rows(
         self, client: APIClient, project: Project, user: Any
     ) -> None:
-        _load(project, user, OVERLAPPING)
+        res = _load(project, user, OVERLAPPING)
+        other = User.objects.create_user(username="u_3544_b", password="pw")
+        ProjectMembership.objects.create(project=project, user=other, role=Role.MEMBER)
+        res_b = Resource.objects.create(name="Bo", max_units=Decimal("1.0"), user=other)
         with CaptureQueriesContext(connection) as small:
             _flags(client, project)
-        res = Resource.objects.get(user=user)
         for i in range(10):
+            owner, who = (user, res) if i % 2 == 0 else (other, res_b)
             TaskResource.objects.create(
-                task=_task(project, user, f"X{i}", date(2026, 3, 2), date(2026, 3, 6)),
-                resource=res,
+                task=_task(project, owner, f"X{i}", date(2026, 3, 2), date(2026, 3, 6)),
+                resource=who,
                 units=Decimal("0.1"),
             )
         with CaptureQueriesContext(connection) as large:
@@ -134,7 +137,6 @@ class TestAttentionFeed:
         self, client: APIClient, project: Project, user: Any
     ) -> None:
         _load(project, user, SEQUENTIAL)
-        print([(t.early_start, t.early_finish, t.scheduled_start) for t in Task.objects.all()])
         assert self._items(client, project) == []
 
     def test_overlap_raises_one_item_with_the_peak_not_the_sum(
@@ -159,3 +161,67 @@ class TestAttentionFeed:
             ],
         )
         assert self._items(client, project) == []
+
+
+# Weekend-start case: A spans Sat-Mon, B and C sit on the weekend only. Site 1 anchors
+# on the span's first CALENDAR day (Saturday, 1.2 covering) while the engine only
+# counts working days (Monday, 0.4), so the task-list flag over-reports. The
+# approximation is documented in annotate_tasks_queryset.
+WEEKEND = [
+    (date(2026, 3, 7), date(2026, 3, 9)),
+    (date(2026, 3, 7), date(2026, 3, 8)),
+    (date(2026, 3, 7), date(2026, 3, 8)),
+]
+
+
+@pytest.mark.django_db
+class TestReadsAgree:
+    """The invariant #3534 asks for, extended to the two reads #3544 fixed."""
+
+    @pytest.mark.parametrize(
+        ("spans", "over"),
+        [
+            pytest.param(SEQUENTIAL, False, id="sequential"),
+            pytest.param(OVERLAPPING, True, id="overlapping"),
+            pytest.param([(None, None)] * 3, True, id="undated"),
+            pytest.param(
+                WEEKEND,
+                False,
+                id="weekend-start",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="site 1 anchors on the span's first calendar day, not first "
+                    "working day (documented approximation in annotate_tasks_queryset)",
+                ),
+            ),
+        ],
+    )
+    def test_flag_feed_peak_and_write_warning_agree(
+        self,
+        client: APIClient,
+        project: Project,
+        user: Any,
+        spans: list[tuple[date | None, date | None]],
+        over: bool,
+    ) -> None:
+        from trueppm_api.apps.projects.utilization import Allocation, peak_concurrent_units
+        from trueppm_api.apps.resources.views import _check_overallocation
+
+        res = _load(project, user, spans)
+        cap = res.max_units
+        peak, _day = peak_concurrent_units(
+            [Allocation(Decimal("0.4"), s, e) for s, e in spans],
+            project.calendar.working_days,
+            [],
+        )
+        assert (peak > cap) is over  # the oracle itself
+
+        warned = any(
+            w["code"] == "resource_overallocated"
+            for w in _check_overallocation(res, str(project.pk))
+        )
+        resp = client.get(f"/api/v1/projects/{project.pk}/attention/")
+        fed = any(i["type"] == "overallocation" for i in resp.data["items"])
+        flagged = all(_flags(client, project))
+        assert warned is fed is over
+        assert flagged is over
