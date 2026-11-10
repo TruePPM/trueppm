@@ -263,8 +263,8 @@ export function WorkspaceMethodologyPage() {
                       </span>
                       {isSelected && (
                         <span
-                          className="w-4 h-4 rounded-full flex items-center justify-center"
-                          style={{ background: m.accent, color: '#fff' }}
+                          className="w-4 h-4 rounded-full flex items-center justify-center text-white"
+                          style={{ background: m.accent }}
                         >
                           <svg
                             width="10"

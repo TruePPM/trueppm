@@ -165,6 +165,17 @@ if [ "${1:-}" = "--self-test" ]; then
   printf "const accent = '#f59e0b';\n" > "$d/Widget.tsx"
   st_probe "raw hex color literal" expect-fail "$d"
 
+  # REJECT: a constant color literal in an inline style (check 3c, #4395). Uses rgb()
+  # so check 2 (hex) cannot be what rejects it — this proves 3c fires on its own.
+  d="$(st_fixture stylecolor)"
+  printf "const el = <span style={{ background: m.accent, color: 'rgb(255, 255, 255)' }} />;\n" > "$d/Widget.tsx"
+  st_probe "constant color literal in inline style" expect-fail "$d"
+
+  # ACCEPT: a dynamic value and the rgb(var(--token)) form in a style property.
+  d="$(st_fixture styletoken)"
+  printf "const el = <span style={{ background: m.accent, color: 'rgb(var(--neutral-surface))' }} />;\n" > "$d/Widget.tsx"
+  st_probe "dynamic + rgb(var(--token)) inline style" expect-pass "$d"
+
   # REJECT: an off-token shadow (check 3).
   d="$(st_fixture shadow)"
   printf 'const cls = "rounded-lg border border-neutral-border shadow-lg px-3";\n' > "$d/Widget.tsx"
@@ -266,7 +277,7 @@ SHELL_SRC="$WEB_SRC/features/shell"
 #                constants deliveryScrum already uses, which is what makes the
 #                band and the scrum bars inside it the same violet by
 #                construction rather than by review.
-BASELINE_HEX=124
+BASELINE_HEX=122
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the
@@ -289,6 +300,15 @@ BASELINE_SHADOW=0
 # COLOR_DARK counterpart (rgba(255,255,255,0.14)) and a COLOR_FORCED counterpart
 # (CanvasText) — same accepted pattern as rowHover above.
 BASELINE_BLACK=7
+# Constant color literals in an inline `style` / color property (check 3c, #4395).
+# Check 2 already sees a quoted `'#fff'`, but it is one 124-wide ratchet, so two new
+# `color: '#fff'` swatches were absorbed by the floor without a signal. This is the
+# narrow, property-scoped version: `color|background|fill|stroke|...: '#hex'` or
+# `rgb(r,g,b)`/`rgba(...)`. The sanctioned token form `rgb(var(--token))` is not
+# matched (a digit must follow the paren). The 5 survivors are the user-configurable
+# default column colors in hooks/useBoardConfig.ts (seed data for a per-column color
+# picker, not themed chrome). Lower this when they move to tokens.
+BASELINE_STYLE_COLOR=5
 # Sub-floor type outside the sanctioned settings tree (check 4b). ZERO since #3475 —
 # the ratchet is closed and this check is now zero-tolerance in everything but name.
 # The two survivors this baseline was carrying were both DECORATIVE text inside an
@@ -364,6 +384,7 @@ if [ -n "$DS_V2_ROOT" ]; then
   BASELINE_ARBITRARY=0
   BASELINE_SHADOW=0
   BASELINE_BLACK=0
+  BASELINE_STYLE_COLOR=0
   BASELINE_TINY_TEXT=0
   BASELINE_QUERY_ERROR=0
 fi
@@ -461,6 +482,11 @@ g() {
     -*r*) { grep "$@" || [ "$?" -eq 1 ]; } | drop_ignored_lines ;;
     *)    grep "$@" || [ "$?" -eq 1 ] ;;
   esac
+}
+
+STYLE_COLOR_PAT="\\b(color|backgroundColor|background|borderColor|borderTopColor|borderBottomColor|borderLeftColor|borderRightColor|outlineColor|fill|stroke|caretColor|accentColor)[[:space:]]*:[[:space:]]*['\"\`](#[0-9a-fA-F]{3,8}\\b|rgba?[(][[:space:]]*[0-9])"
+style_color_offenders() {
+  g -rInE "$STYLE_COLOR_PAT" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | g -vE "$EXCLUDE"
 }
 
 hex_count() {
@@ -873,6 +899,7 @@ hex=$(hex_count)
 arb=$(arbitrary_count)
 shadow=$(shadow_count)
 black=$(black_rgba_count)
+style_color=$(style_color_offenders | wc -l | tr -d ' ')
 dark_chrome=$(dark_chrome_offenders | wc -l | tr -d ' ')
 tiny_text=$(tiny_text_offenders | wc -l | tr -d ' ')
 bare_suspense=$(bare_suspense_fallback_offenders | wc -l | tr -d ' ')
@@ -880,7 +907,7 @@ sem_tint=$(sem_tint_offenders | wc -l | tr -d ' ')
 query_error=$(query_error_offenders | wc -l | tr -d ' ')
 skeleton_stall=$(skeleton_stall_offenders | wc -l | tr -d ' ')
 
-echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0)" >&2
+echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · style-color=$style_color (≤$BASELINE_STYLE_COLOR) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0)" >&2
 
 if (( arb > BASELINE_ARBITRARY )); then
   {
@@ -926,6 +953,17 @@ if (( black > BASELINE_BLACK )); then
   fail=1
 elif (( black < BASELINE_BLACK )); then
   echo "::notice:: black-rgba values dropped to $black — lower BASELINE_BLACK in $(basename "$0") to $black to lock the gain."
+fi
+
+if (( style_color > BASELINE_STYLE_COLOR )); then
+  {
+    echo "::error:: $style_color constant color literal(s) in an inline style/color property (baseline $BASELINE_STYLE_COLOR, rule 8, #4395)."
+    echo "  Use a token class (text-white, text-neutral-*, bg-brand-*) or var(--color-*); a dynamic value (background: m.accent) is fine, a constant hex/rgb() is not. Offenders:"
+    style_color_offenders | sed "$SED_INDENT4"
+  } >&2
+  fail=1
+elif (( style_color < BASELINE_STYLE_COLOR )); then
+  echo "::notice:: inline style color literals dropped to $style_color — lower BASELINE_STYLE_COLOR in $(basename "$0") to $style_color."
 fi
 
 if (( dark_chrome > 0 )); then

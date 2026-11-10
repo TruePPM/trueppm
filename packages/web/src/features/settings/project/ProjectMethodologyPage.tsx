@@ -524,8 +524,8 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
                       </span>
                       {isSelected && (
                         <span
-                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                          style={{ background: m.accent, color: '#fff' }}
+                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-white"
+                          style={{ background: m.accent }}
                         >
                           <svg
                             width="10"
