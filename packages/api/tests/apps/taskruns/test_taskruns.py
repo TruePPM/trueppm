@@ -501,3 +501,72 @@ def test_purge_task_run(project: Project, user: object) -> None:
     assert result["deleted"] == 1
     assert not TaskRun.objects.filter(pk=run.pk).exists()
     assert TaskRun.objects.filter(pk=recent.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# Serializer exposure (#1726): no raw user PK, error_detail Admin+ only
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def failed_run(project: Project, user: object) -> TaskRun:
+    return TaskRun.objects.create(
+        task_name="scheduling.recalculate",
+        celery_task_id="fake-celery-id-2",
+        project=project,
+        initiated_by=user,
+        status=TaskRunStatus.FAILED,
+        error_detail="Traceback: /srv/app/secret/path.py line 3",
+    )
+
+
+@pytest.mark.django_db
+def test_viewer_sees_username_not_pk_and_no_error_detail(
+    viewer_client: APIClient, project: Project, failed_run: TaskRun, user: object
+) -> None:
+    resp = viewer_client.get(f"/api/v1/projects/{project.pk}/task-runs/")
+    assert resp.status_code == 200
+    row = resp.data["results"][0]
+    assert "initiated_by" not in row
+    assert row["initiated_by_username"] == "tr_user"
+    assert row["error_detail"] == ""
+
+
+@pytest.mark.django_db
+def test_viewer_retrieve_hides_error_detail(
+    viewer_client: APIClient, project: Project, failed_run: TaskRun
+) -> None:
+    resp = viewer_client.get(f"/api/v1/projects/{project.pk}/task-runs/{failed_run.pk}/")
+    assert resp.status_code == 200
+    assert resp.data["error_detail"] == ""
+
+
+@pytest.mark.django_db
+def test_admin_sees_error_detail(
+    admin_client: APIClient, project: Project, failed_run: TaskRun
+) -> None:
+    resp = admin_client.get(f"/api/v1/projects/{project.pk}/task-runs/")
+    row = resp.data["results"][0]
+    assert "secret/path.py" in row["error_detail"]
+    assert row["initiated_by_username"] == "tr_user"
+    assert "initiated_by" not in row
+
+
+@pytest.mark.django_db
+def test_global_viewset_redacts_per_project_role(
+    viewer_client: APIClient, project: Project, failed_run: TaskRun
+) -> None:
+    """The cross-project endpoint resolves the role against each row's own project."""
+    resp = viewer_client.get(f"/api/v1/task-runs/{failed_run.pk}/")
+    assert resp.status_code == 200
+    assert resp.data["error_detail"] == ""
+    assert "initiated_by" not in resp.data
+
+
+@pytest.mark.django_db
+def test_scheduler_runs_viewer_error_detail_hidden(
+    viewer_client: APIClient, project: Project, failed_run: TaskRun
+) -> None:
+    resp = viewer_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["error_detail"] == ""

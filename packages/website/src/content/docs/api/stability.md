@@ -432,6 +432,22 @@ the program/project visibility boundary. Resolve and render an @mention from `us
 | Announced | 0.4 (removed with no window; security-critical exception) |
 | Migration | use `username`; email is not available on these payloads |
 
+### Task-run initiator id replaced and error text redacted (#1726)
+
+The task-run payloads (`/projects/{id}/task-runs/`, `/task-runs/{id}/`,
+`/task-runs/active/`) no longer carry `initiated_by`, the raw integer user id of
+whoever started the run; they carry `initiated_by_username` instead, matching the
+scheduler-runs payload. `error_detail` is now an empty string for callers below the
+project Admin role, because it holds raw worker exception text. This is a **Breaking**
+removal, taken without a window because it is a security fix: any project Viewer could
+read user ids and internal error text. Render the run's initiator from
+`initiated_by_username`.
+
+| | |
+|---|---|
+| Announced | 0.4 (removed with no window; security-critical exception) |
+| Migration | use `initiated_by_username`; Admin and above still receive `error_detail` |
+
 ### Transfer target refusals unified to 400 (#4575)
 
 `POST /api/v1/projects/{id}/transfer/` no longer answers `404` for a target user who

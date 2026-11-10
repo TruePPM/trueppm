@@ -26,3 +26,6 @@ property-removed | request PATCH /api/v1/sprints/{id}/retro/ body [[]PatchedSpri
 # wire behavior unchanged (a stringified integer is still accepted).
 type-changed | request #/*MentionGroup*MemberRequestRequest.user | user-ids-declared-as-integers-4293 | request body declared the user PK as a uuid; it is an integer
 type-changed | response #/ProjectRetroCarryoverItem.assignee_id | user-ids-declared-as-integers-4293 | response always carried an integer user PK
+
+# #1726 - raw auth.User PK dropped from the Viewer-readable task-run payload (security).
+property-removed | response #/TaskRun.initiated_by | task-run-initiator-id-replaced-and-error-text-redacted-1726 | user PK disclosure to Viewer-tier members

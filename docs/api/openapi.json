@@ -80778,7 +80778,7 @@
             },
             "TaskRun": {
                 "type": "object",
-                "description": "Read-only serializer for TaskRun progress records.\n\nExposes all fields needed to drive a progress indicator: status,\nprogress_pct, progress_msg, and timing fields for duration display.\nAll fields are read-only — TaskRun records are created and updated\nby the Celery worker, never directly via the API.",
+                "description": "Read-only serializer for TaskRun progress records.\n\nExposes all fields needed to drive a progress indicator: status,\nprogress_pct, progress_msg, and timing fields for duration display.\nAll fields are read-only — TaskRun records are created and updated\nby the Celery worker, never directly via the API.\n\n``initiated_by`` is exposed as a username string, not the raw auth.User\ninteger PK, so a Viewer-tier member cannot harvest user ids. ``error_detail``\nis blank for callers below the Admin role.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -80799,10 +80799,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
-                    "initiated_by": {
-                        "type": "integer",
-                        "readOnly": true,
-                        "nullable": true
+                    "initiated_by_username": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
                     },
                     "status": {
                         "allOf": [
@@ -80853,7 +80853,7 @@
                     "created_at",
                     "error_detail",
                     "id",
-                    "initiated_by",
+                    "initiated_by_username",
                     "progress_msg",
                     "progress_pct",
                     "project",
