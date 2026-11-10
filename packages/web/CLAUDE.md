@@ -176,6 +176,7 @@ These rules are enforced at review time. Violations block merge.
 364. **`?? []` says "the query has not answered" and "the answer is empty" with the same word — so nothing that REMOVES may read it.** → [rule](../../docs/design/invariants/364-says-the-query-has-not-answered-and-the-answer-is-empty.md)
 415. **A capability claim that decays with TIME must be REPLACED when it stops being true — not left standing beside a warning that contradicts it — and the freshness fact it branches on is a SERVER field, never a client subtraction.** → [rule](../../docs/design/invariants/415-a-capability-claim-that-decays-with-time-must-be-replaced.md)
 432. **A route/ref boundary that distinguishes "offline, never resolved" from "not found" must render each through its own copy — collapsing both onto one 404 component tells a merely-offline visitor their link is broken.** → [rule](../../docs/design/invariants/432-a-route-ref-boundary-that-distinguishes-offline-never.md)
+443. **A `Suspense` fallback for a `lazy()` component occupies the component's final footprint (fixed width/height incl. caption) — a smaller placeholder reflows the page when the chunk lands and moves hovered/clicked targets (#1536).** → [rule](../../docs/design/invariants/443-a-suspense-fallback-matches-the-lazy-component-footprint.md)
 
 ## Motion
 

@@ -19,7 +19,9 @@ import type { ApiSprint } from '@/types';
 import { sprintTimebox } from './sprintTimebox';
 
 // Lazy so Recharts stays out of the Board chunk until a burndown renders (#1536);
-// BurnChart is the only other Recharts importer on this route.
+// BurnChart is the only other Recharts importer on this route. The fallback
+// below must match CompactBurnChart's footprint (220x64 plot + 4px gap + 16px
+// caption) so the header does not reflow when the chunk resolves.
 const BurnChart = lazy(() =>
   import('@/features/reports/BurnChart').then((m) => ({ default: m.BurnChart })),
 );
@@ -118,7 +120,7 @@ export function BoardSprintHeader({ sprint, projectId, onOpenStandup }: BoardSpr
           <Suspense
             fallback={
               <div
-                className="h-8 w-40 motion-safe:animate-pulse rounded-control bg-neutral-surface-sunken"
+                className="h-[84px] w-[220px] motion-safe:animate-pulse rounded-control bg-neutral-surface-sunken"
                 aria-hidden="true"
               />
             }
