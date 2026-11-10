@@ -102,6 +102,18 @@ function renderCard(program: Program) {
   );
 }
 
+describe('ProgramCard name (#3622)', () => {
+  // Layout is not testable in jsdom (no box model), so this pins the classes that carry
+  // the fix and the full-name `title` that survives when a very long name still clamps.
+  it('exposes the full name via title and lets it wrap before it is ever cut', () => {
+    renderCard(makeProgram({ name: 'Atlas Platform Modernization Program' }));
+    const heading = screen.getByRole('heading', { name: 'Atlas Platform Modernization Program' });
+    expect(heading).toHaveAttribute('title', 'Atlas Platform Modernization Program');
+    expect(heading.className).toContain('line-clamp-2');
+    expect(heading.className).not.toMatch(/(^|\s)truncate(\s|$)/);
+  });
+});
+
 describe('ProgramCard identity square (#698)', () => {
   it('renders the program code in the square tinted with the accent color', () => {
     renderCard(makeProgram({ code: 'PHX', color: '#7C3AED' }));

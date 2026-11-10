@@ -94,8 +94,14 @@ export function ProgramCard({ program, onResort }: Props) {
             or a wide "Project Manager" role chip — never runs under it. */}
         <div className="flex items-start gap-2.5 pr-9">
           <ProgramIdentitySquare program={program} size="lg" showLabel />
-          <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
-            <h2 className="min-w-0 truncate text-sm font-semibold text-neutral-text-primary">
+          {/* The name is the card's identifier, so it gets the row's free width first: the
+            chip is shrink-0 and WRAPS under the name when the two do not fit, and the
+            name wraps to two lines before it is ever cut with an ellipsis (#3622). */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-x-2 gap-y-1">
+            <h2
+              title={program.name}
+              className="line-clamp-2 min-w-0 flex-1 basis-32 break-words text-sm font-semibold text-neutral-text-primary"
+            >
               {program.name}
             </h2>
             {program.my_role_label && (
