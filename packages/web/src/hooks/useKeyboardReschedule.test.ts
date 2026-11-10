@@ -4,10 +4,7 @@ import { createRef, type MutableRefObject, type RefObject } from 'react';
 import { useKeyboardReschedule } from './useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { GanttEngineStub } from '@/features/schedule/engine';
-import type {
-  GanttEngineEventMap,
-  GanttScaleData,
-} from '@/features/schedule/engine';
+import type { GanttEngineEventMap, GanttScaleData } from '@/features/schedule/engine';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { PINNED_KEYBOARD_REFUSAL } from '@/features/schedule/pinnedByActuals';
 import type { ResultMessage } from '@/workers/cpmWorker.types';
@@ -75,10 +72,7 @@ class ControllableEngine extends GanttEngineStub {
     return () => this._map.get(event)?.delete(h);
   }
 
-  emit<K extends keyof GanttEngineEventMap>(
-    event: K,
-    payload: GanttEngineEventMap[K],
-  ): void {
+  emit<K extends keyof GanttEngineEventMap>(event: K, payload: GanttEngineEventMap[K]): void {
     this._map.get(event)?.forEach((h) => h(payload));
   }
 }
@@ -141,10 +135,7 @@ interface RenderOpts {
   calendar?: { working_days: number; exceptions: { start: string; end: string }[] } | null;
 }
 
-function renderReschedule(
-  engine: ControllableEngine | null,
-  opts: RenderOpts = {},
-) {
+function renderReschedule(engine: ControllableEngine | null, opts: RenderOpts = {}) {
   const ariaLiveRef = opts.ariaLiveRef ?? makeAriaRef();
   const ariaAssertiveRef = opts.ariaAssertiveRef ?? makeAriaRef();
   const keyboardModeRef = opts.keyboardModeRef ?? { current: false };
@@ -462,9 +453,7 @@ describe('useKeyboardReschedule', () => {
       expect(keyboardModeRef.current).toBe(true);
       expect(useDragStore.getState().phase).toBe('dragging');
       expect(useDragStore.getState().draggedTaskId).toBe('t1');
-      expect(ariaAssertiveRef.current?.textContent).toContain(
-        'Keyboard reschedule: Design phase',
-      );
+      expect(ariaAssertiveRef.current?.textContent).toContain('Keyboard reschedule: Design phase');
     });
 
     it('refuses a pinned task on "r" as well as Shift+Enter', () => {
@@ -528,7 +517,10 @@ describe('useKeyboardReschedule', () => {
     });
 
     it('ships the composed calendar with every RECALC (#4170)', () => {
-      const calendar = { working_days: 0b0111111, exceptions: [{ start: '2025-01-08', end: '2025-01-08' }] };
+      const calendar = {
+        working_days: 0b0111111,
+        exceptions: [{ start: '2025-01-08', end: '2025-01-08' }],
+      };
       const engine = new ControllableEngine();
       renderReschedule(engine, { calendar });
       enterMode(engine);
@@ -540,7 +532,10 @@ describe('useKeyboardReschedule', () => {
 
     it('steps the nudge over a holiday on the project calendar (#4170)', () => {
       // Tue 2025-01-07 is a holiday: one working day after Mon 01-06 is Wed 01-08.
-      const calendar = { working_days: 0b0011111, exceptions: [{ start: '2025-01-07', end: '2025-01-07' }] };
+      const calendar = {
+        working_days: 0b0011111,
+        exceptions: [{ start: '2025-01-07', end: '2025-01-07' }],
+      };
       const engine = new ControllableEngine();
       renderReschedule(engine, { calendar });
       enterMode(engine);
