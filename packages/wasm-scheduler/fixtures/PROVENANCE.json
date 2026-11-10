@@ -646,6 +646,16 @@
       "issue": "#749",
       "evidence": "bebf486ab: added; no regeneration or hand-derivation statement in history"
     },
+    "invalid/project_work_over_max.json": {
+      "provenance": "unknown",
+      "issue": "#3830",
+      "evidence": "added with the work-ceiling split; 101 parallel max-duration tasks, a rejection input with no expected output"
+    },
+    "invalid/cycle_over_span_serial_sum.json": {
+      "provenance": "unknown",
+      "issue": "#3830",
+      "evidence": "added with the longest-chain bound; a 12-task ring whose serial-sum fallback exceeds the span cap"
+    },
     "invalid/sf_below_min_date.json": {
       "provenance": "unknown",
       "issue": null,

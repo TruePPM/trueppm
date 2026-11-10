@@ -27,9 +27,9 @@ pub const MAX_PROJECT_SPAN_DAYS: i64 = 366 * 1000;
 
 /// Ceiling on Σ(worst-case durations) + Σ|lag|, the work the passes do. Parallel
 /// work is not a longer schedule (#3830), so the span is bounded by the longest
-/// chain and this sum gets its own 100x looser cap. Mirrors
+/// chain and this sum gets its own 10x looser cap. Mirrors
 /// `trueppm_scheduler.engine.limits.MAX_PROJECT_WORK_DAYS`.
-pub const MAX_PROJECT_WORK_DAYS: i64 = MAX_PROJECT_SPAN_DAYS * 100;
+pub const MAX_PROJECT_WORK_DAYS: i64 = MAX_PROJECT_SPAN_DAYS * 10;
 /// Ceiling on the raw dependency-edge count as submitted, before any per-edge
 /// pass touches the list. The most fundamental of the edge caps: even the O(E)
 /// validation/graph-build pre-passes and the list's own memory become pathological
@@ -971,6 +971,44 @@ mod tests {
         let p = project(tasks, vec![], Calendar::default());
         let err = validate_project(&p).unwrap_err();
         assert!(err.contains("Total project work"), "{err}");
+    }
+
+    #[test]
+    fn rejects_one_task_past_the_work_ceiling() {
+        // The ceiling is a CPU bound; the first task past it must be refused.
+        let n = (MAX_PROJECT_WORK_DAYS / MAX_DURATION_DAYS) as usize + 1;
+        let tasks: Vec<Task> = (0..n)
+            .map(|i| task(&format!("t{i}"), MAX_DURATION_DAYS))
+            .collect();
+        let p = project(tasks, vec![], Calendar::default());
+        let err = validate_project(&p).unwrap_err();
+        assert!(err.contains("Total project work"), "{err}");
+    }
+
+    #[test]
+    fn cycle_over_span_is_refused_via_serial_sum_fallback() {
+        // No longest path on a ring, so the bound falls back to the serial sum.
+        let tasks: Vec<Task> = (0..12)
+            .map(|i| task(&format!("t{i}"), MAX_DURATION_DAYS))
+            .collect();
+        let mut deps = chain_deps(12);
+        deps.push(dep("t11", "t0", DependencyType::FS, 0.0));
+        let p = project(tasks, deps, Calendar::default());
+        let err = validate_project(&p).unwrap_err();
+        assert!(err.contains("Total project span"), "{err}");
+    }
+
+    #[test]
+    fn small_two_task_cycle_with_large_durations_does_not_panic() {
+        let tasks = vec![task("a", MAX_DURATION_DAYS), task("b", MAX_DURATION_DAYS)];
+        let deps = vec![
+            dep("a", "b", DependencyType::FS, 0.0),
+            dep("b", "a", DependencyType::FS, 0.0),
+        ];
+        let p = project(tasks, deps, Calendar::default());
+        // Under the span cap on the fallback, so validation passes and the cycle is
+        // reported by the scheduler proper; either outcome is acceptable, a panic is not.
+        let _ = validate_project(&p);
     }
 
     #[test]

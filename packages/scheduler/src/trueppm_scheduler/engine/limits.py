@@ -40,8 +40,11 @@ MAX_PROJECT_SPAN_DAYS = 366 * 1000
 # forward/backward passes do. This used to be compared against the span cap, which
 # refused any ordinary project above ~73k tasks (#3830); parallel work is not a
 # longer schedule, so the span is now bounded by the longest dependency chain and
-# the sum gets its own, 100x looser ceiling (a 100k-task project at 20 days is 2M).
-MAX_PROJECT_WORK_DAYS = MAX_PROJECT_SPAN_DAYS * 100
+# the sum gets its own ceiling. The passes walk the calendar per day of duration, so
+# this ceiling is a CPU bound: at the cap (100 parallel max-duration tasks)
+# schedule() measured ~2.2 s (3 runs, 2.22-2.25 s, Apple-silicon laptop, #3830).
+# A 100k-task project at 20 days is 2M, well under it. Mirrored in validate.rs.
+MAX_PROJECT_WORK_DAYS = MAX_PROJECT_SPAN_DAYS * 10
 
 
 # Ceiling on the number of leaf-level edges produced when expanding summary↔summary

@@ -1,7 +1,7 @@
 ---
 title: What TruePPM Doesn't Do Yet
 description: The maintained list of capability gaps — resource leveling, constraint types, cost and earned value, scale ceilings, and mobile. Read this before you evaluate, not after.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 Most project-management sites tell you what a tool does. This page tells you what
@@ -200,14 +200,17 @@ seconds to open; a 100,000-task project would take over half an hour, and would 
 of JSON to the browser.
 
 Opening the Schedule is not the only wall on the way to 100,000 tasks. The scheduler
-refuses a project whose task durations *sum* past 1,000 years, as if every task ran in
-series — measured refusing at 64,000 tasks (#3830). That is the smallest size we measured as refused, not the threshold: the guard caps the summed span at 366,000 days, about 73,000 tasks at a 5-day average duration with no lags. Recalculation needs ~30 KB of memory
+bounds the longest dependency chain, not the task count, so parallel work no longer trips its span guard (#3830); the total of all durations and lags has a separate ceiling of 3,660,000 days, which a 100,000-task project at 20 days each (2M) is within. Recalculation needs ~30 KB of memory
 per task against a 2 GiB worker limit (#3831). Every remote edit re-fetches the whole
 project for everyone watching (#2341). And a program with cross-project dependencies
 recalculates as one project the size of all its members together. Each is tracked for
 0.5, along with a first measurement of the browser at this scale (#3832); the sequence is
 on #3383. We are not publishing a target number until that work is measured — this page
 published two figures in 2026 that better measurement overturned.
+
+:::note[Ships in 0.5]
+The current release (0.4) refuses a project whose task durations and lags **sum** past 366,000 days, as if every task ran in series: about 73,000 tasks at a 5-day average, measured refusing at 64,000 ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)). From 0.5 the engine bounds the **longest dependency chain** instead, so parallel work no longer counts against the span; the sum keeps a separate, CPU-based ceiling of 3,660,000 days.
+:::
 
 The full per-dimension measurement — tasks per project, dependency edges, concurrent
 users and WebSocket connections, Monte Carlo iterations at the task ceiling, the
