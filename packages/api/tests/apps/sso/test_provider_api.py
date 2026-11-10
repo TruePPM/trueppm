@@ -326,7 +326,7 @@ def test_test_connection_returns_probe_result(admin: Any, monkeypatch: pytest.Mo
     client = api_client(admin)
     client.post(COLLECTION, _full_config(), format="json")
 
-    def _fake_probe(ctx: services.ProviderContext) -> dict[str, Any]:
+    def _fake_probe(ctx: services.ProviderContext, **kwargs: Any) -> dict[str, Any]:
         return {
             "ok": True,
             "issuer": ctx.issuer,
@@ -342,6 +342,35 @@ def test_test_connection_returns_probe_result(admin: Any, monkeypatch: pytest.Mo
     assert resp.status_code == 200
     assert resp.data["ok"] is True
     assert resp.data["endpoints"]["token_endpoint"] == f"{ISSUER}/token"
+
+
+@pytest.mark.django_db
+def test_test_connection_surfaces_rejected_client_secret(
+    admin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The view returns the probe's ``client_auth`` outcome and passes the callback URI (#2698)."""
+    client = api_client(admin)
+    client.post(COLLECTION, _full_config(), format="json")
+    seen: dict[str, Any] = {}
+
+    def _fake_probe(ctx: services.ProviderContext, **kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return {
+            "ok": False,
+            "issuer": ctx.issuer,
+            "error": "client_secret_rejected",
+            "client_auth": "rejected",
+            "client_auth_code": "invalid_client",
+        }
+
+    monkeypatch.setattr(services, "check_provider_reachability", _fake_probe)
+    resp = client.post(TEST_CONN, {}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["ok"] is False
+    assert resp.data["error"] == "client_secret_rejected"
+    assert resp.data["client_auth"] == "rejected"
+    assert resp.data["client_auth_code"] == "invalid_client"
+    assert seen["redirect_uri"].endswith("/callback") or "oidc" in seen["redirect_uri"]
 
 
 @pytest.mark.django_db

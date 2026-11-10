@@ -1370,17 +1370,124 @@ def removal_impact(slugs: list[str]) -> dict[str, RemovalImpact]:
 # ---------------------------------------------------------------------------
 
 
-def check_provider_reachability(ctx: ProviderContext) -> dict[str, Any]:
-    """Probe a provider's reachability for the admin "Test connection" button.
+# OAuth ``error`` codes the client-authentication probe is willing to echo back.
+# Anything else is reported as ``unknown`` so an IdP's free-form string never
+# reaches the admin UI or the audit row.
+_PROBE_OAUTH_CODES = frozenset(
+    {
+        "invalid_client",
+        "invalid_grant",
+        "invalid_request",
+        "unauthorized_client",
+        "unsupported_grant_type",
+        "bad_verification_code",
+        "incorrect_client_credentials",
+    }
+)
 
-    OIDC: fetch discovery (cache-bypassed) + confirm JWKS reachability. GitHub:
-    confirm the token endpoint host is reachable (a HEAD-equivalent GET of the API
-    root). Never raises — returns a structured ``{ok, ...}`` result so the admin
-    page can render a clear pass/fail.
+# A syntactically valid but never-issued authorization code and PKCE verifier. The
+# IdP authenticates the client BEFORE it looks the code up, so a wrong secret and
+# a bogus code fail with different errors (RFC 6749 §5.2).
+_PROBE_BOGUS_CODE = "trueppm-test-connection-not-a-real-code"
+_PROBE_BOGUS_VERIFIER = "t" * 64
+
+
+def check_provider_reachability(ctx: ProviderContext, *, redirect_uri: str = "") -> dict[str, Any]:
+    """Probe a provider for the admin "Test connection" button.
+
+    OIDC: fetch discovery (cache-bypassed), confirm JWKS reachability, then
+    exercise the client secret against the token endpoint. GitHub: confirm the
+    API host is reachable, then exercise the client credentials the same way.
+    Never raises — returns a structured ``{ok, client_auth, ...}`` result so the
+    admin page can render a clear pass/fail.
+
+    Discovery and JWKS succeed with a wrong ``client_secret`` because neither step
+    uses it, so reachability alone reported green for a configuration whose first
+    real login would fail (#2698). ``client_auth`` carries the secret's outcome.
     """
     if ctx.is_github:
-        return _check_github_reachability()
-    return _check_oidc_reachability(ctx.issuer)
+        result = _check_github_reachability()
+        token_url = GITHUB_TOKEN_URL
+    else:
+        result = _check_oidc_reachability(ctx.issuer)
+        token_url = (result.get("endpoints") or {}).get("token_endpoint", "")
+    if not result.get("ok") or not token_url:
+        return result
+    return _apply_client_auth_probe(result, ctx, token_url, redirect_uri)
+
+
+def _apply_client_auth_probe(
+    result: dict[str, Any], ctx: ProviderContext, token_url: str, redirect_uri: str
+) -> dict[str, Any]:
+    """Fold the client-authentication probe into a reachable provider's result.
+
+    A rejected secret or an unreachable token endpoint turns ``ok`` false; an
+    outcome the probe cannot distinguish stays ``ok`` but is labeled
+    ``unverified`` rather than passed off as a green check.
+    """
+    outcome = _probe_client_authentication(ctx, token_url, redirect_uri)
+    result.update(outcome)
+    if outcome["client_auth"] == "rejected":
+        result["ok"] = False
+        result["error"] = "client_secret_rejected"
+    elif outcome["client_auth"] == "unreachable":
+        result["ok"] = False
+        result["error"] = "token_endpoint_unreachable"
+    return result
+
+
+def _probe_client_authentication(
+    ctx: ProviderContext, token_url: str, redirect_uri: str
+) -> dict[str, Any]:
+    """Send an authorization_code grant with a bogus code to exercise the secret.
+
+    Outcomes (``client_auth``):
+
+    * ``verified`` - the IdP got past client authentication and rejected only the
+      code (``invalid_grant`` / GitHub ``bad_verification_code``): the secret works.
+    * ``rejected`` - ``invalid_client``, ``incorrect_client_credentials`` or HTTP 401
+      (Keycloak answers a wrong secret with 401 ``unauthorized_client``).
+    * ``unverified`` - the IdP answered in a way that does not separate "secret
+      accepted" from "secret rejected" (e.g. the client may not use this grant), so
+      the result says so instead of reporting green.
+    * ``unreachable`` - the token endpoint could not be reached (SSRF guard, timeout).
+
+    Uses the same egress client and ``client_secret_post`` shape as
+    :func:`exchange_code`. The secret is only sent to the IdP; the IdP's
+    ``error_description`` is never read, logged or returned.
+    """
+    data = {
+        "grant_type": "authorization_code",
+        "code": _PROBE_BOGUS_CODE,
+        "redirect_uri": redirect_uri or f"{ctx.issuer.rstrip('/')}/trueppm-test-connection",
+        "client_id": ctx.client_id,
+        "client_secret": ctx.get_client_secret(),
+    }
+    if not ctx.is_github:
+        data["code_verifier"] = _PROBE_BOGUS_VERIFIER
+    try:
+        resp = egress.post_form(token_url, data=data)
+    except egress.EgressBlocked as exc:
+        return {
+            "client_auth": "unreachable",
+            "reason": "egress_blocked",
+            "detail": f"token endpoint blocked by SSRF guard: {exc}",
+        }
+    except (egress.EgressTimeout, egress.EgressError) as exc:
+        return {"client_auth": "unreachable", "detail": f"could not reach token endpoint: {exc}"}
+
+    payload = resp.json()
+    raw_code = payload.get("error") if isinstance(payload, dict) else None
+    code = raw_code if isinstance(raw_code, str) and raw_code in _PROBE_OAUTH_CODES else None
+    outcome: dict[str, Any] = {"client_auth_code": code or "unknown"}
+
+    if resp.status == 401 or code in ("invalid_client", "incorrect_client_credentials"):
+        outcome["client_auth"] = "rejected"
+    elif code in ("invalid_grant", "bad_verification_code"):
+        outcome["client_auth"] = "verified"
+    else:
+        outcome["client_auth"] = "unverified"
+    return outcome
 
 
 def _check_oidc_reachability(issuer_url: str) -> dict[str, Any]:

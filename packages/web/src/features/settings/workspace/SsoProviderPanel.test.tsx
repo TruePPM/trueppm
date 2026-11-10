@@ -4,7 +4,7 @@ import { userEvent } from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
 import { SsoProviderPanel } from './SsoProviderPanel';
-import type { SsoProvider } from '@/hooks/useSso';
+import type { SsoProvider, SsoTestResult } from '@/hooks/useSso';
 
 /** A realistic DRF 400 rejection (a real `apiClient` write rejects with an AxiosError). */
 function axios400(data: unknown): AxiosError {
@@ -21,9 +21,7 @@ const h = vi.hoisted(() => ({
   createPending: false,
   updatePending: false,
   testPending: false,
-  testData: undefined as
-    | { ok: boolean; detail?: string; error?: string; reason?: string }
-    | undefined,
+  testData: undefined as SsoTestResult | undefined,
 }));
 
 vi.mock('@/hooks/useSso', () => ({
@@ -532,6 +530,32 @@ describe('SsoProviderPanel — Edit mode', () => {
     expect(screen.getByText('Reachable.')).toBeInTheDocument();
   });
 
+  it('says the client secret was accepted when the probe verified it (#2698)', () => {
+    h.testData = { ok: true, client_auth: 'verified', client_auth_code: 'invalid_grant' };
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    expect(screen.getByText('Reachable.')).toBeInTheDocument();
+    expect(screen.getByText(/Client secret accepted/)).toBeInTheDocument();
+  });
+
+  it('does not report green for a secret the probe could not verify (#2698)', () => {
+    h.testData = { ok: true, client_auth: 'unverified', client_auth_code: 'unknown' };
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    expect(screen.getByText(/Client secret not verified/)).toBeInTheDocument();
+    expect(screen.queryByText(/Client secret accepted/)).not.toBeInTheDocument();
+  });
+
+  it('shows a rejected client secret as a failure with the fix (#2698)', () => {
+    h.testData = {
+      ok: false,
+      error: 'client_secret_rejected',
+      client_auth: 'rejected',
+      client_auth_code: 'invalid_client',
+    };
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    expect(screen.getByText(/Client secret rejected by the identity provider/)).toBeInTheDocument();
+    expect(screen.queryByText('Reachable.')).not.toBeInTheDocument();
+  });
+
   it('reports a failed connection test with the server detail', () => {
     h.testData = { ok: false, detail: 'discovery 404' };
     renderPanel({ mode: 'edit', existing: KEYCLOAK });
@@ -555,7 +579,9 @@ describe('SsoProviderPanel — Edit mode', () => {
     // toggle on this page, and names the other subsystems the allow-list affects.
     expect(screen.getByText(/Helm values/)).toBeInTheDocument();
     expect(screen.getByText(/API redeploy/)).toBeInTheDocument();
-    expect(screen.getByText(/only after the API and Celery worker pods restart/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/only after the API and Celery worker pods restart/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/personal-access-token verification/)).toBeInTheDocument();
     expect(screen.getByText(/git-link status refresh/)).toBeInTheDocument();
     expect(screen.getByText(/webhook delivery/)).toBeInTheDocument();

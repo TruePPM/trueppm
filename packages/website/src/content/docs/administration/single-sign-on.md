@@ -137,6 +137,26 @@ cluster](#running-the-identity-provider-inside-your-cluster) below.
 If you have set that variable and the probe still times out, see [If the allow-list
 does not fix it](#if-the-allow-list-does-not-fix-it-check-your-own-networkpolicy).
 
+:::note[Ships in 0.5]
+**Test connection** also checks the client secret from 0.5 on. Discovery and the
+signing-key fetch succeed with a wrong secret, so a green result used to say
+nothing about whether sign-in would work. After they pass, the server sends the
+provider's token endpoint an authorization-code request carrying a deliberately
+invalid code, using the same outbound client and egress guard as sign-in. A provider
+checks the client's credentials before it looks at the code, so the answer tells a
+wrong secret apart from a right one without signing anyone in:
+
+| Result | Meaning |
+|---|---|
+| **Reachable. Client secret accepted.** | The provider rejected only the invalid code (`invalid_grant`; GitHub: `bad_verification_code`). The secret works. |
+| **Client secret rejected** | The provider rejected the credentials (`invalid_client`, HTTP 401, or GitHub's `incorrect_client_credentials`). Fix the secret and save before testing again. |
+| **Reachable. Client secret not verified** | The provider answered in a way that cannot separate a good secret from a bad one (for example `unauthorized_client` because the application may not use the code grant). This is not a pass; the first real sign-in is the test. |
+| Token endpoint unreachable | The token endpoint could not be reached, or the egress guard blocked it (the same allow-list hint applies). |
+
+The provider's own error description is never shown or stored; the audit row records
+only the outcome code.
+:::
+
 The **Scopes** shown on the form are fixed by the open-source core
 (`openid email profile` for OIDC, `read:user user:email` for GitHub) and cannot be
 widened.

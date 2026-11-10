@@ -85,6 +85,16 @@ export interface SsoTestResult {
    */
   reason?: string;
   detail?: string;
+  /**
+   * Outcome of exercising the client secret against the token endpoint (#2698).
+   * `verified`: the provider rejected only a bogus code. `rejected`: it rejected
+   * the credentials (`ok` is false, `error` is `client_secret_rejected`).
+   * `unverified`: its answer cannot tell a good secret from a bad one, so this is
+   * not a pass. `unreachable`: the token endpoint could not be reached.
+   */
+  client_auth?: 'verified' | 'rejected' | 'unverified' | 'unreachable';
+  /** The provider's OAuth `error` code from that probe, or `unknown`. */
+  client_auth_code?: string;
 }
 
 const PROVIDERS_KEY = ['workspace-sso-providers'] as const;

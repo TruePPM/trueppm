@@ -53389,7 +53389,7 @@
             "post": {
                 "operationId": "v1_workspace_sso_providers_test_connection_create",
                 "description": "``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.\n\nSession/JWT only, like the rest of the admin surface (#3551 — see the section\ncomment above). Included even though the probe mutates no configuration: it is server-side\negress an admin's leaked token could aim at an arbitrary configured issuer, and\nleaving one method of the surface token-reachable is how a guard erodes.",
-                "summary": "Test a provider's discovery/JWKS (OIDC) or API (GitHub) reachability",
+                "summary": "Test a provider's reachability and client secret (token-endpoint probe)",
                 "parameters": [
                     {
                         "in": "path",
@@ -56100,6 +56100,17 @@
                 ],
                 "type": "string",
                 "description": "* `approve` - approve\n* `reject` - reject",
+                "x-trueppm-enum": "open"
+            },
+            "ClientAuthEnum": {
+                "enum": [
+                    "verified",
+                    "rejected",
+                    "unverified",
+                    "unreachable"
+                ],
+                "type": "string",
+                "description": "* `verified` - verified\n* `rejected` - rejected\n* `unverified` - unverified\n* `unreachable` - unreachable",
                 "x-trueppm-enum": "open"
             },
             "ColorEnum": {
@@ -78183,6 +78194,18 @@
                     },
                     "detail": {
                         "type": "string"
+                    },
+                    "client_auth": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ClientAuthEnum"
+                            }
+                        ],
+                        "description": "Outcome of exercising the client secret against the token endpoint with a bogus authorization code (#2698). ``verified``: the IdP rejected only the code. ``rejected``: the IdP rejected the client credentials (also sets ``ok=false``, ``error=client_secret_rejected``). ``unverified``: the IdP's answer cannot distinguish a good secret from a bad one, so the result is not a pass. ``unreachable``: the token endpoint could not be reached.\n\n* `verified` - verified\n* `rejected` - rejected\n* `unverified` - unverified\n* `unreachable` - unreachable"
+                    },
+                    "client_auth_code": {
+                        "type": "string",
+                        "description": "The IdP's OAuth ``error`` code from the probe, or ``unknown``."
                     }
                 },
                 "required": [

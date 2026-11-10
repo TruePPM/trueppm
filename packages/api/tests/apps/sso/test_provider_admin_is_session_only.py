@@ -215,7 +215,9 @@ def test_a_token_cannot_run_the_connection_probe(
     """
     make_oidc_ctx()
     monkeypatch.setattr(
-        services, "check_provider_reachability", lambda ctx: {"ok": True, "issuer": ctx.issuer}
+        services,
+        "check_provider_reachability",
+        lambda ctx, **kw: {"ok": True, "issuer": ctx.issuer},
     )
     _, raw = _mint(admin)
     resp = _bearer(raw).post(TEST_CONN, {}, format="json")
@@ -344,7 +346,9 @@ def test_a_jwt_session_can_still_run_the_connection_probe(
 ) -> None:
     make_oidc_ctx()
     monkeypatch.setattr(
-        services, "check_provider_reachability", lambda ctx: {"ok": True, "issuer": ctx.issuer}
+        services,
+        "check_provider_reachability",
+        lambda ctx, **kw: {"ok": True, "issuer": ctx.issuer},
     )
 
     resp = _jwt(admin).post(TEST_CONN, {}, format="json")
