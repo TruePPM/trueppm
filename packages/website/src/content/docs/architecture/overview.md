@@ -249,7 +249,7 @@ The community edition must never import from `trueppm_enterprise`. The dependenc
 make enterprise-boundary-check   # OK: no trueppm-enterprise imports or dependency entries in packages.
 ```
 
-A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree legitimately names the package in extension-point docstrings and ADR pointers — that grep returns 12 lines across 8 files on a clean tree. The gate matches import syntax and quoted module paths, and ignores comments (#2603).
+A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree legitimately names the package in extension-point docstrings and ADR pointers — that grep returns prose-only hits on a clean tree. The gate matches import syntax and quoted module paths, and ignores comments (#2603).
 
 **Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. Also in the Community edition since 0.4: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture. Also in the Community edition: the integrations (Jira import, a personal Jira source, GitLab/GitHub task links, Git-event automation, outbound webhooks), the read-only MCP server, the operational audit log, and read-only share links. Still on the Community roadmap: the installable PWA lands in 0.5, which is the mobile story through 1.0; no native app is scheduled.
 

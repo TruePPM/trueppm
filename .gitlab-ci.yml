@@ -1029,8 +1029,8 @@ lint:todo-grep:
 
 lint:claude-md-stale-issues:
   extends: .fast-job
-  # A CLAUDE.md sentence that cites a CLOSED issue next to open/today/currently
-  # fails (#4404): CLAUDE.md is read every turn, so a stale "this is an open
+  # A CLAUDE.md sentence that cites a CLOSED issue and asserts a live defect (open,
+  # today, currently, "still unbound", "checks nothing", ...) fails (#4404): CLAUDE.md is read every turn, so a stale "this is an open
   # hole" is believed on every turn. Same unauthenticated, batched, retrying
   # tracker read as lint:todo-grep (scripts/lib/gitlab-issues.sh, #4452); fails
   # closed on an unresolvable lookup. ISSUES_API_TOKEN is the shared fallback.

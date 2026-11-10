@@ -31,8 +31,11 @@
 #
 # Scope: the CLAUDE.md files only (root and packages/web). Wider prose (ADRs,
 # website docs) legitimately narrates closed issues and is out of scope.
-# Sentence splitting is a heuristic on ". " boundaries — it can merge two
-# sentences, which only makes the check stricter inside one bullet.
+# Sentence splitting is a heuristic on ". " boundaries, with "e.g. ", "i.e. "
+# and "vs. " protected so they do not cut a sentence in two. Any other ". "
+# inside a sentence (an unlisted abbreviation) still splits it, and a split that
+# separates a trigger word from its #NNN makes the check LAXER there, not
+# stricter; the splitter is a heuristic, not a parser.
 #
 # Tracker reads go through scripts/lib/gitlab-issues.sh (batched, 429 retry).
 # An unresolvable lookup fails closed; CLAUDE_MD_STALE_ALLOW_UNRESOLVED=1 is the
@@ -52,6 +55,9 @@ candidate_sentences() {
   awk '
     {
       line = $0
+      gsub(/e\.g\. /, "e.g.\001", line)
+      gsub(/i\.e\. /, "i.e.\001", line)
+      gsub(/vs\. /, "vs.\001", line)
       gsub(/\. /, ".\n", line)
       n = split(line, parts, "\n")
       for (i = 1; i <= n; i++) {
@@ -97,7 +103,7 @@ CURLMOCK
   # The two ORIGINAL #4404 sentences, verbatim from commit 659093484, neither of
   # which contains open/today/currently. Both cite issues closed in the mock.
   printf '%s\n' 'Before "fixing" a failure, decide which artifact is wrong: 5 of the endpoints the guard flags return a bare array while the *schema* wrongly declares pagination (#3649), so correcting the mock there would make it wrong.' >"$tmp/orig1.md"
-  printf '%s\n' 'Operations still unbound live in `e2e/fixtures/schema-guard-waivers.ts`; **the guard checks nothing on the 46 operations whose 2xx body is declared free-form `{type: object}` (#3652)** — that is a hole in the schema, not coverage.' >"$tmp/orig2.md"
+  printf '%s\n' 'Operations still unbound live in `e2e/fixtures/schema-guard-waivers.ts` with a reason and an issue each, ratcheted so the list can only shrink; **the guard checks nothing on the 46 operations whose 2xx body is declared free-form `{type: object}` (#3652)** — that is a hole in the schema, not coverage.' >"$tmp/orig2.md"
   # The corrected current wording (past tense for closed issues).
   printf '%s\n' 'Before "fixing" a failure, decide which artifact is wrong: the schema can be the defective side. The five bare-array endpoints whose schema wrongly declared pagination were fixed in #3649, but the same shape can recur.' 'The guard checks nothing on an operation whose 2xx body is declared free-form `{type: object}`. #3652 bound 43 of the original 46; the remaining 3 are tracked in #3706 and #3855.' >"$tmp/orig_fixed.md"
   for o in orig1 orig2; do
