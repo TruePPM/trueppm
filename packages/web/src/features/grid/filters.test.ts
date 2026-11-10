@@ -40,7 +40,8 @@ describe('matchesFilters', () => {
         search: 'design',
         ownerIds: [],
         statuses: [],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(true);
     expect(
@@ -48,7 +49,8 @@ describe('matchesFilters', () => {
         search: 'DESIGN',
         ownerIds: [],
         statuses: [],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(true);
     expect(
@@ -56,7 +58,8 @@ describe('matchesFilters', () => {
         search: 'build',
         ownerIds: [],
         statuses: [],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(false);
   });
@@ -67,7 +70,8 @@ describe('matchesFilters', () => {
         search: '',
         ownerIds: ['Alice'],
         statuses: [],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(true);
     expect(
@@ -75,7 +79,8 @@ describe('matchesFilters', () => {
         search: '',
         ownerIds: ['Bob'],
         statuses: [],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(false);
   });
@@ -86,7 +91,8 @@ describe('matchesFilters', () => {
         search: '',
         ownerIds: [],
         statuses: ['IN_PROGRESS'],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(true);
     expect(
@@ -94,7 +100,8 @@ describe('matchesFilters', () => {
         search: '',
         ownerIds: [],
         statuses: ['COMPLETE'],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(false);
   });
@@ -104,14 +111,16 @@ describe('matchesFilters', () => {
       search: 'design',
       ownerIds: ['Alice'],
       statuses: ['IN_PROGRESS' as const],
-      dueFilter: 'all' as const, labelIds: [],
+      dueFilter: 'all' as const,
+      labelIds: [],
     };
     expect(matchesFilters(task, ok)).toBe(true);
     const fail = {
       search: 'design',
       ownerIds: ['Bob'],
       statuses: ['IN_PROGRESS' as const],
-      dueFilter: 'all' as const, labelIds: [],
+      dueFilter: 'all' as const,
+      labelIds: [],
     };
     expect(matchesFilters(task, fail)).toBe(false);
   });
@@ -123,7 +132,8 @@ describe('matchesFilters', () => {
         search: '',
         ownerIds: ['Alice'],
         statuses: [],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(false);
   });
@@ -133,7 +143,8 @@ describe('matchesFilters', () => {
       search: '',
       ownerIds: [],
       statuses: [],
-      dueFilter: 'overdue' as const, labelIds: [],
+      dueFilter: 'overdue' as const,
+      labelIds: [],
     };
     // task fixture finishes 2026-01-05 with status IN_PROGRESS. Against a
     // "today" far in the future it is overdue; matchesFilters uses the real
@@ -158,9 +169,18 @@ describe('isTaskOverdue (parity with server tasks_late_count)', () => {
   it('is true when finish is before today and not complete', () => {
     expect(isTaskOverdue({ finish: '2026-06-14', status: 'IN_PROGRESS' }, today)).toBe(true);
     expect(isTaskOverdue({ finish: '2026-01-01', status: 'NOT_STARTED' }, today)).toBe(true);
-    expect(isTaskOverdue({ finish: '2026-06-14', status: 'BACKLOG' }, today)).toBe(true);
     expect(isTaskOverdue({ finish: '2026-06-14', status: 'REVIEW' }, today)).toBe(true);
     expect(isTaskOverdue({ finish: '2026-06-14', status: 'ON_HOLD' }, today)).toBe(true);
+  });
+
+  it('is false for BACKLOG cards and epics (committed work only, like the server)', () => {
+    expect(isTaskOverdue({ finish: '2026-06-14', status: 'BACKLOG' }, today)).toBe(false);
+    expect(
+      isTaskOverdue({ finish: '2026-06-14', status: 'IN_PROGRESS', taskType: 'epic' }, today),
+    ).toBe(false);
+    expect(
+      isTaskOverdue({ finish: '2026-06-14', status: 'IN_PROGRESS', taskType: 'task' }, today),
+    ).toBe(true);
   });
 
   it('is false for complete tasks even when finish is in the past', () => {
@@ -184,7 +204,13 @@ describe('hasAnyFilter', () => {
   });
   it('returns true when search is set', () => {
     expect(
-      hasAnyFilter({ search: 'a', ownerIds: [], statuses: [], dueFilter: 'all', labelIds: [] as const }),
+      hasAnyFilter({
+        search: 'a',
+        ownerIds: [],
+        statuses: [],
+        dueFilter: 'all',
+        labelIds: [] as const,
+      }),
     ).toBe(true);
   });
   it('returns true when owner is set', () => {
@@ -193,7 +219,8 @@ describe('hasAnyFilter', () => {
         search: '',
         ownerIds: ['Alice'],
         statuses: [],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(true);
   });
@@ -203,7 +230,8 @@ describe('hasAnyFilter', () => {
         search: '',
         ownerIds: [],
         statuses: ['COMPLETE'],
-        dueFilter: 'all' as const, labelIds: [],
+        dueFilter: 'all' as const,
+        labelIds: [],
       }),
     ).toBe(true);
   });

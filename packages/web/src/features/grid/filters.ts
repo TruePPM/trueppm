@@ -27,7 +27,10 @@ export interface GridFilterState {
 /**
  * Whether a task counts as late/overdue, matching the server's
  * `tasks_late_count` definition exactly (projects/views.py overview handler):
- * its CPM finish is strictly before today AND it is not complete. `Task.finish`
+ * its CPM finish is strictly before today AND it is not complete AND it is
+ * committed work (not a BACKLOG card, not an epic), mirroring `Task.committed`.
+ * The web Task type does not carry `is_recurring`; recurring templates are not
+ * listed in the grid, so that clause of the server population cannot differ here. `Task.finish`
  * is the client mirror of the server's `early_finish`. The comparison is
  * date-only (local) so a task finishing earlier today is not flagged.
  *
@@ -35,8 +38,12 @@ export interface GridFilterState {
  * `isTaskScheduled` (a committed start / sprint) and would produce a narrower
  * set than the overview count — the "Tasks late" card and this filter must agree.
  */
-export function isTaskOverdue(task: Pick<Task, 'finish' | 'status'>, today: Date): boolean {
-  if (task.status === 'COMPLETE') return false;
+export function isTaskOverdue(
+  task: Pick<Task, 'finish' | 'status' | 'taskType'>,
+  today: Date,
+): boolean {
+  if (task.status === 'COMPLETE' || task.status === 'BACKLOG') return false;
+  if (task.taskType === 'epic') return false;
   if (!task.finish) return false;
   // Pure calendar-date compare (like the server's `early_finish < date.today()`).
   // Comparing `YYYY-MM-DD` strings sidesteps the timezone trap where parsing a
@@ -69,9 +76,9 @@ export function emptyFilters(): GridFilterState {
 export function hasAnyFilter(filters: GridFilterState): boolean {
   return Boolean(
     filters.search ||
-      filters.ownerIds.length > 0 ||
-      filters.statuses.length > 0 ||
-      filters.dueFilter !== 'all' ||
-      filters.labelIds.length > 0,
+    filters.ownerIds.length > 0 ||
+    filters.statuses.length > 0 ||
+    filters.dueFilter !== 'all' ||
+    filters.labelIds.length > 0,
   );
 }

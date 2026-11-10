@@ -111,9 +111,9 @@ def test_explicit_value_wins_over_program_default(program: Program, program_admi
 
 
 @pytest.mark.django_db
-def test_without_flag_nothing_is_copied(program: Program, program_admin: Any) -> None:
-    """Assigning a program WITHOUT the flag leaves settings at their model defaults —
-    the copy is strictly opt-in."""
+def test_without_flag_only_methodology_resolves(program: Program, program_admin: Any) -> None:
+    """Assigning a program WITHOUT the flag copies no program default except
+    methodology, which resolves on omission (#3453). The rest stay opt-in."""
     resp = _client(program_admin).post(
         CREATE_URL,
         {
@@ -124,9 +124,41 @@ def test_without_flag_nothing_is_copied(program: Program, program_admin: Any) ->
         format="json",
     )
     new = _created_project(resp)
-    # Model defaults, NOT the program's WATERFALL/PRIVATE values.
-    assert new.methodology == Methodology.HYBRID
+    # Methodology follows the program (#3453); visibility is NOT copied.
+    assert new.methodology == Methodology.WATERFALL
     assert new.visibility == Visibility.WORKSPACE
+
+
+@pytest.mark.django_db
+def test_standalone_project_omitting_methodology_gets_workspace_default(
+    program_admin: Any,
+) -> None:
+    """No program, no methodology -> the workspace default, not the model's HYBRID (#3453)."""
+    from trueppm_api.apps.workspace.models import Workspace
+
+    ws = Workspace.load()
+    ws.methodology = Methodology.AGILE
+    ws.save()
+    resp = _client(program_admin).post(
+        CREATE_URL, {"name": "Standalone", "start_date": "2026-06-01"}, format="json"
+    )
+    assert _created_project(resp).methodology == Methodology.AGILE
+
+
+@pytest.mark.django_db
+def test_explicit_methodology_wins_without_flag(program: Program, program_admin: Any) -> None:
+    """An explicit methodology always beats the resolved default (#3453)."""
+    resp = _client(program_admin).post(
+        CREATE_URL,
+        {
+            "name": "Explicit",
+            "start_date": "2026-06-01",
+            "program": str(program.pk),
+            "methodology": Methodology.AGILE,
+        },
+        format="json",
+    )
+    assert _created_project(resp).methodology == Methodology.AGILE
 
 
 @pytest.mark.django_db

@@ -63875,7 +63875,12 @@
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
                     "methodology": {
-                        "$ref": "#/components/schemas/MethodologyEnum"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MethodologyEnum"
+                            }
+                        ],
+                        "description": "Planning methodology preset. On create, when omitted: the program's effective methodology if 'program' is set, otherwise the workspace default.\n\n* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
                     },
                     "board_cadence": {
                         "$ref": "#/components/schemas/BoardCadenceEnum"
@@ -66827,7 +66832,8 @@
                                 "$ref": "#/components/schemas/MethodologyEnum"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "Planning methodology preset. On create, when omitted: the program's effective methodology if 'program' is set, otherwise the workspace default.\n\n* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
                     },
                     "effective_methodology": {
                         "type": "string",
@@ -67921,7 +67927,12 @@
                         "readOnly": true
                     },
                     "methodology": {
-                        "$ref": "#/components/schemas/MethodologyEnum"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MethodologyEnum"
+                            }
+                        ],
+                        "description": "Planning methodology preset. On create, when omitted: the program's effective methodology if 'program' is set, otherwise the workspace default.\n\n* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
                     },
                     "board_cadence": {
                         "$ref": "#/components/schemas/BoardCadenceEnum"
@@ -69215,7 +69226,12 @@
                         "readOnly": true
                     },
                     "methodology": {
-                        "$ref": "#/components/schemas/MethodologyEnum"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MethodologyEnum"
+                            }
+                        ],
+                        "description": "Planning methodology preset. On create, when omitted: the program's effective methodology if 'program' is set, otherwise the workspace default.\n\n* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
                     },
                     "board_cadence": {
                         "$ref": "#/components/schemas/BoardCadenceEnum"
@@ -71072,7 +71088,12 @@
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
                     "methodology": {
-                        "$ref": "#/components/schemas/MethodologyEnum"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MethodologyEnum"
+                            }
+                        ],
+                        "description": "Planning methodology preset. On create, when omitted: the program's effective methodology if 'program' is set, otherwise the workspace default.\n\n* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
                     },
                     "board_cadence": {
                         "$ref": "#/components/schemas/BoardCadenceEnum"

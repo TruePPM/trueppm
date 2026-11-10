@@ -1155,6 +1155,13 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         extra_kwargs = {
             "mc_history_attribution_audience": {"allow_blank": False},
             "allowed_attachment_types": {"allow_empty": True},
+            "methodology": {
+                "help_text": (
+                    "Planning methodology preset. On create, when omitted: the "
+                    "program's effective methodology if 'program' is set, otherwise "
+                    "the workspace default."
+                ),
+            },
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -1197,6 +1204,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
           parent ``program`` (#1909). The program is ADMIN-gated in
           ``validate_program`` and already loaded, so the copy adds no query.
 
+        ``methodology`` precedence is explicit > copied > resolved (program, then
+        workspace default; #3453), so an omitted value never falls to the model default.
+
         Both source markers are non-model fields, so they are popped before create.
         """
         start_as_draft = validated_data.pop("start_as_draft", False)
@@ -1220,6 +1230,18 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
                 from .services import apply_program_defaults
 
                 apply_program_defaults(validated_data, program)
+        if "methodology" not in validated_data:
+            # An omitted methodology would otherwise be stored as the model's HYBRID
+            # default, which (under SUGGEST) then beats the program/workspace value at
+            # read time. Resolve it here, as the MS Project import door does, so the
+            # delivery model does not depend on which door the project came through.
+            # Only methodology resolves on omission; other program defaults stay opt-in
+            # via ``inherit_program_defaults``.
+            from .methodology import resolve_new_project_methodology
+
+            validated_data["methodology"] = resolve_new_project_methodology(
+                validated_data.get("program"), workspace=self._iteration_workspace()
+            )
         return cast("Project", _create_with_key(self, validated_data))
 
     def update(self, instance: Project, validated_data: dict[str, Any]) -> Project:

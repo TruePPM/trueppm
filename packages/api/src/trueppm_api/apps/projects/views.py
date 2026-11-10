@@ -13295,8 +13295,9 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         self.check_object_permissions(request, project)
 
         today = timezone.localdate()
+        # BACKLOG is deliberately absent: an un-triaged intake card is not committed
+        # delivery and CPM never schedules it, so it cannot be "late" (#3676).
         active_statuses = [
-            TaskStatus.BACKLOG,
             TaskStatus.NOT_STARTED,
             TaskStatus.IN_PROGRESS,
             TaskStatus.REVIEW,
@@ -13312,8 +13313,12 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         # all complete inflates `complete_tasks` (and `total_tasks`) by one, and
         # a phase rolled up critical=True because one child is critical double-
         # counts that child's critical-ness.
+        #
+        # Task.committed (not Task.objects): every count on the overview speaks about
+        # the same set of real committed work. Backlog cards, epics and recurring
+        # templates are not schedule work, so they inflate neither total nor late (#3676).
         counts = (
-            Task.objects.filter(project=project, is_deleted=False)
+            Task.committed.filter(project=project, is_deleted=False)
             .annotate(_is_phase=task_is_phase_expr())
             .filter(_is_phase=False)
             .aggregate(
@@ -13611,8 +13616,10 @@ class ProjectAttentionView(APIView):
         never maintained (ADR-0293), so a phase over all-complete children would be
         listed here as late work (#4238).
         """
+        # Task.committed: a BACKLOG/EPIC/recurring row carries no CPM schedule, so it
+        # cannot be late (#3676) — same population as the overview's late count.
         critical_late = (
-            Task.objects.annotate(_is_phase=task_is_phase_expr())
+            Task.committed.annotate(_is_phase=task_is_phase_expr())
             .filter(_is_phase=False)
             .filter(
                 project=project,
@@ -13620,7 +13627,6 @@ class ProjectAttentionView(APIView):
                 is_critical=True,
                 early_finish__lt=today,
                 status__in=[
-                    TaskStatus.BACKLOG,
                     TaskStatus.NOT_STARTED,
                     TaskStatus.IN_PROGRESS,
                     TaskStatus.REVIEW,
@@ -13653,7 +13659,7 @@ class ProjectAttentionView(APIView):
     ) -> list[dict[str, Any]]:
         """Not-started, unassigned tasks whose CPM start falls in the next 7 days."""
         soon = today + datetime.timedelta(days=7)
-        unassigned_soon = Task.objects.filter(
+        unassigned_soon = Task.committed.filter(
             project=project,
             is_deleted=False,
             assignee__isnull=True,
@@ -13701,7 +13707,7 @@ class ProjectAttentionView(APIView):
         # fact about the phase row itself, so a phase would otherwise be listed
         # here on top of the critical leaf whose value it rolled up.
         candidates = list(
-            Task.objects.filter(
+            Task.committed.filter(
                 project=project,
                 is_deleted=False,
                 is_critical=True,

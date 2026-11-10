@@ -53,6 +53,10 @@ due date); the backlog column is never shown. A shared **schedule** shows a read
 timeline — WBS structure, task bars with percent-complete, the critical path, and
 milestone dates (unless you turned that reveal off when you created the link).
 
+:::note[Ships in 0.5]
+A shared schedule withholds backlog items, epics and recurring tasks, showing only committed work. In the current release epics and recurring tasks can appear on a shared schedule.
+:::
+
 Neither view ever includes:
 
 - comments, notes, or attachments

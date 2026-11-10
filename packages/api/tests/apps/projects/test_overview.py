@@ -16,7 +16,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus, TaskType
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
@@ -253,6 +253,31 @@ class TestProjectOverview:
         assert data["spi"] == 1.0
         assert data["schedule_health"] == "on_track"
 
+    def test_backlog_row_with_past_early_finish_is_not_counted_late(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#3676: an un-triaged BACKLOG card is not committed delivery, so it is never
+        late even if some path left a past early_finish on it."""
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        make_task(project, name="Idea", early_finish=yesterday, status=TaskStatus.BACKLOG)
+        res = client.get(self.url(project.pk))
+        assert res.status_code == 200
+        assert res.json()["tasks_late_count"] == 0
+
+    def test_total_complete_critical_exclude_backlog_epic_recurring(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#3676: total/complete/critical speak about committed work only — backlog
+        cards, epics and recurring templates are not schedule work."""
+        make_task(project, name="Real", status=TaskStatus.COMPLETE, is_critical=True)
+        make_task(project, name="Idea", status=TaskStatus.BACKLOG, is_critical=True)
+        make_task(project, name="Epic", type=TaskType.EPIC, is_critical=True)
+        make_task(project, name="Weekly", is_recurring=True, is_critical=True)
+        data = client.get(self.url(project.pk)).json()
+        assert data["total_tasks"] == 1
+        assert data["complete_tasks"] == 1
+        assert data["critical_task_count"] == 1
+
     def test_phase_row_with_stale_status_is_not_counted_late(
         self, client: APIClient, project: Project, membership: object
     ) -> None:
@@ -448,6 +473,82 @@ class TestProjectAttention:
         assert items[0]["type"] == "critical_task_late"
         assert items[0]["severity"] == "critical"
         assert items[0]["task_name"] == "Critical late"
+
+    def test_backlog_critical_task_with_past_finish_is_not_listed_late(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#3676: a BACKLOG card is not committed delivery, so it is never late."""
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        make_task(
+            project,
+            name="Idea",
+            is_critical=True,
+            early_finish=yesterday,
+            status=TaskStatus.BACKLOG,
+        )
+        items = client.get(self.url(project.pk)).json()["items"]
+        assert [i for i in items if i["type"] == "critical_task_late"] == []
+
+    @pytest.mark.parametrize("kind", ["epic", "recurring"])
+    def test_epic_and_recurring_critical_task_not_listed_late(
+        self, client: APIClient, project: Project, membership: object, kind: str
+    ) -> None:
+        """#3676: epics and recurring templates are not committed delivery."""
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        extra: dict[str, object] = (
+            {"type": TaskType.EPIC} if kind == "epic" else {"is_recurring": True}
+        )
+        make_task(
+            project,
+            name="Not committed",
+            is_critical=True,
+            early_finish=yesterday,
+            status=TaskStatus.IN_PROGRESS,
+            **extra,
+        )
+        items = client.get(self.url(project.pk)).json()["items"]
+        assert [i for i in items if i["type"] == "critical_task_late"] == []
+
+    @pytest.mark.parametrize("kind", ["epic", "recurring"])
+    def test_epic_and_recurring_not_unassigned_approaching(
+        self, client: APIClient, project: Project, membership: object, kind: str
+    ) -> None:
+        tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+        extra: dict[str, object] = (
+            {"type": TaskType.EPIC} if kind == "epic" else {"is_recurring": True}
+        )
+        make_task(
+            project,
+            name="Not committed",
+            assignee=None,
+            early_start=tomorrow,
+            status=TaskStatus.NOT_STARTED,
+            **extra,
+        )
+        items = client.get(self.url(project.pk)).json()["items"]
+        assert [i for i in items if i["type"] == "unassigned_approaching"] == []
+
+    def test_epic_with_baseline_slip_is_not_baseline_drift(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+        baseline = Baseline.objects.create(
+            project=project, name="B1", is_active=True, has_cpm_dates=True
+        )
+        today = datetime.date.today()
+        epic = make_task(
+            project,
+            name="Epic",
+            type=TaskType.EPIC,
+            is_critical=True,
+            early_finish=today + datetime.timedelta(days=3),
+        )
+        BaselineTask.objects.create(
+            baseline=baseline, task_id=epic.pk, task_name=epic.name, finish=today, duration=1
+        )
+        items = client.get(self.url(project.pk)).json()["items"]
+        assert [i for i in items if i["type"] == "baseline_drift"] == []
 
     def test_critical_phase_with_stale_status_is_not_listed_late(
         self, client: APIClient, project: Project, membership: object

@@ -472,6 +472,45 @@ def test_spi_counts_has_cpm_dates_true_baseline_still_uses_evm_semantics(
 
 
 @pytest.mark.django_db
+def test_drift_counts_exclude_backlog_epic_and_recurring(
+    program: Program, calendar: Calendar
+) -> None:
+    """#3676: ``overdue`` counts committed work only — backlog cards, epics and
+    recurring templates carry no schedule and cannot be overdue."""
+    from trueppm_api.apps.projects.models import TaskType
+    from trueppm_api.apps.projects.program_rollup import drift_counts_by_project
+
+    p = _project(program, calendar, "Drift project")
+    yesterday = TODAY - datetime.timedelta(days=1)
+    _task(p, name="Real", early_finish=yesterday, status=TaskStatus.IN_PROGRESS)
+    _task(p, name="Idea", early_finish=yesterday, status=TaskStatus.BACKLOG)
+    _task(p, name="Epic", early_finish=yesterday, type=TaskType.EPIC)
+    _task(p, name="Weekly", early_finish=yesterday, is_recurring=True)
+
+    overdue, _at_risk = drift_counts_by_project([p.pk], TODAY)[p.pk]
+    assert overdue == 1
+
+
+@pytest.mark.django_db
+def test_committed_task_counts_exclude_epic_and_recurring(
+    program: Program, calendar: Calendar
+) -> None:
+    """#3677: rollup weights use ``Task.committed`` — an epic or recurring template
+    must not inflate a project's weight."""
+    from trueppm_api.apps.projects.models import TaskType
+    from trueppm_api.apps.projects.program_rollup import _committed_task_counts
+
+    p = _project(program, calendar, "Weights")
+    _task(p, name="Real")
+    before = _committed_task_counts([p.pk])
+    _task(p, name="Epic", type=TaskType.EPIC)
+    _task(p, name="Weekly", is_recurring=True)
+    _task(p, name="Idea", status=TaskStatus.BACKLOG)
+    assert before == {p.pk: 1}
+    assert _committed_task_counts([p.pk]) == before
+
+
+@pytest.mark.django_db
 def test_milestone_health_critical_when_milestone_overdue(
     member: object, program: Program, calendar: Calendar
 ) -> None:

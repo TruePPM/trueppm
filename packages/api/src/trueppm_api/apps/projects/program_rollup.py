@@ -525,12 +525,11 @@ def top_contributing_project(program: Program) -> dict[str, Any] | None:
 
 
 def _committed_task_counts(project_ids: list[Any]) -> dict[Any, int]:
-    """project_id → committed (non-BACKLOG, non-deleted) task count, for weighting."""
+    """project_id → committed-work (``Task.committed``) task count, for weighting."""
     if not project_ids:
         return {}
     rows = (
-        Task.objects.filter(project_id__in=project_ids, is_deleted=False)
-        .exclude(status=TaskStatus.BACKLOG)
+        Task.committed.filter(project_id__in=project_ids, is_deleted=False)
         .values("project_id")
         .annotate(c=Count("id"))
     )
@@ -599,8 +598,11 @@ def drift_counts_by_project(
     if not project_ids:
         return {}
     incomplete = ~Q(status=TaskStatus.COMPLETE)
+    # Task.committed, not Task.objects: backlog cards, epics and recurring templates
+    # carry no schedule (ADR-1152), so they can be neither overdue nor at risk. This is
+    # the same population as the project overview's late count (#3676).
     rows = (
-        Task.objects.filter(project_id__in=list(project_ids), is_deleted=False)
+        Task.committed.filter(project_id__in=list(project_ids), is_deleted=False)
         .filter(incomplete)
         # Narrow before the correlated is_phase EXISTS runs (same reasoning as
         # risk_counts_by_project's round-2 fix, #4250): a row that cannot

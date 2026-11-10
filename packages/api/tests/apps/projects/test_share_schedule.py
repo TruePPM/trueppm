@@ -248,6 +248,24 @@ def test_public_schedule_excludes_backlog(project):
 
 
 @pytest.mark.django_db
+def test_public_schedule_excludes_epics_and_recurring(project):
+    """#3677: the projection is Task.committed, so epics and recurring occurrences
+    (never scheduled by CPM) are withheld just like BACKLOG."""
+    from trueppm_api.apps.projects.models import TaskType
+
+    _seed_schedule(project)
+    Task.objects.create(project=project, name="Epic grouping", duration=1, type=TaskType.EPIC)
+    Task.objects.create(project=project, name="Weekly sync", duration=1, is_recurring=True)
+    _link, raw = share_services.mint_share_link(
+        project, None, content_kind=ShareContentKind.SCHEDULE
+    )
+    names = {t["name"] for t in APIClient().get(_schedule_url(raw)).data["tasks"]}
+    assert "Frame walls" in names
+    assert "Epic grouping" not in names
+    assert "Weekly sync" not in names
+
+
+@pytest.mark.django_db
 def test_public_schedule_emits_dependency_edges_by_short_id(project):
     t1, t2, _ms = _seed_schedule(project)
     _link, raw = share_services.mint_share_link(
