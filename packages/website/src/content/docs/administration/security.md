@@ -500,6 +500,12 @@ so an operator responding to an incident is not limited to these two
 automatic triggers.
 :::
 
+Deactivating a **resource** in the Workspace catalog is *not* one of those paths. It
+removes the person from rosters and capacity figures but leaves their login, project
+memberships and API tokens untouched, so the catalog row disappearing does not mean the
+person is off-boarded. Deactivate the member (Settings → Members) to revoke their
+credentials, and review their project memberships separately.
+
 :::note[Ships in 0.5]
 A password reset, a member off-boarding, and `revoke_api_tokens --user` /
 `--all-personal` will also stamp a per-account **credential cutoff**. From

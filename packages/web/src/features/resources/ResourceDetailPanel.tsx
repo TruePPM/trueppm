@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import type { OrgResource } from '@/hooks/useResources';
 import {
   useUpdateResource,
@@ -260,9 +261,24 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
       {!resource.isDeleted && (
         <div className="shrink-0 border-t border-neutral-border px-4 py-3 flex items-center justify-between">
           {confirmDeactivate ? (
-            <div className="flex items-center gap-2 w-full">
+            <div className="flex flex-wrap items-center gap-2 w-full">
               <p className="text-xs text-neutral-text-secondary flex-1">
                 Deactivate {resource.name}?
+              </p>
+              {/* Truthfulness, not a permission (#3584): deactivating the catalog row is
+                  not off-boarding. Name what survives and where each is managed. */}
+              <p
+                data-testid="deactivate-not-revoked-note"
+                className="basis-full order-last text-xs text-neutral-text-secondary"
+              >
+                This only removes the person from rosters and capacity. It does{' '}
+                <strong className="font-semibold text-neutral-text-primary">not</strong> revoke their
+                login, their project memberships, or their API tokens. Manage login and API tokens
+                in{' '}
+                <Link to="/settings/members" className="underline text-brand-primary">
+                  workspace Members
+                </Link>
+                ; project memberships in each project&rsquo;s Settings &rarr; Members.
               </p>
               <button
                 type="button"

@@ -43,6 +43,16 @@ While a resource is deactivated it cannot be added to a roster, assigned to a ta
 tagged with a skill — those writes are refused rather than silently creating a row no
 view would show.
 
+:::caution[Deactivating a resource is not off-boarding]
+Deactivating a resource only changes the *catalog* record. It does **not** revoke the
+person's login, their project memberships (so their role on every project, and any
+organization-level authority derived from it, stays in place), or their API tokens. To
+off-board someone, deactivate the member in **Settings → Members** (which also revokes
+their sessions and Personal Access Tokens) and remove or downgrade their project
+memberships under each project's **Settings → Members**. The deactivate confirmation in the
+Workspace catalog says the same.
+:::
+
 **Restoring** the resource reverses all of it, including the roster memberships the
 deactivation removed. A membership somebody had already ended by hand stays ended — a
 restore puts back what the deactivation took away and nothing else.
