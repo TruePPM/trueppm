@@ -391,10 +391,12 @@ def test_tls_template_redirects_everything_else_to_https(tls_template: str) -> N
     [
         (
             "client_max_body_size 110M",
-            "a smaller cap rejects a valid upload with a bare 413 before the app can "
+            "the attachment/import upload location must clear the app cap — a "
+            "smaller one rejects a valid upload with a bare 413 before the app can "
             "name the limit. 110M, not 50M, because the largest application cap is "
             "the 100 MB attachment one and multipart framing pushes a legal 100 MB "
-            "body past a 100M ceiling (#2604, #3189)",
+            "body past a 100M ceiling (#2604, #3189). Since #4383 it is a per-location "
+            "value and the server default is 2M; test_request_body_limits.py pins both",
         ),
         (
             "proxy_pass         http://api:8000",

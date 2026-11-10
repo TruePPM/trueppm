@@ -693,6 +693,43 @@ def test_dry_run_json_body_branch_honors_the_upload_ceiling(seed_owner: Any, set
     assert "too large" in resp.data["detail"]
 
 
+def test_json_body_between_the_global_and_seed_ceilings_is_not_refused_for_size(
+    seed_owner: Any,
+) -> None:
+    """A 3 MB raw-JSON seed sits above the 2 MiB global parse ceiling (#4383).
+
+    It is still under SEED_MAX_UPLOAD_MB (5), so it must reach the validator —
+    the same allowance a multipart upload gets — rather than being refused by
+    Django's DATA_UPLOAD_MAX_MEMORY_SIZE as an opaque 400 (#2421: one limit,
+    both transports).
+    """
+    seed = _seed()
+    seed["_pad"] = "x" * (3 * 1024 * 1024)  # unknown key: the validator rejects it
+    resp = _client(seed_owner).post(VALIDATE_URL, data=seed, format="json")
+    assert resp.status_code not in (413,), resp.content[:300]
+    assert "too large" not in json.dumps(resp.json()), resp.content[:300]
+
+
+def test_json_body_over_the_seed_ceiling_is_refused_before_parsing(
+    seed_owner: Any, settings: Any
+) -> None:
+    """Over SEED_MAX_UPLOAD_MB but under the bulk tier: the seed's own 400 names the cap."""
+    settings.SEED_MAX_UPLOAD_MB = 3
+    seed = _seed()
+    seed["_pad"] = "x" * (4 * 1024 * 1024)
+    resp = _client(seed_owner).post(IMPORT_URL, data=seed, format="json")
+    assert resp.status_code == 400, resp.content[:300]
+    assert "Seed file too large. Maximum: 3 MB." in resp.data["detail"]
+
+
+def test_json_body_over_the_bulk_tier_is_refused_at_the_transport(seed_owner: Any) -> None:
+    seed = _seed()
+    seed["_pad"] = "x" * (11 * 1024 * 1024)
+    resp = _client(seed_owner).post(IMPORT_URL, data=seed, format="json")
+    assert resp.status_code == 413
+    assert resp.json()["code"] == "request_body_too_large"
+
+
 # --- bundled samples stay small enough to import synchronously --------------
 
 

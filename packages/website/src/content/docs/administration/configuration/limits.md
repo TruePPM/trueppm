@@ -1,8 +1,15 @@
 ---
 title: "Rate limits and import caps"
 description: "API and login rate limiting, the MCP read-surface limits, and the size caps on MS Project, Jira, CSV/Excel and seed imports and on Monte Carlo runs."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The per-route [request body ceilings](#request-body-ceilings) ship in 0.5. In 0.4
+every endpoint parses a JSON body of up to 100 MB (`DATA_UPLOAD_MAX_MEMORY_SIZE`)
+and the reference nginx configs allow 110M on every route. Every other limit on
+this page is in 0.4.
+:::
 
 ## Rate limiting and access
 
@@ -183,6 +190,38 @@ The default is `true` for backward compatibility. Flip it to `false` when you wa
 "no agent access on this instance, period" — for a locked-down or regulated
 deployment, or as an incident-response lever — then back to `true` to restore it.
 
+## Request body ceilings
+
+Every request body meets a **transport ceiling** before any feature cap sees it.
+There are three tiers, and the API enforces them itself — a declared
+`Content-Length` over the route's ceiling is refused with `413` and
+`code: "request_body_too_large"` before authentication or any database work — so
+they hold on every topology, including the default Helm routing where `/api`
+goes from the Ingress straight to the API Service:
+
+| Tier | Ceiling | Routes |
+|---|---|---|
+| default | **2 MB** | everything not listed below — including the sign-in, invite-accept, password-reset and share endpoints |
+| bulk | **10 MB** | offline sync push (`/projects/{id}/sync/`), task bulk operations (`/projects/{id}/tasks/bulk/`), inbound task push (`/projects/{id}/task-sync/`), the seed import and its dry run (`/programs/import/`, `/programs/import/validate/`), and the workspace logo |
+| upload | **110 MB** | task attachments and the MS Project, Jira, CSV/Excel and risk-CSV file imports |
+
+The upload tier raises the ceiling for **file parts only**. A JSON body on an
+upload route is still held to 2 MB, because Django streams uploaded files to
+disk past 2.5 MB while it parses a JSON body entirely in memory. The 2 MB
+default is also Django's `DATA_UPLOAD_MAX_MEMORY_SIZE`.
+
+Each feature's own cap (`MSPROJECT_MAX_UPLOAD_MB`, `SEED_MAX_UPLOAD_MB`, the
+100 MB attachment cap, …) sits below its tier and is what normally rejects an
+oversized file, with a `400` that names the limit. The tier is the bare `413`
+above it. The tiers are not configurable: raising a feature cap past its tier has
+no effect.
+
+The shipped nginx configs (the Docker Compose templates, the web image's
+`nginx.conf`, and the Helm web tier) carry the same three tiers as per-location
+`client_max_body_size` values, so an oversized body is usually refused at the
+edge first. A test in the API suite parses all four configs and fails if their
+locations drift from the API's table.
+
 ## MS Project import limit
 
 [MS Project import](/features/msproject-import-export/) accepts `.mpp` and
@@ -230,19 +269,15 @@ the whole task/dependency set in a single statement (and can exceed PostgreSQL's
 parameter limit); chunking bounds the per-statement memory and parameter count.
 
 :::caution[Do not configure above the hard ceiling]
-`MSPROJECT_MAX_UPLOAD_MB` must stay **at or below 100 MB**. The global Django
-`DATA_UPLOAD_MAX_MEMORY_SIZE` (100 MB) and the operator-configured nginx
-`client_max_body_size` are the hard edge cap — the shipped reference nginx
-templates set `client_max_body_size 20M`, so the 50 MB import default is
-unreachable until you raise it to at least your `MSPROJECT_MAX_UPLOAD_MB`. Set
-both, and keep `MSPROJECT_MAX_UPLOAD_MB` under them. Setting it higher has no
-effect: the larger request is rejected at the edge before the importer ever
-sees it.
+`MSPROJECT_MAX_UPLOAD_MB` must stay **below 110 MB**, the
+[upload tier](#request-body-ceilings) the import routes get at both the API and
+the shipped nginx configs. Setting it higher has no effect: the larger request is
+refused with `413` before the importer ever sees it. If you run your own proxy,
+keep its body limit for these routes at or above your `MSPROJECT_MAX_UPLOAD_MB`.
 :::
 
 ```bash
-# Allow MS Project imports up to 80 MB. Must stay <= 100 MB
-# (DATA_UPLOAD_MAX_MEMORY_SIZE / nginx client_max_body_size).
+# Allow MS Project imports up to 80 MB. Must stay under the 110 MB upload tier.
 MSPROJECT_MAX_UPLOAD_MB=80
 ```
 
@@ -275,9 +310,8 @@ the byte cap does not bound the derived task count, and every issue becomes a
 outright.
 
 ```bash
-# Allow Jira XML imports up to 40 MB. Same edge caps apply as MS Project imports:
-# keep it at or below DATA_UPLOAD_MAX_MEMORY_SIZE (100 MB) and your nginx
-# client_max_body_size, or the request is rejected upstream before the importer.
+# Allow Jira XML imports up to 40 MB. Same edge cap as MS Project imports: keep it
+# under the 110 MB upload tier, or the request is refused before the importer.
 JIRA_IMPORT_MAX_UPLOAD_MB=40
 ```
 
@@ -308,9 +342,8 @@ anything is written. Rows past the cap are **reported back to the operator as
 skipped** rather than silently dropped, so an import is never quietly partial.
 
 ```bash
-# Allow larger sheets. Keep the upload cap at or below
-# DATA_UPLOAD_MAX_MEMORY_SIZE (100 MB) and your nginx client_max_body_size,
-# or the request is rejected upstream before the importer sees it.
+# Allow larger sheets. Keep the upload cap under the 110 MB upload tier,
+# or the request is refused before the importer sees it.
 CSV_IMPORT_MAX_UPLOAD_MB=25
 CSV_IMPORT_MAX_ROWS=20000
 ```
@@ -353,7 +386,10 @@ generous headroom while still bounding the memory a single authenticated import
 request can consume. The ceiling is enforced on **both** request shapes — a
 `multipart/form-data` upload and a raw JSON body — so it cannot be sidestepped by
 posting the document as the body. It is measured against the bytes that actually
-arrived rather than a declared `Content-Length`, which a chunked request may omit. See
+arrived rather than a declared `Content-Length`, which a chunked request may omit;
+a declared length over the cap is refused before a byte is read. Both shapes sit on
+the 10 MB [bulk tier](#request-body-ceilings), so `SEED_MAX_UPLOAD_MB` must stay
+below 10. See
 [general API rate limiting](#general-api-rate-limiting)
 above for the separate `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` /
 `TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` throttles that bound *how often* a caller

@@ -80,10 +80,11 @@ data:
     # branch always is (see above) — because X-Forwarded-Proto is otherwise
     # client-spoofable; TRUEPPM_NUM_PROXIES governs how far up the
     # X-Forwarded-For chain the app trusts.
-    map $http_x_forwarded_proto $forwarded_proto {
-        default $scheme;
-        ~.      $http_x_forwarded_proto;
-    }
+    #
+    # With web.realIpFrom set, the passthrough is narrowed to those trusted
+    # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
+    # see trueppm.web.proxyTrust in _helpers.tpl.
+    {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
@@ -252,6 +253,9 @@ data:
         location /static/ {
             proxy_pass       http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
         }
     }
 {{- else if .Values.demo.enabled }}
@@ -292,10 +296,11 @@ data:
     # ingress/tunnel that terminates TLS, and $scheme here is always "http"
     # even when the visitor's connection was TLS. Fall back to $scheme so a
     # direct-to-nginx deployment is unchanged.
-    map $http_x_forwarded_proto $forwarded_proto {
-        default $scheme;
-        ~.      $http_x_forwarded_proto;
-    }
+    #
+    # With web.realIpFrom set, the passthrough is narrowed to those trusted
+    # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
+    # see trueppm.web.proxyTrust in _helpers.tpl.
+    {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
@@ -460,6 +465,9 @@ data:
         location /static/ {
             proxy_pass       http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
         }
     }
 {{- else }}
@@ -472,10 +480,11 @@ data:
     # is on. Falls back to $scheme when nothing arrived. Only sound when the
     # proxy in front is the sole way in; the header is client-spoofable
     # otherwise, and TRUEPPM_NUM_PROXIES governs the X-Forwarded-For chain.
-    map $http_x_forwarded_proto $forwarded_proto {
-        default $scheme;
-        ~.      $http_x_forwarded_proto;
-    }
+    #
+    # With web.realIpFrom set, the passthrough is narrowed to those trusted
+    # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
+    # see trueppm.web.proxyTrust in _helpers.tpl.
+    {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
     {{- if and .Values.web.adminAccess.enabled .Values.web.adminAccess.rateLimit.enabled }}
     # Per-source-IP rate limit for the Django admin login surface (#2569),
@@ -533,13 +542,16 @@ data:
         {{- end }}
         {{- end }}
 
-        # Transport upload ceiling (#2604). nginx defaults to 1m, which is under
-        # every application cap (MS Project 50 / Jira 25 / CSV 10 MB) — so an
-        # operator routing uploads through this tier got a bare 413 at the proxy
-        # and the app never saw the request. Keep this >= the largest cap: the
-        # application's own limit should be what rejects an oversized file,
-        # because it names the limit in the error.
-        client_max_body_size {{ .Values.web.maxBodySize | default "110M" }};
+        # Request-body ceiling (#4383, #2604). 2M is the DEFAULT tier of
+        # packages/api/src/trueppm_api/core/request_body_limits.py and Django's
+        # DATA_UPLOAD_MAX_MEMORY_SIZE: the largest JSON body any endpoint parses,
+        # including the unauthenticated login/invite/reset routes, which used to
+        # accept 110M here. The routes that genuinely take more raise it per
+        # location inside `location /api/` below: file imports and attachments to
+        # web.maxBodySize (keep it >= the largest application upload cap — the
+        # app's own limit should be what rejects an oversized file, because it
+        # names the limit in the error), sync/bulk/seed/logo to 10M.
+        client_max_body_size 2M;
 
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {
@@ -550,6 +562,20 @@ data:
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $forwarded_proto;
             proxy_redirect off;
+
+            # Per-route body ceilings (#4383) — this nesting mirrors the table in
+            # packages/api/src/trueppm_api/core/request_body_limits.py, and
+            # tests/core/test_request_body_limits.py fails if the two disagree. The
+            # nested locations inherit every proxy_set_header above (none is
+            # redeclared), but proxy_pass is not inherited and must be repeated.
+            location ~ ^/api/v1/projects/([^/]+/tasks/[^/]+/attachments|[^/]+/import/(msproject|jira|csv|csv/preview)|import/msproject|[^/]+/risks/import)/$ {
+                client_max_body_size {{ .Values.web.maxBodySize | default "110M" }};
+                proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            }
+            location ~ ^/api/v1/(workspace/logo|programs/import(/validate)?|projects/[^/]+/(tasks/bulk|sync|task-sync))/$ {
+                client_max_body_size 10M;
+                proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            }
         }
 
         # WebSocket (Django Channels)
@@ -606,6 +632,9 @@ data:
         location /static/ {
             proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
             proxy_redirect off;
         }
 

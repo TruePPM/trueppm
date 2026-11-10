@@ -1,8 +1,16 @@
 ---
 title: Security
 description: Security considerations for deploying and operating TruePPM.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The Helm web tier's `web.realIpFrom` trusted-proxy setting, and the chart's
+refusal to render an admin allowlist behind an Ingress without it, ship in 0.5
+(see [Reaching Django admin](#reaching-django-admin)). In 0.4 the web tier passes
+`X-Forwarded-Proto` through from any peer and matches `allowCIDRs` against the
+immediate peer's address. Everything else on this page is in 0.4.
+:::
 
 This page is the security reference for operating a self-hosted install: how
 TruePPM authenticates and rate-limits, what to check before exposing it to the
@@ -603,10 +611,13 @@ the operator-facing highlights:
   ingress controller entirely, so the default selector is wrong for them
   rather than merely unconfirmed. See [Public read-only demo
   mode](/administration/helm-values/#public-read-only-demo-mode).
-- **Django admin denied at the edge** (`web.adminAccess.allowCIDRs: []`). The web
-  tier's nginx answers `403` for `/admin/` from every source until you name one,
-  and rate-limits the surface at 5 requests/minute per IP. See
-  [Reaching Django admin](#reaching-django-admin).
+- **Django admin off, and denied at the edge.** The primary control is the
+  application one: the API answers `404` for every `/admin/` path unless
+  `env.TRUEPPM_DJANGO_ADMIN_ENABLED` is `"true"`, which holds on every topology,
+  including `web.enabled: false` and a port-forward. As defense in depth the web
+  tier's nginx answers `403` for `/admin/` from every source until you name one
+  (`web.adminAccess.allowCIDRs: []`), and rate-limits the surface at 5
+  requests/minute per IP. See [Reaching Django admin](#reaching-django-admin).
 
 ### Reaching Django admin
 
@@ -694,11 +705,31 @@ web:
 :::caution[Allowlists and proxied client IPs]
 nginx matches `allowCIDRs` against `$remote_addr`. Behind an Ingress controller
 that is the **controller's pod IP**, not the operator's address — so an allowlist
-can be simultaneously useless (your real address never matches) and dangerously
-permissive (the whole cluster pod CIDR matches). It is only meaningful when the
-web tier sees real client addresses: a `LoadBalancer` with
-`externalTrafficPolicy: Local`, a `hostPort`, or an ingress configured to
-preserve the source IP. When in doubt, leave it empty and port-forward.
+on its own is simultaneously useless (your real address never matches) and
+dangerously permissive (the whole cluster pod CIDR matches). Tell nginx which
+proxies to trust and it recovers the client address from `X-Forwarded-For`
+instead:
+
+```yaml
+web:
+  realIpFrom:
+    - 10.42.0.0/16        # your ingress controller's pod CIDR
+  adminAccess:
+    allowCIDRs:
+      - 203.0.113.0/24
+```
+
+With `ingress.enabled: true` the chart refuses to render a non-empty
+`allowCIDRs` while `realIpFrom` is empty. Without an Ingress (a `LoadBalancer`
+with `externalTrafficPolicy: Local`, or a `hostPort`) the web tier already sees
+real client addresses and `realIpFrom` is not needed. When in doubt, leave
+`allowCIDRs` empty and port-forward.
+
+`realIpFrom` also decides which peers may set `X-Forwarded-Proto`. Set, nginx
+forwards the scheme your ingress reports only when the request came from one of
+those CIDRs, and its own scheme otherwise — so a client that reaches the web
+Service directly cannot claim `https` and have Django treat the request as
+secure. Left empty, the header passes through from any peer, as it did before.
 :::
 
 To remove the path from the public listener entirely — nginx returns `404`

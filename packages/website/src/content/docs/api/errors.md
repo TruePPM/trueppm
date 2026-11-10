@@ -519,6 +519,17 @@ where each can be restored individually as a standalone project — the program
 shell itself is **not** recoverable, and a restored project does not return to
 it. See [Programs](/api/reference/programs/#programs).
 
+### 413 — request body too large
+
+| Code | Meaning | Extra fields |
+|---|---|---|
+| `request_body_too_large` | The declared `Content-Length` exceeds the ceiling for this route (2 MB on most routes; 10 MB for sync push, task bulk, inbound task push, seed import and the workspace logo; 110 MB of file upload for attachments and file imports) | — |
+
+The refusal happens before authentication, so it can answer an unauthenticated
+request. A proxy in front of the API may refuse the same body first with its own
+bare `413`, which carries no `code`. The per-route ceilings ship in 0.5; see
+[Request body ceilings](/administration/configuration/limits/#request-body-ceilings).
+
 ### 422 — well-formed but unprocessable
 
 | Code | Meaning | Extra keys |

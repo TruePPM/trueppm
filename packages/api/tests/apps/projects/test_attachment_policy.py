@@ -35,6 +35,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
@@ -789,6 +790,30 @@ def test_upload_allowed_when_type_in_narrowed_allowlist(
 
 
 @pytest.mark.django_db
+def test_upload_above_the_global_parse_ceiling_still_succeeds(
+    calendar: Calendar, task_on: tuple[Project, Task]
+) -> None:
+    """A 3 MB file clears the 2 MiB DATA_UPLOAD_MAX_MEMORY_SIZE (#4383).
+
+    That setting counts only a multipart request's NON-file fields — file parts
+    stream through the upload handlers — so lowering it for JSON must not lower
+    the attachment ceiling. Attachments sit on the upload tier
+    (core/request_body_limits.py), 110 MiB at the transport.
+    """
+    Workspace.load()
+    project, task = task_on
+    project.allowed_attachment_types = ["application/pdf"]
+    project.save()
+    client = _client_for_project(project, Role.MEMBER, "u_big_pdf")
+
+    pdf = SimpleUploadedFile(
+        "big.pdf", b"%PDF-1.4 " + b"0" * (3 * 1024 * 1024), content_type="application/pdf"
+    )
+    resp = client.post(_att_list_url(project, task), {"file": pdf}, format="multipart")
+    assert resp.status_code == 201, resp.content
+
+
+@pytest.mark.django_db
 def test_upload_allowed_when_project_widens_allowlist(
     calendar: Calendar, task_on: tuple[Project, Task]
 ) -> None:
@@ -945,3 +970,59 @@ def test_program_override_change_recorded_in_history() -> None:
 
     assert prog.history.count() == before + 1  # type: ignore[attr-defined]
     assert prog.history.first().attachments_enabled is False  # type: ignore[attr-defined]
+
+
+def _pdf_of(size: int) -> SimpleUploadedFile:
+    return SimpleUploadedFile("big.pdf", b"%PDF-1.4 " + b"0" * size, content_type="application/pdf")
+
+
+@pytest.mark.django_db
+@override_settings(IDEMPOTENCY_MAX_BODY_BYTES=8 * 1024 * 1024)
+def test_idempotency_key_on_unbufferable_upload_replays_an_identical_retry(
+    calendar: Calendar, task_on: tuple[Project, Task]
+) -> None:
+    """A >2 MiB multipart body cannot be buffered for the idempotency hash (#4383).
+
+    The mixin only reaches that hash when the body is under
+    ``IDEMPOTENCY_MAX_BODY_BYTES`` (default 1 MiB, so a default install skips such
+    uploads entirely); the setting is raised here to exercise the fallback. The mixin
+    then hashes the declared length + content type instead. An identical
+    retry under the same key must replay the stored 201 and write nothing new.
+    """
+    Workspace.load()
+    project, task = task_on
+    project.allowed_attachment_types = ["application/pdf"]
+    project.save()
+    client = _client_for_project(project, Role.MEMBER, "u_idem_replay")
+    size = 2 * 1024 * 1024 + 1024
+    url = _att_list_url(project, task)
+    key = {"HTTP_IDEMPOTENCY_KEY": "44444444-4444-4444-4444-444444444444"}
+
+    first = client.post(url, {"file": _pdf_of(size)}, format="multipart", **key)
+    assert first.status_code == 201, first.content
+    second = client.post(url, {"file": _pdf_of(size)}, format="multipart", **key)
+    assert second.status_code == 201, second.content
+    assert second.json() == first.json()
+    assert second.json()["id"] == first.json()["id"]
+    assert TaskAttachment.objects.filter(task=task).count() == 1
+
+
+@pytest.mark.django_db
+@override_settings(IDEMPOTENCY_MAX_BODY_BYTES=8 * 1024 * 1024)
+def test_idempotency_key_on_unbufferable_upload_conflicts_when_length_differs(
+    calendar: Calendar, task_on: tuple[Project, Task]
+) -> None:
+    """Same key, a different >2 MiB body length → 422 (the length is in the hash)."""
+    Workspace.load()
+    project, task = task_on
+    project.allowed_attachment_types = ["application/pdf"]
+    project.save()
+    client = _client_for_project(project, Role.MEMBER, "u_idem_conflict")
+    url = _att_list_url(project, task)
+    key = {"HTTP_IDEMPOTENCY_KEY": "55555555-5555-5555-5555-555555555555"}
+
+    first = client.post(url, {"file": _pdf_of(2 * 1024 * 1024 + 1024)}, format="multipart", **key)
+    assert first.status_code == 201, first.content
+    second = client.post(url, {"file": _pdf_of(2 * 1024 * 1024 + 4096)}, format="multipart", **key)
+    assert second.status_code == 422, second.content
+    assert TaskAttachment.objects.filter(task=task).count() == 1

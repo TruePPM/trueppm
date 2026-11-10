@@ -212,11 +212,23 @@ class IdempotencyMixin:
         Read ``request.body`` here in ``initial()`` — before the handler accesses
         ``request.data`` — so Django buffers the raw bytes and the view can still parse
         the body downstream.
+
+        By default a request whose ``CONTENT_LENGTH`` exceeds
+        ``IDEMPOTENCY_MAX_BODY_BYTES`` (1 MiB) skips idempotency entirely in
+        ``initial()``, so large uploads never reach this method. The fallback below
+        is reachable only when ``TRUEPPM_IDEMPOTENCY_MAX_BODY_BYTES`` is raised above
+        the ``DATA_UPLOAD_MAX_MEMORY_SIZE`` request ceiling (2 MiB, #4383): a body
+        past that ceiling cannot be buffered, so its hash falls back to the declared
+        length and content type. Two different files of identical size under one key
+        then replay rather than conflict; reading the whole file to tell them apart
+        would cost the memory the ceiling exists to save.
         """
         try:
             body = request.body
         except Exception:
-            body = b""
+            body = "unbuffered:{}:{}".format(
+                request.META.get("CONTENT_LENGTH", ""), request.META.get("CONTENT_TYPE", "")
+            ).encode("utf-8")
         hasher = hashlib.sha256()
         hasher.update((request.method or "").encode("utf-8"))
         hasher.update(b"\n")
