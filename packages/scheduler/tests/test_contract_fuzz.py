@@ -673,7 +673,8 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
     must reproduce ``schedule()`` exactly. Durations reach a few hundred working
     days — on the Monday-only calendar that is years — every link type and lag sign
     is drawn, and an ``actual_start`` is drawn on both sides of the project start (a
-    pre-start actual is an anomalous but accepted data state). An ``actual_finish``
+    pre-start actual is an anomalous but accepted data state). Percent-only progress
+    (50% or 100% with no actuals) is drawn as well. An ``actual_finish``
     is drawn on both sides too, including one that reads before the Monte Carlo
     index origin on the task's own calendar (#4430).
     """
@@ -744,6 +745,9 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
                 actual_start=actual_start,
                 actual_finish=actual_finish,
                 planned_start=None if gap_shape else draw(st.none() | _plausible_date),
+                # Percent-only progress, including a completion with no recorded
+                # actuals (#4696's class sweep).
+                percent_complete=0.0 if gap_shape else draw(st.sampled_from([0.0, 50.0, 100.0])),
                 **triple,  # type: ignore[arg-type]
             )
         )
