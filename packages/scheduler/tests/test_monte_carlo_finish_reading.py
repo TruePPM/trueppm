@@ -282,6 +282,68 @@ def test_a_closed_milestone_finish_is_read_on_its_cpm_edge(
     assert _readings(monte_carlo(project, runs=10, seed=1)) == {expected}
 
 
+_SEVEN_DAY = Calendar(working_days=0b1111111)
+_WEEKDAY = Calendar(working_days=0b0011111)
+_F1_SAT = date(2026, 5, 9)
+
+
+@pytest.mark.parametrize(
+    ("work_cal", "milestone_cal", "project_cal", "milestone_fields", "status_date"),
+    [
+        # (a) Mon-Thu work recording Saturday, live milestone on the 7-day project
+        # calendar held there by the data date.
+        (_FOUR_DAY, None, _SEVEN_DAY, {}, _F1_SAT),
+        # (b) Mon-Fri work on the project calendar, milestone on a 7-day calendar.
+        (None, _SEVEN_DAY, _WEEKDAY, {}, _F1_SAT),
+        # (c) As (b), the milestone held by a Saturday actual_start instead.
+        (None, _SEVEN_DAY, _WEEKDAY, {"actual_start": _F1_SAT}, None),
+    ],
+    ids=["a-data-date", "b-wider-milestone-calendar", "c-actual-start"],
+)
+def test_nonworking_actual_finish_beside_a_same_day_live_milestone_4696(
+    work_cal: Calendar | None,
+    milestone_cal: Calendar | None,
+    project_cal: Calendar,
+    milestone_fields: dict[str, object],
+    status_date: date | None,
+) -> None:
+    """#4696 (repro_F1): completed work ending on a day its calendar does not work.
+
+    ``schedule()`` reads that ``actual_finish`` verbatim as the end of Saturday. A live
+    milestone held at the start of the same Saturday is no later in working time, so
+    the zero-variance percentiles must read the end of Saturday too, not its start.
+    """
+    calendars = {
+        key: cal for key, cal in (("work", work_cal), ("ms", milestone_cal)) if cal is not None
+    }
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 4, 5),
+        tasks=[
+            Task(
+                id="T1",
+                name="T1",
+                duration=timedelta(0),
+                calendar_id="ms" if milestone_cal is not None else None,
+                **milestone_fields,  # type: ignore[arg-type]
+            ),
+            Task(
+                id="T2",
+                name="T2",
+                duration=timedelta(days=1),
+                actual_finish=_F1_SAT,
+                calendar_id="work" if work_cal is not None else None,
+            ),
+        ],
+        calendar=project_cal,
+        calendars=calendars or None,
+        status_date=status_date,
+    )
+    assert _cpm_reading(project) == (_F1_SAT, False)
+    assert _readings(monte_carlo(project, runs=4, seed=1)) == {(_F1_SAT, False)}
+
+
 def _zero_variance(project: Project) -> Project:
     """``project`` with every three-point estimate removed, so each run samples ``duration``."""
     for t in project.tasks:
@@ -373,9 +435,11 @@ def _recorded_edge_projects(draw: st.DrawFn) -> Project:
 def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
     """Every percentile of a deterministic project is the CPM finish, edge included (#4601).
 
-    The edge half is what a closed milestone finishing the project broke. A
-    completed task finishing before the project start (#4430) is left out: Monte
-    Carlo cannot show a day before its index begins.
+    The edge half is what a closed milestone finishing the project broke. This
+    strategy does not draw pre-start finishes (no actual lands before the anchor);
+    #4430 is covered by ``test_contract_fuzz.py::
+    test_monte_carlo_zero_variance_equals_cpm_under_per_task_calendars`` and the
+    pinned cases in ``test_monte_carlo_live_actual_start.py``.
 
     Split milestone actuals (#4458) are deliberately kept, although the issue
     suggested excluding them. They are most of the closed milestones this strategy
@@ -386,11 +450,8 @@ def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
     """
     project = _zero_variance(project)
     try:
-        cpm = schedule(project)
+        schedule(project)
     except SchedulerError:
-        return
-    # TODO(#4430): drop this carve-out with the one in test_contract_fuzz.
-    if any(t.early_finish is not None and t.early_finish < project.start_date for t in cpm.tasks):
         return
     expected = _cpm_reading(project)
     mc = _simulate(project)

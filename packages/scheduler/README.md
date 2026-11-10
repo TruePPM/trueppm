@@ -493,21 +493,28 @@ input up front rather than spinning on a degenerate project:
 - **Duration** — each task duration must be between `0` and `MAX_DURATION_DAYS`
   (`36_525`, ~100 years). Negative durations are rejected.
 - **Lag** — each dependency lag must be within `±MAX_LAG_DAYS` (`36_525`).
-- **Project span** — the cumulative span must stay under `MAX_PROJECT_SPAN_DAYS`
-  (`366_000`, ~1000 years), regardless of task count. The span is the sum of every
-  task's worst-case duration (the deterministic duration or the largest PERT
-  estimate) plus the magnitude of every lag, plus one more term added once:
-  the furthest of the latest `planned_start` pin (start-no-earlier-than), the
-  data date (`status_date`) offset, and the furthest recorded actual from the
-  project start. A scrum task's velocity worst case (`(ceil(story_points / mean
-  velocity) * 4 + 10) * sprint_length_days` working days) is not added to that sum:
-  it is charged along the longest dependency chain instead, so parallel stories do
-  not add up, and the same limit applies to that chain. The uncapped sprint horizon
-  summed over every scrum task must also stay under `366_000` sprints, which bounds
-  the velocity sampler's total draws. Three separate refusals sit beside it: a
-  `status_date` more than `MAX_PROJECT_SPAN_DAYS` after the start, an `actual_start`/`actual_finish` more
-  than that from the start, and a start date so close to `date.max` that the walk
-  would overflow the date range.
+- **Project span** — the longest dependency chain must stay under
+  `MAX_PROJECT_SPAN_DAYS` (`366_000`, ~1000 years). Each task weighs its worst-case
+  duration (the deterministic duration or the largest PERT estimate); the bound is
+  the heaviest chain of those weights plus the magnitude of each lag along it, plus
+  one more term added once: the furthest of the latest `planned_start` pin
+  (start-no-earlier-than), the data date (`status_date`) offset, and the furthest
+  recorded actual from the project start. Parallel tasks do not add up, so task
+  count alone never trips it. A scrum task's velocity worst case
+  (`(ceil(story_points / mean velocity) * 4 + 10) * sprint_length_days` working
+  days) is weighed on the same chain, and the uncapped sprint horizon summed over
+  every scrum task must also stay under `366_000` sprints, which bounds the velocity
+  sampler's total draws. A cyclic graph has no longest chain; it falls back to the
+  serial sum and is then reported as a cycle. Three separate refusals sit beside
+  it: a `status_date` more than `MAX_PROJECT_SPAN_DAYS` after the start, an
+  `actual_start`/`actual_finish` more than that from the start, and a start date so
+  close to `date.max` that the walk would overflow the date range.
+- **Project work** — the sum of every task's worst-case duration plus every lag's
+  magnitude must stay under `MAX_PROJECT_WORK_DAYS` (`3_660_000`, 10x the span cap).
+  This bounds the CPU the passes spend (they walk the calendar per day of duration),
+  not the schedule's length: 100 parallel max-duration tasks sit exactly at the cap
+  and take about 2 s to schedule. A 100,000-task project at 20 days each is 2M and
+  well under it.
 - **Monte Carlo** — `runs` must be `>= 1` and at most `100_000_000` (see the
   `runs` ceiling in [Limits for embedders](#limits-for-embedders)).
 
@@ -533,7 +540,8 @@ application can check or re-enforce them without hand-copying a number:
 |-----|-------|--------|
 | `MAX_DURATION_DAYS` | `36525` | A single task's duration or PERT estimate (~100 years) |
 | `MAX_LAG_DAYS` | `36525` | A single dependency's lag, either direction |
-| `MAX_PROJECT_SPAN_DAYS` | `366000` | Cumulative project span — worst-case task durations plus lags plus the furthest pin, data date or actual (~1000 years; see Project span above) |
+| `MAX_PROJECT_SPAN_DAYS` | `366000` | Longest dependency chain — worst-case task durations plus lags along it plus the furthest pin, data date or actual (~1000 years; see Project span above) |
+| `MAX_PROJECT_WORK_DAYS` | `3660000` | Total work — the sum of every task's worst-case duration plus every lag's magnitude, parallel or not (10x the span cap; see Project work above) |
 | `MAX_DEPENDENCIES` | `100000` | Raw dependency-edge count, before summary expansion |
 | `MAX_EXPANDED_EDGES` | `100000` | Leaf-level edges after expanding a summary↔summary dependency |
 | `MAX_CALENDAR_EXCEPTIONS` | `100000` | Exception ranges on one `Calendar` |
@@ -741,11 +749,7 @@ release it is scheduled for:
   ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); percentile
   estimation is imprecise at very low run counts (10–11 runs), where the
   reported P95 can have only 90% of runs on or before it
-  ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)); a completed task that finished before the project start
-  inflates `monte_carlo()`'s finish
-  ([#4430](https://gitlab.com/trueppm/trueppm/-/issues/4430)); zero-variance Monte Carlo and CPM disagree on a non-working
-  `actual_finish` beside a same-day milestone
-  ([#4696](https://gitlab.com/trueppm/trueppm/-/issues/4696)); a zero-duration task drawing real work back-solves through
+  ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)); a zero-duration task drawing real work back-solves through
   FF/SF, so the Monte Carlo P50 can land before the CPM date
   ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)); an exhausted what-if pull-in on an SS/SF link reverses the
   forecast
@@ -760,15 +764,12 @@ release it is scheduled for:
 - **Calendars** — a zero-lag milestone-to-milestone link into a narrower
   per-task calendar can overstate float
   ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)).
-- **Scale / performance** — a project whose cumulative span passes
-  `MAX_PROJECT_SPAN_DAYS` is refused as "longer than 1,000 years" by a span guard
-  meant to catch pathological input, not real large projects. That is about
-  73,000 tasks at a 5-day average duration with no lags (366,000 / 5); the
-  administration sizing page reports the smallest *measured* refusal, at 64,000
-  tasks, on a benchmark project whose durations and lags together average more
-  than 5 days per task, so the two figures are the same guard at different
-  inputs
-  ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)); Monte Carlo
+- **Scale / performance** — the engine bounds the longest dependency chain, not
+  the task count, so a 100,000-task project of ordinary parallel work schedules;
+  only the total work ceiling (`MAX_PROJECT_WORK_DAYS`, see Project work above)
+  applies to it. Scale benchmarks at
+  50,000 and 100,000 tasks are tracked with the benchmark suite
+  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); Monte Carlo
   holds three `(runs × tasks)` float64 matrices live in memory, already 2.3 GB
   at 50,000 tasks
   ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)).
@@ -798,10 +799,9 @@ they will ship with 0.5 or that release will slip:
   independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings the engine itself into scope
-  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the span-guard
-  bug above will be fixed, raising the supported envelope toward 50,000 tasks
-  ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830),
-  [#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
+  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the supported
+  envelope will be raised toward 50,000 tasks
+  ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
 - **Performance** — a published `pytest-benchmark` suite at 100–5,000 tasks,
   with measured numbers in this README
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); the Monte Carlo
@@ -814,8 +814,7 @@ they will ship with 0.5 or that release will slip:
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
   calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
-  and actuals class above will be fixed ([#4430](https://gitlab.com/trueppm/trueppm/-/issues/4430), [#4696](https://gitlab.com/trueppm/trueppm/-/issues/4696),
-  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
+  and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
   in-progress task's sampled duration no longer has its optimistic tail
   truncated by subtracting deterministic elapsed time from the sampled total
   ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).
@@ -837,9 +836,6 @@ they will ship with 0.5 or that release will slip:
   CPM/leveling pass
   ([#84](https://gitlab.com/trueppm/trueppm/-/issues/84),
   [#744](https://gitlab.com/trueppm/trueppm/-/issues/744)).
-- **Packaging** — stale/placeholder `CITATION.cff` metadata (a fake ORCID and
-  DOI) will be corrected
-  ([#3857](https://gitlab.com/trueppm/trueppm/-/issues/3857)).
 
 May also land in 0.5, but not yet committed (reserve, stretch, or not yet
 triaged): the zero-duration back-solve that can put a Monte Carlo P50 before

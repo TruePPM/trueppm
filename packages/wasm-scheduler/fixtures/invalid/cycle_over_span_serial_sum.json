@@ -1,0 +1,141 @@
+{
+  "id": "inv-cycle-over-span",
+  "name": "Cycle of 12 x 100yr tasks: no longest path, serial-sum fallback exceeds the span cap",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {
+      "id": "t0",
+      "name": "Task 0",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t1",
+      "name": "Task 1",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t2",
+      "name": "Task 2",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t3",
+      "name": "Task 3",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t4",
+      "name": "Task 4",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t5",
+      "name": "Task 5",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t6",
+      "name": "Task 6",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t7",
+      "name": "Task 7",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t8",
+      "name": "Task 8",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t9",
+      "name": "Task 9",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t10",
+      "name": "Task 10",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t11",
+      "name": "Task 11",
+      "duration": 3155760000.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "t0",
+      "successor_id": "t1",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t1",
+      "successor_id": "t2",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t2",
+      "successor_id": "t3",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t3",
+      "successor_id": "t4",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t4",
+      "successor_id": "t5",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t5",
+      "successor_id": "t6",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t6",
+      "successor_id": "t7",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t7",
+      "successor_id": "t8",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t8",
+      "successor_id": "t9",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t9",
+      "successor_id": "t10",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t10",
+      "successor_id": "t11",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t11",
+      "successor_id": "t0",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ]
+}

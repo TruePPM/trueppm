@@ -27,14 +27,24 @@ MAX_LAG_DAYS = 36_525  # ~100 years of lead/lag in either direction
 MAX_CALENDAR_SCAN_DAYS = 366 * 100
 
 
-# Upper bound on the cumulative project span: the sum of every task's (worst-case)
-# duration plus the magnitude of every lag. Per-task/-lag caps alone don't bound
+# Upper bound on the project span: the longest dependency chain of task (worst-case)
+# durations plus the magnitude of every lag on it. Per-task/-lag caps alone don't bound
 # this — a long dependency chain still accumulates dates one working day at a
 # time, so without this an 80+ task max-duration chain would spin
 # _build_working_day_index / the forward pass and could walk a date past the
 # representable range (an uncaught OverflowError). 1000 years is far beyond any
 # real program and keeps every walk bounded regardless of task count.
 MAX_PROJECT_SPAN_DAYS = 366 * 1000
+
+# Upper bound on Σ(every task's worst-case duration) + Σ|lag|, the *work* the
+# forward/backward passes do. This used to be compared against the span cap, which
+# refused any ordinary project above ~73k tasks (#3830); parallel work is not a
+# longer schedule, so the span is now bounded by the longest dependency chain and
+# the sum gets its own ceiling. The passes walk the calendar per day of duration, so
+# this ceiling is a CPU bound: at the cap (100 parallel max-duration tasks)
+# schedule() measured ~2.2 s (3 runs, 2.22-2.25 s, Apple-silicon laptop, #3830).
+# A 100k-task project at 20 days is 2M, well under it. Mirrored in validate.rs.
+MAX_PROJECT_WORK_DAYS = MAX_PROJECT_SPAN_DAYS * 10
 
 
 # Ceiling on the number of leaf-level edges produced when expanding summary↔summary

@@ -13,6 +13,7 @@ import contextlib
 import random
 import time
 from datetime import date, timedelta
+from itertools import pairwise
 
 import pytest
 
@@ -34,7 +35,9 @@ from trueppm_scheduler.engine import (
     MAX_DURATION_DAYS,
     MAX_LAG_DAYS,
     MAX_PROJECT_SPAN_DAYS,
+    MAX_PROJECT_WORK_DAYS,
     _collect_leaves,
+    _validate_span_bounds,
     expand_summary_dependencies,
 )
 
@@ -241,18 +244,24 @@ class TestDependencyCount:
             monte_carlo(self._over_cap_project(), runs=10, max_tasks=None)
 
 
+def _chain(tasks: list[Task]) -> list[Dependency]:
+    return [Dependency(predecessor_id=a.id, successor_id=b.id) for a, b in pairwise(tasks)]
+
+
 class TestProjectSpan:
     def test_cumulative_span_over_max_rejected(self) -> None:
-        # Each task is within the per-task cap, but together they exceed the
-        # cumulative project span — the case per-field bounds alone miss.
+        # Each task is within the per-task cap, but chained they exceed the
+        # project span — the case per-field bounds alone miss.
         n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
-        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        tasks = [task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)]
+        p = make_project(tasks, _chain(tasks))
         with pytest.raises(InvalidScheduleInput, match="Total project span"):
             schedule(p)
 
     def test_cumulative_span_rejected_in_monte_carlo(self) -> None:
         n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
-        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        tasks = [task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)]
+        p = make_project(tasks, _chain(tasks))
         with pytest.raises(InvalidScheduleInput, match="Total project span"):
             monte_carlo(p, runs=10, max_tasks=None)
 
@@ -274,9 +283,94 @@ class TestProjectSpan:
             )
             for i in range(n)
         ]
-        p = make_project(tasks)
+        p = make_project(tasks, _chain(tasks))
         with pytest.raises(InvalidScheduleInput, match="Total project span"):
             monte_carlo(p, runs=10, max_tasks=None)
+
+    def test_parallel_work_above_serial_sum_is_not_refused(self) -> None:
+        # #3830: Σ(durations) above the span cap is ordinary parallel work, not a
+        # longer schedule. Before the fix this was refused as a >1,000-year span.
+        n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
+        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        assert len(schedule(p).tasks) == n
+
+    def test_wide_fan_out_project_above_serial_sum_passes_span_validation(self) -> None:
+        # 100k-task shape from #3830: a root, 100k parallel 1-20 day leaves, a sink.
+        n = 100_000
+        leaves = [task(f"t{i}", 1 + i % 20) for i in range(n)]
+        root, sink = task("root", 1), task("sink", 1)
+        deps = [Dependency(predecessor_id="root", successor_id=t.id) for t in leaves]
+        deps += [Dependency(predecessor_id=t.id, successor_id="sink") for t in leaves[:1]]
+        p = make_project([root, *leaves, sink], deps)
+        # Σ durations = ~1.05M > MAX_PROJECT_SPAN_DAYS, longest chain = 22.
+        _validate_span_bounds(p)
+
+    def test_wide_fan_out_above_serial_sum_schedules_end_to_end(self) -> None:
+        # Σ durations (13 x 36,525 = 474,825) exceeds MAX_PROJECT_SPAN_DAYS but stays
+        # under the work ceiling, and the longest chain is a single max-duration leaf
+        # plus its two neighbors. schedule() must run, not just validate (#3830).
+        n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 3
+        leaves = [task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)]
+        root, sink = task("root", 1), task("sink", 1)
+        deps = [Dependency(predecessor_id="root", successor_id=t.id) for t in leaves]
+        deps += [Dependency(predecessor_id=t.id, successor_id="sink") for t in leaves]
+        p = make_project([root, *leaves, sink], deps)
+        assert sum(t.duration.days for t in p.tasks) > MAX_PROJECT_SPAN_DAYS
+        started = time.perf_counter()
+        result = schedule(p)
+        assert len(result.tasks) == n + 2
+        assert time.perf_counter() - started < 5
+
+    def test_cycle_falls_back_to_serial_sum_and_is_refused_not_crashed(self) -> None:
+        # No longest path exists on a cycle, so the span bound falls back to the
+        # serial sum: 12 max-duration tasks in a ring exceed the span cap.
+        tasks = [task(f"t{i}", MAX_DURATION_DAYS) for i in range(12)]
+        ring = [
+            Dependency(predecessor_id=f"t{i}", successor_id=f"t{(i + 1) % 12}") for i in range(12)
+        ]
+        with pytest.raises(InvalidScheduleInput, match="Total project span"):
+            schedule(make_project(tasks, ring))
+
+    def test_small_cycle_with_large_durations_is_a_cycle_error(self) -> None:
+        # A -> B -> A under the span cap on the serial-sum fallback: reported as a
+        # cycle, never a crash.
+        tasks = [task("A", MAX_DURATION_DAYS), task("B", MAX_DURATION_DAYS)]
+        deps = [
+            Dependency(predecessor_id="A", successor_id="B"),
+            Dependency(predecessor_id="B", successor_id="A"),
+        ]
+        with pytest.raises(CyclicDependencyError):
+            schedule(make_project(tasks, deps))
+
+    def test_refusal_names_the_chain_span_not_the_sum(self) -> None:
+        n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
+        tasks = [task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)]
+        p = make_project(tasks, _chain(tasks))
+        with pytest.raises(InvalidScheduleInput, match="longest dependency chain"):
+            schedule(p)
+
+    def test_total_work_over_ceiling_rejected(self) -> None:
+        # Parallel work is exempt from the span cap but not unbounded: Σ durations
+        # above MAX_PROJECT_WORK_DAYS is refused before any pass runs.
+        n = MAX_PROJECT_WORK_DAYS // MAX_DURATION_DAYS + 2
+        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        with pytest.raises(InvalidScheduleInput, match="Total project work"):
+            schedule(p)
+
+    def test_parallel_work_one_task_past_the_ceiling_is_refused(self) -> None:
+        # The ceiling is a CPU bound (schedule() walks per day of duration), so the
+        # first task past it must be refused, not scheduled for tens of seconds.
+        n = MAX_PROJECT_WORK_DAYS // MAX_DURATION_DAYS + 1
+        # Pins the CPU bound: ~100 parallel max-duration tasks (~2 s), not ~1,000 (~22 s).
+        assert n <= 101
+        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        with pytest.raises(InvalidScheduleInput, match="Total project work"):
+            schedule(p)
+
+    def test_far_future_start_still_rejected_with_short_chain(self) -> None:
+        p = make_project([task("A", 5)], start=date(9999, 12, 1))
+        with pytest.raises(InvalidScheduleInput):
+            schedule(p)
 
 
 class TestRunsGuard:

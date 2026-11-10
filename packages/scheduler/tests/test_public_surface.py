@@ -524,6 +524,53 @@ class TestReleaseMetadataConsistency:
             return False
         return result.returncode == 0
 
+    def _citation(self) -> str:
+        path = self._pkg_root() / "CITATION.cff"
+        if not path.exists():
+            pytest.skip("CITATION.cff is not shipped outside a checkout")
+        return path.read_text()
+
+    def test_citation_version_matches_pyproject(self) -> None:
+        """CITATION.cff is what 'Cite this repository' renders and Zenodo archives (#3857)."""
+        version = self._pyproject()["project"]["version"]
+        m = re.search(r"^version:\s*(\S+)\s*$", self._citation(), flags=re.MULTILINE)
+        assert m, "CITATION.cff has no top-level 'version:'"
+        assert m.group(1) == version, (
+            f"CITATION.cff says {m.group(1)} but pyproject declares {version}; "
+            f"scripts/release.sh bumps both at the release cut."
+        )
+
+    def test_citation_date_released_matches_the_changelog_section(self) -> None:
+        version = self._pyproject()["project"]["version"]
+        changelog = (self._pkg_root() / "CHANGELOG.md").read_text()
+        heading = re.search(
+            rf"^## \[{re.escape(version)}\] - (\d{{4}}-\d{{2}}-\d{{2}})",
+            changelog,
+            flags=re.MULTILINE,
+        )
+        if heading is None:
+            pytest.skip(f"CHANGELOG.md has no dated section for {version} yet (untagged)")
+        m = re.search(r"^date-released:\s*(\S+)\s*$", self._citation(), flags=re.MULTILINE)
+        assert m, "CITATION.cff has no top-level 'date-released:'"
+        assert m.group(1) == heading.group(1), (
+            f"CITATION.cff date-released {m.group(1)} != CHANGELOG {version} date "
+            f"{heading.group(1)}."
+        )
+
+    def test_scholarly_metadata_carries_no_placeholder_orcid_or_doi(self) -> None:
+        """A syntactically valid fake ORCID/DOI is consumed by tooling as if real (#3857)."""
+        found = False
+        for name in ("CITATION.cff", "paper.md"):
+            path = self._pkg_root() / name
+            if not path.exists():
+                continue
+            found = True
+            text = path.read_text()
+            assert "0000-0000-0000-0000" not in text, f"{name} carries a placeholder ORCID"
+            assert "zenodo.0000000" not in text, f"{name} carries a placeholder DOI"
+        if not found:
+            pytest.skip("scholarly metadata files are not present outside a checkout")
+
     def test_the_declared_version_has_a_changelog_section(self) -> None:
         version = self._pyproject()["project"]["version"]
         if not self._tag_exists(version):

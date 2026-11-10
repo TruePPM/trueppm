@@ -1,7 +1,7 @@
 ---
 title: Deployment Sizing
 description: How large a project TruePPM handles and how much hardware to plan for — plain-language recommendations first, then the measurements and engineering detail behind them.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 This page answers two questions: **how large a project TruePPM handles**, and **what hardware to ask your IT team for**. The short answers come first. Everything after [Technical reference](#technical-reference) is for the people who will install and run it, and every recommendation up here links to the detail behind it.
@@ -401,6 +401,10 @@ why every change above makes the fetch cheaper instead.
 
 ### Toward 100,000 tasks
 
+:::note[Ships in 0.5]
+The current release (0.4) refuses a project whose task durations and lags **sum** past 366,000 days, as if every task ran in series: about 73,000 tasks at a 5-day average, measured refusing at 64,000 ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)). From 0.5 the engine bounds the **longest dependency chain** instead, so parallel work no longer counts against the span; the sum keeps a separate, CPU-based ceiling of 3,660,000 days.
+:::
+
 A 100,000-task project is not usable today, and the whole-project load is only one of the reasons. Measured 2026-09-16 on current `main` with JIT off, one project and one user, with `ANALYZE` after seeding, on the M5 Pro above. Load times at 16,000 and above are from freshly created databases; the recalculation, memory and size columns come from the single re-seeded sweep described in the note above, where churn affects load time far more than memory:
 
 | Tasks | Whole-project load | JSON sent to the browser | CPM recalculation | Recalculation peak memory | Task table on disk |
@@ -409,8 +413,8 @@ A 100,000-task project is not usable today, and the whole-project load is only o
 | 8,000 | 6.8 s | 18 MB | 6.9 s | 357 MiB | 25 MB |
 | 16,000 | 37 s | 37 MB | 14.0 s | 583 MiB | 46 MB |
 | 32,000 | 112 s | 73 MB | 28.4 s | 1.0 GiB | 70 MB |
-| 64,000 | not measured on a fresh database | 146 MB | **refused** | 1.1 GiB | 129 MB |
-| 100,000 | ~37 min (computed) | **229 MB** | **refused** | 1.6 GiB | 208 MB |
+| 64,000 | not measured on a fresh database | 146 MB | **refused in 0.4** | 1.1 GiB | 129 MB |
+| 100,000 | ~37 min (computed) | **229 MB** | **refused in 0.4** | 1.6 GiB | 208 MB |
 
 Each part of the system runs out at a different size, and for a different reason:
 
@@ -419,7 +423,7 @@ Each part of the system runs out at a different size, and for a different reason
 | **Opening the Schedule** | The `OFFSET` cost above | Past the 2 s line near 3,000 tasks; ~37 s at 16,000 | [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381), [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382) |
 | **Editing with others watching** | Every remote edit re-fetches the whole project for every open Schedule | Each edit costs each viewer a whole-project load — ~7 s at 8,000 tasks | [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341), [#2598](https://gitlab.com/trueppm/trueppm/-/issues/2598) |
 | **The browser** | ~2.3 KB of JSON per task, all held in memory, plus paint and hit-testing that scale with the task count | Never measured in a browser — 229 MB of JSON at 100,000 tasks | [#3832](https://gitlab.com/trueppm/trueppm/-/issues/3832), [#1539](https://gitlab.com/trueppm/trueppm/-/issues/1539), [#1540](https://gitlab.com/trueppm/trueppm/-/issues/1540), [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) |
-| **Schedule recalculation — limits** | The engine refuses a project whose task durations and lags **sum** past 366,000 days, as if every task ran in series | Refused at 64,000 tasks here. At a 5-day average duration, ~73,000 tasks; at 10 days, ~36,000 | [#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830) |
+| **Schedule recalculation — limits** | The engine bounds the longest dependency chain at 366,000 days and the total of all task durations and lags at 3,660,000 days (a CPU bound: ~2 s to schedule at the cap) | A 100,000-task project at 20 days per task totals 2M and is within it; parallel work no longer counts against the span | [#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830) |
 | **Schedule recalculation — agile limits** | A scrum story's velocity worst case counts only along its dependency chain, but the sprint horizon summed over every scrum story must stay under 366,000 sprints | About 26,000 five-point stories in an all-agile project | [#4695](https://gitlab.com/trueppm/trueppm/-/issues/4695) |
 | **Schedule recalculation — memory** | ~30 KB of resident memory per task; the chart limits the worker to 2 GiB | Extrapolates past 2 GiB near 60,000 tasks | [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) |
 | **Schedule recalculation — time** | Linear, ~0.9 ms per task, and repeated in full on every edit | Well inside the 480 s task limit at 100,000 tasks; the cost is per edit | [#235](https://gitlab.com/trueppm/trueppm/-/issues/235) |
@@ -455,7 +459,7 @@ It depends on which limit you are hitting:
 
 - **Many users at once — yes.** This is a throughput limit, and it scales out. More API workers or replicas is the single most effective change measured on this page (22.5 s → 7.3 s at eight users). Give PostgreSQL the cores to match: the chart's bundled PostgreSQL is limited to 2 CPU, and eight users needed eleven.
 - **One large project opening — barely.** Each page request is a single query on a single PostgreSQL core, and the load grows about 100-fold for 16 times the tasks, so a core twice as fast buys well under twice the tasks. More cores and more replicas do not make one person's load faster. This is fixed in code ([#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381), [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382)), not in hardware.
-- **Recalculating a large project or program — memory, yes.** Raise the Celery worker's `resources.limits.memory` above the chart's 2 GiB before a project or program passes ~50,000 tasks ([#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831)). No amount of hardware gets past the span guard ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)).
+- **Recalculating a large project or program — memory, yes.** Raise the Celery worker's `resources.limits.memory` above the chart's 2 GiB before a project or program passes ~50,000 tasks ([#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831)). In 0.4 no amount of hardware gets past the serial-sum span guard ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)); 0.5 will replace it with a longest-chain bound.
 - **The browser — no.** A 100,000-task Schedule is a 229 MB download held in each user's browser. Server hardware does not change that.
 
 ### What was explicitly *not* measured

@@ -10,7 +10,6 @@ tags:
   - scheduling
 authors:
   - name: Kelly Hair
-    orcid: 0000-0000-0000-0000  # <to be assigned before submission>
     affiliation: 1
 affiliations:
   - name: Independent Researcher, United States

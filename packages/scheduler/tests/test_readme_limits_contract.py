@@ -30,6 +30,7 @@ _DOCUMENTED_CAPS = frozenset(
         "MAX_DURATION_DAYS",
         "MAX_LAG_DAYS",
         "MAX_PROJECT_SPAN_DAYS",
+        "MAX_PROJECT_WORK_DAYS",
         "MAX_DEPENDENCIES",
         "MAX_EXPANDED_EDGES",
         "MAX_CALENDAR_EXCEPTIONS",

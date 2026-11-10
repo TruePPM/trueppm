@@ -1,0 +1,512 @@
+{
+  "id": "inv-work-over-max",
+  "name": "Parallel work over the ceiling (101 x 100yr tasks, no dependencies)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {
+      "id": "t0",
+      "name": "Task 0",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t1",
+      "name": "Task 1",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t2",
+      "name": "Task 2",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t3",
+      "name": "Task 3",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t4",
+      "name": "Task 4",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t5",
+      "name": "Task 5",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t6",
+      "name": "Task 6",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t7",
+      "name": "Task 7",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t8",
+      "name": "Task 8",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t9",
+      "name": "Task 9",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t10",
+      "name": "Task 10",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t11",
+      "name": "Task 11",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t12",
+      "name": "Task 12",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t13",
+      "name": "Task 13",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t14",
+      "name": "Task 14",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t15",
+      "name": "Task 15",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t16",
+      "name": "Task 16",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t17",
+      "name": "Task 17",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t18",
+      "name": "Task 18",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t19",
+      "name": "Task 19",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t20",
+      "name": "Task 20",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t21",
+      "name": "Task 21",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t22",
+      "name": "Task 22",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t23",
+      "name": "Task 23",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t24",
+      "name": "Task 24",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t25",
+      "name": "Task 25",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t26",
+      "name": "Task 26",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t27",
+      "name": "Task 27",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t28",
+      "name": "Task 28",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t29",
+      "name": "Task 29",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t30",
+      "name": "Task 30",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t31",
+      "name": "Task 31",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t32",
+      "name": "Task 32",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t33",
+      "name": "Task 33",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t34",
+      "name": "Task 34",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t35",
+      "name": "Task 35",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t36",
+      "name": "Task 36",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t37",
+      "name": "Task 37",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t38",
+      "name": "Task 38",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t39",
+      "name": "Task 39",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t40",
+      "name": "Task 40",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t41",
+      "name": "Task 41",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t42",
+      "name": "Task 42",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t43",
+      "name": "Task 43",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t44",
+      "name": "Task 44",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t45",
+      "name": "Task 45",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t46",
+      "name": "Task 46",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t47",
+      "name": "Task 47",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t48",
+      "name": "Task 48",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t49",
+      "name": "Task 49",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t50",
+      "name": "Task 50",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t51",
+      "name": "Task 51",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t52",
+      "name": "Task 52",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t53",
+      "name": "Task 53",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t54",
+      "name": "Task 54",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t55",
+      "name": "Task 55",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t56",
+      "name": "Task 56",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t57",
+      "name": "Task 57",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t58",
+      "name": "Task 58",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t59",
+      "name": "Task 59",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t60",
+      "name": "Task 60",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t61",
+      "name": "Task 61",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t62",
+      "name": "Task 62",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t63",
+      "name": "Task 63",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t64",
+      "name": "Task 64",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t65",
+      "name": "Task 65",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t66",
+      "name": "Task 66",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t67",
+      "name": "Task 67",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t68",
+      "name": "Task 68",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t69",
+      "name": "Task 69",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t70",
+      "name": "Task 70",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t71",
+      "name": "Task 71",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t72",
+      "name": "Task 72",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t73",
+      "name": "Task 73",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t74",
+      "name": "Task 74",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t75",
+      "name": "Task 75",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t76",
+      "name": "Task 76",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t77",
+      "name": "Task 77",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t78",
+      "name": "Task 78",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t79",
+      "name": "Task 79",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t80",
+      "name": "Task 80",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t81",
+      "name": "Task 81",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t82",
+      "name": "Task 82",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t83",
+      "name": "Task 83",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t84",
+      "name": "Task 84",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t85",
+      "name": "Task 85",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t86",
+      "name": "Task 86",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t87",
+      "name": "Task 87",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t88",
+      "name": "Task 88",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t89",
+      "name": "Task 89",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t90",
+      "name": "Task 90",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t91",
+      "name": "Task 91",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t92",
+      "name": "Task 92",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t93",
+      "name": "Task 93",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t94",
+      "name": "Task 94",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t95",
+      "name": "Task 95",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t96",
+      "name": "Task 96",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t97",
+      "name": "Task 97",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t98",
+      "name": "Task 98",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t99",
+      "name": "Task 99",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t100",
+      "name": "Task 100",
+      "duration": 3155760000.0
+    }
+  ]
+}

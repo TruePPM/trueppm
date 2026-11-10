@@ -206,6 +206,10 @@ def _offset_to_date(
     idx = math.ceil(offset - _MC_DAY_EPS) - 1
     if idx > len(wd_index) - 1:
         _raise_mc_index_overrun()
+    if idx < 0 and completed_finish_floor is not None:
+        # No column finished inside the index: every task is completed work that
+        # ended before its origin (#4430), so the finish is the floor's verbatim date.
+        return completed_finish_floor
     idx = max(0, idx)
     resolved = wd_index[idx]
     if completed_finish_floor is not None and completed_finish_floor > resolved:
@@ -307,9 +311,12 @@ def _mc_percentiles(
             shown = max(float(k), float(below.max())) if below.size else float(k)
         at_start = shown > k
         resolved = _offset_to_date(shown, wd_index, None)
+        # A shown offset of 0 is no indexed day at all (#4430): only completed work
+        # ending before the index origin, so the floor is the reading even though it
+        # precedes the index's first day.
         reading = (
             (finish_floor, floor_at_day_start)
-            if finish_floor is not None and finish_floor > resolved
+            if finish_floor is not None and (finish_floor > resolved or shown <= 0)
             else (resolved, at_start)
         )
         if reading[1] and reading[0] == completed_end_of_day:

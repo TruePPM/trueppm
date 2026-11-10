@@ -144,7 +144,7 @@ def test_two_thousand_story_agile_project_schedules_and_forecasts() -> None:
     """The issue's shape: 2,000 stories, 15-day sprints. Serially it was ~400k days."""
     project = _agile_project(2000, layers=40, sprint_length_days=15)
     serial = sum(engine._velocity_worst_case_days(t, project) for t in project.tasks)
-    assert serial > engine.MAX_PROJECT_SPAN_DAYS  # the old guard's charge
+    assert serial > engine.MAX_PROJECT_SPAN_DAYS  # what summing velocity worst cases would charge
     deterministic = schedule(project)
     result = monte_carlo(project, runs=200, seed=0)
     assert deterministic.project_finish is not None
@@ -319,3 +319,20 @@ def test_nth_working_day_matches_the_day_walk(seed: int) -> None:
         assert engine._nth_working_day(anchor, n, cal, forward=False) == engine._start_from_finish(
             anchor, n, cal
         )
+
+
+def test_parallel_project_above_the_span_cap_keeps_the_working_day_index_bounded() -> None:
+    """Σ durations above the span cap is parallel work: Monte Carlo runs, and the index is
+    sized to the longest chain (one task), not the sum over every task (#3830)."""
+    n = engine.MAX_PROJECT_SPAN_DAYS // engine.MAX_DURATION_DAYS + 3
+    tasks = [
+        Task(id=f"t{i}", name=f"t{i}", duration=timedelta(days=engine.MAX_DURATION_DAYS))
+        for i in range(n)
+    ]
+    project = Project(id="p", name="p", start_date=date(2026, 3, 2), tasks=tasks, dependencies=[])
+    assert sum(t.duration.days for t in tasks) > engine.MAX_PROJECT_SPAN_DAYS
+    result = monte_carlo(project, runs=20, seed=0)
+    assert result.p50 <= result.p80 <= result.p95
+    size = engine._mc_index_size(_horizon(project), project.start_date, [project.calendar], n)
+    assert size < 2 * engine.MAX_DURATION_DAYS  # one chain of one task, not n of them
+    assert size < engine.MAX_INDEX_CELLS
