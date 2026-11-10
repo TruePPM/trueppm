@@ -1,4 +1,5 @@
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
@@ -67,7 +68,13 @@ beforeEach(() => {
     return Promise.resolve(paginated([]));
   });
   postMock.mockResolvedValue({
-    data: { id: 'rs-new', resource: 'res-1', skill: 'sk-react', skill_name: 'React', proficiency: 3 },
+    data: {
+      id: 'rs-new',
+      resource: 'res-1',
+      skill: 'sk-react',
+      skill_name: 'React',
+      proficiency: 3,
+    },
   });
   patchMock.mockResolvedValue({ data: RESOURCE_WIRE });
   deleteMock.mockResolvedValue({ data: null });
@@ -77,12 +84,14 @@ function renderPanel(resource: OrgResource = RESOURCE) {
   const onDeactivated = vi.fn();
   const onRestored = vi.fn();
   const view = renderWithProviders(
-    <ResourceDetailPanel
-      mode="view"
-      resource={resource}
-      onDeactivated={onDeactivated}
-      onRestored={onRestored}
-    />,
+    <MemoryRouter>
+      <ResourceDetailPanel
+        mode="view"
+        resource={resource}
+        onDeactivated={onDeactivated}
+        onRestored={onRestored}
+      />
+    </MemoryRouter>,
   );
   return { ...view, onDeactivated, onRestored };
 }
@@ -99,7 +108,9 @@ function renderCreate() {
 describe('ResourceDetailPanel — inline add skill (issue 1612)', () => {
   it('no longer shows the placeholder text and offers an add-skill trigger', () => {
     renderPanel();
-    expect(screen.queryByText(/use the project team tab to manage skills/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/use the project team tab to manage skills/i),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /\+ add skill/i })).toBeInTheDocument();
   });
 
@@ -313,6 +324,15 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
 
     await user.click(screen.getByRole('button', { name: '⚠ Deactivate' }));
     expect(screen.getByText('Deactivate Alice Nguyen?')).toBeInTheDocument();
+    // #3584: the dialog says what deactivation does NOT revoke, and links to where.
+    const note = screen.getByTestId('deactivate-not-revoked-note');
+    expect(note).toHaveTextContent(
+      /not revoke their login, their project memberships, or their API tokens/i,
+    );
+    expect(within(note).getByRole('link', { name: 'workspace Members' })).toHaveAttribute(
+      'href',
+      '/settings/members',
+    );
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByText('Deactivate Alice Nguyen?')).not.toBeInTheDocument();
@@ -340,7 +360,9 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
     // workspace ADMIN. Without an onError the click silently did nothing, which
     // reads as a broken button rather than a refusal.
     const user = userEvent.setup();
-    deleteMock.mockRejectedValue(new Error('You need workspace Admin access to perform this action.'));
+    deleteMock.mockRejectedValue(
+      new Error('You need workspace Admin access to perform this action.'),
+    );
     const { onDeactivated } = renderPanel();
 
     await user.click(screen.getByRole('button', { name: '⚠ Deactivate' }));

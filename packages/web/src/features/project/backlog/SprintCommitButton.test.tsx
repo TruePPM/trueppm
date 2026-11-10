@@ -7,12 +7,13 @@ import type { Task } from '@/types';
 import { SprintCommitButton } from './SprintCommitButton';
 
 const mutateMock = vi.fn();
+const mutationState = { isPending: false, isPaused: false };
 vi.mock('@/hooks/useTaskMutations', () => ({
-  useUpdateTask: () => ({ mutate: mutateMock, isPending: false }),
+  useUpdateTask: () => ({ mutate: mutateMock, ...mutationState }),
 }));
 
 const { toastErrorMock } = vi.hoisted(() => ({ toastErrorMock: vi.fn() }));
-vi.mock('@/components/Toast/toast', () => ({ toast: { error: toastErrorMock } }));
+vi.mock('@/components/Toast/toast', () => ({ toast: { action: toastErrorMock } }));
 
 function makeStory(over: Partial<Task>): Task {
   return {
@@ -48,6 +49,8 @@ function renderBtn(props: Partial<ComponentProps<typeof SprintCommitButton>> = {
 beforeEach(() => {
   mutateMock.mockReset();
   toastErrorMock.mockReset();
+  mutationState.isPending = false;
+  mutationState.isPaused = false;
 });
 
 describe('SprintCommitButton', () => {
@@ -91,7 +94,26 @@ describe('SprintCommitButton', () => {
     // the 403/500/network case that otherwise rolled back silently.
     const opts = mutateMock.mock.calls[0][1] as { onError: (e: unknown) => void };
     opts.onError(new Error('network'));
-    expect(toastErrorMock).toHaveBeenCalledWith("Couldn't add the story — try again.");
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Couldn't add the story.",
+      expect.objectContaining({ label: 'Retry' }),
+      { variant: 'error' },
+    );
+    // Retry re-issues the same write.
+    const action = toastErrorMock.mock.calls[0][1] as { onClick: () => void };
+    action.onClick();
+    expect(mutateMock).toHaveBeenCalledTimes(2);
+    expect(mutateMock.mock.calls[1][0]).toEqual({ id: 'story-1', projectId: 'p1', sprint: 'sp-1' });
+  });
+
+  it('shows a per-row pending indicator while saving and "Waiting to sync" while paused offline', () => {
+    mutationState.isPending = true;
+    const { unmount } = renderBtn({ story: makeStory({ sprintId: null }) });
+    expect(screen.getByRole('status')).toHaveTextContent('Saving…');
+    unmount();
+    mutationState.isPaused = true;
+    renderBtn({ story: makeStory({ sprintId: null }) });
+    expect(screen.getByRole('status')).toHaveTextContent('Waiting to sync');
   });
 
   it('does NOT double-toast when the write fails with a sync conflict (409)', () => {

@@ -395,12 +395,12 @@ test.describe('Project Settings → Workflow (#521)', () => {
     const captures: Captures = {};
     await setup(page, captures);
 
-    let requestCount = 0;
+    let healed = false;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
-      requestCount += 1;
       // The query client retries a failed GET once before settling into
       // `isError` (src/lib/queryClient.ts).
-      if (requestCount <= 2) {
+      // Fail until Retry is clicked: sections mount after the failure settles and re-fetch on mount (#3005).
+      if (!healed) {
         return r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -422,6 +422,7 @@ test.describe('Project Settings → Workflow (#521)', () => {
     await expect(cadence.locator('[class*="animate-pulse"]')).toHaveCount(0);
     await expect(cadence.getByRole('radiogroup')).toHaveCount(0);
 
+    healed = true;
     await cadence.getByRole('button', { name: 'Retry' }).click();
     await expect(cadence.getByRole('radio', { name: /Sprint-based/i })).toBeVisible();
   });

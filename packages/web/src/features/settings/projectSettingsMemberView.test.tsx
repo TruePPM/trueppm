@@ -5,6 +5,7 @@ import { canAuthorPlan } from '@/lib/roles';
 import {
   buildProjectSettingsMemberNav,
   buildProjectSettingsNav,
+  resolveProjectSettingsRail,
   shouldShowProjectMemberRail,
   ProjectSettingsPage,
 } from './ProjectSettingsPage';
@@ -14,9 +15,13 @@ const mockUser = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/useCurrentUser', () => ({ useCurrentUser: () => mockUser }));
-vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({ useIsWorkspaceAdmin: () => true }));
+const mockWs = vi.hoisted(() => ({ isAdmin: false as boolean | null }));
+vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({ useIsWorkspaceAdmin: () => mockWs.isAdmin }));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p1' }));
-vi.mock('@/hooks/useProject', () => ({ useProject: () => ({ data: undefined }) }));
+const mockProject = vi.hoisted(() => ({
+  data: undefined as { name: string; my_role?: number | null } | undefined,
+}));
+vi.mock('@/hooks/useProject', () => ({ useProject: () => mockProject }));
 vi.mock('@/hooks/usePrograms', () => ({ usePrograms: () => ({ data: [] }) }));
 vi.mock('@/hooks/useProjects', () => ({ useProjects: () => ({ data: [] }) }));
 vi.mock('./project/ProjectTemplateDivergencePage', () => ({
@@ -36,6 +41,8 @@ function renderPage() {
 
 beforeEach(() => {
   mockUser.user = undefined;
+  mockWs.isAdmin = false;
+  mockProject.data = undefined;
 });
 
 /**
@@ -80,40 +87,89 @@ describe('project settings — member view', () => {
     expect(groups[0].label).toBe('Your project');
   });
 
-  it('withholds the full admin rail until the server says true (#3449, rule 379)', () => {
-    // The full rail is an affordance: loading (undefined), errored (undefined),
-    // and an explicit false all render the member rail; only `true` raises it.
-    expect(shouldShowProjectMemberRail(undefined)).toBe(true);
-    expect(shouldShowProjectMemberRail(false)).toBe(true);
-    expect(shouldShowProjectMemberRail(true)).toBe(false);
+  it('resolves the rail from the caller role on THIS project (#3005)', () => {
+    const base = { projectResolved: true, isWorkspaceAdmin: false, canAccessAdminSettings: true };
+    // Admin here and Owner here raise the admin rail; Member / Viewer / non-member do not,
+    // even though the org-wide flag is true (they are Admin on some OTHER project).
+    expect(resolveProjectSettingsRail({ ...base, myRole: 300 })).toBe('admin');
+    expect(resolveProjectSettingsRail({ ...base, myRole: 400 })).toBe('admin');
+    expect(resolveProjectSettingsRail({ ...base, myRole: 100 })).toBe('member');
+    expect(resolveProjectSettingsRail({ ...base, myRole: 1 })).toBe('member');
+    expect(resolveProjectSettingsRail({ ...base, myRole: null })).toBe('member');
+    // A workspace admin with no membership still gets the admin rail.
+    expect(resolveProjectSettingsRail({ ...base, isWorkspaceAdmin: true, myRole: null })).toBe(
+      'admin',
+    );
+    // Unresolved project: its own state, never admin.
+    expect(resolveProjectSettingsRail({ ...base, projectResolved: false, myRole: undefined })).toBe(
+      'loading',
+    );
+    // Payload without my_role falls back to the org-wide flag.
+    expect(resolveProjectSettingsRail({ ...base, myRole: undefined })).toBe('admin');
+    expect(
+      resolveProjectSettingsRail({ ...base, canAccessAdminSettings: undefined, myRole: undefined }),
+    ).toBe('member');
+  });
+
+  it('falls back to the org-wide flag when the project GET failed, so sections can show Retry', () => {
+    const base = {
+      projectResolved: false,
+      projectFailed: true,
+      myRole: undefined,
+      isWorkspaceAdmin: false,
+    };
+    expect(resolveProjectSettingsRail({ ...base, canAccessAdminSettings: true })).toBe('admin');
+    expect(resolveProjectSettingsRail({ ...base, canAccessAdminSettings: false })).toBe('member');
+    expect(resolveProjectSettingsRail({ ...base, canAccessAdminSettings: undefined })).toBe(
+      'member',
+    );
+    // Still in flight (not failed): withheld.
+    expect(
+      resolveProjectSettingsRail({ ...base, projectFailed: false, canAccessAdminSettings: true }),
+    ).toBe('loading');
+  });
+
+  it('withholds the full admin rail unless the rail resolves to admin (#3449, rule 379)', () => {
+    expect(shouldShowProjectMemberRail('loading')).toBe(true);
+    expect(shouldShowProjectMemberRail('member')).toBe(true);
+    expect(shouldShowProjectMemberRail('admin')).toBe(false);
   });
 
   it('pins the two permission-affordance polarities against each other (rule 379(c))', () => {
-    // Both helpers gate an affordance on a server verdict and both treat an
-    // unresolved one as "withhold": undefined must never raise the control.
     expect(canAuthorPlan(undefined)).toBe(false);
-    expect(shouldShowProjectMemberRail(undefined)).toBe(true);
+    expect(shouldShowProjectMemberRail('loading')).toBe(true);
     expect(canAuthorPlan(true)).toBe(true);
-    expect(shouldShowProjectMemberRail(true)).toBe(false);
+    expect(shouldShowProjectMemberRail('admin')).toBe(false);
   });
 
   describe('rendered ProjectSettingsPage', () => {
-    it('renders the member rail while /auth/me is pending or errored (user undefined)', () => {
-      mockUser.user = undefined;
-      renderPage();
-      expect(screen.getAllByText('Your project').length).toBeGreaterThan(0);
-      expect(screen.queryByText('How this team works')).toBeNull();
-    });
-
-    it('renders the member rail when can_access_admin_settings is false', () => {
-      mockUser.user = { can_access_admin_settings: false };
-      renderPage();
-      expect(screen.getAllByText('Your project').length).toBeGreaterThan(0);
-      expect(screen.queryByText('How this team works')).toBeNull();
-    });
-
-    it('renders the full rail once can_access_admin_settings is true', () => {
+    it('renders the member rail while the project is still loading', () => {
       mockUser.user = { can_access_admin_settings: true };
+      mockProject.data = undefined;
+      renderPage();
+      expect(screen.getAllByText('Your project').length).toBeGreaterThan(0);
+      expect(screen.queryByText('How this team works')).toBeNull();
+    });
+
+    it('renders the member rail for a Member HERE who is Admin elsewhere (can_access_admin_settings true)', () => {
+      mockUser.user = { can_access_admin_settings: true };
+      mockProject.data = { name: 'B', my_role: 100 };
+      renderPage();
+      expect(screen.getAllByText('Your project').length).toBeGreaterThan(0);
+      expect(screen.queryByText('How this team works')).toBeNull();
+    });
+
+    it('renders the full rail for an Admin on this project', () => {
+      mockUser.user = { can_access_admin_settings: true };
+      mockProject.data = { name: 'A', my_role: 300 };
+      renderPage();
+      expect(screen.getAllByText('How this team works').length).toBeGreaterThan(0);
+    });
+
+    it('renders the full rail for a workspace admin with no membership here', () => {
+      mockUser.user = { can_access_admin_settings: true };
+      mockWs.isAdmin = true;
+      mockProject.data = { name: 'A', my_role: null };
       renderPage();
       expect(screen.getAllByText('How this team works').length).toBeGreaterThan(0);
     });

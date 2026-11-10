@@ -169,4 +169,39 @@ describe('ExternalSourceConnectDialog', () => {
     expect(screen.getByLabelText(/Site URL/i)).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent(/Could not connect to Jira/i);
   });
+
+  it('pre-fills the stored filter on reconnect and resubmits it unchanged (#3247)', () => {
+    render(
+      <ExternalSourceConnectDialog
+        source={JIRA}
+        onDismiss={vi.fn()}
+        connection={{
+          name: 'jira',
+          exists: true,
+          base_url: 'https://acme.atlassian.net',
+          deployment: 'cloud',
+          account_email: 'p.patel@acme.com',
+          status: 'auth_failed',
+          last_synced_at: null,
+          jql: 'project in (RIV, BAY) AND labels = mine',
+          project_keys: ['RIV', 'BAY'],
+          poll_enabled: false,
+          last_pull: null,
+        } as never}
+      />,
+    );
+    expect(screen.getByLabelText(/Site URL/i)).toHaveValue('https://acme.atlassian.net');
+    fireEvent.change(screen.getByLabelText(/API token/i), { target: { value: 'fresh_token' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+    expect(screen.getByDisplayValue('project in (RIV, BAY) AND labels = mine')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Start importing/i }));
+    expect(connectMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jql: 'project in (RIV, BAY) AND labels = mine',
+        project_keys: ['RIV', 'BAY'],
+        secret: 'fresh_token',
+      }),
+      expect.any(Object),
+    );
+  });
 });

@@ -389,10 +389,10 @@ test.describe('Members Settings — default member role', () => {
   }) => {
     await setup(page);
 
-    let requestCount = 0;
+    let healed = false;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
-      requestCount += 1;
-      if (requestCount <= 2) {
+      // Fail until Retry is clicked: sections mount after the failure settles and re-fetch on mount (#3005).
+      if (!healed) {
         return r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -417,6 +417,7 @@ test.describe('Members Settings — default member role', () => {
       setting.getByRole('combobox', { name: /default role for new members/i }),
     ).toHaveCount(0);
 
+    healed = true;
     await setting.getByRole('button', { name: 'Retry' }).click();
     await expect(
       setting.getByRole('combobox', { name: /default role for new members/i }),

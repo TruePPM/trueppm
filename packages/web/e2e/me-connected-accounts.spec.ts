@@ -469,6 +469,63 @@ test.describe('Available sources section (#1420)', () => {
     await expect(dialog.getByRole('heading', { name: 'Connect Jira' })).toBeVisible();
   });
 
+  test('Reconnect pre-fills the stored JQL and project keys and re-submits them (#3247)', async ({
+    page,
+  }) => {
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'auth_failed',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: 'project in (RIV, BAY) AND labels = mine',
+        project_keys: ['RIV', 'BAY'],
+      },
+    });
+    // Capture the PUT the wizard sends; everything else falls through to setup()'s
+    // stateful connection handler.
+    let putBody: Record<string, unknown> | null = null;
+    await page.route('**/api/v1/me/connections/jira/', async (route: Route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      putBody = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          name: 'Jira',
+          exists: true,
+          base_url: 'https://acme.atlassian.net',
+          account_email: 'alice@example.com',
+          status: 'active',
+          last_synced_at: null,
+          jql: putBody.jql,
+          project_keys: putBody.project_keys,
+          poll_enabled: false,
+          last_sync: null,
+        }),
+      });
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    await page.locator('#source-jira').getByRole('button', { name: 'Reconnect' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByLabel(/Site URL/i)).toHaveValue('https://acme.atlassian.net');
+    await dialog.getByLabel(/API token/i).fill('fresh-token');
+    await dialog.getByRole('button', { name: /Continue/i }).click();
+    await expect(dialog.locator('textarea')).toHaveValue('project in (RIV, BAY) AND labels = mine');
+    await expect(dialog.locator('input[value="RIV, BAY"]')).toBeVisible();
+    await dialog.getByRole('button', { name: /Start importing/i }).click();
+
+    await expect.poll(() => putBody).not.toBeNull();
+    expect(putBody).toMatchObject({
+      jql: 'project in (RIV, BAY) AND labels = mine',
+      project_keys: ['RIV', 'BAY'],
+      secret: 'fresh-token',
+    });
+  });
+
   test('shows an Update filter banner when the connection is invalid_filter (#2888)', async ({
     page,
   }) => {

@@ -442,6 +442,17 @@ function shellRoutes(children: RouteObject[]): RouteObject[] {
   );
 }
 
+/**
+ * Gives every view rendered into `ProjectShell` / `ProgramShell`'s `<Outlet>` its
+ * own `errorElement` (#2865). The container-level boundary (issue 1654) replaces
+ * the shell wholesale, taking the project chrome with it; a boundary on the view
+ * itself swaps only the failing view, so the user can still switch tabs. The
+ * container boundary stays as the outer net for a throw in the shell itself.
+ */
+function viewRoutes(children: RouteObject[]): RouteObject[] {
+  return shellRoutes(children);
+}
+
 export const routes: RouteObject[] = [
   {
     element: <RootLayout />,
@@ -606,7 +617,7 @@ export const routes: RouteObject[] = [
                 // (e.g. a stale lazy chunk) is caught here, so AppShell's sidebar stays
                 // painted and the user can navigate away rather than losing the whole app.
                 errorElement: <RouteErrorBoundary />,
-                children: [
+                children: viewRoutes([
                   // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
                   // PM→schedule, Scrum Master→board, Unified→today (ADR-0180).
                   { index: true, element: <ProjectIndexRedirect /> },
@@ -910,7 +921,7 @@ export const routes: RouteObject[] = [
                       <SectionRedirect base="/projects/:projectId/settings" anchor="access" />
                     ),
                   },
-                ],
+                ]),
               },
               // Org-level resource catalog
               {
@@ -1053,7 +1064,7 @@ export const routes: RouteObject[] = [
                 ),
                 // Shell-preserving boundary (issue 1654) — see the ProjectShell note.
                 errorElement: <RouteErrorBoundary />,
-                children: [
+                children: viewRoutes([
                   { index: true, element: <Navigate to="overview" replace /> },
                   {
                     path: 'overview',
@@ -1224,7 +1235,7 @@ export const routes: RouteObject[] = [
                       <SectionRedirect base="/programs/:programId/settings" anchor="lifecycle" />
                     ),
                   },
-                ],
+                ]),
               },
               // Workspace settings — ONE consolidated scrolling page (ADR-0146, #1248).
               // System Health is a separate multi-route tool area, so it lives on its

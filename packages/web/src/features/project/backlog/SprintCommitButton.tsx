@@ -48,29 +48,37 @@ export function SprintCommitButton({ story, projectId, plannedSprint, canManage 
   }
 
   const inSprint = story.sprintId === plannedSprint.id;
-  const toggle = (e: MouseEvent) => {
-    e.stopPropagation(); // the row itself opens the story drawer
+  const commit = (): void => {
     updateTask.mutate(
       { id: story.id, projectId, sprint: inSprint ? null : plannedSprint.id },
       {
         onSuccess: () => {
           void queryClient.invalidateQueries({ queryKey: ['product-backlog', projectId] });
         },
-        // useUpdateTask toasts + rolls back on a 409; a 403/500/network failure
-        // otherwise rolls the optimistic "+ Add"/"✓ In" flip back with no signal.
-        // Add a generic fallback, guarded so it never stacks the conflict toast (#2150).
+        // useUpdateTask toasts + rolls back on a 409; any other failure otherwise
+        // rolls the optimistic "+ Add"/"✓ In" flip back with no signal (#2150).
+        // Say so, and offer Retry (#1300) — guarded so it never stacks the
+        // conflict toast. We claim only what is true: the write failed and was
+        // rolled back. (Offline, TanStack pauses the mutation instead of failing
+        // it — that state is shown on the row as "Waiting to sync" below.)
         onError: (error) => {
-          if (!isSyncConflict(error)) {
-            toast.error(
-              inSprint
-                ? "Couldn't remove the story — try again."
-                : "Couldn't add the story — try again.",
-            );
-          }
+          if (isSyncConflict(error)) return;
+          toast.action(
+            inSprint ? "Couldn't remove the story." : "Couldn't add the story.",
+            { label: 'Retry', onClick: commit },
+            { variant: 'error' },
+          );
         },
       },
     );
   };
+  const toggle = (e: MouseEvent) => {
+    e.stopPropagation(); // the row itself opens the story drawer
+    commit();
+  };
+  // Per-row pending indicator: a paused mutation is an offline write waiting in
+  // the in-memory queue (guarded by PendingWritesGuard), distinct from in-flight.
+  const pendingLabel = updateTask.isPaused ? 'Waiting to sync' : updateTask.isPending ? 'Saving…' : null;
 
   return (
     <Button
@@ -84,7 +92,9 @@ export function SprintCommitButton({ story, projectId, plannedSprint, canManage 
           : `Add ${story.name} to ${plannedSprint.short_id_display}`
       }
     >
-      {inSprint ? (
+      {pendingLabel ? (
+        <span role="status">{pendingLabel}</span>
+      ) : inSprint ? (
         <>
           <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
           In

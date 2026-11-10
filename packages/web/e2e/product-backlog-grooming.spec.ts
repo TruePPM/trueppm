@@ -386,4 +386,99 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await addBtn.click();
     await expect.poll(() => committedSprint).toBe('sp-plan');
   });
+
+  test('a failed commit toasts with Retry and the retry commits the story (1300)', async ({
+    page,
+  }) => {
+    await setup(page);
+    const json = (body: unknown) => ({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+    // Grant the Product-Owner facet so the commit toggle is enabled (canManageBacklog).
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill(
+        json({ ...FIXTURE_PROJECTS[0], my_facets: { is_product_owner: true, is_scrum_master: false } }),
+      );
+    });
+    const planned = {
+      id: 'sp-plan',
+      short_id: 'P1',
+      short_id_display: 'SP-P1',
+      name: 'Sprint P1',
+      goal: '',
+      state: 'PLANNED',
+      start_date: '2026-06-29',
+      finish_date: '2026-07-13',
+      capacity_points: 24,
+      committed_points: null,
+      committed_task_count: null,
+      wip_limit: null,
+      target_milestone: null,
+      target_milestone_detail: null,
+      server_version: 1,
+    };
+    // Registered after setup() so they win (Playwright matches last-registered first).
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/sprints/**`, (route) =>
+      route.fulfill(json({ count: 1, next: null, previous: null, results: [planned] })),
+    );
+    await page.route(/\/api\/v1\/sprints\/.*\/capacity\//, (route) =>
+      route.fulfill(
+        json({
+          members: [],
+          totals: {
+            committed_hours: 0,
+            available_hours: 24,
+            ratio: 0,
+            buffer_hours: 24,
+            label: 'on_track',
+            pto_days: 0,
+          },
+          working_days: 10,
+          hours_per_day: 8,
+        }),
+      ),
+    );
+    // S2 "Signal smoothing" is proposed (no sprint) → shows "+ Add"; S1 is pulled
+    // into a different sprint (SP1) so it stays a read-only chip.
+    let committedSprint: string | null | undefined;
+    let failNext = true;
+    await page.route(/\/api\/v1\/tasks\/S2\//, (route) => {
+      if (route.request().method() === 'PATCH' && failNext) {
+        failNext = false;
+        return route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'boom' }),
+        });
+      }
+      if (route.request().method() === 'PATCH') {
+        committedSprint = (route.request().postDataJSON() as { sprint?: string | null }).sprint;
+      }
+      return route.fulfill(json(apiStory({ id: 'S2', name: 'Signal smoothing' })));
+    });
+
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // The planning rail renders (desktop viewport ≥ lg).
+    await expect(
+      page.getByRole('complementary', { name: /sprint planning summary/i }),
+    ).toBeVisible();
+    await expect(page.getByText('SP-P1').first()).toBeVisible();
+
+    // The per-row Sprint cell is now a commit toggle; clicking it commits the story.
+    const addBtn = page.getByRole('button', { name: /Add Signal smoothing to SP-P1/i });
+    await expect(addBtn).toBeVisible();
+    await addBtn.click();
+    // The failure is announced with a Retry action, not swallowed by the rollback.
+    await expect(page.getByText("Couldn't add the story.")).toBeVisible();
+    expect(committedSprint).toBeUndefined();
+    await page.getByTestId('toast-pill').getByRole('button', { name: 'Retry' }).click();
+    await expect.poll(() => committedSprint).toBe('sp-plan');
+  });
 });
