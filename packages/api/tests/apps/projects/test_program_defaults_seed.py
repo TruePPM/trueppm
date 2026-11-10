@@ -111,7 +111,7 @@ def test_explicit_value_wins_over_program_default(program: Program, program_admi
 
 
 @pytest.mark.django_db
-def test_without_flag_nothing_is_copied(program: Program, program_admin: Any) -> None:
+def test_without_flag_only_methodology_resolves(program: Program, program_admin: Any) -> None:
     """Assigning a program WITHOUT the flag copies no program default except
     methodology, which resolves on omission (#3453). The rest stay opt-in."""
     resp = _client(program_admin).post(

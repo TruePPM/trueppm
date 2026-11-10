@@ -137,8 +137,9 @@ def resolve_new_project_methodology(
     The interactive New-project sheet does that client-side
     (``deriveStartSheetMethodology``: ``program.effective_methodology`` if a
     program is selected, else the workspace default); this is the server-side
-    equivalent for every other door a project enters through — the MS Project
-    create-from-import endpoint today — so the delivery model a project lands
+    equivalent for every other door a project enters through — ``POST /projects/``
+    when ``methodology`` is omitted (#3453) and the MS Project create-from-import
+    endpoint — so the delivery model a project lands
     with cannot depend on which door it came through (#3432).
 
     Under an active lock the answer is the workspace default either way, which is

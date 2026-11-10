@@ -77,6 +77,12 @@ Phase rows are left out of the **Late** count and the no-baseline ratio. A phase
 status is rolled up from its children, so a phase whose children are all done never
 counts as late.
 
+:::note[Ships in 0.5]
+Backlog cards, epics and recurring tasks are left out of every project overview
+count (late, total, complete, critical), the attention list, and a program's overdue
+count and rollup weighting. In 0.4 they are counted.
+:::
+
 ### On a phone
 
 In the Queue layout, each row shows the task name on its own line. The phase, status,

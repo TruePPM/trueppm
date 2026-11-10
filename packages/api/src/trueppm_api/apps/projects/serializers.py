@@ -1204,6 +1204,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
           parent ``program`` (#1909). The program is ADMIN-gated in
           ``validate_program`` and already loaded, so the copy adds no query.
 
+        ``methodology`` precedence is explicit > copied > resolved (program, then
+        workspace default; #3453), so an omitted value never falls to the model default.
+
         Both source markers are non-model fields, so they are popped before create.
         """
         start_as_draft = validated_data.pop("start_as_draft", False)

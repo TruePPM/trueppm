@@ -13659,7 +13659,7 @@ class ProjectAttentionView(APIView):
     ) -> list[dict[str, Any]]:
         """Not-started, unassigned tasks whose CPM start falls in the next 7 days."""
         soon = today + datetime.timedelta(days=7)
-        unassigned_soon = Task.objects.filter(
+        unassigned_soon = Task.committed.filter(
             project=project,
             is_deleted=False,
             assignee__isnull=True,
@@ -13707,7 +13707,7 @@ class ProjectAttentionView(APIView):
         # fact about the phase row itself, so a phase would otherwise be listed
         # here on top of the critical leaf whose value it rolled up.
         candidates = list(
-            Task.objects.filter(
+            Task.committed.filter(
                 project=project,
                 is_deleted=False,
                 is_critical=True,

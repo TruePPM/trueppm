@@ -525,12 +525,11 @@ def top_contributing_project(program: Program) -> dict[str, Any] | None:
 
 
 def _committed_task_counts(project_ids: list[Any]) -> dict[Any, int]:
-    """project_id → committed (non-BACKLOG, non-deleted) task count, for weighting."""
+    """project_id → committed-work (``Task.committed``) task count, for weighting."""
     if not project_ids:
         return {}
     rows = (
-        Task.objects.filter(project_id__in=project_ids, is_deleted=False)
-        .exclude(status=TaskStatus.BACKLOG)
+        Task.committed.filter(project_id__in=project_ids, is_deleted=False)
         .values("project_id")
         .annotate(c=Count("id"))
     )

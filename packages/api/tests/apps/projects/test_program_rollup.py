@@ -492,6 +492,25 @@ def test_drift_counts_exclude_backlog_epic_and_recurring(
 
 
 @pytest.mark.django_db
+def test_committed_task_counts_exclude_epic_and_recurring(
+    program: Program, calendar: Calendar
+) -> None:
+    """#3677: rollup weights use ``Task.committed`` — an epic or recurring template
+    must not inflate a project's weight."""
+    from trueppm_api.apps.projects.models import TaskType
+    from trueppm_api.apps.projects.program_rollup import _committed_task_counts
+
+    p = _project(program, calendar, "Weights")
+    _task(p, name="Real")
+    before = _committed_task_counts([p.pk])
+    _task(p, name="Epic", type=TaskType.EPIC)
+    _task(p, name="Weekly", is_recurring=True)
+    _task(p, name="Idea", status=TaskStatus.BACKLOG)
+    assert before == {p.pk: 1}
+    assert _committed_task_counts([p.pk]) == before
+
+
+@pytest.mark.django_db
 def test_milestone_health_critical_when_milestone_overdue(
     member: object, program: Program, calendar: Calendar
 ) -> None:
