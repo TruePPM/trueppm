@@ -293,7 +293,7 @@ export function CalendarView() {
   const label = formatViewLabel(anchor, calView, weekStartDay);
   // Fetch only tasks overlapping the rendered grid (leading/trailing days of
   // adjacent months included); the API's start__gte/finish__lte are overlap
-  // filters on early_finish/early_start. Mobile list and grid share this window.
+  // filters on early_finish and the span start (scheduled_start ?? early_start). Mobile list and grid share this window.
   const bounds = viewWindowBounds(anchor, calView, weekStartDay);
   const { tasks, isLoading, error, refetch } = useCalendarTasks({
     startGte: bounds.start,

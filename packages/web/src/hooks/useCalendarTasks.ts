@@ -41,7 +41,8 @@ function mapTask(t: ApiTask): Task {
   // Render the task SPAN (scheduled_start), not early_start: for an in-progress task
   // early_start is the remaining-work window and narrows as percent_complete rises
   // (ADR-0752). For not-started/complete tasks the two are identical.
-  // The windowed fetch filters on early_start/early_finish server-side, so a task with
+  // The windowed fetch filters on the span start (scheduled_start, falling back to
+  // early_start) and early_finish server-side, so a task with
   // null CPM dates (e.g. backlog items outside the committed schedule) is never returned
   // and the planned_start fallback is only reachable on an unwindowed request.
   const start = t.scheduled_start ?? t.early_start ?? t.planned_start ?? '';

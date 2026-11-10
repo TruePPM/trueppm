@@ -46647,7 +46647,7 @@
                             "type": "string",
                             "format": "date"
                         },
-                        "description": "ISO 8601 YYYY-MM-DD; keep tasks whose early_start is at or before this date (already started by the window)."
+                        "description": "ISO 8601 YYYY-MM-DD; keep tasks whose span start (scheduled_start, falling back to early_start) is at or before this date (already started by the window)."
                     },
                     {
                         "in": "query",
