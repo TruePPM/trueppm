@@ -56432,6 +56432,15 @@
                 "description": "* `idea` - Idea\n* `refine` - Refine\n* `ready` - Ready",
                 "x-trueppm-enum": "open"
             },
+            "DrivingChainDurationUnitEnum": {
+                "enum": [
+                    "working_days",
+                    "calendar_days"
+                ],
+                "type": "string",
+                "description": "* `working_days` - working_days\n* `calendar_days` - calendar_days",
+                "x-trueppm-enum": "open"
+            },
             "DrivingChainEdge": {
                 "type": "object",
                 "description": "One driving link between two chain nodes, at leaf level (ADR-1381).",
@@ -56445,8 +56454,13 @@
                     "dep_type": {
                         "$ref": "#/components/schemas/DepTypeEnum"
                     },
-                    "lag_days": {
-                        "type": "integer"
+                    "lag": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Duration"
+                            }
+                        ],
+                        "description": "Link lag. Always in calendar days (unit is always calendar_days)."
                     },
                     "is_driving": {
                         "type": "boolean"
@@ -56454,16 +56468,16 @@
                     "via_summary": {
                         "type": "array",
                         "items": {
-                            "type": "string"
+                            "$ref": "#/components/schemas/DrivingChainViaSummary"
                         },
                         "nullable": true,
-                        "description": "Summary task ids the stored link this leaf edge was expanded from names (ADR-0105); null when the edge is a direct link."
+                        "description": "Summary task(s) the stored link this leaf edge was expanded from names (ADR-0105), id and name; null when the edge is a direct link."
                     }
                 },
                 "required": [
                     "dep_type",
                     "is_driving",
-                    "lag_days",
+                    "lag",
                     "predecessor_id",
                     "successor_id",
                     "via_summary"
@@ -56500,8 +56514,17 @@
                         "format": "date",
                         "nullable": true
                     },
-                    "total_float_days": {
-                        "type": "integer"
+                    "total_float": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Duration"
+                            }
+                        ],
+                        "description": "Total float. Always in working days (unit is always working_days)."
+                    },
+                    "band": {
+                        "type": "string",
+                        "description": "Float band against the effective near-critical threshold: complete (the task is finished; it keeps zero float but is never critical), critical (float 0), near_critical (0 < float <= threshold), ample. The set is OPEN: a client must tolerate a value it does not know."
                     },
                     "is_critical": {
                         "type": "boolean"
@@ -56519,6 +56542,7 @@
                     }
                 },
                 "required": [
+                    "band",
                     "direction",
                     "early_finish",
                     "early_start",
@@ -56529,7 +56553,7 @@
                     "sprint",
                     "status",
                     "task_id",
-                    "total_float_days"
+                    "total_float"
                 ]
             },
             "DrivingChainSprint": {
@@ -56548,6 +56572,39 @@
                 "required": [
                     "finish_date",
                     "id"
+                ]
+            },
+            "DrivingChainViaSummary": {
+                "type": "object",
+                "description": "A summary task a leaf edge was expanded from.",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "name",
+                    "task_id"
+                ]
+            },
+            "Duration": {
+                "type": "object",
+                "description": "A duration with its unit spelled out — never a bare number (ADR-1381 amendment).\n\nFloat counts working days and lag counts calendar days, so a consumer that is\nhanded ``2`` and ``1`` could add them; the unit travels with the value.",
+                "properties": {
+                    "value": {
+                        "type": "integer"
+                    },
+                    "unit": {
+                        "$ref": "#/components/schemas/DrivingChainDurationUnitEnum"
+                    }
+                },
+                "required": [
+                    "unit",
+                    "value"
                 ]
             },
             "DurationUnitEnum": {
@@ -60639,6 +60696,30 @@
                     "name"
                 ]
             },
+            "NearCriticalThreshold": {
+                "type": "object",
+                "description": "The effective near-critical threshold the node bands were computed against.",
+                "properties": {
+                    "value": {
+                        "type": "integer"
+                    },
+                    "unit": {
+                        "$ref": "#/components/schemas/NearCriticalThresholdUnitEnum"
+                    }
+                },
+                "required": [
+                    "unit",
+                    "value"
+                ]
+            },
+            "NearCriticalThresholdUnitEnum": {
+                "enum": [
+                    "working_days"
+                ],
+                "type": "string",
+                "description": "* `working_days` - working_days",
+                "x-trueppm-enum": "open"
+            },
             "Notification": {
                 "type": "object",
                 "description": "Per-recipient inbox row.\n\nWrites are limited to is_read / is_archived (PATCH-only on the viewset).\nAll other fields are read-only.",
@@ -63262,6 +63343,12 @@
                             }
                         ]
                     },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1,
+                        "nullable": true
+                    },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean",
                         "nullable": true
@@ -63717,6 +63804,12 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1,
+                        "nullable": true
                     },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean",
@@ -64923,6 +65016,11 @@
                     "estimation_scale": {
                         "$ref": "#/components/schemas/EstimationScaleEnum"
                     },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1
+                    },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean"
                     },
@@ -65591,6 +65689,20 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1,
+                        "nullable": true
+                    },
+                    "effective_near_critical_threshold_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "inherited_near_critical_threshold_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean",
                         "nullable": true
@@ -65898,6 +66010,7 @@
                     "effective_mc_history_retention_cap",
                     "effective_mcp_enabled",
                     "effective_methodology",
+                    "effective_near_critical_threshold_days",
                     "effective_public_sharing",
                     "effective_sprint_picker_ready_only_default",
                     "effective_task_duration_change_percent_policy",
@@ -65913,6 +66026,7 @@
                     "inherited_mc_history_retention_cap",
                     "inherited_mcp_enabled",
                     "inherited_methodology",
+                    "inherited_near_critical_threshold_days",
                     "inherited_public_sharing",
                     "inherited_sprint_picker_ready_only_default",
                     "inherited_task_duration_change_percent_policy",
@@ -66777,6 +66891,12 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1,
+                        "nullable": true
                     },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean",
@@ -67755,6 +67875,20 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1,
+                        "nullable": true
+                    },
+                    "effective_near_critical_threshold_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "inherited_near_critical_threshold_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean",
                         "nullable": true
@@ -68114,6 +68248,7 @@
                     "effective_mc_history_retention_cap",
                     "effective_mcp_enabled",
                     "effective_methodology",
+                    "effective_near_critical_threshold_days",
                     "effective_public_sharing",
                     "effective_sprint_picker_ready_only_default",
                     "effective_surface_visibility",
@@ -68129,6 +68264,7 @@
                     "inherited_mc_history_retention_cap",
                     "inherited_mcp_enabled",
                     "inherited_methodology",
+                    "inherited_near_critical_threshold_days",
                     "inherited_public_sharing",
                     "inherited_sprint_picker_ready_only_default",
                     "inherited_surface_visibility",
@@ -69033,6 +69169,20 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1,
+                        "nullable": true
+                    },
+                    "effective_near_critical_threshold_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "inherited_near_critical_threshold_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean",
                         "nullable": true
@@ -69449,6 +69599,7 @@
                     "effective_mc_history_retention_cap",
                     "effective_mcp_enabled",
                     "effective_methodology",
+                    "effective_near_critical_threshold_days",
                     "effective_public_sharing",
                     "effective_sprint_picker_ready_only_default",
                     "effective_surface_visibility",
@@ -69464,6 +69615,7 @@
                     "inherited_mc_history_retention_cap",
                     "inherited_mcp_enabled",
                     "inherited_methodology",
+                    "inherited_near_critical_threshold_days",
                     "inherited_public_sharing",
                     "inherited_sprint_picker_ready_only_default",
                     "inherited_surface_visibility",
@@ -70849,6 +71001,12 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1,
+                        "nullable": true
                     },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean",
@@ -73847,6 +74005,10 @@
                 "type": "object",
                 "description": "Bounded driving chain through one task, from one CPM pass (ADR-1381, #4891).\n\n``computable`` is false — with ``reason`` set and empty ``nodes``/``edges`` — for a\ntask the CPM pass does not schedule; no chain is fabricated for it.",
                 "properties": {
+                    "schema_version": {
+                        "type": "integer",
+                        "description": "Contract version of this payload (ADR-0086). Additive changes keep it."
+                    },
                     "project_id": {
                         "type": "string"
                     },
@@ -73892,6 +74054,22 @@
                             }
                         ]
                     },
+                    "total_links": {
+                        "type": "integer",
+                        "description": "Driving links in the whole chain, uncapped. Greater than len(edges) exactly when the response was truncated."
+                    },
+                    "omitted_non_driving_count": {
+                        "type": "integer",
+                        "description": "Non-driving dependency links into the task or its upstream chain: predecessors that carry float, so they are not drawn."
+                    },
+                    "near_critical_threshold": {
+                        "$ref": "#/components/schemas/NearCriticalThreshold"
+                    },
+                    "calendar_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Id of the base calendar the schedule is computed against: the project's own, else its program's, else the workspace's. Null only when none resolves and the system default applies. Overlay layers (exceptions, resource calendars) are not named."
+                    },
                     "nodes": {
                         "type": "array",
                         "items": {
@@ -73915,15 +74093,20 @@
                 },
                 "required": [
                     "_provenance",
+                    "calendar_id",
                     "computable",
                     "depth",
                     "edges",
+                    "near_critical_threshold",
                     "node_cap",
                     "nodes",
+                    "omitted_non_driving_count",
                     "project_finish",
                     "project_id",
                     "reason",
+                    "schema_version",
                     "task_id",
+                    "total_links",
                     "truncated",
                     "truncated_reason"
                 ]
@@ -83882,6 +84065,11 @@
                     },
                     "estimation_scale": {
                         "$ref": "#/components/schemas/EstimationScaleEnum"
+                    },
+                    "near_critical_threshold_days": {
+                        "type": "integer",
+                        "maximum": 260,
+                        "minimum": 1
                     },
                     "sprint_picker_ready_only_default": {
                         "type": "boolean"

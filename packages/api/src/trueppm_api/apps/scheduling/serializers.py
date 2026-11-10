@@ -778,6 +778,31 @@ class AnswerProvenanceSerializer(serializers.Serializer[dict[str, Any]]):
     computed_at = serializers.DateTimeField()
 
 
+class DurationSerializer(serializers.Serializer[dict[str, Any]]):
+    """A duration with its unit spelled out — never a bare number (ADR-1381 amendment).
+
+    Float counts working days and lag counts calendar days, so a consumer that is
+    handed ``2`` and ``1`` could add them; the unit travels with the value.
+    """
+
+    value = serializers.IntegerField()
+    unit = serializers.ChoiceField(choices=["working_days", "calendar_days"])
+
+
+class DrivingChainViaSummarySerializer(serializers.Serializer[dict[str, Any]]):
+    """A summary task a leaf edge was expanded from."""
+
+    task_id = serializers.CharField()
+    name = serializers.CharField(allow_null=True)
+
+
+class NearCriticalThresholdSerializer(serializers.Serializer[dict[str, Any]]):
+    """The effective near-critical threshold the node bands were computed against."""
+
+    value = serializers.IntegerField()
+    unit = serializers.ChoiceField(choices=["working_days"])
+
+
 class DrivingChainSprintSerializer(serializers.Serializer[dict[str, Any]]):
     """Sprint binding of a chain node — id and end date only, never team internals."""
 
@@ -795,7 +820,17 @@ class DrivingChainNodeSerializer(serializers.Serializer[dict[str, Any]]):
     hops = serializers.IntegerField(help_text="Driving links between this node and the task.")
     early_start = serializers.DateField(allow_null=True)
     early_finish = serializers.DateField(allow_null=True)
-    total_float_days = serializers.IntegerField()
+    total_float = DurationSerializer(
+        help_text="Total float. Always in working days (unit is always working_days)."
+    )
+    band = serializers.CharField(
+        help_text=(
+            "Float band against the effective near-critical threshold: complete "
+            "(the task is finished; it keeps zero float but is never critical), "
+            "critical (float 0), near_critical (0 < float <= threshold), ample. The "
+            "set is OPEN: a client must tolerate a value it does not know."
+        )
+    )
     is_critical = serializers.BooleanField()
     is_project_finish = serializers.BooleanField()
     sprint = DrivingChainSprintSerializer(allow_null=True)
@@ -808,14 +843,16 @@ class DrivingChainEdgeSerializer(serializers.Serializer[dict[str, Any]]):
     successor_id = serializers.CharField()
     # The model's own choices, so the schema reuses the shared DepTypeEnum component.
     dep_type = serializers.ChoiceField(choices=DEPENDENCY_TYPE_CHOICES)
-    lag_days = serializers.IntegerField()
+    lag = DurationSerializer(
+        help_text="Link lag. Always in calendar days (unit is always calendar_days)."
+    )
     is_driving = serializers.BooleanField()
-    via_summary = serializers.ListField(
-        child=serializers.CharField(),
+    via_summary = DrivingChainViaSummarySerializer(
+        many=True,
         allow_null=True,
         help_text=(
-            "Summary task ids the stored link this leaf edge was expanded from names "
-            "(ADR-0105); null when the edge is a direct link."
+            "Summary task(s) the stored link this leaf edge was expanded from names "
+            "(ADR-0105), id and name; null when the edge is a direct link."
         ),
     )
 
@@ -827,6 +864,9 @@ class ScheduleDrivingChainSerializer(serializers.Serializer[dict[str, Any]]):
     task the CPM pass does not schedule; no chain is fabricated for it.
     """
 
+    schema_version = serializers.IntegerField(
+        help_text="Contract version of this payload (ADR-0086). Additive changes keep it."
+    )
     project_id = serializers.CharField()
     task_id = serializers.CharField()
     computable = serializers.BooleanField()
@@ -838,6 +878,28 @@ class ScheduleDrivingChainSerializer(serializers.Serializer[dict[str, Any]]):
     node_cap = serializers.IntegerField()
     truncated = serializers.BooleanField()
     truncated_reason = serializers.ChoiceField(choices=["depth", "node_cap"], allow_null=True)
+    total_links = serializers.IntegerField(
+        help_text=(
+            "Driving links in the whole chain, uncapped. Greater than len(edges) "
+            "exactly when the response was truncated."
+        )
+    )
+    omitted_non_driving_count = serializers.IntegerField(
+        help_text=(
+            "Non-driving dependency links into the task or its upstream chain: "
+            "predecessors that carry float, so they are not drawn."
+        )
+    )
+    near_critical_threshold = NearCriticalThresholdSerializer()
+    calendar_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Id of the base calendar the schedule is computed against: the project's "
+            "own, else its program's, else the workspace's. Null only when none "
+            "resolves and the system default applies. Overlay layers (exceptions, "
+            "resource calendars) are not named."
+        ),
+    )
     nodes = DrivingChainNodeSerializer(many=True)
     edges = DrivingChainEdgeSerializer(many=True)
 
