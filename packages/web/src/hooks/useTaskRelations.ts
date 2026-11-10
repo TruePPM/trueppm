@@ -13,6 +13,7 @@ interface ApiRelationCard {
   project_id: string;
   project_name: string;
   is_milestone: boolean;
+  // Deliberately the remaining-work window (ADR-0752), not the task span.
   early_start: string | null;
   early_finish: string | null;
   is_critical: boolean;

@@ -12,7 +12,7 @@
 
 import { useDragStore } from '@/stores/dragStore';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
-import { dateToLeft } from './engine';
+import { milestoneX } from './engine';
 import type { GanttScaleData } from './engine';
 
 /** Tooltip card width in px — matches the `w-44` class below. */
@@ -25,13 +25,19 @@ interface Props {
   milestoneLeft: number | null;
   /** Vertical offset of the Gantt timeline top edge (viewport-relative). */
   timelineTop: number;
+  /** Leftmost allowed viewport x — keeps the card off the task-list panel. */
+  minLeft?: number;
 }
 
 /**
  * Tooltip anchored to the most-impacted milestone's position on the timeline.
  * Falls back to a centered position if milestoneLeft is unavailable.
  */
-export function MilestoneDeltaTooltip({ milestoneLeft, timelineTop }: Props) {
+export function MilestoneDeltaTooltip({
+  milestoneLeft,
+  timelineTop,
+  minLeft = VIEWPORT_MARGIN,
+}: Props) {
   const phase = useDragStore((s) => s.phase);
   const worst = useDragStore((s) => s.worstMilestone);
 
@@ -46,8 +52,9 @@ export function MilestoneDeltaTooltip({ milestoneLeft, timelineTop }: Props) {
   // the viewport does not push the card off-screen.
   const raw =
     milestoneLeft !== null && Number.isFinite(milestoneLeft) ? milestoneLeft - 80 : FALLBACK_LEFT;
-  const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - TOOLTIP_WIDTH - VIEWPORT_MARGIN);
-  const left = Math.min(maxLeft, Math.max(VIEWPORT_MARGIN, raw));
+  const floor = Math.max(VIEWPORT_MARGIN, minLeft);
+  const maxLeft = Math.max(floor, window.innerWidth - TOOLTIP_WIDTH - VIEWPORT_MARGIN);
+  const left = Math.min(maxLeft, Math.max(floor, raw));
 
   return (
     <div
@@ -111,17 +118,28 @@ export function MilestoneDeltaAnchor({
   scales,
 }: AnchorProps) {
   const worst = useDragStore((s) => s.worstMilestone);
+  // The worst-milestone payload carries no day-end flag; the previewed task's own
+  // result does (#4079), and the Gantt draws the diamond at `milestoneX`.
+  const atDayEnd = useDragStore(
+    (s) => s.previewResults.find((r) => r.taskId === s.worstMilestone?.taskId)?.milestoneAtDayEnd,
+  );
   const rect = timelineEl ? timelineEl.getBoundingClientRect() : null;
   let milestoneLeft: number | null = null;
   if (rect && scales && worst) {
-    // dateToLeft returns canvas-origin coordinates (renderer rule §57); the tooltip
+    // milestoneX returns canvas-origin coordinates (renderer rule §57); the tooltip
     // is fixed-position in viewport space, so add the container's left and the
     // outline panel and subtract the canvas scroll.
     milestoneLeft =
       rect.left +
       panelWidth +
-      dateToLeft(worst.newFinish, scales) -
+      milestoneX(worst.newFinish, atDayEnd, scales) -
       (canvasScrollRef.current?.scrollLeft ?? 0);
   }
-  return <MilestoneDeltaTooltip milestoneLeft={milestoneLeft} timelineTop={rect?.top ?? 0} />;
+  return (
+    <MilestoneDeltaTooltip
+      milestoneLeft={milestoneLeft}
+      timelineTop={rect?.top ?? 0}
+      minLeft={rect ? rect.left + panelWidth + VIEWPORT_MARGIN : VIEWPORT_MARGIN}
+    />
+  );
 }
