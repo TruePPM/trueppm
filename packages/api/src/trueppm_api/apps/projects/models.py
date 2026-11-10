@@ -3911,6 +3911,22 @@ class Task(VersionedModel):
                 condition=models.Q(is_deleted=False),
                 name="task_status_changed_idx",
             ),
+            # Program rollup KPI counts (#1544): `_critical_task_total` and
+            # `_at_risk_task_total` run on every GET /programs/{id}/rollup/ and filter
+            # project_id IN (...) AND NOT is_deleted AND is_critical (resp.
+            # total_float <= 5). Partial on the predicates that never vary so the
+            # index holds only the (small) critical / near-critical subset instead
+            # of every task in the program.
+            models.Index(
+                fields=["project"],
+                condition=models.Q(is_deleted=False, is_critical=True),
+                name="task_proj_critical_idx",
+            ),
+            models.Index(
+                fields=["project", "total_float"],
+                condition=models.Q(is_deleted=False, total_float__isnull=False),
+                name="task_proj_float_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
