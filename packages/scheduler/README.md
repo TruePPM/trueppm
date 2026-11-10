@@ -780,9 +780,7 @@ release it is scheduled for:
   dataclasses document their fields in source comments rather than
   Google-style `Attributes:` sections, so they do not render in a generated
   API reference
-  ([#4471](https://gitlab.com/trueppm/trueppm/-/issues/4471)); and the API's seed importer bypasses the graph-validation guard,
-  so a seed can write a cyclic dependency graph straight into CPM
-  ([#2589](https://gitlab.com/trueppm/trueppm/-/issues/2589)).
+  ([#4471](https://gitlab.com/trueppm/trueppm/-/issues/4471)).
 - **WASM engine** — `wasm-scheduler` errors are untyped strings at 17 call
   sites rather than a structured error type
   ([#4474](https://gitlab.com/trueppm/trueppm/-/issues/4474)), and the CPM
@@ -826,8 +824,8 @@ they will ship with 0.5 or that release will slip:
   predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), the non-working-day actuals divergences
   ([#4631](https://gitlab.com/trueppm/trueppm/-/issues/4631), [#4702](https://gitlab.com/trueppm/trueppm/-/issues/4702)), start-of-day milestone total float ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)),
   zero-duration tasks with differing actuals ([#4458](https://gitlab.com/trueppm/trueppm/-/issues/4458)), the late-finish seed
-  on wider calendars ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)), the `free_float` oracle disagreement
-  ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)), and the seed importer's missing graph validation ([#2589](https://gitlab.com/trueppm/trueppm/-/issues/2589)).
+  on wider calendars ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)), and the `free_float` oracle disagreement
+  ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)).
 - **Scheduling semantics** — the calendar-day-vs-working-day lag question will be
   decided ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535));
   deadline-driven negative float will surface "behind committed date" in CPM
