@@ -321,7 +321,7 @@ test.describe('Schedule share — milestone reveal', () => {
     });
   }
 
-  test('a workspace with public sharing off states why and links to the setting', async ({
+  test('a workspace with public sharing off disables Create link and states why', async ({
     page,
   }) => {
     // `Workspace.public_sharing` defaults to FALSE, so this is what an evaluator meets
@@ -348,16 +348,11 @@ test.describe('Schedule share — milestone reveal', () => {
     );
 
     await page.goto(`/projects/${PROJECT_ID}/settings#sharing`);
-    await page.getByRole('button', { name: 'Create link…' }).click();
 
-    const dialog = page.getByRole('dialog');
-    await expect(dialog.getByText(/public sharing is turned off/i)).toBeVisible();
-    // Blocked, not dead: the reason is on screen and the remedy is one click away.
-    await expect(dialog.getByRole('button', { name: 'Create link' })).toBeDisabled();
-    await expect(dialog.getByRole('link', { name: /turn on public sharing/i })).toHaveAttribute(
-      'href',
-      '/settings#general',
-    );
+    // Blocked up front (#4214): the button is disabled and the reason is on the page,
+    // so the user never fills in a form the server will refuse.
+    await expect(page.getByRole('button', { name: 'Create link…' })).toBeDisabled();
+    await expect(page.getByText(/public sharing is turned off/i)).toBeVisible();
   });
 
   test('minting with the reveal off omits every milestone row from the public page', async ({
