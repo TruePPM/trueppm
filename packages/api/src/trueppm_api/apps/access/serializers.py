@@ -887,14 +887,8 @@ class MeSerializer(serializers.Serializer[Any]):
         if not hasattr(self, "_max_project_role"):
             from django.db.models import Max
 
-            # Archived projects confer no role here either: the server's org-role
-            # derivation (has_org_role_from_live_project) ignores them, so counting
-            # them would show an admin hint the server then refuses (#4627).
             value = ProjectMembership.objects.filter(
-                user=obj,
-                is_deleted=False,
-                project__is_deleted=False,
-                project__is_archived=False,
+                user=obj, is_deleted=False, project__is_deleted=False
             ).aggregate(_max=Max("role"))["_max"]
             self._max_project_role: int | None = int(value) if value is not None else None
         return self._max_project_role
