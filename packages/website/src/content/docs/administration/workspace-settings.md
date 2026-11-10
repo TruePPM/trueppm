@@ -456,8 +456,18 @@ Workspace Admins send email invitations to bring new users into the workspace.
    - hashes the submitted token and looks up a non-expired pending invite,
    - re-checks that the invite's sender is still an active workspace Admin or
      Owner, and refuses it with the same generic error otherwise,
-   - provisions a new `User` account **or** links the invite to an existing
-     account if the invite email matches,
+   - provisions a new `User` account **or** links the invite to the existing
+     account whose email matches (case-insensitive). If **more than one**
+     account shares that email the invite is refused (`400`, "More than one
+     account uses this invitation's email address…") and stays pending, rather
+     than granting the role to an arbitrary one of them. An admin must resolve
+     the duplicate accounts first,
+
+     :::note[Ships in 0.5]
+     The refusal on a duplicate email ships in 0.5. The current release links
+     the invite to the first matching account instead of refusing it.
+     :::
+
    - creates a `WorkspaceMembership` at the invited role,
    - marks the invite `accepted`, stamping `accepted_at` and the accepting user.
 5. Error responses are **generic** ("invalid or expired token") to prevent
@@ -689,11 +699,14 @@ limit, not by a role check on this page.
 The **Archive / Delete** section holds the workspace-wide actions that cannot be undone.
 Each requires an explicit confirmation before it runs.
 
-Export all data, Transfer ownership, and Delete workspace all require the **workspace
-Owner** role — the same 400-ordinal role as everywhere else on this page, one band above
-Admin. A workspace Admin who is not the Owner sees the three controls disabled, with a
-note stating the Owner role is required; the server enforces the same boundary
-independently, so this is a UI affordance rather than the security check itself.
+### Access
+
+**Owner only.** Export all data, Transfer ownership, and Delete workspace all require
+the **workspace Owner** role — the same 400-ordinal role as everywhere else on this
+page, one band above Admin. A workspace Admin who is not the Owner can open the
+section and read it but cannot act: the three controls are shown disabled, each with
+the note "Requires the workspace Owner role." The server enforces the same boundary
+independently, so the disabled state is a UI affordance rather than the security check.
 
 ### Export all data
 

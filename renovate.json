@@ -60,6 +60,13 @@
       "groupSlug": "playwright"
     },
     {
+      "description": "One PR for a container base image across every file that pins it (#4623). Without a group, the Dockerfile FROMs (docker.io/node via the ${DOCKERHUB_PREFIX} alias) and the .gitlab-ci.yml `image:` pins (library/node) can land in separate PRs, so CI ends up testing a different digest than ships. lint:image-digest-parity fails any MR that moves only some of them.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node", "python", "nginxinc/nginx-unprivileged", "docker.io/node", "docker.io/python", "docker.io/library/node", "docker.io/library/python", "docker.io/nginxinc/nginx-unprivileged"],
+      "groupName": "container base images",
+      "groupSlug": "container-base-images"
+    },
+    {
       "description": "Group all npm production dependency updates",
       "matchManagers": ["npm"],
       "matchDepTypes": ["dependencies"],

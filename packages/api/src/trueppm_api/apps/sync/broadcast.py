@@ -70,8 +70,12 @@ DONT_PERSIST_EVENT_TYPES = frozenset(
 )
 
 
-def _group_name(project_id: str) -> str:
-    """Return the channel layer group name for a project."""
+def group_name_for_project(project_id: str) -> str:
+    """Return the channel layer group name for a project.
+
+    The single source of truth: ``ProjectConsumer`` joins this group and every
+    broadcast fans out to it, so the two sides cannot drift apart silently.
+    """
     return f"project_{project_id}"
 
 
@@ -251,7 +255,7 @@ def broadcast_board_event(
     # seq=None and the event still broadcasts.
     seq = _persist_board_event(project_id, event_type, payload)
 
-    group = _group_name(project_id)
+    group = group_name_for_project(project_id)
     try:
         async_to_sync(channel_layer.group_send)(group, _board_message(event_type, payload, seq))
     except Exception:
@@ -304,7 +308,7 @@ async def abroadcast_board_event(
 
         seq = await database_sync_to_async(_persist_board_event)(project_id, event_type, payload)
 
-    group = _group_name(project_id)
+    group = group_name_for_project(project_id)
     try:
         await channel_layer.group_send(group, _board_message(event_type, payload, seq))
     except Exception:
@@ -333,7 +337,7 @@ def evict_project_group(project_id: str) -> None:
         logger.warning("evict_project_group: no channel layer configured, skipping")
         return
 
-    group = _group_name(project_id)
+    group = group_name_for_project(project_id)
     try:
         async_to_sync(channel_layer.group_send)(group, {"type": "connection.evict", "all": True})
     except Exception:
@@ -362,7 +366,7 @@ def evict_project_connection(project_id: str, user_id: str) -> None:
         return
 
     message = {"type": "connection.evict", "user_id": str(user_id)}
-    group = _group_name(project_id)
+    group = group_name_for_project(project_id)
     try:
         async_to_sync(channel_layer.group_send)(group, message)
     except Exception:
