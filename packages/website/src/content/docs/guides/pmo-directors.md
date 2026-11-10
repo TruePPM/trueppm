@@ -70,7 +70,7 @@ Run these steps in order — they start from a machine with nothing running.
 
 6. **Open the audit log** at **Settings → Audit log**, signed in as the **`admin`** account you created at install. Confirm that operational changes are recorded with who and when. The audit log needs the **workspace** Admin or Owner role, and the sample data grants none: every Atlas persona — including `atlas-priya`, who is a Program Manager on Atlas — is an ordinary workspace member, while the install's superuser is the implicit workspace Owner.
 
-Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, enforced org-wide SSO with directory sync, and a tamper-evident audit trail — are **enterprise**, and intentionally not in this repo. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
+Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, enforced org-wide SSO with directory sync, and an audit trail you can show an auditor — are **enterprise**, and intentionally not in this repo. Precisely: the community edition already ships a tamper-evident, hash-chained record of agent actions (see [Agent oversight](/features/agent-oversight/)); the workspace and admin audit trail's immutability, signing and retention, and external notarization of the agent chain, are Enterprise. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
 
 ## Where the line is: community vs. enterprise
 
