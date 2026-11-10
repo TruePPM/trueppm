@@ -180,10 +180,21 @@ def _completed_offsets(
     snaps to the nearest one here. That loss is deliberate and no longer observable:
     successors of a completed task read a precomputed scalar constraint rather than
     these offsets (:func:`_completed_edge_constraints`), and the terminal project
-    finish is floored at the verbatim date by :func:`_offset_to_date`. So the snap
-    now affects nothing a caller can see.
+    finish is floored at the verbatim date by :func:`_offset_to_date`.
+
+    That holds only for a date *inside* the index. A task whose last working day on
+    its own calendar precedes the index origin has no cell at all, and clamping it to
+    offset 0 made it finish at the end of the first indexed day: a completed task
+    that ended before the project start, or before the first day its calendar works
+    on or after it, moved the project finish later than ``schedule()`` (#4430). Such
+    a task pins ``(0, 0)`` instead, an exclusive EF before every cell, so it never
+    raises a run's maximum; its verbatim date still reaches the finish through the
+    completed floor, which is where ``schedule()``'s maximum takes it from.
     """
-    ef_off = _index_offset(_prev_working_day(ef_date, calendar), offset_of, wd_index) + 1.0
+    last_day = _prev_working_day(ef_date, calendar)
+    if last_day < wd_index[0]:
+        return 0.0, 0.0
+    ef_off = _index_offset(last_day, offset_of, wd_index) + 1.0
     es_off = min(_index_offset(_next_working_day(es_date, calendar), offset_of, wd_index), ef_off)
     return es_off, ef_off
 

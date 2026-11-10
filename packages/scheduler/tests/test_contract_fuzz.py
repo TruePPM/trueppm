@@ -60,7 +60,6 @@ from trueppm_scheduler import (
     SchedulerError,
     Task,
     derive_value,
-    engine,
     expand_summary_dependencies,
     find_cycle,
     monte_carlo,
@@ -455,13 +454,6 @@ def _plausible_projects(draw: st.DrawFn, per_task_calendars: bool = False) -> Pr
     if per_task_calendars:
         for task in tasks:
             task.calendar_id = draw(cal_ids)
-            # TODO(#4430): drop this carve-out with the one in
-            # _per_task_calendar_projects — a completed task whose finish reads
-            # before the project start on its own calendar is a separate defect.
-            if task.actual_finish is not None:
-                own_cal = _PLAUSIBLE_TASK_CALENDARS.get(task.calendar_id or "", _PLAUSIBLE_WEEK)
-                if engine._prev_working_day(task.actual_finish, own_cal) < _PLAUSIBLE_ANCHOR:
-                    task.actual_finish = None
 
     # Only forward edges (i < j) and at most one per ordered pair: cycles and
     # duplicate dependencies are both rejected by validation, and neither is what
@@ -681,9 +673,10 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
     must reproduce ``schedule()`` exactly. Durations reach a few hundred working
     days — on the Monday-only calendar that is years — every link type and lag sign
     is drawn, and an ``actual_start`` is drawn on both sides of the project start (a
-    pre-start actual is an anomalous but accepted data state). An ``actual_finish``
-    that reads before the project start on the task's own calendar is not drawn
-    until #4430 is fixed.
+    pre-start actual is an anomalous but accepted data state). Percent-only progress
+    (50% or 100% with no actuals) is drawn as well. An ``actual_finish``
+    is drawn on both sides too, including one that reads before the Monte Carlo
+    index origin on the task's own calendar (#4430).
     """
     start = _PLAUSIBLE_ANCHOR
     shutdown_from = draw(st.dates(min_value=start, max_value=start + timedelta(days=200)))
@@ -716,23 +709,12 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
     tasks = []
     for tid in ids:
         calendar_id = draw(cal_choice)
-        own_cal = project_cal if calendar_id is None else calendars[calendar_id]
         actual_start = None if gap_shape else draw(st.none() | actual_dates)
         actual_finish = None
         if actual_start is not None:
             actual_finish = draw(
                 st.none() | st.dates(min_value=actual_start, max_value=start + timedelta(days=500))
             )
-            # TODO(#4430): drop this carve-out. A completed task whose finish reads
-            # before the project start — its actual_finish, or the working day before
-            # it on its OWN calendar when the finish itself is a non-working day —
-            # still clamps to the index's first offset and reads as the project
-            # start: a separate open defect, so it is not drawn here.
-            if (
-                actual_finish is not None
-                and engine._prev_working_day(actual_finish, own_cal) < start
-            ):
-                actual_finish = None
         # With estimates, most tasks are short or zero-duration milestones. Long
         # durations and wide estimates make run positions dense, so interpolation
         # almost never lands on a reference day no run occupies — the #4691 input.
@@ -763,6 +745,9 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
                 actual_start=actual_start,
                 actual_finish=actual_finish,
                 planned_start=None if gap_shape else draw(st.none() | _plausible_date),
+                # Percent-only progress, including a completion with no recorded
+                # actuals (#4696's class sweep).
+                percent_complete=0.0 if gap_shape else draw(st.sampled_from([0.0, 50.0, 100.0])),
                 **triple,  # type: ignore[arg-type]
             )
         )
