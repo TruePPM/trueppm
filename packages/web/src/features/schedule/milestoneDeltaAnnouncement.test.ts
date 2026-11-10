@@ -9,6 +9,7 @@ function milestone(deltaDays: number, name = 'Go Live'): PreviewMilestone {
     baselineFinish: '2024-01-11',
     newFinish: '2024-01-04',
     deltaDays,
+    milestoneAtDayEnd: false,
   };
 }
 

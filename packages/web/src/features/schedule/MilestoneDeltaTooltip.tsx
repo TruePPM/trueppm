@@ -118,11 +118,10 @@ export function MilestoneDeltaAnchor({
   scales,
 }: AnchorProps) {
   const worst = useDragStore((s) => s.worstMilestone);
-  // The worst-milestone payload carries no day-end flag; the previewed task's own
-  // result does (#4079), and the Gantt draws the diamond at `milestoneX`.
-  const atDayEnd = useDragStore(
-    (s) => s.previewResults.find((r) => r.taskId === s.worstMilestone?.taskId)?.milestoneAtDayEnd,
-  );
+  // The worst-milestone payload carries the day-end flag itself (#4079): the preview
+  // results are capped, so the milestone may not be among them. The Gantt draws the
+  // diamond at `milestoneX`.
+  const atDayEnd = worst?.milestoneAtDayEnd;
   const rect = timelineEl ? timelineEl.getBoundingClientRect() : null;
   let milestoneLeft: number | null = null;
   if (rect && scales && worst) {

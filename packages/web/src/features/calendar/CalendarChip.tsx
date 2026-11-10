@@ -18,9 +18,10 @@ interface CalendarChipProps {
   chip: CalendarChipData;
   onClick: (taskId: string) => void;
   /**
-   * Week mode draws one row, so a task continuing in from before the window has no
-   * labelled fragment above it (month mode does). When true, that first visible
-   * fragment prints the name behind a "◂" continuation marker (#3243).
+   * A task continuing in from before the window has no labelled fragment above its
+   * first visible one: week mode draws one row, and in month mode the first row of
+   * the grid has no earlier row. When true, that first visible fragment prints the
+   * name behind a "◂" continuation marker (#3243).
    */
   labelContinuation?: boolean;
 }

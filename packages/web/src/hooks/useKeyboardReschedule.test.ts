@@ -292,6 +292,7 @@ describe('useKeyboardReschedule', () => {
             baselineFinish: '2025-03-01',
             newFinish: '2025-03-04',
             deltaDays: 3,
+            milestoneAtDayEnd: false,
           },
           overflowCount: 0,
         });
@@ -313,6 +314,7 @@ describe('useKeyboardReschedule', () => {
             baselineFinish: '2025-03-01',
             newFinish: '2025-03-02',
             deltaDays: 1,
+            milestoneAtDayEnd: false,
           },
           overflowCount: 0,
         });
@@ -334,6 +336,7 @@ describe('useKeyboardReschedule', () => {
             baselineFinish: '2025-03-01',
             newFinish: '2025-03-01',
             deltaDays: 0,
+            milestoneAtDayEnd: false,
           },
           overflowCount: 0,
         });

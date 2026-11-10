@@ -165,11 +165,24 @@ describe('MilestoneDeltaAnchor (#2189)', () => {
           milestoneAtDayEnd: true,
         },
       ],
-      MILESTONE,
+      { ...MILESTONE, milestoneAtDayEnd: true },
       0,
     );
     render(<Harness mounted />);
     // 10 + 300 + 700 (day end) - 100 (scroll) - 80.
+    expect((screen.getByText('Client Demo').closest('.fixed') as HTMLElement).style.left).toBe(
+      '830px',
+    );
+  });
+
+  it('aligns to day end when the worst milestone is outside the capped previewResults (#2189)', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 10,
+      top: 77,
+    } as DOMRect);
+    useDragStore.getState().startDrag('t1');
+    useDragStore.getState().updatePreview([], { ...MILESTONE, milestoneAtDayEnd: true }, 0);
+    render(<Harness mounted />);
     expect((screen.getByText('Client Demo').closest('.fixed') as HTMLElement).style.left).toBe(
       '830px',
     );

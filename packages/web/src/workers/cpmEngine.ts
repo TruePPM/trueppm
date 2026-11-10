@@ -961,6 +961,7 @@ function collectResults(stateMap: Map<string, TaskState>): {
         baselineFinish: toIso(task.baselineFinishMs),
         newFinish: toIso(task.earlyFinishMs),
         deltaDays,
+        milestoneAtDayEnd: task.instantMs !== null && !task.startDisplay,
       };
     }
   }
