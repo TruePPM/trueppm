@@ -24,7 +24,12 @@ def _exported_functions() -> list[tuple[str, Any]]:
 
 
 def _raises_directly(fn: Any) -> bool:
-    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    target = inspect.unwrap(fn)
+    try:
+        source = inspect.getsource(target)
+    except (OSError, TypeError):
+        pytest.skip(f"no source for {getattr(fn, '__name__', fn)!r} (wrapped or built-in)")
+    tree = ast.parse(textwrap.dedent(source))
     return any(isinstance(node, ast.Raise) for node in ast.walk(tree))
 
 
@@ -44,3 +49,23 @@ def test_named_functions_document_invalid_schedule_input(name: str) -> None:
 def test_schedule_does_not_name_bare_value_error() -> None:
     doc = inspect.getdoc(ts.schedule) or ""
     assert "ValueError:" not in doc
+
+
+# Each cause #4100 listed for expand_summary_dependencies, as a phrase its docstring must carry.
+_EXPAND_CAUSES = {
+    "non-dict / non-string ids": "is not a dict",
+    "non-list value": "value is not a list",
+    "empty children list": "empty children list",
+    "unknown child": "names no task",
+    "children-map cycle": "parent-child cycle",
+    "self-child": "its own child",
+    "SS/SF from a summary": "Start-to-Start or Start-to-Finish link from a summary",
+    "expansion bound": "MAX_EXPANDED_EDGES",
+    "shared-leaf cycle": "CyclicDependencyError",
+}
+
+
+@pytest.mark.parametrize(("cause", "phrase"), list(_EXPAND_CAUSES.items()))
+def test_expand_summary_dependencies_documents_each_cause(cause: str, phrase: str) -> None:
+    doc = " ".join((inspect.getdoc(ts.expand_summary_dependencies) or "").split())
+    assert phrase in doc, f"expand_summary_dependencies docstring does not document: {cause}"

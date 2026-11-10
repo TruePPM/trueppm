@@ -485,6 +485,12 @@ All three must be set for a task to be sampled; a partial estimate is ignored. T
 CPM is not monotone in duration where a Finish-to-Finish or Start-to-Finish link is present: such a link pins a task's finish, so a longer task starts earlier and an SS successor keyed on that start inherits the earlier start. `schedule()` shows this on its own — raising every duration can move the deterministic finish backwards. On such a network a percentile can still precede the deterministic finish, with `monte_carlo()` reproducing `schedule()` faithfully per sampled scenario. FS/SS networks are unaffected. This is the engine's decided convention, not an open defect: an FF/SF-driven task stays contiguous and right-aligned on its pinned finish, as MS Project renders it ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806)).
 :::
 
+:::note[Ships in 0.5]
+In 0.4, `monte_carlo(project)` with no `runs=` argument runs 1,000 simulations. In 0.5 the default will become **10,000**, matching the `trueppm-scheduler monte-carlo` command's `--runs`. Pass `runs=1_000` to keep the old behavior.
+:::
+
+**Concurrency.** `schedule()` and `monte_carlo()` are pure with respect to the `Project` you pass (they do not mutate it) and keep no module-level mutable state, so concurrent calls on one process are safe. A `Calendar` is a mutable object with a lazily built internal index and is **not synchronized**: sharing one across threads that only read it is fine, but mutating it (reassigning `working_days` or `exceptions`) while another thread schedules against it is unsupported. Build a new `Calendar` per change.
+
 ### Output
 
 | Field | Description |
@@ -754,6 +760,10 @@ to itself) is skipped as a self-link, or turned into an order between sibling
 tasks. In 0.5 the call will refuse it with `CyclicDependencyError` instead, the same
 input `find_cycle` reports as a cycle. A Start-to-Start or Start-to-Finish link *from*
 a summary will still raise `InvalidScheduleInput`, as described below.
+:::
+
+:::note[Ships in 0.5]
+In 0.5 a `children_map` entry that names no task in `tasks` will raise `InvalidScheduleInput` naming that entry, where 0.4 expands silently over the missing leaf. The check will be skipped when `tasks` is empty. A task listed under two parents will still be accepted by design: its leaves expand once and it is not a cycle.
 :::
 
 When two links resolve to the same leaf pair — say `build → test` and
