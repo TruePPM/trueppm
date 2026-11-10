@@ -21,10 +21,10 @@ Any project member sees the full member list. The invite form, role picker, and 
 
 ## Inviting a member
 
-The invite form is a typeahead. Start typing a name and TruePPM searches existing accounts (`GET /api/v1/users/search/`, debounced), returning up to 10 matches by username and display name. Pick a result, choose a role, and add them.
+The invite form is a typeahead. Start typing and TruePPM searches existing accounts (`GET /api/v1/users/search/`, debounced), returning up to 10 accounts whose username or email address contains what you typed. Pick a result, choose a role, and add them.
 
 :::note[Ships in 0.5]
-From 0.5 the search matches by username, and to find someone by email you paste their full address; a partial address (such as `@acme.com`) will not match, so the search cannot be used to discover which addresses exist. In 0.4 the typeahead matches by username and display name as described above.
+From 0.5 an email matches only on the full address, so a partial address such as `@acme.com` will no longer match and the search cannot be used to discover which addresses exist. In 0.4 any part of an email address matches, so a domain fragment lists the accounts at that domain.
 :::
 
 The invited user **must already have a TruePPM account** — this page does not create accounts. To bring in someone who has never signed in, send them a [workspace invite](/administration/workspace-settings/#invites-settingsmembers--invite-flow) first; once they accept and have an account, they appear in the project member search.
