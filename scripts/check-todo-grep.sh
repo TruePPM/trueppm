@@ -48,7 +48,7 @@
 # Which rule blocks where (#4925). Rule 2 reads live tracker state, so as a
 # whole-tree check it turned main red whenever an issue closed with a TODO
 # still pointing at it — including an issue closed by a merge through a
-# negated keyword ("Does not fix #4883", !3327). It is split by cause:
+# negated keyword in !3327's description (#4883). It is split by cause:
 #
 #   MR-caused  (TRACKER_GATE_MODE=diff, the default — MR pipelines, main push,
 #              make pre-push; blocks): a TODO(#N) whose N the change will close
@@ -64,9 +64,9 @@
 #
 # Exit codes:
 #   0  no violations (warnings may have been emitted)
-#   1  STUB:/WIP: marker found, TODO(#NNN) references a closed issue, or a
-#      TODO(#NNN) issue lookup could not be resolved and
-#      TODO_GREP_ALLOW_UNRESOLVED was not set
+#   1  STUB:/WIP: marker found, TODO(#NNN) references a closed issue, or the
+#      tracker answered but has no readable issue #NNN (deleted, moved,
+#      confidential)
 #   2  invocation / error unrelated to a specific reference (no roots exist)
 #   3  the tracker or the diff base could not be read (fail closed) and
 #      TODO_GREP_ALLOW_UNRESOLVED was not set

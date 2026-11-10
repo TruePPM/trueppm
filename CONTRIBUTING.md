@@ -107,8 +107,12 @@ on the day that unrelated issue closes, in a job log nobody has a reason to read
 Do not "fix" it by substituting a live issue. (`scripts/check-suppression-issues.sh`
 keeps its own examples digit-free for the same reason.)
 
-`suppressions:check` fails the pipeline once that issue closes with the
-suppression still in the tree. This exists because it did not: six axe
+`suppressions:check` fails an MR that adds a marker naming an already-closed
+issue, or that closes the marker's issue while leaving the suppression in the
+tree. A suppression whose issue closes some other way (from the UI, or through
+an unrelated MR) does not red any pipeline: the nightly `tracker:drift-report`
+job lists it in the `tracker-drift` tracking issue instead
+(see `docs/harness/tracker-gates.md`). This exists because nothing caught it: six axe
 exclusions cited a closed #2204, one of them reading "remove this last exclusion
 when #2204 lands" — it had landed, and the a11y gate stayed green by hiding
 failures nothing tracked (#2603). A suppression's justification expires without

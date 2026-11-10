@@ -166,7 +166,8 @@ workflow:
     # "true"), the nightly Keycloak SSO smoke (SSO_NIGHTLY == "true", #2274),
     # the nightly release-image existence and chart-resolution checks
     # (REGISTRY_NIGHTLY == "true", #2803, #3914), and the nightly tracker-drift
-    # report (TRACKER_DRIFT_NIGHTLY == "true", #4925). Block any other scheduled trigger so a stray schedule can't spin up
+    # report (TRACKER_DRIFT_NIGHTLY == "true", #4925; tracker:drift-report also
+    # rides the SONAR_SCHEDULED schedule, so it needs no schedule of its own). Block any other scheduled trigger so a stray schedule can't spin up
     # a full pipeline. Each permitted schedule runs on `main` and falls through
     # to the branch rule below; the SSO schedule only matches sso:integration +
     # ci:build-keycloak-image and the registry schedule only matches
@@ -1632,12 +1633,18 @@ tracker:drift-report:
   # gate cannot read the tracker (fail closed; the issue is left untouched so
   # an incomplete report cannot close it) or a write fails.
   #
-  # Needs a pipeline schedule on main with TRACKER_DRIFT_NIGHTLY=true and a
-  # masked, protected TRACKER_DRIFT_TOKEN (project access token, `api` scope,
-  # Reporter+) for the issue writes; reads use ISSUES_API_TOKEN as the gates do.
+  # Rides the existing nightly SonarCloud schedule (SONAR_SCHEDULED == "true")
+  # so no new schedule — and no second full schedule pipeline — is needed; a
+  # dedicated TRACKER_DRIFT_NIGHTLY=true schedule also triggers it.
+  #
+  # OPERATOR STEP: create a masked, protected TRACKER_DRIFT_TOKEN CI/CD variable
+  # (project access token, `api` scope, Reporter+) for the issue writes. Until
+  # it exists the job fails on the first write it needs and says so; reads use
+  # ISSUES_API_TOKEN as the gates do.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SONAR_SCHEDULED == "true"'
     - if: '$CI_PIPELINE_SOURCE == "schedule" && $TRACKER_DRIFT_NIGHTLY == "true"'
   before_script:
     - apk add --no-cache bash curl jq grep sed gawk git coreutils

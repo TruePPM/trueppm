@@ -47,7 +47,7 @@
 # Exit codes:
 #   0  no violations
 #   1  a reference resolves to a closed issue with no ack marker on its own
-#      line, or (default) a lookup could not be resolved at all
+#      line, or the tracker answered but has no readable issue for it
 #   2  invocation / setup error (page missing, CI_PROJECT_ID unset)
 #   3  the tracker or the diff base could not be read (fail closed)
 #

@@ -153,7 +153,7 @@ _gitlab_get() {
 #          missing issue, a reference the diff keeps to an issue the change
 #          closes, or a required reference the diff removes.
 #   drift  (TRACKER_GATE_MODE=drift; only scripts/tracker-drift-report.sh on the
-#          TRACKER_DRIFT_NIGHTLY schedule) — the full-state check: every
+#          nightly schedule) — the full-state check: every
 #          reference against the tracker as it is now. Its findings land in one
 #          tracking issue, not in a red pipeline nobody's commit can fix.
 #
@@ -221,14 +221,39 @@ tracker_gate_file_at_base() {
 
 # closing_ids_from_text — reads text on stdin, prints the issue numbers a
 # GitLab closing keyword would close (default closing pattern: close/fix/
-# resolve/implement in any tense, optional colon, `#N` lists or issue URLs).
-# Deliberately NOT negation-aware: GitLab closes "Does not fix #N" too (#4883),
+# resolve/implement in any tense, optional colon, then a list of references).
+# Deliberately NOT negation-aware: GitLab closes a negated keyword too (#4883),
 # so a superset is the faithful answer. Used where no MR exists yet.
+#
+# Only references to THIS project count — GitLab's closes_issues filters by
+# project, so a parser that did not would fail main after a green MR whose
+# commit closes another project's issue. A reference is this project's when it
+# is a bare `#N`, a `proj#N` / `group/proj#N` naming this project, or an
+# `/-/issues/N` or `/-/work_items/N` URL whose path is this project's.
+# The project is ${CI_PROJECT_PATH}, falling back to trueppm/trueppm (the
+# default the gates already use for CI_PROJECT_ID). Paths compare
+# case-insensitively, as GitLab routes them.
 closing_ids_from_text() {
   local kw='(clos(e|es|ed|ing)|fix(es|ed|ing)?|resolv(e|es|ed|ing)|implement(s|ed|ing)?)'
-  local ref='(#[0-9]+|https?://[^[:space:]]*/-/issues/[0-9]+)'
+  local url='https?://[^[:space:],]*/-/(issues|work_items)/[0-9]+'
+  local ref="(${url}|[[:alnum:]_./-]*#[0-9]+)"
+  local proj="${CI_PROJECT_PATH:-trueppm/trueppm}"
   grep -oiE "(^|[^[:alnum:]_])${kw}:? +(issues? +)?${ref}(( *, *| +and +| *, +and +)${ref})*" |
-    grep -oE '(#|/-/issues/)[0-9]+' | grep -oE '[0-9]+$' | sort -un || true
+    grep -oE "${url}|[[:alnum:]_./-]*#[0-9]+" |
+    awk -v p="$proj" '
+      BEGIN { p = tolower(p); leaf = p; sub(/.*\//, "", leaf) }
+      /^https?:\/\// {
+        r = $0; n = $0
+        sub(/^https?:\/\/[^\/]+\//, "", r)
+        sub(/\/-\/(issues|work_items)\/[0-9]+$/, "", r)
+        sub(/.*\//, "", n)
+        if (tolower(r) == p) print n
+        next
+      }
+      {
+        i = index($0, "#"); pre = tolower(substr($0, 1, i - 1)); n = substr($0, i + 1)
+        if (pre == "" || pre == p || pre == leaf) print n
+      }' | sort -un || true
 }
 
 # tracker_gate_closing_ids <api> <project> <token> <base>

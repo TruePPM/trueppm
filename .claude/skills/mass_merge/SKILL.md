@@ -269,7 +269,8 @@ bash   scripts/check-adr-collisions.sh          # duplicate ADR numbers
 python3 scripts/check-migration-numbering.py origin/main   # duplicate migration numbers
 bash   scripts/check-issue-boundary.sh || true  # OSS/enterprise label boundary (network-dependent; advisory here)
 bash   scripts/check-version-status.sh          # version-tense vs roadmap
-bash   scripts/check-todo-grep.sh               # STUB/WIP/closed-issue TODOs
+CI_PROJECT_ID=trueppm%2Ftrueppm TRACKER_GATE_MODE=drift \
+       bash scripts/check-todo-grep.sh          # STUB/WIP + whole-tree closed-issue TODOs (see note)
 bash   scripts/check-extension-signals.sh       # bare Signal.send() on extension points
 bash   scripts/check-enterprise-imports.sh      # OSS↔Enterprise boundary
 bash   scripts/check-ws-event-reachability.sh   # advertised-but-undeliverable WS events
@@ -277,6 +278,15 @@ bash   scripts/check-e2e-catchall.sh
 bash   scripts/check-playwright-pins.sh
 bash   scripts/check-web-rule-numbers.sh       # duplicate packages/web/CLAUDE.md rule numbers
 ```
+
+`check-todo-grep.sh` runs in **drift** mode here on purpose. In its default diff
+mode it learns the closing set only from commit-message keywords, and the sim
+tree's `merge --no-edit` commits carry none of the MRs' `Closes` lines, so it
+would check almost nothing. Drift mode checks every `TODO(#N)` in the tree
+against the tracker as it is now. It still cannot see a TODO that points at an
+issue one of the batched MRs is *about to* close, because that issue is still
+open until the merge. `CI_PROJECT_ID` must be set, or the script skips the
+lookup with a warning (#4925).
 
 `check-web-rule-numbers.sh` is the one that guards the hotspot Step 1 names most
 often: `packages/web/CLAUDE.md` collects a numbered rule per UI branch, so a batch

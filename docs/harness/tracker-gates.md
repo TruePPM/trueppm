@@ -28,7 +28,7 @@ The shared logic lives in `scripts/lib/gitlab-issues.sh`:
 
 | Context | Source of the closing set |
 |---|---|
-| MR pipeline | `GET /projects/:id/merge_requests/:iid/closes_issues`. This is GitLab's own set: description and commit-message keywords, and negated matches such as "Does not fix #4883" (!3327). A regex over the description is not enough. |
+| MR pipeline | `GET /projects/:id/merge_requests/:iid/closes_issues`. This is GitLab's own set: description and commit-message keywords, and negated keywords too, such as the one in !3327's description (see #4883). A regex over the description is not enough. |
 | `make pre-push` / main push | Closing keywords in the commit messages of `base..HEAD`. The parser is deliberately not negation-aware, because GitLab is not either. |
 
 An unreadable `closes_issues` fails closed.
@@ -69,15 +69,25 @@ that takes seconds, and the job never runs on MR pipelines, so it cannot fail
 an unrelated MR. The report lists it as well, so a violation created from the
 UI lands in the same tracking issue.
 
-A diff-mode gate makes **no tracker call** when the change adds, removes and
-closes nothing. Most MRs, and `make pre-push` offline, therefore need no
-network.
+Under `make pre-push`, a diff-mode gate makes **no tracker call** when the
+change adds, removes and closes nothing, so a typical pre-push needs no network.
+An MR pipeline is different: each of the five gates makes one `closes_issues`
+call to learn the closing set, and then issue-state lookups only for the
+references the change adds or closes.
 
 ## The nightly report
 
-`tracker:drift-report` (`scripts/tracker-drift-report.sh`) runs only on a
-pipeline schedule on `main` with `TRACKER_DRIFT_NIGHTLY=true`. That variable is
-also on the `workflow:` schedule allowlist. The job runs every gate in drift
+> **Operator step required.** The report cannot write anything until someone
+> creates `TRACKER_DRIFT_TOKEN` as a **masked, protected** CI/CD variable: a
+> project access token with `api` scope and Reporter role or higher. Until it
+> exists, the job fails on the first write it needs, and its error message
+> names this step.
+
+`tracker:drift-report` (`scripts/tracker-drift-report.sh`) runs on the existing
+nightly SonarCloud schedule (`SONAR_SCHEDULED=true`), so no new schedule and no
+second full schedule pipeline is needed. A dedicated schedule with
+`TRACKER_DRIFT_NIGHTLY=true` also triggers it. Both variables are on the
+`workflow:` schedule allowlist. The job runs every gate in drift
 mode and updates the issue titled *Tracker drift: repo references out of sync
 with the issue tracker* (label `tracker-drift`):
 
