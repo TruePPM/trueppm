@@ -280,9 +280,9 @@ def upsert_pulse_response(
     from trueppm_api.apps.projects.models import PulseResponse
 
     _assert_board_writable(sprint)
-    # Explicit per-field guards (not a loop) so the type narrows to ``int`` for the
-    # update_or_create below — mypy --strict + django-stubs reject ``int | None`` on
-    # the non-null model fields.
+    # The loop below only type-checks; the range guards after it are explicit per-field
+    # (not a loop) so each value narrows to ``int`` for the update_or_create — mypy
+    # --strict + django-stubs reject ``int | None`` on the non-null model fields.
     # bool is an int subclass; refuse it and strings/lists before the range compare.
     for name, val in (("mood", mood), ("energy", energy), ("confidence", confidence)):
         if val is not None and (isinstance(val, bool) or not isinstance(val, int)):
