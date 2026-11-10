@@ -396,9 +396,28 @@ def _read_seed_json_body(
     SEED_MAX_UPLOAD_MB entirely. Gate on the raw bytes: ``request.body`` is the
     undecoded payload, so this measures what actually arrived rather than a
     declared Content-Length that may be absent under chunked transfer-encoding.
+
+    A declared Content-Length over the cap is refused first, before a byte is read.
+    Past that, the body reaches here already read under the ``bulk`` tier of
+    ``core.request_body_limits`` (10 MiB, above the 2 MiB global
+    ``DATA_UPLOAD_MAX_MEMORY_SIZE``), which is what lets a raw-JSON seed use the
+    same SEED_MAX_UPLOAD_MB as a multipart one (#2421, #4383). A body that still
+    trips the global ceiling (sent without Content-Length) is reported as too
+    large rather than handed to ``request.data``, which would hit the same ceiling
+    as an opaque 400.
     """
+    from django.core.exceptions import RequestDataTooBig
+
+    try:
+        declared = int(request.META.get("CONTENT_LENGTH") or 0)
+    except (TypeError, ValueError):
+        declared = 0
+    if declared > max_bytes:
+        return None, too_large
     try:
         raw = request.body
+    except RequestDataTooBig:
+        return None, too_large
     except Exception:
         # Stream already consumed (a multipart request with no ``file`` part
         # reaches here). Fall back to the parsed form data, which is bounded by

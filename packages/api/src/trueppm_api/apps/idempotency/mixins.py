@@ -212,11 +212,20 @@ class IdempotencyMixin:
         Read ``request.body`` here in ``initial()`` — before the handler accesses
         ``request.data`` — so Django buffers the raw bytes and the view can still parse
         the body downstream.
+
+        A multipart upload above ``DATA_UPLOAD_MAX_MEMORY_SIZE`` (2 MiB, #4383) cannot
+        be buffered here — that refusal is what keeps a 50 MB import file out of
+        memory — so its hash falls back to the declared length and content type.
+        Two different files of identical size under one key then replay rather than
+        conflict; reading the whole file to tell them apart would cost the memory
+        the global ceiling exists to save.
         """
         try:
             body = request.body
         except Exception:
-            body = b""
+            body = "unbuffered:{}:{}".format(
+                request.META.get("CONTENT_LENGTH", ""), request.META.get("CONTENT_TYPE", "")
+            ).encode("utf-8")
         hasher = hashlib.sha256()
         hasher.update((request.method or "").encode("utf-8"))
         hasher.update(b"\n")

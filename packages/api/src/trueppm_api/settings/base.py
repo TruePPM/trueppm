@@ -148,6 +148,13 @@ MIDDLEWARE = [
     # CSP header on every response (#897). Placed high so the header is attached
     # even for early short-circuit responses (redirects, errors).
     "trueppm_api.core.csp.ContentSecurityPolicyMiddleware",
+    # Refuse a declared Content-Length over the route's body tier with 413 (#4383)
+    # before session/auth/ATOMIC_REQUESTS work, and raise the parse ceiling for the
+    # handful of bulk routes that need more than DATA_UPLOAD_MAX_MEMORY_SIZE. The
+    # tier table lives in core.request_body_limits and the nginx configs mirror it.
+    # Application-side because the default Helm Ingress sends /api/ straight to the
+    # API Service, past the web tier's per-location limits.
+    "trueppm_api.core.request_body_limits.RequestBodyLimitMiddleware",
     # Reject NUL bytes in /api/ query strings before the view opens its
     # ATOMIC_REQUESTS transaction (#2229) — a NUL in a text DB filter otherwise
     # raises an uncaught psycopg DataError (500). Placed inside RequestID/CSP so
@@ -1360,14 +1367,20 @@ FORECAST_SNAPSHOT_RETENTION: dict[str, int] = {
 # Upload caps (ADR-0075, task attachments)
 # ---------------------------------------------------------------------------
 
-# Hard 100 MB ceiling matches the TaskAttachment cap (ADR-0075 locked
-# constraint #4). The serializer also enforces this, but the setting must
-# fire FIRST — without it, Django buffers the entire body to /tmp before
-# the serializer runs, which lets an authenticated Member spam 100 MB+
-# multipart bodies and exhaust worker time + disk. Operators should also
-# set nginx `client_max_body_size: 100m` so over-sized requests are
-# rejected at the edge, not after Django finishes parsing them.
-DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100 MB
+# Global ceiling on a body Django reads into memory and parses (#4383): JSON,
+# urlencoded, and the NON-file fields of a multipart request. DRF parses JSON
+# through ``request.body``, so this is the largest JSON document any endpoint will
+# ``json.loads`` — including the unauthenticated ones (token obtain, invite accept,
+# password reset), which used to accept 100 MB before checking a credential.
+#
+# It does NOT bound multipart *file* parts: Django streams those through the upload
+# handlers (in memory up to FILE_UPLOAD_MAX_MEMORY_SIZE, then a temp file), so the
+# 100 MB attachment cap and the import caps below are unaffected. Routes that
+# legitimately take a larger body (offline sync push, task bulk, the seed import)
+# get a raised ceiling from ``core.request_body_limits``, whose table the nginx
+# configs mirror per location; keep this equal to that module's DEFAULT_TIER
+# (pinned by tests/core/test_request_body_limits.py).
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024  # 2 MiB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB (Django default; explicit)
 
 # Days a public share link lasts when the mint request omits ``expires_at`` (#3177).
@@ -1384,8 +1397,9 @@ TRUEPPM_SHARE_LINK_DEFAULT_EXPIRY_DAYS = env.int(
 # ImportRequest DB row (~+33%), so a 50 MB upload already costs ~67 MB of
 # memory and row size. 50 MB is the practical MS Project file ceiling
 # (larger schedules degrade in Project itself). The global
-# DATA_UPLOAD_MAX_MEMORY_SIZE and nginx client_max_body_size (both 100 MB)
-# remain the hard edge cap — do not configure this above them.
+# upload tier in core.request_body_limits (110 MiB, mirrored by nginx's
+# per-location client_max_body_size) remains the hard edge cap — do not
+# configure this above it.
 MSPROJECT_MAX_UPLOAD_MB: int = env.int("MSPROJECT_MAX_UPLOAD_MB", default=50)
 
 # Max number of tasks (also applied to resources and dependency links) a single
@@ -1451,7 +1465,7 @@ MPXJ_MAX_HEAP_MB: int = env.int("MPXJ_MAX_HEAP_MB", default=512)
 
 # Max size of an uploaded Jira XML export (#1664). Jira issue-navigator exports
 # are small relative to .mpp files; the 25 MB default is generous for the minimal
-# import slice and stays well under the DATA_UPLOAD_MAX_MEMORY_SIZE hard cap.
+# import slice and stays well under the 110 MiB upload-tier edge cap.
 JIRA_IMPORT_MAX_UPLOAD_MB: int = env.int("JIRA_IMPORT_MAX_UPLOAD_MB", default=25)
 
 # Max number of issues a single Jira XML import may contain (#1721). Same

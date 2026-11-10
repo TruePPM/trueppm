@@ -48,19 +48,15 @@ server {
     add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'" always;
 
-    # 110M, not 50M (#3189). The largest application cap is the ATTACHMENT one:
-    # serializers.py sets MAX_ATTACHMENT_SIZE_BYTES = 100 MB and
-    # settings/base.py sets DATA_UPLOAD_MAX_MEMORY_SIZE to the same, with a
-    # comment instructing operators to set nginx to 100m. At 50M every
-    # attachment between 50 and 100 MB got a bare nginx 413 on every deployment
-    # path — the documented feature was capped at half its documented size, and
-    # the rejection never reached the app that could name the limit.
-    #
-    # 110 rather than 100: multipart framing and headers add a few KB, so at
-    # exactly 100M a legal 100 MB upload still 413s. The app cap remains the
-    # enforcement point; this is headroom above it, which is what the earlier
-    # comment here claimed 50M was and was not.
-    client_max_body_size 110M;
+    # Request-body ceiling (#4383). 2M is the DEFAULT tier of
+    # packages/api/src/trueppm_api/core/request_body_limits.py and Django's
+    # DATA_UPLOAD_MAX_MEMORY_SIZE: the largest JSON body any endpoint parses,
+    # including the unauthenticated login/invite/reset routes, which used to
+    # accept 110M. The routes that genuinely take more (attachments 110M,
+    # imports 110M, sync/bulk/seed/logo 10M) raise it per location inside
+    # `location /api/` below. The app enforces the same tiers itself, so an
+    # Ingress that bypasses this nginx still meets them.
+    client_max_body_size 2M;
 
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
@@ -137,6 +133,21 @@ server {
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_read_timeout 90s;
+
+        # Per-route body ceilings (#4383) — this nesting mirrors the table in
+        # packages/api/src/trueppm_api/core/request_body_limits.py, and
+        # tests/core/test_request_body_limits.py fails if the two disagree. Every
+        # other /api/ route keeps the 2M server-level default. The nested locations
+        # inherit every proxy_set_header above (none is redeclared), but
+        # proxy_pass is not inherited and must be repeated.
+        location ~ ^/api/v1/projects/([^/]+/tasks/[^/]+/attachments|[^/]+/import/(msproject|jira|csv|csv/preview)|import/msproject|[^/]+/risks/import)/$ {
+            client_max_body_size 110M;
+            proxy_pass http://api:8000;
+        }
+        location ~ ^/api/v1/(workspace/logo|programs/import(/validate)?|projects/[^/]+/(tasks/bulk|sync|task-sync))/$ {
+            client_max_body_size 10M;
+            proxy_pass http://api:8000;
+        }
     }
 
     # WebSocket (Django Channels)

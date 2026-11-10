@@ -1,8 +1,15 @@
 ---
 title: MS Project configuration
 description: Operator reference for TruePPM's MS Project import / export — upload size cap, the optional MPXJ toolchain for .mpp files, the import-history retention window, and security boundaries on parsed input.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The 110 MB upload-tier ceiling named under [Upload size cap](#upload-size-cap)
+ships in 0.5. In 0.4 the edge caps are Django's 100 MB
+`DATA_UPLOAD_MAX_MEMORY_SIZE` and your nginx `client_max_body_size`. Everything
+else on this page is in 0.4.
+:::
 
 This page is the operator's reference for TruePPM's [MS Project import / export](/features/msproject-import-export/) surface. The user-facing flows ship with sensible defaults — most deployments do not need to change anything here — but the four knobs below cover upload size, the optional `.mpp` toolchain, history retention, and what's enforced on parsed input.
 
@@ -16,13 +23,14 @@ The per-file import cap defaults to **50 MB** and is set by the `MSPROJECT_MAX_U
 
 The cap is **deliberately lower** than the 100 MB attachment ceiling. An import is read fully into memory and stored base64-encoded in a single `ImportRequest` database row (~33% inflation), so a 50 MB upload already costs ~67 MB of RAM and row size during the import window. 50 MB is also the practical MS Project file ceiling — schedules larger than that degrade in MS Project itself.
 
-:::caution[Do not raise above the global hard caps]
-`DATA_UPLOAD_MAX_MEMORY_SIZE` (Django; default 100 MB) and `client_max_body_size`
-(nginx; the reference single-server templates ship `20M` — raise it to at least
-your `MSPROJECT_MAX_UPLOAD_MB`) are the absolute edge caps.
-Setting `MSPROJECT_MAX_UPLOAD_MB` above either has no effect — the upload is
-rejected at the upstream layer first. If you genuinely need bigger files, raise
-all three together and budget for the memory cost per concurrent import.
+:::caution[Do not raise above the upload tier]
+The import routes sit on the 110 MB **upload tier** of the
+[request body ceilings](/administration/configuration/limits/#request-body-ceilings),
+which the API and the shipped nginx configs both enforce. Setting
+`MSPROJECT_MAX_UPLOAD_MB` above it has no effect — the upload is refused with
+`413` first. If you run your own proxy in front, keep its body limit for the
+import routes at or above `MSPROJECT_MAX_UPLOAD_MB`, and budget for the memory
+cost per concurrent import.
 :::
 
 Setting it lower is safe — TruePPM will reject larger uploads with a clear error message naming the configured cap.

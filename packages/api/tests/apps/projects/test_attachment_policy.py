@@ -789,6 +789,30 @@ def test_upload_allowed_when_type_in_narrowed_allowlist(
 
 
 @pytest.mark.django_db
+def test_upload_above_the_global_parse_ceiling_still_succeeds(
+    calendar: Calendar, task_on: tuple[Project, Task]
+) -> None:
+    """A 3 MB file clears the 2 MiB DATA_UPLOAD_MAX_MEMORY_SIZE (#4383).
+
+    That setting counts only a multipart request's NON-file fields — file parts
+    stream through the upload handlers — so lowering it for JSON must not lower
+    the attachment ceiling. Attachments sit on the upload tier
+    (core/request_body_limits.py), 110 MiB at the transport.
+    """
+    Workspace.load()
+    project, task = task_on
+    project.allowed_attachment_types = ["application/pdf"]
+    project.save()
+    client = _client_for_project(project, Role.MEMBER, "u_big_pdf")
+
+    pdf = SimpleUploadedFile(
+        "big.pdf", b"%PDF-1.4 " + b"0" * (3 * 1024 * 1024), content_type="application/pdf"
+    )
+    resp = client.post(_att_list_url(project, task), {"file": pdf}, format="multipart")
+    assert resp.status_code == 201, resp.content
+
+
+@pytest.mark.django_db
 def test_upload_allowed_when_project_widens_allowlist(
     calendar: Calendar, task_on: tuple[Project, Task]
 ) -> None:

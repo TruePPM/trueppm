@@ -125,7 +125,13 @@ web:
       enabled: true
       rate: 5r/m
       burst: 2
-  # nginx `client_max_body_size` for the web tier (#2604).
+  # nginx `client_max_body_size` for the web tier's FILE-UPLOAD routes (#2604).
+  #
+  # Since #4383 this is no longer the server-wide ceiling: every route defaults
+  # to 2M (the largest JSON body any endpoint parses), sync/bulk/seed/logo get
+  # 10M, and only the attachment and file-import locations get this value. The
+  # same tiers are enforced by the API itself (core/request_body_limits.py), so
+  # they also hold on the default topology where /api bypasses this nginx.
   #
   # In the DEFAULT topology this is inert: the Ingress routes /api and /ws
   # straight to the API Service, so uploads never traverse this nginx and
