@@ -129,7 +129,9 @@ export const PROJECT_SETTINGS_ANCHOR_ALIASES: Record<string, string> = Object.fr
  * anything but an explicit `true` withholds the admin rail.
  */
 export function shouldShowProjectMemberRail(canAccessAdminSettings: boolean | undefined): boolean {
-  return canAccessAdminSettings !== true;
+  // Affordance polarity (rule 379): only an explicit `true` raises the admin rail;
+  // undefined (loading/errored/missing field) and `false` both withhold it.
+  return canAccessAdminSettings === true ? false : true;
 }
 
 export function buildProjectSettingsMemberNav(): SettingsNavGroup[] {
