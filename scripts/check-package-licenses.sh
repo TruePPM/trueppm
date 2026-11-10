@@ -75,13 +75,16 @@ BUNDLED=(
 
 # Subset of DISTRIBUTED that also carries the repo-root NOTICE (#4177): the
 # three PyPI packages, built with hatchling's `license-files` mechanism, which
-# packages both files into the wheel's .dist-info/licenses/ and the sdist root.
-# wasm-scheduler/mobile/helm are out of scope here — none of them is a hatchling
-# PyPI build, and nothing has audited whether they need the same treatment.
+# packages both files into the wheel's .dist-info/licenses/ and the sdist root,
+# and the crates.io-publishable wasm-scheduler crate, whose Cargo.toml `include`
+# lists NOTICE so `cargo package` ships it (#4670).
+# mobile/helm are out of scope here — neither is a hatchling PyPI build, and
+# nothing has audited whether they need the same treatment.
 NOTICE_REQUIRED=(
   scheduler
   mcp
   api
+  wasm-scheduler
 )
 
 if [[ "${1:-}" == "--self-test" ]]; then
@@ -169,7 +172,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   d="$st_tmp/bundled"; mkdir -p "$d"; st_fixture "$d"
   st_probe "bundled package with no LICENSE of its own" expect-pass "$d"
 
-  # A DISTRIBUTED package outside NOTICE_REQUIRED (e.g. wasm-scheduler) needs no
+  # A DISTRIBUTED package outside NOTICE_REQUIRED (e.g. mobile, helm) needs no
   # NOTICE of its own — it is not a hatchling PyPI build, and that gap has not
   # been audited (see the NOTICE_REQUIRED comment above).
   d="$st_tmp/distributed-not-notice-required"; mkdir -p "$d"; st_fixture "$d"
@@ -241,4 +244,4 @@ if [[ $fail -ne 0 ]]; then
   exit 1
 fi
 
-echo "package-license check passed (${#DISTRIBUTED[@]} distributed packages carry their own LICENSE, ${#NOTICE_REQUIRED[@]} PyPI packages carry their own NOTICE)"
+echo "package-license check passed (${#DISTRIBUTED[@]} distributed packages carry their own LICENSE, ${#NOTICE_REQUIRED[@]} published packages carry their own NOTICE)"

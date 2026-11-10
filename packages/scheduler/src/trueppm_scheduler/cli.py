@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from trueppm_scheduler.engine import monte_carlo, schedule
+from trueppm_scheduler.engine.montecarlo.run import DEFAULT_RUNS
 from trueppm_scheduler.models import Project
 
 
@@ -179,7 +180,10 @@ def main() -> None:
     p_mc = sub.add_parser("monte-carlo", help="Run Monte Carlo simulation")
     p_mc.add_argument("project", help="Path to project JSON file")
     p_mc.add_argument(
-        "--runs", type=int, default=10_000, help="Number of simulations (default: 10000)"
+        "--runs",
+        type=int,
+        default=DEFAULT_RUNS,
+        help=f"Number of simulations (default: {DEFAULT_RUNS})",
     )
     p_mc.add_argument("--seed", type=int, help="RNG seed for reproducibility")
     p_mc.add_argument("--json", action="store_true", help="Output as JSON")

@@ -360,10 +360,9 @@ class TestChildrenMapGuards:
 
     def test_diamond_lattice_expand_summary_dependencies_is_linear(self) -> None:
         cmap = self._diamond_lattice(16, 1000)
-        tasks = [
-            Task(id="leaf", name="leaf", duration=timedelta(days=1)),
-            Task(id="x", name="x", duration=timedelta(days=1)),
-        ]
+        # Every id the map names must be a task (unknown children are refused, #4100).
+        ids = {"leaf", "x"} | set(cmap) | {c for kids in cmap.values() for c in kids}
+        tasks = [Task(id=i, name=i, duration=timedelta(days=1)) for i in sorted(ids)]
         deps = [Dependency(predecessor_id="j0", successor_id="x")]
         t0 = time.perf_counter()
         result = expand_summary_dependencies(tasks, deps, cmap)

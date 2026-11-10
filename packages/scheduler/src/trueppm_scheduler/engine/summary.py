@@ -114,6 +114,27 @@ def _check_children_map(children_map: dict[str, list[str]]) -> None:
                 )
 
 
+def _check_children_exist(tasks: list[Task], children_map: dict[str, list[str]]) -> None:
+    """Reject a ``children_map`` child id that names no task (#4100).
+
+    Without this an unknown child ``Z`` expands to an edge ``Z -> X`` that
+    ``schedule()`` later refuses as "Dependency references unknown task", naming an
+    edge the caller never wrote. Skipped when ``tasks`` is empty: callers such as
+    the API's structure-only graph guard expand edges against a ``children_map``
+    alone, with no task list to check against.
+    """
+    if not tasks:
+        return
+    known = {t.id for t in tasks}
+    for sid, kids in children_map.items():
+        for child_id in kids:
+            if child_id not in known:
+                raise InvalidScheduleInput(
+                    f"children_map[{_short_repr(sid)}] lists child {_short_repr(child_id)}, "
+                    "which is not a task id."
+                )
+
+
 def _collect_leaves(
     task_id: str,
     children_map: dict[str, list[str]],
@@ -211,15 +232,32 @@ def expand_summary_dependencies(
         summaries removed and whose ``dependencies`` are expanded to leaf-level
         edges. Unpacks as ``leaf_tasks, expanded_deps`` for backward compatibility.
 
+    A task listed under more than one parent (a diamond ``children_map``) is
+    deliberately accepted: its leaves are expanded once and it is not a cycle. The
+    API builds its map from ``wbs_path`` and so never produces one; the library
+    does not enforce a strict tree.
+
     Raises:
-        InvalidScheduleInput: If ``children_map`` is malformed — not a dict, a
-            summary id (key) or child id that is not a string (``None`` and
-            other non-string ids are refused, #4522), a value that is not a
-            list, or a summary with an empty children list. Also raised for a
-            Start-to-Start or Start-to-Finish link from a summary task (ADR-0370),
-            checked before the shared-leaf rule below, so an SS/SF link from a
-            summary to its own descendant raises this rather than
-            ``CyclicDependencyError``.
+        InvalidScheduleInput: Raised for each of these causes:
+
+            * ``children_map`` is not a dict, or a summary id (key) or child id
+              is not a string (``None`` and other non-string ids are refused,
+              #4522).
+            * A ``children_map`` value is not a list.
+            * A summary has an empty children list.
+            * A child id in ``children_map`` names no task in ``tasks`` (checked
+              when ``tasks`` is non-empty; the error names the ``children_map``
+              entry, not a synthesized edge).
+            * ``children_map`` contains a parent-child cycle (including a task
+              listed as its own child).
+            * A Start-to-Start or Start-to-Finish link from a summary task
+              (ADR-0370), checked before the shared-leaf rule below, so an SS/SF
+              link from a summary to its own descendant raises this rather than
+              ``CyclicDependencyError``.
+            * Two links that expand onto the same leaf pair carry different
+              dependency types (#4434).
+            * The leaf cross product would exceed ``MAX_EXPANDED_EDGES``
+              (checked per endpoint and across the whole expansion).
         CyclicDependencyError: If a link's endpoints share a leaf (see above).
             ``cycle`` names the *source* link, not the leaves it expands to:
             ``[pred, succ, pred]``, or ``[pred, pred]`` when both endpoints are
@@ -228,6 +266,7 @@ def expand_summary_dependencies(
     if not children_map:
         return SummaryExpansion(tasks=tasks, dependencies=deps)
     _check_children_map(children_map)
+    _check_children_exist(tasks, children_map)
 
     summary_ids = set(children_map.keys())
     leaf_tasks = [t for t in tasks if t.id not in summary_ids]

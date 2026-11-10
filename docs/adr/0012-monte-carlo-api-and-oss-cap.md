@@ -49,6 +49,11 @@ def monte_carlo(
 The default for `runs` is changed from 10 000 to 1 000 to match the OSS default;
 callers that want more pass a higher `runs` value (which the cap then validates).
 
+> **Superseded in part by #4670 (2026-11-09):** the library `runs` default is now
+> 10,000 again, matching the CLI `--runs` default and the published docs. The OSS
+> cap (`max_runs=1_000`) is unchanged; a caller that wants the 1,000-run behavior
+> passes `runs=1_000`.
+
 Cap validation runs before any numpy allocation:
 ```python
 if max_tasks is not None and len(project.tasks) > max_tasks:
@@ -145,6 +150,8 @@ default request timeout is 30 s. If larger projects cause regression, add
 - **Risk:** Changing the default `runs` is a breaking change for any direct caller
   of `monte_carlo()` who relied on the 10 000 default. Since the scheduler has no
   external callers yet (not released on PyPI), this is acceptable.
+  *Superseded in part by #4670 (2026-11-09): the default is 10 000 again; see the
+  note under the signature above.*
 
 ## Amendment (#1341): library default decoupled from the cap
 
