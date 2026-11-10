@@ -39,8 +39,8 @@ Schema is the contract:
   still loads. v2 is an additive superset.
 
 `validate_seed()` checks a document against the schema for its major version and
-then runs a referential-integrity pass (no dangling slug or task references)
-that JSON Schema cannot express. Every error is anchored to a JSON path.
+then runs a referential-integrity pass (no dangling slug or task references, no
+self-referencing dependency, no dependency cycle) that JSON Schema cannot express. Every error is anchored to a JSON path.
 
 ### External references, blockers, and risk narrative
 

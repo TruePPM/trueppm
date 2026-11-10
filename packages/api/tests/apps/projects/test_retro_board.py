@@ -465,3 +465,20 @@ def test_pulse_upsert_does_not_broadcast(
             f"/api/v1/sprints/{s.pk}/pulse/", {"mood": 3, "energy": 3}, format="json"
         )
     assert calls == []
+
+
+def test_move_plus_bad_text_type_is_400_and_does_not_move(project: Project, member: Any) -> None:
+    """A refused text must not leave the column move committed (#2796)."""
+    item = RetroBoardItem.objects.create(
+        retro=SprintRetro.objects.create(sprint=_sprint(project), created_by=member),
+        column="went_well",
+        text="orig",
+        author=member,
+        position=1.0,
+    )
+    r = _client(member).patch(
+        f"/api/v1/retro-items/{item.pk}/", {"column": "to_improve", "text": 123}, format="json"
+    )
+    assert r.status_code == 400
+    item.refresh_from_db()
+    assert item.column == "went_well" and item.text == "orig"

@@ -665,3 +665,46 @@ def test_member_creator_can_patch_and_delete(member_client, project, member_save
     assert resp.status_code == 200
     resp = member_client.delete(_url(project.pk, member_saved_view.pk))
     assert resp.status_code == 204
+
+
+# --- facet list bounds (#2395) ----------------------------------------------
+
+_FACET_TOKEN = {
+    "filter_assignees": "r1",
+    "filter_labels": "l1",
+    "filter_priority": "high",
+    "filter_due": "overdue",
+}
+
+
+@pytest.mark.parametrize("key", sorted(_FACET_TOKEN))
+def test_facet_list_at_the_entry_cap_is_accepted(pm_client, project, key):
+    config = {**VALID_CONFIG, key: [_FACET_TOKEN[key]] * 200}
+    resp = pm_client.post(_url(project.pk), {"name": f"cap {key}", "config": config}, format="json")
+    assert resp.status_code == 201, resp.json()
+
+
+@pytest.mark.parametrize("key", sorted(_FACET_TOKEN))
+def test_facet_list_over_the_entry_cap_is_400_not_truncated(pm_client, project, key):
+    config = {**VALID_CONFIG, key: [_FACET_TOKEN[key]] * 201}
+    resp = pm_client.post(
+        _url(project.pk), {"name": f"over {key}", "config": config}, format="json"
+    )
+    assert resp.status_code == 400
+    assert not BoardSavedView.objects.filter(project=project, name=f"over {key}").exists()
+
+
+@pytest.mark.parametrize("key", ["filter_assignees", "filter_labels"])
+def test_facet_entry_length_cap(pm_client, project, key):
+    ok = pm_client.post(
+        _url(project.pk),
+        {"name": f"len ok {key}", "config": {**VALID_CONFIG, key: ["x" * 128]}},
+        format="json",
+    )
+    assert ok.status_code == 201, ok.json()
+    over = pm_client.post(
+        _url(project.pk),
+        {"name": f"len over {key}", "config": {**VALID_CONFIG, key: ["x" * 129]}},
+        format="json",
+    )
+    assert over.status_code == 400

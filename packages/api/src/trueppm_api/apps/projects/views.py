@@ -6495,6 +6495,15 @@ class TaskViewSet(
         # Team Member+ (Viewer must not reorder), consistent with create/queue-reorder.
         if self.action == "reorder":
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+        # Suggested-assignee responses (#4015): routed straight in urls.py rather than
+        # via @action, so they match no other branch. The floor is any member — the
+        # *real* gate (the suggested user, or the originator / Admin+ for revoke) is
+        # in each method body — and it is named here so it shows in the permission
+        # audit. The flat route has no ``project_pk``, so ``has_permission`` is a
+        # no-op for these classes; each method therefore calls
+        # ``check_object_permissions`` on the task to make the declaration live.
+        if self.action in ("accept_suggestion", "decline_suggestion", "revoke_suggestion"):
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     serializer_class = TaskSerializer
@@ -7640,6 +7649,7 @@ class TaskViewSet(
                 {"detail": _MEMBER_REQUIRED_DETAIL},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        self.check_object_permissions(request, suggestion.task)
         caller = cast(_User, request.user)
         if suggestion.suggested_user_id != caller.pk:
             return Response(
@@ -7770,6 +7780,7 @@ class TaskViewSet(
                 {"detail": _MEMBER_REQUIRED_DETAIL},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        self.check_object_permissions(request, suggestion.task)
         caller = cast(_User, request.user)
         if suggestion.suggested_user_id != caller.pk:
             return Response(
@@ -7873,6 +7884,7 @@ class TaskViewSet(
                 {"detail": _MEMBER_REQUIRED_DETAIL},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        self.check_object_permissions(request, suggestion.task)
         is_originator = suggestion.suggested_by_id == caller.pk
         if not is_originator and caller_role < Role.ADMIN:
             return Response(
@@ -8205,12 +8217,16 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
     def partial_update(self, request: Request, pk: str | None = None) -> Response:
         """Edit text/color and/or move (column + fractional position); LWW (ADR-0117 §3)."""
         from trueppm_api.apps.projects.retro_board_services import (
+            _require_strings,
             move_board_item,
             update_board_item,
         )
 
         item = self.get_object()  # runs object-level IsProjectMemberWrite
         data = object_body(request)
+        # Type-check every field before either service runs: move_board_item commits
+        # on its own, so a later text/color refusal would leave a half-applied edit.
+        _require_strings(column=data.get("column"), text=data.get("text"), color=data.get("color"))
         if "column" in data or "position" in data:
             try:
                 position = float(data.get("position", item.position))
@@ -12727,6 +12743,8 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
 
     body = object_body(request)
     notes = body.get("notes", "")
+    if not isinstance(notes, str):
+        return Response({"notes": "Must be a string."}, status=status.HTTP_400_BAD_REQUEST)
     raw_items = body.get("action_items", []) or []
     if not isinstance(raw_items, list) or not all(isinstance(e, dict) for e in raw_items):
         return Response(
@@ -21713,7 +21731,9 @@ class CommentReactionViewSet(
         # ProjectMembership.objects.exists() is a redundant round-trip (same
         # anti-pattern fixed for TaskAttachmentViewSet in #821).
         return CommentReaction.objects.filter(
-            comment_id=comment_pk, comment__task__project_id=project_pk
+            comment_id=comment_pk,
+            comment__task_id=self.kwargs["task_pk"],
+            comment__task__project_id=project_pk,
         ).select_related("user")
 
     def perform_create(self, serializer: BaseSerializer[CommentReaction]) -> None:
@@ -21723,7 +21743,11 @@ class CommentReactionViewSet(
         comment_pk = self.kwargs["comment_pk"]
         task_pk = self.kwargs["task_pk"]
         comment = get_object_or_404(
-            TaskComment, pk=comment_pk, task__project_id=project_pk, is_deleted=False
+            TaskComment,
+            pk=comment_pk,
+            task_id=task_pk,
+            task__project_id=project_pk,
+            is_deleted=False,
         )
         self.check_object_permissions(self.request, comment)
         # IsAuthenticated already gates this viewset; the guard narrows the type
