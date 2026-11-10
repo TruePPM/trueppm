@@ -167,9 +167,7 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "exceptions",
         "hours_per_day",
         "timezone",
-        "_exc_index",
-        "_exc_src",
-        "_exc_mask",
+        "_exc_cache",
     ],
     "CycleCheck": ["cycle"],
     "DateRange": ["start", "end"],
@@ -281,10 +279,9 @@ class TestDataclassFieldOrderContract:
     Reordering or removing a field is a major-version change and needs a
     ``### Changed`` entry in ``packages/scheduler/CHANGELOG.md``.
 
-    Private, ``init=False`` bookkeeping fields (``Calendar._exc_index`` /
-    ``_exc_src`` / ``_exc_mask``) are pinned too — they consume no positional slot,
-    but pinning
-    the full ``dataclasses.fields()`` order keeps this a single, unambiguous
+    Private, ``init=False`` bookkeeping fields (``Calendar._exc_cache``) are pinned
+    too — they consume no positional slot, but pinning the full
+    ``dataclasses.fields()`` order keeps this a single, unambiguous
     statement of what the class declares.
     """
 

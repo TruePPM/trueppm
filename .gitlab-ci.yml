@@ -451,7 +451,7 @@ workflow:
 
 .web:
   # node:22 — react-router 8 requires Node >=22.22 (dropped Node 20 support, #2362).
-  image: node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+  image: node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202
   # Cache npm's content cache (NPM_CONFIG_CACHE), not node_modules: `npm ci`
   # deletes node_modules and reinstalls every run, so a node_modules cache buys
   # nothing — but a warm content cache lets `npm ci --prefer-offline` rebuild it
@@ -517,7 +517,7 @@ workflow:
 
 .website:
   # node:22 — Astro 7 requires Node >=22.12 (dropped Node 20 support).
-  image: node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+  image: node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202
   cache:
     key:
       files:
@@ -707,7 +707,7 @@ scripts:test:
   # Note: this image runs bash 5, so it cannot catch a bash-3.2 regression on the
   # macOS release machine; assemble-changelog.test.sh guards that statically.
   stage: lint
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   before_script:
     # wt-reserve.test.sh needs a real git binary (it stages sandbox repos);
     # osv-severity-gate.test.sh and scorecard-report.test.sh need jq (they classify JSON with it).
@@ -1026,6 +1026,24 @@ lint:todo-grep:
   script:
     - bash scripts/check-todo-grep.sh
     - bash scripts/check-todo-grep.sh --self-test
+
+lint:claude-md-stale-issues:
+  extends: .fast-job
+  # A CLAUDE.md sentence that cites a CLOSED issue and asserts a live defect (open,
+  # today, currently, "still unbound", "checks nothing", ...) fails (#4404): CLAUDE.md is read every turn, so a stale "this is an open
+  # hole" is believed on every turn. Same unauthenticated, batched, retrying
+  # tracker read as lint:todo-grep (scripts/lib/gitlab-issues.sh, #4452); fails
+  # closed on an unresolvable lookup. ISSUES_API_TOKEN is the shared fallback.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash curl jq grep sed gawk
+  script:
+    - bash scripts/check-claude-md-stale-issues.sh --self-test
+    - bash scripts/check-claude-md-stale-issues.sh
 
 lint:mr-followups:
   extends: .fast-job
@@ -2524,6 +2542,23 @@ web:playwright-pins:
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
 
+lint:image-digest-parity:
+  extends: .fast-job
+  # One digest per name:tag across .gitlab-ci.yml, the CI-image Dockerfiles and the
+  # shipped Dockerfiles (#4623). Renovate bumped packages/web/Dockerfile's node
+  # digest but not the CI `image:` pins, so CI tested on a different base layer
+  # than the one that ships. Static grep: no install, no network.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash git grep findutils python3
+  script:
+    - bash scripts/check-image-digest-parity.sh --self-test
+    - bash scripts/check-image-digest-parity.sh
+
 lint:api-scheduler-lock:
   extends: .fast-job
   # packages/api/uv.lock must not pin trueppm-scheduler to an older release line
@@ -2819,7 +2854,7 @@ helm:metric-names:
   # chart-only MR OR by an api-only rename, and a change-gated job would miss one
   # direction. Stdlib Python over two chart files; well under a second.
   stage: lint
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -2948,7 +2983,7 @@ scripts:sigpipe-readers:
 api:lint:
   extends: .fast-job
   stage: lint
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   # Deliberately no pip cache. This job runs as root on a stock image, while the
   # `api-pip` archive is written by the ci-api jobs as uid 1000; when euid is 0
   # pip's check_path_owner() uses the cache only if the directory is owned by
@@ -3569,7 +3604,7 @@ mcp:lint:
   # prebaked CI image — mirror api:lint's plain-python-slim + pip-install-ruff
   # shape rather than the scheduler's custom-image pattern.
   stage: lint
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   <<: *rules-mcp
   before_script:
     - !reference [.pip-floor, before_script]
@@ -3915,7 +3950,7 @@ api:uv-lock-check:
   # committed lock's revision stays stable across CI runs and Renovate's
   # lockFileMaintenance owns the routine refreshes.
   stage: analyze
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -3949,7 +3984,7 @@ api:wheel-install-probe:
   # all three legs resolve the published line; the new scheduler is not on PyPI yet.
   # The probe self-tests first: a clean tree never runs its detection path.
   stage: analyze
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs: []
   parallel:
     matrix:
@@ -4103,7 +4138,7 @@ scheduler:uv-lock-check:
   # the routine refreshes. Mirrors api:uv-lock-check; kept as its own job so a
   # scheduler-only change does not pull in the api manifests and vice versa.
   stage: analyze
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -4130,7 +4165,7 @@ scheduler:sdist-check:
   # --self-test runs first, in this job, so a gate that stopped being able to fail
   # is itself caught.
   stage: analyze
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -4159,7 +4194,7 @@ mcp:uv-lock-check:
   # lock's revision stays stable across CI runs and Renovate's
   # lockFileMaintenance owns the routine refreshes.
   stage: analyze
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -4260,7 +4295,7 @@ security:bandit:scheduler:
   # -ll = medium severity and above.
   stage: analyze
   needs: [scheduler:lint]
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   <<: *rules-scheduler
   before_script:
     - !reference [.pip-floor, before_script]
@@ -4276,7 +4311,7 @@ security:bandit:api:
   # a web-only branch no longer triggers a full Python security scan.
   stage: analyze
   needs: [api:lint]
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   <<: *rules-api
   before_script:
     - !reference [.pip-floor, before_script]
@@ -6985,7 +7020,7 @@ license:check:web:
   # already use needs:[]).
   needs: []
   # node:22 — react-router 8 requires Node >=22.22 (#2362).
-  image: node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+  image: node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202
   cache:
     <<: *web-cache
     policy: pull
@@ -7044,7 +7079,7 @@ license:check:website:
   # private and its declared license should be checked like any other.)
   stage: security
   needs: []
-  image: node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+  image: node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202
   cache:
     key:
       files:
@@ -7115,7 +7150,7 @@ license:check:mcp:
   # modes honest — if this job goes red, it is about licenses.
   stage: security
   needs: []
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -7240,7 +7275,7 @@ scheduler:build:
   # mint a PyPI token or a Sigstore identity. scheduler:publish below is the
   # only job that does, and it runs only the hash-pinned upload tools.
   stage: publish
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs:
     - job: tag:wait-for-main
   rules:
@@ -7384,7 +7419,7 @@ scheduler:publish:
   # (twine, pypi-attestations): no build backend and no SBOM tooling are
   # installed here. dist/ arrives from scheduler:build via needs:. Closes #37.
   stage: publish
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs:
     - job: tag:wait-for-main
     - job: scheduler:build
@@ -7470,7 +7505,7 @@ mcp:build:
   # rationale. Holds NO id_tokens. Produces dist/ + SBOM + the dotenv report
   # mcp:release reads. Modeled on scheduler:build.
   stage: publish
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs:
     - job: tag:wait-for-main
   rules:
@@ -7610,7 +7645,7 @@ mcp:publish:
   # trueppm-mcp" — while nothing in the publish stage built it and the name
   # 404'd on pypi.org. Those comments are true as of this job.
   stage: publish
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs:
     - job: tag:wait-for-main
     - job: mcp:build
@@ -9012,7 +9047,7 @@ ci:pypi-build-dry-run:
   # metadata, never archive contents, so it stayed green through this the whole
   # time — this is the check no other job in this pipeline performs.
   stage: publish
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
@@ -9076,7 +9111,7 @@ ci:pypi-mint-probe:
   # claims PyPI matches against are derived from them, so a probe that differs
   # from the real job proves nothing about the real job.
   stage: publish
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   rules:
     - if: '$PYPI_PROBE == "1"'
   needs: []
@@ -9185,7 +9220,7 @@ api:build:pypi:
   # Build half of the trueppm-api PyPI release (#4717); see scheduler:build for
   # the rationale. Holds NO id_tokens. Distinct from api:publish (Docker image).
   stage: publish
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   <<: *rules-release-tag
   needs:
     - job: tag:wait-for-main
@@ -9237,7 +9272,7 @@ api:publish:pypi:
   # environment in lockstep with this one, or the probe stops proving anything
   # about this job.
   stage: publish
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   <<: *rules-release-tag
   needs:
     - job: tag:wait-for-main

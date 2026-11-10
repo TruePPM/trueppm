@@ -423,7 +423,7 @@ convention. The same list, with the comparison spelled out, is on
 
 **Float and output**
 
-- `is_critical` is exactly `total_float == 0`; total float is the working days from early to late start.
+- `is_critical` is `total_float == 0` on live work; completed work has total float 0 and is never critical, so filter on `is_critical` (or `critical_path`), not on `total_float == 0` alone. Total float is the working days from early to late start.
 - `free_float` inverts the forward constraint across **all four** link types, capped at total float; no live successor → total float. ([#1828](https://gitlab.com/trueppm/trueppm/-/issues/1828))
 - The order of `ScheduleResult.tasks` is **unspecified** — look tasks up by `id`. ([#1862](https://gitlab.com/trueppm/trueppm/-/issues/1862))
 - `project_finish` and a milestone's `early_finish` are the **day the finish is shown on**, and `milestone_at_day_end` says which edge of it. The end of a Friday and the start of the next Monday are the same point in working time, so the shown day can hop a weekend or holiday with no working-time move. **Compute slip in working time**, reading a start-of-day milestone finish as the end of the working day before it — never as a calendar-day difference of two finishes. ([#4178](https://gitlab.com/trueppm/trueppm/-/issues/4178))
@@ -561,6 +561,19 @@ caller is untrusted (and a smaller `max_index_cells` if it supplies a `calendars
 timeout — a worker/queue, not inline in the view — the same pattern the
 TruePPM API itself uses
 ([#4010](https://gitlab.com/trueppm/trueppm/-/issues/4010)).
+
+**Concurrency.** `schedule()` and `monte_carlo()` are pure with respect to the
+`Project` you pass (they do not mutate it) and keep no module-level mutable state,
+so concurrent calls on one process are safe. A `Calendar` is a mutable object with
+a lazily built internal index and is **not synchronized**: sharing one across
+threads that only read it is fine, but mutating it (reassigning `working_days` or
+`exceptions`) while another thread schedules against it is unsupported. Build a new
+`Calendar` per change.
+
+**`monte_carlo()` default run count.** `monte_carlo(project)` runs **10,000**
+simulations unless you pass `runs=`, and the `trueppm-scheduler monte-carlo`
+command's `--runs` defaults to the same 10,000. (Before this default was unified the
+library default was 1,000; pass `runs=1_000` to keep the old behavior.)
 
 A long calendar exception does not cost more as the dependency graph grows:
 calendar-day lookups are index-backed (a cached, bisected merged-interval

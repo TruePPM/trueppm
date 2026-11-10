@@ -13,6 +13,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Program,
     Project,
     Sprint,
     SprintState,
@@ -20,6 +21,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
 )
 from trueppm_api.apps.scheduling.serializers import ScheduleDrivingChainSerializer
+from trueppm_api.apps.workspace.models import Workspace
 
 User = get_user_model()
 
@@ -243,8 +245,175 @@ class TestDrivingChain:
         assert data["computable"] is True
         edge = next(e for e in data["edges"] if e["successor_id"] == str(after.pk))
         assert edge["predecessor_id"] == str(leaf.pk)
-        assert edge["via_summary"] == [str(phase.pk)]
-        assert edge["lag_days"] == 1
+        assert edge["via_summary"] == [{"task_id": str(phase.pk), "name": "Phase"}]
+        # Lag is calendar days; float is working days. The unit travels with the value.
+        assert edge["lag"] == {"value": 1, "unit": "calendar_days"}
+
+    def test_durations_carry_units_and_payload_is_versioned(
+        self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        data = viewer_client.get(url(project.pk), {"task_id": str(chain["B"].pk)}).json()
+        assert data["schema_version"] == 1
+        assert data["near_critical_threshold"] == {"value": 10, "unit": "working_days"}
+        assert data["calendar_id"] == str(project.calendar_id)
+        for n in data["nodes"]:
+            assert n["total_float"] == {"value": 0, "unit": "working_days"}
+            assert n["band"] == "critical"
+        assert all(e["lag"]["unit"] == "calendar_days" for e in data["edges"])
+        # No bare-number duration fields survive.
+        assert not (_walk_keys(data) & {"total_float_days", "lag_days"})
+
+    def test_total_links_exceeds_edges_exactly_when_truncated(
+        self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        whole = viewer_client.get(url(project.pk), {"task_id": str(chain["B"].pk)}).json()
+        assert whole["truncated"] is False
+        assert whole["total_links"] == len(whole["edges"]) == 3
+        cut = viewer_client.get(
+            url(project.pk), {"task_id": str(chain["A"].pk), "depth": "1"}
+        ).json()
+        assert cut["truncated"] is True
+        assert len(cut["edges"]) == 1
+        assert cut["total_links"] == 3
+
+    def test_band_follows_the_effective_threshold(
+        self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        # A→E→D: E has slack because B→C is the longer path into D.
+        e = Task.objects.create(project=project, name="E", duration=1)
+        Dependency.objects.create(predecessor=chain["A"], successor=e, dep_type="FS", lag=0)
+        Dependency.objects.create(predecessor=e, successor=chain["D"], dep_type="FS", lag=0)
+
+        def band_of_e() -> tuple[dict[str, object], dict[str, object]]:
+            data = viewer_client.get(url(project.pk), {"task_id": str(e.pk)}).json()
+            return next(n for n in data["nodes"] if n["name"] == "E"), data
+
+        node, data = band_of_e()
+        float_wd = node["total_float"]["value"]
+        assert float_wd >= 2, "fixture must give E real slack"
+        # Default workspace threshold (10) comfortably covers it.
+        assert data["near_critical_threshold"]["value"] == 10
+        assert node["band"] == "near_critical"
+        # The threshold itself is inside the band; one below it is not.
+        Project.objects.filter(pk=project.pk).update(near_critical_threshold_days=float_wd)
+        node, data = band_of_e()
+        assert data["near_critical_threshold"]["value"] == float_wd
+        assert node["band"] == "near_critical"
+        Project.objects.filter(pk=project.pk).update(near_critical_threshold_days=float_wd - 1)
+        node, _ = band_of_e()
+        assert node["band"] == "ample"
+
+    def test_band_follows_a_program_override_over_the_workspace_default(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        # The endpoint must use the RESOLVED threshold: program override beats the
+        # workspace default when the project's own value is NULL.
+        e = Task.objects.create(project=project, name="E", duration=1)
+        Dependency.objects.create(predecessor=chain["A"], successor=e, dep_type="FS", lag=0)
+        Dependency.objects.create(predecessor=e, successor=chain["D"], dep_type="FS", lag=0)
+        program = Program.objects.create(name="Prog")
+        Project.objects.filter(pk=project.pk).update(program=program)
+        client = _client(user, project, Role.VIEWER)
+
+        def band_of_e() -> tuple[dict[str, object], dict[str, object]]:
+            data = client.get(url(project.pk), {"task_id": str(e.pk)}).json()
+            return next(n for n in data["nodes"] if n["name"] == "E"), data
+
+        node, data = band_of_e()
+        float_wd = node["total_float"]["value"]
+        assert float_wd >= 2, "fixture must give E real slack"
+        assert node["band"] == "near_critical"  # workspace default 10 covers it
+        Program.objects.filter(pk=program.pk).update(near_critical_threshold_days=float_wd - 1)
+        node, data = band_of_e()
+        assert data["near_critical_threshold"]["value"] == float_wd - 1
+        assert node["band"] == "ample"
+
+    def test_completed_task_gets_the_complete_band_not_critical(
+        self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        Task.objects.filter(pk=chain["B"].pk).update(
+            status=TaskStatus.COMPLETE, percent_complete=100
+        )
+        # Queried directly as the chain's own (self) node; a finished predecessor of a live
+        # task can also appear upstream with this band, which this test does not pin.
+        data = viewer_client.get(url(project.pk), {"task_id": str(chain["B"].pk)}).json()
+        node = next(n for n in data["nodes"] if n["name"] == "B")
+        assert node["is_critical"] is False
+        assert node["total_float"]["value"] == 0
+        assert node["band"] == "complete"
+
+    def test_calendar_id_is_the_project_calendar_when_it_sets_one(
+        self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        data = viewer_client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] == str(project.calendar_id)
+
+    def test_calendar_id_is_inherited_from_the_program(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        prog_cal = Calendar.objects.create(name="Program cal")
+        program = Program.objects.create(name="Prog", calendar=prog_cal)
+        Project.objects.filter(pk=project.pk).update(program=program, calendar=None)
+        client = _client(user, project, Role.VIEWER)
+        data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] == str(prog_cal.pk)
+
+    def test_calendar_id_is_inherited_from_the_workspace(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        ws_cal = Calendar.objects.create(name="Workspace cal")
+        ws = Workspace.load()
+        ws.calendar = ws_cal
+        ws.save()
+        Project.objects.filter(pk=project.pk).update(calendar=None)
+        client = _client(user, project, Role.VIEWER)
+        data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] == str(ws_cal.pk)
+
+    def test_calendar_id_follows_the_workspace_when_overrides_are_locked(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        """INHERIT locks per-scope calendars: the workspace calendar wins over the project's."""
+        from trueppm_api.apps.workspace.models import TermOverridePolicy
+
+        ws_cal = Calendar.objects.create(name="Workspace cal")
+        ws = Workspace.load()
+        ws.calendar = ws_cal
+        ws.calendar_override_policy = TermOverridePolicy.INHERIT
+        ws.save()
+        assert project.calendar_id is not None
+        client = _client(user, project, Role.VIEWER)
+        data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] == str(ws_cal.pk)
+
+    def test_calendar_id_is_null_when_nothing_resolves(
+        self, user: object, project: Project, chain: dict[str, Task]
+    ) -> None:
+        Project.objects.filter(pk=project.pk).update(calendar=None)
+        client = _client(user, project, Role.VIEWER)
+        data = client.get(url(project.pk), {"task_id": str(chain["A"].pk)}).json()
+        assert data["calendar_id"] is None
+
+    def test_non_driving_predecessors_are_counted_not_drawn(
+        self, viewer_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        e = Task.objects.create(project=project, name="E", duration=1)
+        Dependency.objects.create(predecessor=chain["A"], successor=e, dep_type="FS", lag=0)
+        Dependency.objects.create(predecessor=e, successor=chain["D"], dep_type="FS", lag=0)
+        data = viewer_client.get(url(project.pk), {"task_id": str(chain["D"].pk)}).json()
+        assert "E" not in {n["name"] for n in data["nodes"]}
+        assert data["omitted_non_driving_count"] == 1
+
+    def test_not_computable_response_keeps_the_same_shape(
+        self, viewer_client: APIClient, project: Project
+    ) -> None:
+        backlog = Task.objects.create(
+            project=project, name="B", duration=1, status=TaskStatus.BACKLOG
+        )
+        data = viewer_client.get(url(project.pk), {"task_id": str(backlog.pk)}).json()
+        assert set(data) == set(ScheduleDrivingChainSerializer().fields)
+        assert data["total_links"] == 0
+        assert data["omitted_non_driving_count"] == 0
 
     def test_summary_task_is_not_computable(
         self, viewer_client: APIClient, project: Project

@@ -35,6 +35,7 @@ settings that cascade this way are:
 
 - **Methodology** (ADR-0107) and **iteration terminology** (ADR-0116)
 - **Estimation scale** (ADR-0510)
+- **Near-critical threshold** (ADR-1381) — *ships in 0.5*
 - **Sprint story picker "Ready only" default** (ADR-0758) — *shipped in 0.4*
 - **Public sharing** and **guest access** (ADR-0135) — see [Sharing & Access Inheritance](/administration/sharing-and-access/)
 - **Duration change → percent complete** policy (ADR-0151)
@@ -47,7 +48,7 @@ override them. **Enforce is an Enterprise capability** — in the community edit
 an enforced policy degrades to a suggestion (no lock), so a program can always
 set its own value.
 
-### Access
+### Write access
 
 Reading a program's settings requires membership on the program. **Writing them
 requires the Program Manager role or above** — the program API gates
@@ -91,6 +92,7 @@ here affect every project in the program.
 | Methodology | Planning model new projects created in this program start with. It seeds new projects only — projects already in the program keep their own. See [Methodology presets](/features/methodology-preset/). |
 | Iteration terminology | What the program calls its iteration container (Sprint, Iteration, Cycle…). Inherits the workspace default. |
 | Estimation scale | The estimate scale (story points, hours, T-shirt…) projects inherit. Inherits the workspace default. |
+| Near-critical threshold *(ships in 0.5)* | How many working days of float or less make a task "near-critical" in the driving chain. Defaults to 10 at the workspace; a program can override it and its projects inherit. See [Near-critical threshold](/administration/project-settings/#near-critical-threshold). |
 | Story picker shows Ready stories only, by default *(shipped in 0.4)* | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories for this program's projects. Advisory only — never a commit-time block. Inherits the workspace default. |
 | Allow guests | Whether guests may be added to this program's projects. Inherits the workspace value — see [Sharing & Access](/administration/sharing-and-access/). |
 | Public sharing | Whether read-only view links may be shared. Inherits the workspace value. |
@@ -239,7 +241,7 @@ are both present, and a malformed address explains itself under the row rather
 than failing after a round trip. **Remove** asks for a one-click confirmation
 before it deletes a row.
 
-### Access
+### Who can manage the list
 
 Reading and writing the list both require the **Program Manager** role or
 above — managing who is externally pinged is treated as an administrative

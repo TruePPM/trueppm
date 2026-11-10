@@ -40,6 +40,18 @@ change between releases. Pin an exact version (e.g.
   - **Pickles.** A result pickled by 0.4 still loads; one pickled by 0.5 names
     the new submodule and will not load on 0.4.
 
+- **`monte_carlo()` now defaults to 10,000 runs, up from 1,000
+  ([#4670](https://gitlab.com/trueppm/trueppm/-/issues/4670)).** The library
+  default matches the CLI's `--runs` and the figure the docs quote. A caller that
+  relied on the old default now does ten times the work and sees slightly different
+  percentiles for an unseeded call; pass `runs=1_000` to keep the old behavior.
+  This supersedes the 1,000 default ADR-0012 set to match the OSS cap.
+- **`expand_summary_dependencies` refuses a `children_map` entry that names no task
+  ([#4670](https://gitlab.com/trueppm/trueppm/-/issues/4670)).** A child id absent
+  from `tasks` now raises `InvalidScheduleInput` naming the `children_map` entry,
+  where a sparse task list used to expand silently over a phantom leaf. The check is
+  skipped when `tasks` is empty. A task listed under two parents is still accepted.
+
 ### Fixed
 
 - **`expand_summary_dependencies` now raises `CyclicDependencyError` for a link

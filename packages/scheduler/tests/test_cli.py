@@ -236,3 +236,26 @@ def test_stderr_survives_ascii_codec(tmp_path: Path) -> None:
     assert proc.returncode == 1
     assert b"Traceback" not in proc.stderr
     assert b"error: cannot read" in proc.stderr
+
+
+def test_cli_runs_default_matches_library_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``monte-carlo --runs`` defaults to the library's ``runs`` default (#4670).
+
+    Read from ``inspect.signature`` rather than a literal so the two cannot drift
+    apart unnoticed; the CLI is driven through ``main()`` so the argparse default is
+    what is actually exercised.
+    """
+    import inspect
+
+    from trueppm_scheduler import monte_carlo
+
+    captured: dict[str, object] = {}
+
+    def fake(args: object) -> None:
+        captured["runs"] = args.runs  # type: ignore[attr-defined]
+
+    monkeypatch.setattr("trueppm_scheduler.cli._cmd_monte_carlo", fake)
+    monkeypatch.setattr(sys, "argv", ["trueppm-scheduler", "monte-carlo", "x.json"])
+    main()
+    assert captured["runs"] == inspect.signature(monte_carlo).parameters["runs"].default
+    assert captured["runs"] == 10_000

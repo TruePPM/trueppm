@@ -16,6 +16,7 @@ from django.contrib.auth import get_user_model
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.sync.broadcast import group_name_for_project
 from trueppm_api.apps.sync.sequence import BOARD_EVENT_SEQ_UPGRADE_OFFSET
 from trueppm_api.apps.sync.ws_auth import WsAuthResult
 
@@ -262,7 +263,11 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
     # Must not have closed.
     close_mock.assert_not_called()
     # Must have joined the project group.
-    channel_layer.group_add.assert_called_once_with(f"project_{project.pk}", "test.channel")
+    # Parity with the broadcast helper (#4486): the joined group IS the fanout target.
+    channel_layer.group_add.assert_called_once_with(
+        group_name_for_project(str(project.pk)), "test.channel"
+    )
+    assert consumer.group_name == group_name_for_project(str(project.pk))
 
 
 # ---------------------------------------------------------------------------

@@ -379,6 +379,22 @@ def test_accept_links_existing_user(admin: object) -> None:
 
 
 @pytest.mark.django_db
+def test_accept_refuses_when_email_matches_multiple_accounts(admin: object) -> None:
+    """Colliding emails (case-insensitive) must not grant the role to an arbitrary row (#4533)."""
+    a = User.objects.create_user(username="dup_a", email="Dup@x.io", password="pw")
+    b = User.objects.create_user(username="dup_b", email="dup@X.io", password="pw")
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="dup@x.io", role=WorkspaceRole.ADMIN, invited_by=admin
+    )
+    resp = APIClient().post(ACCEPT_URL, {"token": invite.email_token}, format="json")
+    assert resp.status_code == 400
+    assert "More than one account" in resp.json()["detail"]
+    assert not WorkspaceMembership.objects.filter(user__in=[a, b]).exists()
+    invite.refresh_from_db()
+    assert invite.status == InviteStatus.PENDING
+
+
+@pytest.mark.django_db
 def test_accept_invalid_token_is_generic_400(db: object) -> None:
     resp = APIClient().post(ACCEPT_URL, {"token": "not-a-real-token"}, format="json")
     assert resp.status_code == 400

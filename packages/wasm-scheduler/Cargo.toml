@@ -9,7 +9,7 @@ repository = "https://gitlab.com/trueppm/trueppm"
 # `license = "Apache-2.0"` is only metadata — without this the packaged crate and a
 # crates.io sdist would carry the SPDX id and no license text (#2632). The root
 # LICENSE does not travel with a separately-published crate.
-include = ["src/**/*", "LICENSE", "Cargo.toml"]
+include = ["src/**/*", "LICENSE", "NOTICE", "Cargo.toml"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

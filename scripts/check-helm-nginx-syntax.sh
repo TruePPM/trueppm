@@ -62,7 +62,7 @@ HELM_CHART="packages/helm"
 # Pinned to the exact digest packages/web/Dockerfile's serve stage FROMs, so a
 # syntax pass here means "valid against the nginx this project actually ships,"
 # not just "valid against whatever :alpine resolves to today."
-NGINX_IMAGE="docker.io/nginxinc/nginx-unprivileged:alpine@sha256:b9241c6e7b8e9a862f129d8d4199ab64b10390949a78bdd5603379b32c844083"
+NGINX_IMAGE="docker.io/nginxinc/nginx-unprivileged:alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e"
 
 violations=0
 

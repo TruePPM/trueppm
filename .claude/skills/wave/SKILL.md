@@ -318,11 +318,14 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    only round 1's line. Do not invent a marker that file doesn't define.
 
 **Cost figures, snapshotted when you give the go-ahead.** Run `scripts/cost-ledger enabled`
-in the worktree first (`docs/harness/cost-ledger.md`).
+in the worktree first (`docs/harness/cost-ledger.md`), on its own line with no command before it
+that can fail, and act on the word it **prints** (`on`, `off`, `unreadable`), never on a bare
+`$?`: a failed `cd` earlier in the command leaves 1, which reads as "off" (#4918). No word printed
+means the script did not run; fix the command and ask again.
 
-- **Exit 1 (off):** send the single line `cost-ledger: off` in place of the three cost lines.
-  Do not run `scripts/post-mr-cost.py`, read no transcript, and post no cost comment. **Exit 2
-  (unreadable):** the same, plus the `## Notes` line "cost ledger setting unreadable; nothing
+- **`off` (exit 1):** send the single line `cost-ledger: off` in place of the three cost lines.
+  Do not run `scripts/post-mr-cost.py`, read no transcript, and post no cost comment. **`unreadable`
+  (exit 2):** the same, plus the `## Notes` line "cost ledger setting unreadable; nothing
   recorded". `budget-exceeded:` is not a cost line and is sent either way.
 - **Exit 0 (on):** record the `agentId:` of every agent you spawn or resume for the branch at the
   moment you do (the Agent tool result prints it): the implementer, each `completeness-check`

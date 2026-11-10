@@ -523,3 +523,34 @@ class TestAncestorDescendantLinksAgreeWithFindCycle:
         _, expanded = expand_summary_dependencies(self._tasks(children_map), deps, children_map)
         edges = {(d.predecessor_id, d.successor_id) for d in expanded}
         assert edges == {("a", "b"), ("a", "c"), ("b", "c")}
+
+
+class TestChildrenMapUnknownChild:
+    """An unknown child id is refused naming the children_map entry (#4100)."""
+
+    def test_unknown_child_names_the_children_map_entry(self) -> None:
+        tasks = [task("S"), task("A"), task("X")]
+        deps = [Dependency(predecessor_id="S", successor_id="X")]
+        with pytest.raises(InvalidScheduleInput, match=r"children_map\['S'\].*'Z'.*not a task id"):
+            expand_summary_dependencies(tasks, deps, {"S": ["A", "Z"]})
+
+    def test_known_children_still_expand(self) -> None:
+        tasks = [task("S"), task("A"), task("X")]
+        deps = [Dependency(predecessor_id="S", successor_id="X")]
+        result = expand_summary_dependencies(tasks, deps, {"S": ["A"]})
+        assert [(d.predecessor_id, d.successor_id) for d in result.dependencies] == [("A", "X")]
+
+    def test_structure_only_call_with_no_tasks_is_not_checked(self) -> None:
+        # The API's graph guard expands edges against a children_map alone.
+        deps = [Dependency(predecessor_id="S", successor_id="X")]
+        result = expand_summary_dependencies([], deps, {"S": ["A"]})
+        assert [(d.predecessor_id, d.successor_id) for d in result.dependencies] == [("A", "X")]
+
+    def test_task_under_two_parents_is_accepted_by_design(self) -> None:
+        # Deliberately NOT refused: a diamond children_map is a supported shape
+        # (see TestDiamond / test_robustness), so the library does not enforce a
+        # strict WBS tree.
+        tasks = [task("S1"), task("S2"), task("A"), task("X")]
+        deps = [Dependency(predecessor_id="S1", successor_id="X")]
+        result = expand_summary_dependencies(tasks, deps, {"S1": ["A"], "S2": ["A"]})
+        assert [(d.predecessor_id, d.successor_id) for d in result.dependencies] == [("A", "X")]
