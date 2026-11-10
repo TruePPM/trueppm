@@ -101,7 +101,7 @@ class TeamMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[TeamMember
         Granting a team role is durable authority a revoked token does not take back
         (#3847), the same reason the project/program membership viewsets refuse it.
         """
-        perms = super().get_permissions()
+        perms: list[BasePermission] = [IsAuthenticated(), IsTeamFacetEditor()]
         if self.action in self.token_refused_actions:
             perms.append(IsNotTokenAuthenticated())
         return perms
