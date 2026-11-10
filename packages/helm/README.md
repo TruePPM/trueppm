@@ -137,7 +137,7 @@ The layout is concern first, then tier: a knob that more than one tier has lives
 | `web.enabled` | `true` | Render the nginx-served React SPA tier + `Service`. |
 | `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy; `false` returns `404` instead. |
 | `web.adminAccess.allowCIDRs` | `[]` | Sources allowed to reach `/admin/`. **Empty = deny all** — port-forward to the API Service instead ([Reaching Django admin](https://trueppm.com/administration/security/#reaching-django-admin)). Only binds while `web.enabled` is true. Behind an Ingress it needs `web.realIpFrom`; the chart refuses to render it without. |
-| `web.realIpFrom` | `[]` | Trusted proxy CIDRs (usually the ingress controller's pod CIDR). nginx then recovers the client address from `X-Forwarded-For` and believes `X-Forwarded-Proto` only from these peers (#2592, #2593). |
+| `web.realIpFrom` | `[]` | Trusted proxy CIDRs (usually the ingress controller's pod CIDR). nginx then recovers the client address from `X-Forwarded-For` and believes `X-Forwarded-Proto` only from these peers (#2592, #2593). The chart refuses over-broad entries: minimum prefix is IPv4 /8 and IPv6 /16. |
 | `web.adminAccess.rateLimit.*` | `5r/m`, burst `2` | nginx `limit_req` on the admin login surface (no DRF throttle covers Django admin). |
 | `web.securityHeaders.enabled` | `true` | Send `X-Frame-Options` / `X-Content-Type-Options` / CSP on everything the web tier serves. Django's middleware cannot do this — `index.html` and the JS bundles come off disk from nginx and never reach Django. Set `false` only when a trusted upstream already sets the same headers (nginx cannot deduplicate them). |
 | `web.securityHeaders.frameOptions` | `DENY` | `X-Frame-Options` value. |
