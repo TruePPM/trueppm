@@ -750,8 +750,9 @@ _TOKEN_REFUSED_RESPONSE = {
                     "detail": {
                         "type": "string",
                         "example": (
-                            "API tokens cannot manage credentials or sign-in "
-                            "configuration. Sign in to perform this action."
+                            "API tokens cannot manage credentials, sign-in "
+                            "configuration, memberships or workspace exports. Sign in "
+                            "to perform this action."
                         ),
                     },
                     "refusal": {

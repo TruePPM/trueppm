@@ -133,7 +133,7 @@ def test_username_match_is_case_insensitive(authed_client: APIClient, bob: objec
 def test_matches_email(authed_client: APIClient, alice: object) -> None:
     # The server still *matches* on email so invite-by-email works, but the
     # email value is never returned (#815).
-    res = authed_client.get(_URL, {"q": "alice@example"})
+    res = authed_client.get(_URL, {"q": "alice@example.com"})
     assert res.status_code == 200
     data = res.json()
     assert len(data) == 1
@@ -142,9 +142,23 @@ def test_matches_email(authed_client: APIClient, alice: object) -> None:
 
 
 def test_email_match_is_case_insensitive(authed_client: APIClient, alice: object) -> None:
-    res = authed_client.get(_URL, {"q": "ALICE@EXAMPLE"})
+    res = authed_client.get(_URL, {"q": "ALICE@EXAMPLE.COM"})
     assert res.status_code == 200
     assert len(res.json()) == 1
+
+
+@pytest.mark.parametrize("fragment", ["@example.com", "alice@example", "example.com", "ice@"])
+def test_partial_email_does_not_match(
+    authed_client: APIClient, alice: object, bob: object, fragment: str
+) -> None:
+    """A fragment must not confirm an address exists (#3639, the #892 probe).
+
+    ``bob_dev`` / ``alice`` usernames contain none of these fragments, so any hit here
+    could only have come from a substring match on email.
+    """
+    res = authed_client.get(_URL, {"q": fragment})
+    assert res.status_code == 200
+    assert res.json() == []
 
 
 # ---------------------------------------------------------------------------

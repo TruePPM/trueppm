@@ -32,6 +32,7 @@ from trueppm_api.apps.access.models import (
     project_role_label,
 )
 from trueppm_api.apps.access.permissions import (
+    IsNotTokenAuthenticated,
     IsProgramAdmin,
     IsProgramMember,
     IsProgramNotClosed,
@@ -222,6 +223,11 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         prevents stranding a project), so it must not require Owner.
         """
         perms: list[BasePermission] = [IsAuthenticated(), IsProjectMember()]
+        if self.action in ("create", "partial_update", "update"):
+            # Granting or changing a role is durable authority a revoked token does not
+            # take back (#3847). ``destroy`` stays token-reachable: removing access is
+            # the containment direction, and self-removal must keep working.
+            perms.append(IsNotTokenAuthenticated())
         if self.action in ("create", "partial_update"):
             perms.append(IsProjectOwner())
         if self.action != "destroy":
@@ -1458,6 +1464,9 @@ class UserSearchView(APIView):
       the semantically-correct gate rather than an added restriction today; and
     - a per-user 60/min throttle (``user_search`` scope) bounds bulk scraping.
 
+    Email matches only on the full address (``iexact``); a fragment matches usernames
+    only (#3639).
+
     Returns an empty list when q is fewer than 2 characters.
     """
 
@@ -1472,7 +1481,13 @@ class UserSearchView(APIView):
             return Response([])
         User = get_user_model()
         qs = User.objects.filter(
-            Q(username__icontains=q) | Q(email__icontains=q),
+            # Email is an EXACT (case-insensitive) match, never a substring (#3639): a
+            # partial match narrows the candidate set, so a fragment like "@acme.com"
+            # would confirm that an address exists without the caller ever holding it
+            # (the probe #892 closed on the resource catalog). Pasting a full address
+            # to invite someone still resolves, at every tier, with no per-tier split
+            # that would silently degrade the program invite typeahead.
+            Q(username__icontains=q) | Q(email__iexact=q),
             is_active=True,
         ).order_by("username")[:10]
         return Response(UserSearchResultSerializer(qs, many=True).data)
@@ -1545,6 +1560,9 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         for removing SOMEONE ELSE is re-asserted in the ``destroy`` body.
         """
         perms: list[BasePermission] = [IsAuthenticated(), IsProgramMember()]
+        if self.action in ("create", "partial_update", "update"):
+            # See ProjectMembershipViewSet.get_permissions: grants are session-only (#3847).
+            perms.append(IsNotTokenAuthenticated())
         if self.action != "destroy":
             perms.append(IsProgramNotClosed())
         if self.action == "create":

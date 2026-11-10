@@ -716,6 +716,13 @@ background and TruePPM emails a download link when it is ready; the link expires
 few days. Take an export before either of the destructive actions below. See
 [Data export](/administration/data-export/).
 
+A workspace export, ownership transfer, invite, member role change and group change all
+require a signed-in session: an API token (including an Owner's personal access token)
+is refused with `403`. A leaked token therefore cannot exfiltrate the whole workspace or
+mint access that revoking it would not undo. Automating workspace backups with a token is
+not supported; use the database backup path in [Topology](/administration/topology/) for
+scheduled backups.
+
 The archive leaves out credentials (API tokens, integration credentials, webhook
 secrets, invite tokens) and one piece of task content: the **free-text blocker
 reason**. That text is readable in the app only by the task's assignee or someone

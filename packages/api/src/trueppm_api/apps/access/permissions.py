@@ -2393,17 +2393,22 @@ class IsNotTokenAuthenticated(BasePermission):
     own once the socket was open, unlike every other grant on this list, which a
     later revocation sweep can still reach.
 
-    Several membership routes have the same shape and are **not** covered — workspace
-    invites, member role change, group membership and group→project grants,
+    Since #3847, it also covers the membership family, because a grant minted by a
+    leaked token outlives the token: workspace invites (create, delete, resend), member
+    role change and removal, group membership and group→project grants,
     ``transfer-ownership`` (which hands OWNER away, and is therefore *above* the
-    escalation #3551 closed), and the project/program membership viewsets in
-    ``apps/access/views.py``. **Nothing tracks that set.** #3551's *Related* section
-    defers the filing to the team, so until an issue exists this paragraph is the
-    only record of it. Do not read the list as exhaustive either; ``tests/apps/access/
-    token_write_surface.txt`` is the inventory and this docstring is not a second copy
-    of it. So "revoke the token and you are contained" is true for the credential,
-    sign-in-configuration, share-link, git-automation, and outgoing-webhook surfaces
-    and is not a whole-system property — say the narrower thing in operator docs.
+    escalation #3551 closed), and the create/update actions of the project and program
+    membership viewsets in ``apps/access/views.py``. On the views that also serve
+    reads (invite and group lists, the membership viewsets) only the unsafe methods are
+    refused, so a token can still *read* them. The three workspace export routes
+    (``WorkspaceExportView`` create/list, ``WorkspaceExportDetailView``,
+    ``WorkspaceExportDownloadView``) are refused outright: a completed export is
+    exfiltration that revoking the token cannot undo. A token therefore cannot automate
+    a workspace export; that is a deliberate fail-closed ruling, not an oversight.
+    ``destroy`` on the project/program membership viewsets stays token-reachable —
+    removing access is the containment direction. ``tests/apps/access/
+    token_write_surface.txt`` is the inventory of what remains reachable and this
+    docstring is not a second copy of it.
 
     **The predicate is ``request.auth``, and that is only sound because it runs as a
     permission.** An identity refusal is raised by the *authenticator*, so on that
@@ -2418,8 +2423,8 @@ class IsNotTokenAuthenticated(BasePermission):
     # the message an admin sees when a script tries to configure SSO, and "API tokens
     # cannot manage API tokens" would be a confidently wrong diagnosis there.
     message = (
-        "API tokens cannot manage credentials or sign-in configuration. "
-        "Sign in to perform this action."
+        "API tokens cannot manage credentials, sign-in configuration, memberships or "
+        "workspace exports. Sign in to perform this action."
     )
 
     def has_permission(self, request: Request, view: APIView) -> bool:

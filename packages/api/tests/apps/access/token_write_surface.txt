@@ -49,6 +49,16 @@
 # exactly once, at connect, so a PAT-minted ticket would have no later revocation
 # lever that could reach the open socket, unlike the grants above.
 #
+# Fifteen more left the set in #3847: the membership family. A workspace invite
+# (create/delete/resend/resend-all), member role change and removal, group membership
+# and group->project grants, `transfer-ownership`, the create path of the project and
+# program membership viewsets, and the workspace export trio all mint authority (or
+# exfiltrate data) that revoking the leaked token does not undo, so they refuse a token
+# caller. `workspace/export/` left the set; its `<job_id>/` and `/download/` GETs were
+# never in it (safe methods). `projects/.../members/<pk>/` and `programs/.../members/<pk>/`
+# stay listed on purpose: their DELETE (removing access, or self-removal) remains
+# token-reachable; only create/update/partial_update are session-only.
+#
 # None of these routes writes an AgentAction row (#2749). A machine-authored
 # write is attributed to the token's human owner via historicaltask.history_user.
 # That is the gap 0.5 (#2745, #2749) closes — this file is its checklist.
@@ -172,7 +182,6 @@ api/v1/programs/<program_pk>/decisions/<pk>/
 api/v1/programs/<program_pk>/phase-gate-config/
 api/v1/programs/<uuid:program_pk>/external-stakeholders/
 api/v1/programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/
-api/v1/programs/<uuid:program_pk>/members/
 api/v1/programs/<uuid:program_pk>/members/<uuid:pk>/
 api/v1/programs/<uuid:program_pk>/mention-groups/
 api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/
@@ -243,7 +252,6 @@ api/v1/projects/<str:pk>/monte-carlo/
 api/v1/projects/<str:pk>/schedule/
 api/v1/projects/<uuid:pk>/notification-preferences/
 api/v1/projects/<uuid:pk>/sync/
-api/v1/projects/<uuid:project_pk>/members/
 api/v1/projects/<uuid:project_pk>/members/<uuid:pk>/
 api/v1/projects/<uuid:project_pk>/mention-groups/
 api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/
@@ -284,17 +292,4 @@ api/v1/teams/<uuid:team_pk>/members/<uuid:pk>/
 api/v1/workspace/
 api/v1/workspace/email-settings/
 api/v1/workspace/email-settings/send-test/
-api/v1/workspace/export/
-api/v1/workspace/groups/
-api/v1/workspace/groups/<uuid:group_id>/
-api/v1/workspace/groups/<uuid:group_id>/members/
-api/v1/workspace/groups/<uuid:group_id>/members/<int:user_id>/
-api/v1/workspace/groups/<uuid:group_id>/projects/
-api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/
-api/v1/workspace/invites/
-api/v1/workspace/invites/<uuid:invite_id>/
-api/v1/workspace/invites/<uuid:invite_id>/resend/
-api/v1/workspace/invites/resend-all/
 api/v1/workspace/logo/
-api/v1/workspace/members/<int:user_id>/
-api/v1/workspace/transfer-ownership/
