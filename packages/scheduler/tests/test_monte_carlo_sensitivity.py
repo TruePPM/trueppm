@@ -197,6 +197,40 @@ def _chain(n: int) -> Project:
     return _make_project(tasks, deps)
 
 
+def test_closed_milestone_with_split_actuals_ranks_at_its_instant() -> None:
+    """A closed start-of-day milestone ranks at its instant, not its pinned ES (#4601).
+
+    ``M`` is shown at the start of Thursday, its ``actual_finish``; its ES is
+    Monday, its ``actual_start``. ``B`` ends Tuesday at its most likely duration, so
+    only runs where it works past Wednesday, the working-time position of the start
+    of Thursday, move the finish. Ranked at the Monday ES,
+    ``M`` never decided a run and every run's position was ``B``'s, so the index
+    read 1.0. Ranked at the end-of-day EF it read 0.189.
+    """
+    mon = date(2026, 3, 16)
+    project = Project(
+        id="p",
+        name="p",
+        start_date=mon,
+        tasks=[
+            Task(
+                id="M",
+                name="M",
+                duration=timedelta(0),
+                percent_complete=100.0,
+                actual_start=mon,
+                actual_finish=mon + timedelta(days=3),
+            ),
+            _pert("B", 1, 2, 5),
+        ],
+        calendar=Calendar(),
+    )
+    result = monte_carlo(project, runs=2000, seed=7)
+    (entry,) = result.sensitivity
+    assert entry.task_id == "B"
+    assert 0.5 < entry.index < 0.8
+
+
 def test_sensitivity_is_sorted_in_range_and_capped() -> None:
     result = monte_carlo(_chain(30), runs=1500, seed=9, sensitivity_cap=10, max_runs=None)
     indices = [s.index for s in result.sensitivity]

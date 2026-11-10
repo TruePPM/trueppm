@@ -38,6 +38,7 @@ from trueppm_scheduler.engine.milestones import (
 )
 from trueppm_scheduler.engine.montecarlo.forward import (
     _completed_edge_constraints,
+    _index_offset,
     _mc_forward_pass,
     _mc_milestone_floors,
     _mc_progress_state,
@@ -218,6 +219,7 @@ def _mc_percentiles(
     wd_index: Sequence[date],
     finish_floor: date | None,
     floor_at_day_start: bool,
+    completed_end_of_day: date | None = None,
 ) -> list[tuple[date, bool]]:
     """P50/P80/P95 as ``(shown day, at_day_start)`` from per-run finish offsets (#4204).
 
@@ -271,6 +273,14 @@ def _mc_percentiles(
     against the project calendar. A gap reading with no such run below it can still
     be a ruler day no task works (the end of that Friday): it lies between the runs
     either side of it, so it stays inside the distribution's range.
+
+    ``completed_end_of_day`` is the completed floor's date when completed work ends
+    there, so the project cannot finish before the end of that day. A start-of-day
+    reading on that same date is then lifted to its end, whichever source produced
+    it: on mixed calendars a closed milestone at the start of a day can outrank work
+    on a calendar that does not work that day, although the work recorded its finish
+    on it (#4601). The live milestone floor's own same-day tie is not resolved here
+    (#4924); this rule only applies the bound completed work sets.
     """
     n = len(completion_offsets)
     # Every position is keyed by the day it falls in (#4697, :func:`_finish_day_key`).
@@ -302,6 +312,8 @@ def _mc_percentiles(
             if finish_floor is not None and finish_floor > resolved
             else (resolved, at_start)
         )
+        if reading[1] and reading[0] == completed_end_of_day:
+            reading = (reading[0], False)
         # The start of a day precedes its end: order by (date, not at_day_start).
         if out and (reading[0], not reading[1]) < (out[-1][0], not out[-1][1]):
             reading = out[-1]
@@ -703,6 +715,25 @@ def monte_carlo(
     completed_finish_floor = (
         max(ef_date for _es_date, ef_date in completed_dates.values()) if completed_dates else None
     )
+    # A closed milestone is still an instant on the edge of its day it had live
+    # (#4343, #4433, #4525), and schedule() reports that edge. One shown at the start
+    # of its day finishes there in working time, not at the end of it (#4601).
+    completed_start_ids = frozenset(
+        tid for tid, (_day, start_display) in completed_instants.items() if start_display
+    )
+    # The floor is a start-of-day reading only when every completed task reaching it
+    # is such a milestone, shown at the start of that very day: completed work ending
+    # that day ends at the end of it. A milestone at the end of a non-working day is
+    # recorded as the start of the next day's midnight (#4641) while its shown day
+    # stays the recorded one, so its instant's display flag alone does not say it:
+    # that instant lies AFTER its shown day. One at the start of a non-working day
+    # lies before it and is shown at the start of the next working day, which is the
+    # same working-time instant, so it still reads the start of its shown day.
+    completed_floor_at_day_start = completed_finish_floor is not None and all(
+        tid in completed_start_ids and completed_instants[tid][0] <= ef_date
+        for tid, (_es_date, ef_date) in completed_dates.items()
+        if ef_date == completed_finish_floor
+    )
 
     verbatim_actuals = _mc_verbatim_actuals(
         project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal, sf_linked_ids
@@ -736,19 +767,38 @@ def monte_carlo(
     # A zero-base column is that instant in the runs that placed it (#4698).
     wt_mat = ef_mat
     milestone_cols = [task_idx[tid] for tid in milestone_ids]
-    has_instants = bool(milestone_cols or instant_runs)
+    # A closed start-of-day milestone sits at its instant, the start of its shown day
+    # (#4601). Read off the instant, not the pinned ES: with split actuals the ES is
+    # ``actual_start`` while the instant is ``actual_finish`` (#4458), and ranking it
+    # at the ES skewed the sensitivity tornado. Run-invariant, so one offset each.
+    closed_positions = {
+        task_idx[tid]: _index_offset(
+            completed_instants[tid][0],
+            offset_of_by_cal[cal_key_of[tid]],
+            wd_index_by_cal[cal_key_of[tid]],
+        )
+        for tid in completed_start_ids
+    }
+    has_instants = bool(milestone_cols or instant_runs or closed_positions)
     if has_instants:
         wt_mat = ef_mat.copy()
         wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
+        for col, position in closed_positions.items():
+            wt_mat[:, col] = position
         for tid, is_instant in instant_runs.items():
             col = task_idx[tid]
             wt_mat[is_instant, col] = es_mat[is_instant, col]
     # The floor wins over the index only when it is later; it is a start-of-day
-    # reading exactly when it comes from a milestone shown at the start of its
-    # non-working actual day and no completed work finishes that day or later.
-    floor_at_day_start = milestone_finish_floor is not None and (
+    # reading exactly when every source reaching it is a milestone shown at the start
+    # of its day: a live one on its non-working actual day, or a closed one (#4601).
+    # Completed work finishing that day reads it as the end of the day.
+    live_floor_wins = milestone_finish_floor is not None and (
         completed_finish_floor is None or milestone_finish_floor > completed_finish_floor
     )
+    floor_at_day_start = live_floor_wins or completed_floor_at_day_start
+    # Completed work ending on the completed floor's day bounds the finish below by
+    # the END of that day, which a same-day start-of-day index reading must not beat.
+    completed_end_of_day = completed_finish_floor if not completed_floor_at_day_start else None
     if milestone_finish_floor is not None:
         # A live milestone shown on its non-working actual day is a finish date the
         # working-day index cannot hold; floor at it as at completed work (#4175).
@@ -788,7 +838,12 @@ def monte_carlo(
         _offset_to_date(o, wd_index, completed_finish_floor) for o in shown_offsets.tolist()
     )
     percentiles = _mc_percentiles(
-        completion_offsets, shown_offsets, wd_index, completed_finish_floor, floor_at_day_start
+        completion_offsets,
+        shown_offsets,
+        wd_index,
+        completed_finish_floor,
+        floor_at_day_start,
+        completed_end_of_day,
     )
     (p50, p50_start), (p80, p80_start), (p95, p95_start) = percentiles
 

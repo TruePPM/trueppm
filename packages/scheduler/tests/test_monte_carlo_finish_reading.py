@@ -17,8 +17,10 @@ import networkx as nx
 import numpy as np
 import pytest
 from hypothesis import example, given
+from hypothesis import strategies as st
 
-from tests.test_contract_fuzz import _plausible_projects
+from tests.test_contract_fuzz import _PLAUSIBLE_ANCHOR as _ANCHOR
+from tests.test_contract_fuzz import _PLAUSIBLE_TASK_CALENDARS, _plausible_projects
 from trueppm_scheduler import (
     Calendar,
     Dependency,
@@ -109,6 +111,291 @@ def test_work_ending_on_the_shown_day_makes_it_the_end_of_that_day() -> None:
     mc = monte_carlo(_project(1, extra=[b]), runs=10, seed=1)
     assert mc.p80 == date(2026, 8, 10)
     assert mc.p80_at_day_start is False
+
+
+# ---------------------------------------------------------------------------
+# A closed milestone keeps the edge of its day schedule() gives it (#4601).
+# ---------------------------------------------------------------------------
+
+_TUE, _WED, _FRI, _SAT = date(2026, 3, 17), date(2026, 3, 18), date(2026, 3, 20), date(2026, 3, 21)
+_FOUR_DAY = Calendar(working_days=0b0001111)  # Mon-Thu
+
+
+def _closed(tid: str, days: int = 0, **fields: object) -> Task:
+    return Task(
+        id=tid,
+        name=tid,
+        duration=timedelta(days=days),
+        percent_complete=100.0,
+        **fields,  # type: ignore[arg-type]
+    )
+
+
+def _readings(mc: MonteCarloResult) -> set[tuple[date, bool]]:
+    return {
+        (mc.p50, mc.p50_at_day_start),
+        (mc.p80, mc.p80_at_day_start),
+        (mc.p95, mc.p95_at_day_start),
+    }
+
+
+@pytest.mark.parametrize(
+    ("tasks", "links", "expected"),
+    [
+        pytest.param(
+            [_closed("M", actual_start=_TUE, actual_finish=_TUE)],
+            [],
+            (_TUE, True),
+            id="standalone-with-actuals",
+        ),
+        pytest.param(
+            [_closed("M", actual_finish=_TUE)],
+            [],
+            (_TUE, True),
+            id="standalone-actual-finish-only",
+        ),
+        pytest.param([_closed("M")], [], (date(2026, 3, 16), True), id="percent-only"),
+        pytest.param(
+            [_closed("M", planned_start=date(2026, 3, 19))],
+            [],
+            (date(2026, 3, 19), True),
+            id="percent-only-snet",
+        ),
+        pytest.param(
+            [
+                _closed("A", 2, actual_start=date(2026, 3, 16), actual_finish=_TUE),
+                _closed("M", actual_start=_WED, actual_finish=_WED),
+            ],
+            [("A", "M")],
+            (_WED, True),
+            id="after-work-that-ended-the-day-before",
+        ),
+        pytest.param(
+            [
+                _closed("A", 2, actual_start=date(2026, 3, 16), actual_finish=_TUE),
+                _closed("M", actual_start=_TUE, actual_finish=_TUE),
+            ],
+            [("A", "M")],
+            (_TUE, False),
+            id="after-work-that-ended-that-day",
+        ),
+        pytest.param(
+            [
+                _closed("M", actual_start=_TUE, actual_finish=_TUE),
+                Task(id="B", name="B", duration=timedelta(days=2)),
+            ],
+            [],
+            (_TUE, False),
+            id="live-work-ends-on-its-day",
+        ),
+        pytest.param(
+            [_closed("M", actual_start=_SAT, actual_finish=_SAT)],
+            [],
+            (_SAT, True),
+            id="standalone-on-a-weekend",
+        ),
+        pytest.param(
+            [
+                _closed("A", 2, actual_start=date(2026, 3, 19), actual_finish=_SAT),
+                _closed("M", actual_start=_SAT, actual_finish=_SAT),
+            ],
+            [("A", "M")],
+            (_SAT, False),
+            id="weekend-with-work-finishing-that-day",
+        ),
+        pytest.param(
+            [_closed("M", actual_start=date(2026, 3, 16), actual_finish=date(2026, 3, 19))],
+            [],
+            (date(2026, 3, 19), True),
+            id="split-actuals",
+        ),
+        pytest.param(
+            [Task(id="A", name="A", duration=timedelta(days=1)), _closed("M", actual_finish=_TUE)],
+            [("A", "M")],
+            (_TUE, True),
+            id="open-predecessor",
+        ),
+        pytest.param(
+            [
+                Task(id="A", name="A", duration=timedelta(days=1)),
+                _closed("M", actual_finish=_TUE, live_day_end_on=_TUE),
+            ],
+            [("A", "M")],
+            (_TUE, False),
+            id="open-predecessor-recorded-end-of-day",
+        ),
+        pytest.param(
+            [
+                Task(id="A", name="A", duration=timedelta(days=1)),
+                _closed("M", actual_finish=_SAT, live_day_end_on=_SAT),
+            ],
+            [("A", "M")],
+            (_SAT, False),
+            id="closed-on-weekend-recorded-end-of-day-open-predecessor",
+        ),
+        pytest.param(
+            [
+                Task(id="A", name="A", duration=timedelta(days=1)),
+                _closed(
+                    "M",
+                    actual_finish=_SAT + timedelta(days=1),
+                    live_day_end_on=_SAT + timedelta(days=1),
+                ),
+            ],
+            [("A", "M")],
+            (_SAT + timedelta(days=1), False),
+            id="closed-on-sunday-recorded-end-of-day-open-predecessor",
+        ),
+        # Work on a Mon-Thu calendar recording its finish on Friday ranks no later
+        # than the start of that Friday in working time, so the index reads the
+        # closed milestone's start of day. The work still ended that day (#4601).
+        pytest.param(
+            [
+                _closed("M", actual_finish=_FRI),
+                _closed("W", 2, actual_start=_WED, actual_finish=_FRI, calendar_id="four"),
+            ],
+            [],
+            (_FRI, False),
+            id="closed-milestone-tied-with-closed-work-ending-on-its-nonworking-day",
+        ),
+    ],
+)
+def test_a_closed_milestone_finish_is_read_on_its_cpm_edge(
+    tasks: list[Task], links: list[tuple[str, str]], expected: tuple[date, bool]
+) -> None:
+    """Zero variance reproduces the CPM finish of a closed milestone, edge included (#4601).
+
+    A closed milestone stays an instant on the edge of its day it had live (#4343,
+    #4433, #4525): the start of the day when nothing, or work that ended earlier,
+    placed it. Monte Carlo read every completed column as work ending at the end of
+    its day, so the percentiles sat a working day after the CPM finish.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 16),
+        tasks=tasks,
+        dependencies=[Dependency(u, v) for u, v in links],
+        calendars={"four": _FOUR_DAY} if any(t.calendar_id for t in tasks) else None,
+    )
+    assert _cpm_reading(project) == expected
+    assert _readings(monte_carlo(project, runs=10, seed=1)) == {expected}
+
+
+def _zero_variance(project: Project) -> Project:
+    """``project`` with every three-point estimate removed, so each run samples ``duration``."""
+    for t in project.tasks:
+        t.optimistic_duration = t.most_likely_duration = t.pessimistic_duration = None
+    return project
+
+
+@st.composite
+def _recorded_edge_projects(draw: st.DrawFn) -> Project:
+    """:func:`_plausible_projects` plus a closed milestone carrying the API's recorded edge.
+
+    The shared strategy rarely closes a milestone, never one that finishes the
+    project late in the plan, and never sets ``live_day_end_on``. The API hands that
+    back for every milestone it last showed at the end of a day, and it decides a
+    closed milestone's edge while a predecessor is still open (#4525). So a closed
+    milestone at the end of a weekend day (#4641) never reached this property. This
+    adds one closed milestone in the plan's first weeks, weekends included, that may
+    record the end of its day and may follow an open one-day task, and gives every
+    closed milestone already drawn the same two options. Half the time the drawn tasks
+    are dropped, so the added milestone finishes the project. Half the time closed
+    work on a Mon-Thu calendar also records its finish on the milestone's day, which
+    on a Friday or a weekend is a day that work's own calendar does not work.
+    """
+    project = draw(_plausible_projects())
+    if draw(st.booleans()):
+        # Alone, so it finishes the project: the drawn tasks run up to 40 days.
+        project.tasks, project.dependencies = [], []
+    day = draw(st.dates(min_value=_ANCHOR, max_value=_ANCHOR + timedelta(days=27)))
+    split = draw(st.integers(min_value=0, max_value=3))
+    project.tasks.append(
+        _closed(
+            "closed",
+            actual_start=max(_ANCHOR, day - timedelta(days=split)),
+            actual_finish=day,
+        )
+    )
+    if draw(st.booleans()):
+        project.calendars = {
+            **(project.calendars or {}),
+            "fourday": _PLAUSIBLE_TASK_CALENDARS["fourday"],
+        }
+        span = draw(st.integers(min_value=0, max_value=3))
+        project.tasks.append(
+            _closed(
+                "closed_work",
+                draw(st.integers(min_value=1, max_value=3)),
+                actual_start=max(_ANCHOR, day - timedelta(days=span)),
+                actual_finish=day,
+                calendar_id="fourday",
+            )
+        )
+    for t in list(project.tasks):
+        recorded = t.actual_finish or t.actual_start
+        if t.duration != timedelta(0) or recorded is None or not engine._is_complete(t):
+            continue
+        if draw(st.booleans()):
+            t.live_day_end_on = recorded
+        if draw(st.booleans()):
+            pred = Task(id=f"{t.id}_open", name="t", duration=timedelta(days=1))
+            project.tasks.append(pred)
+            project.dependencies.append(Dependency(pred.id, t.id))
+    return project
+
+
+@pytest.mark.fuzz
+# The issue's repro: the gate profile's 200 draws rarely close a milestone that
+# finishes the project, so it is pinned rather than left to the search.
+@example(
+    project=Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 16),
+        tasks=[_closed("M", actual_start=_TUE, actual_finish=_TUE)],
+    )
+)
+@example(
+    project=Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 16),
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=1)),
+            _closed("M", actual_finish=_SAT, live_day_end_on=_SAT),
+        ],
+        dependencies=[Dependency("A", "M")],
+    )
+)
+@given(project=_recorded_edge_projects())
+def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
+    """Every percentile of a deterministic project is the CPM finish, edge included (#4601).
+
+    The edge half is what a closed milestone finishing the project broke. A
+    completed task finishing before the project start (#4430) is left out: Monte
+    Carlo cannot show a day before its index begins.
+
+    Split milestone actuals (#4458) are deliberately kept, although the issue
+    suggested excluding them. They are most of the closed milestones this strategy
+    draws that finish the project, so excluding them left the property almost
+    nothing of this issue's class to check. #4458 is about which day the engines
+    link such a milestone from. Monte Carlo reads the shown instant off the same
+    deterministic pass as schedule(), so the two readings must still agree.
+    """
+    project = _zero_variance(project)
+    try:
+        cpm = schedule(project)
+    except SchedulerError:
+        return
+    # TODO(#4430): drop this carve-out with the one in test_contract_fuzz.
+    if any(t.early_finish is not None and t.early_finish < project.start_date for t in cpm.tasks):
+        return
+    expected = _cpm_reading(project)
+    mc = _simulate(project)
+    assert mc is not None
+    assert _readings(mc) == {expected}
 
 
 @pytest.mark.parametrize(
@@ -352,9 +639,10 @@ def test_no_start_of_day_finish_reports_the_pre_4204_dates(project: Project) -> 
         wd_index: list[date],
         floor: date | None,
         floor_at_start: bool,
+        completed_end_of_day: date | None = None,
     ) -> list[tuple[date, bool]]:
         captured.append((completion, shown, wd_index, floor))
-        return real(completion, shown, wd_index, floor, floor_at_start)
+        return real(completion, shown, wd_index, floor, floor_at_start, completed_end_of_day)
 
     with patch.object(mc_run, "_mc_percentiles", spy):
         mc = _simulate(project)
