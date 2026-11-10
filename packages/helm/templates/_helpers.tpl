@@ -1597,6 +1597,16 @@ With web.realIpFrom SET, the named CIDRs become the trusted proxies:
 {{- if not (regexMatch "^[0-9a-fA-F:.]+(/[0-9]{1,3})?$" (toString .)) }}
 {{- fail (printf "web.realIpFrom entry %q is not an IP address or CIDR (#2592)" .) }}
 {{- end }}
+{{- $s := toString . }}
+{{- if contains "/" $s }}
+{{- $parts := splitList "/" $s }}
+{{- $bits := atoi (index $parts 1) }}
+{{- $min := 8 }}
+{{- if contains ":" $s }}{{- $min = 16 }}{{- end }}
+{{- if lt $bits $min }}
+{{- fail (printf "web.realIpFrom entry %q is too broad (prefix /%d is shorter than the minimum /%d for this address family). Trusting every peer (0.0.0.0/0, ::/0) lets any client forge X-Forwarded-For, which defeats web.adminAccess.allowCIDRs and the admin rate limit, and forge X-Forwarded-Proto. Name only your ingress controller's or load balancer's CIDR (#2592)" $s $bits $min) }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- if and .Values.web.adminAccess.enabled .Values.web.adminAccess.allowCIDRs .Values.ingress.enabled (not $cidrs) }}
 {{- fail "web.adminAccess.allowCIDRs is set with ingress.enabled=true but web.realIpFrom is empty. Behind an Ingress, nginx sees the ingress controller's pod IP, not the client's, so the allowlist either matches nobody or — if you add the pod CIDR — everybody. Set web.realIpFrom to the ingress controller's pod CIDR so nginx recovers the real client address from X-Forwarded-For, or leave allowCIDRs empty and use kubectl port-forward (#2592). See https://docs.trueppm.com/administration/security/#reaching-django-admin" }}

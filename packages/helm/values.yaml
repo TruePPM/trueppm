@@ -100,11 +100,13 @@ web:
   #   kubectl port-forward svc/<release>-trueppm-api 8000:8000
   # which bypasses the web tier entirely and needs no chart change.
   #
-  # SCOPE: this is an nginx control, so it only binds while the web tier is
-  # deployed. With web.enabled=false the Ingress routes / straight to the API
-  # Service and Django serves /admin/ there unrestricted — restrict it at your
-  # own edge in that topology. Same caveat for any ingress path pointing at
-  # `service: api`, or a non-ClusterIP service.type.
+  # SCOPE: TRUEPPM_DJANGO_ADMIN_ENABLED (env, default "false") is the PRIMARY
+  # control on every topology: while it is false the API does not serve /admin/
+  # at all, with or without the web tier. This nginx allowlist is defense in
+  # depth for installs that turn it on, and it only binds while the web tier is
+  # deployed. With web.enabled=false, any ingress path pointing at `service: api`,
+  # or a non-ClusterIP service.type, reaches Django directly and bypasses it; if
+  # you enable the admin there, restrict /admin/ at your own edge.
   # Trusted proxies in front of the web tier (#2592, #2593). EMPTY BY DEFAULT.
   #
   # Set this to the CIDR(s) your ingress controller / load balancer connects
@@ -116,6 +118,9 @@ web:
   #     the ingress pod, and Django's X-Real-IP / X-Forwarded-For carry it too;
   #   - believe X-Forwarded-Proto only from those addresses, replacing it with
   #     this hop's own scheme from anyone else.
+  # Each entry must be an IP or CIDR no broader than /8 (IPv4) or /16 (IPv6);
+  # the chart refuses 0.0.0.0/0 and ::/0, because trusting every peer lets any
+  # client forge X-Forwarded-For and X-Forwarded-Proto.
   # Left empty, nginx keeps the pre-0.5 behavior: X-Forwarded-Proto passes
   # through from any peer, and $remote_addr is the immediate peer.
   #

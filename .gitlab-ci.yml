@@ -3386,6 +3386,15 @@ helm:template:
       printf '%s' "$out" | grep -q 'web.realIpFrom is empty' \
         || { echo "PROD REGRESSION: the allowCIDRs/realIpFrom guard did not fire: $out"; exit 1; }
     - |
+      for broad in '0.0.0.0/0' '::/0'; do
+        if out="$(helm template trueppm packages/helm --set image.tag=latest \
+            --set "web.realIpFrom[0]=$broad" 2>&1)"; then
+          echo "PROD REGRESSION: web.realIpFrom=$broad rendered; it trusts every peer to forge X-Forwarded-For (#2592)"; exit 1
+        fi
+        printf '%s' "$out" | grep -q 'is too broad' \
+          || { echo "PROD REGRESSION: the realIpFrom breadth guard did not fire for $broad: $out"; exit 1; }
+      done
+    - |
       grep -A6 -F 'location /static/' /tmp/rendered.yaml | grep -q 'X-Forwarded-For' \
         || { echo "PROD REGRESSION: /static/ no longer forwards X-Forwarded-For (#2593)"; exit 1; }
     # Transport limits must clear the application upload caps (#2604). Before 0.4

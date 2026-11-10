@@ -174,7 +174,7 @@ run_check() {
   # default render above never parses them.
   conf="$(render_default_conf \
     --set 'web.realIpFrom[0]=10.42.0.0/16' \
-    --set 'web.realIpFrom[1]=fd00::/8' \
+    --set 'web.realIpFrom[1]=fd00::/16' \
     --set 'web.adminAccess.allowCIDRs[0]=203.0.113.0/24' \
     --set ingress.enabled=true)" || return $?
   check_syntax "helm production (realIpFrom + allowCIDRs)" "$conf" || return $?
