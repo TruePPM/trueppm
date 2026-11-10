@@ -16,16 +16,23 @@
 #
 # Negation scope: the CLAUSE the keyword sits in. The scan runs backward from the keyword
 # to the nearest boundary (. ! ? ; | newline , : " and " " but " " until "). A negation
-# word (not, no, never, none, nothing, without, cannot, neither, nor, "instead of", n't,
-# or an apostrophe-less contraction: wont cant dont doesnt didnt isnt arent wouldnt
-# shouldnt) in that clause fails. "No new deps, closes #7" and "Not ready yet. Closes #5"
+# word (not, no, never, none, nothing, without, cannot, neither, nor, "instead of", the
+# contraction n't, or an apostrophe-less one: wont cant dont doesnt didnt isnt arent wasnt
+# hasnt wouldnt shouldnt) in that clause fails. Words that merely end in "nt" ("unit",
+# "net", "knot") are not negations. "No new deps, closes #7" and "Not ready yet. Closes #5"
 # pass: the negation is in another clause. The reference list AFTER a keyword is not
 # split, so "Does not close #1, #2 and #3" still names all three.
 #
-# Known limit: a negation AFTER the keyword ("fix #7 is not planned") is not detected.
+# Known limits (the accepted cost of clause scoping, not bugs to chase):
+#   - a negation AFTER the keyword ("fix #7 is not planned") is not detected;
+#   - a comma-delimited aside or an " until " clause hides a negation, because both
+#     are clause boundaries: "Does not, as far as we know, fix #7" and "Not until #8
+#     lands does this fix #7" pass.
 #
-# Safe spelling: "Refs #N" or "#N is out of scope". Per-line escape hatch: put
-# `closing-ok` on the line (e.g. <!-- closing-ok -->) when a match is a false positive.
+# Safe spelling: "Refs #N" or "#N is out of scope". Escape hatches, for a verified false
+# positive only: the exact token `<!-- closing-ok -->` (an HTML comment, invisible in the
+# rendered MR) exempts every ref on its line; `closing-ok:#N` exempts only that ref. The
+# bare words "closing-ok" in prose exempt nothing.
 #
 # Modes:
 #   check-negated-closing-keywords.sh                 description + title (env) + commits
@@ -58,12 +65,18 @@ scan_text() {
       kw    = "(^|[^a-z0-9_])(closes|closed|close|closing|fixes|fixed|fix|fixing|resolves|resolved|resolve|resolving|implements|implemented|implement|implementing)"
       sep   = ":?[ \t]+(issues?[ \t]+)?"
       ref   = "(https?://[^ \t)]+/(issues|work_items)/[0-9]+|[a-z0-9_./-]*#[0-9]+)"
-      neg   = "(^|[^a-z])(not|no|never|none|nothing|without|cannot|neither|nor|instead of|wont|cant|dont|doesnt|didnt|isnt|arent|wouldnt|shouldnt)([^a-z]|$)|n.t([^a-z]|$)"
+      neg   = "(^|[^a-z])(not|no|never|none|nothing|without|cannot|neither|nor|instead of|wont|cant|dont|doesnt|didnt|isnt|arent|wasnt|hasnt|wouldnt|shouldnt)([^a-z]|$)|n\047t([^a-z]|$)"
       cont  = "^[ \t]*(,|&)?[ \t]*(and[ \t]+)?" ref
     }
     {
       line = tolower($0)
-      if (line ~ /closing-ok/) next
+      if (index(line, "<!-- closing-ok -->")) next
+      delete ex
+      rest = line
+      while (match(rest, /closing-ok:#[0-9]+/)) {
+        ex[substr(rest, RSTART + 11, RLENGTH - 11)] = 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
       gsub(/[.!?;][ \t]+/, "\n", line)
       gsub(/[.!?;]$/, "\n", line)
       gsub(/\|/, "\n", line)
@@ -97,7 +110,10 @@ scan_text() {
         }
         if (prefix ~ neg) {
           n = split(refs, ra, " ")
-          for (j = 1; j <= n; j++) printf "%s\t%s\n", ra[j], s
+          for (j = 1; j <= n; j++) {
+            if (match(ra[j], /#[0-9]+$/) && (substr(ra[j], RSTART) in ex)) continue
+            printf "%s\t%s\n", ra[j], s
+          }
         }
         base = start + mlen + consumed
       }
@@ -112,7 +128,7 @@ check_text() {
   while IFS="$(printf '\t')" read -r ref sentence; do
     echo "ERROR: ${label}: negated closing keyword for ${ref}: \"${sentence}\"" >&2
     echo "       GitLab ignores negation and WILL close ${ref} on merge." >&2
-    echo "       Write 'Refs ${ref}' or '${ref} is out of scope' instead (or add 'closing-ok' to the line if this is a false positive)." >&2
+    echo "       Write 'Refs ${ref}' or '${ref} is out of scope' instead (or, for a verified false positive, add <!-- closing-ok --> to the line, or closing-ok:${ref} to exempt only this ref)." >&2
     rc=1
   done <<EOF
 $out
@@ -121,8 +137,9 @@ EOF
 }
 
 check_commits() {
-  local repo="${1:-.}" range="${2:-}" base tip sha rc=0
+  local repo="${1:-.}" range="${2:-}" base="" tip="" sha shas rc=0 derived=0
   if [ -z "$range" ]; then
+    derived=1
     base="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}"
     tip="HEAD"
     if [ -z "$base" ]; then
@@ -139,7 +156,21 @@ check_commits() {
     fi
     range="${base}..${tip}"
   fi
-  for sha in $(git -C "$repo" log --no-merges --format=%H "$range"); do
+  # Capture first: a `for sha in $(git log ...)` swallows a failed log and scans nothing,
+  # which would pass silently on an unresolvable range.
+  if ! shas="$(git -C "$repo" log --no-merges --format=%H "$range" 2>/dev/null)"; then
+    if [ "$derived" -eq 1 ] && [ "$tip" != "HEAD" ]; then
+      echo "WARN: range ${range} is unresolvable; falling back to ${base}..HEAD." >&2
+      if ! shas="$(git -C "$repo" log --no-merges --format=%H "${base}..HEAD" 2>/dev/null)"; then
+        echo "ERROR: cannot resolve commit range ${range} or ${base}..HEAD; commits were NOT scanned." >&2
+        return 1
+      fi
+    else
+      echo "ERROR: cannot resolve commit range ${range}; commits were NOT scanned." >&2
+      return 1
+    fi
+  fi
+  for sha in $shas; do
     git -C "$repo" log -1 --format=%B "$sha" | check_text "commit ${sha}" || rc=1
   done
   return $rc
@@ -192,6 +223,9 @@ self_test() {
   expect fail '#7' 'None of this fixes #7'
   expect fail 'https://gitlab.com/trueppm/trueppm/-/work_items/55' 'Does not fix https://gitlab.com/trueppm/trueppm/-/work_items/55'
   expect fail '#7' 'Does not close #7 <!-- closing -->'
+  expect fail '#7' 'Does not close #7 (closing-ok is not set)'
+  expect fail '#8' 'Does not close #7 and #8 closing-ok:#7'
+  expect fail '#7' 'This hasnt been tested and wasnt reviewed so it fixes #7'
   # must pass
   expect pass - 'Closes #4922'
   expect pass - 'Refs #4883'
@@ -208,6 +242,11 @@ self_test() {
   expect pass - 'Do not merge until this closes #7'
   expect pass - 'No: Closes #7'
   expect pass - 'Does not close #7 <!-- closing-ok -->'
+  expect pass - 'Does not close #7 closing-ok:#7'
+  expect pass - 'Adds a unit test that fixes #7'
+  expect pass - 'Uses a net client that fixes #7'
+  expect pass - 'Knot fixes #7'
+  expect pass - 'Adds a planet view that fixes #7'
   expect pass - 'Closes #5 (no changelog needed)'
   expect pass - "Merge branch 'fix/4883-thing' into 'main'"
   # commit range: a merge commit carrying negated default text is skipped; an
@@ -253,6 +292,14 @@ self_test() {
   fi
   if CI_MERGE_REQUEST_DIFF_BASE_SHA="$mbase" check_commits "$tmp" >/dev/null 2>&1; then
     echo "FAIL: without SOURCE_BRANCH_SHA the HEAD range should include main's commit" >&2; fails=$((fails + 1))
+  fi
+  # unresolvable SOURCE_BRANCH_SHA: falls back to base..HEAD, which still catches main's negated commit
+  if CI_MERGE_REQUEST_DIFF_BASE_SHA="$mbase" CI_MERGE_REQUEST_SOURCE_BRANCH_SHA=1111111111111111111111111111111111111111 check_commits "$tmp" >/dev/null 2>&1; then
+    echo "FAIL: unknown SOURCE_BRANCH_SHA must fall back and still catch a negated commit" >&2; fails=$((fails + 1))
+  fi
+  # nothing resolvable at all must fail closed, not pass
+  if CI_MERGE_REQUEST_DIFF_BASE_SHA=2222222222222222222222222222222222222222 CI_MERGE_REQUEST_SOURCE_BRANCH_SHA=1111111111111111111111111111111111111111 check_commits "$tmp" >/dev/null 2>&1; then
+    echo "FAIL: unresolvable base and tip must fail, not pass silently" >&2; fails=$((fails + 1))
   fi
   rm -rf "$tmp"
   if [ "$fails" -ne 0 ]; then echo "self-test: ${fails} failure(s)" >&2; return 1; fi
