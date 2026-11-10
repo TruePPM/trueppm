@@ -18,6 +18,20 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **The project span limit is now measured along the longest dependency chain,
+  not the sum of every task's duration
+  ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)).** A wide project
+  whose parallel work adds up to more than the span cap, but whose longest chain
+  fits, is no longer refused. A new public constant, `MAX_PROJECT_WORK_DAYS`
+  (3,660,000 working days, ten times the span cap), bounds total work and backs a
+  new "Total project work" refusal, so hostile input is still rejected before an
+  unbounded walk. The span refusal message now names the longest chain, a span
+  the project actually has, instead of a sum it does not.
+- **`CITATION.cff` and `paper.md` no longer carry placeholder ORCID or DOI
+  values
+  ([#3857](https://gitlab.com/trueppm/trueppm/-/issues/3857)).** The release
+  script now bumps the citation version and date with each release.
+
 - **`trueppm_scheduler.engine` is now a subpackage
   ([#4550](https://gitlab.com/trueppm/trueppm/-/issues/4550)).** `engine.py` is
   split into `engine/` (`errors`, `limits`, `results`, `calendar_math`,
