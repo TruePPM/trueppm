@@ -460,9 +460,14 @@ Workspace Admins send email invitations to bring new users into the workspace.
      account whose email matches (case-insensitive). If **more than one**
      account shares that email the invite is refused (`400`, "More than one
      account uses this invitation's email address…") and stays pending, rather
-     than granting the role to an arbitrary one of them — the same
-     fail-closed stance [Single sign-on](/administration/single-sign-on/) takes
-     on ambiguous emails. An admin must resolve the duplicate accounts first,
+     than granting the role to an arbitrary one of them. An admin must resolve
+     the duplicate accounts first,
+
+     :::note[Ships in 0.5]
+     The refusal on a duplicate email ships in 0.5. The current release links
+     the invite to the first matching account instead of refusing it.
+     :::
+
    - creates a `WorkspaceMembership` at the invited role,
    - marks the invite `accepted`, stamping `accepted_at` and the accepting user.
 5. Error responses are **generic** ("invalid or expired token") to prevent
