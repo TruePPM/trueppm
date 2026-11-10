@@ -445,8 +445,21 @@ read user ids and internal error text. Render the run's initiator from
 
 | | |
 |---|---|
-| Announced | 0.4 (removed with no window; security-critical exception) |
-| Migration | use `initiated_by_username`; Admin and above still receive `error_detail` |
+| Announced | 0.5 (removed with no window; security-critical exception) |
+| Migration | use `initiated_by_username`; Admin and above still receive `error_detail` over REST; the `task_run_failed` WebSocket event now carries a generic message instead of the exception text |
+
+### Import provenance initiator id removed (#1726)
+
+`GET /api/v1/projects/{id}/imports/` no longer carries `initiated_by`, the raw integer
+user id of whoever started the import; `initiated_by_username` is unchanged. This is a
+**Breaking** removal, taken without a window because it is a security fix: any project
+member could read user ids from this list. Render the initiator from
+`initiated_by_username`.
+
+| | |
+|---|---|
+| Announced | 0.5 (removed with no window; security-critical exception) |
+| Migration | use `initiated_by_username`; the user id is not available on this payload |
 
 ### Transfer target refusals unified to 400 (#4575)
 

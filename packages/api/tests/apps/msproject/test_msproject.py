@@ -1745,6 +1745,24 @@ class TestImportProvenanceList:
         assert rows[0]["task_count"] is None
         assert rows[0]["creates_project"] is False
 
+    def test_viewer_response_carries_no_initiator_pk(
+        self, viewer_client: APIClient, project: Project, user: object
+    ) -> None:
+        """#1726: the member-gated list exposes the username, never the raw user PK."""
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        ImportRequest.objects.create(
+            project=project,
+            filename="a.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+        )
+        resp = viewer_client.get(self._url(project))
+        assert resp.status_code == 200
+        row = resp.json()["results"][0]
+        assert "initiated_by" not in row
+        assert row["initiated_by_username"] == "msp_user"
+
     def test_declared_schema_matches_what_the_endpoint_returns(
         self, admin_client: APIClient, project: Project, user: object
     ) -> None:
@@ -2030,7 +2048,6 @@ class TestImportProvenanceList:
         )
         resp = admin_client.get(self._url(project))
         rows = resp.json()["results"]
-        assert rows[0]["initiated_by"] is None
         assert rows[0]["initiated_by_username"] is None
 
 

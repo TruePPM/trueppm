@@ -57961,11 +57961,6 @@
                         "format": "date-time",
                         "readOnly": true
                     },
-                    "initiated_by": {
-                        "type": "integer",
-                        "readOnly": true,
-                        "nullable": true
-                    },
                     "initiated_by_username": {
                         "type": "string",
                         "nullable": true,
@@ -57991,7 +57986,6 @@
                     "creates_project",
                     "filename",
                     "id",
-                    "initiated_by",
                     "initiated_by_username",
                     "requested_at",
                     "status",

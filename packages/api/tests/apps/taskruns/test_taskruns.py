@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -570,3 +571,95 @@ def test_scheduler_runs_viewer_error_detail_hidden(
     resp = viewer_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
     assert resp.status_code == 200
     assert resp.data["results"][0]["error_detail"] == ""
+
+
+def _client_with_role(project: Project, role: int, name: str) -> APIClient:
+    u = User.objects.create_user(username=name, password="pw")
+    ProjectMembership.objects.create(project=project, user=u, role=role)
+    c = APIClient()
+    c.force_authenticate(user=u)
+    return c
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("role", "sees_detail"),
+    [(Role.MEMBER, False), (Role.SCHEDULER, False), (Role.ADMIN, True), (Role.OWNER, True)],
+)
+def test_error_detail_cut_is_admin(
+    project: Project, failed_run: TaskRun, role: int, sees_detail: bool
+) -> None:
+    client = _client_with_role(project, role, f"tr_role_{int(role)}")
+    resp = client.get(f"/api/v1/projects/{project.pk}/task-runs/")
+    assert resp.status_code == 200
+    detail = resp.data["results"][0]["error_detail"]
+    assert ("secret/path.py" in detail) is sees_detail
+    if not sees_detail:
+        assert detail == ""
+
+
+@pytest.mark.django_db
+def test_error_detail_fails_closed_without_request(failed_run: TaskRun) -> None:
+    from trueppm_api.apps.taskruns.serializers import TaskRunSerializer
+
+    data = TaskRunSerializer(failed_run, context={}).data
+    assert data["error_detail"] == ""
+
+
+@pytest.mark.django_db
+def test_scheduler_runs_admin_sees_error_detail(
+    admin_client: APIClient, project: Project, failed_run: TaskRun
+) -> None:
+    resp = admin_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
+    assert resp.status_code == 200
+    assert "secret/path.py" in resp.data["results"][0]["error_detail"]
+
+
+@pytest.mark.django_db
+def test_global_list_resolves_role_per_row(calendar: Calendar, user: object) -> None:
+    """Admin on A, Viewer on B: A's row keeps error_detail, B's is redacted."""
+    proj_a = Project.objects.create(name="A", start_date=date(2026, 1, 1), calendar=calendar)
+    proj_b = Project.objects.create(name="B", start_date=date(2026, 1, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=proj_a, user=user, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=proj_b, user=user, role=Role.VIEWER)
+    for proj, cid in ((proj_a, "ca"), (proj_b, "cb")):
+        TaskRun.objects.create(
+            task_name="scheduling.recalculate",
+            celery_task_id=cid,
+            project=proj,
+            initiated_by=user,
+            status=TaskRunStatus.FAILED,
+            error_detail="boom-internal",
+        )
+    c = APIClient()
+    c.force_authenticate(user=user)
+    resp = c.get("/api/v1/task-runs/")
+    assert resp.status_code == 200
+    by_project = {str(r["project"]): r["error_detail"] for r in resp.data["results"]}
+    assert by_project[str(proj_a.pk)] == "boom-internal"
+    assert by_project[str(proj_b.pk)] == ""
+
+
+@pytest.mark.django_db
+def test_failed_broadcast_omits_exception_text(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """#1726: task_run_failed fans out to Viewers, so it carries a generic message."""
+    from trueppm_api.apps.taskruns.tracker import WS_FAILURE_MESSAGE, TaskRunTracker
+
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),
+        pytest.raises(ValueError),
+        TaskRunTracker(_make_celery_task(), project_id=str(project.pk), task_name="test.failure"),
+    ):
+        raise ValueError("secret/path.py line 3")
+
+    failed = [
+        c.kwargs["payload"]
+        for c in bcast.call_args_list
+        if c.kwargs.get("event_type") == "task_run_failed"
+    ]
+    assert len(failed) == 1
+    assert failed[0]["error_detail"] == WS_FAILURE_MESSAGE
+    assert "secret/path.py" not in repr(failed[0])

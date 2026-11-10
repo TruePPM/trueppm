@@ -26,7 +26,6 @@ const mkRow = (overrides: Partial<ImportProvenanceRow> = {}): ImportProvenanceRo
   status: 'done',
   creates_project: false,
   requested_at: new Date('2026-05-25T12:00:00Z').toISOString(),
-  initiated_by: 7,
   initiated_by_username: 'marcus',
   task_count: 12,
   ...overrides,
@@ -82,7 +81,7 @@ describe('ImportProvenanceSection', () => {
 
   it('falls back to a placeholder when the initiating user was deleted', () => {
     useImportRequests.mockReturnValue({
-      data: [mkRow({ initiated_by: null, initiated_by_username: null })],
+      data: [mkRow({ initiated_by_username: null })],
       isLoading: false,
       isError: false,
     });

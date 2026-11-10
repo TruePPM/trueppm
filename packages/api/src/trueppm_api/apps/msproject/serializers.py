@@ -38,7 +38,6 @@ class ImportRequestProvenanceSerializer(serializers.ModelSerializer[ImportReques
             "status",
             "creates_project",
             "requested_at",
-            "initiated_by",
             "initiated_by_username",
             "task_count",
             "warnings",
