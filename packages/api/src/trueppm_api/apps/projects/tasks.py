@@ -632,22 +632,46 @@ def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
 
 
 def _clear_sprint_ranks(sprint: Any) -> None:
-    """Clear the within-sprint execution order on close (#365, ADR-0105 §5).
+    """Clear the within-sprint execution order on close (#365, ADR-0105 §5, #1542).
 
     A task returns to the product backlog ordered by ``priority_rank``; its
     closed-sprint ``sprint_rank`` stays queryable on the HistoricalTask rows (the
-    pre-clear value on the create-time row, the null on the row the save() below
-    writes). Runs BEFORE apply_carry_over so a carried task re-enters its next sprint
-    un-ranked (re-seeded from priority_rank on that sprint's activate), never
-    inheriting a stale rank. save() (not bulk_update) so server_version bumps +
-    history is written.
-    """
-    from trueppm_api.apps.projects.models import Task
+    pre-clear value on the create-time row, the null on the row written here). Runs
+    BEFORE apply_carry_over so a carried task re-enters its next sprint un-ranked
+    (re-seeded from priority_rank on that sprint's activate), never inheriting a stale
+    rank.
 
-    for task in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False):
-        if task.sprint_rank is not None:
-            task.sprint_rank = None
-            task.save(update_fields=["sprint_rank", "server_version"])
+    Uses ``bulk_update_with_history`` (a fixed number of statements regardless of N)
+    instead of a per-task ``save()``. Bulk paths skip ``VersionedModel.save()``, so the
+    two counters it would have advanced are advanced here by hand: ``server_version``
+    via an ``F()`` expression (the database evaluates the bump per row), and
+    ``sync_seq`` with ONE draw from the project's sequence shared by the whole batch
+    (ADR-0686: rows written together may share a cursor value; the delta is
+    ``> since``). Without the ``sync_seq`` stamp the cleared rows would sit below
+    every client checkpoint and offline clients would keep the stale rank.
+    """
+    from django.db.models import F
+    from simple_history.utils import bulk_update_with_history
+
+    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+    ranked = list(
+        Task.objects.filter(sprint_id=sprint.pk, is_deleted=False, sprint_rank__isnull=False)
+    )
+    if not ranked:
+        return
+    seq = allocate_for_projects([sprint.project_id])
+    for task in ranked:
+        task.sprint_rank = None
+        task.server_version = F("server_version") + 1
+        task.sync_seq = seq
+    bulk_update_with_history(
+        ranked,
+        Task,
+        ["sprint_rank", "server_version", "sync_seq"],
+        batch_size=500,
+    )
 
 
 def _recompute_and_reforecast_milestone(sprint: Any, req: Any) -> None:
