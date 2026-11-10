@@ -4,6 +4,7 @@ import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { ROLE_ADMIN } from '@/lib/roles';
 import { iterationLabelForms } from '@/lib/iterationLabel';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useProjects } from '@/hooks/useProjects';
@@ -124,14 +125,45 @@ export const PROJECT_SETTINGS_ANCHOR_ALIASES: Record<string, string> = Object.fr
   TEAM_WORKFLOW_SUBSECTION_IDS.map((id) => [id, TEAM_WORKFLOW_SECTION_ID]),
 );
 
+/** Which project-settings rail applies: a tri-state, not a boolean (#3005, rule 302). */
+export type ProjectSettingsRail = 'loading' | 'admin' | 'member';
+
+/**
+ * Decides the rail from the caller's role on THIS project (`project.my_role`, the
+ * server's per-project fact) rather than the org-wide `can_access_admin_settings`,
+ * which is true for an Admin on any other project and so over-raised the admin rail
+ * on projects where the caller is only a Member (#3005).
+ *
+ * - `loading` — the project payload has not resolved; no per-project verdict exists.
+ * - `admin`   — `my_role >= ROLE_ADMIN`, or a workspace admin (who may hold no
+ *   membership at all, so `my_role` is `null`).
+ * - `member`  — everything else.
+ *
+ * When the payload omits `my_role` entirely (a fixture or server older than ADR-0186)
+ * we fall back to the org-wide flag so the page keeps working; the real serializer
+ * always emits the key.
+ */
+export function resolveProjectSettingsRail(input: {
+  projectResolved: boolean;
+  myRole: number | null | undefined;
+  isWorkspaceAdmin: boolean | null | undefined;
+  canAccessAdminSettings: boolean | undefined;
+}): ProjectSettingsRail {
+  if (!input.projectResolved) return 'loading';
+  if (input.isWorkspaceAdmin === true) return 'admin';
+  if (input.myRole === undefined) {
+    return input.canAccessAdminSettings === true ? 'admin' : 'member';
+  }
+  return input.myRole !== null && input.myRole >= ROLE_ADMIN ? 'admin' : 'member';
+}
+
 /**
  * Whether the reduced member rail renders. Named for the OUTPUT (rule 379):
- * anything but an explicit `true` withholds the admin rail.
+ * the full admin rail is an affordance, so anything but a resolved `admin` — including
+ * `loading` — withholds it.
  */
-export function shouldShowProjectMemberRail(canAccessAdminSettings: boolean | undefined): boolean {
-  // Affordance polarity (rule 379): only an explicit `true` raises the admin rail;
-  // undefined (loading/errored/missing field) and `false` both withhold it.
-  return canAccessAdminSettings === true ? false : true;
+export function shouldShowProjectMemberRail(rail: ProjectSettingsRail): boolean {
+  return rail !== 'admin';
 }
 
 export function buildProjectSettingsMemberNav(): SettingsNavGroup[] {
@@ -393,7 +425,7 @@ export function ProjectSettingsPage() {
   const showTeamTab = project?.methodology === 'AGILE' || project?.methodology === 'HYBRID';
   const iterationSingular = iterationLabelForms(project?.iteration_label).singular;
 
-  // #2971: a member who is admin nowhere reaches this page (the route no longer
+  // #2971: a member who is not an admin of THIS project (#3005) reaches this page (the route no longer
   // bounces them) and gets the reduced rail — today, the divergence digest alone.
   //
   // Polarity (#3449, rule 379): the full rail is an AFFORDANCE — it raises
@@ -403,7 +435,14 @@ export function ProjectSettingsPage() {
   // admin for the beat before `/auth/me` lands, which is rare because the shell
   // has already fetched it; the alternative shows a genuine non-admin the full
   // admin rail of 403-prone controls on a blip. The server still refuses writes.
-  const memberView = shouldShowProjectMemberRail(user?.can_access_admin_settings);
+  const memberView = shouldShowProjectMemberRail(
+    resolveProjectSettingsRail({
+      projectResolved: project !== undefined,
+      myRole: project?.my_role,
+      isWorkspaceAdmin,
+      canAccessAdminSettings: user?.can_access_admin_settings,
+    }),
+  );
 
   const navGroups: SettingsNavGroup[] = memberView
     ? buildProjectSettingsMemberNav()

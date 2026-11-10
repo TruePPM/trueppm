@@ -344,6 +344,13 @@ export interface ApiProjectDetail {
    */
   my_facets?: { is_scrum_master: boolean; is_product_owner: boolean };
   /**
+   * The caller's role ordinal on THIS project (`@/lib/roles`), or `null` for a
+   * non-member (e.g. a workspace admin with no membership). The per-project server
+   * fact — not the org-wide `can_access_admin_settings` (#3005). Optional in the
+   * type only so older fixtures stay valid; the serializer always emits it.
+   */
+  my_role?: number | null;
+  /**
    * Whether the caller may author this project's plan (ADR-0773 §(d), #3034) —
    * the server's own answer, produced by the same `role_can_author_plan`
    * predicate `IsProjectPlanAuthor` enforces (ADR-0133, "one rule, called
