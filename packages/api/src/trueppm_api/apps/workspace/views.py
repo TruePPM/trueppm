@@ -36,6 +36,7 @@ from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import project_role_label
+from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated, SessionOnlyWritesMixin
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
@@ -628,7 +629,7 @@ def _apply_member_availability(*, membership: WorkspaceMembership, data: dict[st
         )
 
 
-class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
+class WorkspaceMemberDetailView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """PATCH/DELETE /api/v1/workspace/members/{user_id}/ (#518). Admin only."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -799,7 +800,7 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class WorkspaceInviteListView(IdempotencyMixin, APIView):
+class WorkspaceInviteListView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """GET/POST /api/v1/workspace/invites/ (#518). Admin only."""
 
     # #1724: pending invites expose PII (email / role / invited_by). IsWorkspaceAdmin
@@ -919,7 +920,7 @@ class WorkspaceInviteListView(IdempotencyMixin, APIView):
         return Response(_invite_dict(invite), status=status.HTTP_201_CREATED)
 
 
-class WorkspaceInviteDetailView(IdempotencyMixin, APIView):
+class WorkspaceInviteDetailView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """DELETE /api/v1/workspace/invites/{id}/ — revoke a pending invite (#518)."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -996,7 +997,7 @@ class InviteResendThrottle(ScopedRateThrottle):
     scope = "invite_resend"
 
 
-class WorkspaceInviteResendView(IdempotencyMixin, APIView):
+class WorkspaceInviteResendView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0149).
 
     Admin only. Re-issues a fresh token (the old email link stops working) and puts
@@ -1046,7 +1047,7 @@ class WorkspaceInviteResendView(IdempotencyMixin, APIView):
         return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 
 
-class WorkspaceInviteResendAllView(IdempotencyMixin, APIView):
+class WorkspaceInviteResendAllView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """POST /api/v1/workspace/invites/resend-all/ — re-queue every pending invite.
 
     Admin only. One transaction, one throttle bucket — emails everyone with a
@@ -1216,7 +1217,7 @@ class WorkspaceLogoView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
-class GroupListView(IdempotencyMixin, APIView):
+class GroupListView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """GET/POST /api/v1/workspace/groups/ (#519). Read and create: admin only."""
 
     # #1724: group rosters are org structure — IsWorkspaceAdmin would leak them to
@@ -1245,7 +1246,7 @@ class GroupListView(IdempotencyMixin, APIView):
         return Response(_build_group_dict(group), status=status.HTTP_201_CREATED)
 
 
-class GroupDetailView(IdempotencyMixin, APIView):
+class GroupDetailView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """GET/PATCH/DELETE /api/v1/workspace/groups/{id}/ (#519)."""
 
     # #1724: a group's roster is org structure — IsWorkspaceAdmin would leak it to
@@ -1275,7 +1276,7 @@ class GroupDetailView(IdempotencyMixin, APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class GroupMemberView(IdempotencyMixin, APIView):
+class GroupMemberView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519)."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -1316,7 +1317,7 @@ class GroupMemberView(IdempotencyMixin, APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class GroupProjectView(IdempotencyMixin, APIView):
+class GroupProjectView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
     """POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).
 
     Linking a group to a project confers the chosen role on every group member
@@ -1386,7 +1387,7 @@ class TransferOwnershipView(IdempotencyMixin, APIView):
     demoted to Admin (#641). Mirrors the project transfer action.
     """
 
-    permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceOwner]
 
     @extend_schema(
         request=TransferOwnershipSerializer,
@@ -1417,7 +1418,7 @@ class TransferOwnershipView(IdempotencyMixin, APIView):
 class WorkspaceExportView(IdempotencyMixin, APIView):
     """GET lists recent export jobs; POST queues a new full export (#641). Owner only."""
 
-    permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceOwner]
     # Standard page-number envelope so the job list matches every other list
     # endpoint's {count,next,previous,results} shape — the previous bare ``[:20]``
     # slice gave an integrator no way to tell a truncated list from a complete one
@@ -1441,7 +1442,7 @@ class WorkspaceExportView(IdempotencyMixin, APIView):
 class WorkspaceExportDetailView(APIView):
     """GET /api/v1/workspace/export/{job_id}/ — poll an export's status (#641). Owner only."""
 
-    permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceOwner]
 
     @extend_schema(responses={200: WorkspaceExportJobSerializer})
     def get(self, request: Request, job_id: str) -> Response:
@@ -1457,7 +1458,7 @@ class WorkspaceExportDownloadView(APIView):
     ``410 Gone`` once the link has expired.
     """
 
-    permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceOwner]
 
     @extend_schema(
         responses={

@@ -156,11 +156,12 @@ def lock_and_recheck_credential_cutoff(request: Any) -> None:
 
     **Where the issue time comes from.** A JWT caller: ``request.auth`` is the
     validated token and its ``iat`` is compared on the whole second, exactly as the
-    authenticator does. A Personal Access Token caller (some mint endpoints, such as
-    the workspace invite create, do not refuse API tokens): ``request.auth`` is the
-    ``ApiToken`` row, which has no ``iat``, so its ``created_at`` is compared at full
-    precision. A PAT created after the cutoff passes; one created at or before it is
-    refused (a reset's PAT sweep revokes those anyway; this closes the in-flight gap).
+    authenticator does. A Personal Access Token caller (the mint endpoints refuse API
+    tokens at the permission layer, so this branch is defense in depth should one stop
+    doing so): ``request.auth`` is the ``ApiToken`` row, which has no ``iat``, so its
+    ``created_at`` is compared at full precision. A PAT created after the cutoff passes;
+    one created at or before it is refused (a reset's PAT sweep revokes those anyway;
+    this closes the in-flight gap).
     **Any other auth type, or a JWT with no usable ``iat``, is refused whenever a
     cutoff exists** (fail-closed, as :func:`issued_before_cutoff` does for the
     authenticator).

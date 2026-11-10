@@ -390,3 +390,45 @@ def test_outsider_cannot_edit_facets(
         _member_url(default_team, team_members["member"]), {"is_scrum_master": True}
     )
     assert resp.status_code == 403
+
+
+def test_token_cannot_patch_a_team_membership_but_a_session_can(
+    admin_client: APIClient,
+    project_admin: Any,
+    default_team: Team,
+    team_members: dict[str, Any],
+) -> None:
+    """PATCH can grant ``TeamRole.ADMIN``, so a personal access token is refused (#3847)."""
+    import secrets
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+    from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken
+
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ApiToken.objects.create(
+        owner=project_admin,
+        name="pat",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=project_admin,
+        scopes=[SCOPE_LEGACY_FULL],
+        expires_at=timezone.now() + timedelta(days=30),
+    )
+    token_client = APIClient()
+    token_client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    target = team_members["member"]
+    url = _member_url(default_team, target)
+
+    resp = token_client.patch(url, {"role": TeamRole.ADMIN}, format="json")
+    assert resp.status_code == 403, resp.content
+    assert "API tokens cannot manage" in str(resp.data["detail"])
+    target.refresh_from_db()
+    assert target.role == TeamRole.MEMBER
+
+    ok = admin_client.patch(url, {"role": TeamRole.ADMIN}, format="json")
+    assert ok.status_code == 200, ok.content
+    target.refresh_from_db()
+    assert target.role == TeamRole.ADMIN

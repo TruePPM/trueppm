@@ -1,7 +1,7 @@
 ---
 title: Personal Access Tokens
 description: Create a user-scoped API token to authenticate scripts and tools against TruePPM as yourself — with optional expiry, a 10-token cap, and automatic revocation on password change.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 A **Personal Access Token (PAT)** is a credential that lets a script, notebook,
@@ -119,15 +119,36 @@ could not have minted a replacement with it. A token also cannot reconfigure
 [single sign-on](/administration/single-sign-on/), so it cannot widen who may sign
 in and at what role.
 
-It is not yet containment for *everything*. A leaked token belonging to a workspace
-admin can still change a member's role, add someone to a group or grant a group a role on a
-project; and one belonging to the workspace owner can still transfer ownership.
-None of those is undone by revoking the token, by a password reset, or by
-off-boarding. (A workspace invite the admin sent that has not yet been accepted
-*is* revoked by a password reset, off-boarding or `revoke_api_tokens`; an invite
-already accepted created a real membership, which is not undone.) Treat revocation as cutting off the credential,
-then check what that credential did while it was live — your
-[token history](#your-token-history) is the starting point.
+:::note[Ships in 0.5]
+From 0.5, a token will be refused on the routes that mint access or move data out of the
+workspace. It will not be able to send, resend or delete a workspace invite, change or
+remove a member, add someone to a group or grant a group a role on a project, transfer
+workspace ownership, transfer a project's ownership or a program's sponsorship, add or
+change a project or program member's role, or change a team member's role or facets. It
+will still *read* those lists, and it will still remove a project or program member,
+because removing access is the containment direction. A token also will not be able to
+create, list or download a **workspace export**: the archive holds every project's data,
+and revoking a token cannot recall one that was already downloaded. If you automated
+workspace backups with a token, run the export from a signed-in session instead (see
+[workspace settings](/administration/workspace-settings/) and
+[backup and restore](/administration/backup-restore/)). Per-project and per-program
+exports will stay available to a token. A refused call will return `403` with a message
+saying API tokens cannot do this.
+
+Even then, revocation is not containment for *everything*: a membership, group grant or
+role change made while the credential was live is not undone by revoking the token, by a
+password reset, or by off-boarding. (A workspace invite the admin sent that has not yet
+been accepted *is* revoked by a password reset, off-boarding or `revoke_api_tokens`; an
+invite already accepted created a real membership, which is not undone.) Treat
+revocation as cutting off the credential, then check what that credential did while it
+was live — your [token history](#your-token-history) is the starting point.
+
+In 0.4 all of those routes accept a token. A leaked token belonging to a workspace admin
+can still change a member's role, add someone to a group or grant a group a role on a
+project; one belonging to the workspace owner can still transfer ownership; and a
+workspace export can be created and downloaded with a token. None of that is undone by
+revoking the token, by a password reset, or by off-boarding.
+:::
 
 A project admin's token can no longer rotate a git-automation webhook secret, mint
 a public share link, or register/repoint an outgoing webhook — those routes now

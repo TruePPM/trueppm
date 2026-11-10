@@ -1,7 +1,7 @@
 ---
 title: Project members
 description: Invite teammates to a project, change their role, and remove or leave a project — the management UI for the 5-role RBAC model.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 The **Project Settings → Members** page is where a project Owner manages who is on a project and what each person can do. Open it at **Project → Settings → Members** (`/projects/:id/settings/members`).
@@ -21,7 +21,11 @@ Any project member sees the full member list. The invite form, role picker, and 
 
 ## Inviting a member
 
-The invite form is a typeahead. Start typing a name and TruePPM searches existing accounts (`GET /api/v1/users/search/`, debounced), returning up to 10 matches by username and display name. Pick a result, choose a role, and add them.
+The invite form is a typeahead. Start typing and TruePPM searches existing accounts (`GET /api/v1/users/search/`, debounced), returning up to 10 accounts whose username or email address contains what you typed. Pick a result, choose a role, and add them.
+
+:::note[Ships in 0.5]
+From 0.5 an email matches only on the full address, so a partial address such as `@acme.com` will no longer match and the search cannot be used to discover which addresses exist. In 0.4 any part of an email address matches, so a domain fragment lists the accounts at that domain.
+:::
 
 The invited user **must already have a TruePPM account** — this page does not create accounts. To bring in someone who has never signed in, send them a [workspace invite](/administration/workspace-settings/#invites-settingsmembers--invite-flow) first; once they accept and have an account, they appear in the project member search.
 

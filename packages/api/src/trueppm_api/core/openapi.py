@@ -750,8 +750,9 @@ _TOKEN_REFUSED_RESPONSE = {
                     "detail": {
                         "type": "string",
                         "example": (
-                            "API tokens cannot manage credentials or sign-in "
-                            "configuration. Sign in to perform this action."
+                            "API tokens cannot manage credentials, sign-in "
+                            "configuration, memberships or workspace exports. Sign in "
+                            "to perform this action."
                         ),
                     },
                     "refusal": {
@@ -1139,16 +1140,29 @@ class TruePPMAutoSchema(AutoSchema):
         surfaces where the failure looks like a permissions bug rather than a deliberate
         refusal.
 
-        Read off ``permission_classes`` rather than ``get_permissions()`` because schema
-        generation has no request to resolve per-action permissions against; every view
-        carrying the guard declares it statically, which is also what makes the
-        route-table tripwire in ``tests/apps/access/test_route_table_invariants.py``
-        sound.
+        Schema generation has no request to resolve ``get_permissions()`` against, so
+        the refusal is read from three declarations instead, each the single source the
+        runtime guard also reads: a static ``permission_classes`` entry; the
+        ``SessionOnlyWritesMixin`` (refuses every unsafe method, so this operation's
+        method decides); and a viewset's ``token_refused_actions`` set, which its
+        ``get_permissions`` consults for the same ``action`` (#3847). A refusal built
+        any other way is invisible here and can drift from the schema; the route-table
+        tripwire in ``tests/apps/access/test_route_table_invariants.py`` checks runtime
+        reachability, not the schema, so only the structural check tracked in #4929 will
+        close that gap.
         """
-        from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated
+        from trueppm_api.apps.access.permissions import (
+            IsNotTokenAuthenticated,
+            SessionOnlyWritesMixin,
+        )
 
         classes = getattr(self.view, "permission_classes", []) or []
-        return any(cls is IsNotTokenAuthenticated for cls in classes)
+        if any(cls is IsNotTokenAuthenticated for cls in classes):
+            return True
+        if isinstance(self.view, SessionOnlyWritesMixin) and self.method not in SAFE_METHODS:
+            return True
+        action = getattr(self.view, "action", None)
+        return action is not None and action in getattr(self.view, "token_refused_actions", ())
 
     def _mcp_scoped_token_write_unreachable(self) -> bool:
         """Whether this operation is an unsafe method on an ``McpReadableViewMixin`` view.

@@ -1589,12 +1589,19 @@ class ProjectViewSet(
         ),
     }
 
+    # Ownership transfer promotes a member to OWNER, authority a revoked token does not
+    # take back (#3847). Read by get_permissions and the OpenAPI schema.
+    token_refused_actions = frozenset({"transfer"})
+
     def get_permissions(self) -> list[BasePermission]:
         # Additively guard the API-token path (ADR-0186 §E): a mcp:read token is
         # confined to safe methods and must carry the scope; human JWT/Session
         # auth passes both guards. Wrapping the action-specific RBAC list here (vs
         # per branch) guarantees no write branch can leak a token past the guards.
-        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+        refused: list[BasePermission] = (
+            [IsNotTokenAuthenticated()] if self.action in self.token_refused_actions else []
+        )
+        return [*self._rbac_permissions(), *refused, *self.mcp_token_guards()]
 
     def _rbac_permissions(self) -> list[BasePermission]:
         # Lifecycle actions (archive/unarchive/destroy/transfer) bypass the

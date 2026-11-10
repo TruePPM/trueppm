@@ -1,7 +1,7 @@
 ---
 title: Workspace Settings
 description: Configure the TruePPM workspace — general settings, workspace roles, email invites, and groups with project-access cascade.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 
@@ -715,6 +715,17 @@ groups, programs, projects, tasks, baselines, and history. The export runs in th
 background and TruePPM emails a download link when it is ready; the link expires after a
 few days. Take an export before either of the destructive actions below. See
 [Data export](/administration/data-export/).
+
+:::note[Ships in 0.5]
+From 0.5, a workspace export, ownership transfer, invite, member role change and group
+change will all require a signed-in session: an API token (including an Owner's personal
+access token) will be refused with `403`. A leaked token then cannot exfiltrate the whole
+workspace or mint access that revoking it would not undo. Automating workspace backups
+with a token will not be supported; use the database backup path in
+[backup and restore](/administration/backup-restore/) for scheduled backups.
+
+In 0.4, a token is accepted on all of these routes.
+:::
 
 The archive leaves out credentials (API tokens, integration credentials, webhook
 secrets, invite tokens) and one piece of task content: the **free-text blocker
