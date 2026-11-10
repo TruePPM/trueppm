@@ -741,11 +741,7 @@ release it is scheduled for:
   ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); percentile
   estimation is imprecise at very low run counts (10–11 runs), where the
   reported P95 can have only 90% of runs on or before it
-  ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)); a completed task that finished before the project start
-  inflates `monte_carlo()`'s finish
-  ([#4430](https://gitlab.com/trueppm/trueppm/-/issues/4430)); zero-variance Monte Carlo and CPM disagree on a non-working
-  `actual_finish` beside a same-day milestone
-  ([#4696](https://gitlab.com/trueppm/trueppm/-/issues/4696)); a zero-duration task drawing real work back-solves through
+  ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)); a zero-duration task drawing real work back-solves through
   FF/SF, so the Monte Carlo P50 can land before the CPM date
   ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)); an exhausted what-if pull-in on an SS/SF link reverses the
   forecast
@@ -814,8 +810,7 @@ they will ship with 0.5 or that release will slip:
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
   calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
-  and actuals class above will be fixed ([#4430](https://gitlab.com/trueppm/trueppm/-/issues/4430), [#4696](https://gitlab.com/trueppm/trueppm/-/issues/4696),
-  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
+  and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
   in-progress task's sampled duration no longer has its optimistic tail
   truncated by subtracting deterministic elapsed time from the sampled total
   ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).
