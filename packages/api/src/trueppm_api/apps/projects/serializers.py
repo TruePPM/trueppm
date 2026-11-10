@@ -5807,9 +5807,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         """
         from rest_framework.exceptions import PermissionDenied
 
-        from trueppm_api.apps.access.permissions import can_manage_backlog
+        from trueppm_api.apps.access.permissions import _is_product_owner, can_manage_backlog
         from trueppm_api.apps.projects.models import TaskType
-        from trueppm_api.apps.teams.services import has_team_facet
 
         existing_type = getattr(self.instance, "type", None)
         # Epic (de)classification: becoming an EPIC, or changing an existing EPIC away.
@@ -5829,7 +5828,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         request = self.context.get("request")
         caller = getattr(request, "user", None) if request else None
         allowed = can_manage_backlog(self._get_caller_role(project)) or (
-            caller is not None and has_team_facet(caller, project.pk, "is_product_owner")
+            caller is not None and _is_product_owner(request, project.pk)
         )
         if not allowed:
             raise PermissionDenied(

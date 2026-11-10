@@ -16739,6 +16739,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         from trueppm_api.apps.projects.services import (
             ScopeAcceptForbidden,
             accept_scope_change,
+            assert_scope_gate_for_project,
             reject_scope_change,
             sprint_pending_count,
         )
@@ -16762,6 +16763,19 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         pending_ids = list(pending_qs.values_list("pk", flat=True))
 
         service = accept_scope_change if accept else reject_scope_change
+        # Resolve the team-owned gate ONCE for this actor and the sprint's project
+        # (#3412): every row in the sprint belongs to the same project, and the
+        # per-row check cost two queries each. Skipped when nothing is pending, so
+        # an empty bulk call still answers 200 as before. A refusal fails the whole
+        # call closed, exactly as the per-row refusal did.
+        if pending_ids:
+            try:
+                assert_scope_gate_for_project(sprint.project_id, request.user)
+            except ScopeAcceptForbidden:
+                return Response(
+                    {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         done: list[Any] = []
         for sc_id in pending_ids:
             try:
@@ -16771,7 +16785,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                         .select_related("task")
                         .get(pk=sc_id, status=ScopeChangeStatus.PENDING)
                     )
-                    result = service(sc, request.user)
+                    result = service(sc, request.user, gate_verified_for_project=sprint.project_id)
             except SprintScopeChange.DoesNotExist:
                 # Decided by a concurrent call between the id scan and the row lock — skip.
                 continue

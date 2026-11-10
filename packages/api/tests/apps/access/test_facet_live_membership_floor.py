@@ -477,3 +477,39 @@ def test_no_production_caller_opts_out_of_the_floor() -> None:
     allowed = {"apps/projects/config_notice.py"}
     unexpected = [o for o in offenders if o.rsplit(":", 1)[0] not in allowed]
     assert unexpected == [], f"authorization seam opted out of the liveness floor: {unexpected}"
+
+
+def test_backlog_structural_gate_facet_lookup_is_request_cached(
+    project: Project, default_team: Team
+) -> None:
+    """#3412: the gate goes through the request-cached ``_is_product_owner``, so a second
+    evaluation on the same request issues no further facet query — and a project count
+    of 1 vs 3 evaluations costs the same."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    live = _live_holder(project, default_team, "ser-cache-live", is_product_owner=True)
+    task = Task.objects.create(project=project, name="Story", type=TaskType.STORY, duration=1)
+    request = _Req(live)
+
+    def run_n(n: int) -> int:
+        serializer = TaskSerializer(instance=task, context={"request": request})
+        with CaptureQueriesContext(connection) as ctx:
+            for _ in range(n):
+                serializer._enforce_backlog_structural_gate({"business_value": 5})
+        return sum(1 for q in ctx.captured_queries if "teams_team_membership" in q["sql"].lower())
+
+    first = run_n(1)
+    assert first >= 1  # the facet really was consulted (guards against a vacuous 0 == 0)
+    assert run_n(3) == 0  # cache is warm for the rest of the request
+
+
+def test_backlog_structural_gate_cache_does_not_leak_across_requests(
+    project: Project, default_team: Team
+) -> None:
+    revoked = _revoked_holder(project, default_team, "ser-cache-revoked", is_product_owner=True)
+    live = _live_holder(project, default_team, "ser-cache-live2", is_product_owner=True)
+    task = Task.objects.create(project=project, name="Story", type=TaskType.STORY, duration=1)
+    _run_structural_gate(project, task, live)
+    with pytest.raises(PermissionDenied):
+        _run_structural_gate(project, task, revoked)
