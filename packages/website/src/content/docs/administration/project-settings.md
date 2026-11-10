@@ -295,9 +295,9 @@ lands in the assignee's notification inbox (and, if they opt in, as email) via t
 against the existing unread nudge, so a still-stale task is not notified twice.
 
 The threshold is a board-level setting on the project, editable by a **Project Manager
-(Admin)** or **Project Admin** via `PATCH /api/v1/projects/{id}/` with
-`{"stale_task_threshold_days": <1–365>}`. A dedicated settings-page control is planned;
-today it is set through the API. Unassigned stale cards are surfaced by the board card's
+(Admin)** or **Project Admin** under **Settings → General → Notification thresholds →
+Stale-task nudge after** (1–365 days). The same value is available through the API via
+`PATCH /api/v1/projects/{id}/` with `{"stale_task_threshold_days": <1–365>}`. Unassigned stale cards are surfaced by the board card's
 *stalled* chip rather than a notification, since there is no single owner to nudge.
 
 ### Project end-date shift threshold
@@ -316,10 +316,10 @@ holiday is not a shift and notifies nobody (see
 Project Manager and Project Admin members; Resource Manager, Team Member, and Viewer roles do not receive this digest.
 
 The threshold is a board-level setting on the project, editable by a **Project Manager
-(Admin)** or **Project Admin** via `PATCH /api/v1/projects/{id}/` with
-`{"end_date_shift_threshold_days": <1–365>}`. A dedicated settings-page control is
-planned; today it is set through the API, the same way as the stale-task threshold
-above.
+(Admin)** or **Project Admin** via the API, `PATCH /api/v1/projects/{id}/` with
+`{"end_date_shift_threshold_days": <1–365>}`. In the app, set it under **Settings →
+General → Notification thresholds → Notify on end-date shift of** (1–365 days), next to
+the stale-task threshold above.
 
 ## Lifecycle
 

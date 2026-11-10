@@ -15793,9 +15793,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     # ADR-0678 (#2482): Sprint.project FK.
     mcp_scope = McpScope.QUERYSET
 
-    queryset = Sprint.objects.select_related("project", "created_by", "target_milestone").filter(
-        is_deleted=False
-    )
+    queryset = Sprint.objects.select_related(
+        "project", "created_by", "target_milestone", "milestone_bound_by"
+    ).filter(is_deleted=False)
     serializer_class = SprintSerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["start_date", "finish_date", "name", "state"]
