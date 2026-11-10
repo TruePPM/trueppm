@@ -239,8 +239,8 @@ def estimate(
         )
     except OSError:
         raise Omit("a transcript could not be read")
-    if not ostats["messages"]:
-        raise Omit("no orchestrator usage in the window")
+    # An orchestrator window that was read and holds no message is a measured 0, not an unmeasurable
+    # estimate: the agents' own usage still prices (#4918). Unreadable transcripts raised above.
     if not sstats["messages"] and not orchestrator_only:
         raise Omit("no subagent usage found for the named agents")
     otot, oper = price_rows(table, orows)
@@ -797,8 +797,11 @@ def _cases(tmp, check):
         today=TODAY,
     )
     check(
-        "an empty orchestrator window omits the line",
-        rc == 1 and o.getvalue() == "" and "no orchestrator usage" in e.getvalue(),
+        "an empty orchestrator window is a measured 0: the agents still price, with their per-model split",
+        rc == 0
+        and o.getvalue().startswith("est-cost-usd: 30.01")
+        and "est-cost: subagent model m-b 30.01 USD" in e.getvalue()
+        and "orchestrator 0 messages 0.00 USD" in e.getvalue(),
         e.getvalue(),
     )
     o, e = io.StringIO(), io.StringIO()
@@ -875,8 +878,8 @@ def _cases(tmp, check):
         today=TODAY,
     )
     check(
-        "--no-agents with no orchestrator usage prints no line and exits 1, never 0",
-        rc == 1 and o.getvalue() == "" and "no orchestrator usage" in e.getvalue(),
+        "--no-agents with no orchestrator usage is a measured 0.00",
+        rc == 0 and o.getvalue().startswith("est-cost-usd: 0.00"),
         repr((rc, e.getvalue())),
     )
     rc, out, err = call(
