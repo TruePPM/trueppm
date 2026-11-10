@@ -484,3 +484,89 @@ class TestBackfillSequenceNumbers:
         webhook.refresh_from_db()
         assert webhook.delivery_sequence == 0
         assert list(WebhookDelivery.objects.values_list("sequence_number", flat=True)) == [0, 0]
+
+
+# ---------------------------------------------------------------------------
+# #1545 — fan-out allocates with one UPDATE per webhook and bulk-inserts
+# ---------------------------------------------------------------------------
+
+
+def _make_hooks(project: Project, user: object, n: int, start: int = 0) -> list[Webhook]:
+    ProjectMembership.objects.get_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    return [
+        Webhook.objects.create(
+            project=project,
+            url=f"https://example.com/h{start + i}",
+            secret="s",
+            events=["task.created"],
+            created_by=user,
+        )
+        for i in range(n)
+    ]
+
+
+def _dispatch_query_count(project: Project) -> int:
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    with (
+        patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()),
+        CaptureQueriesContext(connection) as ctx,
+    ):
+        dispatch_webhooks(str(project.pk), "task.created", dict(_FLAT_TASK_PAYLOAD))
+    return len(ctx.captured_queries)
+
+
+@pytest.mark.django_db
+def test_dispatch_sequences_stay_monotonic_per_webhook_across_many_webhooks(
+    project: Project, user: object
+) -> None:
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    hooks = _make_hooks(project, user, 4)
+    with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()) as delay:
+        for _ in range(3):
+            dispatch_webhooks(str(project.pk), "task.created", dict(_FLAT_TASK_PAYLOAD))
+    # Every delivery row was enqueued.
+    assert delay.call_count == 12
+    for hook in hooks:
+        seqs = list(
+            WebhookDelivery.objects.filter(webhook=hook)
+            .order_by("created_at", "sequence_number")
+            .values_list("sequence_number", flat=True)
+        )
+        assert seqs == [1, 2, 3]
+        hook.refresh_from_db()
+        assert hook.delivery_sequence == 3
+    for d in WebhookDelivery.objects.all():
+        assert d.payload["_meta"]["sequence"] == d.sequence_number
+
+
+@pytest.mark.django_db
+def test_dispatch_query_count_grows_by_one_per_webhook_not_four(
+    project: Project, user: object
+) -> None:
+    """Each extra subscription costs exactly its one allocation UPDATE; the delivery
+    INSERT is a single bulk statement. The pre-fix path spent a savepoint + SELECT FOR
+    UPDATE + UPDATE + INSERT per webhook."""
+    _make_hooks(project, user, 2)
+    two = _dispatch_query_count(project)
+    _make_hooks(project, user, 6, start=2)
+    eight = _dispatch_query_count(project)
+    assert eight - two <= 6  # 6 extra webhooks -> at most 1 statement each
+
+
+@pytest.mark.django_db
+def test_next_delivery_sequence_unknown_webhook_raises(db: object) -> None:
+    import uuid
+
+    from trueppm_api.apps.webhooks.models import _next_delivery_sequence
+
+    with pytest.raises(Webhook.DoesNotExist):
+        _next_delivery_sequence(uuid.uuid4())
