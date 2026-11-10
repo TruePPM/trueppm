@@ -62,6 +62,7 @@ const IN_SCOPE_FIXTURES = [
   'fs_lag_weekend',
   'fs_negative_lag',
   'fs_negative_lag_weekend',
+  'ss_negative_lag_weekend',
   'max_duration_boundary',
   'ff_lag_weekend',
   'ss_lag_weekend',
@@ -130,6 +131,7 @@ const OUT_OF_SCOPE: Record<string, string> = {
   per_task_calendar_six_day: 'engine gap: per-task calendars not modeled',
   per_task_calendar_backward_float: 'engine gap: per-task calendars not modeled',
   per_task_calendar_fs_lag_both_directions: 'engine gap: per-task calendars not modeled',
+  per_task_calendar_ss_cross: 'engine gap: per-task calendars not modeled',
   // #4704: a seven-day predecessor into a Mon-Fri successor (FS, FF, SF).
   driving_edge_cross_calendar_fs: 'engine gap: per-task calendars not modeled',
   driving_edge_cross_calendar_ff: 'engine gap: per-task calendars not modeled',
