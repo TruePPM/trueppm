@@ -46,6 +46,13 @@ const OUT_OF_WEEK = {
   name: 'Later In March',
 };
 
+// A task that began three weeks before the anchored Monday and runs into the window.
+const SPANS_IN = {
+  ...taskRow(77, '2026-02-16', '2026-03-12'),
+  id: 'cw-task-spans-in',
+  name: 'Long Running Phase',
+};
+
 test.describe('Calendar week view (#3167)', () => {
   test.beforeEach(async ({ page }) => {
     await setupAuth(page);
@@ -81,6 +88,24 @@ test.describe('Calendar week view (#3167)', () => {
 
     // A task elsewhere in the same month is outside the week window.
     await expect(page.getByRole('button', { name: /Later In March/ })).toHaveCount(0);
+  });
+
+  test('a task starting before the anchored Monday still shows its name (#3243)', async ({
+    page,
+  }) => {
+    await setupApiMocks(page, {
+      projectId: PROJECT_ID,
+      projects: [{ id: PROJECT_ID, name: 'Week View Project', start_date: '2026-03-01' }],
+      tasks: [...OVERLAPPING, SPANS_IN],
+    });
+    await page.goto(url('week'));
+    await expect(page.getByRole('heading', { level: 2, name: 'Mar 9 – 15, 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const chip = page.getByRole('button', { name: /^Long Running Phase,/ });
+    await expect(chip).toBeVisible();
+    // The visible text, not just the aria-label, carries the name.
+    await expect(chip).toContainText('Long Running Phase');
   });
 
   test('Month still caps at four lanes — the cap is lifted for week only', async ({ page }) => {
