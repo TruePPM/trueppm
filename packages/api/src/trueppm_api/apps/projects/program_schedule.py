@@ -402,6 +402,21 @@ def gather_program_schedule(
         )
         .exclude(pending_acceptance=True)
         .select_related("predecessor", "successor")
+        # Join the two Task rows only for ``project_id`` (slip_conflict and the
+        # links payload compare endpoint projects); every other column read from
+        # a dependency is on the edge itself. A field outside this list would
+        # silently cost one query per edge.
+        .only(
+            "id",
+            "predecessor_id",
+            "successor_id",
+            "dep_type",
+            "lag",
+            "is_driving",
+            "pending_acceptance",
+            "predecessor__project_id",
+            "successor__project_id",
+        )
     )
 
     if not all_sched_tasks:

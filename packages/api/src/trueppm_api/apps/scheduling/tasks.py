@@ -1322,6 +1322,9 @@ def _bulk_write_cpm_results(
                 t.duration = row["duration"]
 
 
+_DEP_SCHEDULE_FIELDS = ("id", "predecessor_id", "successor_id", "dep_type", "lag", "is_driving")
+
+
 def _apply_driving_flags(deps: list[Any], driving_edges: Iterable[Any]) -> None:
     """Set ``is_driving`` on each stored Dependency the engine reports as driving (#2095).
 
@@ -1452,7 +1455,6 @@ def _run_schedule(
             .prefetch_related(
                 "tasks",
                 "tasks__sprint",
-                "tasks__predecessors",
                 "calendar__exceptions",
                 "calendar_layers__calendar__exceptions",
                 "program__calendar__exceptions",
@@ -1549,9 +1551,7 @@ def _run_schedule(
     # Feeding it to the engine keeps a link the user removed in the UI binding the
     # persisted CPM dates forever (#3532).
     db_deps = list(
-        Dependency.live.filter(predecessor__project_id=project_id).select_related(
-            "predecessor", "successor"
-        )
+        Dependency.live.filter(predecessor__project_id=project_id).only(*_DEP_SCHEDULE_FIELDS)
     )
     sched_deps = [
         SchedDependency(
@@ -2302,7 +2302,11 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
         # graph this result came from already excluded soft-deleted edges
         # (gather_program_schedule). Writing flags to a deleted edge would be
         # scoring a constraint that is not in the network (#3532).
-        program_db_deps = list(Dependency.live.filter(predecessor__project_id__in=member_ids))
+        program_db_deps = list(
+            Dependency.live.filter(predecessor__project_id__in=member_ids).only(
+                *_DEP_SCHEDULE_FIELDS
+            )
+        )
         _apply_driving_flags(program_db_deps, graph.result.driving_edges)
 
     # Group the full write-back set by project — this is what defines each member
