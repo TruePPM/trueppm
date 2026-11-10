@@ -147,3 +147,26 @@ describe('MilestoneDeltaAnchor (#2189)', () => {
     expect(card().style.top).toBe('85px');
   });
 });
+
+describe('MilestoneDeltaTooltip viewport clamping', () => {
+  const card = () => screen.getByText('Client Demo').closest('.fixed') as HTMLElement;
+  beforeEach(() => {
+    useDragStore.getState().startDrag('t1');
+    useDragStore.getState().updatePreview([], MILESTONE, 0);
+  });
+
+  it('clamps the right edge so the card stays inside the viewport', () => {
+    renderTooltip(window.innerWidth + 500);
+    expect(card().style.left).toBe(`${window.innerWidth - 176 - 8}px`);
+  });
+
+  it('clamps the left edge to the viewport margin', () => {
+    renderTooltip(0);
+    expect(card().style.left).toBe('8px');
+  });
+
+  it('falls back to the fixed position when the anchor is NaN', () => {
+    renderTooltip(Number.NaN);
+    expect(card().style.left).toBe('120px');
+  });
+});

@@ -1,7 +1,7 @@
 ---
 title: Single sign-on (OIDC & GitHub)
 description: Configure single sign-on so your team logs in through the identity providers you already run — multiple OIDC providers and GitHub at once, with per-provider credentials, a shared redirect URI, allowed domains, and optional member auto-creation. Part of the open-source core.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 Single sign-on lets your team log in through the identity providers you already
@@ -128,7 +128,8 @@ holding a token cannot list, add, edit, delete, or test a provider; it receives
 
 Once a provider is saved, use **Test connection** on it (via **Edit**) to verify
 that — for OIDC — the issuer's discovery document and signing keys are reachable,
-or — for GitHub — that the GitHub API is reachable. When the failure is
+or — for GitHub — that the GitHub API is reachable, and that the saved client secret
+is accepted (see below). When the failure is
 specifically the outbound egress guard blocking a private address — the common
 case for an identity provider running inside your own cluster — the card shows
 an inline hint pointing at `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` instead of only the
@@ -137,9 +138,8 @@ cluster](#running-the-identity-provider-inside-your-cluster) below.
 If you have set that variable and the probe still times out, see [If the allow-list
 does not fix it](#if-the-allow-list-does-not-fix-it-check-your-own-networkpolicy).
 
-:::note[Ships in 0.5]
-**Test connection** also checks the client secret from 0.5 on. Discovery and the
-signing-key fetch succeed with a wrong secret, so a green result used to say
+**Test connection** also checks the client secret. Discovery and the
+signing-key fetch succeed with a wrong secret, so a green result alone says
 nothing about whether sign-in would work. After they pass, the server sends the
 provider's token endpoint an authorization-code request carrying a deliberately
 invalid code, using the same outbound client and egress guard as sign-in. A provider
@@ -154,7 +154,14 @@ wrong secret apart from a right one without signing anyone in:
 | Token endpoint unreachable | The token endpoint could not be reached, or the egress guard blocked it (the same allow-list hint applies). |
 
 The provider's own error description is never shown or stored; the audit row records
-only the outcome code.
+only the outcome code (`client_auth`: `verified`, `rejected`, `unverified` or
+`unreachable`).
+
+:::note[Ships in 0.5]
+The client-secret check above ships in 0.5. In 0.4, **Test connection** only checks
+that the issuer's discovery document and signing keys (OIDC) or the GitHub API are
+reachable, so a green result does not tell you whether the client secret is correct;
+a wrong secret first shows up as a failed sign-in.
 :::
 
 The **Scopes** shown on the form are fixed by the open-source core
@@ -422,7 +429,7 @@ every existing sign-in would silently stop working).
   display name. The client secret never appears in any of them, in any form: a rotation
   records only that it happened. A save that changes nothing writes nothing. From 0.5, each
   **Test connection** attempt also writes a row, passed or failed, recording who ran it,
-  the result, and the failure code (never the upstream error text); 0.4 records none.
+  the result, the client-secret outcome (`client_auth`), and the failure code (never the upstream error text); 0.4 records none.
 - Rows also record whether the change came from a browser session or from a Personal
   Access Token (`actor_kind`), so a scripted change is not indistinguishable from an
   admin sitting at the page.

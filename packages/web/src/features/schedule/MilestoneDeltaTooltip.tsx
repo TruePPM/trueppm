@@ -15,6 +15,11 @@ import { formatShortDate } from '@/features/schedule/scheduleUtils';
 import { dateToLeft } from './engine';
 import type { GanttScaleData } from './engine';
 
+/** Tooltip card width in px — matches the `w-44` class below. */
+const TOOLTIP_WIDTH = 176;
+const VIEWPORT_MARGIN = 8;
+const FALLBACK_LEFT = 120;
+
 interface Props {
   /** Pixel position of the milestone on the timeline (viewport-relative). */
   milestoneLeft: number | null;
@@ -36,12 +41,18 @@ export function MilestoneDeltaTooltip({ milestoneLeft, timelineTop }: Props) {
   const isSlipping = deltaDays > 0;
   const deltaLabel = deltaDays === 0 ? 'On schedule' : `${isSlipping ? '+' : ''}${deltaDays}d`;
 
-  const left = milestoneLeft !== null ? milestoneLeft - 80 : 120;
+  // A NaN anchor (e.g. a scale not yet measured) would render `left: NaN`; fall back to
+  // the fixed position instead. Clamp both edges so a milestone near the right edge of
+  // the viewport does not push the card off-screen.
+  const raw =
+    milestoneLeft !== null && Number.isFinite(milestoneLeft) ? milestoneLeft - 80 : FALLBACK_LEFT;
+  const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - TOOLTIP_WIDTH - VIEWPORT_MARGIN);
+  const left = Math.min(maxLeft, Math.max(VIEWPORT_MARGIN, raw));
 
   return (
     <div
       className="fixed z-50 pointer-events-none"
-      style={{ left: Math.max(8, left), top: timelineTop + 8 }}
+      style={{ left, top: timelineTop + 8 }}
       aria-hidden="true"
     >
       <div className="bg-neutral-surface border border-neutral-border rounded-card px-2.5 py-1.5 shadow-none text-xs w-44">

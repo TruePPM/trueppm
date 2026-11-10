@@ -769,7 +769,8 @@ export function CalendarGrid({
                           chips={chipsByDay.get(dayOffset) ?? []}
                           weekStartIso={wsIso}
                           onTaskClick={onTaskClick}
-                          labelContinuation={isWeek}
+                          // Row 0 in month mode: a task that began before the grid would otherwise be nameless.
+                          labelContinuation={isWeek || weekIdx === 0}
                         />
                       </div>
                     );
