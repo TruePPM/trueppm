@@ -1,0 +1,27 @@
+{
+  "id": "p-ptc-ss-cross",
+  "name": "Per-task calendars: SS, FF and SF lag consumed on the successor's calendar",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Mon-Fri anchor", "duration": 432000.0},
+    {"id": "B", "name": "Seven-day SS successor", "duration": 345600.0, "calendar_id": "seven"},
+    {"id": "C", "name": "Mon-Fri FF successor", "duration": 172800.0},
+    {"id": "D", "name": "Seven-day SF successor", "duration": 172800.0, "calendar_id": "seven"},
+    {"id": "E", "name": "Mon-Fri negative SS successor", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS", "lag": 345600.0},
+    {"predecessor_id": "B", "successor_id": "C", "dep_type": "FF", "lag": 86400.0},
+    {"predecessor_id": "C", "successor_id": "D", "dep_type": "SF", "lag": 172800.0},
+    {"predecessor_id": "B", "successor_id": "E", "dep_type": "SS", "lag": -86400.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  },
+  "calendars": {
+    "seven": {"working_days": 127, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+  }
+}
