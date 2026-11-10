@@ -32,6 +32,10 @@ Waterfall hides Backlog and Sprints; Agile hides Schedule and Calendar; Hybrid h
 
 The default for new projects is **Hybrid** — every tab visible. Existing projects (created before ADR-0041 landed) all default to Hybrid; no behavior change.
 
+:::note[Ships in 0.5]
+When a project is created through the API without a `methodology`, 0.5 stores the program's effective methodology (or the workspace default for a standalone project) instead of Hybrid. In the current release such a project is stored as Hybrid; the New project sheet is unaffected because it always sends the value. An explicit `methodology` always wins.
+:::
+
 ## Why hide tabs but not gate routes
 
 The preset communicates *"this is not how we work here"*, not *"this is not allowed."* Power users who know what they want can always reach a hidden view by direct URL. Mobile or API consumers are unaffected. Hiding lowers cognitive load at onboarding without restricting the system.
