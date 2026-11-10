@@ -2488,7 +2488,7 @@ def golden_cases(check):
                 '#!/bin/sh\nexec "%s" "%s" "$@"\n'
                 % (sys.executable, os.path.join(GOLDEN, "fake-glab.py"))
             )
-        os.chmod(shim, 0o755)
+        os.chmod(shim, 0o700)
         gstate = os.path.join(tmp, "glab-state.json")
         with open(gstate, "w", encoding="utf-8") as f:
             json.dump({"mrs": sc["mrs"], "notes": {}, "next_id": 1}, f)
@@ -3473,7 +3473,7 @@ def golden_two_repos(check):
                 '#!/bin/sh\nexec "%s" "%s" "$@"\n'
                 % (sys.executable, os.path.join(GOLDEN, "fake-glab.py"))
             )
-        os.chmod(shim, 0o755)
+        os.chmod(shim, 0o700)
         empty = os.path.join(tmp, "gitconfig")
         open(empty, "w").close()
         os.environ.update(
@@ -3669,7 +3669,7 @@ def golden_worktrees(check):
                 '#!/bin/sh\nexec "%s" "%s" "$@"\n'
                 % (sys.executable, os.path.join(GOLDEN, "fake-glab.py"))
             )
-        os.chmod(shim, 0o755)
+        os.chmod(shim, 0o700)
         empty = os.path.join(tmp, "gitconfig")
         open(empty, "w").close()
         gstate = os.path.join(tmp, "glab-state.json")
@@ -4014,7 +4014,7 @@ def golden_sessions(check):
                 '#!/bin/sh\nexec "%s" "%s" "$@"\n'
                 % (sys.executable, os.path.join(GOLDEN, "fake-glab.py"))
             )
-        os.chmod(shim, 0o755)
+        os.chmod(shim, 0o700)
         empty = os.path.join(tmp, "gitconfig")
         open(empty, "w").close()
         gstate = os.path.join(tmp, "glab-state.json")
@@ -5659,8 +5659,8 @@ def _self_test():
         agent_home(
             transcript(
                 ("Edit", {"file_path": wb + "/a.py"}),
-                ("Write", {"file_path": "/tmp/scratch/n.md"}),
-                ("Write", {"file_path": "/tmp/scratch/m.md"}),
+                ("Write", {"file_path": "/scratch-outside/n.md"}),
+                ("Write", {"file_path": "/scratch-outside/m.md"}),
                 ("Bash", {"command": "cd %s" % wa}),
             ),
             wts0,

@@ -7,6 +7,7 @@ what `.claude/skills/mr/SKILL.md` tells an agent to write.
 """
 
 import collections
+import math
 import re
 
 GATE_PREFIX_RE = re.compile(r"^\s*(?:[-*]\s*)?gate:", re.I)
@@ -146,10 +147,8 @@ def _self_test():
         return "## Gates\n" + "\n".join(lines) + "\n"
 
     check("subagent-tokens read", subagent_tokens(wrap("subagent-tokens: 7")) == 7)
-    check(
-        "est-cost-usd read",
-        est_cost_usd(wrap("est-cost-usd: 1.50 (prices 2026-11-01)")) == 1.5,
-    )
+    est = est_cost_usd(wrap("est-cost-usd: 1.50 (prices 2026-11-01)"))
+    check("est-cost-usd read", est is not None and math.isclose(est, 1.5))
     check(
         "orchestrator-tokens read",
         orchestrator_tokens(wrap("orchestrator-tokens: 9")) == 9,
