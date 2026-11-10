@@ -971,7 +971,58 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
         _project_reference_errors(i, project, ctx, errors)
 
     _v21_reference_errors(payload, ctx, errors)
+    _dependency_graph_errors(projects, errors)
     return errors
+
+
+def _dependency_graph_errors(projects: list[dict[str, Any]], errors: list[str]) -> None:
+    """Refuse a self-referential or cyclic dependency graph before any row is written.
+
+    The seed importer persists edges with a bulk insert, which bypasses the
+    ``DependencySerializer`` cycle check; ADR-0259's ``validate_task_graph`` is the
+    guard every bulk writer shares, so the seed path runs it here — at validation
+    time, so the refusal is a ``SeedValidationError`` (a 400 from the import
+    endpoint) with nothing persisted, not a CPM engine that meets an infeasible
+    graph on the recalculation the import itself enqueues.
+
+    Edges whose endpoints do not resolve are skipped: ``_check_dependencies`` has
+    already reported them, and a dangling ref cannot form a cycle.
+    """
+    from trueppm_scheduler import InvalidScheduleInput
+
+    from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError, validate_task_graph
+
+    known = {
+        f"{p.get('slug', '')}:{t.get('wbs_path')}" for p in projects for t in p.get("tasks", [])
+    }
+    children: dict[str, list[str]] = {}
+    for node in known:
+        slug, _, wbs = node.partition(":")
+        parent = wbs.rpartition(".")[0]
+        if parent and f"{slug}:{parent}" in known:
+            children.setdefault(f"{slug}:{parent}", []).append(node)
+
+    def qualify(ref: Any, slug: str) -> str | None:
+        if not isinstance(ref, str):
+            return None
+        node = ref if ":" in ref else f"{slug}:{ref}"
+        return node if node in known else None
+
+    edges: list[tuple[str, str]] = []
+    for project in projects:
+        slug = project.get("slug", "")
+        for dep in project.get("dependencies", []):
+            pred = qualify(dep.get("predecessor"), slug)
+            succ = qualify(dep.get("successor"), slug)
+            if pred is not None and succ is not None:
+                edges.append((pred, succ))
+    try:
+        validate_task_graph(edges, children_map=children)
+    except InfeasibleGraphError as exc:
+        what = "a task depends on itself" if exc.reason == "self_reference" else "dependency cycle"
+        errors.append(f"$.projects[*].dependencies: {what}: {' -> '.join(exc.offending)}")
+    except InvalidScheduleInput as exc:
+        errors.append(f"$.projects[*].dependencies: malformed dependency graph: {exc}")
 
 
 def _build_project_index(

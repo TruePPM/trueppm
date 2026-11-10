@@ -739,3 +739,33 @@ def test_a_container_diagnostic_does_not_echo_the_whole_payload() -> None:
     over_long = [e for e in report.errors if len(e) > MAX_SEED_ERROR_CHARS + 64]
     assert over_long == [], over_long[:1]
     assert any("truncated" in e for e in report.errors), report.errors[:2]
+
+
+def test_dependency_cycle_is_refused_before_any_write() -> None:
+    """The bulk insert bypasses the serializer's cycle check, so validation owns it (#2589)."""
+    seed = _valid_seed()
+    # platform-core:1 -> migration-tooling:1 already exists; close the loop.
+    seed["projects"][0]["dependencies"] = [
+        {"predecessor": "1", "successor": "migration-tooling:1", "dep_type": "FS"}
+    ]
+    seed["projects"][1]["dependencies"] = [
+        {"predecessor": "platform-core:1", "successor": "1", "dep_type": "FS"},
+        {"predecessor": "1", "successor": "platform-core:1", "dep_type": "FS"},
+    ]
+    _expect_error(seed, "dependency cycle")
+
+
+def test_self_referencing_dependency_is_refused() -> None:
+    seed = _valid_seed()
+    seed["projects"][1]["dependencies"] = [{"predecessor": "1", "successor": "1", "dep_type": "FS"}]
+    _expect_error(seed, "depends on itself")
+
+
+def test_every_bundled_sample_passes_the_dependency_graph_guard() -> None:
+    import json
+
+    from trueppm_api.apps.projects.seed.samples import SAMPLES
+
+    for sample in SAMPLES.values():
+        payload = json.loads(sample.path.read_text(encoding="utf-8"))
+        validate_seed(payload, allow_sample_sections=True)
