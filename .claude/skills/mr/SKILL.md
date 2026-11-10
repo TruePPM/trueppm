@@ -193,10 +193,13 @@ Rules:
   would split one diff's findings across two counters and corrupt both yields. Absence
   from this list means "not a findings gate", not "forgotten" (#2616).
 - **Cost lines — ask the cost-ledger setting first** (`docs/harness/cost-ledger.md`): run
-  `scripts/cost-ledger enabled`. Exit 0 (on): write the lines below when you hold their figures.
-  Exit 1 (off): write the one line `cost-ledger: off` under the last `gate:` line, and no
+  `scripts/cost-ledger enabled` on its own line, with no command before it that can fail, and act
+  on the word it **prints** (`on`, `off`, `unreadable`), never on a bare `$?`: a failed `cd`
+  earlier in the command leaves 1, which looks like "off" (#4918). No word printed means the
+  script did not run: fix the command and ask again. `on` (exit 0): write the lines below when you
+  hold their figures. `off` (exit 1): write the one line `cost-ledger: off` under the last `gate:` line, and no
   `subagent-tokens:`, `orchestrator-tokens:` or `est-cost-usd:` line; do not run
-  `scripts/post-mr-cost.py`, and post no cost comment. Exit 2 (unreadable): the same, plus the `## Notes` line "cost ledger
+  `scripts/post-mr-cost.py`, and post no cost comment. `unreadable` (exit 2): the same, plus the `## Notes` line "cost ledger
   setting unreadable; nothing recorded". The marker never names the layer that turned it off.
   `budget-exceeded:` is not a cost line and is written either way. The three lines are **not in
   the template**: a template slot only invites an estimate. `/wave` is the writer that holds real

@@ -1390,6 +1390,23 @@ def measure(
 OUTCOME = {"why": ""}
 
 
+def marker_contradiction(iid, sid):
+    """The message for an MR description that carries `cost-ledger: off` while the effective setting
+    is on. Posting over the marker would override a line a person may have meant, so nothing is
+    posted; the repair is theirs to make."""
+    return (
+        "MR !%d: no cost record posted. Its description carries `cost-ledger: off`, but the cost-ledger "
+        "setting is on (scripts/cost-ledger status), so the marker contradicts it. If the marker is a "
+        "mistake, remove that line from the description, then run: python3 scripts/post-mr-cost.py "
+        "--retry --mr %s --session %s. If you meant off, opt out with scripts/cost-ledger off --local."
+        % (
+            iid,
+            iid,
+            sid if SESSION_RE.match(sid or "") else "<session-id>",
+        )
+    )
+
+
 def quiet(why):
     """Record why the hook stayed silent (for the log) and return None."""
     OUTCOME["why"] = why
@@ -1511,6 +1528,19 @@ def rollback_foreign(root, claims):
             pass
 
 
+def description_budget_lines(description):
+    """The description's first well-formed `budget-exceeded:` line as a one-item list, else [].
+    Read with scripts/lib/ledger_lines so it is the same line cost-table.py would read from the
+    description itself; a malformed line is dropped, as it is never counted anywhere."""
+    import ledger_lines as gy
+
+    body = _cost_table().strip_comments(str(description or ""))
+    for line in gy.ledger_lines(body):
+        if gy.budget_line(line):
+            return [line.strip()]
+    return []
+
+
 def post_record(
     runner,
     cwd,
@@ -1528,8 +1558,12 @@ def post_record(
     round_k,
     project,
     foreign=None,
+    description="",
 ):
     """Measure, post through cost-table.py and advance the state. Returns (message, ok).
+
+    `description` is the MR description: record 1's ledger file carries its well-formed
+    `budget-exceeded:` line, which is not a measured line and so exists nowhere else (#4918).
 
     Other sessions' subagents (`foreign`, select_foreign) are claimed write-ahead: the pending claim names
     each one with its watermark before (`from`) and after (`to`), and their sessions' watermarks are
@@ -1552,9 +1586,10 @@ def post_record(
     )
     # `subagent-tokens: 0` is what --no-agents prints (a measured zero, not usage), so on its own it
     # must not turn an empty window into a record of zeros.
+    # `orchestrator-tokens: 0` is likewise a measured zero (an idle orchestrator, #4918), not usage.
     if not any(
-        ln.startswith("orchestrator-tokens:")
-        or (ln.startswith("subagent-tokens:") and ln.split(":")[1].strip() != "0")
+        ln.startswith(("orchestrator-tokens:", "subagent-tokens:"))
+        and ln.split(":")[1].strip() != "0"
         for ln in lines
     ):
         return "nothing measurable in this session window", False
@@ -1617,7 +1652,11 @@ def post_record(
         cmd += ["--ledger", ledger, "--since", since]
     else:
         with open(ledger, "w", encoding="utf-8") as f:
-            f.write("## Gates\n" + "\n".join(lines) + "\n")
+            f.write(
+                "## Gates\n"
+                + "\n".join(lines + description_budget_lines(description))
+                + "\n"
+            )
         cmd += ["--file", ledger, "--since", since]
     cmd += [
         "--post",
@@ -1892,7 +1931,10 @@ def process(payload, opts=None, runner=run, project=None):
             % (iid, manual)
         )
     if OFF_MARKER_RE.search(str(d.get("description", ""))):
-        return quiet("MR description carries cost-ledger: off")
+        # The setting is on here (rc == 0 above), so the marker contradicts it. Say so: a silent skip
+        # left a session with no record and no hint why (#4918).
+        quiet("MR description carries cost-ledger: off while the setting is on")
+        return marker_contradiction(iid, sid)
     gitdir = git_common_dir(runner, cwd)
     if not gitdir:
         return "MR cost comment skipped for !%d: not in a git checkout. %s" % (
@@ -1955,6 +1997,7 @@ def process(payload, opts=None, runner=run, project=None):
             False,
             project,
             foreign,
+            description=str(d.get("description", "")),
         )
     if not ok:
         return "MR cost comment skipped for !%d: %s. %s" % (iid, why, manual)
@@ -1999,7 +2042,7 @@ def process_round(iid, sid, cwd, opts=None, runner=run, explicit=(), project=Non
             % (iid, manual)
         )
     if OFF_MARKER_RE.search(str(d.get("description", ""))):
-        return "MR !%d carries `cost-ledger: off`: no record posted." % iid
+        return marker_contradiction(iid, sid)
     rc, out, nerr = runner(
         [
             sys.executable,
@@ -4964,6 +5007,171 @@ def _self_test():
         )
     finally:
         globals()["glab_json"] = real_glab
+    # #4918: an off marker in the description contradicting an ON setting must be named, with the
+    # repair, in both the hook's and --retry's message; it must never post over the marker.
+    try:
+        globals()["glab_json"] = lambda path, cwd: (
+            {"description": "## Gates\ncost-ledger: off\n", "source_branch": "feat/1-a"}
+            if path.endswith("%d" % 1745)
+            else []
+        )
+        msg = process(payload, runner=runner_for(0)) or ""
+        check(
+            "off marker + setting on: the hook says so and names the repair",
+            "contradicts" in msg
+            and "remove that line" in msg
+            and "--retry --mr 1745 --session abc-123" in msg,
+            msg,
+        )
+        globals()["glab_json"] = lambda path, cwd: (
+            {"description": "x\n- cost-ledger: off\n", "source_branch": "feat/1-a"}
+        )
+        msg = process_round(
+            7,
+            "abc-123",
+            os.getcwd(),
+            runner=lambda cmd, cwd, env=None, timeout=300: (0, "", ""),
+            project="g/p",
+        )
+        check(
+            "off marker + setting on: --retry says so and names the repair",
+            "contradicts" in msg and "--retry --mr 7 --session abc-123" in msg,
+            msg,
+        )
+    finally:
+        globals()["glab_json"] = real_glab
+    desc = (
+        "## Summary\nbudget-exceeded: 9\n<!-- budget-exceeded: 5 -->\n"
+        "## Gates\ngate: x - 0 findings\nbudget-exceeded: 2 (implementer 1, gate 1)\n"
+        "budget-exceeded: 7\n"
+    )
+    check(
+        "record 1 carries the description's well-formed budget-exceeded line",
+        description_budget_lines(desc)
+        == ["budget-exceeded: 2 (implementer 1, gate 1)"],
+        repr(description_budget_lines(desc)),
+    )
+    check(
+        "a malformed or absent budget-exceeded line is not carried",
+        description_budget_lines("## Gates\nbudget-exceeded: 3 (implementer 1)\n") == []
+        and description_budget_lines("") == []
+        and description_budget_lines(None) == [],
+    )
+    # #4918 wiring: process() must hand the MR description to post_record, and post_record must put
+    # the description's budget-exceeded line in record 1's ledger file (the helper alone proves neither).
+    seen = {}
+    saved = {
+        k: globals()[k]
+        for k in (
+            "glab_json",
+            "git_common_dir",
+            "discover",
+            "session_locks",
+            "resolve_pending",
+            "already_commented",
+            "plan",
+            "post_record",
+        )
+    }
+    try:
+        globals()["glab_json"] = lambda path, cwd: {
+            "description": desc,
+            "source_branch": "feat/1-a",
+        }
+        globals()["git_common_dir"] = lambda runner, cwd: tempfile.gettempdir()
+        globals()["discover"] = lambda *a, **k: ({}, None)
+        globals()["session_locks"] = lambda *a, **k: contextlib.nullcontext(None)
+        globals()["resolve_pending"] = lambda *a, **k: (None, None)
+        globals()["already_commented"] = lambda *a, **k: []
+        globals()["plan"] = lambda *a, **k: (
+            "s",
+            False,
+            "d",
+            [],
+            {"orchestrator_until": None, "agents": {}},
+            [],
+            None,
+            NO_FOREIGN,
+        )
+        globals()["post_record"] = lambda *a, **k: (
+            seen.update(description=k.get("description")) or "",
+            True,
+        )
+        process(payload, runner=runner_for(0))
+        check(
+            "process() passes the MR description through to post_record",
+            seen.get("description") == desc,
+            repr(seen),
+        )
+    finally:
+        globals().update(saved)
+    real_measure, real_wp, real_ws = (
+        globals()["measure"],
+        globals()["write_pending"],
+        globals()["write_state"],
+    )
+    pr_dir = tempfile.mkdtemp(prefix="post-mr-cost-wiring-")
+    try:
+        globals()["write_pending"] = lambda *a, **k: True
+        globals()["write_state"] = lambda *a, **k: True
+
+        def pr_run(measured):
+            globals()["measure"] = lambda *a, **k: (measured, [], [])
+            ledgers = []
+
+            def rn(cmd, cwd, env=None, timeout=300):
+                if "--file" in cmd:
+                    with open(cmd[cmd.index("--file") + 1], encoding="utf-8") as f:
+                        ledgers.append(f.read())
+                return 0, "", ""
+
+            res = post_record(
+                rn,
+                pr_dir,
+                5,
+                pr_dir,
+                "abc-123",
+                pr_dir,
+                None,
+                "s",
+                False,
+                "u",
+                [],
+                {"orchestrator_until": None, "agents": {}},
+                "feat/1-a",
+                0,
+                "g/p",
+                description=desc,
+            )
+            return res, ledgers
+
+        res, ledgers = pr_run(["orchestrator-tokens: 100", "subagent-tokens: 0"])
+        check(
+            "record 1's ledger file carries the description's budget-exceeded line",
+            res == ("", True)
+            and len(ledgers) == 1
+            and "budget-exceeded: 2 (implementer 1, gate 1)" in ledgers[0],
+            repr((res, ledgers)),
+        )
+        res, ledgers = pr_run(["orchestrator-tokens: 0", "subagent-tokens: 500"])
+        check(
+            "an empty orchestrator window with subagent usage still posts",
+            res == ("", True) and len(ledgers) == 1,
+            repr((res, ledgers)),
+        )
+        res, ledgers = pr_run(["orchestrator-tokens: 0", "subagent-tokens: 0"])
+        check(
+            "orchestrator 0 and subagent 0 is nothing measurable",
+            res == ("nothing measurable in this session window", False) and not ledgers,
+            repr((res, ledgers)),
+        )
+    finally:
+        globals().update(
+            measure=real_measure, write_pending=real_wp, write_state=real_ws
+        )
+        import shutil
+
+        shutil.rmtree(pr_dir, ignore_errors=True)
     gd = tempfile.mkdtemp(prefix="post-mr-cost-log-")
     subprocess.run(["git", "init", "-q", gd], check=False)
     secret = "glab mr create --description SECRET-TOKEN-xyz"

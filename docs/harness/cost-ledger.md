@@ -53,7 +53,7 @@ project `off`, and on a project that is on it is already the default.
 | Command | What it does |
 |---|---|
 | `scripts/cost-ledger status` | Prints the effective value and the layer that set it, e.g. `cost-ledger: off (set by: git config, local; project: on)`. `--json` prints `effective`, `layer`, `project`, `local`, `global` |
-| `scripts/cost-ledger enabled` | Quiet. Exit 0 on, 1 off, 2 a layer is unreadable. This is what skills and scripts consult |
+| `scripts/cost-ledger enabled` | Prints one word, `on`, `off` or `unreadable`, and exits 0, 1 or 2. Skills act on the printed word, never on a bare `$?`: a failed `cd` (or any command) before the call also leaves 1, which reads as "off" (#4918). A reader that sees no word did not run the script. Scripts consult the exit code, which is unchanged |
 | `scripts/cost-ledger off` / `on` | Edits `.claude/cost-ledger.json` in place (only the value changes). Commit it through a chore MR |
 | `scripts/cost-ledger off --local` / `on --local` | `off` writes `trueppm.costLedger false` to the local git config; `on` only unsets it, and warns when the project still says off |
 
@@ -254,6 +254,13 @@ Work on an MR after its first comment is a further comment, never an edit:
 - **A subagent that keeps working after a record is counted in the next one, once.** Each agent
   has its own watermark (the end of the last record that measured it), and the next record counts
   that agent only for usage after it (`--agent <id>@<since>`, below).
+- **A window with no orchestrator message** (the orchestrator idle while subagents ran) is a
+  **measured 0** when its transcript was read: `scripts/orchestrator-tokens.py` prints
+  `orchestrator-tokens: 0` and `scripts/est-cost.py` prices the agents alone, so the Subagents
+  row keeps its per-model USD (#4918). A transcript that cannot be read still prints no line (exit 2
+  for `orchestrator-tokens.py`, an omitted estimate for `est-cost.py`).
+- **Record 1 and `budget-exceeded:`.** The hook carries the MR description's well-formed
+  `budget-exceeded:` line into record 1, so its row renders that value; a record K never has one.
 - **A window with no subagent** (a typical `/fix-mr` pass) shows a **measured 0** for the
   Subagents row (0 tokens, 0.00 USD; each family `none used`), and Total tokens and Est. cost are
   real, as are the running totals. The 0 comes only from the explicit statement `--no-agents`,
@@ -496,7 +503,8 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
 - **Record 1: the hook.** After any `glab mr create` run through Claude Code's Bash tool, the
   PostToolUse hook `.claude/hooks/post-mr-cost.sh` (registered in `.claude/settings.json`, timeout
   600) runs `scripts/post-mr-cost.py`. It posts nothing when `scripts/cost-ledger enabled` is not 0,
-  when the MR description carries `cost-ledger: off`, or when this user already has a `## Cost of
+  when the MR description carries `cost-ledger: off` (with the setting on, that contradicts it: the hook
+  says so and gives the repair, remove the line, then `--retry`; it never posts over the marker), or when this user already has a `## Cost of
   this MR` comment on the MR (so a record is never posted twice). Otherwise it measures the
   session's next window (above), posts record 1 through `scripts/cost-table.py`, and advances the
   state. The description's ledger lines are the go-ahead snapshot and are **not** what record 1
@@ -553,8 +561,9 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
 - **Cheap pre-filter.** The hook fires on every Bash call, so `post-mr-cost.sh` buffers the payload
   and starts python only when it matches `*glab*mr*create*`; python then re-filters with its own
   stricter `glab mr create` pattern, so a loose shell match is harmless.
-- **What stays silent, and what does not.** A plain `off` (the setting, or `cost-ledger: off` in the
-  description) is a choice and is only logged. An **unreadable** setting, or an MR description
+- **What stays silent, and what does not.** A plain `off` (the setting) is a choice and is only logged.
+  A `cost-ledger: off` marker in a description while the setting is **on** is a contradiction, not a
+  choice: it posts nothing and is reported to the session, with the repair. An **unreadable** setting, or an MR description
   that could not be fetched (so the opt-out marker cannot be checked), posts nothing and is
   reported to the session and logged.
 - **Fail-soft.** The hook always exits 0. A broken transcript layout, an unreadable notes API or

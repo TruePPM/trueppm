@@ -41,8 +41,9 @@ Usage:
 
 Output: `orchestrator-tokens: <N>` on stdout; the breakdown, skip counts and one
         `orchestrator-tokens: model <id> <N>` line per model on stderr.
-Exit:   0 measured - 1 no orchestrator usage in the window (no line printed: an empty
-        window is a wrong window, not a measured 0) - 2 usage error or unreadable input
+Exit:   0 measured; a transcript read successfully with no orchestrator message in the window
+        prints `orchestrator-tokens: 0` (a measured 0: the orchestrator may genuinely have been idle
+        while subagents ran, #4918), with a note on stderr - 1 unused - 2 usage error or unreadable input
         - 3 the cost ledger is off or its setting is unreadable (nothing read, nothing printed)
 """
 
@@ -187,10 +188,9 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
         )
     if stats["messages"] == 0:
         print(
-            "FAIL: no orchestrator usage in the window; check the transcript and --since/--until",
+            "note: no orchestrator usage in the window (measured 0); check --since/--until if that is unexpected",
             file=err,
         )
-        return 1
     print("orchestrator-tokens: %d" % sum(totals), file=out)
     return 0
 
@@ -335,8 +335,8 @@ def _self_test_cases(tmp, lines, check):
     )
     rc, out, err = call(path, "--since", "2027-01-01T00:00:00Z")
     check(
-        "empty window exits 1 and prints no ledger line",
-        rc == 1 and out == "" and "FAIL" in err,
+        "empty window is a measured 0 (exit 0, orchestrator-tokens: 0), never a missing line",
+        rc == 0 and out == "orchestrator-tokens: 0\n" and "measured 0" in err,
         repr((rc, out)),
     )
     for name, args in [
@@ -443,8 +443,8 @@ def _self_test_cases(tmp, lines, check):
         f.write(with_model("z1", "2026-11-01T10:01:00Z", zero, "<synthetic>") + "\n")
     rc, out, err = call(zpath)
     check(
-        "a window holding only empty responses is no usage (exit 1), never a measured 0",
-        rc == 1 and out == "",
+        "a window holding only empty responses is a measured 0",
+        rc == 0 and out == "orchestrator-tokens: 0\n",
         repr((rc, out)),
     )
 

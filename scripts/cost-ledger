@@ -17,7 +17,10 @@ Layers and precedence (docs/harness/cost-ledger.md states this once):
 
 Usage:
   scripts/cost-ledger status [--json]   effective value and the layer that set it
-  scripts/cost-ledger enabled           quiet; exit 0 on, 1 off, 2 a layer is unreadable
+  scripts/cost-ledger enabled           prints one word on stdout, `on`, `off` or `unreadable`;
+                                        exit 0 on, 1 off, 2 a layer is unreadable. Act on the
+                                        printed word, never on a bare `$?`: a failed `cd` before
+                                        the call leaves 1 behind and reads as "off" (#4918)
   scripts/cost-ledger on|off            edit the committed project file (lands through a chore MR)
   scripts/cost-ledger on|off --local    off: git config --local trueppm.costLedger false;
                                         on: unset that key (never writes true)
@@ -174,7 +177,16 @@ def main(argv, root=ROOT, out=sys.stdout, err=sys.stderr):
     cmd, rest = (argv[0], argv[1:]) if argv else (None, [])
     if cmd == "enabled" and not rest:
         st = evaluate(root)
-        return 0 if st["effective"] == "on" else (1 if st["readable"] else 2)
+        # The word, not only the exit code: an exit 1 also comes from any command that failed
+        # before this one ran, and a bare `$?` cannot tell the two apart (#4918).
+        if st["effective"] == "on":
+            print("on", file=out)
+            return 0
+        if st["readable"]:
+            print("off", file=out)
+            return 1
+        print("unreadable", file=out)
+        return 2
     if cmd == "status" and rest in ([], ["--json"]):
         st = evaluate(root)
         if rest:
@@ -289,6 +301,11 @@ def self_test():
                         "enabled exit: " + cell,
                         call("enabled")[0] == (0 if want == "on" else 1),
                     )
+                    check(
+                        "enabled prints its answer: " + cell,
+                        call("enabled")[1] == want + "\n",
+                        repr(call("enabled")),
+                    )
         # The negative control: a local `true` never turns recording on over a project off.
         with open(pfile, "w") as f:
             f.write(template % "off")
@@ -353,6 +370,10 @@ def self_test():
             check(
                 "unreadable project (%s): enabled exits 2" % name,
                 call("enabled")[0] == 2,
+            )
+            check(
+                "unreadable project (%s): enabled prints unreadable" % name,
+                call("enabled")[1] == "unreadable\n",
             )
             check(
                 "unreadable project (%s): status exits 2, says off" % name,
