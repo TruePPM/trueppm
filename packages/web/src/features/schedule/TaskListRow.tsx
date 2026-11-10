@@ -2888,7 +2888,12 @@ function TaskListRowInner({
           query the WBS gridcell is normally the only answer to (regressed
           `schedule-row-chrome.spec.ts` #3078 on exactly this collision
           before the label was added). */}
-      {authoring && (
+      {/* Hidden, not inert, for an editor who chose Read (#3813, rule 302
+          amendment): the hover `+` is found by scanning the row, not reached by
+          a gesture on content, and the toolbar mode chip already says "Read only
+          · Switch to Author to edit". Offering it and refusing after the click
+          read as a bug. */}
+      {authoring && !readOnly && (
         <div role="gridcell" aria-label="Insert row">
           <button
             type="button"
