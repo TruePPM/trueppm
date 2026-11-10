@@ -225,14 +225,14 @@ describe('SprintPanel', () => {
     expect(screen.getByTestId('sprint-burndown-toggle')).toBeVisible();
   });
 
-  it('reveals the burndown only when its pull-on-demand disclosure is opened (#1983)', () => {
+  it('reveals the burndown only when its pull-on-demand disclosure is opened (#1983)', async () => {
     renderPanel({ role: ROLE_SCHEDULER });
     expandPanel();
     // The panel body is open, but the burndown chart is not rendered until the
     // disclosure is expanded — the board never pays for the chart on load.
     expect(screen.queryByTestId('burn-chart')).toBeNull();
     fireEvent.click(screen.getByTestId('sprint-burndown-toggle'));
-    expect(screen.getByTestId('burn-chart')).toBeVisible();
+    expect(await screen.findByTestId('burn-chart')).toBeVisible();
   });
 
   it('SCHEDULER+ sees a "Set capacity" edit affordance when capacity_points is null', () => {
@@ -614,12 +614,12 @@ describe('SprintPanel WIP card body warnings (#546)', () => {
 });
 
 describe('SprintPanel burndown disclosure persistence (#1983)', () => {
-  it('mounts the burndown chart on load when its disclosure was previously opened', () => {
+  it('mounts the burndown chart on load when its disclosure was previously opened', async () => {
     window.localStorage.setItem('trueppm.board.p1.sprintPanel.open.burndown', 'true');
     renderPanel({ role: ROLE_SCHEDULER });
     expandPanel();
     // Disclosure restored open → chart mounts without a second click.
-    expect(screen.getByTestId('burn-chart')).toBeVisible();
+    expect(await screen.findByTestId('burn-chart')).toBeVisible();
     expect(screen.getByTestId('sprint-burndown-toggle')).toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -789,7 +789,7 @@ describe('SprintPanel persisted state edge branches', () => {
     expect(screen.getByTestId('sprint-burndown-toggle')).not.toBeVisible();
   });
 
-  it('still renders a working collapsed panel when localStorage reads throw', () => {
+  it('still renders a working collapsed panel when localStorage reads throw', async () => {
     const getItem = vi
       .spyOn(Storage.prototype, 'getItem')
       .mockImplementation(() => {
@@ -810,7 +810,7 @@ describe('SprintPanel persisted state edge branches', () => {
       expect(screen.queryByTestId('burn-chart')).toBeNull();
       // …and the disclosure still works in memory.
       fireEvent.click(screen.getByTestId('sprint-burndown-toggle'));
-      expect(screen.getByTestId('burn-chart')).toBeVisible();
+      expect(await screen.findByTestId('burn-chart')).toBeVisible();
     } finally {
       getItem.mockRestore();
     }

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { BoardSprintHeader } from './BoardSprintHeader';
@@ -52,6 +52,15 @@ function makeSprint(overrides: Partial<ApiSprint> = {}): ApiSprint {
     committed_task_count: 8,
     ...overrides,
   } as ApiSprint;
+}
+
+// The compact burndown is lazy-loaded (#1536) and this suite runs on fake timers,
+// which stall findBy*'s polling. Resolve the dynamic import, then flush React.
+async function settleLazyChart() {
+  await import('@/features/reports/BurnChart');
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 function mockSprintData(sprint: ApiSprint, snapshots: unknown[] = []) {
@@ -118,7 +127,7 @@ describe('BoardSprintHeader (#1138)', () => {
     expect(screen.queryByTestId('sprint-goal')).toBeNull();
   });
 
-  it('PLANNED future sprint shows the not-started caption', () => {
+  it('PLANNED future sprint shows the not-started caption', async () => {
     const sprint = makeSprint({
       state: 'PLANNED',
       start_date: '2026-04-01',
@@ -127,11 +136,13 @@ describe('BoardSprintHeader (#1138)', () => {
     });
     mockSprintData(sprint, []); // no snapshots -> flat baseline
     renderWithProviders(<BoardSprintHeader sprint={sprint} projectId="p-1" />);
+    // The compact burndown is lazy-loaded (#1536), so its caption arrives async.
+    await settleLazyChart();
     expect(screen.getByText(/Not started/)).toBeInTheDocument();
     expect(screen.getByText(/committed/)).toBeInTheDocument();
   });
 
-  it('COMPLETED sprint shows the closed caption', () => {
+  it('COMPLETED sprint shows the closed caption', async () => {
     const sprint = makeSprint({
       state: 'COMPLETED',
       start_date: '2026-02-01',
@@ -151,6 +162,7 @@ describe('BoardSprintHeader (#1138)', () => {
       },
     ]);
     renderWithProviders(<BoardSprintHeader sprint={sprint} projectId="p-1" />);
+    await settleLazyChart();
     expect(screen.getByText('Closed')).toBeInTheDocument();
     // After-phase counter reads "Completed {finish}".
     expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();

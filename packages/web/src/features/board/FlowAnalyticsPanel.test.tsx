@@ -101,12 +101,17 @@ describe('FlowAnalyticsPanel', () => {
     expect(screen.getByTestId('cycle-lead-strip')).toBeTruthy();
   });
 
-  it('paints chart fills with rgb(var(--…)) tokens, never the dead --color- prefix (issue 1791)', () => {
+  it('paints chart fills with rgb(var(--…)) tokens, never the dead --color- prefix (issue 1791)', async () => {
     // The dead `var(--color-…)` refs fell back to SVG-default black — illegible on
     // the dark navy surface. The correct wrapped form must reach the rendered SVG.
     setMetrics(POPULATED);
     renderWithProviders(<FlowAnalyticsPanel projectId="p1" />);
     expand();
+    // The chart bodies are lazy-loaded (#1536): wait for Recharts to resolve and
+    // the skeleton fallbacks to be replaced before reading the SVG markup.
+    await screen.findByText('Cumulative flow');
+    await screen.findByText('Throughput / week');
+    expect(screen.queryByTestId('flow-chart-skeleton')).toBeNull();
     const charts = screen.getByTestId('flow-analytics-charts');
     const markup = charts.innerHTML;
     expect(markup).toContain('rgb(var(--');

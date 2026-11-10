@@ -1,7 +1,6 @@
 import { CheckIcon, MilestoneIcon, RadioDotIcon, WarningIcon } from '@/components/Icons';
-import { useEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
 
-import { BurnChart } from '@/features/reports/BurnChart';
 import {
   daysUntil,
   forecastScopeCaption,
@@ -22,6 +21,12 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { toast } from '@/components/Toast/toast';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { ApiSprint, BoardCadence } from '@/types';
+
+// Lazy so Recharts stays out of the Board chunk until a burndown renders (#1536);
+// BurnChart is the only other Recharts importer on this route.
+const BurnChart = lazy(() =>
+  import('@/features/reports/BurnChart').then((m) => ({ default: m.BurnChart })),
+);
 
 interface Props {
   projectId: string;
@@ -247,7 +252,16 @@ function BurndownDisclosure({ sprintId, storageKey }: { sprintId: string; storag
       <div id={bodyId} hidden={!open}>
         {open && (
           <div className="pt-3" data-testid="sprint-burndown-body">
-            <BurnChart sprintId={sprintId} defaultVariant="burndown" />
+            <Suspense
+              fallback={
+                <div
+                  className="h-48 motion-safe:animate-pulse rounded-card bg-neutral-surface-sunken"
+                  aria-hidden="true"
+                />
+              }
+            >
+              <BurnChart sprintId={sprintId} defaultVariant="burndown" />
+            </Suspense>
           </div>
         )}
       </div>
