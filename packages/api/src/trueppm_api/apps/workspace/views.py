@@ -105,11 +105,9 @@ class SessionOnlyWritesMixin:
     can serve a token-readable GET and a session-only POST.
     """
 
-    request: Request
-
     def get_permissions(self) -> list[BasePermission]:
         perms: list[BasePermission] = super().get_permissions()  # type: ignore[misc]
-        if self.request.method not in SAFE_METHODS:
+        if self.request.method not in SAFE_METHODS:  # type: ignore[attr-defined]
             perms.append(IsNotTokenAuthenticated())
         return perms
 
