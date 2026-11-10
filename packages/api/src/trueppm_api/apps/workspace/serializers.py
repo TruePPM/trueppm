@@ -450,6 +450,13 @@ class WorkspaceInviteCreateSerializer(serializers.Serializer[Any]):
         return value
 
 
+class InviteAcceptResponseSerializer(serializers.Serializer[Any]):
+    """Success body of ``POST /workspace/invites/accept/`` (#3448)."""
+
+    detail = serializers.CharField()
+    username = serializers.CharField()
+
+
 class InviteAcceptSerializer(serializers.Serializer[Any]):
     """POST body to accept an invite. username/password required only when no
     account already exists for the invited email."""

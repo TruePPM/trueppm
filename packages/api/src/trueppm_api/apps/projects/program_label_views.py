@@ -23,6 +23,7 @@ from typing import Any
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -169,6 +170,22 @@ class ProgramLabelTaskViewSet(mixins.ListModelMixin, viewsets.GenericViewSet[Tas
         return response
 
 
+class LabelCatalogEntrySerializer(serializers.Serializer[Any]):
+    """One distinct label name and the number of projects carrying it."""
+
+    name = serializers.CharField()
+    project_count = serializers.IntegerField()
+
+
+class ProgramLabelCatalogSerializer(serializers.Serializer[Any]):
+    """Envelope of ``GET .../label-catalog/`` (#3448): entries plus the withheld count."""
+
+    results = LabelCatalogEntrySerializer(many=True)
+    withheld_project_count = serializers.IntegerField(
+        help_text="Projects in the program the caller cannot read, omitted from results."
+    )
+
+
 class ProgramLabelCatalogView(APIView):
     """Distinct label names across a program, with the number of projects using each.
 
@@ -178,6 +195,7 @@ class ProgramLabelCatalogView(APIView):
 
     permission_classes = [IsAuthenticated, IsProgramMember]
 
+    @extend_schema(responses={200: ProgramLabelCatalogSerializer})
     def get(self, request: Request, program_pk: str) -> Response:
         program = get_object_or_404(Program.objects.filter(is_deleted=False), pk=program_pk)
         readable_ids, withheld = _readable_project_ids(request, program)

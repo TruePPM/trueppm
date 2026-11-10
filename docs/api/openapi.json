@@ -14680,7 +14680,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramLabelCatalog"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -49482,7 +49489,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceEmailSettingsDocument"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -49541,7 +49555,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceEmailSettingsDocument"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -49633,7 +49654,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceEmailSettingsDocument"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -49708,7 +49736,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceEmailHealth"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -51439,7 +51474,14 @@
                 "security": [],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/InviteAcceptResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -55353,6 +55395,15 @@
                 "description": "* `baseline` - baseline\n* `program_target` - program_target\n* `none` - none",
                 "x-trueppm-enum": "open"
             },
+            "ConfiguredViaEnum": {
+                "enum": [
+                    "database",
+                    "environment"
+                ],
+                "type": "string",
+                "description": "* `database` - database\n* `environment` - environment",
+                "x-trueppm-enum": "open"
+            },
             "ContentKindEnum": {
                 "enum": [
                     "board",
@@ -58350,6 +58401,22 @@
                     "token"
                 ]
             },
+            "InviteAcceptResponse": {
+                "type": "object",
+                "description": "Success body of ``POST /workspace/invites/accept/`` (#3448).",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "detail",
+                    "username"
+                ]
+            },
             "ItemTypeEnum": {
                 "enum": [
                     "epic",
@@ -58493,6 +58560,22 @@
                     "name",
                     "server_version",
                     "task_count"
+                ]
+            },
+            "LabelCatalogEntry": {
+                "type": "object",
+                "description": "One distinct label name and the number of projects carrying it.",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "project_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "name",
+                    "project_count"
                 ]
             },
             "LabelChip": {
@@ -66561,6 +66644,26 @@
                     "result_summary",
                     "started_at",
                     "status"
+                ]
+            },
+            "ProgramLabelCatalog": {
+                "type": "object",
+                "description": "Envelope of ``GET .../label-catalog/`` (#3448): entries plus the withheld count.",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LabelCatalogEntry"
+                        }
+                    },
+                    "withheld_project_count": {
+                        "type": "integer",
+                        "description": "Projects in the program the caller cannot read, omitted from results."
+                    }
+                },
+                "required": [
+                    "results",
+                    "withheld_project_count"
                 ]
             },
             "ProgramLabelTask": {
@@ -83775,6 +83878,134 @@
                 },
                 "required": [
                     "delivery_id"
+                ]
+            },
+            "WorkspaceEmailHealth": {
+                "type": "object",
+                "description": "Response of ``GET .../workspace/email-settings/health/`` (``HealthResult``, #3448).",
+                "properties": {
+                    "available": {
+                        "type": "boolean"
+                    },
+                    "domain": {
+                        "type": "string"
+                    },
+                    "spf": {
+                        "type": "string",
+                        "description": "One of pass, warn, fail, unknown."
+                    },
+                    "dkim": {
+                        "type": "string",
+                        "description": "One of pass, warn, fail, unknown."
+                    },
+                    "dmarc": {
+                        "type": "string",
+                        "description": "One of pass, warn, fail, unknown."
+                    }
+                },
+                "required": [
+                    "available",
+                    "dkim",
+                    "dmarc",
+                    "domain",
+                    "spf"
+                ]
+            },
+            "WorkspaceEmailSettingsDocument": {
+                "type": "object",
+                "description": "What ``GET``/``PUT``/``PATCH .../workspace/email-settings/`` actually returns (#3448).\n\nThe stored row's fields **plus** the five status keys ``_email_settings_payload``\nadds after serializing. Subclasses the writable serializer rather than restating\nits field list, so a field added there reaches the published response; only the\nfive added keys are named here. Declaring the plain serializer would be\nself-consistent and silently short ``can_edit``, the key the web uses to decide\nwhether the form renders as editable (the #3399 trap).",
+                "properties": {
+                    "transport_mode": {
+                        "$ref": "#/components/schemas/TransportModeEnum"
+                    },
+                    "host": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "port": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "security": {
+                        "$ref": "#/components/schemas/SecurityEnum"
+                    },
+                    "username": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "password_is_set": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "from_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "from_email": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "reply_to": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "dkim_selector": {
+                        "type": "string",
+                        "maxLength": 63
+                    },
+                    "max_recipients": {
+                        "type": "integer",
+                        "maximum": 50,
+                        "minimum": 0,
+                        "description": "Queued emails one drain tick sends, 1-50. 0 means no explicit cap (50 per tick)."
+                    },
+                    "throttle_per_min": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "can_edit": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "configured_via": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ConfiguredViaEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Where the active transport comes from: this row, or process env.\n\n* `database` - database\n* `environment` - environment"
+                    },
+                    "host_configured": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "frontend_base_url": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "frontend_base_url_configured": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "can_edit",
+                    "configured_via",
+                    "from_email",
+                    "frontend_base_url",
+                    "frontend_base_url_configured",
+                    "host_configured",
+                    "password_is_set",
+                    "reply_to",
+                    "updated_at"
                 ]
             },
             "WorkspaceEmailSettingsRequest": {
