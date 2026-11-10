@@ -23,9 +23,11 @@ from trueppm_api.apps.projects.models import (
     CommentAcknowledgement,
     CommentReaction,
     Project,
+    SuggestionState,
     Task,
     TaskAttachment,
     TaskComment,
+    TaskSuggestedAssignee,
 )
 
 User = get_user_model()
@@ -1213,6 +1215,25 @@ class TestCommentReaction:
         assert r.status_code == 403
         assert CommentReaction.objects.filter(comment_id=comment_pk).count() == 0
 
+    def test_wrong_task_pk_in_url_is_404_for_create_and_delete(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """The URL's task_pk must own the comment (#4015)."""
+        other = Task.objects.create(project=project, name="other", duration=1)
+        c = member_client.post(_comment_list_url(project, task), {"body": "nice"}, format="json")
+        made = member_client.post(
+            self._reactions_url(project, task, c.data["id"]), {"emoji": "👍"}, format="json"
+        )
+        assert made.status_code == 201, made.data
+        wrong = self._reactions_url(project, other, c.data["id"])
+        assert member_client.post(wrong, {"emoji": "👍"}, format="json").status_code == 404
+        assert member_client.delete(wrong + f"{made.data['id']}/").status_code == 404
+        assert CommentReaction.objects.filter(pk=made.data["id"]).exists()
+
     def test_user_can_only_remove_own_reaction(
         self,
         member_client: APIClient,
@@ -1378,3 +1399,70 @@ def test_comment_list_query_count_does_not_scale_with_acknowledgements(
         "and get_has_my_reaction/get_my_reaction_id read the prefetch cache instead of "
         "issuing new queries."
     )
+
+
+@pytest.mark.django_db
+class TestSuggestionEndpointPermissionFloor:
+    """accept/decline/revoke are routed directly, not via @action (#4015)."""
+
+    @pytest.fixture
+    def suggestion(
+        self, project: Project, task: Task, member: object, member2: object, memberships: None
+    ) -> TaskSuggestedAssignee:
+        return TaskSuggestedAssignee.objects.create(
+            task=task, suggested_user=member, suggested_by=member2
+        )
+
+    @staticmethod
+    def _url(task: Task, suggestion: TaskSuggestedAssignee, verb: str) -> str:
+        return f"/api/v1/tasks/{task.pk}/suggestions/{suggestion.pk}/{verb}/"
+
+    @pytest.mark.parametrize(
+        "action", ["accept_suggestion", "decline_suggestion", "revoke_suggestion"]
+    )
+    def test_declared_floor_is_explicit(self, action: str) -> None:
+        from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectNotArchived
+        from trueppm_api.apps.projects.views import TaskViewSet
+
+        view = TaskViewSet()
+        view.action = action
+        kinds = {type(p) for p in view._rbac_permissions()}
+        assert {IsProjectMember, IsProjectNotArchived} <= kinds
+
+    def test_accept_by_suggested_user_still_works(
+        self, member_client: APIClient, task: Task, suggestion: TaskSuggestedAssignee
+    ) -> None:
+        r = member_client.post(self._url(task, suggestion, "accept"))
+        assert r.status_code == 200, r.data
+
+    @pytest.mark.parametrize("verb", ["accept", "decline"])
+    def test_archived_project_refuses_response(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        suggestion: TaskSuggestedAssignee,
+        verb: str,
+    ) -> None:
+        Project.objects.filter(pk=project.pk).update(is_archived=True)
+        r = member_client.post(self._url(task, suggestion, verb))
+        assert r.status_code == 403, r.data
+        suggestion.refresh_from_db()
+        assert suggestion.state == SuggestionState.PENDING
+
+    def test_revoke_on_archived_project_is_refused(
+        self,
+        member2_client: APIClient,
+        project: Project,
+        task: Task,
+        suggestion: TaskSuggestedAssignee,
+    ) -> None:
+        Project.objects.filter(pk=project.pk).update(is_archived=True)
+        r = member2_client.post(self._url(task, suggestion, "revoke"))
+        assert r.status_code == 403, r.data
+
+    def test_outsider_is_refused(
+        self, outsider_client: APIClient, task: Task, suggestion: TaskSuggestedAssignee
+    ) -> None:
+        r = outsider_client.post(self._url(task, suggestion, "accept"))
+        assert r.status_code in (403, 404)
