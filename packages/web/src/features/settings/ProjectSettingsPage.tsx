@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { HealthState } from '@/types';
 import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -145,11 +145,23 @@ export type ProjectSettingsRail = 'loading' | 'admin' | 'member';
  */
 export function resolveProjectSettingsRail(input: {
   projectResolved: boolean;
+  /** The project GET errored (as opposed to still in flight) and no payload exists. */
+  projectFailed?: boolean;
   myRole: number | null | undefined;
   isWorkspaceAdmin: boolean | null | undefined;
   canAccessAdminSettings: boolean | undefined;
 }): ProjectSettingsRail {
-  if (!input.projectResolved) return 'loading';
+  if (!input.projectResolved) {
+    // A FAILED project GET never resolves, so 'loading' would hide the admin sections
+    // that own the error + Retry affordance forever. Fall back to the org-wide flag
+    // (the pre-#3005 behavior); an in-flight query still withholds the admin rail.
+    if (input.projectFailed === true) {
+      return input.canAccessAdminSettings === true || input.isWorkspaceAdmin === true
+        ? 'admin'
+        : 'member';
+    }
+    return 'loading';
+  }
   if (input.isWorkspaceAdmin === true) return 'admin';
   if (input.myRole === undefined) {
     return input.canAccessAdminSettings === true ? 'admin' : 'member';
@@ -394,7 +406,13 @@ export function buildProjectSettingsNav({
 
 export function ProjectSettingsPage() {
   const projectId = useProjectId();
-  const { data: project } = useProject(projectId);
+  const { data: project, isError: projectErrored } = useProject(projectId);
+  // Sticky: once the admin sections mount they re-fetch the errored query on mount, and
+  // TanStack reports a data-less refetch as `pending` (isError false). Without the latch
+  // the rail would flip back to member, unmount the sections, and loop.
+  const [projectFailed, setProjectFailed] = useState(false);
+  if (projectErrored && !projectFailed) setProjectFailed(true);
+  if (project !== undefined && projectFailed) setProjectFailed(false);
   const { data: programs } = usePrograms();
   const { data: projects } = useProjects();
   // The Workspace scope tab links to `/settings`, which RequireWorkspaceAdmin
@@ -438,6 +456,7 @@ export function ProjectSettingsPage() {
   const memberView = shouldShowProjectMemberRail(
     resolveProjectSettingsRail({
       projectResolved: project !== undefined,
+      projectFailed,
       myRole: project?.my_role,
       isWorkspaceAdmin,
       canAccessAdminSettings: user?.can_access_admin_settings,

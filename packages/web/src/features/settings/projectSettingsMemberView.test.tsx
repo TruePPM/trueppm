@@ -111,6 +111,24 @@ describe('project settings — member view', () => {
     ).toBe('member');
   });
 
+  it('falls back to the org-wide flag when the project GET failed, so sections can show Retry', () => {
+    const base = {
+      projectResolved: false,
+      projectFailed: true,
+      myRole: undefined,
+      isWorkspaceAdmin: false,
+    };
+    expect(resolveProjectSettingsRail({ ...base, canAccessAdminSettings: true })).toBe('admin');
+    expect(resolveProjectSettingsRail({ ...base, canAccessAdminSettings: false })).toBe('member');
+    expect(resolveProjectSettingsRail({ ...base, canAccessAdminSettings: undefined })).toBe(
+      'member',
+    );
+    // Still in flight (not failed): withheld.
+    expect(
+      resolveProjectSettingsRail({ ...base, projectFailed: false, canAccessAdminSettings: true }),
+    ).toBe('loading');
+  });
+
   it('withholds the full admin rail unless the rail resolves to admin (#3449, rule 379)', () => {
     expect(shouldShowProjectMemberRail('loading')).toBe(true);
     expect(shouldShowProjectMemberRail('member')).toBe(true);

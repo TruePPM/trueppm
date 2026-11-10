@@ -444,12 +444,12 @@ test.describe('Project methodology', () => {
     await baseSetup(page);
     await projectRoutes(page);
 
-    let attempts = 0;
+    let healed = false;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
-      attempts += 1;
       // Two attempts on the initial load (the query client retries once) — fail
       // both, then serve the request the Retry button fires.
-      if (attempts <= 2) {
+      // Fail until Retry is clicked: sections mount after the failure settles and re-fetch on mount (#3005).
+      if (!healed) {
         await r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -466,6 +466,7 @@ test.describe('Project methodology', () => {
     await expect(block.getByText("Couldn't load this project's methodology.")).toBeVisible();
     await expect(block.getByRole('heading', { name: 'Methodology', exact: true })).toBeVisible();
 
+    healed = true;
     await block.getByRole('button', { name: 'Retry' }).click();
     await expect(block.getByRole('radio', { name: /Agile/i, checked: true })).toBeVisible();
   });
