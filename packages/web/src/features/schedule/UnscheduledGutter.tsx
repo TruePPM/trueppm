@@ -1,5 +1,5 @@
 import { countRows, ROW_NOUN, ROW_NOUN_PLURAL } from './rowVocabulary';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ApiSprint, Task } from '@/types';
 import type { GanttScaleData } from './engine';
@@ -135,6 +135,15 @@ export function UnscheduledGutter({
     }
   });
 
+  // The initializer above reads `isDemoReadOnly` once. `/edition/` can resolve
+  // after first mount, so re-assert the demo default when the flag flips true
+  // (#4089) — a layout effect so the tray never paints open first, matching
+  // `useLegendDefaultClosedInDemo`. A toggle the visitor made since mount wins.
+  const userToggledRef = useRef(false);
+  useLayoutEffect(() => {
+    if (isDemoReadOnly && !userToggledRef.current) setCollapsed(true);
+  }, [isDemoReadOnly]);
+
   // Auto-expand when tasks appear for the first time.
   //
   // Suppressed in the demo (#4050 A3): the tray's rows arrive with the first
@@ -188,6 +197,7 @@ export function UnscheduledGutter({
 
   const persistCollapsed = useCallback(
     (val: boolean) => {
+      userToggledRef.current = true;
       setCollapsed(val);
       // Session-only in the demo — see the initializer's note on the shared login.
       if (isDemoReadOnly) return;
