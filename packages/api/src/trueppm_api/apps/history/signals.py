@@ -22,15 +22,17 @@ of a row that may still roll back: receivers must not save it and must defer any
 I/O with ``transaction.on_commit()`` (see ``core/extension_signals.py`` for the
 sender and kwarg conventions this follows).
 
-Known non-firing paths: ``simple_history.utils.bulk_create_with_history`` and
-``bulk_update_with_history`` insert the historical rows with a single
+Known non-firing paths: simple_history's bulk history paths
+(``bulk_create_with_history``, ``bulk_update_with_history`` and
+``bulk_history_create``) insert the historical rows with a single
 ``bulk_create``, which never sends ``post_save``, so this signal does not fire for
-any caller of either helper. A receiver that must see every history row
+any caller of them. A receiver that must see every history row
 (immutable audit stamping) has to read those rows from the table rather than rely
-on this signal. Current callers: ``_clear_sprint_ranks`` (sprint close, #1542),
-the inbound sync write in ``projects/inbound_sync.py``, and the seed importer
-(``projects/seed/importer.py``). Dispatching per row would need a read-back of
-the inserted rows (``bulk_update_with_history`` returns only a count); that was
+on this signal. Current callers: ``_clear_sprint_ranks`` (sprint close, #1542, via
+``bulk_update_with_history``), the seed importer (``projects/seed/importer.py``, via
+``bulk_create_with_history``), and the inbound sync write in
+``projects/inbound_sync.py`` (via ``bulk_history_create``). Dispatching per row would
+need a read-back of the inserted rows (``bulk_update_with_history`` returns only a count); that was
 judged not worth the plumbing on the sprint-close hot path.
 """
 

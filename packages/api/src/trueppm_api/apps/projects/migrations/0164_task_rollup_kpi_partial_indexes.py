@@ -2,21 +2,28 @@
 
 """Partial indexes on ``projects_task`` for the program rollup KPI counts (#1544).
 
-Built with ``AddIndexConcurrently`` (``CREATE INDEX CONCURRENTLY``) rather than a
-plain ``AddIndex``: a plain build holds a ShareLock that blocks task writes for the
-whole build, and ``values-prod.yaml`` runs two API replicas, so the old pod keeps
-serving writes during a rolling deploy (same ruling as 0100, #1015). Unlike 0100
-these indexes are new, so this migration owns them in state and in the database
-(they stay declared in ``Task.Meta.indexes``). ``CONCURRENTLY`` cannot run in a
-transaction, hence ``atomic = False``; a leading repair drops an INVALID index left
-by an interrupted prior build (#4357).
+Built with ``CREATE INDEX CONCURRENTLY`` rather than a plain ``AddIndex``: a plain
+build holds a ShareLock that blocks task writes for the whole build, and
+``values-prod.yaml`` runs two API replicas, so the old pod keeps serving writes
+during a rolling deploy (same ruling as 0100, #1015). Unlike 0100 these indexes are
+new, so this migration owns them in state and in the database (they stay declared
+in ``Task.Meta.indexes``); ``SeparateDatabaseAndState`` carries the state side as
+plain ``AddIndex`` ops and the database side as hand-written ``RunSQL``.
+
+``CONCURRENTLY`` cannot run in a transaction, hence ``atomic = False``. A leading
+repair drops an INVALID index left by an interrupted prior build (#4357), and
+``IF NOT EXISTS`` makes the build idempotent: with ``atomic = False`` the migration
+is recorded only after every operation finishes, so a deploy interrupted between the
+two builds retries with the first index already VALID and must not fail on it.
 """
 
 from django.conf import settings
-from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
 
 from trueppm_api.apps.projects.migration_helpers import repair_invalid_concurrent_index_op
+
+_CRITICAL_IDX = "task_proj_critical_idx"
+_FLOAT_IDX = "task_proj_float_idx"
 
 
 class Migration(migrations.Migration):
@@ -28,22 +35,44 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        repair_invalid_concurrent_index_op("task_proj_critical_idx"),
-        AddIndexConcurrently(
-            model_name="task",
-            index=models.Index(
-                condition=models.Q(("is_critical", True), ("is_deleted", False)),
-                fields=["project"],
-                name="task_proj_critical_idx",
-            ),
-        ),
-        repair_invalid_concurrent_index_op("task_proj_float_idx"),
-        AddIndexConcurrently(
-            model_name="task",
-            index=models.Index(
-                condition=models.Q(("is_deleted", False), ("total_float__isnull", False)),
-                fields=["project", "total_float"],
-                name="task_proj_float_idx",
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                repair_invalid_concurrent_index_op(_CRITICAL_IDX),
+                migrations.RunSQL(
+                    sql=(
+                        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_CRITICAL_IDX} "
+                        "ON projects_task (project_id) "
+                        "WHERE (is_critical AND NOT is_deleted);"
+                    ),
+                    reverse_sql=f"DROP INDEX CONCURRENTLY IF EXISTS {_CRITICAL_IDX};",
+                ),
+                repair_invalid_concurrent_index_op(_FLOAT_IDX),
+                migrations.RunSQL(
+                    sql=(
+                        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_FLOAT_IDX} "
+                        "ON projects_task (project_id, total_float) "
+                        "WHERE (NOT is_deleted AND total_float IS NOT NULL);"
+                    ),
+                    reverse_sql=f"DROP INDEX CONCURRENTLY IF EXISTS {_FLOAT_IDX};",
+                ),
+            ],
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="task",
+                    index=models.Index(
+                        condition=models.Q(("is_critical", True), ("is_deleted", False)),
+                        fields=["project"],
+                        name=_CRITICAL_IDX,
+                    ),
+                ),
+                migrations.AddIndex(
+                    model_name="task",
+                    index=models.Index(
+                        condition=models.Q(("is_deleted", False), ("total_float__isnull", False)),
+                        fields=["project", "total_float"],
+                        name=_FLOAT_IDX,
+                    ),
+                ),
+            ],
         ),
     ]
