@@ -45,6 +45,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
+from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.core.openapi import state_refusal_400
 
@@ -440,7 +441,14 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
     # Plain (non-ClassVar) annotations: DRF's APIView declares these as instance
     # attributes, so overriding them with a ClassVar trips mypy; noqa the RUF012
     # mutable-default lint that the ``views.py`` per-file ignore doesn't reach here.
-    permission_classes: list[type[BasePermission]] = [IsAuthenticated]  # noqa: RUF012
+    # Session/JWT only (#4532), same rule as IntegrationCredentialViewSet (#2878): this
+    # view writes the same connected-account credential, so a leaked personal access
+    # token could otherwise repoint the owner's connection at an attacker-controlled
+    # source and feed the owner's "My Work" with the attacker's items.
+    permission_classes: list[type[BasePermission]] = [  # noqa: RUF012
+        IsAuthenticated,
+        IsNotTokenAuthenticated,
+    ]
     # Share the credential-store rate bucket — connect verifies against the source
     # (an outbound call) and all actions touch the encrypted credential store.
     throttle_classes: list[type[BaseThrottle]] = [ScopedRateThrottle]  # noqa: RUF012

@@ -569,3 +569,32 @@ def test_summary_reports_a_non_boolean_flag_as_off(
     row.save(update_fields=["config"])
 
     assert client.get("/api/v1/me/connections/jira/").json()["poll_enabled"] is False
+
+
+def test_personal_access_token_cannot_manage_connections(
+    user: AbstractBaseUser,
+) -> None:
+    """#4532: a leaked PAT must not repoint the owner's connection (same rule as
+    ``/me/credentials/``, #2878). Session/JWT callers are unaffected (see above)."""
+    import uuid
+
+    from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+    from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken
+
+    raw = f"{TOKEN_PREFIX}{uuid.uuid4().hex}{uuid.uuid4().hex}"
+    ApiToken.objects.create(
+        owner=user,
+        name="leaked",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=user,
+        scopes=[SCOPE_LEGACY_FULL],
+    )
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    url = "/api/v1/me/connections/jira/"
+    assert c.put(url, _connect_body(), format="json").status_code == 403
+    assert c.patch(url, {"poll_enabled": True}, format="json").status_code == 403
+    assert c.delete(url).status_code == 403
+    assert c.get(url).status_code == 403
+    assert not IntegrationCredential.objects.filter(user=user).exists()
