@@ -28,11 +28,28 @@
 # Pages scanned only for this rule (not for closed references) are listed in
 # MILESTONE_ONLY_PAGES; a file passed explicitly gets both rules.
 #
+# Which rules block where (#4925). Both tracker rules read live issue state, so
+# as whole-page checks they turned main red the moment someone closed or
+# re-milestoned a cited issue. Each is split by cause:
+#
+#   MR-caused (TRACKER_GATE_MODE=diff, default — MR, main push, make pre-push;
+#     blocks): a reference on a line the diff ADDS or changes (vs the merge
+#     base) that is closed without the ack marker, or whose release claim
+#     disagrees with the tracker; or an unmarked reference on the closed-rule
+#     page to an issue THIS change closes (tracker_gate_closing_ids — GitLab's
+#     closes_issues on an MR).
+#   tracker-caused (TRACKER_GATE_MODE=drift — scripts/tracker-drift-report.sh,
+#     nightly tracking issue): the same rules on lines the change did not
+#     touch — an issue closed or re-milestoned outside this change.
+#
+# The heading/section consistency rule reads no tracker and runs in both modes.
+#
 # Exit codes:
 #   0  no violations
 #   1  a reference resolves to a closed issue with no ack marker on its own
 #      line, or (default) a lookup could not be resolved at all
 #   2  invocation / setup error (page missing, CI_PROJECT_ID unset)
+#   3  the tracker or the diff base could not be read (fail closed)
 #
 # Modes:
 #   bash scripts/check-known-issues-freshness.sh              # scan the default page
@@ -80,6 +97,9 @@ ISSUE_URL_RE='trueppm/trueppm/-/issues/[0-9]+'
 if [ "${1:-}" = "--self-test" ]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
+  # Legacy cases are full-state (drift); diff-mode cases (#4925) set it per call.
+  export TRACKER_GATE_MODE=drift
+  SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
   # A fake `curl` ahead of PATH drives the real fetch/parse/decide code below
   # without hitting the network. It answers the batched list call
@@ -300,6 +320,40 @@ EOF
   echo "SELF-TEST OK: a heading matching its section's bullet passes."
 
   echo "ALL SELF-TESTS PASSED"
+  # ---- diff mode (#4925): $tmp/repo's first commit is the merge base.
+  mkdir -p "$tmp/repo"
+  printf 'Old entry [#300](https://gitlab.com/trueppm/trueppm/-/issues/300), planned for 0.5.\n' >"$tmp/repo/k.md"
+  git -C "$tmp/repo" init -q
+  git -C "$tmp/repo" add -A
+  git -C "$tmp/repo" -c user.email=t@t -c user.name=t commit -qm base
+  kbase=$(git -C "$tmp/repo" rev-parse HEAD)
+  krun() { # krun <closes> <mock-mode> [milestone]
+    (cd "$tmp/repo" && CI_PROJECT_ID=1 KNOWN_ISSUES_MOCK_MODE="$2" KNOWN_ISSUES_MOCK_MILESTONE="${3:-0.5}" \
+      TRACKER_GATE_MODE=diff TRACKER_GATE_BASE="$kbase" TRACKER_GATE_CLOSES="$1" bash "$SELF" "$tmp/repo/k.md")
+  }
+  krun "" closed >/dev/null 2>&1 || { echo "SELF-TEST FAILED: [diff] an untouched line citing an issue closed elsewhere failed the change." >&2; exit 1; }
+  krun "" open 0.6 >/dev/null 2>&1 || { echo "SELF-TEST FAILED: [diff] an untouched line whose issue was re-milestoned failed the change." >&2; exit 1; }
+  krun "" unfetchable >/dev/null 2>&1 || { echo "SELF-TEST FAILED: [diff] an untouched page needed the tracker." >&2; exit 1; }
+  echo "SELF-TEST OK: [diff] a closed or re-milestoned issue on an untouched line fails no MR, and needs no tracker call."
+  if (cd "$tmp/repo" && CI_PROJECT_ID=1 KNOWN_ISSUES_MOCK_MODE=closed TRACKER_GATE_MODE=drift bash "$SELF" "$tmp/repo/k.md") >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [drift] the nightly report missed a closed issue on an untouched line." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [drift] the nightly report sees the same closed reference."
+  if krun "300" open >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] a change that closes #300 while its entry stays was accepted." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] a change that closes a cited issue and keeps the entry fails before merge."
+  printf 'New entry [#301](https://gitlab.com/trueppm/trueppm/-/issues/301).\n' >>"$tmp/repo/k.md"
+  if krun "" closed >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] a line the change adds citing a closed issue was accepted." >&2; exit 1
+  fi
+  krun "" open >/dev/null 2>&1 || { echo "SELF-TEST FAILED: [diff] an added line citing an open issue was rejected." >&2; exit 1; }
+  echo "SELF-TEST OK: [diff] an added line is checked against the tracker (closed fails, open passes)."
+  rc=0
+  krun "" unfetchable >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 3 ] || { echo "SELF-TEST FAILED: [diff] an unreadable tracker on an added line did not exit 3 (got ${rc})." >&2; exit 1; }
+  echo "SELF-TEST OK: [diff] an unreadable tracker on an added line fails closed (exit 3)."
+
   exit 0
 fi
 
@@ -404,6 +458,41 @@ for extra in $MILESTONE_ONLY_PAGES; do
 done
 heading_consistency "$PAGE" || violations=$((violations + 1))
 
+MODE=$(tracker_gate_mode) || exit 2
+api_failed=0
+if [ "$MODE" = diff ] && [ -n "$ref_rows" ]; then
+  # Keep only rows the change causes (#4925); see the header.
+  base=$(tracker_gate_base) && closing=$(tracker_gate_closing_ids "$API" "$PROJECT" "$TOKEN" "$base") || {
+    if [ "$ALLOW_UNRESOLVED" = "1" ]; then
+      echo "WARN: could not resolve the diff base or closing set — skipping (KNOWN_ISSUES_ALLOW_UNRESOLVED=1)." >&2
+      exit 0
+    fi
+    echo "ERROR: could not resolve the diff base or this change's closing set — failing closed." >&2
+    exit 3
+  }
+  kept=""
+  seen_file=""
+  base_text=""
+  while IFS=$'\t' read -r file line_no iid has_marker claims; do
+    [ -z "$iid" ] && continue
+    if [ "$file" != "$seen_file" ]; then
+      base_text=$(tracker_gate_file_at_base "$base" "$file")
+      seen_file="$file"
+    fi
+    if [ "$has_marker" -ne 1 ] && tracker_gate_has "$iid" "$closing"; then
+      echo "ERROR: ${file}:${line_no} references #${iid}, which this change closes, with no ack marker — take the entry off in this change." >&2
+      violations=$((violations + 1))
+      continue
+    fi
+    line=$(sed -n "${line_no}p" "$file")
+    if ! grep -qxF -- "$line" <<<"$base_text"; then
+      kept+="${file}"$'\t'"${line_no}"$'\t'"${iid}"$'\t'"${has_marker}"$'\t'"${claims}"$'\n'
+    fi
+  done <<<"$ref_rows"
+  echo "INFO: diff mode (#4925) — $(printf '%s' "$kept" | grep -c . || true) reference(s) on lines this change adds checked; drift on untouched lines is reported by tracker:drift-report." >&2
+  ref_rows="$kept"
+fi
+
 if [ -n "$ref_rows" ]; then
   unique_iids=$(printf '%s' "$ref_rows" | cut -f3 | sort -un)
   states_ok=1
@@ -418,6 +507,7 @@ if [ -n "$ref_rows" ]; then
       else
         echo "ERROR: could not fetch issue #${iid} from GitLab API — cannot verify line ${line_no}." >&2
         violations=$((violations + 1))
+        api_failed=1
       fi
       continue
     fi
@@ -460,6 +550,7 @@ if [ "$violations" -gt 0 ]; then
   echo "" >&2
   echo "${violations} docs reference(s) need attention (see CLAUDE.md" >&2
   echo "'do not delete on issue state alone' before removing any entry)." >&2
+  [ "$api_failed" = 1 ] && exit 3
   exit 1
 fi
 

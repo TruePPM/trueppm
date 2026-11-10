@@ -164,13 +164,14 @@ workflow:
     # Scheduled pipelines are permitted only for the Renovate runner
     # (RENOVATE == "true"), the nightly SonarCloud scan (SONAR_SCHEDULED ==
     # "true"), the nightly Keycloak SSO smoke (SSO_NIGHTLY == "true", #2274),
-    # and the nightly release-image existence and chart-resolution checks
-    # (REGISTRY_NIGHTLY == "true", #2803, #3914). Block any other scheduled trigger so a stray schedule can't spin up
+    # the nightly release-image existence and chart-resolution checks
+    # (REGISTRY_NIGHTLY == "true", #2803, #3914), and the nightly tracker-drift
+    # report (TRACKER_DRIFT_NIGHTLY == "true", #4925). Block any other scheduled trigger so a stray schedule can't spin up
     # a full pipeline. Each permitted schedule runs on `main` and falls through
     # to the branch rule below; the SSO schedule only matches sso:integration +
     # ci:build-keycloak-image and the registry schedule only matches
     # registry:release-images, so day-to-day MR/push pipelines are unaffected.
-    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true" && $SSO_NIGHTLY != "true" && $REGISTRY_NIGHTLY != "true"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true" && $SSO_NIGHTLY != "true" && $REGISTRY_NIGHTLY != "true" && $TRACKER_DRIFT_NIGHTLY != "true"'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -964,24 +965,24 @@ suppressions:check:
   # a suppression's justification expires on the day an unrelated issue is
   # closed, which produces no diff for anyone to review.
   #
-  # That is also why this runs on main + schedule and not only on MRs: the event
-  # this catches is an issue closing, not a commit landing. The MR rule is still
-  # here so a newly added marker is validated (real issue, currently open) at the
-  # moment it is written.
+  # The event that produced #2603 is an issue closing, not a commit landing, so
+  # it is tracker drift: tracker:drift-report finds it nightly and files it
+  # (#4925). This job runs in diff mode on MRs and main pushes and blocks only
+  # for a marker the change adds to a closed issue, or keeps to an issue the
+  # change closes — a UI close no longer reds main or every open MR.
   #
   # Opt-in marker, not a bare `#NNNN` scan — see the script header for why
   # matching bare references would make the gate mostly noise.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE != "schedule"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
     # GNU grep — see the note on boundary:imports (#3172). BusyBox grep does not
     # implement --exclude-dir, so this gate reported "no SUPPRESSED-UNTIL markers"
     # on a tree carrying five of them in two tracked files.
-    - apk add --no-cache curl jq bash grep
+    - apk add --no-cache curl jq bash grep git
   script:
     # Self-test first — same reason as boundary:imports (#3172). Asserts the
     # discovery half still finds a marker it is given; a blind grep reds here.
@@ -1015,6 +1016,12 @@ lint:todo-grep:
   # Issue states resolve in one batched call with 429 retry; ISSUES_API_TOKEN
   # is the shared fallback for TODO_GREP_TOKEN (#4452).
   #
+  # Diff mode (#4925): rule 2 blocks only for a TODO(#N) the change adds to a
+  # closed issue, or keeps to an issue the change closes (GitLab's
+  # closes_issues). A pre-existing TODO whose issue closed elsewhere is tracker
+  # drift — tracker:drift-report files it — so an issue close no longer reds
+  # main or every open MR. Needs git for the merge-base diff.
+  #
   # Runs on every MR pipeline. ~5–10s incl. issue-state lookups.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
@@ -1029,6 +1036,9 @@ lint:todo-grep:
 
 lint:claude-md-stale-issues:
   extends: .fast-job
+  # Diff mode (#4925): blocks only for a sentence the change adds, or one citing
+  # an issue the change closes; untouched sentences whose issue closed
+  # elsewhere go to tracker:drift-report.
   # A CLAUDE.md sentence that cites a CLOSED issue and asserts a live defect (open,
   # today, currently, "still unbound", "checks nothing", ...) fails (#4404): CLAUDE.md is read every turn, so a stale "this is an open
   # hole" is believed on every turn. Same unauthenticated, batched, retrying
@@ -1040,7 +1050,7 @@ lint:claude-md-stale-issues:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash curl jq grep sed gawk
+    - apk add --no-cache bash curl jq grep sed gawk git
   script:
     - bash scripts/check-claude-md-stale-issues.sh --self-test
     - bash scripts/check-claude-md-stale-issues.sh
@@ -1552,6 +1562,12 @@ docs:known-issues-freshness:
   # (and "planned for" may not cite a release::stretch issue). Also scans
   # features/monte-carlo.md for that rule.
   #
+  # Diff mode (#4925): both tracker rules block only for lines the change adds
+  # or edits, and for an unmarked reference to an issue the change closes
+  # (GitLab's closes_issues). A close or re-milestone on an untouched line is
+  # tracker drift, filed nightly by tracker:drift-report — the NOTE above now
+  # describes that report, not this job.
+  #
   # Runs on every MR pipeline and on main. ~2-5s.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
@@ -1559,7 +1575,7 @@ docs:known-issues-freshness:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash curl jq
+    - apk add --no-cache bash curl jq git
   script:
     - bash scripts/check-known-issues-freshness.sh --self-test
     - bash scripts/check-known-issues-freshness.sh
@@ -1580,32 +1596,54 @@ lint:scheduler-readme-limitations:
   # shared ISSUES_API_TOKEN) — the gates that bypassed it 429'd main (#4452).
   # Not allow_failure; no `needs:`, so the `changes:` filter cannot orphan it.
   #
-  # NOTE: this reads live tracker state, so a label edit (a new open
-  # scheduler+correctness fix issue, a release:: relabel) turns the job red
-  # with no code change. On MRs it therefore runs only when the README, the
-  # gate, its shared reader, or this file changes — a tracker label edit must
-  # not red unrelated MRs. It always runs on main, where drift is caught and
-  # the README list is edited in the same breath. There is no scheduled run:
-  # the pipeline-level rules block any schedule not on the explicit allowlist,
-  # and siblings do not add one. A tracker-API timeout should retry the JOB,
-  # not silence it.
-  # Not in `make pre-push`: like its siblings it needs the tracker, which the
-  # local gate set deliberately does not.
+  # Diff mode (#4925): blocks only for what the change causes — an entry it
+  # adds for a closed issue, a release::committed issue it adds to "not
+  # committed", an entry it keeps for an issue it closes (GitLab's
+  # closes_issues), or an entry it removes for a still-open defect. Filing a
+  # scheduler bug, closing one from the UI, or relabeling one is tracker
+  # drift: tracker:drift-report files it nightly. This used to red main on
+  # every new scheduler bug (15 of 19 tracker-caused red jobs, 2026-10-27..
+  # 11-10). Runs on EVERY MR, not only README-touching ones: an MR that closes
+  # a listed issue must fail before merge even if it never opens the README.
+  # Mirrored in `make pre-push` (tracker-refs-check). A tracker-API timeout
+  # should retry the JOB, not silence it.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - packages/scheduler/README.md
-        - scripts/check-scheduler-readme-limitations.sh
-        - scripts/lib/gitlab-issues.sh
-        - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash curl jq
+    - apk add --no-cache bash curl jq git
   script:
     - bash scripts/check-scheduler-readme-limitations.sh --self-test
     - bash scripts/check-scheduler-readme-limitations.sh
+
+tracker:drift-report:
+  extends: .fast-job
+  # Nightly tracker-drift report (#4925). The tracker-reading gates above block
+  # an MR or main push only for drift that change causes; drift caused by a
+  # TRACKER edit (an issue filed, closed from the UI, relabeled, re-milestoned)
+  # lands here instead. Runs every gate with TRACKER_GATE_MODE=drift and keeps
+  # ONE tracking issue (label `tracker-drift`, fixed title) in sync: create,
+  # rewrite, reopen, or close it — nothing posted when nothing changed.
+  #
+  # Green on drift by design: the tracking issue is the durable signal, and a
+  # red schedule no commit can fix trains people to ignore red. Red when a
+  # gate cannot read the tracker (fail closed; the issue is left untouched so
+  # an incomplete report cannot close it) or a write fails.
+  #
+  # Needs a pipeline schedule on main with TRACKER_DRIFT_NIGHTLY=true and a
+  # masked, protected TRACKER_DRIFT_TOKEN (project access token, `api` scope,
+  # Reporter+) for the issue writes; reads use ISSUES_API_TOKEN as the gates do.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $TRACKER_DRIFT_NIGHTLY == "true"'
+  before_script:
+    - apk add --no-cache bash curl jq grep sed gawk git coreutils
+  script:
+    - bash scripts/tracker-drift-report.sh --self-test
+    - bash scripts/tracker-drift-report.sh
 
 docs:config-links:
   # Every https://docs.trueppm.com link in the two files an operator actually

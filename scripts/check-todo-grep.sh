@@ -45,12 +45,31 @@
 # unavailable — it downgrades an unresolved lookup back to a WARN and does
 # not fail the job. It is not set anywhere in this repo's own CI.
 #
+# Which rule blocks where (#4925). Rule 2 reads live tracker state, so as a
+# whole-tree check it turned main red whenever an issue closed with a TODO
+# still pointing at it — including an issue closed by a merge through a
+# negated keyword ("Does not fix #4883", !3327). It is split by cause:
+#
+#   MR-caused  (TRACKER_GATE_MODE=diff, the default — MR pipelines, main push,
+#              make pre-push; blocks): a TODO(#N) whose N the change will close
+#              (GitLab's closes_issues on an MR, the branch's commit messages
+#              otherwise — tracker_gate_closing_ids), or a TODO(#N) on a line
+#              the diff ADDS (vs the merge base) whose issue is closed or
+#              unreadable.
+#   tracker-caused (TRACKER_GATE_MODE=drift — scripts/tracker-drift-report.sh,
+#              nightly; files a tracking issue): a pre-existing TODO(#N) whose
+#              issue was closed outside this change.
+#
+# Rules 1 and 3 read only the tree and run identically in both modes.
+#
 # Exit codes:
 #   0  no violations (warnings may have been emitted)
 #   1  STUB:/WIP: marker found, TODO(#NNN) references a closed issue, or a
 #      TODO(#NNN) issue lookup could not be resolved and
 #      TODO_GREP_ALLOW_UNRESOLVED was not set
 #   2  invocation / error unrelated to a specific reference (no roots exist)
+#   3  the tracker or the diff base could not be read (fail closed) and
+#      TODO_GREP_ALLOW_UNRESOLVED was not set
 #
 # Modes:
 #   bash scripts/check-todo-grep.sh             # scan default ROOTS
@@ -63,6 +82,9 @@ set -euo pipefail
 
 if [ "${1:-}" = "--self-test" ]; then
   export GITLAB_ISSUES_SLEEP_OVERRIDE=0
+  # Legacy cases are full-state (drift); diff-mode cases (#4925) set it per call.
+  export TRACKER_GATE_MODE=drift
+  SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
 
@@ -165,6 +187,48 @@ PY
     exit 1
   fi
   echo "SELF-TEST OK: TODO(upstream#NNN) is skipped, never resolved against this project."
+
+  # ---- diff mode (#4925). $tmp/repo is a git repo whose first commit is the
+  # merge base. The mock tracker has #1 closed and every other issue open.
+  mkdir -p "$tmp/repo/src"
+  printf '# TODO(#1): pre-existing, its issue was closed from the UI\n# TODO(#2): open\n' >"$tmp/repo/src/a.py"
+  git -C "$tmp/repo" init -q
+  git -C "$tmp/repo" add -A
+  git -C "$tmp/repo" -c user.email=t@t -c user.name=t commit -qm base
+  base=$(git -C "$tmp/repo" rev-parse HEAD)
+  drun() { # drun <closes> [mock-mode]
+    (cd "$tmp/repo" && PATH="$tmp/bin:$PATH" CI_PROJECT_ID=999999 TODO_GREP_MOCK_MODE="${2:-}" \
+      TRACKER_GATE_MODE=diff TRACKER_GATE_BASE="$base" TRACKER_GATE_CLOSES="$1" bash "$SELF" "$tmp/repo/src")
+  }
+  if ! drun "" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] a pre-existing TODO to an issue closed elsewhere failed the change (tracker drift)." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] a pre-existing TODO(#N) to an issue closed elsewhere fails no MR."
+  if TODO_GREP_MOCK_MODE=x PATH="$tmp/bin:$PATH" CI_PROJECT_ID=999999 TRACKER_GATE_MODE=drift bash "$SELF" "$tmp/repo/src" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [drift] the nightly report did not see the stale TODO(#1)." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [drift] the same pre-existing stale TODO(#1) is reported by the nightly report."
+  if ! drun "" fail >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] an unchanged tree needed the tracker." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] a change that adds no TODO(#N) makes no tracker call."
+  if drun "2" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] a change that closes #2 while TODO(#2) remains was accepted." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] a change that closes an issue still named by a TODO fails before merge."
+  printf '# TODO(#1): a second reference, added by this change\n' >"$tmp/repo/src/b.py"
+  git -C "$tmp/repo" add -A
+  git -C "$tmp/repo" -c user.email=t@t -c user.name=t commit -qm head
+  if drun "" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] a TODO(#N) the change adds to a closed issue was accepted." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] a TODO(#N) the change adds that names a closed issue fails."
+  rc=0
+  drun "" fail >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -ne 3 ]; then
+    echo "SELF-TEST FAILED: [diff] an unreadable tracker on an added TODO did not fail closed with exit 3 (got ${rc})." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] an unreadable tracker on an added TODO fails closed (exit 3)."
 
   exit 0
 fi
@@ -274,18 +338,61 @@ if [ -n "$todo_refs" ]; then
     TOKEN="${TODO_GREP_TOKEN:-${ISSUES_API_TOKEN:-}}"
     closed_count=0
     unresolved_count=0
+    api_failed=0
     unique_iids=$(printf '%s\n' "$todo_refs" | grep -oE '[0-9]+' | sort -un || true)
+    MODE=$(tracker_gate_mode) || exit 2
+    lookup_iids="$unique_iids"
+    if [ "$MODE" = diff ]; then
+      # Only what this change causes (#4925); see the header.
+      base_ok=1
+      base=$(tracker_gate_base) || base_ok=0
+      closing=""
+      if [ "$base_ok" = 1 ]; then
+        closing=$(tracker_gate_closing_ids "$API" "$PROJECT" "$TOKEN" "$base") || base_ok=0
+      fi
+      if [ "$base_ok" != 1 ]; then
+        if [ "$ALLOW_UNRESOLVED" = "1" ]; then
+          echo "WARN: could not resolve the diff base or the closing set — skipping TODO(#NNN) (TODO_GREP_ALLOW_UNRESOLVED=1)." >&2
+          lookup_iids=""
+        else
+          echo "ERROR: could not resolve the diff base or this change's closing set — cannot tell what it causes." >&2
+          exit 3
+        fi
+      else
+        # Line-level: a TODO(#N) is the change's own when the diff ADDS the
+        # line carrying it, even if another TODO(#N) already existed.
+        added_iids=$(for r in "${EXISTING_ROOTS[@]}"; do
+          [ -d "$r" ] && git -C "$r" diff --no-color -U0 "$base" -- . 2>/dev/null
+        done | grep -E '^[+]' | grep -vE '^[+]{3} ' | grep -oE 'TODO\(#[0-9]+\)' |
+          grep -oE '[0-9]+' | sort -un || true)
+        for iid in $unique_iids; do
+          if tracker_gate_has "$iid" "$closing"; then
+            echo "ERROR: TODO(#${iid}) references an issue this change closes — remove the TODO in this change (or drop the closing keyword)." >&2
+            closed_count=$((closed_count + 1))
+          fi
+        done
+        # Only ids rule 2 actually scans at HEAD (same file filters as the tree scan).
+        lookup_iids=$(for iid in $(tracker_gate_minus "$added_iids" "$closing"); do
+          tracker_gate_has "$iid" "$unique_iids" && printf '%s\n' "$iid"
+        done || true)
+        echo "INFO: diff mode (#4925) — $(printf '%s\n' $lookup_iids | grep -c . || true) TODO(#NNN) reference(s) added by this change checked; pre-existing references to issues closed elsewhere are tracker drift, reported by tracker:drift-report." >&2
+      fi
+    fi
     # One batched call with 429 retry instead of one GET per TODO (#4452).
     states_ok=1
-    # shellcheck disable=SC2086  # one iid per word is the intent
-    states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $unique_iids) || states_ok=0
-    for iid in $unique_iids; do
+    states=""
+    if [ -n "$lookup_iids" ]; then
+      # shellcheck disable=SC2086  # one iid per word is the intent
+      states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $lookup_iids) || states_ok=0
+    fi
+    for iid in $lookup_iids; do
       if [ "$states_ok" -ne 1 ]; then
         if [ "$ALLOW_UNRESOLVED" = "1" ]; then
           echo "WARN: could not fetch issue #${iid} from GitLab API — skipping (TODO_GREP_ALLOW_UNRESOLVED=1)." >&2
         else
           echo "ERROR: could not fetch issue #${iid} from GitLab API — cannot verify TODO(#${iid})." >&2
           unresolved_count=$((unresolved_count + 1))
+          api_failed=1
         fi
         continue
       fi
@@ -337,7 +444,12 @@ if [ -n "$bare_hits" ]; then
 fi
 
 if [ "$violations" -gt 0 ]; then
+  [ "${api_failed:-0}" = 1 ] && exit 3
   exit 1
 fi
 
-echo "OK: no STUB:/WIP: markers; TODO(#NNN) references all point at open issues."
+if [ "${MODE:-drift}" = diff ]; then
+  echo "OK: no STUB:/WIP: markers; no TODO(#NNN) this change adds or closes points at a closed issue."
+else
+  echo "OK: no STUB:/WIP: markers; TODO(#NNN) references all point at open issues."
+fi

@@ -32,7 +32,9 @@ if [ "${MOCK_REJECT_TOKEN:-}" = 1 ] && grep -q 'PRIVATE-TOKEN' <<<"$*"; then
   retry=""
 fi
 url="${*: -1}"
-if [ "$code" = 200 ]; then
+if [ "$code" = 200 ] && [[ "$url" == *closes_issues* ]]; then
+  printf '%s' "${MOCK_CLOSES:-[]}"
+elif [ "$code" = 200 ]; then
   printf '%s' "$url" | grep -oE 'iids\[\]=[0-9]+' | cut -d= -f2 |
     jq -R 'tonumber | {iid: ., state: "opened", title: "t\tab"}' | jq -sc .
 else
@@ -116,6 +118,36 @@ ok
 reset 200
 gitlab_issue_states https://api 1 "" >/dev/null
 [ "$(calls)" = 0 ] || fail "empty iid list made a request"
+ok
+
+# 11. closes_issues (#4925): an MR pipeline reads GitLab's own closing set,
+#     keeps only this project's issues, and fails closed when unreadable.
+reset 200
+out=$(CI_MERGE_REQUEST_IID=7 MOCK_CLOSES='[{"iid":5,"project_id":1},{"iid":9,"project_id":2},{"iid":3,"project_id":1}]' \
+  tracker_gate_closing_ids https://api 1 "" deadbeef)
+[ "$out" = $'3\n5' ] || fail "closes_issues not filtered to this project: $out"
+grep -q 'merge_requests/7/closes_issues' "$tmp/calls" || fail "closes_issues endpoint not called"
+grep -q 'JOB-TOKEN' "$tmp/calls" && fail "a JOB-TOKEN header was sent to closes_issues"
+reset 404
+rc=0
+CI_MERGE_REQUEST_IID=7 tracker_gate_closing_ids https://api 1 "" deadbeef >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "unreadable closes_issues did not fail closed (rc=$rc)"
+ok
+
+# 12. Commit-message closing keywords (pre-push, main push): GitLab's default
+#     pattern, lists, URLs — and a NEGATED keyword still counts (#4883).
+out=$(printf '%s\n' 'fix: x' '' 'Closes #10, #11 and #12' 'Does not fix #4883' \
+  'Resolves: https://gitlab.com/trueppm/trueppm/-/issues/77' 'prefix #99 is not a keyword' 'Refs #55' |
+  closing_ids_from_text)
+[ "$out" = $'10\n11\n12\n77\n4883' ] || fail "closing keyword parse wrong: $(printf '%s' "$out" | tr '\n' ' ')"
+out=$(TRACKER_GATE_CLOSES="4 2" tracker_gate_closing_ids https://api 1 "" x)
+[ "$out" = $'2\n4' ] || fail "TRACKER_GATE_CLOSES override not honored: $out"
+ok
+
+# 13. Mode: diff by default, drift on request, anything else is an error.
+[ "$(tracker_gate_mode)" = diff ] || fail "default mode is not diff"
+[ "$(TRACKER_GATE_MODE=drift tracker_gate_mode)" = drift ] || fail "drift mode not honored"
+TRACKER_GATE_MODE=bogus tracker_gate_mode >/dev/null 2>&1 && fail "a bogus mode was accepted"
 ok
 
 echo "gitlab-issues.test.sh: all ${pass} checks passed"

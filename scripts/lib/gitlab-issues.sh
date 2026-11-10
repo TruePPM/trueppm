@@ -1,8 +1,10 @@
 # shellcheck shell=bash
 #
 # Shared issue-state reader for the tracker-reading gates (#4452):
-# check-todo-grep.sh, check-known-issues-freshness.sh, check-mr-followups.sh and
-# check-suppression-issues.sh.
+# check-todo-grep.sh, check-known-issues-freshness.sh, check-mr-followups.sh,
+# check-suppression-issues.sh, check-scheduler-readme-limitations.sh,
+# check-claude-md-stale-issues.sh and tracker-drift-report.sh. Also home of the
+# MR-caused vs tracker-caused split those gates share (#4925, below).
 #
 # Each of them used to issue one GET /issues/:iid per reference, anonymously,
 # with no retry. Anonymous calls get GitLab.com's lowest rate limit, keyed per
@@ -66,11 +68,28 @@ gitlab_issues_by_label() {
 _gitlab_issue_batch() {
   local api="$1" project="$2" token="$3"
   shift 3
-  local query="per_page=100&${GITLAB_ISSUES_QUERY_OVERRIDE:-state=all}" iid url resp status code retry_after body
+  local query="per_page=100&${GITLAB_ISSUES_QUERY_OVERRIDE:-state=all}" iid body
+  for iid in "$@"; do query+="&iids[]=${iid}"; done
+  body=$(_gitlab_get "${api}/projects/${project}/issues?${query}" "$token") || return 2
+  if [ "${GITLAB_ISSUES_WITH_PLAN:-0}" = "1" ]; then
+    # Opt-in extra columns after the title: milestone title, comma-joined
+    # labels. Off by default so every other caller's `cut -f3-` title read
+    # is unchanged.
+    printf '%s' "$body" | jq -r '.[] | [(.iid | tostring), .state, (.title | gsub("[\t\n]"; " ")), (.milestone.title // "-"), ((.labels // []) | join(","))] | @tsv'
+  else
+    printf '%s' "$body" | jq -r '.[] | [(.iid | tostring), .state, (.title | gsub("[\t\n]"; " "))] | @tsv'
+  fi
+}
+
+# _gitlab_get <url> <token-or-empty>
+#
+# One GET with the retry / Retry-After / expired-token policy described at the
+# top of this file. Prints the response body on HTTP 200; returns 2 otherwise.
+# The token travels only as a request header and is never echoed.
+_gitlab_get() {
+  local url="$1" token="$2" resp status code retry_after body
   local attempt=1 max="${GITLAB_ISSUES_MAX_ATTEMPTS:-5}" wait
   local -a auth=()
-  for iid in "$@"; do query+="&iids[]=${iid}"; done
-  url="${api}/projects/${project}/issues?${query}"
   [ -n "$token" ] && auth=(--header "PRIVATE-TOKEN: ${token}")
 
   while :; do
@@ -86,15 +105,8 @@ _gitlab_issue_batch() {
 
     case "$code" in
       200)
-        if [ "${GITLAB_ISSUES_WITH_PLAN:-0}" = "1" ]; then
-          # Opt-in extra columns after the title: milestone title, comma-joined
-          # labels. Off by default so every other caller's `cut -f3-` title read
-          # is unchanged.
-          printf '%s' "$body" | jq -r '.[] | [(.iid | tostring), .state, (.title | gsub("[\t\n]"; " ")), (.milestone.title // "-"), ((.labels // []) | join(","))] | @tsv'
-        else
-          printf '%s' "$body" | jq -r '.[] | [(.iid | tostring), .state, (.title | gsub("[\t\n]"; " "))] | @tsv'
-        fi
-        return
+        printf '%s' "$body"
+        return 0
         ;;
       401)
         if [ "${#auth[@]}" -gt 0 ]; then
@@ -125,5 +137,140 @@ _gitlab_issue_batch() {
     echo "WARN: GitLab issues API returned HTTP ${code:-000}; retrying in ${wait}s (attempt ${attempt}/${max})." >&2
     sleep "${GITLAB_ISSUES_SLEEP_OVERRIDE:-$wait}"
     attempt=$((attempt + 1))
+  done
+}
+
+# ---------------------------------------------------------------------------
+# MR-caused vs tracker-caused split (#4925)
+#
+# The tracker-reading gates used to compare the whole tree against live issue
+# state on every MR and main push, so filing or closing an issue turned main —
+# and then every open MR — red with no code change (21 of 94 main pushes,
+# 2026-10-27..11-10). Each gate now runs in one of two modes:
+#
+#   diff   (default; MR pipelines, main pushes, `make pre-push`) — fail only for
+#          drift THIS change causes: a reference the diff adds to a closed or
+#          missing issue, a reference the diff keeps to an issue the change
+#          closes, or a required reference the diff removes.
+#   drift  (TRACKER_GATE_MODE=drift; only scripts/tracker-drift-report.sh on the
+#          TRACKER_DRIFT_NIGHTLY schedule) — the full-state check: every
+#          reference against the tracker as it is now. Its findings land in one
+#          tracking issue, not in a red pipeline nobody's commit can fix.
+#
+# Unreadable tracker, in either mode, still fails closed (exit 3 by convention).
+# ---------------------------------------------------------------------------
+
+# shellcheck disable=SC2034  # read by the gates that source this file
+TRACKER_UNREADABLE_EXIT=3
+
+# tracker_gate_mode — prints `diff` or `drift`; returns 2 on a bad value.
+tracker_gate_mode() {
+  case "${TRACKER_GATE_MODE:-diff}" in
+    diff | drift) printf '%s\n' "${TRACKER_GATE_MODE:-diff}" ;;
+    *)
+      echo "ERROR: TRACKER_GATE_MODE must be 'diff' or 'drift', not '${TRACKER_GATE_MODE}'." >&2
+      return 2
+      ;;
+  esac
+}
+
+# tracker_gate_base — prints the commit the change is measured against.
+#
+# Order: TRACKER_GATE_BASE (tests) → CI_MERGE_REQUEST_DIFF_BASE_SHA (MR
+# pipeline) → CI_COMMIT_BEFORE_SHA (main push; all-zero on a new ref is
+# skipped) → `git merge-base origin/main HEAD` (pre-push). A base missing from a
+# shallow clone is fetched by sha (Gitaly serves any reachable sha). Returns 2
+# when no base can be resolved — a diff gate with no base cannot tell what the
+# change caused, so the caller fails closed rather than guessing.
+tracker_gate_base() {
+  local base="${TRACKER_GATE_BASE:-${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}}"
+  if [ -z "$base" ] && [ -n "${CI_COMMIT_BEFORE_SHA:-}" ] &&
+    [ -n "${CI_COMMIT_BEFORE_SHA//0/}" ]; then
+    base="$CI_COMMIT_BEFORE_SHA"
+  fi
+  if [ -z "$base" ]; then
+    base=$(git merge-base origin/main HEAD 2>/dev/null || true)
+  fi
+  # A non-MR CI pipeline with no before-sha (a schedule, a manual "Run
+  # pipeline") carries no change to attribute: diff against HEAD itself.
+  if [ -z "$base" ] && [ -n "${CI_PIPELINE_SOURCE:-}" ] &&
+    [ "$CI_PIPELINE_SOURCE" != merge_request_event ]; then
+    base=$(git rev-parse HEAD 2>/dev/null || true)
+  fi
+  if [ -z "$base" ]; then
+    echo "ERROR: cannot resolve the diff base (no CI_MERGE_REQUEST_DIFF_BASE_SHA, CI_COMMIT_BEFORE_SHA or origin/main)." >&2
+    return 2
+  fi
+  if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+    git fetch --quiet --depth=50 origin "$base" >/dev/null 2>&1 || true
+  fi
+  if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+    echo "ERROR: diff base ${base} is not in this clone and could not be fetched." >&2
+    return 2
+  fi
+  printf '%s\n' "$base"
+}
+
+# tracker_gate_file_at_base <base> <file> — prints <file> as it was at <base>
+# (empty when it did not exist). Resolved relative to the file's own directory
+# so it works for any repo the file lives in, including self-test fixtures.
+tracker_gate_file_at_base() {
+  local base="$1" file="$2"
+  git -C "$(dirname "$file")" show "${base}:./$(basename "$file")" 2>/dev/null || true
+}
+
+# closing_ids_from_text — reads text on stdin, prints the issue numbers a
+# GitLab closing keyword would close (default closing pattern: close/fix/
+# resolve/implement in any tense, optional colon, `#N` lists or issue URLs).
+# Deliberately NOT negation-aware: GitLab closes "Does not fix #N" too (#4883),
+# so a superset is the faithful answer. Used where no MR exists yet.
+closing_ids_from_text() {
+  local kw='(clos(e|es|ed|ing)|fix(es|ed|ing)?|resolv(e|es|ed|ing)|implement(s|ed|ing)?)'
+  local ref='(#[0-9]+|https?://[^[:space:]]*/-/issues/[0-9]+)'
+  grep -oiE "(^|[^[:alnum:]_])${kw}:? +(issues? +)?${ref}(( *, *| +and +| *, +and +)${ref})*" |
+    grep -oE '(#|/-/issues/)[0-9]+' | grep -oE '[0-9]+$' | sort -un || true
+}
+
+# tracker_gate_closing_ids <api> <project> <token> <base>
+#
+# Prints the iids this change will close when it merges, one per line.
+#   - TRACKER_GATE_CLOSES set (even empty): used verbatim (self-tests).
+#   - In an MR pipeline (CI_MERGE_REQUEST_IID): GitLab's own
+#     GET /merge_requests/:iid/closes_issues — the authoritative set, covering
+#     the description AND commit messages AND negated matches. Same token
+#     policy as the issue reads; the job token is never sent (#3043).
+#   - Otherwise (pre-push, main push): closing keywords in the commit messages
+#     of <base>..HEAD.
+# Returns 2 when the MR endpoint cannot be read; the caller fails closed.
+tracker_gate_closing_ids() {
+  local api="$1" project="$2" token="$3" base="$4" body
+  if [ -n "${TRACKER_GATE_CLOSES+x}" ]; then
+    printf '%s\n' $TRACKER_GATE_CLOSES | grep -E '^[0-9]+$' | sort -un || true
+    return 0
+  fi
+  if [ -n "${CI_MERGE_REQUEST_IID:-}" ]; then
+    body=$(_gitlab_get "${api}/projects/${project}/merge_requests/${CI_MERGE_REQUEST_IID}/closes_issues?per_page=100" "$token") || {
+      echo "ERROR: could not read this MR's closes_issues from the GitLab API." >&2
+      return 2
+    }
+    # Only issues in THIS project: a cross-project close cannot stale a local #N.
+    printf '%s' "$body" | jq -r --arg p "$project" \
+      '.[] | select(($p | test("^[0-9]+$") | not) or ((.project_id | tostring) == $p)) | .iid' |
+      sort -un
+    return 0
+  fi
+  git log --format=%B "${base}..HEAD" 2>/dev/null | closing_ids_from_text
+}
+
+# tracker_gate_has <id> <newline-list> — 0 when <id> is in the list.
+tracker_gate_has() {
+  grep -qx "$1" <<<"$2"
+}
+
+# tracker_gate_minus <list-a> <list-b> — ids in a, not in b (one per line).
+tracker_gate_minus() {
+  local id
+  for id in $1; do
+    tracker_gate_has "$id" "$2" || printf '%s\n' "$id"
   done
 }
