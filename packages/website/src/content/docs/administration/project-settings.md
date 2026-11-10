@@ -381,9 +381,10 @@ statement of intent, not as a control.
 
 The **Sharing** page generates public, read-only links to this project's schedule or
 board. Anyone holding a link can view it with no login, so a link is a credential —
-revoke it here when it should stop working. Whether this page is available at all
-depends on the workspace (or program) public-sharing policy, which an Owner or Admin may
-override per project. See [Sharing & access](/administration/sharing-and-access/).
+revoke it here when it should stop working. The page is always available, but
+creating a link depends on the workspace (or program) public-sharing policy, which an
+Owner or Admin may override per project. When the effective policy is off, **Create
+link…** is disabled and a line beside it says where the policy is set. See [Sharing & access](/administration/sharing-and-access/).
 
 ## Agents
 

@@ -23,8 +23,9 @@ vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p-1' }));
 // sharing flag and the workspace-admin role. Both reach useQuery, and this file
 // renders without a QueryClientProvider by design, so they are mocked on the
 // unblocked path — these specs are about the page's own create/revoke flow.
+let projectData: { effective_public_sharing: boolean; public_sharing?: boolean | null };
 vi.mock('@/hooks/useProject', () => ({
-  useProject: () => ({ data: { effective_public_sharing: true } }),
+  useProject: () => ({ data: projectData }),
 }));
 vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({ useIsWorkspaceAdmin: () => true }));
 
@@ -80,6 +81,7 @@ function link(overrides: Partial<ShareLink> = {}): ShareLink {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  projectData = { effective_public_sharing: true };
   createMutation = { mutate: createMutate, isPending: false, error: null };
   revokeMutation = { mutate: revokeMutate, isPending: false, error: null };
   sharedLinksResult = { data: [], isLoading: false };
@@ -331,5 +333,29 @@ describe('ProjectSharingPage — failed GET (#3542)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Create link and names the inherited policy when sharing is off by policy', () => {
+    projectData = { effective_public_sharing: false, public_sharing: null };
+    sharedLinksResult = { data: [], isLoading: false };
+    render(<ProjectSharingPage />);
+    const btn = screen.getByRole('button', { name: 'Create link…' });
+    expect(btn).toBeDisabled();
+    expect(screen.getByText(/workspace or program policy/)).toBeInTheDocument();
+    expect(btn).toHaveAttribute('aria-describedby', 'sharing-blocked-reason');
+  });
+
+  it('says the project itself turned sharing off when its own override is false', () => {
+    projectData = { effective_public_sharing: false, public_sharing: false };
+    sharedLinksResult = { data: [], isLoading: false };
+    render(<ProjectSharingPage />);
+    expect(screen.getByRole('button', { name: 'Create link…' })).toBeDisabled();
+    expect(screen.getByText(/turned off for this project/)).toBeInTheDocument();
+  });
+
+  it('keeps Create link enabled when sharing is allowed', () => {
+    sharedLinksResult = { data: [], isLoading: false };
+    render(<ProjectSharingPage />);
+    expect(screen.getByRole('button', { name: 'Create link…' })).toBeEnabled();
   });
 });

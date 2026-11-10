@@ -61,6 +61,20 @@ function headingSlugs(absPath: string): Set<string> {
   return slugs;
 }
 
+/**
+ * How many headings on a page slugify to `fragment`. github-slugger gives the first
+ * occurrence the bare slug and later ones `-1`, `-2`, so a mapped bare anchor that
+ * more than one heading produces silently lands on the first, wrong, one (#4212).
+ */
+function headingSlugCount(absPath: string, fragment: string): number {
+  let n = 0;
+  for (const line of readFileSync(absPath, 'utf8').split('\n')) {
+    const m = /^#{2,4} (.+?)\s*$/.exec(line);
+    if (m && slugifyHeading(m[1]) === fragment) n += 1;
+  }
+  return n;
+}
+
 /** Split `administration/project-settings/#general` into its page and fragment. */
 function splitSlug(slug: string): { page: string; fragment: string | null } {
   const [page, fragment] = slug.split('#');
@@ -141,6 +155,10 @@ describe('SETTINGS_DOCS resolution', () => {
       expect(headingSlugs(absPath), `no heading in ${page}.md slugifies to #${fragment}`).toContain(
         fragment,
       );
+      expect(
+        headingSlugCount(absPath, fragment),
+        `more than one heading in ${page}.md slugifies to #${fragment}; rename the duplicates`,
+      ).toBe(1);
     }
   });
 

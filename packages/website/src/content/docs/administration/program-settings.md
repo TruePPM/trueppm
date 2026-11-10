@@ -47,7 +47,7 @@ override them. **Enforce is an Enterprise capability** — in the community edit
 an enforced policy degrades to a suggestion (no lock), so a program can always
 set its own value.
 
-### Access
+### Write access
 
 Reading a program's settings requires membership on the program. **Writing them
 requires the Program Manager role or above** — the program API gates
@@ -239,7 +239,7 @@ are both present, and a malformed address explains itself under the row rather
 than failing after a round trip. **Remove** asks for a one-click confirmation
 before it deletes a row.
 
-### Access
+### Who can manage the list
 
 Reading and writing the list both require the **Program Manager** role or
 above — managing who is externally pinged is treated as an administrative

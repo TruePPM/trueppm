@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { toast } from '@/components/Toast';
 import { FieldHelp } from '@/components/FieldHelp';
+import { useProject } from '@/hooks/useProject';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useRevokeShareLink, useShareLinks, type ShareLink } from '../hooks/useShareLinks';
@@ -137,6 +138,16 @@ export function ProjectSharingPage() {
   // so this is always set here; coerce to satisfy the string-typed hooks/props.
   const projectId = useProjectId() ?? '';
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Server-resolved policy (ADR-0135: project override ?? program ?? workspace). Gated on
+  // an explicit `=== false` so the button is never disabled while the project loads. The
+  // API exposes only the resolved value plus this project's own override, so the page can
+  // tell "this project turned it off" from "inherited" but not workspace from program.
+  const { data: project } = useProject(projectId);
+  const sharingBlocked = project?.effective_public_sharing === false;
+  const blockedReason =
+    project?.public_sharing === false
+      ? 'Public sharing is turned off for this project. Turn it on in Project Settings → General.'
+      : 'Public sharing is turned off by the workspace or program policy this project inherits. Change it in Workspace Settings → General or the program’s General settings, or override it for this project in Project Settings → General.';
   const { data: links, isLoading, isError, refetch } = useShareLinks(projectId);
 
   const active = (links ?? []).filter((l) => l.isActive);
@@ -168,10 +179,25 @@ export function ProjectSharingPage() {
                 default.
               </p>
             </div>
-            <button type="button" onClick={() => setDialogOpen(true)} className={`${BTN} shrink-0`}>
+            <button
+              type="button"
+              onClick={() => setDialogOpen(true)}
+              disabled={sharingBlocked}
+              aria-describedby={sharingBlocked ? 'sharing-blocked-reason' : undefined}
+              className={`${BTN} shrink-0`}
+            >
               Create link…
             </button>
           </div>
+          {sharingBlocked ? (
+            <p
+              id="sharing-blocked-reason"
+              role="status"
+              className="mt-2 text-[11px] text-neutral-text-secondary"
+            >
+              {blockedReason}
+            </p>
+          ) : null}
         </div>
 
         {/* A failed GET must read as broken, not as "no links exist" (rule 246,
