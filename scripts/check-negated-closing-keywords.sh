@@ -194,6 +194,9 @@ check_description() {
 
 self_test() {
   local fails=0 tmp
+  # git hooks (pre-push) export GIT_DIR; left set, every scratch-repo git call below would act on
+  # the real repository and the self-test would die silently inside the hook.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
   expect() { # expect <fail|pass> <ref-that-must-be-named|-> <text>
     local want="$1" ref="$2" text="$3" err rc=0
     err="$(printf '%s\n' "$text" | check_text "self-test" 2>&1)" || rc=$?
