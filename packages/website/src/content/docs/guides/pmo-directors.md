@@ -20,7 +20,7 @@ A **program** groups related projects under one team. The program view rolls up 
 
 Every consequential change — membership edits, role changes, settings updates, lifecycle actions — is recorded in a workspace **audit log** that Owners and Admins can read. It answers "who changed what, and when" for day-to-day operations.
 
-Be precise about what this is and isn't: it is an *operational* log for running the workspace. The **immutable, compliance-grade audit trail** with retention guarantees and SOC 2 evidence export is an enterprise capability. If your hard requirement is tamper-evident audit for an auditor, that's the enterprise line.
+Be precise about what this is and isn't: it is an *operational* log for running the workspace. The community edition does ship a tamper-evident, hash-chained record of agent actions (see [Agent oversight](/features/agent-oversight/)). The **immutable, compliance-grade workspace and admin audit trail** — immutability, signing, retention guarantees, external notarization, and SOC 2 evidence export — is an enterprise capability. If your hard requirement is that audit trail for an auditor, that's the enterprise line.
 
 → See [Audit log](/administration/audit-log/)
 
@@ -70,7 +70,7 @@ Run these steps in order — they start from a machine with nothing running.
 
 6. **Open the audit log** at **Settings → Audit log**, signed in as the **`admin`** account you created at install. Confirm that operational changes are recorded with who and when. The audit log needs the **workspace** Admin or Owner role, and the sample data grants none: every Atlas persona — including `atlas-priya`, who is a Program Manager on Atlas — is an ordinary workspace member, while the install's superuser is the implicit workspace Owner.
 
-Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, enforced org-wide SSO with directory sync, and a tamper-evident audit trail — are **enterprise**, and intentionally not in this repo. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
+Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, enforced org-wide SSO with directory sync, and an audit trail you can show an auditor — are **enterprise**, and intentionally not in this repo. Precisely: the community edition already ships a tamper-evident, hash-chained record of agent actions (see [Agent oversight](/features/agent-oversight/)); the workspace and admin audit trail's immutability, signing and retention, and external notarization of the agent chain, are Enterprise. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
 
 ## Where the line is: community vs. enterprise
 
@@ -83,7 +83,7 @@ Then judge it against your real bar. Your top criteria — a one-glance portfoli
 | Basic single sign-on (OIDC/OAuth via your own IdP) | Community | Login federation a self-hoster expects (shipped in 0.4) |
 | Portfolio dashboard & health scores | Enterprise | Visibility *across many programs* |
 | Org identity governance (SAML 2.0, SCIM, LDAP/AD sync, enforced SSO) | Enterprise | Directory-driven provisioning and enforced org-wide SSO |
-| Immutable audit trail, SOC 2 evidence export | Enterprise | Tamper-evident compliance, not operations |
+| Immutable workspace/admin audit trail (signing, retention, notarization), SOC 2 evidence export | Enterprise | Compliance evidence, not operations (the agent-action hash chain is in the community edition) |
 | Cross-program resource leveling & heat map | Enterprise | Capacity *across* programs |
 | Demand intake & prioritization workspace | Enterprise | Portfolio investment governance |
 

@@ -251,7 +251,7 @@ These rules are **non-negotiable**:
 1. `trueppm-suite` code must NEVER import from `trueppm_enterprise`
    - Verify: `make enterprise-boundary-check` must print "OK: no trueppm-enterprise
      imports or dependency entries in packages." A plain `grep -r "trueppm_enterprise" packages/` is NOT the
-     check — it returns 12 lines of legitimate prose (extension-point docstrings, ADR
+     check — it returns only legitimate prose (extension-point docstrings, ADR
      pointers) on a clean tree. The gate matches import syntax and quoted module paths
      and ignores comments (#2603).
 2. Enterprise code may import from OSS (dependency is one-way: enterprise → core)

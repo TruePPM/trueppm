@@ -704,7 +704,8 @@ bump_manifest packages/web/package.json \
   "\"version\": \"${NEW_VERSION}\""
 
 # packages/mobile is DELIBERATELY ABSENT from this list and must stay absent
-# until the native Android app ships (#1599 / roadmap 0.6). It is a scaffold with
+# until a native app ships (none is scheduled: native mobile left the roadmap in
+# #3834; it was once #1599 / roadmap 0.6). It is a scaffold with
 # no native projects, no test suite, and nothing to publish, so a release version
 # on it is a claim the package cannot back. It carried "0.4.0-beta.1" from
 # 2026-07-18 to 2026-09-04 — not from here, but from a hand-run manifest bump

@@ -1027,6 +1027,24 @@ lint:todo-grep:
     - bash scripts/check-todo-grep.sh
     - bash scripts/check-todo-grep.sh --self-test
 
+lint:claude-md-stale-issues:
+  extends: .fast-job
+  # A CLAUDE.md sentence that cites a CLOSED issue and asserts a live defect (open,
+  # today, currently, "still unbound", "checks nothing", ...) fails (#4404): CLAUDE.md is read every turn, so a stale "this is an open
+  # hole" is believed on every turn. Same unauthenticated, batched, retrying
+  # tracker read as lint:todo-grep (scripts/lib/gitlab-issues.sh, #4452); fails
+  # closed on an unresolvable lookup. ISSUES_API_TOKEN is the shared fallback.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash curl jq grep sed gawk
+  script:
+    - bash scripts/check-claude-md-stale-issues.sh --self-test
+    - bash scripts/check-claude-md-stale-issues.sh
+
 lint:mr-followups:
   extends: .fast-job
   # An MR description that admits a follow-up must name an OPEN issue for it
