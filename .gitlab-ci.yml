@@ -165,14 +165,14 @@ workflow:
     # (RENOVATE == "true"), the nightly SonarCloud scan (SONAR_SCHEDULED ==
     # "true"), the nightly Keycloak SSO smoke (SSO_NIGHTLY == "true", #2274),
     # the nightly release-image existence and chart-resolution checks
-    # (REGISTRY_NIGHTLY == "true", #2803, #3914), and the nightly tracker-drift
-    # report (TRACKER_DRIFT_NIGHTLY == "true", #4925; tracker:drift-report also
-    # rides the SONAR_SCHEDULED schedule, so it needs no schedule of its own). Block any other scheduled trigger so a stray schedule can't spin up
+    # (REGISTRY_NIGHTLY == "true", #2803, #3914). The nightly tracker-drift
+    # report (#4925) rides the SONAR_SCHEDULED schedule and needs none of its
+    # own. Block any other scheduled trigger so a stray schedule can't spin up
     # a full pipeline. Each permitted schedule runs on `main` and falls through
     # to the branch rule below; the SSO schedule only matches sso:integration +
     # ci:build-keycloak-image and the registry schedule only matches
     # registry:release-images, so day-to-day MR/push pipelines are unaffected.
-    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true" && $SSO_NIGHTLY != "true" && $REGISTRY_NIGHTLY != "true" && $TRACKER_DRIFT_NIGHTLY != "true"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true" && $SSO_NIGHTLY != "true" && $REGISTRY_NIGHTLY != "true"'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -727,6 +727,7 @@ scripts:test:
         - scripts/lib/s3.sh
         - scripts/lib/gitlab-issues.sh
         - scripts/tests/gitlab-issues.test.sh
+        - scripts/tracker-drift-report.sh
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
         - scripts/helm-netpol-drill.sh
@@ -779,6 +780,7 @@ scripts:test:
         - scripts/lib/s3.sh
         - scripts/lib/gitlab-issues.sh
         - scripts/tests/gitlab-issues.test.sh
+        - scripts/tracker-drift-report.sh
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
         - scripts/helm-netpol-drill.sh
@@ -843,6 +845,7 @@ scripts:test:
     - bash scripts/tests/check-enterprise-imports.test.sh
     - bash scripts/tests/check-suppression-issues.test.sh
     - bash scripts/tests/gitlab-issues.test.sh
+    - bash scripts/tracker-drift-report.sh --self-test
     - bash scripts/tests/helm-netpol-probe.test.sh
     - bash scripts/tests/helm-celery-probe-overrides.test.sh
     - bash scripts/tests/helm-install-drill-worker-restart-message.test.sh
@@ -1554,20 +1557,17 @@ docs:known-issues-freshness:
   # runner job and 429'd main. Same for lint:todo-grep, lint:mr-followups and
   # the suppression gate.
   #
-  # NOTE: re-milestoning a cited issue (e.g. the feature-freeze bulk move of
-  # release::stretch) turns this job red with no code change — that is the
-  # point. Edit the named file:line (and its heading) in the same breath.
+  # NOTE: this job runs in diff mode (#4925). It blocks an MR or main push only
+  # for a line the change adds or edits, and for an unmarked reference to an
+  # issue the change closes (GitLab's closes_issues). A close or re-milestone on
+  # a line the change did not touch (e.g. the feature-freeze bulk move of
+  # release::stretch) is tracker drift: tracker:drift-report files it nightly,
+  # and the fix is to edit the named file:line (and its heading).
   #
   # Milestone claims (#4724): a line with one issue reference and "planned for
   # 0.X" / "stretch goal for 0.X" must match that issue's tracker milestone
   # (and "planned for" may not cite a release::stretch issue). Also scans
   # features/monte-carlo.md for that rule.
-  #
-  # Diff mode (#4925): both tracker rules block only for lines the change adds
-  # or edits, and for an unmarked reference to an issue the change closes
-  # (GitLab's closes_issues). A close or re-milestone on an untouched line is
-  # tracker drift, filed nightly by tracker:drift-report — the NOTE above now
-  # describes that report, not this job.
   #
   # Runs on every MR pipeline and on main. ~2-5s.
   stage: lint
@@ -1634,10 +1634,9 @@ tracker:drift-report:
   # an incomplete report cannot close it) or a write fails.
   #
   # Rides the existing nightly SonarCloud schedule (SONAR_SCHEDULED == "true")
-  # so no new schedule — and no second full schedule pipeline — is needed; a
-  # dedicated TRACKER_DRIFT_NIGHTLY=true schedule also triggers it.
+  # so no new schedule — and no second full schedule pipeline — is needed.
   #
-  # OPERATOR STEP: create a masked, protected TRACKER_DRIFT_TOKEN CI/CD variable
+  # OPERATOR STEP (tracked in #4927): create a masked, protected TRACKER_DRIFT_TOKEN CI/CD variable
   # (project access token, `api` scope, Reporter+) for the issue writes. Until
   # it exists the job fails on the first write it needs and says so; reads use
   # ISSUES_API_TOKEN as the gates do.
@@ -1645,11 +1644,9 @@ tracker:drift-report:
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule" && $SONAR_SCHEDULED == "true"'
-    - if: '$CI_PIPELINE_SOURCE == "schedule" && $TRACKER_DRIFT_NIGHTLY == "true"'
   before_script:
     - apk add --no-cache bash curl jq grep sed gawk git coreutils
   script:
-    - bash scripts/tracker-drift-report.sh --self-test
     - bash scripts/tracker-drift-report.sh
 
 docs:config-links:

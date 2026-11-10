@@ -44,7 +44,7 @@
 # with `set -x`.
 #
 # Usage:
-#   bash scripts/tracker-drift-report.sh             # nightly (SONAR_SCHEDULED or TRACKER_DRIFT_NIGHTLY schedule)
+#   bash scripts/tracker-drift-report.sh             # nightly (SONAR_SCHEDULED schedule)
 #   bash scripts/tracker-drift-report.sh --dry-run   # print the report, write nothing
 #   bash scripts/tracker-drift-report.sh --self-test
 
@@ -56,7 +56,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 DEFAULT_GATES="lint:scheduler-readme-limitations	bash $HERE/check-scheduler-readme-limitations.sh
 lint:todo-grep	bash $HERE/check-todo-grep.sh
 docs:known-issues-freshness	bash $HERE/check-known-issues-freshness.sh
-lint:suppression-issues	bash $HERE/check-suppression-issues.sh
+suppressions:check	bash $HERE/check-suppression-issues.sh
 lint:claude-md-stale-issues	bash $HERE/check-claude-md-stale-issues.sh
 boundary:check	bash $HERE/check-issue-boundary.sh"
 
@@ -235,7 +235,7 @@ WRITE_TOKEN="${TRACKER_DRIFT_TOKEN:-}"
 if [ -z "$WRITE_TOKEN" ]; then
   echo "ERROR: the tracking issue needs updating but TRACKER_DRIFT_TOKEN (api scope, Reporter+) is not set." >&2
   echo "       Operator step: create TRACKER_DRIFT_TOKEN as a masked, protected CI/CD variable" >&2
-  echo "       (project access token, api scope, Reporter+). See docs/harness/tracker-gates.md." >&2
+  echo "       (project access token, api scope, Reporter+); tracked in #4927. See docs/harness/tracker-gates.md." >&2
   exit 1
 fi
 

@@ -240,7 +240,8 @@ the user's invocation already answered a question, skip it.
    the date of the first `/pre-release full` run, and one sprint before the tag for the
    second. The bulk move is not tracker-only: `docs:known-issues-freshness` compares
    release claims in the docs to each cited issue's milestone, so every moved issue the
-   docs cite needs a docs edit in the same sweep or main goes red.
+   docs cite needs a docs edit in the same sweep. Main does not go red if one is missed:
+   it is tracker drift, reported nightly by `tracker:drift-report`.
 8. **Hardening share.** What fraction of committed capacity goes to debt, hardening, and
    CI (the `<version>-hardening` reason tag) versus charter features?
 

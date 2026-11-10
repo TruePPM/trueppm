@@ -59,7 +59,7 @@ be resolved fails closed.
 | `check-known-issues-freshness.sh` (`docs:known-issues-freshness`) | closed reference without the ack marker | A reference on a line the diff adds or edits, or an unmarked reference to an issue the change closes | An untouched line whose issue closed |
 | | release claim matches the milestone | A claim on a line the diff adds or edits | An untouched claim whose issue was re-milestoned |
 | | heading matches its section | Tree-only, so it blocks in both modes | — |
-| `check-suppression-issues.sh` (`lint:suppression-issues`) | `SUPPRESSED-UNTIL(#N)` names an open issue | A marker on a line the diff adds whose issue is closed or missing, or any marker whose issue the change closes | A pre-existing marker whose issue closed (the #2603 case) |
+| `check-suppression-issues.sh` (`suppressions:check`) | `SUPPRESSED-UNTIL(#N)` names an open issue | A marker on a line the diff adds whose issue is closed or missing, or any marker whose issue the change closes | A pre-existing marker whose issue closed (the #2603 case) |
 | `check-claude-md-stale-issues.sh` (`lint:claude-md-stale-issues`) | closed issue described as live | A trigger sentence on a line the diff adds or edits, or one citing an issue the change closes | An untouched sentence whose issue closed |
 | `check-issue-boundary.sh` (`boundary:check`) | no open issue labeled `enterprise`/`portfolio` | n/a: label-driven by design | **Kept as its own blocking job on main and schedule**, and also listed in the nightly report |
 
@@ -81,13 +81,11 @@ references the change adds or closes.
 > creates `TRACKER_DRIFT_TOKEN` as a **masked, protected** CI/CD variable: a
 > project access token with `api` scope and Reporter role or higher. Until it
 > exists, the job fails on the first write it needs, and its error message
-> names this step.
+> names this step. Creating it is tracked in #4927.
 
 `tracker:drift-report` (`scripts/tracker-drift-report.sh`) runs on the existing
 nightly SonarCloud schedule (`SONAR_SCHEDULED=true`), so no new schedule and no
-second full schedule pipeline is needed. A dedicated schedule with
-`TRACKER_DRIFT_NIGHTLY=true` also triggers it. Both variables are on the
-`workflow:` schedule allowlist. The job runs every gate in drift
+second full schedule pipeline is needed. The job runs every gate in drift
 mode and updates the issue titled *Tracker drift: repo references out of sync
 with the issue tracker* (label `tracker-drift`):
 
