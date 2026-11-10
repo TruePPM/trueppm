@@ -53,7 +53,7 @@ sys.exit(1 if bad else 0)
 # Renovate tag bump (22-alpine -> 24-alpine) moves the requirement with it.
 required_image() {
   local img
-  img=$(sed -nE 's/^FROM[[:space:]]+([^[:space:]]*\/)?(node:[A-Za-z0-9._-]+)@sha256:.*/\2/p' "$REPO_ROOT/packages/web/Dockerfile" 2>/dev/null | head -n 1) || true
+  img=$(sed -nE 's/^FROM[[:space:]]+([^[:space:]]*\/)?(node:[A-Za-z0-9._-]+)@sha256:.*/\2/p' "$REPO_ROOT/packages/web/Dockerfile" 2>/dev/null | sed -n 1p) || true
   if [ -z "$img" ]; then
     echo "ERROR: cannot parse a 'FROM <prefix>/node:<tag>@sha256:...' line in packages/web/Dockerfile" >&2
     return 1
