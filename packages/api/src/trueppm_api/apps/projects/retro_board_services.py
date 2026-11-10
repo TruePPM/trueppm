@@ -83,6 +83,17 @@ def _broadcast(project_id: Any, event_type: str, payload: dict[str, Any]) -> Non
 # ---------------------------------------------------------------------------
 
 
+def _require_strings(**values: object) -> None:
+    """Refuse a non-string value for a string field with a 400 naming the field."""
+    errors = {
+        k: "Must be a string."
+        for k, v in values.items()
+        if v is not None and not isinstance(v, str)
+    }
+    if errors:
+        raise ValidationError(errors)
+
+
 def create_board_item(
     sprint: Sprint,
     *,
@@ -101,6 +112,9 @@ def create_board_item(
     from trueppm_api.apps.projects.models import RetroBoardItem, RetroColumn
 
     _assert_board_writable(sprint)
+    # The body is raw JSON: a non-string value would reach ``.strip()`` as an
+    # AttributeError (500) rather than a 400.
+    _require_strings(text=text, color=color, column=column)
     body = (text or "").strip()
     if not body:
         raise ValidationError({"text": "A sticky cannot be empty."})
@@ -149,6 +163,7 @@ def update_board_item(
     :func:`move_board_item`).
     """
     _assert_board_writable(item.retro.sprint)
+    _require_strings(text=text, color=color)
     fields: list[str] = []
     if text is not None:
         body = text.strip()
@@ -181,6 +196,7 @@ def move_board_item(item: RetroBoardItem, *, column: str, position: float) -> Re
     from trueppm_api.apps.projects.models import RetroColumn
 
     _assert_board_writable(item.retro.sprint)
+    _require_strings(column=column)
     if column not in RetroColumn.values:
         raise ValidationError({"column": f"Unknown column '{column}'."})
     item.column = column
