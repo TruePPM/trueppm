@@ -16,10 +16,11 @@ from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.teams.models import Team, TeamMembership
 from trueppm_api.apps.teams.permissions import IsTeamFacetEditor, IsTeamMember
@@ -90,6 +91,20 @@ class TeamMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[TeamMember
     """
 
     permission_classes = [IsAuthenticated, IsTeamFacetEditor]
+    # Read by BOTH get_permissions and the OpenAPI schema (core/openapi.py), so the
+    # refusal and what the schema advertises cannot drift (#3847).
+    token_refused_actions = frozenset({"update", "partial_update"})
+
+    def get_permissions(self) -> list[BasePermission]:
+        """Refuse API tokens on the role/facet write: PATCH can grant ``TeamRole.ADMIN``.
+
+        Granting a team role is durable authority a revoked token does not take back
+        (#3847), the same reason the project/program membership viewsets refuse it.
+        """
+        perms = super().get_permissions()
+        if self.action in self.token_refused_actions:
+            perms.append(IsNotTokenAuthenticated())
+        return perms
 
     def get_serializer_class(self) -> type[Any]:
         if self.action in ("partial_update", "update"):

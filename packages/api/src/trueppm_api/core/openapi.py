@@ -1145,9 +1145,11 @@ class TruePPMAutoSchema(AutoSchema):
         runtime guard also reads: a static ``permission_classes`` entry; the
         ``SessionOnlyWritesMixin`` (refuses every unsafe method, so this operation's
         method decides); and a viewset's ``token_refused_actions`` set, which its
-        ``get_permissions`` consults for the same ``action`` (#3847). A guard added any
-        other way is invisible here, which is what the route-table tripwire in
-        ``tests/apps/access/test_route_table_invariants.py`` exists to catch.
+        ``get_permissions`` consults for the same ``action`` (#3847). A refusal built
+        any other way is invisible here and can drift from the schema; the route-table
+        tripwire in ``tests/apps/access/test_route_table_invariants.py`` checks runtime
+        reachability, not the schema, so only the structural check tracked in #4929 will
+        close that gap.
         """
         from trueppm_api.apps.access.permissions import (
             IsNotTokenAuthenticated,

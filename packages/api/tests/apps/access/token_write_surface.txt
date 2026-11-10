@@ -49,10 +49,10 @@
 # exactly once, at connect, so a PAT-minted ticket would have no later revocation
 # lever that could reach the open socket, unlike the grants above.
 #
-# Seventeen more left the set in #3847: the membership family. A workspace invite
+# Eighteen more left the set in #3847: the membership family. A workspace invite
 # (create/delete/resend/resend-all), member role change and removal, group membership
 # and group->project grants, `transfer-ownership`, project `transfer/` and program `transfer-sponsorship/` (each promotes a member to OWNER), the create path of the project and
-# program membership viewsets, and the workspace export trio all mint authority (or
+# program membership viewsets, team membership PATCH (`teams/.../members/<pk>/`, which can grant team ADMIN), and the workspace export trio all mint authority (or
 # exfiltrate data) that revoking the leaked token does not undo, so they refuse a token
 # caller. `workspace/export/` left the set; its `<job_id>/` and `/download/` GETs were
 # never in it (safe methods). Project/program `export/` stay listed on purpose: only the
@@ -287,7 +287,6 @@ api/v1/tasks/<pk>/suggestions/<uuid:suggestion_pk>/accept/
 api/v1/tasks/<pk>/suggestions/<uuid:suggestion_pk>/decline/
 api/v1/tasks/<pk>/suggestions/<uuid:suggestion_pk>/revoke/
 api/v1/tasks/<uuid:task_pk>/time-entries/
-api/v1/teams/<uuid:team_pk>/members/<uuid:pk>/
 api/v1/workspace/
 api/v1/workspace/email-settings/
 api/v1/workspace/email-settings/send-test/
