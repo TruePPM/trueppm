@@ -3013,10 +3013,15 @@ class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
     def get(self, request: Request, pk: str) -> Response:
         from trueppm_scheduler import CyclicDependencyError, schedule
 
+        from trueppm_api.apps.projects.calendar_settings import resolve_effective_base_calendar
         from trueppm_api.apps.projects.models import TaskStatus, TaskType
+        from trueppm_api.apps.projects.near_critical_threshold import (
+            resolve_effective_near_critical_threshold,
+        )
         from trueppm_api.apps.scheduling.answer_stamp import stamp_answer
         from trueppm_api.apps.scheduling.driving_chain import (
             DEFAULT_DEPTH,
+            DRIVING_CHAIN_SCHEMA_VERSION,
             MAX_DEPTH,
             NODE_CAP,
             build_driving_chain,
@@ -3064,11 +3069,19 @@ class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
 
         try:
             sched_project, graph, raw_deps, db_tasks = _build_cpm_sched_inputs(project, pk)
+            threshold = resolve_effective_near_critical_threshold(project)
+            # The base calendar CPM actually schedules against (project, else program,
+            # else workspace; a workspace lock wins) -- not the project's own FK, which
+            # is null for every inheriting project. Overlay layers are not named.
+            base_calendar = resolve_effective_base_calendar(project)
             base: dict[str, Any] = {
+                "schema_version": DRIVING_CHAIN_SCHEMA_VERSION,
                 "project_id": str(project.pk),
                 "task_id": str(db_task.pk),
                 "depth": depth,
                 "node_cap": NODE_CAP,
+                "near_critical_threshold": {"value": threshold, "unit": "working_days"},
+                "calendar_id": str(base_calendar.pk) if base_calendar is not None else None,
             }
             in_network = {t.id for t in sched_project.tasks}
             if str(db_task.pk) not in in_network:
@@ -3088,6 +3101,8 @@ class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
                     "project_finish": None,
                     "truncated": False,
                     "truncated_reason": None,
+                    "total_links": 0,
+                    "omitted_non_driving_count": 0,
                     "nodes": [],
                     "edges": [],
                 }
@@ -3101,6 +3116,7 @@ class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
                 children_map=graph.children_map,
                 db_tasks_by_id={str(t.pk): t for t in db_tasks},
                 task_id=str(db_task.pk),
+                near_critical_threshold_days=threshold,
                 depth=depth,
                 node_cap=NODE_CAP,
             )

@@ -16,9 +16,19 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
+from trueppm_api.apps.projects.near_critical_threshold import float_band
+
 DEFAULT_DEPTH = 25
 MAX_DEPTH = 50
 NODE_CAP = 200
+
+#: Contract version of the response (ADR-0086). Additive changes keep it.
+DRIVING_CHAIN_SCHEMA_VERSION = 1
+
+
+def _is_complete(st: Any) -> bool:
+    """Whether the engine treats a scheduled task as finished (same rule as the engine)."""
+    return st.actual_finish is not None or (st.percent_complete or 0) >= 100
 
 
 @dataclass(frozen=True)
@@ -82,6 +92,55 @@ def _edge_facts(
     return facts
 
 
+def _chain_totals(
+    *,
+    result: Any,
+    expanded_deps: list[Any],
+    preds: dict[str, list[Any]],
+    succs: dict[str, list[Any]],
+    hops: dict[str, tuple[str, int]],
+    task_id: str,
+) -> tuple[int, int]:
+    """``(total_links, omitted_non_driving_count)`` for the chain through ``task_id``.
+
+    ``total_links`` is how long the whole chain is, so a consumer can tell a short chain
+    from a cut one: uncapped reachability over the driving edges only (cheap next to the
+    ``schedule()`` pass); an edge counts when both ends are reachable, the same rule as the
+    response's ``edges``.
+
+    ``omitted_non_driving_count`` is the non-driving links into the task or its upstream
+    chain: predecessors that carry float, so they are not drawn, but a reader asking "what
+    else feeds this" wants the count. Scoped to ``self``/``upstream`` nodes because the UI
+    shipped on this payload is upstream-only; a downstream view would add its own field.
+    """
+
+    def reachable(adjacency: dict[str, list[Any]], far_end: str) -> set[str]:
+        seen = {task_id}
+        stack = [task_id]
+        while stack:
+            for e in adjacency.get(stack.pop(), []):
+                nxt = getattr(e, far_end)
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        return seen
+
+    whole = reachable(preds, "predecessor_id") | reachable(succs, "successor_id")
+    total_links = sum(
+        1 for e in result.driving_edges if e.predecessor_id in whole and e.successor_id in whole
+    )
+
+    driving_keys = {(e.predecessor_id, e.successor_id, e.dep_type) for e in result.driving_edges}
+    upstream_ids = {nid for nid, (direction, _) in hops.items() if direction != "downstream"}
+    omitted = {
+        (d.predecessor_id, d.successor_id, d.dep_type.value)
+        for d in expanded_deps
+        if d.successor_id in upstream_ids
+        and (d.predecessor_id, d.successor_id, d.dep_type.value) not in driving_keys
+    }
+    return total_links, len(omitted)
+
+
 def build_driving_chain(
     *,
     result: Any,
@@ -90,6 +149,7 @@ def build_driving_chain(
     children_map: dict[str, list[str]],
     db_tasks_by_id: dict[str, Any],
     task_id: str,
+    near_critical_threshold_days: int,
     depth: int = DEFAULT_DEPTH,
     node_cap: int = NODE_CAP,
 ) -> dict[str, Any]:
@@ -108,6 +168,8 @@ def build_driving_chain(
         children_map: Summary id → direct child ids.
         db_tasks_by_id: Django ``Task`` rows (``sprint`` selected) keyed by str id.
         task_id: The task the chain is walked through; must be in the network.
+        near_critical_threshold_days: The effective threshold, in working days, that
+            splits a node's ``band`` between ``near_critical`` and ``ample``.
         depth: Maximum hops per direction.
         node_cap: Maximum nodes in the response, the task itself included. The task
             takes one slot and downstream is guaranteed ``min(its reachable nodes,
@@ -116,8 +178,11 @@ def build_driving_chain(
             ``truncated_reason`` reports ``node_cap``.
 
     Returns:
-        ``{nodes, edges, truncated, truncated_reason}`` — see
-        ``ScheduleDrivingChainSerializer`` for the field contract.
+        ``{nodes, edges, truncated, truncated_reason, total_links,
+        omitted_non_driving_count}`` — see ``ScheduleDrivingChainSerializer`` for the
+        field contract. Every duration is ``{value, unit}``: float in
+        ``working_days``, lag in ``calendar_days`` (the engine counts them differently,
+        so a bare number would invite adding the two).
     """
     preds: dict[str, list[Any]] = {}
     succs: dict[str, list[Any]] = {}
@@ -205,7 +270,20 @@ def build_driving_chain(
                 "hops": hop,
                 "early_start": st.early_start,
                 "early_finish": st.early_finish,
-                "total_float_days": st.total_float.days,
+                "total_float": {"value": st.total_float.days, "unit": "working_days"},
+                # A finished task keeps zero float but is never critical (the engine
+                # leaves it non-critical, #1863), so it gets its own band rather than
+                # "critical" next to is_critical=false. Server-computed so no client
+                # re-derives it. The set is OPEN: a
+                # client must tolerate a value it does not know (a later tier is
+                # additive, not a breaking change).
+                "band": (
+                    "complete"
+                    if _is_complete(st)
+                    else "critical"
+                    if st.is_critical
+                    else float_band(st.total_float.days, near_critical_threshold_days)
+                ),
                 "is_critical": bool(st.is_critical),
                 "is_project_finish": st.early_finish == result.project_finish,
                 # Sprint-bound is a fact about the task, not the team: id and end date
@@ -227,15 +305,38 @@ def build_driving_chain(
                     "predecessor_id": e.predecessor_id,
                     "successor_id": e.successor_id,
                     "dep_type": e.dep_type,
-                    "lag_days": f.lag_days if f else 0,
+                    "lag": {"value": f.lag_days if f else 0, "unit": "calendar_days"},
                     "is_driving": True,
-                    "via_summary": f.via_summary if f else None,
+                    # Named, not just ids: the summary task is usually not a node on
+                    # the chain, so a client could not resolve an id to a label.
+                    "via_summary": (
+                        [
+                            {
+                                "task_id": sid,
+                                "name": getattr(db_tasks_by_id.get(sid), "name", None),
+                            }
+                            for sid in f.via_summary
+                        ]
+                        if f and f.via_summary
+                        else None
+                    ),
                 }
             )
+
+    total_links, omitted_non_driving_count = _chain_totals(
+        result=result,
+        expanded_deps=expanded_deps,
+        preds=preds,
+        succs=succs,
+        hops=hops,
+        task_id=task_id,
+    )
 
     return {
         "nodes": nodes,
         "edges": edges,
         "truncated": truncated_reason is not None,
         "truncated_reason": truncated_reason,
+        "total_links": total_links,
+        "omitted_non_driving_count": omitted_non_driving_count,
     }
