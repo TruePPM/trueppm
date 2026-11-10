@@ -60,6 +60,12 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     # would cost every page load a round trip for data the shell always needs
     # alongside the task page.
     "/api/v1/me/work/": "aggregate + badge fields alongside the page envelope (#3650)",
+    # The program label catalog is one bounded document, not a paginated collection:
+    # `results` is every label the viewer may see and `withheld_project_count` says
+    # how many projects' labels visibility removed. There is no page 2 to follow, so
+    # `next` would promise a continuation that does not exist. The real shape was
+    # always this; declaring the envelope (#3448) is what made it visible to this gate.
+    "/api/v1/programs/{program_pk}/label-catalog/": "bounded catalog + withheld count (#3448)",
     # Pre-0.3 shapes. Out of scope for #2842 by its own terms; tracked in #2844.
     "/api/v1/projects/{project_pk}/board/activity/": "pre-0.3 keyset page (#2844)",
     "/api/v1/projects/{project_pk}/history/": "pre-0.3 additive superset (#2844)",
