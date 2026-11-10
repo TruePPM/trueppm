@@ -472,6 +472,26 @@ def test_spi_counts_has_cpm_dates_true_baseline_still_uses_evm_semantics(
 
 
 @pytest.mark.django_db
+def test_drift_counts_exclude_backlog_epic_and_recurring(
+    program: Program, calendar: Calendar
+) -> None:
+    """#3676: ``overdue`` counts committed work only — backlog cards, epics and
+    recurring templates carry no schedule and cannot be overdue."""
+    from trueppm_api.apps.projects.models import TaskType
+    from trueppm_api.apps.projects.program_rollup import drift_counts_by_project
+
+    p = _project(program, calendar, "Drift project")
+    yesterday = TODAY - datetime.timedelta(days=1)
+    _task(p, name="Real", early_finish=yesterday, status=TaskStatus.IN_PROGRESS)
+    _task(p, name="Idea", early_finish=yesterday, status=TaskStatus.BACKLOG)
+    _task(p, name="Epic", early_finish=yesterday, type=TaskType.EPIC)
+    _task(p, name="Weekly", early_finish=yesterday, is_recurring=True)
+
+    overdue, _at_risk = drift_counts_by_project([p.pk], TODAY)[p.pk]
+    assert overdue == 1
+
+
+@pytest.mark.django_db
 def test_milestone_health_critical_when_milestone_overdue(
     member: object, program: Program, calendar: Calendar
 ) -> None:
