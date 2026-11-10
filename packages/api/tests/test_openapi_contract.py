@@ -1619,3 +1619,42 @@ def test_every_anonymous_operation_resolves_to_a_view_that_allows_any(schema: di
             )
             checked += 1
     assert checked, "no anonymous operations found — the check is vacuous"
+
+
+# ---------------------------------------------------------------------------
+# #3847 — the membership/ownership surface refuses API tokens at runtime through
+# mixins and per-action `get_permissions`, not a static `permission_classes` entry.
+# The schema must say so: no `personalApiTokenAuth`, and the refusal 403 declared.
+# ---------------------------------------------------------------------------
+
+_TOKEN_REFUSED_OPERATIONS = [
+    ("post", "/api/v1/workspace/invites/"),
+    ("delete", "/api/v1/workspace/invites/{invite_id}/"),
+    ("post", "/api/v1/workspace/invites/{invite_id}/resend/"),
+    ("patch", "/api/v1/workspace/members/{user_id}/"),
+    ("post", "/api/v1/workspace/groups/"),
+    ("post", "/api/v1/projects/{project_pk}/members/"),
+    ("patch", "/api/v1/projects/{project_pk}/members/{id}/"),
+    ("post", "/api/v1/programs/{program_pk}/members/"),
+    ("post", "/api/v1/projects/{id}/transfer/"),
+    ("post", "/api/v1/programs/{id}/transfer-sponsorship/"),
+]
+
+
+@pytest.mark.parametrize(("method", "path"), _TOKEN_REFUSED_OPERATIONS)
+def test_token_refused_membership_operation_does_not_advertise_token_auth(
+    schema: dict, method: str, path: str
+) -> None:
+    op = schema["paths"][path][method]
+    schemes = {name for entry in op.get("security", []) for name in entry}
+    assert "personalApiTokenAuth" not in schemes, (method, path, schemes)
+    assert "projectApiTokenAuth" not in schemes, (method, path, schemes)
+    refusal = op["responses"]["403"]["content"]["application/json"]["schema"]["properties"]
+    assert "refusal" in refusal, (method, path)
+
+
+def test_token_readable_membership_operation_keeps_token_auth(schema: dict) -> None:
+    """The guard is per-method: a GET on the invite list stays token-readable."""
+    op = schema["paths"]["/api/v1/workspace/invites/"]["get"]
+    schemes = {name for entry in op.get("security", []) for name in entry}
+    assert "personalApiTokenAuth" in schemes

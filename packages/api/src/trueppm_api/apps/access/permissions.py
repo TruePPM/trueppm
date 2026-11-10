@@ -2398,13 +2398,19 @@ class IsNotTokenAuthenticated(BasePermission):
     role change and removal, group membership and group→project grants,
     ``transfer-ownership`` (which hands OWNER away, and is therefore *above* the
     escalation #3551 closed), and the create/update actions of the project and program
-    membership viewsets in ``apps/access/views.py``. On the views that also serve
+    membership viewsets in ``apps/access/views.py``, plus the two ownership hand-offs
+    ``POST /projects/{id}/transfer/`` and ``POST /programs/{id}/transfer-sponsorship/``
+    (each promotes a member to OWNER). On the views that also serve
     reads (invite and group lists, the membership viewsets) only the unsafe methods are
     refused, so a token can still *read* them. The three workspace export routes
     (``WorkspaceExportView`` create/list, ``WorkspaceExportDetailView``,
     ``WorkspaceExportDownloadView``) are refused outright: a completed export is
     exfiltration that revoking the token cannot undo. A token therefore cannot automate
     a workspace export; that is a deliberate fail-closed ruling, not an oversight.
+    **Project and program exports (``projects/{id}/export/``, ``programs/{id}/export/``
+    and the async bundle exports) deliberately remain token-reachable.** That is a
+    non-goal of #3847, which ruled only on the workspace export; whether per-project
+    exfiltration deserves the same refusal is a separate decision, not an omission here.
     ``destroy`` on the project/program membership viewsets stays token-reachable —
     removing access is the containment direction. ``tests/apps/access/
     token_write_surface.txt`` is the inventory of what remains reachable and this
@@ -2438,6 +2444,26 @@ class IsNotTokenAuthenticated(BasePermission):
         # scope would only create a way to get the answer wrong.
         _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
         return False
+
+
+class SessionOnlyWritesMixin:
+    """Refuse API-token callers on every unsafe method of a membership-shaped view (#3847).
+
+    A workspace invite, a member role change, a group grant and an ownership transfer
+    each mint authority that outlives the credential used to mint it: revoking the
+    leaked token, resetting the password, or off-boarding the owner leaves the new
+    account, the promoted member or the transferred workspace in place. That is the
+    shape ``IsNotTokenAuthenticated`` exists to close, so the writes require a session
+    or JWT. Reads stay token-reachable (a script may audit invites and groups); only
+    the unsafe methods are refused. Implemented through ``get_permissions`` so one view
+    can serve a token-readable GET and a session-only POST.
+    """
+
+    def get_permissions(self) -> list[BasePermission]:
+        perms: list[BasePermission] = super().get_permissions()  # type: ignore[misc]
+        if self.request.method not in SAFE_METHODS:  # type: ignore[attr-defined]
+            perms.append(IsNotTokenAuthenticated())
+        return perms
 
 
 class McpInstanceEnabled(BasePermission):

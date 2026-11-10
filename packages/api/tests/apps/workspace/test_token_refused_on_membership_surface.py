@@ -19,9 +19,16 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
-from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken, Calendar, Project
+from trueppm_api.apps.projects.models import (
+    SCOPE_LEGACY_FULL,
+    ApiToken,
+    Calendar,
+    Methodology,
+    Project,
+)
 from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
@@ -159,3 +166,118 @@ def test_token_cannot_grant_a_project_membership(owner: Any, member: Any) -> Non
     assert ok.status_code == 201, ok.content
     pm = ProjectMembership.objects.get(project=project, user=member)
     _refused(_bearer(owner).patch(f"{url}{pm.pk}/", {"role": Role.ADMIN}, format="json"))
+
+
+@pytest.fixture
+def project(owner: Any) -> Project:
+    proj = Project.objects.create(
+        name="P", start_date=date(2026, 4, 1), calendar=Calendar.objects.create(name="Std")
+    )
+    ProjectMembership.objects.create(project=proj, user=owner, role=Role.OWNER)
+    return proj
+
+
+@pytest.fixture
+def program(owner: Any) -> Any:
+    return create_program(
+        name="G", description="", methodology=Methodology.HYBRID, created_by=owner
+    )
+
+
+@pytest.mark.django_db
+def test_token_cannot_transfer_project_ownership(owner: Any, member: Any, project: Project) -> None:
+    ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+    url = f"/api/v1/projects/{project.pk}/transfer/"
+    body = {"new_owner_user_id": member.pk}
+    _refused(_bearer(owner).post(url, body, format="json"))
+    assert ProjectMembership.objects.get(project=project, user=member).role == Role.MEMBER
+    assert ProjectMembership.objects.get(project=project, user=owner).role == Role.OWNER
+    ok = _session(owner).post(url, body, format="json")
+    assert ok.status_code == 200, ok.content
+    assert ProjectMembership.objects.get(project=project, user=member).role == Role.OWNER
+
+
+@pytest.mark.django_db
+def test_token_cannot_transfer_program_sponsorship(owner: Any, member: Any, program: Any) -> None:
+    ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    url = f"/api/v1/programs/{program.pk}/transfer-sponsorship/"
+    body = {"new_owner_user_id": member.pk}
+    _refused(_bearer(owner).post(url, body, format="json"))
+    assert ProgramMembership.objects.get(program=program, user=member).role == Role.MEMBER
+    assert ProgramMembership.objects.get(program=program, user=owner).role == Role.OWNER
+    ok = _session(owner).post(url, body, format="json")
+    assert ok.status_code == 200, ok.content
+    assert ProgramMembership.objects.get(program=program, user=member).role == Role.OWNER
+
+
+@pytest.mark.django_db
+def test_token_cannot_grant_or_change_a_program_membership(
+    owner: Any, member: Any, program: Any
+) -> None:
+    url = f"/api/v1/programs/{program.pk}/members/"
+    body = {"user": member.pk, "role": Role.MEMBER}
+    _refused(_bearer(owner).post(url, body, format="json"))
+    assert not ProgramMembership.objects.filter(program=program, user=member).exists()
+    ok = _session(owner).post(url, body, format="json")
+    assert ok.status_code == 201, ok.content
+    pm = ProgramMembership.objects.get(program=program, user=member)
+    _refused(_bearer(owner).patch(f"{url}{pm.pk}/", {"role": Role.ADMIN}, format="json"))
+    pm.refresh_from_db()
+    assert pm.role == Role.MEMBER
+
+
+@pytest.mark.django_db
+def test_token_cannot_delete_resend_or_resend_all_invites(owner: Any) -> None:
+    session = _session(owner)
+    created = session.post(
+        "/api/v1/workspace/invites/",
+        {"email": "inv@example.com", "role": WorkspaceRole.MEMBER},
+        format="json",
+    )
+    assert created.status_code in (200, 201), created.content
+    invite_id = created.data["id"]
+    token_client = _bearer(owner)
+    _refused(token_client.post(f"/api/v1/workspace/invites/{invite_id}/resend/"))
+    _refused(token_client.post("/api/v1/workspace/invites/resend-all/"))
+    _refused(token_client.delete(f"/api/v1/workspace/invites/{invite_id}/"))
+    # The invite is still pending: the refusal fired before the view body ran.
+    assert session.get("/api/v1/workspace/invites/").data["results"][0]["id"] == invite_id
+
+
+@pytest.mark.django_db
+def test_token_cannot_delete_group_members_or_group_projects(
+    owner: Any, member: Any, project: Project
+) -> None:
+    session = _session(owner)
+    gid = session.post("/api/v1/workspace/groups/", {"name": "G"}, format="json").data["id"]
+    assert (
+        session.post(
+            f"/api/v1/workspace/groups/{gid}/members/", {"user": member.pk}, format="json"
+        ).status_code
+        == 201
+    )
+    token_client = _bearer(owner)
+    _refused(token_client.delete(f"/api/v1/workspace/groups/{gid}/members/{member.pk}/"))
+    _refused(token_client.delete(f"/api/v1/workspace/groups/{gid}/projects/{project.pk}/"))
+    assert session.delete(f"/api/v1/workspace/groups/{gid}/members/{member.pk}/").status_code == 204
+
+
+@pytest.mark.django_db
+def test_token_can_still_remove_a_project_or_program_member(
+    owner: Any, member: Any, project: Project, program: Any
+) -> None:
+    """Pinned on purpose: removing access is the containment direction (#3847).
+
+    ``destroy`` is excluded from ``token_refused_actions`` so a leaked token's owner can
+    still evict and self-remove with it. A future "refuse everything" sweep that breaks
+    this should have to change this test and say why.
+    """
+    pm = ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+    resp = _bearer(owner).delete(f"/api/v1/projects/{project.pk}/members/{pm.pk}/")
+    assert resp.status_code == 204, resp.content
+    assert not ProjectMembership.objects.filter(pk=pm.pk, is_deleted=False).exists()
+
+    gm = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    resp = _bearer(owner).delete(f"/api/v1/programs/{program.pk}/members/{gm.pk}/")
+    assert resp.status_code == 204, resp.content
+    assert not ProgramMembership.objects.filter(pk=gm.pk, is_deleted=False).exists()

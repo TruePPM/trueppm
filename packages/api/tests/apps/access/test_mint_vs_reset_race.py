@@ -299,10 +299,10 @@ def _no_grants(user: Any) -> None:
 
 
 def _reset_first(
-    reset_kind: str, call: Callable[[APIClient], Any], user: Any, bearer: str | None = None
+    reset_kind: str, call: Callable[[APIClient], Any], user: Any
 ) -> tuple[_Reset, dict[str, Any]]:
     """Park a revocation at its commit point, then run ``call`` with a pre-reset credential."""
-    stale = bearer or str(AccessToken.for_user(user))
+    stale = str(AccessToken.for_user(user))
     reset = _Reset(user, reset_kind)
     with patch(_EVICT, reset.hook()):
         resetter = reset.start()
@@ -322,25 +322,12 @@ def _mint_first(
     reset_kind: str,
     call: Callable[[APIClient], Any],
     user: Any,
-    bearer: str | None = None,
-    pause_before_lock: bool = False,
 ) -> dict[str, Any]:
-    """Park a mint holding the profile lock, then run a revocation against it.
-
-    With ``pause_before_lock`` the mint is parked after authentication but BEFORE it
-    takes the profile lock, holding whatever row locks authentication itself took (the
-    deadlock shape for an API-token caller). The revocation is then expected to run
-    to completion rather than park behind the mint.
-    """
-    token = bearer or str(AccessToken.for_user(user))
+    """Park a mint holding the profile lock, then run a revocation against it."""
+    token = str(AccessToken.for_user(user))
     locked, proceed = threading.Event(), threading.Event()
 
     def _pause_after_lock(request: Any) -> None:
-        if pause_before_lock:
-            locked.set()
-            assert proceed.wait(_TIMEOUT)
-            lock_and_recheck_credential_cutoff(request)
-            return
         lock_and_recheck_credential_cutoff(request)
         locked.set()
         assert proceed.wait(_TIMEOUT)
@@ -359,8 +346,7 @@ def _mint_first(
         blocked = _wait_until_blocked_or_done(resetter)
         # The revocation must be parked behind the mint. Without the lock it runs to
         # completion here, and the grant the mint writes afterwards escapes the sweep.
-        if not pause_before_lock:
-            assert blocked and resetter.is_alive(), "the revocation did not wait for the mint"
+        assert blocked and resetter.is_alive(), "the revocation did not wait for the mint"
         proceed.set()
         _join(minter, resetter)
     assert reset.status in (200, 0)
@@ -553,6 +539,42 @@ def test_a_pat_cannot_create_an_invite_whatever_its_age_against_the_cutoff(
     resp = client.post("/api/v1/workspace/invites/", {"email": "pat-invitee@x.io"}, format="json")
     assert resp.status_code in (401, 403), resp.data
     assert not WorkspaceInvite.objects.filter(email="pat-invitee@x.io").exists()
+
+
+@pytest.mark.parametrize(
+    ("offset_seconds", "refused"),
+    [(0, True), (1, True), (-1, False)],
+    ids=["at-the-cutoff", "pat-before-the-cutoff", "pat-after-the-cutoff"],
+)
+def test_pat_issue_time_is_compared_to_the_cutoff_with_inclusive_bound(
+    user: Any, offset_seconds: int, refused: bool
+) -> None:
+    """The ``ApiToken`` branch of the lock helper, driven directly (#4839).
+
+    No HTTP route reaches it any more (every mint refuses a token at the permission
+    layer first), so the branch is defense in depth and needs its own test. The
+    comparison is ``<=``: a credential created at the cutoff's own instant cannot be
+    ordered against the revocation and is refused; one created after it passes.
+    """
+    from types import SimpleNamespace
+
+    from rest_framework.exceptions import AuthenticationFailed
+
+    _pat_for(user)
+    pat = ApiToken.objects.get(owner=user, name="race-pat-auth")
+    # Written directly: ``mark_credentials_revoked`` adds a clock-skew margin, which would
+    # hide the exact-equality case this test exists to pin.
+    UserProfile.objects.update_or_create(
+        user=user,
+        defaults={"credentials_revoked_at": pat.created_at + timedelta(seconds=offset_seconds)},
+    )
+    request = SimpleNamespace(user=user, auth=pat)
+    with transaction.atomic():
+        if refused:
+            with pytest.raises(AuthenticationFailed):
+                lock_and_recheck_credential_cutoff(request)
+        else:
+            lock_and_recheck_credential_cutoff(request)
 
 
 def test_lock_creates_the_profile_row_when_none_exists(user: Any) -> None:

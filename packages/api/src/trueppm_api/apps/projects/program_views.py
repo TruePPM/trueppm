@@ -43,6 +43,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from trueppm_api.apps.access.models import ProgramMembership
 from trueppm_api.apps.access.permissions import (
+    IsNotTokenAuthenticated,
     IsProgramAdmin,
     IsProgramMember,
     IsProgramNotClosed,
@@ -752,11 +753,18 @@ class ProgramViewSet(
     search_fields = ["name", "code"]
     ordering_fields = ["name"]
 
+    # Sponsorship transfer promotes a member to OWNER (#3847). Read by get_permissions
+    # and the OpenAPI schema so the two cannot drift.
+    token_refused_actions = frozenset({"transfer_sponsorship"})
+
     def get_permissions(self) -> list[BasePermission]:
         # ADR-0186 §E: append the read-only MCP token guards around the
         # action-specific RBAC list so a mcp:read token is confined to safe
         # methods on every action (no write-branch leak); human auth passes both.
-        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+        refused: list[BasePermission] = (
+            [IsNotTokenAuthenticated()] if self.action in self.token_refused_actions else []
+        )
+        return [*self._rbac_permissions(), *refused, *self.mcp_token_guards()]
 
     def _rbac_permissions(self) -> list[BasePermission]:
         # Bootstrap actions: no program exists yet for these to be scoped against

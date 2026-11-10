@@ -29,14 +29,14 @@ from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination, PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import SAFE_METHODS, AllowAny, BasePermission, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import project_role_label
-from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated
+from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated, SessionOnlyWritesMixin
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
@@ -90,26 +90,6 @@ from trueppm_api.core.openapi import state_refusal_400
 CONFIRM_WORKSPACE_HEADER = "X-Confirm-Workspace"
 
 User = get_user_model()
-
-
-class SessionOnlyWritesMixin:
-    """Refuse API-token callers on every unsafe method of a membership-shaped view (#3847).
-
-    A workspace invite, a member role change, a group grant and an ownership transfer
-    each mint authority that outlives the credential used to mint it: revoking the
-    leaked token, resetting the password, or off-boarding the owner leaves the new
-    account, the promoted member or the transferred workspace in place. That is the
-    shape ``IsNotTokenAuthenticated`` exists to close, so the writes require a session
-    or JWT. Reads stay token-reachable (a script may audit invites and groups); only
-    the unsafe methods are refused. Implemented through ``get_permissions`` so one view
-    can serve a token-readable GET and a session-only POST.
-    """
-
-    def get_permissions(self) -> list[BasePermission]:
-        perms: list[BasePermission] = super().get_permissions()  # type: ignore[misc]
-        if self.request.method not in SAFE_METHODS:  # type: ignore[attr-defined]
-            perms.append(IsNotTokenAuthenticated())
-        return perms
 
 
 class InviteAcceptThrottle(AnonRateThrottle):

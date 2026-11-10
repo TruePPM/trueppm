@@ -204,6 +204,9 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # Read by BOTH get_permissions and the OpenAPI schema (core/openapi.py), so the
+    # refusal and what the schema advertises cannot drift (#3847).
+    token_refused_actions = frozenset({"create", "update", "partial_update"})
     archived_write_exempt = {
         "destroy": (
             "self-removal must survive archiving; removing another member is still "
@@ -223,7 +226,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         prevents stranding a project), so it must not require Owner.
         """
         perms: list[BasePermission] = [IsAuthenticated(), IsProjectMember()]
-        if self.action in ("create", "partial_update", "update"):
+        if self.action in self.token_refused_actions:
             # Granting or changing a role is durable authority a revoked token does not
             # take back (#3847). ``destroy`` stays token-reachable: removing access is
             # the containment direction, and self-removal must keep working.
@@ -1535,6 +1538,8 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
     """
 
     permission_classes = [IsAuthenticated, IsProgramMember, IsProgramNotClosed]
+    # Shared with the OpenAPI schema; see ProjectMembershipViewSet (#3847).
+    token_refused_actions = frozenset({"create", "update", "partial_update"})
 
     def get_permissions(self) -> list[BasePermission]:
         """Express the create/update role floors at the permission layer (#1351).
@@ -1560,7 +1565,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         for removing SOMEONE ELSE is re-asserted in the ``destroy`` body.
         """
         perms: list[BasePermission] = [IsAuthenticated(), IsProgramMember()]
-        if self.action in ("create", "partial_update", "update"):
+        if self.action in self.token_refused_actions:
             # See ProjectMembershipViewSet.get_permissions: grants are session-only (#3847).
             perms.append(IsNotTokenAuthenticated())
         if self.action != "destroy":

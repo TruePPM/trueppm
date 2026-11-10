@@ -49,13 +49,14 @@
 # exactly once, at connect, so a PAT-minted ticket would have no later revocation
 # lever that could reach the open socket, unlike the grants above.
 #
-# Fifteen more left the set in #3847: the membership family. A workspace invite
+# Seventeen more left the set in #3847: the membership family. A workspace invite
 # (create/delete/resend/resend-all), member role change and removal, group membership
-# and group->project grants, `transfer-ownership`, the create path of the project and
+# and group->project grants, `transfer-ownership`, project `transfer/` and program `transfer-sponsorship/` (each promotes a member to OWNER), the create path of the project and
 # program membership viewsets, and the workspace export trio all mint authority (or
 # exfiltrate data) that revoking the leaked token does not undo, so they refuse a token
 # caller. `workspace/export/` left the set; its `<job_id>/` and `/download/` GETs were
-# never in it (safe methods). `projects/.../members/<pk>/` and `programs/.../members/<pk>/`
+# never in it (safe methods). Project/program `export/` stay listed on purpose: only the
+# workspace export was ruled on (#3847); the others are a deliberate non-goal. `projects/.../members/<pk>/` and `programs/.../members/<pk>/`
 # stay listed on purpose: their DELETE (removing access, or self-removal) remains
 # token-reachable; only create/update/partial_update are session-only.
 #
@@ -96,7 +97,6 @@ api/v1/^programs/(?P<pk>[^/.]+)/reopen/$
 api/v1/^programs/(?P<pk>[^/.]+)/risk-policy/$
 api/v1/^programs/(?P<pk>[^/.]+)/rollup-config/$
 api/v1/^programs/(?P<pk>[^/.]+)/split/$
-api/v1/^programs/(?P<pk>[^/.]+)/transfer-sponsorship/$
 api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/$
 api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/test/$
 api/v1/^programs/bulk-fields/$
@@ -117,7 +117,6 @@ api/v1/^projects/(?P<pk>[^/.]+)/product-backlog/auto-rank/$
 api/v1/^projects/(?P<pk>[^/.]+)/product-backlog/reorder/$
 api/v1/^projects/(?P<pk>[^/.]+)/queue/reorder/$
 api/v1/^projects/(?P<pk>[^/.]+)/restore/$
-api/v1/^projects/(?P<pk>[^/.]+)/transfer/$
 api/v1/^projects/(?P<pk>[^/.]+)/unarchive/$
 api/v1/^projects/(?P<pk>[^/.]+)/visit/$
 api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/$

@@ -121,13 +121,15 @@ in and at what role.
 
 A token also cannot change who has access to your workspace: it cannot send, resend or
 delete a workspace invite, change or remove a member, add someone to a group or grant a
-group a role on a project, transfer workspace ownership, or add or change a project or
+group a role on a project, transfer workspace ownership, transfer a project's ownership or a program's sponsorship, or add or change a project or
 program member's role. It can still *read* those lists, and it can still remove a
 project or program member, because removing access is the containment direction.
 A token also cannot create, list or download a **workspace export**: the archive holds
 every project's data, and revoking a token cannot recall one that was already
 downloaded. If you automated workspace backups with a token, run the export from a
-signed-in session instead (see [data export](/administration/data-export/)). A refused
+signed-in session instead (see [workspace settings](/administration/workspace-settings/) and
+[backup and restore](/administration/backup-restore/)). Per-project and per-program
+exports are a different case and stay available to a token. A refused
 call returns `403` with a message saying API tokens cannot do this.
 
 Revocation is still not containment for *everything*: a membership, group grant or role
