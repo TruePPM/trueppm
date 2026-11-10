@@ -5223,7 +5223,80 @@ def annotate_tasks_queryset(
         )
         .values("total")[:1]
     )
-    qs = qs.annotate(assignee_is_overallocated=Exists(overallocated_subq))
+
+    # Date axis (#3544). ``overallocated_subq`` above is a project-LIFETIME sum, which
+    # is only a necessary condition: three non-overlapping 0.4-unit tasks sum to 1.2
+    # yet never share a day (the #3534 false positive). A lifetime sum >= the peak, so
+    # a sum at or under capacity proves the peak is too, and the Case below uses that
+    # as a guard -- the quadratic per-day check runs only for assignees the cheap sum
+    # already flags, and Postgres guarantees CASE short-circuits.
+    #
+    # The per-day check is one correlated pass, not a per-row computation: each of the
+    # assignee's open assignments is an "anchor" whose own span start is the candidate
+    # day (the peak of boxcars is attained on some span's first day, see
+    # ``projects.utilization._peak_candidate_days``), and ``_peak_total`` sums every
+    # assignment covering that day. Undated assignments (no span, or end < start) count
+    # on every day, exactly as ``peak_concurrent_units`` folds them in. The one
+    # approximation: the candidate is the span's first CALENDAR day, not its first
+    # working day under the resource's calendar -- CPM never dates a task onto a
+    # non-working day, and resolving a per-resource calendar in SQL is the per-row cost
+    # this annotation must not take.
+    from django.db.models import DateField
+
+    def _open_assignments() -> Any:
+        return _TR.objects.active().filter(
+            task__status__in=[
+                TaskStatus.NOT_STARTED,
+                TaskStatus.IN_PROGRESS,
+                TaskStatus.REVIEW,
+            ],
+            task__is_deleted=False,
+        )
+
+    _span_start = Coalesce("task__scheduled_start", "task__early_start", output_field=DateField())
+    covering_total_subq = (
+        _open_assignments()
+        .filter(
+            task__assignee_id=OuterRef("task__assignee_id"),
+            task__project_id=OuterRef("task__project_id"),
+        )
+        .annotate(_b_start=_span_start, _b_end=F("task__early_finish"))
+        .filter(
+            Q(_b_start__isnull=True)
+            | Q(_b_end__isnull=True)
+            | Q(_b_end__lt=F("_b_start"))
+            | Q(_b_start__lte=OuterRef("_day"), _b_end__gte=OuterRef("_day"))
+        )
+        .order_by()
+        .values("task__assignee_id")
+        .annotate(t=Sum("units"))
+        .values("t")[:1]
+    )
+    peak_overallocated_subq = (
+        _open_assignments()
+        .filter(
+            task__assignee_id=OuterRef("assignee_id"),
+            task__project_id=OuterRef("project_id"),
+        )
+        .annotate(
+            _day=_span_start,
+            _peak_total=Subquery(covering_total_subq, output_field=_units_field),
+        )
+        .filter(
+            _peak_total__gt=Coalesce(
+                Subquery(roster_capacity_subq, output_field=_units_field),
+                Subquery(resource_capacity_subq, output_field=_units_field),
+                db_models.Value(DEFAULT_MAX_UNITS, output_field=_units_field),
+            )
+        )
+    )
+    qs = qs.annotate(
+        assignee_is_overallocated=Case(
+            When(Exists(overallocated_subq), then=Exists(peak_overallocated_subq)),
+            default=db_models.Value(False),
+            output_field=BooleanField(),
+        )
+    )
 
     # Prefetch sprint scope-change audit rows (ADR-0060) so TaskSerializer
     # can include them without an N+1 query per task.
@@ -13803,53 +13876,92 @@ class ProjectAttentionView(APIView):
         but NOT roster-bounded, since ``TaskResource`` does not require a roster row.
         ``_MAX_ASSIGNEE_SCAN`` states the worst case in code rather than in prose.
         """
+        from django.db.models import DateField
+        from django.db.models.functions import Coalesce
+
+        from trueppm_api.apps.projects.utilization import (
+            Allocation,
+            peak_concurrent_units,
+            resolve_working_calendar,
+        )
         from trueppm_api.apps.resources.capacity import project_effective_units
         from trueppm_api.apps.resources.models import Resource, TaskResource
 
         roster_units = project_effective_units(project.pk)
-        totals = cast(
-            "list[dict[str, Any]]",
-            list(
-                # ``.active()`` (#3572): a deactivated person cannot be acted on, so
-                # naming them in the attention bucket is an item nobody can clear.
-                TaskResource.objects.active()
-                .filter(
-                    task__project=project,
-                    task__is_deleted=False,
-                )
-                .exclude(task__status=TaskStatus.COMPLETE)
-                .values("resource_id", "resource__max_units")
-                .annotate(total=Sum("units"))
-                # Deterministic order so both truncations below are stable;
-                # resource_id already determines the name, so grouping is unchanged.
-                .order_by("resource__name")[: self._MAX_ASSIGNEE_SCAN]
-            ),
+        open_assignments = (
+            # ``.active()`` (#3572): a deactivated person cannot be acted on, so
+            # naming them in the attention bucket is an item nobody can clear.
+            TaskResource.objects.active()
+            .filter(task__project=project, task__is_deleted=False)
+            .exclude(task__status=TaskStatus.COMPLETE)
         )
-        overalloc_rows = [
-            row
-            for row in totals
-            if row["total"] > roster_units.get(str(row["resource_id"]), row["resource__max_units"])
-        ][: self._MAX_PER_BUCKET]
-        if not overalloc_rows:
+        # Deterministic order so both truncations are stable.
+        resource_ids = [
+            row["resource_id"]
+            for row in open_assignments.values("resource_id", "resource__name")
+            .distinct()
+            .order_by("resource__name", "resource_id")[: self._MAX_ASSIGNEE_SCAN]
+        ]
+        if not resource_ids:
             return []
 
-        resource_ids = [r["resource_id"] for r in overalloc_rows]
-        resource_map = {str(r.pk): r for r in Resource.objects.filter(pk__in=resource_ids)}
+        # Window (#3544): the peak load on any single working day across this
+        # project's open assignments, not their lifetime sum. The feed has no
+        # rolling window of its own; the project's whole open span is the honest
+        # scope for a "this project over-commits X" row, and it is the same
+        # per-day verdict ``_check_overallocation`` reaches (#3534). Span is
+        # Coalesce(scheduled_start, early_start) .. early_finish, identical to the
+        # utilization engine; a never-dated task counts on every day.
+        allocations: dict[Any, list[Allocation]] = {}
+        for rid, units, span_start, span_end in (
+            open_assignments.filter(resource_id__in=resource_ids)
+            .annotate(
+                _span_start=Coalesce(
+                    "task__scheduled_start", "task__early_start", output_field=DateField()
+                )
+            )
+            .values_list("resource_id", "units", "_span_start", "task__early_finish")
+        ):
+            allocations.setdefault(rid, []).append(
+                Allocation(units=units, start=span_start, end=span_end)
+            )
+
+        cal_project = (
+            Project.objects.select_related("calendar")
+            .prefetch_related("calendar__exceptions")
+            .get(pk=project.pk)
+        )
+        resource_map = {
+            r.pk: r
+            for r in Resource.objects.filter(pk__in=resource_ids)
+            .select_related("calendar")
+            .prefetch_related("calendar__exceptions")
+        }
         out: list[dict[str, Any]] = []
-        for row in overalloc_rows:
-            res = resource_map.get(str(row["resource_id"]))
+        for rid in resource_ids:
+            res = resource_map.get(rid)
+            if res is None:
+                continue
+            mask, exception_ranges = resolve_working_calendar(res, cal_project)
+            peak, _peak_day = peak_concurrent_units(
+                allocations.get(rid, []), mask, exception_ranges
+            )
+            if peak <= roster_units.get(str(rid), res.max_units):
+                continue
             out.append(
                 {
                     "severity": "warning",
                     "type": "overallocation",
                     "task_id": None,
-                    "task_name": res.name if res else str(row["resource_id"]),
+                    "task_name": res.name,
                     "assignee_name": None,
                     "date": None,
-                    "detail": f"Allocated {row['total']:.0%} — over capacity",
+                    "detail": f"Allocated {peak:.0%} — over capacity",
                     "link_target": None,
                 }
             )
+            if len(out) >= self._MAX_PER_BUCKET:
+                break
         return out
 
 

@@ -4359,8 +4359,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True,
         default=False,
         help_text=(
-            "True when the assignee's TaskResource.units across active tasks in this "
-            "project exceed their capacity ON THIS PROJECT. Capacity is resolved in "
+            "True when the assignee's TaskResource.units held on any single day across "
+            "active tasks in this project exceed their capacity ON THIS PROJECT (tasks "
+            "with no schedule dates count on every day). Capacity is resolved in "
             "three steps: the roster units_override for the Resource that "
             "Resource.user links to this assignee (0 included), else that Resource's "
             "max_units, else 1.0 for an assignee with no Resource row at all."
