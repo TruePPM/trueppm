@@ -1569,3 +1569,67 @@ add_header Strict-Transport-Security "{{ . }}" always;
 {{ end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Web-tier nginx proxy trust (#2592, #2593) — rendered at http scope at the top of
+every branch of templates/web/configmap.yaml, so all three server blocks agree on
+who the client is and what scheme it used.
+
+With web.realIpFrom EMPTY (the default) this renders exactly the map the chart
+has shipped since #3522/#4426: an incoming X-Forwarded-Proto is passed through
+whenever one is present, falling back to $scheme. That is only sound while the
+proxy in front is the sole way in, because the header is otherwise spoofable.
+
+With web.realIpFrom SET, the named CIDRs become the trusted proxies:
+- `set_real_ip_from` + `real_ip_header X-Forwarded-For` + `real_ip_recursive on`
+  rewrite $remote_addr to the first untrusted address in the chain — the real
+  client — so web.adminAccess.allowCIDRs, the admin limit_req bucket, and the
+  X-Real-IP / X-Forwarded-For sent to Django all see the client rather than the
+  ingress controller pod.
+- X-Forwarded-Proto is passed through ONLY when the connection's immediate peer
+  ($realip_remote_addr, the address before the rewrite) is one of those CIDRs;
+  from anyone else it is replaced by $scheme, so a client that reaches the web
+  Service directly cannot claim "https".
+*/}}
+{{- define "trueppm.web.proxyTrust" -}}
+{{- $cidrs := .Values.web.realIpFrom | default list -}}
+{{- range $cidrs }}
+{{- if not (regexMatch "^[0-9a-fA-F:.]+(/[0-9]{1,3})?$" (toString .)) }}
+{{- fail (printf "web.realIpFrom entry %q is not an IP address or CIDR (#2592)" .) }}
+{{- end }}
+{{- end }}
+{{- if and .Values.web.adminAccess.enabled .Values.web.adminAccess.allowCIDRs .Values.ingress.enabled (not $cidrs) }}
+{{- fail "web.adminAccess.allowCIDRs is set with ingress.enabled=true but web.realIpFrom is empty. Behind an Ingress, nginx sees the ingress controller's pod IP, not the client's, so the allowlist either matches nobody or — if you add the pod CIDR — everybody. Set web.realIpFrom to the ingress controller's pod CIDR so nginx recovers the real client address from X-Forwarded-For, or leave allowCIDRs empty and use kubectl port-forward (#2592). See https://docs.trueppm.com/administration/security/#reaching-django-admin" }}
+{{- end }}
+{{- if $cidrs }}
+# Trusted proxies (web.realIpFrom, #2592). $remote_addr becomes the first
+# untrusted address in X-Forwarded-For; $realip_remote_addr keeps the peer.
+{{- range $cidrs }}
+set_real_ip_from {{ . }};
+{{- end }}
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+
+# X-Forwarded-Proto is believed only from a trusted proxy (#2593); from any
+# other peer it is replaced by this hop's own $scheme.
+geo $realip_remote_addr $trueppm_from_trusted_proxy {
+    default 0;
+{{- range $cidrs }}
+    {{ . }} 1;
+{{- end }}
+}
+map $http_x_forwarded_proto $trueppm_upstream_proto {
+    default $scheme;
+    ~.      $http_x_forwarded_proto;
+}
+map $trueppm_from_trusted_proxy $forwarded_proto {
+    default $scheme;
+    1       $trueppm_upstream_proto;
+}
+{{- else }}
+map $http_x_forwarded_proto $forwarded_proto {
+    default $scheme;
+    ~.      $http_x_forwarded_proto;
+}
+{{- end }}
+{{- end -}}

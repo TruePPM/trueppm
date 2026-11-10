@@ -118,6 +118,12 @@
         "maxBodySize": {
           "type": "string"
         },
+        "realIpFrom": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "adminAccess": {
           "type": "object",
           "additionalProperties": false,

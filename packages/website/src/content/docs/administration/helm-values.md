@@ -1,8 +1,16 @@
 ---
 title: Helm Values Reference
 description: Every top-level value the TruePPM Helm chart exposes — what each knob does and its safe default — organized by block.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+`web.realIpFrom`, the render-time refusal of `web.adminAccess.allowCIDRs` behind an
+Ingress without it, and the per-route web-tier body limits (2M default, 10M bulk,
+`web.maxBodySize` for uploads) ship in 0.5. In 0.4 the web tier has no trusted-proxy
+knob and `web.maxBodySize` is the ceiling for every route. Every other value on
+this page is in 0.4.
+:::
 
 This page is the reference for the values the TruePPM Helm chart
 (`packages/helm/values.yaml`) exposes: what each knob does and the value it ships
@@ -126,7 +134,8 @@ yours carries. See [Image pull failure](/administration/troubleshooting/#image-p
 | `web.enabled` | `true` | Serve the compiled React SPA from an in-chart nginx tier. Disable if you front the SPA from your own CDN and want only the API + workers. |
 | `service.web.type` / `service.web.port` | `ClusterIP` / `80` | Web Service, rendered while `web.enabled`. Exposing this one, not the API Service, is the safe way to publish a demo. |
 | `web.containerPort` | `8080` | Port the unprivileged nginx image listens on (satisfies `runAsNonRoot`). The web Service targets it by name. |
-| `web.maxBodySize` | `110M` | nginx `client_max_body_size` for the web tier. Inert in the default topology — the Ingress sends `/api` and `/ws` straight to the API Service, so uploads never traverse this nginx. It binds when you route everything through the web tier instead. See [Upload size limits](#upload-size-limits). |
+| `web.maxBodySize` | `110M` | nginx `client_max_body_size` for the web tier's **attachment and file-import** locations. Every other route gets 2M and the sync/bulk/seed/logo routes 10M, matching the API's own [request body ceilings](/administration/configuration/limits/#request-body-ceilings). Inert in the default topology — the Ingress sends `/api` and `/ws` straight to the API Service, so uploads never traverse this nginx. It binds when you route everything through the web tier instead. See [Upload size limits](#upload-size-limits). |
+| `web.realIpFrom` | `[]` | CIDRs of the trusted proxies in front of the web tier — normally your ingress controller's pod CIDR. When set, nginx recovers the client address from `X-Forwarded-For` (`set_real_ip_from`, `real_ip_recursive on`), so `web.adminAccess.allowCIDRs`, the admin rate limit, and the `X-Real-IP` / `X-Forwarded-For` sent to the API name the client rather than the controller pod; and it believes `X-Forwarded-Proto` **only** from those addresses, substituting its own scheme for anyone else. Empty keeps the previous behavior: `X-Forwarded-Proto` passes through from any peer. Leave `env.TRUEPPM_NUM_PROXIES` as it is — the API picks the same client from the chain either way. |
 
 ## Django admin exposure
 
@@ -143,7 +152,7 @@ guess against. Leaving it deny-by-default is deliberate — see
 |---|---|---|
 | `env.TRUEPPM_DJANGO_ADMIN_ENABLED` | `"false"` | Added in 0.4. Whether the API serves `/admin/` at all, independent of the nginx rules below. See [Configuration](/administration/configuration/). |
 | `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy at all. Set `false` to return `404` instead — removes the path from the public listener entirely. |
-| `web.adminAccess.allowCIDRs` | `[]` | Source CIDRs permitted to reach `/admin/`. **Empty means deny everything.** Matched against nginx's `$remote_addr`, which behind an Ingress is the *controller's* pod IP, not the operator's — so this is only meaningful when the web tier sees real client addresses. |
+| `web.adminAccess.allowCIDRs` | `[]` | Source CIDRs permitted to reach `/admin/`. **Empty means deny everything.** Matched against nginx's `$remote_addr`, which behind an Ingress is the *controller's* pod IP unless `web.realIpFrom` names it. With `ingress.enabled: true` the chart **refuses to render** a non-empty list while `web.realIpFrom` is empty, because that allowlist would match nobody — or, with the pod CIDR added, everybody. |
 | `web.adminAccess.rateLimit.enabled` | `true` | Apply an nginx `limit_req` zone to the admin login surface. |
 | `web.adminAccess.rateLimit.rate` | `5r/m` | Requests per source IP, matching the Docker Compose deployment. |
 | `web.adminAccess.rateLimit.burst` | `2` | Burst allowance above the sustained rate. |
@@ -207,8 +216,10 @@ application ever sees it.
 | Layer | Where | Default |
 |---|---|---|
 | Ingress controller | `ingress.annotations` → `nginx.ingress.kubernetes.io/proxy-body-size` | `110m` |
-| Web-tier nginx | `web.maxBodySize` | `110M` |
-| Application — attachments | `MAX_ATTACHMENT_SIZE_BYTES` / `DATA_UPLOAD_MAX_MEMORY_SIZE` (both **100 MB**) | see [Configuration](/administration/configuration/) |
+| Web-tier nginx — uploads | `web.maxBodySize` | `110M` |
+| Web-tier nginx — sync, bulk, seed, logo / everything else | fixed | `10M` / `2M` |
+| Application — transport tiers | [request body ceilings](/administration/configuration/limits/#request-body-ceilings) | 110 / 10 / 2 MB |
+| Application — attachments | `MAX_ATTACHMENT_SIZE_BYTES` (**100 MB**) | see [Configuration](/administration/configuration/) |
 | Application — imports | `MSPROJECT_MAX_UPLOAD_MB` (50), `JIRA_IMPORT_MAX_UPLOAD_MB` (25), `CSV_IMPORT_MAX_UPLOAD_MB` (10), `SEED_MAX_UPLOAD_MB` (5) | see [Configuration](/administration/configuration/) |
 
 **The rule: keep every transport limit at or above the largest application cap.**

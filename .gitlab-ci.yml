@@ -2977,7 +2977,7 @@ nginx:syntax:
   # broken nginx (an unbalanced brace, a directive missing its `;`) is caught
   # only at pod crash-loop, in a cluster, well after the MR merged.
   # scripts/check-helm-nginx-syntax.sh closes that gap by running the pinned
-  # nginxinc/nginx-unprivileged image's own `nginx -t` against all three
+  # nginxinc/nginx-unprivileged image's own `nginx -t` against all four
   # rendered variants (production, demo share-link, demo interactive) — see
   # the script's header for why that needs a real container (the ConfigMap's
   # own comment: its text is meant to be included INTO nginx.conf's `http {}`
@@ -2991,7 +2991,7 @@ nginx:syntax:
   # helm + yq added via apk (docker:27 is Alpine-based). Rules are
   # unconditional for the same reason nginx:headers' are: the drift this gate
   # catches can be introduced from packages/helm/ alone, and a change-gated job
-  # would miss it. A few seconds of container startup plus three `nginx -t`
+  # would miss it. A few seconds of container startup plus four `nginx -t`
   # calls (~1s each, measured locally).
   stage: lint
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
@@ -3366,6 +3366,28 @@ helm:template:
     - |
       grep -A14 -F 'location /admin/' /tmp/rendered.yaml | grep -q 'limit_req zone=admin_login' \
         || { echo "PROD REGRESSION: /admin/ login is no longer rate-limited (#2569)"; exit 1; }
+    # Trusted-proxy contract (#2592, #2593). web.realIpFrom must render the realip
+    # directives AND narrow X-Forwarded-Proto to those peers; an admin allowlist
+    # behind an Ingress without it must refuse to render (matched on the guard's
+    # own message, so a render failing for another reason does not pass); and
+    # /static/ must forward the client address like every other proxied location.
+    - |
+      helm template trueppm packages/helm --set image.tag=latest \
+        --set 'web.realIpFrom[0]=10.42.0.0/16' > /tmp/rendered-realip.yaml
+      grep -q 'set_real_ip_from 10.42.0.0/16;' /tmp/rendered-realip.yaml \
+        && grep -q 'real_ip_recursive on;' /tmp/rendered-realip.yaml \
+        && grep -q 'geo $realip_remote_addr $trueppm_from_trusted_proxy' /tmp/rendered-realip.yaml \
+        || { echo "PROD REGRESSION: web.realIpFrom no longer renders the trusted-proxy block (#2592, #2593)"; exit 1; }
+    - |
+      if out="$(helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
+          --set 'web.adminAccess.allowCIDRs[0]=203.0.113.0/24' 2>&1)"; then
+        echo "PROD REGRESSION: allowCIDRs behind an Ingress with no web.realIpFrom rendered (#2592)"; exit 1
+      fi
+      printf '%s' "$out" | grep -q 'web.realIpFrom is empty' \
+        || { echo "PROD REGRESSION: the allowCIDRs/realIpFrom guard did not fire: $out"; exit 1; }
+    - |
+      grep -A6 -F 'location /static/' /tmp/rendered.yaml | grep -q 'X-Forwarded-For' \
+        || { echo "PROD REGRESSION: /static/ no longer forwards X-Forwarded-For (#2593)"; exit 1; }
     # Transport limits must clear the application upload caps (#2604). Before 0.4
     # the ingress shipped `annotations: {}` and the production nginx branch
     # declared no client_max_body_size at all, so both inherited a 1m default

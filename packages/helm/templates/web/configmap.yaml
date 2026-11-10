@@ -80,10 +80,11 @@ data:
     # branch always is (see above) — because X-Forwarded-Proto is otherwise
     # client-spoofable; TRUEPPM_NUM_PROXIES governs how far up the
     # X-Forwarded-For chain the app trusts.
-    map $http_x_forwarded_proto $forwarded_proto {
-        default $scheme;
-        ~.      $http_x_forwarded_proto;
-    }
+    #
+    # With web.realIpFrom set, the passthrough is narrowed to those trusted
+    # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
+    # see trueppm.web.proxyTrust in _helpers.tpl.
+    {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
@@ -252,6 +253,9 @@ data:
         location /static/ {
             proxy_pass       http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
         }
     }
 {{- else if .Values.demo.enabled }}
@@ -292,10 +296,11 @@ data:
     # ingress/tunnel that terminates TLS, and $scheme here is always "http"
     # even when the visitor's connection was TLS. Fall back to $scheme so a
     # direct-to-nginx deployment is unchanged.
-    map $http_x_forwarded_proto $forwarded_proto {
-        default $scheme;
-        ~.      $http_x_forwarded_proto;
-    }
+    #
+    # With web.realIpFrom set, the passthrough is narrowed to those trusted
+    # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
+    # see trueppm.web.proxyTrust in _helpers.tpl.
+    {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
@@ -460,6 +465,9 @@ data:
         location /static/ {
             proxy_pass       http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
         }
     }
 {{- else }}
@@ -472,10 +480,11 @@ data:
     # is on. Falls back to $scheme when nothing arrived. Only sound when the
     # proxy in front is the sole way in; the header is client-spoofable
     # otherwise, and TRUEPPM_NUM_PROXIES governs the X-Forwarded-For chain.
-    map $http_x_forwarded_proto $forwarded_proto {
-        default $scheme;
-        ~.      $http_x_forwarded_proto;
-    }
+    #
+    # With web.realIpFrom set, the passthrough is narrowed to those trusted
+    # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
+    # see trueppm.web.proxyTrust in _helpers.tpl.
+    {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
     {{- if and .Values.web.adminAccess.enabled .Values.web.adminAccess.rateLimit.enabled }}
     # Per-source-IP rate limit for the Django admin login surface (#2569),
@@ -623,6 +632,9 @@ data:
         location /static/ {
             proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
             proxy_redirect off;
         }
 

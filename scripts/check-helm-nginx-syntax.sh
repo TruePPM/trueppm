@@ -168,6 +168,17 @@ run_check() {
   conf="$(render_default_conf)" || return $?
   check_syntax "helm production" "$conf" || return $?
 
+  # Production with the trusted-proxy and admin-allowlist knobs set (#2592):
+  # set_real_ip_from / geo / the two-stage $forwarded_proto map, and the
+  # allow-before-deny list, render only when these are non-empty — so the
+  # default render above never parses them.
+  conf="$(render_default_conf \
+    --set 'web.realIpFrom[0]=10.42.0.0/16' \
+    --set 'web.realIpFrom[1]=fd00::/8' \
+    --set 'web.adminAccess.allowCIDRs[0]=203.0.113.0/24' \
+    --set ingress.enabled=true)" || return $?
+  check_syntax "helm production (realIpFrom + allowCIDRs)" "$conf" || return $?
+
   conf="$(render_default_conf \
     -f "$HELM_CHART/values-demo.yaml" \
     --set demo.baseUrl=https://demo.example.com \
@@ -192,7 +203,7 @@ run_check() {
     echo "ERROR: $violations rendered Helm web ConfigMap variant(s) failed nginx -t." >&2
     return 1
   fi
-  echo "OK: all three rendered Helm web ConfigMap variants are valid nginx syntax."
+  echo "OK: all four rendered Helm web ConfigMap variants are valid nginx syntax."
   return 0
 }
 
