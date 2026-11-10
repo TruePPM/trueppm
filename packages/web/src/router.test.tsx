@@ -267,6 +267,12 @@ const SUB_SHELLS = [
   { container: 'programs/:programId', view: 'overview', url: '/programs/g-1/overview' },
 ] as const;
 
+// Deliberate stub: this stands in for the real ProjectShell/ProgramShell so the test
+// proves each view's `errorElement` isolates a crash BELOW the container. The real
+// shells are not mounted because they pull project/program data (queries, auth,
+// websocket) that is irrelevant to the boundary under test. The control case below
+// (a crash with no per-view boundary takes the chrome down) is what makes this test
+// able to fail.
 function ChromeProbe() {
   return (
     <div>
