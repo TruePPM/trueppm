@@ -64,7 +64,7 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
     recorded ``actual_finish`` as the end of its day on purpose — a variance
     convention shared by ``ProjectTaskSerializer.get_schedule_variance_days``,
     ``program_rollup._schedule_variance_by_project`` and the sprint-close
-    milestone slip — and do not call this function for it.
+    milestone slip — and read it through :func:`actual_finish_reading` instead.
 
     ``milestone_at_day_end`` overrides the task's own flag, for reading a finish
     the task held before a recalculation overwrote it.
@@ -91,6 +91,46 @@ def values_finish_at_day_start(row: Mapping[str, Any]) -> bool | None:
     if row.get("early_finish") is None:
         return None
     return task_finish_at_day_start(SimpleNamespace(**{f: row[f] for f in FINISH_READING_FIELDS}))
+
+
+def milestones_without_work_predecessor(milestone_ids: Iterable[Any]) -> set[Any]:
+    """The subset of ``milestone_ids`` that no live work task precedes (#4460).
+
+    A milestone nothing is scheduled before is a standalone/pinned instant: the
+    engine reads it at the START of its day. One that follows work ends at the end
+    of its day. "Work" is any non-milestone, non-deleted predecessor.
+    """
+    from trueppm_api.apps.projects.models import Dependency
+
+    ids = list(milestone_ids)
+    if not ids:
+        return set()
+    has_work = set(
+        Dependency.objects.filter(
+            successor_id__in=ids,
+            is_deleted=False,
+            predecessor__is_milestone=False,
+            predecessor__is_deleted=False,
+        ).values_list("successor_id", flat=True)
+    )
+    return {i for i in ids if i not in has_work}
+
+
+def actual_finish_reading(
+    actual: date, *, is_milestone: bool, has_work_predecessor: bool
+) -> Finish:
+    """A recorded ``actual_finish`` as a :data:`Finish`, for the variance family (#4460).
+
+    An actual is a recorded day, read as the END of that day (#4197) so hitting a
+    start-of-day milestone the Friday before it was baselined counts as on time.
+    The one exception is a milestone with no work predecessor: baseline capture
+    reads it at the START of its day (#4433), so reading its actual as the end of
+    the same day made a milestone hit exactly on its baselined day one working day
+    late. Shared by ``ProjectTaskSerializer.get_schedule_variance_days``,
+    ``program_rollup._schedule_variance_by_project`` and the sprint-close
+    milestone slip so the three cannot drift apart.
+    """
+    return (actual, is_milestone and not has_work_predecessor)
 
 
 def latest_finish(rows: Iterable[tuple[date | None, bool, Any]]) -> Finish | None:

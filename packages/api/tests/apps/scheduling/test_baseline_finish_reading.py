@@ -621,3 +621,61 @@ def test_fixture_dates_are_one_mon_fri_weekend_apart() -> None:
     assert FRI.weekday() == 4
     assert MON.weekday() == 0
     assert (MON - FRI).days == 3
+
+
+# ---------------------------------------------------------------------------
+# Completed no-predecessor milestone (#4460)
+# ---------------------------------------------------------------------------
+
+
+def _complete_on(task: Task, day: date) -> None:
+    Task.objects.filter(pk=task.pk).update(
+        status=TaskStatus.COMPLETE, actual_finish=day, percent_complete=100
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("close_first", [False, True])
+def test_standalone_milestone_hit_on_its_baselined_day_is_on_time(
+    client: APIClient, project: Project, close_first: bool
+) -> None:
+    """A milestone nothing precedes is baselined at the START of its day; hitting
+    that day reads 0 in all three variance sites, in either capture ordering."""
+    from trueppm_api.apps.projects.program_rollup import _schedule_variance_by_project
+    from trueppm_api.apps.projects.services import _milestone_slip_for_sprint
+
+    m = Task.objects.create(project=project, name="Solo", duration=0, is_milestone=True)
+    _recompute(project)
+    m.refresh_from_db()
+    assert m.milestone_at_day_end is False
+    day = m.early_finish
+    assert day is not None
+    if close_first:
+        _complete_on(m, day)
+    _capture_baseline(client, project)
+    if not close_first:
+        _complete_on(m, day)
+
+    assert BaselineTask.objects.get(task_id=m.pk).finish_at_day_start is True
+    assert _task_row(client, project, m)["schedule_variance_days"] == 0
+    assert _schedule_variance_by_project([project.pk]) == {project.pk: 0.0}
+    sprint = _sprint(project, m)
+    slip = _milestone_slip_for_sprint(
+        Sprint.objects.select_related("target_milestone").get(pk=sprint.pk)
+    )
+    assert slip is not None and slip["slip_days"] == 0
+
+
+@pytest.mark.django_db
+def test_milestone_after_work_hit_on_the_next_monday_still_reads_late(
+    client: APIClient, project: Project, network: tuple[Task, Dependency]
+) -> None:
+    """Control: a milestone WITH a work predecessor keeps the end-of-day reading."""
+    from trueppm_api.apps.projects.program_rollup import _schedule_variance_by_project
+
+    m, dep = network
+    _set_lag(project, dep, 1)  # baselined at the start of Monday
+    _capture_baseline(client, project)
+    _complete_on(m, MON)
+    assert _task_row(client, project, m)["schedule_variance_days"] == 3
+    assert _schedule_variance_by_project([project.pk]) == {project.pk: 3.0}

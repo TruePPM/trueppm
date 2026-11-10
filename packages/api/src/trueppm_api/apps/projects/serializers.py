@@ -6172,7 +6172,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         to shrink even when work is running late. Without an active baseline the
         metric is undefined — returns None rather than a misleading CPM-relative value.
 
-        An actual finish is a recorded day and is read as its end. The baseline
+        An actual finish is a recorded day and is read as its end, except a milestone
+        with no work predecessor, which is read at the start of its day to match how
+        its baseline was captured (#4460). The baseline
         finish carries the edge of the day it was captured at
         (``BaselineTask.finish_at_day_start``), so a start-of-day milestone is read
         as the end of the working day before it — the same comparison
@@ -6183,10 +6185,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         baseline: date | None = getattr(obj, "baseline_finish", None)
         if not (actual and baseline):
             return None
+        from trueppm_api.apps.scheduling.finish_reading import (
+            actual_finish_reading,
+            milestones_without_work_predecessor,
+        )
+
+        # One indexed lookup, only for a completed milestone that has a baseline.
+        no_work_pred = obj.is_milestone and bool(milestones_without_work_predecessor([obj.pk]))
         return self._finish_vs_baseline_days(
             obj,
             (baseline, getattr(obj, "baseline_finish_at_day_start", None)),
-            (actual, False),
+            actual_finish_reading(
+                actual, is_milestone=obj.is_milestone, has_work_predecessor=not no_work_pred
+            ),
         )
 
     @extend_schema_field(
