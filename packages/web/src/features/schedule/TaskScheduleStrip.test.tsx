@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Task } from '@/types';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
 
@@ -103,9 +104,7 @@ describe('TaskScheduleStrip', () => {
     fireEvent.focus(computed);
     // describe={false}: the tooltip restates the sr-only reading, so the panel
     // is aria-hidden and must be queried directly rather than via getByRole.
-    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent(
-      'not a committed start',
-    );
+    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent('not a committed start');
   });
 
   describe('free float inside the Float cell (#3344)', () => {
@@ -139,15 +138,13 @@ describe('TaskScheduleStrip', () => {
       expect(floatCell().getByText('free -1d')).toBeInTheDocument();
     });
 
-    it('folds free float into the cell\'s spoken text, not only its pixels', () => {
+    it("folds free float into the cell's spoken text, not only its pixels", () => {
       // The chip carries its own `aria-label` (#2454, rule 287 — it is no
       // longer `aria-hidden`, since a Tooltip trigger cannot sit inside a
       // decorative aria-hidden container), so a screen-reader user reaches the
       // full reading rather than only the total.
       render(<TaskScheduleStrip task={makeTask({ totalFloat: 5, freeFloat: 2 })} />);
-      expect(
-        screen.getByLabelText('free float 2 working days'),
-      ).toBeInTheDocument();
+      expect(screen.getByLabelText('free float 2 working days')).toBeInTheDocument();
     });
 
     it('surfaces the free-float definition via Tooltip, not a bare title (#2454)', () => {
@@ -204,7 +201,7 @@ describe('TaskScheduleStrip', () => {
       expect(screen.getByText(/1 day of work remaining/)).toBeInTheDocument();
     });
 
-    it('folds the remaining-days fact into the editable button\'s aria-label', () => {
+    it("folds the remaining-days fact into the editable button's aria-label", () => {
       render(
         <TaskScheduleStrip
           task={makeTask({ duration: 4, remainingDuration: 1 })}
@@ -452,7 +449,10 @@ describe('TaskScheduleStrip', () => {
     it('does not render the advisory when the task is not flagged', () => {
       // NOT_STARTED (no flag) and IN_PROGRESS-but-committed both suppress it.
       const { rerender } = render(
-        <TaskScheduleStrip task={makeTask({ status: 'NOT_STARTED', plannedStart: null })} {...editableProps} />,
+        <TaskScheduleStrip
+          task={makeTask({ status: 'NOT_STARTED', plannedStart: null })}
+          {...editableProps}
+        />,
       );
       expect(screen.queryByText('No committed start')).not.toBeInTheDocument();
       rerender(
@@ -570,7 +570,9 @@ describe('TaskScheduleStrip', () => {
 
     it('names the date it will commit, so the button is not a blind write', () => {
       render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
-      expect(screen.getByRole('button', { name: /Set committed start \(Jan 13\)/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /Set committed start \(Jan 13\)/i }),
+      ).toBeInTheDocument();
     });
 
     it('carries the same docs deep-link as the advisory and the row chip', () => {
@@ -613,7 +615,9 @@ describe('TaskScheduleStrip', () => {
       const opts = mutate.mock.calls[0][1] as { onSuccess?: () => void };
       opts.onSuccess?.();
       expect(
-        await screen.findByText(/Committed start set to Jan 13\. This task is now on the timeline\./),
+        await screen.findByText(
+          /Committed start set to Jan 13\. This task is now on the timeline\./,
+        ),
       ).toBeInTheDocument();
     });
 
@@ -708,5 +712,53 @@ describe('the drawer discloses the date-gated promote', () => {
     render(<TaskScheduleStrip task={uncommittedStartingOn(SERVER_TODAY)} {...editableProps} />);
     const button = screen.getByRole('button', { name: /also marks this task In progress/i });
     expect(button.getAttribute('aria-label')).toBe(button.textContent);
+  });
+});
+
+describe('TaskScheduleStrip read-only hours at the project rate (#3062)', () => {
+  afterEach(() => {
+    projectHoursPerDay = 8;
+  });
+
+  it('a viewer under a provider reads a 2-day task as 8h on a 4h/day calendar', () => {
+    projectHoursPerDay = 4;
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskScheduleStrip
+          task={makeTask({ duration: 2, durationUnit: 'hours' })}
+          projectId="p1"
+          canEdit={false}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText('8h')).toBeInTheDocument();
+  });
+
+  it('renders with no QueryClientProvider, falling back to the 8h day', () => {
+    projectHoursPerDay = 4;
+    render(
+      <TaskScheduleStrip
+        task={makeTask({ duration: 2, durationUnit: 'hours' })}
+        projectId="p1"
+        canEdit={false}
+      />,
+    );
+    expect(screen.getByText('16h')).toBeInTheDocument();
+  });
+
+  it('an explicit hoursPerDay prop wins over the project rate', () => {
+    projectHoursPerDay = 4;
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskScheduleStrip
+          task={makeTask({ duration: 2, durationUnit: 'hours' })}
+          projectId="p1"
+          hoursPerDay={6}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText('12h')).toBeInTheDocument();
   });
 });

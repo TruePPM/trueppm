@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
 import type { Task } from '@/types';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useEffectiveDurationPolicy, useProject, useProjectHoursPerDay } from '@/hooks/useProject';
@@ -430,12 +431,17 @@ function ComputedStartValue({ iso }: { iso: string }) {
   // close. `describe={false}` since the sr-only span already gives AT the
   // full reading; the tooltip only adds the sighted channel.
   return (
-    <Tooltip content="Auto-calculated by the scheduler (CPM) — not a committed start." describe={false}>
+    <Tooltip
+      content="Auto-calculated by the scheduler (CPM) — not a committed start."
+      describe={false}
+    >
       <span
         data-testid="computed-start-value"
         className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
-        <span className="border-b border-dotted border-neutral-text-disabled">{formatDate(iso)}</span>
+        <span className="border-b border-dotted border-neutral-text-disabled">
+          {formatDate(iso)}
+        </span>
         <span
           aria-hidden="true"
           className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
@@ -817,6 +823,41 @@ function UncommittedStartNote({
   );
 }
 
+/** Read-only duration text that tolerates a missing QueryClientProvider (#3062). */
+function ReadOnlyDurationText({
+  days,
+  unit,
+  projectId,
+  hoursPerDay,
+}: {
+  days: number;
+  unit: DurationUnit;
+  projectId?: string;
+  hoursPerDay?: number;
+}) {
+  // useQueryClient() throws without a provider, so probe the context directly.
+  // A provider is mounted for the whole tree or not at all, so this branch is
+  // stable across renders and the hook-order rule holds.
+  const hasClient = useContext(QueryClientContext) !== undefined;
+  if (hoursPerDay !== undefined || !hasClient || !projectId || unit !== 'hours') {
+    return <span>{formatDuration(days, unit, hoursPerDay)}</span>;
+  }
+  return <ProjectRateDurationText days={days} unit={unit} projectId={projectId} />;
+}
+
+function ProjectRateDurationText({
+  days,
+  unit,
+  projectId,
+}: {
+  days: number;
+  unit: DurationUnit;
+  projectId: string;
+}) {
+  const rate = useProjectHoursPerDay(projectId);
+  return <span>{formatDuration(days, unit, rate)}</span>;
+}
+
 /**
  * Editable variant of the strip (#2106, ADR-0515). Owns the mutation, the
  * ADR-0151 recalc-% prompt, and the inline error/announce state; only mounted
@@ -993,11 +1034,9 @@ export function TaskScheduleStrip({
   // value that changed unit when you gained edit rights would be a worse bug
   // than not having the unit at all.
   //
-  // It deliberately does NOT fetch the calendar. This component is rendered in
-  // contexts without a QueryClientProvider (print layouts, overlays, several
-  // test harnesses), and adding a query here breaks all of them. Hours therefore
-  // render at the 8h default in the read-only strip; the editable strip, which
-  // always lives under a provider, uses the project's real hours_per_day.
+  // It must not require a QueryClientProvider (print layouts, overlays, several
+  // test harnesses have none). ReadOnlyDurationText reads the project calendar
+  // only when a provider is present and otherwise renders at the 8h default.
   const durationUnit: DurationUnit = task.durationUnit ?? 'days';
 
   if (canEdit && projectId && !task.isMilestone) {
@@ -1016,7 +1055,12 @@ export function TaskScheduleStrip({
           task.isMilestone ? null : (
             <Cell label="Duration">
               <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                <span>{formatDuration(task.duration, durationUnit, hoursPerDay)}</span>
+                <ReadOnlyDurationText
+                  days={task.duration}
+                  unit={durationUnit}
+                  projectId={projectId}
+                  hoursPerDay={hoursPerDay}
+                />
                 {shouldShowRemainingChip(task) && (
                   <RemainingDurationChip remaining={task.remainingDuration as number} />
                 )}
