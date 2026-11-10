@@ -1064,6 +1064,24 @@ lint:mr-followups:
     - bash scripts/check-mr-followups.sh --self-test
     - bash scripts/check-mr-followups.sh
 
+lint:negated-closing-keywords:
+  extends: .fast-job
+  # A negated GitLab closing keyword ("does not fix #4883") in the MR description or a
+  # branch commit still CLOSES the issue on merge: GitLab's pattern ignores negation
+  # (#4926; !3327 closed #4883 that way and reddened main). Self-test first so a broken
+  # detector cannot pass a bad description. GIT_DEPTH 0 gives the commit range its base.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  variables:
+    GIT_DEPTH: "0"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed gawk git
+  script:
+    - bash scripts/check-negated-closing-keywords.sh --self-test
+    - bash scripts/check-negated-closing-keywords.sh
+
 lint:sonar-exclusions:
   extends: .fast-job
   # Sonar exclusion-integrity gate (#2520). Every

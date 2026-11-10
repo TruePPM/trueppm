@@ -579,6 +579,11 @@ e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
 
+.PHONY: negated-closing-keywords-check
+negated-closing-keywords-check: ## Run the lint:negated-closing-keywords CI job locally (#4926; commit messages only, no MR description before the MR exists)
+	@bash scripts/check-negated-closing-keywords.sh --self-test
+	@bash scripts/check-negated-closing-keywords.sh --commits
+
 cost-ledger-check: ## Run the lint:cost-ledger CI job locally (the cost-ledger scripts' --self-test runs)
 	@python3 scripts/cost-ledger --self-test
 	@python3 scripts/subagent-tokens.py --self-test
@@ -789,6 +794,7 @@ pre-push-checks: pre-push-mobile
 pre-push-checks: e2e-schema-guard-check
 pre-push-checks: web-types-drift-check
 pre-push-checks: cost-ledger-check
+pre-push-checks: negated-closing-keywords-check
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
