@@ -355,29 +355,74 @@ def test_typo_year_actual_start_does_not_grow_the_index_for_an_unrelated_sf_link
     _assert_mc_matches_cpm(project)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#4430: a completed task that finished before the project start clamps to "
-    "offset 0 — a different mechanism from #4510, still open",
-)
-def test_completed_task_finished_before_start_matches_cpm_4430() -> None:
-    """#4430's repro case A, pinned so that its fix is noticed (strict xfail).
+_DONE_FRI = {"actual_start": date(2026, 2, 25), "actual_finish": date(2026, 2, 27)}
+_WED_SUN = {"wedsun": Calendar(working_days=0b1111100)}  # Mon/Tue off
 
-    This branch (#4510) widens the index for pre-start milestone floors only; a
-    completed task's pre-index finish is a separate clamp in ``_completed_offsets``.
+
+@pytest.mark.parametrize(
+    ("tasks", "calendars", "expected"),
+    [
+        # A: every task is completed work that ended before the project start.
+        ([_work("done", 3, **_DONE_FRI)], None, date(2026, 2, 27)),
+        # B: completed on a Wed-Sun calendar, finishing Sunday 1 March; its own
+        # index begins Wednesday 4 March, two working days after the live task.
+        (
+            [
+                _work(
+                    "done",
+                    3,
+                    actual_start=date(2026, 2, 25),
+                    actual_finish=date(2026, 3, 1),
+                    calendar_id="wedsun",
+                ),
+                _work("live", 1),
+            ],
+            _WED_SUN,
+            date(2026, 3, 2),
+        ),
+        # C: as B, finishing Friday 27 February.
+        (
+            [_work("done", 3, calendar_id="wedsun", **_DONE_FRI), _work("live", 1)],
+            _WED_SUN,
+            date(2026, 3, 2),
+        ),
+        # D (control): the same on the project calendar already agreed.
+        ([_work("done", 3, **_DONE_FRI), _work("live", 1)], None, date(2026, 3, 2)),
+    ],
+    ids=["all-complete", "wedsun-sunday", "wedsun-friday", "project-calendar"],
+)
+def test_completed_task_finished_before_start_matches_cpm_4430(
+    tasks: list[Task], calendars: dict[str, Calendar] | None, expected: date
+) -> None:
+    """#4430: completed work ending before the index origin never raises the MC finish.
+
+    Its last working day has no cell, and clamping it to offset 0 read it as the end
+    of the first indexed day of its own calendar.
     """
-    project = _project(
-        [
-            _work(
-                "done",
-                3,
-                actual_start=date(2026, 2, 25),
-                actual_finish=date(2026, 2, 27),
-            )
+    project = _project(tasks, [], calendars=calendars)
+    assert _assert_mc_matches_cpm(project) == expected
+
+
+def test_completed_task_finished_after_start_but_before_index_origin_4430() -> None:
+    """The wider #4430 class: ``actual_finish`` after the start, before the index origin.
+
+    The project starts on Tuesday 13 January on a Monday-only calendar, so its index
+    begins Monday 19 January. T0 finished Saturday 17 January, after the start but
+    before that origin; T1, on a seven-day calendar, finishes Sunday 18 January.
+    Keying the fix on ``actual_finish < start_date`` alone left this open.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 13),
+        tasks=[
+            _work("T0", 1, actual_start=date(2026, 1, 13), actual_finish=date(2026, 1, 17)),
+            _work("T1", 6, calendar_id="seven"),
         ],
-        [],
+        calendar=Calendar(working_days=0b0000001),
+        calendars={"seven": Calendar(working_days=0b1111111)},
     )
-    assert _assert_mc_matches_cpm(project) == date(2026, 2, 27)
+    assert _assert_mc_matches_cpm(project) == date(2026, 1, 18)
 
 
 # ---------------------------------------------------------------------------

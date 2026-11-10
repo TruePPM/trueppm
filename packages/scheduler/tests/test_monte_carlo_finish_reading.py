@@ -374,8 +374,8 @@ def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
     """Every percentile of a deterministic project is the CPM finish, edge included (#4601).
 
     The edge half is what a closed milestone finishing the project broke. A
-    completed task finishing before the project start (#4430) is left out: Monte
-    Carlo cannot show a day before its index begins.
+    completed task finishing before the project start is kept: it reads at its
+    verbatim date through the completed floor, not at the index's first day (#4430).
 
     Split milestone actuals (#4458) are deliberately kept, although the issue
     suggested excluding them. They are most of the closed milestones this strategy
@@ -386,11 +386,8 @@ def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
     """
     project = _zero_variance(project)
     try:
-        cpm = schedule(project)
+        schedule(project)
     except SchedulerError:
-        return
-    # TODO(#4430): drop this carve-out with the one in test_contract_fuzz.
-    if any(t.early_finish is not None and t.early_finish < project.start_date for t in cpm.tasks):
         return
     expected = _cpm_reading(project)
     mc = _simulate(project)
