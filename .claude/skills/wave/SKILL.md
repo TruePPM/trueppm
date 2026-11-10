@@ -153,7 +153,28 @@ named. Include:
 - The specific files or symbols to start from, if the issue names them.
 - The exact gates that apply to this diff (from the `CLAUDE.md` fast-path table),
   and which are `n/a`, so the agent does not run the whole battery.
-- The scoped test command — the affected test file, not the whole suite.
+- The scoped test command — the affected test files, not the whole suite. "Affected"
+  is wider than the file named for the change, because the files that redden an MR
+  pipeline are usually the cross-cutting ones nobody named (2026-11-10: three
+  pipelines). Name these in the brief whenever the diff triggers them:
+  - `docs/api/openapi.json` changes → every `packages/api/tests/test_openapi*.py`
+    (the envelope-vocabulary and schema-conformance gates live there, not beside the
+    serializer);
+  - `packages/scheduler/src/**/engine/**` changes → `tests/test_bench.py` (its
+    validation-share budget fails on CI's untraced run) and `tests/test_wasm_conformance.py`;
+  - a permission class, `get_permissions` or `permission_classes` changes →
+    `tests/apps/access/test_route_table_invariants.py` and the token-scope matrix;
+  - any changed function or class → `grep -rln <name> packages/*/tests` and run every
+    hit, so a helper's other callers' tests run too.
+
+  `scripts/affected-tests` (#4931) replaces this hand-built list once it exists.
+- That each fix commit carries `Closes #N` **in its commit body**, not only in the
+  MR description. The known-limitations gates (`tracker-refs-check` in `make
+  pre-push`; `lint:scheduler-readme-limitations` and `docs:known-issues-freshness` in
+  CI) learn what a change closes from that keyword. Locally they read commit
+  messages, so a `Closes` that lives only in the MR description is invisible until
+  the first pipeline reds (#4930). Never put a closing verb near an issue the
+  branch does *not* close: GitLab and the gates match negated sentences too.
 - **Its budget** from *Per-agent budget* below: tool calls and wall-clock minutes for its
   role, and the instruction to stop and report at either.
 - The completion contract from Step 5 — it **stops and reports after Step 5.4**;
@@ -371,6 +392,15 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
    catches a merged-tree collision (a migration number, an ADR number, a rule
    number) that opened up while the branch, the gate batch, and the
    completeness-check round were all running against an older base.
+   **Rebase, never `git merge origin/main`.** That is the user's standing
+   preference, and it overrides `/fix-mr` § 4j's "prefer merge" for wave branches.
+   It applies to every agent on the branch, so do not brief a fix-round agent to
+   "merge main". An unpushed branch rebases for free. A branch that is already
+   pushed rebases with `git push --force-with-lease`, and only when it is being
+   pushed anyway: a rebase whose sole purpose is tidying history cancels a running
+   pipeline and starts another. Main moves mid-wave whenever the user merges an
+   earlier MR, so run this check immediately before the push, not when the
+   completeness-check clears.
 8. Push the branch.
 9. **Open the MR itself**, reproducing the `/mr` skill's format by running
    `glab mr create` directly. `/mr` is `disable-model-invocation` — an agent
@@ -485,7 +515,9 @@ Cache reads were 95.9% of the measured spend. Each of these cuts
   agent has to rediscover is re-read on every subsequent turn of that agent.
   Name the branch (or its worktree directory) the agent is for: the cost records attribute a
   subagent to an MR by its brief (`docs/harness/cost-ledger.md` § *Non-overlap*).
-- **Scoped tests only.** Never the full suite inside an agent.
+- **Scoped tests only.** Never the full suite inside an agent, but scope by what the
+  diff touches, cross-cutting files included (Step 4 § The brief). A test the scope
+  missed costs a full MR pipeline, which is more than the wider local run.
 - **Pre-MR gates as one parallel batch**, never serially (#526).
 - **Apply only the gates the diff earns** — the `CLAUDE.md` fast-path table is
   authoritative. A bugfix with a known root cause does not need `architect`.
