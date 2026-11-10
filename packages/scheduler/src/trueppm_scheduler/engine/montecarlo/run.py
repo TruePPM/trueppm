@@ -309,10 +309,15 @@ def _mc_percentiles(
     return out
 
 
+#: Default simulation count for :func:`monte_carlo`, shared by the ``monte-carlo`` CLI's
+#: ``--runs`` so library and command line agree (#4670).
+DEFAULT_RUNS = 10_000
+
+
 def monte_carlo(
     project: Project,
     *,
-    runs: int = 1_000,
+    runs: int = DEFAULT_RUNS,
     seed: int | None = None,
     max_runs: int | None = None,
     max_tasks: int | None = None,
@@ -349,6 +354,12 @@ def monte_carlo(
 
     A mixed project (scrum subtree + waterfall tasks) therefore produces a single
     finish-date distribution combining both sources of uncertainty.
+
+    .. note::
+       Concurrency: this function does not mutate ``project`` and keeps no
+       module-level mutable state, so concurrent calls are safe. A shared
+       :class:`Calendar` is not synchronized; mutating one while another thread
+       runs a simulation against it is unsupported.
 
     .. note::
        Every sampled duration is **floored at the task's own ``duration``** (#3765).
@@ -445,7 +456,8 @@ def monte_carlo(
     Args:
         project:   The project to simulate. Must have at least one task and
                    no cyclic dependencies.
-        runs:      Number of Monte Carlo iterations. Default 1 000.
+        runs:      Number of Monte Carlo iterations. Default 10 000 (the same default
+                   as the ``monte-carlo`` CLI's ``--runs``).
         seed:      Optional RNG seed for reproducibility. With a fixed seed the
                    sampled durations — and therefore P50/P80/P95 — are
                    deterministic and independent of task insertion order, **for

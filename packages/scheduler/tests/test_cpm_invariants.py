@@ -1221,3 +1221,63 @@ def test_link_that_places_its_successor_is_a_driving_edge_on_any_link_type(
         return
     problems = _undriven_placing_links(project)
     assert not problems, "\n".join([repr(project), *problems])
+
+
+# ---------------------------------------------------------------------------
+# README sentence: "is_critical is total_float == 0 on live work; completed work
+# has total float 0 and is never critical" (#4670)
+# ---------------------------------------------------------------------------
+
+
+def _is_complete(task: Task) -> bool:
+    """The engine's completion rule, restated from the input task."""
+    return task.actual_finish is not None or task.percent_complete >= 100
+
+
+@given(project=_plausible_projects())
+def test_readme_is_critical_sentence_holds(project: Project) -> None:
+    """Live work is critical iff its total float is zero; completed work has total
+    float zero and is never critical.
+
+    A consumer who reads the old "exactly ``total_float == 0``" wording and filters
+    on float alone gets every completed task, which is why the README states both
+    halves.
+    """
+    try:
+        result = schedule(project)
+    except SchedulerError:
+        return
+    inputs = {t.id: t for t in project.tasks}
+    for out in result.tasks:
+        src = inputs.get(out.id)
+        if src is None:  # summaries expanded away; only input tasks are checked
+            continue
+        if _is_complete(src):
+            assert out.total_float == timedelta(0), (
+                f"{out.id}: completed but float {out.total_float}"
+            )
+            assert not out.is_critical, f"{out.id}: completed task reported critical"
+        else:
+            assert out.is_critical == (out.total_float == timedelta(0)), (
+                f"{out.id}: is_critical={out.is_critical} with total_float={out.total_float}"
+            )
+
+
+def test_completed_task_has_zero_float_but_is_not_critical() -> None:
+    """Deterministic witness for the README sentence (a float-only filter over-selects)."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(
+                id="done", name="done", duration=timedelta(days=3), actual_finish=date(2026, 3, 4)
+            ),
+            Task(id="live", name="live", duration=timedelta(days=2)),
+        ],
+        dependencies=[Dependency(predecessor_id="done", successor_id="live")],
+    )
+    tasks = {t.id: t for t in schedule(project).tasks}
+    assert tasks["done"].total_float == timedelta(0)
+    assert not tasks["done"].is_critical
+    assert tasks["live"].is_critical

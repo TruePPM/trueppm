@@ -548,7 +548,15 @@ def _coerce_delivery_mode(d: dict[str, Any]) -> None:
 
 @dataclass
 class Dependency:
-    """A precedence relationship between two tasks."""
+    """A precedence relationship between two tasks.
+
+    Attributes:
+        predecessor_id: Id of the task that constrains the successor.
+        successor_id: Id of the task being constrained.
+        dep_type: Link type (``FS`` by default).
+        lag: Offset applied to the link, a ``timedelta`` (negative is a lead).
+            Whole days are consumed as working days on the successor's calendar.
+    """
 
     predecessor_id: str
     successor_id: str
@@ -660,6 +668,14 @@ class Calendar:
     Default 0b0011111 (Mon-Fri).
 
     Note:
+        Concurrency: a ``Calendar`` is mutable and carries a lazily built
+        internal exception index; it is **not synchronized**. Sharing one
+        instance across threads that only read it (for example concurrent
+        :func:`~trueppm_scheduler.schedule` calls) is fine. Mutating it
+        (reassigning ``working_days`` or ``exceptions``) while another thread
+        schedules against it is unsupported; build a new ``Calendar`` per change.
+
+    Note:
         Reserved-but-inert fields: ``hours_per_day`` and ``timezone`` are
         accepted for serialization parity but are **not yet consumed** by the
         engine — scheduling is in whole-day units, so ``Calendar(hours_per_day=4)``
@@ -713,13 +729,15 @@ class Calendar:
     # reference pins the identity for as long as the cache claims it, and the
     # tuple/frozen-DateRange normalization above makes every remaining mutation
     # shape either impossible or a new object.
-    _exc_index: tuple[list[int], list[int], list[int]] | None = field(
-        default=None, init=False, repr=False, compare=False
+    #
+    # The index, its source object and its mask live in ONE tuple, assigned in a
+    # single statement (#4543): a reader on another thread then sees either the old
+    # complete triple or the new one, never a fresh index paired with a stale
+    # source/mask. (Under the GIL the worst case of the old three-write form was a
+    # redundant rebuild; this makes the publish one pointer write on any build.)
+    _exc_cache: tuple[tuple[list[int], list[int], list[int]], Sequence[DateRange], int] | None = (
+        field(default=None, init=False, repr=False, compare=False)
     )
-    _exc_src: Sequence[DateRange] | None = field(
-        default=None, init=False, repr=False, compare=False
-    )
-    _exc_mask: int | None = field(default=None, init=False, repr=False, compare=False)
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Set an attribute, normalizing ``exceptions`` to an immutable tuple."""
@@ -814,12 +832,9 @@ class Calendar:
         subsumes the plain overlap/adjacency case: a zero-or-negative-length gap
         always has zero mask-working days in it.
         """
-        if (
-            self._exc_index is not None
-            and self._exc_src is self.exceptions
-            and self._exc_mask == self.working_days
-        ):
-            return self._exc_index
+        cache = self._exc_cache
+        if cache is not None and cache[1] is self.exceptions and cache[2] == self.working_days:
+            return cache[0]
         mask = self.working_days
         ranges = sorted((e.start.toordinal(), e.end.toordinal()) for e in self.exceptions)
         starts: list[int] = []
@@ -833,12 +848,12 @@ class Calendar:
         prefix = [0] * (len(starts) + 1)
         for i, (s, e) in enumerate(zip(starts, ends, strict=True)):
             prefix[i + 1] = prefix[i] + _mask_days_between(s, e + 1, mask)
-        self._exc_index = (starts, ends, prefix)
-        # Strong reference: pins the identity the check above relies on, so the
-        # source object cannot be collected and have its address reused (#2462).
-        self._exc_src = self.exceptions
-        self._exc_mask = mask
-        return self._exc_index
+        index = (starts, ends, prefix)
+        # Strong reference to ``self.exceptions``: pins the identity the check above
+        # relies on, so the source object cannot be collected and have its address
+        # reused (#2462). One assignment publishes index, source and mask together.
+        self._exc_cache = (index, self.exceptions, mask)
+        return index
 
     def _exception_mask_days(self, lo: int, hi: int) -> int:
         """Count mask-working days inside exception runs overlapping ``[lo, hi)``.
@@ -1040,7 +1055,43 @@ class Calendar:
 
 @dataclass
 class Project:
-    """Top-level container for a scheduled project."""
+    """Top-level container for a scheduled project.
+
+    Attributes:
+        id: Project identifier.
+        name: Display name.
+        start_date: Date the schedule is anchored to when there is no
+            ``status_date``.
+        tasks: The tasks to schedule.
+        dependencies: Precedence links between ``tasks``.
+        calendar: The project-wide working calendar.
+        velocity_samples: The team's historical throughput series (completed
+            story points per closed sprint), bootstrap-sampled by scrum tasks in
+            Monte Carlo to estimate sprints-to-completion. A zero-point sprint is
+            an observation and is sampled like any other. Without this and
+            ``sprint_length_days`` a SCRUM task falls back to its deterministic
+            duration.
+        sprint_length_days: Sprint cadence in *working* days.
+        status_date: Data date: the "as-of" anchor for progress-aware
+            forecasting. Completed work is held fixed and remaining or
+            not-started work is scheduled no earlier than this date. ``None``
+            means no status anchor (schedule from ``start_date``). Callers must
+            resolve a null status date to today *before* calling; the engine is
+            pure and never reads the wall clock.
+        calendars: Optional registry of calendar id to :class:`Calendar` that
+            tasks opt into via ``Task.calendar_id``. ``None`` or empty means
+            everything schedules on ``calendar``. When non-empty, a
+            ``calendar_id`` with no entry is refused with
+            :class:`InvalidScheduleInput`, never silently scheduled on
+            ``calendar``. Lag on an edge is consumed on the successor's calendar.
+
+    Note:
+        Concurrency: :func:`~trueppm_scheduler.schedule` and
+        :func:`~trueppm_scheduler.monte_carlo` do not mutate the ``Project``
+        they are given and keep no module-level mutable state, so concurrent
+        calls are safe. A shared ``Calendar`` is not synchronized; see
+        :class:`Calendar`.
+    """
 
     id: str
     name: str
@@ -1048,35 +1099,9 @@ class Project:
     tasks: list[Task] = field(default_factory=list)
     dependencies: list[Dependency] = field(default_factory=list)
     calendar: Calendar = field(default_factory=Calendar)
-
-    # Agile-aware Monte Carlo inputs (#411). ``velocity_samples`` is the team's
-    # historical throughput series — completed story points per closed sprint —
-    # which scrum tasks bootstrap-sample to estimate sprints-to-completion. A
-    # zero-point sprint is an observation and is sampled like any other (#4535).
-    # ``sprint_length_days`` is the cadence in *working* days (the engine schedules
-    # in working days). Both default to absent; without them a SCRUM task gracefully
-    # falls back to its deterministic duration.
     velocity_samples: list[float] | None = None
     sprint_length_days: int | None = None
-
-    # Data date (ADR-0132). The "as-of" anchor for progress-aware forecasting:
-    # completed work is held fixed, and remaining/not-started work is scheduled
-    # no earlier than this date. ``None`` means "no status anchor" — the engine
-    # schedules from ``start_date`` exactly as before. Callers resolve a null
-    # project status date to today before invoking the engine (the engine itself
-    # stays pure and never reads the wall clock).
     status_date: date | None = None
-
-    # Per-task calendar registry (ADR-0120 D3, cross-project dependencies). A
-    # mapping of calendar id → :class:`Calendar` that tasks opt into via
-    # ``Task.calendar_id``. ``None`` (or empty) means the whole project schedules
-    # on the single pass-level ``calendar`` — the existing behavior, byte-for-byte.
-    # The program-scoped CPM pass populates this so each member project's tasks
-    # keep their own working week in one merged schedule, while lag on any edge is
-    # consumed on the *successor's* calendar (the constraint lands where the wait
-    # is). When this registry is non-empty, a ``calendar_id`` with no entry here is
-    # refused with ``InvalidScheduleInput`` (#4516), never silently scheduled on
-    # ``calendar``.
     calendars: dict[str, Calendar] | None = None
 
     def to_dict(self) -> dict[str, Any]:

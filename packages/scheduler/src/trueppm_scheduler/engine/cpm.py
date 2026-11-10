@@ -102,12 +102,18 @@ def schedule(project: Project) -> ScheduleResult:
         between the Python and Rust/WASM engines (#1862) — retrieve a task by its
         ``id``, never by list position.
 
+    Note:
+        Concurrency: this function does not mutate ``project`` and keeps no
+        module-level mutable state, so concurrent calls are safe. A shared
+        :class:`Calendar` is not synchronized; mutating one while another
+        thread schedules against it is unsupported.
+
     Raises:
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If the calendar has no working day, or a duration
             or lag is negative/out of range.
         InvalidScheduleInput: Also if ``project`` is not a :class:`Project`.
-        ValueError: If a dependency references an unknown task ID.
+        InvalidScheduleInput: Also if a dependency references an unknown task ID.
     """
     _require_project(project)
     if not project.tasks:
