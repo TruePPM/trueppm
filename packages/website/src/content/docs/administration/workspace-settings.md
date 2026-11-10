@@ -694,11 +694,14 @@ limit, not by a role check on this page.
 The **Archive / Delete** section holds the workspace-wide actions that cannot be undone.
 Each requires an explicit confirmation before it runs.
 
-Export all data, Transfer ownership, and Delete workspace all require the **workspace
-Owner** role — the same 400-ordinal role as everywhere else on this page, one band above
-Admin. A workspace Admin who is not the Owner sees the three controls disabled, with a
-note stating the Owner role is required; the server enforces the same boundary
-independently, so this is a UI affordance rather than the security check itself.
+### Access
+
+**Owner only.** Export all data, Transfer ownership, and Delete workspace all require
+the **workspace Owner** role — the same 400-ordinal role as everywhere else on this
+page, one band above Admin. A workspace Admin who is not the Owner can open the
+section and read it but cannot act: the three controls are shown disabled, each with
+the note "Requires the workspace Owner role." The server enforces the same boundary
+independently, so the disabled state is a UI affordance rather than the security check.
 
 ### Export all data
 
