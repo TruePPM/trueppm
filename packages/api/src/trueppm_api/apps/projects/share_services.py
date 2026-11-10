@@ -346,13 +346,14 @@ def serialize_public_schedule(link: ShareLink) -> dict[str, Any]:
     project = link.project
     cap = int(getattr(settings, "SHARE_SCHEDULE_MAX_TASKS", 1000))
 
-    # Exclude the backlog exactly as the board projection does (ADR-0245): the
-    # intake pool is un-triaged and the most likely to carry sensitive raw names, so
-    # a shared schedule is a delivery-status surface, not the backlog. Backlog tasks
-    # are unscheduled anyway and would only render as "Unscheduled" noise.
+    # Use the committed-delivery population (not BACKLOG, EPIC, recurring or
+    # soft-deleted) instead of hand-rolling a subset of its exclusions, so this
+    # public surface cannot drift from the schedulable set (#3677). The backlog is
+    # un-triaged and the most likely to carry sensitive raw names (ADR-0245); epics
+    # and recurring occurrences are never scheduled and would only render as
+    # undated noise on a delivery-status page.
     qs = (
-        Task.objects.filter(project=project, is_deleted=False)
-        .exclude(status=TaskStatus.BACKLOG)
+        Task.committed.filter(project=project)
         .select_related("assignee")
         .order_by("wbs_path", "early_start", "name")
     )
