@@ -119,7 +119,9 @@ each tagged release. One-time setup, then repeatable per release.
 - Opening the JOSS submission at <https://joss.theoj.org> (points the editor at
   this repo + `paper.md`) and shepherding the review.
 - Backfilling the real ORCID and DOIs into `CITATION.cff`, `paper.md`, and
-  `.zenodo.json` once assigned.
+  `.zenodo.json` once assigned. The `orcid:` and `doi:` keys are omitted until
+  then rather than carried as placeholders, which tooling would consume as real
+  (a test fails on a `0000-0000-0000-0000` / `zenodo.0000000` value).
 - **Deciding the author affiliation.** `paper.md` carries "Independent Researcher"
   as a placeholder, because JOSS requires one. MacroDream, LLC sells a commercial
   edition built on this library, so before submitting either name MacroDream, LLC
