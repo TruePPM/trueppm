@@ -719,9 +719,9 @@ class Calendar:
     # overlapping the span).
     #
     # Validity is keyed on the IDENTITY of the exceptions object the index was built
-    # from, and ``_exc_src`` holds a strong reference to it (#2462), *and* on the
+    # from, and the cached source holds a strong reference to it (#2462), *and* on the
     # ``working_days`` mask the coalescing decision depends on (#4176) — a calendar
-    # is mutable and ``_exc_mask`` catches a same-identity ``exceptions`` rebuilt
+    # is mutable and the cached mask catches a same-identity ``exceptions`` rebuilt
     # under a different mask. The previous ``(len, id)`` token was unsound twice
     # over: a same-length in-place replacement changed neither term, so the stale
     # index was served; and ``id()`` is unique only among *live* objects, so a
