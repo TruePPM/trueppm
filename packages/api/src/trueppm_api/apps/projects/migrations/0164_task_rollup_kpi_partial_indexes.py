@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0162_label_name_unique_live_only"),
+        ("projects", "0163_near_critical_threshold"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
