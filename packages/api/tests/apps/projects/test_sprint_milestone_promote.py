@@ -331,3 +331,43 @@ def test_binding_drifted_flips_when_committed_scope_changes(
         wbs_path="2",
     )
     assert compute_milestone_rollup_payload(milestone)["binding_drifted"] is True
+
+
+def test_sprint_list_query_count_is_flat_across_bound_sprints(
+    client: APIClient, project: Project, scheduler_user: object
+) -> None:
+    """The list must not issue one ``auth_user`` query per milestone-bound sprint (#4382).
+
+    ``get_milestone_bound_by_name`` reads the ``milestone_bound_by`` FK, so the viewset
+    has to ``select_related`` it. Compare the query count at 1 and at 10 bound sprints:
+    it must not depend on N.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def make_bound(i: int) -> None:
+        milestone = Task.objects.create(
+            project=project, name=f"M{i}", is_milestone=True, wbs_path=f"m{i}"
+        )
+        Sprint.objects.create(
+            project=project,
+            name=f"S{i}",
+            start_date=date(2026, 4, 1),
+            finish_date=date(2026, 4, 14),
+            target_milestone=milestone,
+            milestone_bound_by=scheduler_user,
+        )
+
+    def count() -> int:
+        with CaptureQueriesContext(connection) as ctx:
+            resp = client.get(f"/api/v1/projects/{project.pk}/sprints/")
+        assert resp.status_code == 200
+        results = resp.data["results"] if isinstance(resp.data, dict) else resp.data
+        assert all(r["milestone_bound_by_name"] for r in results)
+        return len(ctx)
+
+    make_bound(0)
+    one = count()
+    for i in range(1, 10):
+        make_bound(i)
+    assert count() == one
