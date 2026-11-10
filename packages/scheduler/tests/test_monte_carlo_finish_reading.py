@@ -435,9 +435,11 @@ def _recorded_edge_projects(draw: st.DrawFn) -> Project:
 def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
     """Every percentile of a deterministic project is the CPM finish, edge included (#4601).
 
-    The edge half is what a closed milestone finishing the project broke. A
-    completed task finishing before the project start is kept: it reads at its
-    verbatim date through the completed floor, not at the index's first day (#4430).
+    The edge half is what a closed milestone finishing the project broke. This
+    strategy does not draw pre-start finishes (no actual lands before the anchor);
+    #4430 is covered by ``test_contract_fuzz.py::
+    test_monte_carlo_zero_variance_equals_cpm_under_per_task_calendars`` and the
+    pinned cases in ``test_monte_carlo_live_actual_start.py``.
 
     Split milestone actuals (#4458) are deliberately kept, although the issue
     suggested excluding them. They are most of the closed milestones this strategy
