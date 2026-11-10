@@ -468,8 +468,11 @@ test.describe('#1985 — three-point estimates batch behind the drawer Save bar'
     const req = await patchPromise;
     expect(req.postDataJSON().optimistic_duration).toBe(4);
 
-    // No Save bar exists on the full page — the edit committed on blur.
-    await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    // No Save bar exists on the full page — the edit committed on blur. `exact`
+    // is load-bearing: a role name matches as a case-insensitive substring, and the
+    // header sync chip's label ("Synced — all changes saved.") contains "save" once
+    // the PATCH lands, so a bare 'Save' passes or fails on request timing.
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
   });
 
   // #2662 — this fixture is the exact repro: the task has a fully populated

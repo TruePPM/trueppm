@@ -113,6 +113,7 @@ The same affordance appears throughout the
 | `public_sharing` | boolean | `false` | When `true`, designated read-only views may be shared via link so anyone with the link can view without signing in. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing_override_policy` | string | `"suggest"` | Whether downstream scopes may override the workspace sharing values. `"suggest"` (default) lets programs/projects override; `"enforce"` makes the workspace value a hard ceiling. **`enforce` is an Enterprise capability — in the community edition it degrades to `suggest` (no lock).** |
 | `sprint_picker_ready_only_default` <br/>*(shipped in 0.4)* | boolean | `true` | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories. This is the **workspace default**; programs and projects inherit it and may override it per scope (Shape A: `null` override = inherit). Advisory only — the picker's own "Show all" toggle always reveals a not-ready story, and committing one is never blocked. There is no override policy / enforcement seam for this field. |
+| `near_critical_threshold_days` <br/>*(ships in 0.5)* | integer (working days) | `10` | Float, in working days, at or below which a task is shown as near-critical on the driving chain (float 0 is critical). This is the **workspace default**; programs and projects inherit it and may override it per scope (`null` override = inherit). Accepts 1 to 260. Display only: it never moves a date, and there is no enforcement lock. |
 | `currency` <br/>*(ships in 0.5)* | string (ISO 4217) | `"USD"` | The one currency every cost amount (resource rates, project budgets, actual cost) is shown in. See [Currency](#currency). |
 
 ### Currency
@@ -455,8 +456,18 @@ Workspace Admins send email invitations to bring new users into the workspace.
    - hashes the submitted token and looks up a non-expired pending invite,
    - re-checks that the invite's sender is still an active workspace Admin or
      Owner, and refuses it with the same generic error otherwise,
-   - provisions a new `User` account **or** links the invite to an existing
-     account if the invite email matches,
+   - provisions a new `User` account **or** links the invite to the existing
+     account whose email matches (case-insensitive). If **more than one**
+     account shares that email the invite is refused (`400`, "More than one
+     account uses this invitation's email address…") and stays pending, rather
+     than granting the role to an arbitrary one of them. An admin must resolve
+     the duplicate accounts first,
+
+     :::note[Ships in 0.5]
+     The refusal on a duplicate email ships in 0.5. The current release links
+     the invite to the first matching account instead of refusing it.
+     :::
+
    - creates a `WorkspaceMembership` at the invited role,
    - marks the invite `accepted`, stamping `accepted_at` and the accepting user.
 5. Error responses are **generic** ("invalid or expired token") to prevent
@@ -688,11 +699,14 @@ limit, not by a role check on this page.
 The **Archive / Delete** section holds the workspace-wide actions that cannot be undone.
 Each requires an explicit confirmation before it runs.
 
-Export all data, Transfer ownership, and Delete workspace all require the **workspace
-Owner** role — the same 400-ordinal role as everywhere else on this page, one band above
-Admin. A workspace Admin who is not the Owner sees the three controls disabled, with a
-note stating the Owner role is required; the server enforces the same boundary
-independently, so this is a UI affordance rather than the security check itself.
+### Access
+
+**Owner only.** Export all data, Transfer ownership, and Delete workspace all require
+the **workspace Owner** role — the same 400-ordinal role as everywhere else on this
+page, one band above Admin. A workspace Admin who is not the Owner can open the
+section and read it but cannot act: the three controls are shown disabled, each with
+the note "Requires the workspace Owner role." The server enforces the same boundary
+independently, so the disabled state is a UI affordance rather than the security check.
 
 ### Export all data
 

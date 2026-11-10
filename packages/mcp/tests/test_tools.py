@@ -709,8 +709,25 @@ async def test_get_schedule_driving_chain_keeps_provenance_and_depth(settings: S
                 "task_id": "t-2",
                 "computable": True,
                 "truncated": False,
-                "nodes": [{"task_id": "t-2", "direction": "self"}],
-                "edges": [{"predecessor_id": "t-1", "successor_id": "t-2", "via_summary": None}],
+                "schema_version": 1,
+                "nodes": [
+                    {
+                        "task_id": "t-2",
+                        "direction": "self",
+                        "total_float": {"value": 0, "unit": "working_days"},
+                        "band": "critical",
+                    }
+                ],
+                "edges": [
+                    {
+                        "predecessor_id": "t-1",
+                        "successor_id": "t-2",
+                        "lag": {"value": 1, "unit": "calendar_days"},
+                        "via_summary": [{"task_id": "s-1", "name": "Phase"}],
+                    }
+                ],
+                "total_links": 1,
+                "omitted_non_driving_count": 0,
                 "_provenance": {"schema_version": 1, "input_hash": "sha256:ab"},
             },
         )
@@ -721,6 +738,11 @@ async def test_get_schedule_driving_chain_keeps_provenance_and_depth(settings: S
     assert seen == {"task_id": "t-2", "depth": "3"}
     assert result["_provenance"]["input_hash"] == "sha256:ab"
     assert result["nodes"][0]["direction"] == "self"
+    # ADR-1381 amendment: units travel with the number; the band is passed through verbatim.
+    assert result["nodes"][0]["total_float"]["unit"] == "working_days"
+    assert result["nodes"][0]["band"] == "critical"
+    assert result["edges"][0]["lag"]["unit"] == "calendar_days"
+    assert result["edges"][0]["via_summary"] == [{"task_id": "s-1", "name": "Phase"}]
 
 
 async def test_get_schedule_derivation_accepts_scheduled_start(settings: Settings) -> None:

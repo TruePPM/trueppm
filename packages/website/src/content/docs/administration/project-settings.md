@@ -252,6 +252,32 @@ how CPM converts a duration into dates, so a change here moves dates. The projec
 inherits the program or workspace calendar unless it defines its own. See
 [Working calendars](/administration/working-calendars/).
 
+### Near-critical threshold
+
+:::note[Ships in 0.5]
+The near-critical threshold ships in 0.5, together with the driving-chain view it
+shades (ADR-1381).
+:::
+
+A task is **critical** when its total float is zero. It is **near-critical** when it
+has float, but no more than the **near-critical threshold** —
+`near_critical_threshold_days`, counted in **working days**, default **10** (two
+weeks). The driving-chain view marks near-critical tasks amber and returns the same
+classification as a `band` on each node, so a chart, a copied summary and an MCP client
+all agree. The threshold only shades that band: it never moves a date.
+
+The setting inherits **workspace → program → project**. The workspace holds the default
+(`PATCH /api/v1/workspace/`); a program can override it for its projects
+(`PATCH /api/v1/programs/{id}/`, Program Admin); a project can override the program
+(`PATCH /api/v1/projects/{id}/`, **Scheduler** and up). A project with no override of its
+own reads `effective_near_critical_threshold_days` from its program or the workspace;
+`inherited_near_critical_threshold_days` is what it would fall back to if the override were
+cleared. Send `null` to clear an override. Values run from **1 to 260** working days.
+
+A short threshold suits a short project, where two days of float is the whole buffer. A
+long program usually wants more: at the default, anything within two weeks of slipping
+the finish is flagged.
+
 ## Notifications
 
 The **Notifications** page sets **per-member notification preferences** — each member

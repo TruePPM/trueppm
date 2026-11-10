@@ -157,11 +157,18 @@ stored dependencies misses those. Any project member (Viewer and up) and an
 | `computable` | `boolean` | `false` for a task the CPM pass does not schedule; `nodes` and `edges` are then empty |
 | `reason` | `string \| null` | Why it is not computable: `backlog`, `not_committed` (an epic or recurring task), `summary`, or `not_in_network` |
 | `depth`, `node_cap` | `integer` | The limits applied: `depth` hops per direction (default 25, max 50) and at most 200 nodes |
+| `schema_version` | `integer` | Contract version of this payload. Additive changes keep it |
 | `truncated`, `truncated_reason` | `boolean`, `string \| null` | `true` when a limit cut the walk, with `depth` or `node_cap` |
+| `total_links` | `integer` | Driving links in the whole chain, uncapped. Larger than `edges.length` exactly when the response is truncated |
+| `omitted_non_driving_count` | `integer` | Non-driving links into the task or its upstream chain: predecessors that carry float and are not drawn |
+| `near_critical_threshold` | `object` | `{value, unit: "working_days"}` — the effective [near-critical threshold](/administration/project-settings/#near-critical-threshold) the node bands were computed against |
+| `calendar_id` | `string \| null` | Id of the base calendar the schedule is computed against: the project's own, else its program's, else the workspace's. `null` only when none resolves and the system default applies. Overlay layers (exceptions, resource calendars) are not named |
 | `project_finish` | `date \| null` | The project finish date of the same pass |
-| `nodes` | `array` | `{task_id, name, status, direction, hops, early_start, early_finish, total_float_days, is_critical, is_project_finish, sprint}`. `direction` is `self`, `upstream` or `downstream`; `sprint` is `{id, finish_date}` or `null`. No assignee, hours or velocity |
-| `edges` | `array` | `{predecessor_id, successor_id, dep_type, lag_days, is_driving, via_summary}`. `via_summary` lists the summary task ids the stored link was expanded from, or `null` for a direct link |
+| `nodes` | `array` | `{task_id, name, status, direction, hops, early_start, early_finish, total_float, band, is_critical, is_project_finish, sprint}`. `total_float` is `{value, unit: "working_days"}`. `band` is `complete` (finished: zero float but never critical), `critical`, `near_critical` or `ample`; the set is open, so a client must tolerate a value it does not know. `direction` is `self`, `upstream` or `downstream`; `sprint` is `{id, finish_date}` or `null`. No assignee, hours or velocity |
+| `edges` | `array` | `{predecessor_id, successor_id, dep_type, lag, is_driving, via_summary}`. `lag` is `{value, unit: "calendar_days"}` — float counts working days and lag counts calendar days, so the unit always travels with the value. `via_summary` is a list of `{task_id, name}` for the summary task(s) the stored link was expanded from, or `null` for a direct link |
 | `_provenance` | `object` | `{schema_version, engine_version, api_version, input_hash, computed_at}`. The same inputs give the same `input_hash` |
+
+When the throttle is exceeded the endpoint answers `429` with the standard `Retry-After` header. There is no response cache: each call runs one schedule pass.
 
 An unknown task id returns 404, and a `depth` outside 1–50 returns 400.
 

@@ -13,6 +13,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from trueppm_api.apps.access.permissions import role_can_subscribe_live
 from trueppm_api.apps.observability.otel import metrics
+from trueppm_api.apps.sync.broadcast import group_name_for_project
 from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
 
 logger = logging.getLogger(__name__)
@@ -195,7 +196,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             return
 
         self.project_pk = project_pk
-        self.group_name = f"project_{project_pk}"
+        self.group_name = group_name_for_project(project_pk)
         self._user = user
         self._display_name: str = user.get_full_name() or user.username
 
