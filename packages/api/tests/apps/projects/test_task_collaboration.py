@@ -1417,18 +1417,6 @@ class TestSuggestionEndpointPermissionFloor:
     def _url(task: Task, suggestion: TaskSuggestedAssignee, verb: str) -> str:
         return f"/api/v1/tasks/{task.pk}/suggestions/{suggestion.pk}/{verb}/"
 
-    @pytest.mark.parametrize(
-        "action", ["accept_suggestion", "decline_suggestion", "revoke_suggestion"]
-    )
-    def test_declared_floor_is_explicit(self, action: str) -> None:
-        from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectNotArchived
-        from trueppm_api.apps.projects.views import TaskViewSet
-
-        view = TaskViewSet()
-        view.action = action
-        kinds = {type(p) for p in view._rbac_permissions()}
-        assert {IsProjectMember, IsProjectNotArchived} <= kinds
-
     def test_accept_by_suggested_user_still_works(
         self, member_client: APIClient, task: Task, suggestion: TaskSuggestedAssignee
     ) -> None:

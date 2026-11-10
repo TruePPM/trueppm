@@ -769,3 +769,20 @@ def test_every_bundled_sample_passes_the_dependency_graph_guard() -> None:
     for sample in SAMPLES.values():
         payload = json.loads(sample.path.read_text(encoding="utf-8"))
         validate_seed(payload, allow_sample_sections=True)
+
+
+def test_long_dependency_cycle_message_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A huge cycle path must not balloon the 400 body (#2589)."""
+    from trueppm_api.apps.projects.seed.validation import MAX_SEED_ERROR_CHARS
+    from trueppm_api.apps.scheduling import graph_guard
+
+    def boom(*_a: Any, **_k: Any) -> None:
+        raise graph_guard.InfeasibleGraphError(
+            "cyclic_dependency", [f"proj:{i}" for i in range(5000)]
+        )
+
+    monkeypatch.setattr(graph_guard, "validate_task_graph", boom)
+    with pytest.raises(SeedValidationError) as exc:
+        validate_seed(_valid_seed())
+    msgs = [e for e in exc.value.errors if "dependency cycle" in e]
+    assert msgs and all(len(m) < MAX_SEED_ERROR_CHARS + 120 for m in msgs), [len(m) for m in msgs]

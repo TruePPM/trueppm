@@ -163,3 +163,5 @@ def test_non_string_values_are_400_not_500(
     for method, url, payload in cases:
         resp = getattr(client, method)(url, data=payload, format="json")
         assert resp.status_code < 500, (method, url, payload, resp.status_code)
+    resp = client.post(f"/api/v1/sprints/{sprint.pk}/retro/", data={"notes": ["x"]}, format="json")
+    assert resp.status_code == 400, resp.status_code

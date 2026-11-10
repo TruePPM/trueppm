@@ -1020,7 +1020,9 @@ def _dependency_graph_errors(projects: list[dict[str, Any]], errors: list[str]) 
         validate_task_graph(edges, children_map=children)
     except InfeasibleGraphError as exc:
         what = "a task depends on itself" if exc.reason == "self_reference" else "dependency cycle"
-        errors.append(f"$.projects[*].dependencies: {what}: {' -> '.join(exc.offending)}")
+        errors.append(
+            f"$.projects[*].dependencies: {what}: {_bounded_message(' -> '.join(exc.offending))}"
+        )
     except InvalidScheduleInput as exc:
         errors.append(f"$.projects[*].dependencies: malformed dependency graph: {exc}")
 

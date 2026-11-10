@@ -8217,12 +8217,16 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
     def partial_update(self, request: Request, pk: str | None = None) -> Response:
         """Edit text/color and/or move (column + fractional position); LWW (ADR-0117 §3)."""
         from trueppm_api.apps.projects.retro_board_services import (
+            _require_strings,
             move_board_item,
             update_board_item,
         )
 
         item = self.get_object()  # runs object-level IsProjectMemberWrite
         data = object_body(request)
+        # Type-check every field before either service runs: move_board_item commits
+        # on its own, so a later text/color refusal would leave a half-applied edit.
+        _require_strings(column=data.get("column"), text=data.get("text"), color=data.get("color"))
         if "column" in data or "position" in data:
             try:
                 position = float(data.get("position", item.position))
@@ -12739,6 +12743,8 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
 
     body = object_body(request)
     notes = body.get("notes", "")
+    if not isinstance(notes, str):
+        return Response({"notes": "Must be a string."}, status=status.HTTP_400_BAD_REQUEST)
     raw_items = body.get("action_items", []) or []
     if not isinstance(raw_items, list) or not all(isinstance(e, dict) for e in raw_items):
         return Response(
