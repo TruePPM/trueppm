@@ -234,6 +234,13 @@ def _prime_body(request: HttpRequest, length: int) -> None:
 
     Multipart bodies are never primed: their file parts must stream to the upload
     handlers rather than land in memory.
+
+    The read happens before authentication, so an anonymous caller can make one of
+    the bulk routes hold up to 10 MiB of raw bytes until DRF answers 401. That is
+    accepted: under ASGI Django has already buffered the whole body before any
+    middleware runs, no parse happens here, and the alternative — raising the
+    ceiling lazily inside ``HttpRequest.body`` — truncates the body on a
+    non-seekable stream.
     """
     if hasattr(request, "_body"):
         return
