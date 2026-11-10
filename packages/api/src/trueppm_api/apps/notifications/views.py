@@ -36,6 +36,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
+from trueppm_api.core.request_body import object_body
 
 from .categories import CATEGORIES, CATEGORY_MENTIONS, event_types_for_category
 from .models import (
@@ -345,7 +346,7 @@ class NotificationViewSet(
         notification = get_object_or_404(Notification, pk=pk, recipient=user)
         now = timezone.now()
 
-        until, error = _resolve_snooze_until(request.data, now)
+        until, error = _resolve_snooze_until(object_body(request), now)
         if error is not None:
             return error
 

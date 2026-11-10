@@ -519,15 +519,21 @@ def test_refused_monte_carlo_run_writes_no_history_and_latest_stays_readable(
     client: APIClient, archived: Project
 ) -> None:
     """The refusal precedes every write; the read-only ``latest`` route is not gated (#2551)."""
+    from django.core.cache import cache
+
     from trueppm_api.apps.scheduling.models import MonteCarloRun
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
 
     _task(archived)
+    key = mc_latest_cache_key(archived.pk)
+    seeded = {"p50": 1, "p80": 2, "p95": 3, "marker": "seeded-before-refusal"}
+    cache.set(key, seeded, timeout=600)
     resp = client.post(f"/api/v1/projects/{archived.pk}/monte-carlo/", {}, format="json")
     assert resp.status_code == 403, resp.data
     assert not MonteCarloRun.objects.filter(project=archived).exists()
+    assert cache.get(key) == seeded
     latest = client.get(f"/api/v1/projects/{archived.pk}/monte-carlo/latest/")
-    # 404 is "no run cached yet", which is correct here — the point is it is not a 403.
-    assert latest.status_code in (200, 404), latest.data
+    assert latest.status_code == 200, latest.data
 
 
 def test_running_monte_carlo_on_a_live_project_still_works(

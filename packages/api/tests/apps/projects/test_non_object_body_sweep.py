@@ -17,6 +17,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.notifications.models import Notification
 from trueppm_api.apps.projects.models import (
     BacklogItem,
     Program,
@@ -99,6 +100,13 @@ def sticky(sprint: Sprint, owner: object) -> RetroBoardItem:
 
 
 @pytest.fixture
+def notification(owner: object, project: Project) -> Notification:
+    return Notification.objects.create(
+        recipient=owner, event_type="task_assigned", subject="s", body="b", project=project
+    )
+
+
+@pytest.fixture
 def backlog_item(program: Program) -> BacklogItem:
     return BacklogItem.objects.create(program=program, title="idea")
 
@@ -110,6 +118,7 @@ def _urls(
     outcome: SprintTaskOutcome,
     sticky: RetroBoardItem,
     backlog_item: BacklogItem,
+    notification: Notification,
 ) -> list[tuple[str, str]]:
     return [
         ("post", f"/api/v1/sprints/{sprint.pk}/retro/"),
@@ -118,9 +127,10 @@ def _urls(
         ("patch", f"/api/v1/retro-items/{sticky.pk}/"),
         ("post", f"/api/v1/sprint-task-outcomes/{outcome.pk}/toggle-demo/"),
         ("post", f"/api/v1/sprint-task-outcomes/{outcome.pk}/set-presenter/"),
-        ("post", f"/api/v1/programs/{program.pk}/load-sample/"),
+        ("post", "/api/v1/programs/load-sample/"),
         ("post", f"/api/v1/programs/{program.pk}/backlog-items/{backlog_item.pk}/pull/"),
         ("post", "/api/v1/project-templates/publish/"),
+        ("post", f"/api/v1/me/notifications/{notification.pk}/snooze/"),
     ]
 
 
@@ -133,13 +143,14 @@ def test_non_object_body_is_400_not_500(
     outcome: SprintTaskOutcome,
     sticky: RetroBoardItem,
     backlog_item: BacklogItem,
+    notification: Notification,
     body: object,
 ) -> None:
     client.raise_request_exception = False
-    for method, url in _urls(project, program, sprint, outcome, sticky, backlog_item):
+    for method, url in _urls(project, program, sprint, outcome, sticky, backlog_item, notification):
         resp = getattr(client, method)(url, data=body, format="json")
         assert resp.status_code < 500, (method, url, resp.status_code)
-        assert resp.status_code in (400, 404, 405), (method, url, resp.status_code)
+        assert resp.status_code == 400, (method, url, resp.status_code)
 
 
 @pytest.mark.parametrize("bad", [123, ["x"], {"a": 1}, True])
@@ -159,9 +170,17 @@ def test_non_string_values_are_400_not_500(
         ("patch", f"/api/v1/retro-items/{sticky.pk}/", {"column": bad}),
         ("post", f"/api/v1/sprint-task-outcomes/{outcome.pk}/set-presenter/", {"presenter": bad}),
         ("post", f"/api/v1/sprints/{sprint.pk}/retro/", {"notes": bad}),
+        ("put", f"/api/v1/sprints/{sprint.pk}/pulse/", {"mood": bad, "energy": 3}),
+        ("put", f"/api/v1/sprints/{sprint.pk}/pulse/", {"mood": 3, "energy": bad}),
+        ("put", f"/api/v1/sprints/{sprint.pk}/pulse/", {"mood": 3, "energy": 3, "confidence": bad}),
     ]
     for method, url, payload in cases:
         resp = getattr(client, method)(url, data=payload, format="json")
         assert resp.status_code < 500, (method, url, payload, resp.status_code)
+    for mood in ("3", [1], True):
+        resp = client.put(
+            f"/api/v1/sprints/{sprint.pk}/pulse/", data={"mood": mood, "energy": 3}, format="json"
+        )
+        assert resp.status_code == 400, (mood, resp.status_code)
     resp = client.post(f"/api/v1/sprints/{sprint.pk}/retro/", data={"notes": ["x"]}, format="json")
     assert resp.status_code == 400, resp.status_code

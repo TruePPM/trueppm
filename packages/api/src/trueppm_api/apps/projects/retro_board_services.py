@@ -283,6 +283,10 @@ def upsert_pulse_response(
     # Explicit per-field guards (not a loop) so the type narrows to ``int`` for the
     # update_or_create below — mypy --strict + django-stubs reject ``int | None`` on
     # the non-null model fields.
+    # bool is an int subclass; refuse it and strings/lists before the range compare.
+    for name, val in (("mood", mood), ("energy", energy), ("confidence", confidence)):
+        if val is not None and (isinstance(val, bool) or not isinstance(val, int)):
+            raise ValidationError({name: "Must be an integer 1-5."})
     if mood is None or not (1 <= mood <= 5):
         raise ValidationError({"mood": "Must be an integer 1-5."})
     if energy is None or not (1 <= energy <= 5):
