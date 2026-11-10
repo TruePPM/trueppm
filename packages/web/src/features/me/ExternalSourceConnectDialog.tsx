@@ -28,6 +28,7 @@
 import { type FormEvent, useId, useState } from 'react';
 import {
   type ConnectExternalSourceInput,
+  type ExternalConnectionSummary,
   extractConnectionError,
   useConnectExternalSource,
   useSyncExternalSource,
@@ -53,20 +54,27 @@ interface Props {
   onDismiss: () => void;
   /** Called after a successful connect (before dismiss) so the page can react. */
   onConnected?: () => void;
+  /**
+   * The stored connection when reconnecting or changing the filter (#3247). The
+   * server rebuilds `config` wholesale from the submitted payload, so a blank
+   * wizard would silently replace the stored JQL / project keys with the
+   * defaults. Everything but the secret (never returned) is pre-filled.
+   */
+  connection?: ExternalConnectionSummary | null;
 }
 
-export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: Props) {
+export function ExternalSourceConnectDialog({ source, onDismiss, onConnected, connection }: Props) {
   const titleId = useId();
   const descId = useId();
   const [step, setStep] = useState<Step>('credentials');
 
-  const [deployment, setDeployment] = useState<Deployment>('cloud');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [accountEmail, setAccountEmail] = useState('');
+  const [deployment, setDeployment] = useState<Deployment>(connection?.deployment === 'server' ? 'server' : 'cloud');
+  const [baseUrl, setBaseUrl] = useState(connection?.base_url ?? '');
+  const [accountEmail, setAccountEmail] = useState(connection?.account_email ?? '');
   const [secret, setSecret] = useState('');
-  const [pullMode, setPullMode] = useState<'assigned' | 'jql'>('assigned');
-  const [jql, setJql] = useState(DEFAULT_JQL);
-  const [projects, setProjects] = useState('');
+  const [pullMode, setPullMode] = useState<'assigned' | 'jql'>(connection?.jql ? 'jql' : 'assigned');
+  const [jql, setJql] = useState(connection?.jql || DEFAULT_JQL);
+  const [projects, setProjects] = useState((connection?.project_keys ?? []).join(', '));
   const [error, setError] = useState<string | null>(null);
 
   const connect = useConnectExternalSource(source.provider);

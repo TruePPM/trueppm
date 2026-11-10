@@ -649,7 +649,11 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
       ) : null}
 
       {showConnect ? (
-        <ExternalSourceConnectDialog source={source} onDismiss={() => setShowConnect(false)} />
+        <ExternalSourceConnectDialog
+          source={source}
+          connection={isConnected ? connection : null}
+          onDismiss={() => setShowConnect(false)}
+        />
       ) : null}
       {showDisconnect ? (
         <DisconnectSourceDialog source={source} onDismiss={() => setShowDisconnect(false)} />
@@ -1201,8 +1205,8 @@ function formatRelativeDate(value: string): string {
 }
 
 // Opt-in polling defaults off (ADR-0097 §5 — a source only auto-refreshes if
-// the owner turns polling on) and there is no UI toggle for it yet, so "Sync
-// now" is the primary path for most users. A day-scale threshold flags a
+// the owner turns polling on; `BackgroundPollToggle` is the switch), so for
+// anyone who has not opted in "Sync now" is the only refresh path. A day-scale threshold flags a
 // connection that has quietly gone unrefreshed without nagging on every
 // visit — matches the "Last synced 3 days ago" example in #1910's AC.
 const STALE_SYNC_THRESHOLD_MS = 24 * 60 * 60 * 1000;
