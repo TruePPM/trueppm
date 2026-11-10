@@ -712,6 +712,21 @@ compose-project-names-check: ## Fail if a standalone compose file has no `name:`
 compose-nginx-shutdown-check: ## Fail if prod compose nginx lacks worker_shutdown_timeout or a longer stop_grace_period (#4366)
 	@bash scripts/check-compose-nginx-shutdown.sh
 
+tracker-refs-check: ## Fail if this branch adds a reference to a closed issue, keeps one to an issue it closes, or drops a required one (#4925)
+	@# The MR-caused half of the five tracker-reading CI gates (TRACKER_GATE_MODE=diff),
+	@# measured against `git merge-base origin/main HEAD`, with the branch's commit
+	@# messages as the closing-keyword source (no MR exists yet). Makes no tracker
+	@# call when the branch adds and closes nothing; fails closed when it must and
+	@# cannot (offline: set the gate's *_ALLOW_UNRESOLVED=1 to push anyway).
+	@# Tracker drift (an issue closed elsewhere) is NOT checked here; it goes to
+	@# the nightly tracker:drift-report. Output is shown only on failure.
+	@export CI_PROJECT_ID="$${CI_PROJECT_ID:-trueppm%2Ftrueppm}" TRACKER_GATE_MODE=diff; \
+	for g in scripts/check-scheduler-readme-limitations.sh scripts/check-todo-grep.sh \
+	  scripts/check-known-issues-freshness.sh scripts/check-suppression-issues.sh \
+	  scripts/check-claude-md-stale-issues.sh; do \
+	  out=$$(bash $$g 2>&1) || { printf '%s\n' "$$out" | grep -vE '^(WARNING|  )' >&2; echo "tracker-refs-check: $$g failed" >&2; exit 1; }; \
+	done
+
 compose-ports-check: ## Fail if docker-compose.yml publishes a port on a non-loopback interface (#4648)
 	@# The dev stack runs DEBUG + AllowAny + a public SECRET_KEY; #3189 loopback-bound
 	@# db/mailpit but left api/web on 0.0.0.0. Pure text scan; no docker daemon.
@@ -773,6 +788,7 @@ pre-push-checks: focus-trap-focuskey-check
 pre-push-checks: aria-modal-focus-trap-check
 pre-push-checks: adr-status-check
 pre-push-checks: version-status-check
+pre-push-checks: tracker-refs-check
 pre-push-checks: config-doc-links-check
 pre-push-checks: docs-tree-split-check
 pre-push-checks: ws-event-reachability-check

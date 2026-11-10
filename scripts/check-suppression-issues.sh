@@ -36,10 +36,24 @@
 # issue closed — which is not a diff event at all, and is the case that produced
 # #2603).
 #
+# ## Which rule blocks where (#4925)
+#
+# The "issue closed" half is not a diff event, so as a whole-tree check on every
+# MR and main push it turned main red on the day someone closed an issue. Split
+# by cause:
+#
+#   MR-caused (TRACKER_GATE_MODE=diff, default — MR, main push, make pre-push;
+#     blocks): a marker on a line the diff ADDS (vs the merge base) that names
+#     a closed or missing issue, or any marker naming an issue THIS change
+#     closes (tracker_gate_closing_ids — GitLab's closes_issues on an MR).
+#   tracker-caused (TRACKER_GATE_MODE=drift — scripts/tracker-drift-report.sh,
+#     nightly tracking issue): a pre-existing marker whose issue was closed
+#     outside this change — the #2603 case.
+#
 # Exit codes:
 #   0  every marker names an open issue (or there are none)
 #   1  at least one marker names a closed or missing issue
-#   2  invocation / API error
+#   2  invocation / API error (tracker or diff base unreadable — fail closed)
 
 set -euo pipefail
 
@@ -87,6 +101,42 @@ if [ "${1:-}" = "--self-test" ]; then
     *)
       echo "SELF-TEST FAILED: a clean tree did not report clean." >&2; st_rc=1 ;;
   esac
+
+  # ---- diff vs drift (#4925). A fake curl serves #4242424 closed and every
+  # other issue open; $st_tmp/repo's first commit is the merge base.
+  mkdir -p "$st_tmp/bin" "$st_tmp/repo"
+  cat >"$st_tmp/bin/curl" <<'CURLMOCK'
+#!/usr/bin/env bash
+url="${*: -1}"
+if [ "${ST_MOCK_FAIL:-0}" = 1 ]; then printf '\n000 \n'; exit 0; fi
+printf '%s' "$url" | grep -oE 'iids\[\]=[0-9]+' | cut -d= -f2 |
+  jq -R 'tonumber | {iid: ., state: (if . == 4242424 then "closed" else "opened" end), title: "t"}' | jq -sc .
+printf '\n200 \n'
+CURLMOCK
+  chmod +x "$st_tmp/bin/curl"
+  printf '// %s(#4242424) old\n// %s(#5151515) open\n' "$st_tag" "$st_tag" > "$st_tmp/repo/a.ts"
+  git -C "$st_tmp/repo" init -q && git -C "$st_tmp/repo" add -A &&
+    git -C "$st_tmp/repo" -c user.email=t@t -c user.name=t commit -qm base
+  st_base=$(git -C "$st_tmp/repo" rev-parse HEAD)
+  st_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  st_run() { # st_run <mode> <closes> [fail]
+    (cd "$st_tmp/repo" && PATH="$st_tmp/bin:$PATH" CI_PROJECT_ID=1 GITLAB_ISSUES_SLEEP_OVERRIDE=0 \
+      GITLAB_ISSUES_MAX_ATTEMPTS=1 ST_MOCK_FAIL="${3:-0}" TRACKER_GATE_MODE="$1" TRACKER_GATE_BASE="$st_base" \
+      TRACKER_GATE_CLOSES="$2" bash "$st_self" "$st_tmp/repo") >/dev/null 2>&1
+  }
+  st_case() { # st_case <want-rc> <description> <st_run args...>
+    local want="$1" d="$2" rc=0
+    shift 2
+    st_run "$@" || rc=$?
+    if [ "$rc" = "$want" ]; then echo "SELF-TEST OK: $d"; else echo "SELF-TEST FAILED: $d (exit $rc, want $want)" >&2; st_rc=1; fi
+  }
+  st_case 0 "[diff] a pre-existing marker whose issue closed elsewhere fails no MR (no tracker call)" diff "" 1
+  st_case 1 "[drift] the nightly report sees the same stale marker" drift ""
+  st_case 1 "[diff] a change that closes a marker's issue while the marker stays fails before merge" diff "5151515"
+  printf '// %s(#4242424) added by this change\n' "$st_tag" > "$st_tmp/repo/b.ts"
+  git -C "$st_tmp/repo" add -A && git -C "$st_tmp/repo" -c user.email=t@t -c user.name=t commit -qm head
+  st_case 1 "[diff] a marker the change adds naming a closed issue fails" diff ""
+  st_case 2 "[diff] an unreadable tracker on an added marker fails closed" diff "" 1
 
   [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
@@ -146,8 +196,32 @@ issues=$(echo "$markers" | grep -oE 'SUPPRESSED-UNTIL\(#[0-9]+\)' \
 stale=0
 checked=0
 
+MODE=$(tracker_gate_mode) || exit 2
+if [ "$MODE" = diff ]; then
+  # Only what this change causes (#4925); see the header.
+  if ! base=$(tracker_gate_base) || ! closing=$(tracker_gate_closing_ids "$API" "$PROJECT" "$TOKEN" "$base"); then
+    echo "ERROR: could not resolve the diff base or this change's closing set — failing closed." >&2
+    exit 2
+  fi
+  for iid in $issues; do
+    if tracker_gate_has "$iid" "$closing"; then
+      echo ""
+      echo "STALE SUPPRESSION: #${iid} is closed by this change — remove the suppression in this change."
+      echo "$markers" | grep -E "SUPPRESSED-UNTIL\(#${iid}\)" | sed 's/^/  /'
+      stale=$((stale + 1))
+    fi
+  done
+  added=$(git -C "$ROOT" diff --no-color -U0 "$base" -- . 2>/dev/null | grep -E '^[+]' | grep -vE '^[+]{3} ' |
+    grep -oE 'SUPPRESSED-UNTIL\(#[0-9]+\)' | grep -oE '[0-9]+' | sort -un || true)
+  issues=$(for iid in $(tracker_gate_minus "$added" "$closing"); do
+    tracker_gate_has "$iid" "$issues" && printf '%s\n' "$iid"
+  done || true)
+  echo "INFO: diff mode (#4925) — $(printf '%s\n' $issues | grep -c . || true) marker issue(s) added by this change checked; markers whose issue closed elsewhere are reported by tracker:drift-report."
+fi
+
+states=""
 # shellcheck disable=SC2086  # one iid per word is the intent
-if ! states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $issues); then
+if [ -n "$issues" ] && ! states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $issues); then
   echo "ERROR: could not read suppression issues from the GitLab API." >&2
   exit 2
 fi

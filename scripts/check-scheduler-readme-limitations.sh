@@ -22,16 +22,33 @@
 #       contract is "nothing in this list is fixed yet", so a fixed item comes
 #       off the list.
 #
-# An MR that fixes a listed issue cannot satisfy (b) and (c) from tracker state
-# alone: the issue is open until merge and closed after (#4916). So in an MR
-# pipeline, issues named by `Closes|Fixes|Resolves #N` in
-# CI_MERGE_REQUEST_DESCRIPTION are treated as already closed: (b) skips them and
-# (c) requires the MR to drop their entry.
+# Which rules block where (#4925). The rules read live tracker state, so run as
+# whole-tree checks on every pipeline they turned main — and every open MR — red
+# whenever someone filed a scheduler bug (15 of 19 tracker-caused red jobs,
+# 2026-10-27..11-10). Each rule is therefore split by cause:
+#
+#   rule | MR-caused (TRACKER_GATE_MODE=diff: MR, main push,  | tracker-caused (TRACKER_GATE_MODE=drift:
+#        | make pre-push — blocks)                             | scripts/tracker-drift-report.sh, nightly)
+#   (a)  | the diff ADDS a release::committed issue to the     | an issue already in the paragraph was
+#        | "not committed" paragraph                           | relabeled release::committed
+#   (b)  | the diff REMOVES an entry whose issue is still an   | a newly filed issue is not listed yet
+#        | open scheduler+correctness defect (and the change   |
+#        | does not close it)                                  |
+#   (c)  | the change CLOSES a listed issue (GitLab's own      | a listed issue was closed outside an MR
+#        | closes_issues set) and keeps its entry, or the diff |
+#        | ADDS an entry for an already-closed issue           |
+#
+# "The change closes" is tracker_gate_closing_ids in scripts/lib/gitlab-issues.sh:
+# GET /merge_requests/:iid/closes_issues on an MR pipeline (it sees commit-message
+# keywords and negated matches a description regex misses, #4883), the branch's
+# commit messages under pre-push. The structural checks (section and paragraph
+# present) are tree-only and run in both modes.
 #
 # Exit codes:
 #   0  no violations
-#   1  a rule failed, or (default) the tracker could not be read
+#   1  a rule failed
 #   2  invocation / setup error (README missing, CI_PROJECT_ID unset)
+#   3  (default) the tracker or the diff base could not be read — fail closed
 #
 # Modes:
 #   bash scripts/check-scheduler-readme-limitations.sh              # default README
@@ -92,6 +109,10 @@ CURLMOCK
   export CI_PROJECT_ID="1"
   export GITLAB_ISSUES_SLEEP_OVERRIDE=0
   export MOCK_DB="$tmp/db.json"
+  # The legacy cases below are full-state assertions — drift mode. The diff-mode
+  # cases (#4925) set TRACKER_GATE_MODE=diff per call.
+  export TRACKER_GATE_MODE=drift
+  SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
   u() { printf '[#%s](https://gitlab.com/trueppm/trueppm/-/issues/%s)' "$1" "$1"; }
   # issue <iid> <state> <title> <label,...>
@@ -172,31 +193,70 @@ CURLMOCK
   fi
   echo "SELF-TEST OK: the label listing pages past the first 100 issues."
 
-  # An MR that closes a listed issue (#4916): open in the tracker, but the
-  # description's Closes line makes the gate read it as closed.
+  # ---- diff mode (#4925): fail only for what the change causes. $tmp is a git
+  # repo; the committed README is the merge base, the working copy is the change.
+  git -C "$tmp" init -q
+  git_base() { # commit the current README as the base, export its sha
+    git -C "$tmp" add README.md
+    git -C "$tmp" -c user.email=t@t -c user.name=t commit -qm base --allow-empty
+    TRACKER_GATE_BASE=$(git -C "$tmp" rev-parse HEAD)
+    export TRACKER_GATE_BASE
+  }
+  dexpect() { # dexpect <pass|fail> <closes> <message> [grep]
+    local want="$1" closes="$2" msg="$3" pat="${4:-}" rc=0
+    (cd "$tmp" && TRACKER_GATE_MODE=diff TRACKER_GATE_CLOSES="$closes" bash "$SELF" "$tmp/README.md") >"$tmp/out.txt" 2>&1 || rc=$?
+    if { [ "$want" = pass ] && [ "$rc" -ne 0 ]; } || { [ "$want" = fail ] && [ "$rc" -ne 1 ]; } ||
+      { [ -n "$pat" ] && ! grep -q "$pat" "$tmp/out.txt"; }; then
+      echo "SELF-TEST FAILED: [diff] ${msg} (exit ${rc})" >&2
+      cat "$tmp/out.txt" >&2
+      exit 1
+    fi
+    echo "SELF-TEST OK: [diff] ${msg}"
+  }
   { issue 10 opened "fix(scheduler): a defect" scheduler,correctness,release::committed
+    issue 11 opened "fix(scheduler): a reserve defect" scheduler,correctness,release::reserve
     issue 13 opened "scheduler: a bare-title decision" scheduler,correctness
+    issue 14 closed "fix(scheduler): closed from the UI" scheduler,correctness
+    issue 20 opened "fix(scheduler): filed today" scheduler,correctness
     issue 999 opened "unrelated" scheduler; } | mkdb
-  mkreadme "10" "11"
-  rc=0
-  CI_MERGE_REQUEST_DESCRIPTION=$'Fix.\n\nCloses #13' bash "$0" "$tmp/README.md" >"$tmp/out.txt" 2>&1 || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    echo "SELF-TEST FAILED: an MR closing issue #13 and dropping its entry was rejected (exit ${rc})." >&2
-    cat "$tmp/out.txt" >&2
-    exit 1
+  mkreadme "10 13 14" "11"
+  git_base
+  dexpect pass "" "a newly filed fix() issue and an issue closed from the UI fail no MR (tracker-caused)"
+  expect fail "the same tree in drift mode reports both (the nightly report sees them)"
+  grep -q '#20' "$tmp/out.txt" && grep -q '#14 is closed' "$tmp/out.txt" ||
+    { echo "SELF-TEST FAILED: drift mode did not name #20 and #14." >&2; cat "$tmp/out.txt" >&2; exit 1; }
+  echo "SELF-TEST OK: drift mode names the unlisted #20 and the closed #14"
+  if ! (cd "$tmp" && MOCK_UNFETCHABLE=1 TRACKER_GATE_MODE=diff TRACKER_GATE_CLOSES="" bash "$SELF" "$tmp/README.md") >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] an unchanged README needed the tracker." >&2; exit 1
   fi
-  echo "SELF-TEST OK: an MR that closes a listed issue may drop its entry while the issue is still open"
-  mkreadme "10 13" "11"
-  rc=0
-  CI_MERGE_REQUEST_DESCRIPTION=$'Fix.\n\nFixes #13' bash "$0" "$tmp/README.md" >"$tmp/out.txt" 2>&1 || rc=$?
-  if [ "$rc" -ne 1 ] || ! grep -q '#13 is closed' "$tmp/out.txt"; then
-    echo "SELF-TEST FAILED: an MR closing #13 but keeping its entry was accepted (exit ${rc})." >&2
-    cat "$tmp/out.txt" >&2
-    exit 1
+  echo "SELF-TEST OK: [diff] an unchanged README needs no tracker call"
+  dexpect fail "13" "a change that closes a listed issue but keeps its entry fails before merge" '#13 is closed by this change'
+  mkreadme "10 14" "11"
+  dexpect pass "13" "a change that closes a listed issue and drops its entry passes while the issue is still open"
+  mkreadme "13 14" "11"
+  dexpect fail "" "a change that removes an open required entry without closing it fails (rule b)" 'removes #10'
+  mkreadme "10 13 14 20" "11"
+  dexpect pass "" "a change that adds today's open issue #20 passes"
+  mkreadme "10 13 14" "11 10"
+  dexpect fail "" "a change that adds a release::committed issue to 'not committed' fails (rule a)" '#10 is listed under'
+  mkreadme "10 13 14" "11"
+  git_base
+  mkreadme "10 13 14 15" "11"
+  { issue 10 opened "fix(scheduler): a defect" scheduler,correctness,release::committed
+    issue 11 opened "fix(scheduler): a reserve defect" scheduler,correctness,release::committed
+    issue 13 opened "scheduler: a bare-title decision" scheduler,correctness
+    issue 14 closed "fix(scheduler): closed from the UI" scheduler,correctness
+    issue 15 closed "fix(scheduler): already closed" scheduler,correctness
+    issue 999 opened "unrelated" scheduler; } | mkdb
+  dexpect fail "" "a change that adds an entry for an already-closed issue fails (rule c)" '#15 is closed and this change adds it'
+  mkreadme "10 13 14" "11"
+  dexpect pass "" "#11 relabeled release::committed while already in 'not committed' fails no MR (tracker-caused rule a)"
+  mkreadme "10 13 14 15" "11"
+  if (cd "$tmp" && MOCK_UNFETCHABLE=1 TRACKER_GATE_MODE=diff TRACKER_GATE_CLOSES="" bash "$SELF" "$tmp/README.md") >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] an unreadable tracker was accepted when the change adds a reference." >&2; exit 1
   fi
-  echo "SELF-TEST OK: an MR that closes a listed issue must drop its entry (rule c, no red main after merge)"
-  mkreadme "10" "11"
-  expect fail "without a Closes line the same missing entry is still rejected (rule b)"
+  echo "SELF-TEST OK: [diff] an unreadable tracker fails closed when the change adds a reference"
+  unset TRACKER_GATE_BASE
 
   # An unlabeled (no release::) issue in the not-committed list is not a rule (a) violation.
   { issue 10 opened "fix(scheduler): a defect" scheduler,correctness,release::committed
@@ -271,13 +331,10 @@ if [ -z "$nc_para" ]; then
 fi
 
 refs() { grep -oE "$ISSUE_URL_RE" | grep -oE '[0-9]+$' | sort -un || true; }
+section_of() { awk -v s="$START_RE" -v e="$END_RE" '$0 ~ s {on=1} $0 ~ e {on=0} on'; }
+nc_of() { awk -v n="$NC_RE" '$0 ~ n {on=1} on && /^$/ {exit} on'; }
 section_ids=$(printf '%s\n' "$section" | refs)
 nc_ids=$(printf '%s\n' "$nc_para" | refs)
-
-# Issues this MR closes on merge (GitLab's own keyword set, case-insensitive).
-closing_ids=$(printf '%s\n' "${CI_MERGE_REQUEST_DESCRIPTION:-}" |
-  grep -oiE '(clos(e|es|ed)|fix(es|ed)?|resolv(e|es|ed))[: ]+#[0-9]+' |
-  grep -oE '[0-9]+$' | sort -un || true)
 
 fail_unreadable() {
   if [ "$ALLOW_UNRESOLVED" = "1" ]; then
@@ -285,48 +342,85 @@ fail_unreadable() {
     exit 0
   fi
   echo "ERROR: $1 — failing closed. Retry the job; this is a tracker-API problem, not a README problem." >&2
-  exit 1
+  exit "$TRACKER_UNREADABLE_EXIT"
 }
 
-# shellcheck disable=SC2086
-ref_rows=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $section_ids) ||
-  fail_unreadable "could not read the issues the README references"
-open_rows=$(gitlab_issues_by_label "$API" "$PROJECT" "$TOKEN" "scheduler,correctness" opened) ||
-  fail_unreadable "could not list open scheduler+correctness issues"
-
+MODE=$(tracker_gate_mode) || exit 2
 violations=0
-# Row: iid<TAB>state<TAB>title<TAB>milestone<TAB>labels
-for id in $nc_ids; do
-  labels=$(printf '%s\n' "$ref_rows" | awk -F'\t' -v i="$id" '$1 == i {print $5}')
-  case ",$labels," in
-    *,release::committed,*)
-      echo "ERROR: #$id is listed under 'May also land in 0.5, but not committed' but carries release::committed — move it into the committed list." >&2
+
+# labels_of / state_of / title_of <id> read the `iid state title milestone labels` rows.
+col_of() { printf '%s\n' "$ref_rows" | awk -F'\t' -v i="$1" -v c="$2" '$1 == i {print $c; exit}'; }
+is_required() { # an open scheduler+correctness defect (rule b's population)
+  local labels title
+  [ "$(col_of "$1" 2)" = opened ] || return 1
+  labels=",$(col_of "$1" 5),"
+  title=$(col_of "$1" 3)
+  [[ "$labels" == *,scheduler,* && "$labels" == *,correctness,* ]] || return 1
+  ! grep -qE "$EXEMPT_TYPE_RE" <<<"$title"
+}
+report_a() { echo "ERROR: #$1 is listed under 'May also land in 0.5, but not committed' but carries release::committed — move it into the committed list." >&2; violations=$((violations + 1)); }
+report_c() { echo "ERROR: #$1 is closed${2:+ $2} but still listed in the Known limitations section — the section's contract is that nothing in it is fixed; remove it." >&2; violations=$((violations + 1)); }
+
+if [ "$MODE" = drift ]; then
+  # Full-state check against the tracker as it is now (nightly report).
+  # shellcheck disable=SC2086
+  ref_rows=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $section_ids) ||
+    fail_unreadable "could not read the issues the README references"
+  open_rows=$(gitlab_issues_by_label "$API" "$PROJECT" "$TOKEN" "scheduler,correctness" opened) ||
+    fail_unreadable "could not list open scheduler+correctness issues"
+  for id in $nc_ids; do
+    case ",$(col_of "$id" 5)," in *,release::committed,*) report_a "$id" ;; esac
+  done
+  for id in $section_ids; do
+    [ "$(col_of "$id" 2)" = closed ] && report_c "$id"
+  done
+  while IFS=$'\t' read -r id _state title _rest; do
+    [ -z "$id" ] && continue
+    if grep -qE "$EXEMPT_TYPE_RE" <<<"$title"; then continue; fi
+    if ! tracker_gate_has "$id" "$section_ids"; then
+      echo "ERROR: open scheduler+correctness issue #$id (\"$title\") is not referenced in the README Known limitations section — add it to its area list." >&2
       violations=$((violations + 1))
-      ;;
-  esac
-done
-
-for id in $section_ids; do
-  state=$(printf '%s\n' "$ref_rows" | awk -F'\t' -v i="$id" '$1 == i {print $2}')
-  if grep -qx "$id" <<<"$closing_ids"; then state=closed; fi
-  if [ "$state" = "closed" ]; then
-    echo "ERROR: #$id is closed but still listed in the Known limitations section — the section's contract is that nothing in it is fixed; remove it." >&2
-    violations=$((violations + 1))
+    fi
+  done <<<"$open_rows"
+else
+  # Only what this change causes; tracker drift goes to the nightly report.
+  base=$(tracker_gate_base) || fail_unreadable "could not resolve the diff base"
+  closing=$(tracker_gate_closing_ids "$API" "$PROJECT" "$TOKEN" "$base") ||
+    fail_unreadable "could not read the issues this change closes"
+  base_section=$(tracker_gate_file_at_base "$base" "$README" | section_of)
+  base_section_ids=$(printf '%s\n' "$base_section" | refs)
+  base_nc_ids=$(printf '%s\n' "$base_section" | nc_of | refs)
+  new_section=$(tracker_gate_minus "$section_ids" "$base_section_ids")
+  new_nc=$(tracker_gate_minus "$nc_ids" "$base_nc_ids")
+  removed=$(tracker_gate_minus "$(tracker_gate_minus "$base_section_ids" "$section_ids")" "$closing")
+  lookup=$(printf '%s\n' $new_section $new_nc $removed | grep . | sort -un || true)
+  ref_rows=""
+  if [ -n "$lookup" ]; then
+    # shellcheck disable=SC2086
+    ref_rows=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $lookup) ||
+      fail_unreadable "could not read the issues this change adds or removes"
   fi
-done
-
-while IFS=$'\t' read -r id _state title _rest; do
-  [ -z "$id" ] && continue
-  if grep -qE "$EXEMPT_TYPE_RE" <<<"$title"; then continue; fi
-  if grep -qx "$id" <<<"$closing_ids"; then continue; fi
-  if ! grep -qx "$id" <<<"$section_ids"; then
-    echo "ERROR: open scheduler+correctness issue #$id (\"$title\") is not referenced in the README Known limitations section — add it to its area list." >&2
-    violations=$((violations + 1))
-  fi
-done <<<"$open_rows"
+  for id in $new_nc; do
+    case ",$(col_of "$id" 5)," in *,release::committed,*) report_a "$id" ;; esac
+  done
+  for id in $section_ids; do
+    if tracker_gate_has "$id" "$closing"; then
+      report_c "$id" "by this change (closes_issues)"
+    elif tracker_gate_has "$id" "$new_section" && [ "$(col_of "$id" 2)" = closed ]; then
+      report_c "$id" "and this change adds it"
+    fi
+  done
+  for id in $removed; do
+    if is_required "$id"; then
+      echo "ERROR: this change removes #$id (\"$(col_of "$id" 3)\") from the README Known limitations section, but it is still an open scheduler+correctness defect and the change does not close it — keep the entry." >&2
+      violations=$((violations + 1))
+    fi
+  done
+  echo "INFO: diff mode (#4925) — checked $(printf '%s\n' $lookup | grep -c . || true) reference(s) this change adds or removes and $(printf '%s\n' $closing | grep -c . || true) issue(s) it closes; drift from tracker edits is reported by tracker:drift-report, not here."
+fi
 
 if [ "$violations" -gt 0 ]; then
-  echo "FAILED: $violations Known-limitations drift violation(s) in $README (#4720)." >&2
+  echo "FAILED: $violations Known-limitations violation(s) in $README ($MODE mode, #4720/#4925)." >&2
   exit 1
 fi
-echo "OK: $README Known limitations section matches the tracker ($(printf '%s\n' "$section_ids" | grep -c .) references checked)."
+echo "OK: $README Known limitations section ($MODE mode, $(printf '%s\n' "$section_ids" | grep -c . || true) references in the section)."

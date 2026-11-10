@@ -42,6 +42,21 @@
 # explicit opt-out (do not set it in CI). Without CI_PROJECT_ID the tracker
 # check is skipped with a WARN, as lint:todo-grep does.
 #
+# Which rule blocks where (#4925). The rule fires the day a cited issue closes,
+# which is not a diff event, so as a whole-file check on every MR and main push
+# it turned main red on an issue close nobody's commit caused. Split by cause:
+#
+#   MR-caused (TRACKER_GATE_MODE=diff, default — MR, main push, make pre-push;
+#     blocks): a trigger sentence on a line the diff ADDS or changes (vs the
+#     merge base) that cites a closed issue, or any trigger sentence citing an
+#     issue THIS change closes (tracker_gate_closing_ids — GitLab's
+#     closes_issues on an MR): the closing MR rewrites its own sentence.
+#   tracker-caused (TRACKER_GATE_MODE=drift — scripts/tracker-drift-report.sh,
+#     nightly tracking issue): an untouched sentence whose issue closed
+#     outside this change.
+#
+# Exit 1 = a stale sentence; exit 3 = the tracker or diff base was unreadable.
+#
 # Usage:
 #   bash scripts/check-claude-md-stale-issues.sh              # scan CLAUDE.md files
 #   bash scripts/check-claude-md-stale-issues.sh FILE...      # scan given files
@@ -72,6 +87,9 @@ candidate_sentences() {
 
 if [ "${1:-}" = "--self-test" ]; then
   export GITLAB_ISSUES_SLEEP_OVERRIDE=0
+  # Legacy cases are full-state (drift); diff-mode cases (#4925) set it per call.
+  export TRACKER_GATE_MODE=drift
+  SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   mkdir -p "$tmp/bin"
@@ -137,6 +155,33 @@ CURLMOCK
     exit 1
   fi
   echo "SELF-TEST OK: CLAUDE_MD_STALE_ALLOW_UNRESOLVED=1 opts out."
+
+  # ---- diff mode (#4925): $tmp/repo's first commit is the merge base.
+  mkdir -p "$tmp/repo"
+  cp "$tmp/stale.md" "$tmp/repo/CLAUDE.md"
+  printf '%s\n' '- The other hole is tracked in #2 and is open today.' >>"$tmp/repo/CLAUDE.md"
+  git -C "$tmp/repo" init -q && git -C "$tmp/repo" add -A &&
+    git -C "$tmp/repo" -c user.email=t@t -c user.name=t commit -qm base
+  cbase=$(git -C "$tmp/repo" rev-parse HEAD)
+  crun() { # crun <closes> [mock-mode]
+    (cd "$tmp/repo" && PATH="$tmp/bin:$PATH" CI_PROJECT_ID=999999 CMD_MOCK_MODE="${2:-}" TRACKER_GATE_MODE=diff \
+      TRACKER_GATE_BASE="$cbase" TRACKER_GATE_CLOSES="$1" bash "$SELF" "$tmp/repo/CLAUDE.md") >/dev/null 2>&1
+  }
+  crun "" fail || { echo "SELF-TEST FAILED: [diff] an untouched sentence citing an issue closed elsewhere failed the change." >&2; exit 1; }
+  echo "SELF-TEST OK: [diff] an untouched sentence whose issue closed elsewhere fails no MR (no tracker call)."
+  if (cd "$tmp/repo" && PATH="$tmp/bin:$PATH" CI_PROJECT_ID=999999 TRACKER_GATE_MODE=drift bash "$SELF" "$tmp/repo/CLAUDE.md") >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [drift] the nightly report missed the stale sentence." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [drift] the nightly report sees the same stale sentence."
+  if crun "2"; then echo "SELF-TEST FAILED: [diff] a change closing #2 while 'open today (#2)' stays was accepted." >&2; exit 1; fi
+  echo "SELF-TEST OK: [diff] a change that closes an issue its sentence calls open fails before merge."
+  printf '%s\n' '- A new claim: #1 is currently unfixed.' >>"$tmp/repo/CLAUDE.md"
+  if crun ""; then echo "SELF-TEST FAILED: [diff] an added sentence citing a closed issue as live was accepted." >&2; exit 1; fi
+  echo "SELF-TEST OK: [diff] an added sentence citing a closed issue as live fails."
+  rc=0
+  crun "" fail || rc=$?
+  [ "$rc" = 3 ] || { echo "SELF-TEST FAILED: [diff] unreadable tracker on an added sentence did not exit 3 (got $rc)." >&2; exit 1; }
+  echo "SELF-TEST OK: [diff] an unreadable tracker on an added sentence fails closed (exit 3)."
   exit 0
 fi
 
@@ -172,18 +217,47 @@ API="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
 # shellcheck source-path=SCRIPTDIR source=lib/gitlab-issues.sh
 . "$(dirname "$0")/lib/gitlab-issues.sh"
 TOKEN="${CLAUDE_MD_STALE_TOKEN:-${ISSUES_API_TOKEN:-}}"
-iids=$(printf '%s' "$hits" | cut -f2 | sort -un)
+bad=0
+MODE=$(tracker_gate_mode) || exit 2
+if [ "$MODE" = diff ]; then
+  # Keep only sentences the change causes (#4925); see the header.
+  if ! base=$(tracker_gate_base) || ! closing=$(tracker_gate_closing_ids "$API" "$PROJECT" "$TOKEN" "$base"); then
+    if [ "${CLAUDE_MD_STALE_ALLOW_UNRESOLVED:-0}" = "1" ]; then
+      echo "WARN: could not resolve the diff base or closing set — skipping (CLAUDE_MD_STALE_ALLOW_UNRESOLVED=1)." >&2
+      exit 0
+    fi
+    echo "ERROR: could not resolve the diff base or this change's closing set — failing closed." >&2
+    exit 3
+  fi
+  kept=""
+  while IFS=$'\t' read -r loc iid sentence; do
+    [ -n "$loc" ] || continue
+    f="${loc%:*}"
+    if tracker_gate_has "$iid" "$closing"; then
+      echo "ERROR: ${loc}: cites #${iid}, which this change closes, next to a live-defect phrase — rewrite it in this change:" >&2
+      echo "         ${sentence}" >&2
+      bad=$((bad + 1))
+      continue
+    fi
+    if ! grep -qxF -- "$(sed -n "${loc##*:}p" "$f")" <<<"$(tracker_gate_file_at_base "$base" "$f")"; then
+      kept+="${loc}"$'\t'"${iid}"$'\t'"${sentence}"$'\n'
+    fi
+  done <<<"$hits"
+  hits="$kept"
+  echo "INFO: diff mode (#4925) — $(printf '%s' "$hits" | grep -c . || true) sentence reference(s) on lines this change adds checked; untouched sentences are reported by tracker:drift-report." >&2
+fi
+cited_iids=$(printf '%s' "$hits" | cut -f2 | sort -un)
+states=""
 # shellcheck disable=SC2086  # one iid per word is the intent
-if ! states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $iids); then
+if [ -n "$cited_iids" ] && ! states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $cited_iids); then
   if [ "${CLAUDE_MD_STALE_ALLOW_UNRESOLVED:-0}" = "1" ]; then
     echo "WARN: could not read the tracker — skipping (CLAUDE_MD_STALE_ALLOW_UNRESOLVED=1)." >&2
     exit 0
   fi
   echo "ERROR: could not read issue states from the GitLab API. A gate that cannot reach its oracle must go red." >&2
-  exit 1
+  exit 3
 fi
 
-bad=0
 while IFS=$'\t' read -r loc iid sentence; do
   [ -n "$loc" ] || continue
   state=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i { print $2; exit }')

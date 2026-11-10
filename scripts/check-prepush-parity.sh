@@ -65,12 +65,7 @@ MAKEFILE="${MAKEFILE_OVERRIDE:-Makefile}"
 # that is the tell.
 OPT_OUT="
 check-issue-boundary.sh	reads the GitLab tracker, not the repo — a failure comes from an issue label and no commit can fix it, so as a pre-push gate it would block pushes on state the pusher did not touch (#2977)
-check-suppression-issues.sh	queries the tracker for issue state
-check-todo-grep.sh	resolves TODO(#NNN) against open/closed issues via the tracker
-check-claude-md-stale-issues.sh	resolves every #NNN in a CLAUDE.md present-tense sentence against open/closed issue state via the tracker — same reasoning as check-todo-grep.sh (#4404)
 check-mr-followups.sh	reads the MR description from the GitLab API, which does not exist before the push that opens the MR; run it by hand with --file <description.md>
-check-known-issues-freshness.sh	resolves every /-/issues/NNNN reference on known-issues.md against the tracker — same reasoning as check-todo-grep.sh (#3628)
-check-scheduler-readme-limitations.sh	reads the scheduler README limitations section against live tracker labels (#4720) — same reasoning as check-known-issues-freshness.sh
 check-adr-collisions.sh	compares ADR numbers against remote branches
 check-release-images.sh	verifies published release images; release-time only
 check-mermaid-rendered.sh	requires a full astro build of packages/website (minutes, not seconds)
