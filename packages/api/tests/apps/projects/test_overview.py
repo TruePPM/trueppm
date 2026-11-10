@@ -253,6 +253,17 @@ class TestProjectOverview:
         assert data["spi"] == 1.0
         assert data["schedule_health"] == "on_track"
 
+    def test_backlog_row_with_past_early_finish_is_not_counted_late(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#3676: an un-triaged BACKLOG card is not committed delivery, so it is never
+        late even if some path left a past early_finish on it."""
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        make_task(project, name="Idea", early_finish=yesterday, status=TaskStatus.BACKLOG)
+        res = client.get(self.url(project.pk))
+        assert res.status_code == 200
+        assert res.json()["tasks_late_count"] == 0
+
     def test_phase_row_with_stale_status_is_not_counted_late(
         self, client: APIClient, project: Project, membership: object
     ) -> None:

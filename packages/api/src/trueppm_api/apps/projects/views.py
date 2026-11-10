@@ -13295,8 +13295,9 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         self.check_object_permissions(request, project)
 
         today = timezone.localdate()
+        # BACKLOG is deliberately absent: an un-triaged intake card is not committed
+        # delivery and CPM never schedules it, so it cannot be "late" (#3676).
         active_statuses = [
-            TaskStatus.BACKLOG,
             TaskStatus.NOT_STARTED,
             TaskStatus.IN_PROGRESS,
             TaskStatus.REVIEW,
