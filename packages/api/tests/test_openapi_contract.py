@@ -1574,3 +1574,48 @@ def test_workspace_logo_413_and_415_declare_file_message_body(schema: dict) -> N
         component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
         assert component["required"] == ["file"]
         assert component["properties"]["file"]["type"] == "string"
+
+
+@pytest.mark.django_db
+def test_every_anonymous_operation_resolves_to_a_view_that_allows_any(schema: dict) -> None:
+    """Each ``security: []`` operation must be anonymous for *that method* (#3848).
+
+    ``PUBLIC_PATHS`` is path-level, so a path with one public method used to mark
+    its authenticated writes anonymous too. Resolve each such operation to its view
+    and require that every permission the view returns for the method admits an
+    anonymous caller (DRF ANDs them, so one ``AllowAny`` among others is not enough).
+    """
+    import re
+
+    from django.contrib.auth.models import AnonymousUser
+    from django.urls import Resolver404, resolve
+    from rest_framework.test import APIRequestFactory
+
+    factory = APIRequestFactory()
+    checked = 0
+    for path, ops in schema["paths"].items():
+        for method, op in ops.items():
+            if method not in ("get", "post", "put", "patch", "delete") or op.get("security") != []:
+                continue
+            concrete = re.sub(r"\{[^}]+\}", "00000000-0000-0000-0000-000000000001", path)
+            try:
+                match = resolve(concrete)
+            except Resolver404:
+                pytest.fail(f"{method.upper()} {path} is security:[] but does not resolve")
+            view = match.func.cls(**getattr(match.func, "initkwargs", {}))
+            view.action_map = getattr(match.func, "actions", {})  # type: ignore[attr-defined]
+            view.action = view.action_map.get(method)  # type: ignore[attr-defined]
+            raw = getattr(factory, method)(concrete)
+            view.request = raw  # some views branch on request.method in get_authenticators
+            view.request = view.initialize_request(raw)
+            view.kwargs = match.kwargs
+            view.format_kwarg = None
+            perms = view.get_permissions()
+            anon = view.initialize_request(raw)
+            anon.user = AnonymousUser()
+            assert all(p.has_permission(anon, view) for p in perms), (
+                f"{method.upper()} {path} is advertised as anonymous but its view "
+                f"refuses an anonymous caller: {[type(p).__name__ for p in perms]}"
+            )
+            checked += 1
+    assert checked, "no anonymous operations found — the check is vacuous"

@@ -182,10 +182,10 @@ def test_provider_connection_error_is_unreachable(
 @pytest.mark.parametrize(
     "base_url",
     [
-        "http://127.0.0.1",  # loopback
-        "http://169.254.169.254",  # cloud metadata (link-local)
-        "http://10.0.0.1",  # RFC1918
-        "http://192.168.1.1",  # RFC1918
+        "https://127.0.0.1",  # loopback
+        "https://169.254.169.254",  # cloud metadata (link-local)
+        "https://10.0.0.1",  # RFC1918
+        "https://192.168.1.1",  # RFC1918
     ],
 )
 def test_ssrf_base_url_is_blocked(
@@ -268,3 +268,103 @@ def test_base_url_self_hosted_allowed_via_operator_allowlist(
     )
     assert response.status_code == 200
     assert IntegrationCredential.objects.filter(user=user, provider="gitlab").exists()
+
+
+# ---------------------------------------------------------------------------
+# Transport security — a PAT must never ride a plain-http base_url (#4086)
+# ---------------------------------------------------------------------------
+
+
+def test_http_base_url_rejected_before_any_egress(
+    client: APIClient,
+    user: AbstractBaseUser,
+    monkeypatch: pytest.MonkeyPatch,
+    settings: pytest.FixtureRequest,
+) -> None:
+    """``http://gitlab.com`` passes the host allow-list but would send the PAT in
+    cleartext on the first request, so it is refused with 400 and nothing is sent."""
+    settings.DEBUG = False
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise AssertionError("verify must not run for an http base_url")
+
+    monkeypatch.setattr(http, "get", _boom)
+    response = client.post(
+        "/api/v1/me/credentials/gitlab/",
+        {"secret": "glpat-x", "base_url": "http://gitlab.com"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "cleartext" in str(response.json())
+    assert not IntegrationCredential.objects.filter(user=user).exists()
+
+
+def test_https_base_url_accepted(
+    client: APIClient, user: AbstractBaseUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_get(monkeypatch, status=200, body=b'{"username": "u"}')
+    response = client.post(
+        "/api/v1/me/credentials/gitlab/",
+        {"secret": "glpat-x", "base_url": "https://gitlab.com"},
+        format="json",
+    )
+    assert response.status_code == 200
+
+
+def test_http_base_url_accepted_in_debug(
+    client: APIClient, monkeypatch: pytest.MonkeyPatch, settings: pytest.FixtureRequest
+) -> None:
+    """Local development may use http, mirroring the SSO issuer rule."""
+    settings.DEBUG = True
+    _stub_get(monkeypatch, status=200, body=b'{"username": "u"}')
+    response = client.post(
+        "/api/v1/me/credentials/gitlab/",
+        {"secret": "glpat-x", "base_url": "http://gitlab.com"},
+        format="json",
+    )
+    assert response.status_code == 200
+
+
+def test_generic_provider_http_base_url_still_allowed(
+    client: APIClient, settings: pytest.FixtureRequest
+) -> None:
+    """``generic`` never sends its token anywhere, so plain http is exempt."""
+    settings.DEBUG = False
+    response = client.post(
+        "/api/v1/me/credentials/generic/",
+        {"secret": "x", "base_url": "http://intranet.example"},
+        format="json",
+    )
+    assert response.status_code == 200
+
+
+def test_send_time_refuses_to_attach_a_pat_to_a_stored_http_base_url(
+    user: AbstractBaseUser, monkeypatch: pytest.MonkeyPatch, settings: pytest.FixtureRequest
+) -> None:
+    """A row stored before the serializer check existed must not leak its PAT."""
+    from trueppm_api.apps.integrations.providers import (
+        GitHubTaskLinkProvider,
+        GitLabTaskLinkProvider,
+    )
+
+    settings.DEBUG = False
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise AssertionError("no request may carry the PAT to an http base_url")
+
+    monkeypatch.setattr(http, "get", _boom)
+    cred = IntegrationCredential(user=user, provider="gitlab", base_url="http://gitlab.com")
+    monkeypatch.setattr(
+        "trueppm_api.apps.integrations.providers._credential_secret", lambda c: "secret"
+    )
+    assert (
+        GitLabTaskLinkProvider().fetch_metadata("https://gitlab.com/g/p/-/issues/1", cred).status
+        == "unknown"
+    )
+    assert (
+        GitHubTaskLinkProvider().fetch_metadata("https://github.com/o/r/issues/1", cred).status
+        == "unknown"
+    )
+    for cls in (GitLabTaskLinkProvider, GitHubTaskLinkProvider):
+        result = cls.verify_token("secret", base_url="http://gitlab.com")
+        assert not result.ok and result.reason == "blocked_host"

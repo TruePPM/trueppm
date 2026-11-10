@@ -78,11 +78,15 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
     """GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.
 
     GET lists the project's *active* links (revoked links drop out). POST mints a
-    new link and returns the raw token exactly once. Idempotency-Key support (ADR-0170)
-    protects the mint from a duplicate link on a client retry.
+    new link and returns the raw token exactly once. Not idempotent-cached: caching the
+    response would store the raw token (see ``idempotency_exempt``).
     """
 
     permission_classes = [IsAuthenticated, IsProjectAdmin]  # noqa: RUF012
+    # POST returns the raw token exactly once; a cached Idempotency-Key replay would
+    # re-serve it from IdempotencyKey.response_body for the retention window (#4531).
+    # Same opt-out as the other one-time-secret mint paths.
+    idempotency_exempt = True
 
     def get_permissions(self) -> list[BasePermission]:
         # Minting a new public link is a write, so block it on an archived

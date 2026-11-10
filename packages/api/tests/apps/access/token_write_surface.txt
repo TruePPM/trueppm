@@ -19,8 +19,8 @@
 # `me/credentials/<provider>/`. Credential management is session/JWT-only since
 # #2878 (`IsNotTokenAuthenticated`), so a leaked token can no longer mint sibling
 # tokens, revoke the owner's live ones, or overwrite the owner's connected-account
-# credential. Note what did NOT leave: `me/connections/<source>/` and its `/sync/`
-# are a different viewset and stay token-writable.
+# credential. `me/connections/<source>/` left later, in #4532 (same credential, a
+# different viewset); its `/sync/` trigger is a read-only pull and stays token-writable.
 #
 # Three more left the set in #3551: the SSO provider admin routes
 # (`workspace/sso/providers/` and its item + `test-connection/`). Provider config is
@@ -146,7 +146,6 @@ api/v1/health/retention/
 api/v1/health/retention/runs/
 api/v1/health/telemetry/test/
 api/v1/integrations/projects/<uuid:project_pk>/git-automation/
-api/v1/me/connections/<slug:source>/
 api/v1/me/connections/<slug:source>/sync/
 api/v1/me/notification-preferences/<int:pk>/
 api/v1/me/notification-preferences/apply-preset/

@@ -666,3 +666,20 @@ def test_view_maps_service_policy_refusal_to_the_same_403(project, admin_client)
         resp = admin_client.post(_links_url(project), {}, format="json")
     assert resp.status_code == 403
     assert resp.data["detail"] == "Public sharing is turned off for this project."
+
+
+@pytest.mark.django_db
+def test_mint_is_not_cached_under_an_idempotency_key(admin_client, project):
+    """#4531: the raw token is returned once; a replayed ``Idempotency-Key`` must
+    mint a fresh link rather than re-serve the stored response body."""
+    from trueppm_api.apps.idempotency.models import IdempotencyKey
+
+    first = admin_client.post(
+        _links_url(project), {"label": "a"}, format="json", HTTP_IDEMPOTENCY_KEY="k-4531"
+    )
+    second = admin_client.post(
+        _links_url(project), {"label": "a"}, format="json", HTTP_IDEMPOTENCY_KEY="k-4531"
+    )
+    assert first.status_code == second.status_code == 201
+    assert first.data["token"] != second.data["token"]
+    assert IdempotencyKey.objects.count() == 0

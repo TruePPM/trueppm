@@ -2384,6 +2384,9 @@ class IsNotTokenAuthenticated(BasePermission):
     belonging to a project Admin could mint one and outlive every revocation
     lever.
 
+    Since #4532, it also covers ``ExternalConnectionView`` (``/me/connections/{source}/``);
+    the read-only ``ExternalConnectionSyncView`` (``/sync/``) deliberately stays reachable.
+
     Since #4462, it also covers ``WebSocketTicketView`` (``POST /ws/ticket/``). A
     minted ticket opens a live socket that the consumer authenticates exactly once,
     at connect — so a ticket minted by a PAT would have no termination path of its

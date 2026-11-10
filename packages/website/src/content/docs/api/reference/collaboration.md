@@ -92,7 +92,7 @@ rules:
 | Method | Path | Description |
 |--------|------|-------------|
 | GET / POST / DELETE | `/api/v1/me/credentials/{provider}/` | Connect, read, or revoke your own credential for an external provider (ADR-0049) |
-| GET / PUT / PATCH / DELETE | `/api/v1/me/connections/{source}/` | Your personal, read-only external task-source connection (ADR-0097 §3 — the OSS carve-out: user-scoped and one-way). `PATCH` takes `poll_enabled` alone |
+| GET / PUT / PATCH / DELETE | `/api/v1/me/connections/{source}/` | Your personal, read-only external task-source connection (ADR-0097 §3 — the OSS carve-out: user-scoped and one-way). `PATCH` takes `poll_enabled` alone. Session/JWT only — a personal access token gets 403 |
 | POST | `/api/v1/me/connections/{source}/sync/` | Trigger a manual pull of your connection; returns `202 {"queued": true}` |
 | GET | `/api/v1/me/external-items/` | Your cached external work items, for the My Work external section |
 | GET / PUT | `/api/v1/integrations/projects/{project_id}/git-automation/` | A project's Git-event board-automation config (Project Manager+, ADR-0158) |

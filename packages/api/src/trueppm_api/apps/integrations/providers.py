@@ -20,6 +20,7 @@ provider inherits the base class's no-op verifier (accepted, unverified).
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, ClassVar, cast
 from urllib.parse import quote, unquote, urlparse
@@ -41,6 +42,20 @@ from .registry import (
     TaskLinkProvider,
     VerifyResult,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def is_cleartext_credential_url(base_url: str | None) -> bool:
+    """True when ``base_url`` would carry a PAT over plain http outside DEBUG.
+
+    Mirrors ``sso/serializers.py`` (an http issuer is refused outside DEBUG): the
+    PAT leaves in a header on the first request, before any http->https redirect,
+    so the scheme must be checked rather than relying on the redirect.
+    """
+    if not base_url or settings.DEBUG:
+        return False
+    return urlparse(base_url).scheme.lower() != "https"
 
 
 class BaseUrlNotAllowed(ValueError):
@@ -81,6 +96,10 @@ def assert_base_url_allowed(provider_key: str, base_url: str) -> None:
     host = (urlparse(base_url).hostname or "").lower()
     if not host:
         raise BaseUrlNotAllowed("Host URL must include a hostname.")
+    if is_cleartext_credential_url(base_url):
+        raise BaseUrlNotAllowed(
+            "Use https:// — a personal access token would be sent in cleartext."
+        )
     # Settings name drops the TRUEPPM_ env prefix, matching every other binding
     # (EGRESS_ALLOWLISTED_HOSTS <- TRUEPPM_EGRESS_ALLOWLISTED_HOSTS). Reading the
     # prefixed name here is why this allow-list was dead until #2860: no settings
@@ -182,6 +201,9 @@ class GitLabTaskLinkProvider(TaskLinkProvider):
             return LinkMetadata(status=LINK_STATUS_UNKNOWN)
         project_path, kind, ref = parsed
         base_url = getattr(credential, "base_url", "") or ""
+        if is_cleartext_credential_url(base_url):
+            logger.warning("Refusing to send a GitLab PAT to a non-https base_url")
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
         api_root = base_url.rstrip("/") if base_url else "https://gitlab.com"
         enc_path = quote(project_path, safe="")
         api_url = f"{api_root}/api/v4/projects/{enc_path}/{kind}/{ref}"
@@ -211,6 +233,8 @@ class GitLabTaskLinkProvider(TaskLinkProvider):
         GitLab authenticates PATs via the ``PRIVATE-TOKEN`` header. ``base_url``
         targets a self-hosted CE/EE instance; empty means gitlab.com.
         """
+        if is_cleartext_credential_url(base_url):
+            return VerifyResult(ok=False, reason="blocked_host")
         api_root = base_url.rstrip("/") if base_url else "https://gitlab.com"
         return _verify_via_user_endpoint(
             plaintext,
@@ -243,6 +267,9 @@ class GitHubTaskLinkProvider(TaskLinkProvider):
             return LinkMetadata(status=LINK_STATUS_UNKNOWN)
         owner, repo, kind, ref = parsed
         base_url = getattr(credential, "base_url", "") or ""
+        if is_cleartext_credential_url(base_url):
+            logger.warning("Refusing to send a GitHub PAT to a non-https base_url")
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
         api_root = f"{base_url.rstrip('/')}/api/v3" if base_url else "https://api.github.com"
         # GitHub's PR endpoint is /pulls/{n}; issues is /issues/{n}.
         api_kind = "pulls" if kind == "pull" else "issues"
@@ -282,6 +309,8 @@ class GitHubTaskLinkProvider(TaskLinkProvider):
         API lives at ``api.github.com``; a GitHub Enterprise Server ``base_url``
         (``https://ghe.example.com``) serves its API under ``/api/v3``.
         """
+        if is_cleartext_credential_url(base_url):
+            return VerifyResult(ok=False, reason="blocked_host")
         api_root = f"{base_url.rstrip('/')}/api/v3" if base_url else "https://api.github.com"
         return _verify_via_user_endpoint(
             plaintext,

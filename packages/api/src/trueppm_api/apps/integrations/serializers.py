@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from rest_framework import serializers
@@ -87,6 +88,14 @@ class CredentialUpsertSerializer(serializers.Serializer[Any]):
         if parsed.scheme.lower() not in ("http", "https"):
             raise serializers.ValidationError(
                 f"Host URL scheme {parsed.scheme.lower()!r} is not allowed. Use http or https."
+            )
+        # Transport security (#4086): a credential-bearing provider ships the PAT in
+        # a header on the first request, before any http->https redirect. Mirrors
+        # sso/serializers.py. ``generic`` is exempt: it never sends its token anywhere.
+        provider = self.context.get("provider")
+        if parsed.scheme.lower() == "http" and provider != "generic" and not settings.DEBUG:
+            raise serializers.ValidationError(
+                "Use https:// — a personal access token would be sent in cleartext."
             )
         # A host URL is a base — a path (self-hosted GitLab relative root, e.g.
         # https://example.com/gitlab) is fine, but a query string or fragment is

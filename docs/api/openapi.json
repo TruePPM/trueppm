@@ -5768,9 +5768,6 @@
                 ],
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -5798,6 +5795,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -5845,9 +5875,6 @@
                 },
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -5893,6 +5920,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Update connection"
@@ -5933,9 +5993,6 @@
                 },
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -5974,6 +6031,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Partially update connection"
@@ -5995,9 +6085,6 @@
                     "me"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -6034,6 +6121,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -31486,7 +31606,7 @@
         "/api/v1/projects/{project_pk}/share-links/": {
             "get": {
                 "operationId": "v1_projects_share_links_list",
-                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once. Idempotency-Key support (ADR-0170)\nprotects the mint from a duplicate link on a client retry.",
+                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once. Not idempotent-cached: caching the\nresponse would store the raw token (see ``idempotency_exempt``).",
                 "summary": "List active board share links for a project",
                 "parameters": [
                     {
@@ -31546,7 +31666,7 @@
             },
             "post": {
                 "operationId": "v1_projects_share_links_create",
-                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once. Idempotency-Key support (ADR-0170)\nprotects the mint from a duplicate link on a client retry.",
+                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once. Not idempotent-cached: caching the\nresponse would store the raw token (see ``idempotency_exempt``).",
                 "summary": "Create a board share link (returns the raw token once)",
                 "parameters": [
                     {
