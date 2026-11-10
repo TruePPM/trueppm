@@ -241,3 +241,100 @@ describe('router — a route throw does not unmount the shell (#2834)', () => {
     await waitFor(() => expect(unloadBlocked()).toBe(false));
   });
 });
+
+/**
+ * Project/program sub-shell crash isolation (#2865). The container-level boundary
+ * replaces ProjectShell/ProgramShell wholesale and loses their chrome; each view
+ * must carry its own boundary so only the failing view is replaced.
+ */
+function findRouteOrNull(tree: readonly RouteObject[], path: string): RouteObject | null {
+  for (const route of tree) {
+    if (route.path === path) return route;
+    const found = route.children && findRouteOrNull(route.children, path);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findRoute(tree: readonly RouteObject[], path: string): RouteObject {
+  const found = findRouteOrNull(tree, path);
+  if (!found) throw new Error(`route ${path} not found`);
+  return found;
+}
+
+const SUB_SHELLS = [
+  { container: 'projects/:projectId', view: 'board', url: '/projects/p-1/board' },
+  { container: 'programs/:programId', view: 'overview', url: '/programs/g-1/overview' },
+] as const;
+
+function ChromeProbe() {
+  return (
+    <div>
+      <nav aria-label="Tabs" data-testid="tab-bar">
+        tabs
+      </nav>
+      <Outlet />
+    </div>
+  );
+}
+
+function withCrashingView(
+  tree: readonly RouteObject[],
+  sub: (typeof SUB_SHELLS)[number],
+  stripViewBoundary: boolean,
+): RouteObject[] {
+  return tree.map((route) => {
+    if (route.path === sub.container) {
+      return {
+        ...route,
+        element: <ChromeProbe />,
+        children: (route.children ?? []).map((child) => {
+          if (child.path !== sub.view) return child;
+          const crashed: RouteObject = { ...child, element: <Boom />, children: undefined };
+          if (stripViewBoundary) delete crashed.errorElement;
+          return crashed;
+        }),
+      } as RouteObject;
+    }
+    if (!route.children) return route;
+    return { ...route, children: withCrashingView(route.children, sub, stripViewBoundary) };
+  });
+}
+
+function renderViewCrash(sub: (typeof SUB_SHELLS)[number], strip: boolean) {
+  const base = withCrashingRoute(routes, '__none__');
+  const router = createMemoryRouter(withCrashingView(base, sub, strip), {
+    initialEntries: [sub.url],
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+}
+
+describe('router — a view crash keeps the project/program chrome (#2865)', () => {
+  it.each(SUB_SHELLS)('every direct child of $container declares RouteErrorBoundary', (sub) => {
+    const children = findRoute(routes, sub.container).children ?? [];
+    expect(children.length).toBeGreaterThan(5);
+    const unprotected = children
+      .filter((c) => !isElementOf(c.errorElement, RouteErrorBoundary))
+      .map((c) => c.path ?? '(index)');
+    expect(unprotected).toEqual([]);
+  });
+
+  it.each(SUB_SHELLS)('$view crash leaves the sub-shell tab bar mounted', async (sub) => {
+    renderViewCrash(sub, false);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-bar')).toBeInTheDocument();
+  });
+
+  it.each(SUB_SHELLS)(
+    'control: without the view boundary $container loses its tab bar',
+    async (sub) => {
+      renderViewCrash(sub, true);
+      expect(await screen.findByRole('alert')).toBeInTheDocument();
+      expect(screen.queryByTestId('tab-bar')).toBeNull();
+    },
+  );
+});
