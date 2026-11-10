@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildProjectSettingsMemberNav, buildProjectSettingsNav } from './ProjectSettingsPage';
+import {
+  buildProjectSettingsMemberNav,
+  buildProjectSettingsNav,
+  shouldShowProjectMemberRail,
+} from './ProjectSettingsPage';
 
 /**
  * The reduced project-settings rail a non-admin member sees (#2971).
@@ -41,5 +45,13 @@ describe('project settings — member view', () => {
     const groups = buildProjectSettingsMemberNav();
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe('Your project');
+  });
+
+  it('withholds the full admin rail until the server says true (#3449, rule 379)', () => {
+    // The full rail is an affordance: loading (undefined), errored (undefined),
+    // and an explicit false all render the member rail; only `true` raises it.
+    expect(shouldShowProjectMemberRail(undefined)).toBe(true);
+    expect(shouldShowProjectMemberRail(false)).toBe(true);
+    expect(shouldShowProjectMemberRail(true)).toBe(false);
   });
 });
