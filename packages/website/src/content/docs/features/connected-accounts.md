@@ -58,6 +58,17 @@ on tasks.
   into the GitLab section) is rejected with a clear error and **nothing is
   stored**. The generic provider is accepted without a live check, since there
   is no known endpoint to verify it against.
+- **GitLab and GitHub base URLs must use `https://`.** A personal access token is
+  sent in a header on the first request, before any redirect, so an `http://`
+  base URL is refused with a 400 (the generic provider, which stores no secret, is
+  exempt; a development instance running with `DEBUG` may use `http://`). A
+  credential saved earlier with an `http://` base URL is not rewritten, but the
+  token is never sent to it — link status stays "unknown" until you reconnect with
+  `https://`.
+- **Credential and connection management is session-only.** Connecting, updating
+  or removing a credential here, or a Jira connection under `/me/connections/`,
+  is refused (403) when the caller authenticates with a personal access token, so
+  a leaked token cannot swap in an attacker's account.
 - Renders a deep-link anchor per provider —
   `/me/settings/connected-accounts#github` scrolls straight to the GitHub
   section. The project Integrations page links here.

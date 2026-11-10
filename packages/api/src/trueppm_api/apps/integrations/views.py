@@ -213,7 +213,7 @@ class IntegrationCredentialViewSet(
                 {"detail": f"Unknown provider {provider!r}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        serializer = CredentialUpsertSerializer(data=request.data)
+        serializer = CredentialUpsertSerializer(data=request.data, context={"provider": provider})
         serializer.is_valid(raise_exception=True)
         secret = serializer.validated_data["secret"]
         base_url = serializer.validated_data.get("base_url", "")
