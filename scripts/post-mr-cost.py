@@ -5057,6 +5057,121 @@ def _self_test():
         and description_budget_lines("") == []
         and description_budget_lines(None) == [],
     )
+    # #4918 wiring: process() must hand the MR description to post_record, and post_record must put
+    # the description's budget-exceeded line in record 1's ledger file (the helper alone proves neither).
+    seen = {}
+    saved = {
+        k: globals()[k]
+        for k in (
+            "glab_json",
+            "git_common_dir",
+            "discover",
+            "session_locks",
+            "resolve_pending",
+            "already_commented",
+            "plan",
+            "post_record",
+        )
+    }
+    try:
+        globals()["glab_json"] = lambda path, cwd: {
+            "description": desc,
+            "source_branch": "feat/1-a",
+        }
+        globals()["git_common_dir"] = lambda runner, cwd: tempfile.gettempdir()
+        globals()["discover"] = lambda *a, **k: ({}, None)
+        globals()["session_locks"] = lambda *a, **k: contextlib.nullcontext(None)
+        globals()["resolve_pending"] = lambda *a, **k: (None, None)
+        globals()["already_commented"] = lambda *a, **k: []
+        globals()["plan"] = lambda *a, **k: (
+            "s",
+            False,
+            "d",
+            [],
+            {"orchestrator_until": None, "agents": {}},
+            [],
+            None,
+            NO_FOREIGN,
+        )
+        globals()["post_record"] = lambda *a, **k: (
+            seen.update(description=k.get("description")) or "",
+            True,
+        )
+        process(payload, runner=runner_for(0))
+        check(
+            "process() passes the MR description through to post_record",
+            seen.get("description") == desc,
+            repr(seen),
+        )
+    finally:
+        globals().update(saved)
+    real_measure, real_wp, real_ws = (
+        globals()["measure"],
+        globals()["write_pending"],
+        globals()["write_state"],
+    )
+    pr_dir = tempfile.mkdtemp(prefix="post-mr-cost-wiring-")
+    try:
+        globals()["write_pending"] = lambda *a, **k: True
+        globals()["write_state"] = lambda *a, **k: True
+
+        def pr_run(measured):
+            globals()["measure"] = lambda *a, **k: (measured, [], [])
+            ledgers = []
+
+            def rn(cmd, cwd, env=None, timeout=300):
+                if "--file" in cmd:
+                    with open(cmd[cmd.index("--file") + 1], encoding="utf-8") as f:
+                        ledgers.append(f.read())
+                return 0, "", ""
+
+            res = post_record(
+                rn,
+                pr_dir,
+                5,
+                pr_dir,
+                "abc-123",
+                pr_dir,
+                None,
+                "s",
+                False,
+                "u",
+                [],
+                {"orchestrator_until": None, "agents": {}},
+                "feat/1-a",
+                0,
+                "g/p",
+                description=desc,
+            )
+            return res, ledgers
+
+        res, ledgers = pr_run(["orchestrator-tokens: 100", "subagent-tokens: 0"])
+        check(
+            "record 1's ledger file carries the description's budget-exceeded line",
+            res == ("", True)
+            and len(ledgers) == 1
+            and "budget-exceeded: 2 (implementer 1, gate 1)" in ledgers[0],
+            repr((res, ledgers)),
+        )
+        res, ledgers = pr_run(["orchestrator-tokens: 0", "subagent-tokens: 500"])
+        check(
+            "an empty orchestrator window with subagent usage still posts",
+            res == ("", True) and len(ledgers) == 1,
+            repr((res, ledgers)),
+        )
+        res, ledgers = pr_run(["orchestrator-tokens: 0", "subagent-tokens: 0"])
+        check(
+            "orchestrator 0 and subagent 0 is nothing measurable",
+            res == ("nothing measurable in this session window", False) and not ledgers,
+            repr((res, ledgers)),
+        )
+    finally:
+        globals().update(
+            measure=real_measure, write_pending=real_wp, write_state=real_ws
+        )
+        import shutil
+
+        shutil.rmtree(pr_dir, ignore_errors=True)
     gd = tempfile.mkdtemp(prefix="post-mr-cost-log-")
     subprocess.run(["git", "init", "-q", gd], check=False)
     secret = "glab mr create --description SECRET-TOKEN-xyz"

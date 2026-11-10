@@ -291,7 +291,7 @@ MR !<N>: pipeline green, but the branch CONFLICTS with main — not mergeable.
 rather than calling the MR ready; they need a human.
 
 **Record this pass's cost as a new record** (trueppm#4865), once the fix is pushed and the ledger is
-on (`scripts/cost-ledger enabled` exits 0; off, unreadable, or no record 1: post none), by running
+on (run `scripts/cost-ledger enabled` on its own line and act on the word it prints, never a bare `$?`: `on` proceeds; `off`, `unreadable`, or no record 1: post none), by running
 `python3 scripts/post-mr-cost.py --round --mr <N>` in the worktree and reporting its one-line result
 verbatim. It posts `## Cost of this MR (#N) — record K` through `scripts/cost-table.py`, measuring
 the window this session has not yet claimed (the orchestrator since its previous cost record, and
