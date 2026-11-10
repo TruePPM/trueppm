@@ -51,6 +51,7 @@ Week mode draws the single week containing the anchor date, and the toolbar head
 Two things change besides the row count:
 
 - **There is no lane cap.** Every task touching the week is drawn, and the row grows taller to fit however many lanes it needs. There is no `+N more` in week mode, because nothing is being hidden. The row never shrinks below a month row's height, so a quiet week doesn't collapse into a strip.
+- **A task that began before the week still shows its name.** Month mode labels a task only on the fragment where it starts, but a week has no row above it to carry the label, so a task continuing in from an earlier week is named on its first visible day, behind a `◂` continuation marker. A task in progress is drawn across its whole span (its scheduled start to its finish), not only the work remaining.
 - **Nothing is dimmed for being out of month.** Every day in a week row is inside the window by definition, so the out-of-month graying is a month-mode concept only. The non-working fills and the Today tint still apply.
 
 A week with nothing scheduled in it says **"No tasks in the week of Aug 24 – 30, 2026."** across the row — a tall empty row would otherwise read as a failed render rather than as an empty week.
