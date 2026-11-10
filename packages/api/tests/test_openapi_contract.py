@@ -1582,12 +1582,13 @@ def test_every_anonymous_operation_resolves_to_a_view_that_allows_any(schema: di
 
     ``PUBLIC_PATHS`` is path-level, so a path with one public method used to mark
     its authenticated writes anonymous too. Resolve each such operation to its view
-    and require no permission or ``AllowAny`` among the permissions the view returns for the method.
+    and require that every permission the view returns for the method admits an
+    anonymous caller (DRF ANDs them, so one ``AllowAny`` among others is not enough).
     """
     import re
 
+    from django.contrib.auth.models import AnonymousUser
     from django.urls import Resolver404, resolve
-    from rest_framework.permissions import AllowAny
     from rest_framework.test import APIRequestFactory
 
     factory = APIRequestFactory()
@@ -1610,9 +1611,11 @@ def test_every_anonymous_operation_resolves_to_a_view_that_allows_any(schema: di
             view.kwargs = match.kwargs
             view.format_kwarg = None
             perms = view.get_permissions()
-            assert not perms or any(isinstance(p, AllowAny) for p in perms), (
+            anon = view.initialize_request(raw)
+            anon.user = AnonymousUser()
+            assert all(p.has_permission(anon, view) for p in perms), (
                 f"{method.upper()} {path} is advertised as anonymous but its view "
-                f"requires {[type(p).__name__ for p in perms]}"
+                f"refuses an anonymous caller: {[type(p).__name__ for p in perms]}"
             )
             checked += 1
     assert checked, "no anonymous operations found — the check is vacuous"

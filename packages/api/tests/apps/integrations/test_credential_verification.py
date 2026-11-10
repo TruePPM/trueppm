@@ -328,7 +328,7 @@ def test_http_base_url_accepted_in_debug(
 def test_generic_provider_http_base_url_still_allowed(
     client: APIClient, settings: pytest.FixtureRequest
 ) -> None:
-    """``generic`` stores no secret, so there is nothing to protect in transit."""
+    """``generic`` never sends its token anywhere, so plain http is exempt."""
     settings.DEBUG = False
     response = client.post(
         "/api/v1/me/credentials/generic/",

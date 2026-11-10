@@ -91,7 +91,7 @@ class CredentialUpsertSerializer(serializers.Serializer[Any]):
             )
         # Transport security (#4086): a credential-bearing provider ships the PAT in
         # a header on the first request, before any http->https redirect. Mirrors
-        # sso/serializers.py. ``generic`` stores no secret, so it is exempt.
+        # sso/serializers.py. ``generic`` is exempt: it never sends its token anywhere.
         provider = self.context.get("provider")
         if parsed.scheme.lower() == "http" and provider != "generic" and not settings.DEBUG:
             raise serializers.ValidationError(
