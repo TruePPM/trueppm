@@ -5828,7 +5828,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         request = self.context.get("request")
         caller = getattr(request, "user", None) if request else None
         allowed = can_manage_backlog(self._get_caller_role(project)) or (
-            caller is not None and _is_product_owner(request, project.pk)
+            caller is not None and request is not None and _is_product_owner(request, project.pk)
         )
         if not allowed:
             raise PermissionDenied(
