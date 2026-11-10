@@ -1,6 +1,12 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { vi } from 'vitest';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
+import { MilestoneDeltaAnchor, MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
+import { useElementRef } from '@/hooks/useElementRef';
+import type { GanttScaleData } from './engine';
+
+vi.mock('./engine', () => ({ dateToLeft: () => 500 }));
 import { formatShortDate } from './scheduleUtils';
 import { useDragStore } from '@/stores/dragStore';
 import type { WorstMilestone } from '@/types';
@@ -27,9 +33,7 @@ beforeEach(() => {
 });
 
 function renderTooltip(milestoneLeft: number | null = 200, timelineTop = 100) {
-  return render(
-    <MilestoneDeltaTooltip milestoneLeft={milestoneLeft} timelineTop={timelineTop} />,
-  );
+  return render(<MilestoneDeltaTooltip milestoneLeft={milestoneLeft} timelineTop={timelineTop} />);
 }
 
 describe('MilestoneDeltaTooltip', () => {
@@ -101,5 +105,45 @@ describe('MilestoneDeltaTooltip', () => {
     useDragStore.getState().commitDrag();
     const { container } = renderTooltip();
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe('MilestoneDeltaAnchor (#2189)', () => {
+  // The container mounts AFTER the first commit (a skeleton renders first), the
+  // case a pre-seeded `{ current: el }` would hide (web rule 279).
+  function Harness({ mounted }: { mounted: boolean }) {
+    const { el, setEl } = useElementRef<HTMLDivElement>();
+    const [scroll] = useState({ current: { scrollLeft: 100 } as unknown as HTMLElement });
+    return (
+      <>
+        {mounted && <div ref={setEl} data-testid="container" />}
+        <MilestoneDeltaAnchor
+          timelineEl={el}
+          canvasScrollRef={scroll}
+          panelWidth={300}
+          scales={{} as GanttScaleData}
+        />
+      </>
+    );
+  }
+
+  it('anchors to the worst milestone once the container mounts after the first commit', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 10,
+      top: 77,
+    } as DOMRect);
+    useDragStore.getState().startDrag('t1');
+    useDragStore.getState().updatePreview([], MILESTONE, 0);
+    const { rerender } = render(<Harness mounted={false} />);
+    const card = () => screen.getByText('Client Demo').closest('.fixed') as HTMLElement;
+    // Before the container exists: the fixed fallback.
+    expect(card().style.left).toBe('120px');
+
+    act(() => {
+      rerender(<Harness mounted />);
+    });
+    // 10 (container) + 300 (panel) + 500 (dateToLeft) - 100 (scroll) - 80 (centering).
+    expect(card().style.left).toBe('630px');
+    expect(card().style.top).toBe('85px');
   });
 });

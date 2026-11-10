@@ -115,7 +115,8 @@ import { useReconcileStore } from '@/stores/reconcileStore';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
-import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
+import { MilestoneDeltaAnchor } from './MilestoneDeltaTooltip';
+import { useElementRef } from '@/hooks/useElementRef';
 import { DateInputPopover } from './DateInputPopover';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
 import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
@@ -1605,6 +1606,17 @@ export function ScheduleView() {
 
   // Ref to the split-pane container for MilestoneDeltaTooltip positioning (rule 31)
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+  // The same node tracked as state (web rule 279): the overlay layer positions the
+  // milestone-delta tooltip from its rect, and a RefObject read in render is null
+  // on the first commit and never prompts a re-render when the node mounts.
+  const { el: timelineEl, setEl: setTimelineEl } = useElementRef<HTMLDivElement>();
+  const setTimelineContainer = useCallback(
+    (node: HTMLDivElement | null) => {
+      timelineContainerRef.current = node;
+      setTimelineEl(node);
+    },
+    [setTimelineEl],
+  );
 
   // Scrollable container that the canvases sit inside
   const canvasScrollRef = useRef<HTMLDivElement>(null);
@@ -4723,6 +4735,7 @@ export function ScheduleView() {
         error={error}
         setShowAddForm={setShowAddForm}
         timelineContainerRef={timelineContainerRef}
+        setTimelineContainer={setTimelineContainer}
         visibleTasks={visibleTasks}
         pendingTaskIds={pendingTaskIds}
         taskListScrollRef={taskListScrollRef}
@@ -4924,7 +4937,8 @@ export function ScheduleView() {
       {surfaces.monte_carlo && <MobileMonteCarloCard projectId={projectIdUndef} />}
 
       <ScheduleOverlayLayer
-        timelineContainerRef={timelineContainerRef}
+        timelineEl={timelineEl}
+        scheduleScales={scheduleScales}
         pulsingMilestoneAt={pulsingMilestoneAt}
         panelWidth={panelWidth}
         canvasScrollRef={canvasScrollRef}
@@ -5051,7 +5065,9 @@ export function ScheduleView() {
 // ---------------------------------------------------------------------------
 
 interface ScheduleOverlayLayerProps {
-  timelineContainerRef: RefObject<HTMLDivElement | null>;
+  /** The timeline container as state, so the tooltip anchor re-renders when it mounts. */
+  timelineEl: HTMLDivElement | null;
+  scheduleScales: GanttScaleData | null;
   pulsingMilestoneAt: { x: number; y: number };
   panelWidth: number;
   canvasScrollRef: DomRef;
@@ -5128,7 +5144,8 @@ interface ScheduleOverlayLayerProps {
 }
 
 function ScheduleOverlayLayer({
-  timelineContainerRef,
+  timelineEl,
+  scheduleScales,
   pulsingMilestoneAt,
   panelWidth,
   canvasScrollRef,
@@ -5195,13 +5212,16 @@ function ScheduleOverlayLayer({
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
-  const timelineTop = timelineContainerRef.current
-    ? timelineContainerRef.current.getBoundingClientRect().top
-    : 0;
+  const timelineTop = timelineEl ? timelineEl.getBoundingClientRect().top : 0;
   return (
     <>
       {/* Milestone delta tooltip — at ScheduleView level to escape overflow:hidden (rule 31) */}
-      <MilestoneDeltaTooltip milestoneLeft={null} timelineTop={timelineTop} />
+      <MilestoneDeltaAnchor
+        timelineEl={timelineEl}
+        canvasScrollRef={canvasScrollRef}
+        panelWidth={panelWidth}
+        scales={scheduleScales}
+      />
 
       {/* Milestone pulse animation (#340) — fires after a successful insert.
           dateToLeft returns canvas-origin coordinates (renderer rule §57); the
@@ -6626,6 +6646,7 @@ interface ScheduleMainAreaProps {
   error: ReturnType<typeof useScheduleTasks>['error'];
   setShowAddForm: Dispatch<SetStateAction<boolean>>;
   timelineContainerRef: RefObject<HTMLDivElement | null>;
+  setTimelineContainer: (node: HTMLDivElement | null) => void;
   visibleTasks: Task[];
   pendingTaskIds: Map<string, string>;
   taskListScrollRef: RefObject<HTMLDivElement | null>;
@@ -6895,7 +6916,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     isLoading,
     error,
     setShowAddForm,
-    timelineContainerRef,
+    setTimelineContainer,
     visibleTasks,
     pendingTaskIds,
     taskListScrollRef,
@@ -7025,7 +7046,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
           message="This project is configured as Agile, but it already has a schedule — these dates stay reachable even though they sit outside its workflow."
         />
       )}
-      <div className="relative flex flex-1 overflow-hidden" ref={timelineContainerRef}>
+      <div className="relative flex flex-1 overflow-hidden" ref={setTimelineContainer}>
         {/* ONE outline, on BOTH surfaces (#2960). Grid and Timeline are two
             surfaces over the same row model: the same `visibleTasks`, the same
             `expandedIds`, the same markup. Timeline differs only in the column

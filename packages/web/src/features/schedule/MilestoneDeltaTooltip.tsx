@@ -12,6 +12,8 @@
 
 import { useDragStore } from '@/stores/dragStore';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
+import { dateToLeft } from './engine';
+import type { GanttScaleData } from './engine';
 
 interface Props {
   /** Pixel position of the milestone on the timeline (viewport-relative). */
@@ -32,10 +34,7 @@ export function MilestoneDeltaTooltip({ milestoneLeft, timelineTop }: Props) {
 
   const { name, baselineFinish, newFinish, deltaDays } = worst;
   const isSlipping = deltaDays > 0;
-  const deltaLabel =
-    deltaDays === 0
-      ? 'On schedule'
-      : `${isSlipping ? '+' : ''}${deltaDays}d`;
+  const deltaLabel = deltaDays === 0 ? 'On schedule' : `${isSlipping ? '+' : ''}${deltaDays}d`;
 
   const left = milestoneLeft !== null ? milestoneLeft - 80 : 120;
 
@@ -75,4 +74,43 @@ export function MilestoneDeltaTooltip({ milestoneLeft, timelineTop }: Props) {
       </div>
     </div>
   );
+}
+
+interface AnchorProps {
+  /** The split-pane container as state (web rule 279), or null before it mounts. */
+  timelineEl: HTMLElement | null;
+  canvasScrollRef: { current: HTMLElement | null };
+  /** Width of the outline panel left of the canvas. */
+  panelWidth: number;
+  scales: GanttScaleData | null;
+}
+
+/**
+ * Positions {@link MilestoneDeltaTooltip} over the worst milestone's finish.
+ *
+ * Subscribes to the drag store itself, so it re-renders on every preview update
+ * and reads the container rect and scroll offset fresh during a drag. Until the
+ * container or scales exist it passes `null`, which the tooltip renders at its
+ * fixed fallback rather than not at all.
+ */
+export function MilestoneDeltaAnchor({
+  timelineEl,
+  canvasScrollRef,
+  panelWidth,
+  scales,
+}: AnchorProps) {
+  const worst = useDragStore((s) => s.worstMilestone);
+  const rect = timelineEl ? timelineEl.getBoundingClientRect() : null;
+  let milestoneLeft: number | null = null;
+  if (rect && scales && worst) {
+    // dateToLeft returns canvas-origin coordinates (renderer rule §57); the tooltip
+    // is fixed-position in viewport space, so add the container's left and the
+    // outline panel and subtract the canvas scroll.
+    milestoneLeft =
+      rect.left +
+      panelWidth +
+      dateToLeft(worst.newFinish, scales) -
+      (canvasScrollRef.current?.scrollLeft ?? 0);
+  }
+  return <MilestoneDeltaTooltip milestoneLeft={milestoneLeft} timelineTop={rect?.top ?? 0} />;
 }
