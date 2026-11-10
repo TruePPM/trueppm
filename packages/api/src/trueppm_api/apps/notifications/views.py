@@ -59,6 +59,8 @@ from .serializers import (
     ProjectNotificationPreferenceDocumentSerializer,
     ProjectNotificationPreferenceSerializer,
     UserNotificationSettingsSerializer,
+    WorkspaceEmailHealthSerializer,
+    WorkspaceEmailSettingsDocumentSerializer,
     WorkspaceEmailSettingsSerializer,
 )
 from .services import get_or_create_default_preferences, get_or_create_notification_settings
@@ -752,6 +754,7 @@ class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
             return [throttle]
         return super().get_throttles()
 
+    @extend_schema(responses={200: WorkspaceEmailSettingsDocumentSerializer})
     def get(self, request: Request) -> Response:
         obj = WorkspaceEmailSettings.load()
         return Response(_email_settings_payload(obj, can_edit=bool(request.user.is_superuser)))
@@ -762,11 +765,17 @@ class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
     # instances the first draft of the #3364 sweep could not see: the read is one
     # frame down in ``_update``, and a handler-local search finds only a delegating
     # one-liner — which is why that sweep now follows ``self._helper()`` calls.
-    @extend_schema(request=WorkspaceEmailSettingsSerializer)
+    @extend_schema(
+        request=WorkspaceEmailSettingsSerializer,
+        responses={200: WorkspaceEmailSettingsDocumentSerializer},
+    )
     def put(self, request: Request) -> Response:
         return self._update(request, partial=False)
 
-    @extend_schema(request=WorkspaceEmailSettingsSerializer)
+    @extend_schema(
+        request=WorkspaceEmailSettingsSerializer,
+        responses={200: WorkspaceEmailSettingsDocumentSerializer},
+    )
     def patch(self, request: Request) -> Response:
         return self._update(request, partial=True)
 
@@ -912,6 +921,7 @@ class WorkspaceEmailHealthView(APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "email_settings_probe"
 
+    @extend_schema(responses={200: WorkspaceEmailHealthSerializer})
     def get(self, request: Request) -> Response:
         from .email_health import check_deliverability
 

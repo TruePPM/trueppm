@@ -67,6 +67,7 @@ from trueppm_api.apps.workspace.serializers import (
     GroupProjectWriteSerializer,
     GroupSerializer,
     GroupWriteSerializer,
+    InviteAcceptResponseSerializer,
     InviteAcceptSerializer,
     TransferOwnershipSerializer,
     WorkspaceExportJobSerializer,
@@ -959,7 +960,7 @@ class InviteAcceptView(IdempotencyMixin, APIView):
     authentication_classes: list[Any] = []
     throttle_classes = [InviteAcceptThrottle]
 
-    @extend_schema(request=InviteAcceptSerializer, responses={200: None})
+    @extend_schema(request=InviteAcceptSerializer, responses={200: InviteAcceptResponseSerializer})
     def post(self, request: Request) -> Response:
         serializer = InviteAcceptSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

@@ -4359,8 +4359,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True,
         default=False,
         help_text=(
-            "True when the assignee's TaskResource.units across active tasks in this "
-            "project exceed their capacity ON THIS PROJECT. Capacity is resolved in "
+            "True when the assignee's TaskResource.units held on any single day across "
+            "active tasks in this project exceed their capacity ON THIS PROJECT (tasks "
+            "with no schedule dates count on every day). Capacity is resolved in "
             "three steps: the roster units_override for the Resource that "
             "Resource.user links to this assignee (0 included), else that Resource's "
             "max_units, else 1.0 for an assignee with no Resource row at all."
@@ -6171,7 +6172,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         to shrink even when work is running late. Without an active baseline the
         metric is undefined — returns None rather than a misleading CPM-relative value.
 
-        An actual finish is a recorded day and is read as its end. The baseline
+        An actual finish is a recorded day and is read as its end, except a milestone
+        with no work predecessor, which is read at the start of its day to match how
+        its baseline was captured (#4460). The baseline
         finish carries the edge of the day it was captured at
         (``BaselineTask.finish_at_day_start``), so a start-of-day milestone is read
         as the end of the working day before it — the same comparison
@@ -6182,10 +6185,28 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         baseline: date | None = getattr(obj, "baseline_finish", None)
         if not (actual and baseline):
             return None
+        from trueppm_api.apps.scheduling.finish_reading import (
+            actual_finish_reading,
+            milestones_without_work_predecessor,
+        )
+
+        # ``has_work_predecessor`` is annotated on the list queryset (no per-row query);
+        # a non-annotated instance falls back to one indexed lookup.
+        if not obj.is_milestone:
+            no_work_pred = False
+        else:
+            annotated = getattr(obj, "has_work_predecessor", None)
+            no_work_pred = (
+                not annotated
+                if annotated is not None
+                else bool(milestones_without_work_predecessor([obj.pk]))
+            )
         return self._finish_vs_baseline_days(
             obj,
             (baseline, getattr(obj, "baseline_finish_at_day_start", None)),
-            (actual, False),
+            actual_finish_reading(
+                actual, is_milestone=obj.is_milestone, has_work_predecessor=not no_work_pred
+            ),
         )
 
     @extend_schema_field(

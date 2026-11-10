@@ -1092,3 +1092,50 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
             instance.updated_by = request.user
         instance.save()
         return instance
+
+
+class WorkspaceEmailSettingsDocumentSerializer(WorkspaceEmailSettingsSerializer):
+    """What ``GET``/``PUT``/``PATCH .../workspace/email-settings/`` actually returns (#3448).
+
+    The stored row's fields **plus** the five status keys ``_email_settings_payload``
+    adds after serializing. Subclasses the writable serializer rather than restating
+    its field list, so a field added there reaches the published response; only the
+    five added keys are named here. Declaring the plain serializer would be
+    self-consistent and silently short ``can_edit``, the key the web uses to decide
+    whether the form renders as editable (the #3399 trap).
+    """
+
+    # Restated as plain strings: spectacular renders a blank-able EmailField as
+    # ``oneOf [maxLength 0, email]``, which an empty value (the unconfigured default)
+    # satisfies under BOTH branches and so fails oneOf validation of its own response.
+    from_email = serializers.CharField(read_only=True, allow_blank=True)
+    reply_to = serializers.CharField(read_only=True, allow_blank=True)
+    can_edit = serializers.BooleanField(read_only=True)
+    configured_via = serializers.ChoiceField(
+        choices=["database", "environment"],
+        read_only=True,
+        help_text="Where the active transport comes from: this row, or process env.",
+    )
+    host_configured = serializers.BooleanField(read_only=True)
+    frontend_base_url = serializers.CharField(read_only=True, allow_blank=True)
+    frontend_base_url_configured = serializers.BooleanField(read_only=True)
+
+    class Meta(WorkspaceEmailSettingsSerializer.Meta):
+        fields = [
+            *WorkspaceEmailSettingsSerializer.Meta.fields,
+            "can_edit",
+            "configured_via",
+            "host_configured",
+            "frontend_base_url",
+            "frontend_base_url_configured",
+        ]
+
+
+class WorkspaceEmailHealthSerializer(serializers.Serializer[Any]):
+    """Response of ``GET .../workspace/email-settings/health/`` (``HealthResult``, #3448)."""
+
+    available = serializers.BooleanField()
+    domain = serializers.CharField(allow_blank=True)
+    spf = serializers.CharField(help_text="One of pass, warn, fail, unknown.")
+    dkim = serializers.CharField(help_text="One of pass, warn, fail, unknown.")
+    dmarc = serializers.CharField(help_text="One of pass, warn, fail, unknown.")

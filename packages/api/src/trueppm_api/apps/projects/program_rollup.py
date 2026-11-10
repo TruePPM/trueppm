@@ -983,7 +983,12 @@ def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
     ``BaselineTask.finish`` and is not a usable plan to measure lateness against.
     """
     from trueppm_api.apps.scheduling.calendars import project_sched_calendars
-    from trueppm_api.apps.scheduling.finish_reading import finish_shift_days
+    from trueppm_api.apps.scheduling.finish_reading import (
+        Finish,
+        actual_finish_reading,
+        finish_shift_days,
+        milestones_without_work_predecessor,
+    )
 
     if not project_ids:
         return {}
@@ -1012,27 +1017,42 @@ def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
         )
 
     # Completed tasks with an actual finish.
-    pairs: dict[Any, list[tuple[tuple[datetime.date, bool | None], datetime.date]]] = {}
-    for t in Task.objects.filter(
-        project_id__in=list(active_baseline.keys()),
-        is_deleted=False,
-        status=TaskStatus.COMPLETE,
-        actual_finish__isnull=False,
-    ).values("id", "project_id", "actual_finish"):
-        base = baseline_finish.get((t["project_id"], t["id"]))
+    completed = [
+        t
+        for t in Task.objects.filter(
+            project_id__in=list(active_baseline.keys()),
+            is_deleted=False,
+            status=TaskStatus.COMPLETE,
+            actual_finish__isnull=False,
+        ).values("id", "project_id", "actual_finish", "is_milestone")
+        if (t["project_id"], t["id"]) in baseline_finish
+    ]
+    standalone = milestones_without_work_predecessor(
+        t["id"] for t in completed if t["is_milestone"]
+    )
+    pairs: dict[Any, list[tuple[Finish, Finish]]] = {}
+    for t in completed:
         actual = t["actual_finish"]
-        if base is not None and actual is not None:
-            pairs.setdefault(t["project_id"], []).append((base, actual))
+        if actual is None:
+            continue
+        pairs.setdefault(t["project_id"], []).append(
+            (
+                baseline_finish[(t["project_id"], t["id"])],
+                actual_finish_reading(
+                    actual,
+                    is_milestone=t["is_milestone"],
+                    has_work_predecessor=t["id"] not in standalone,
+                ),
+            )
+        )
 
-    # A calendar only for the projects with a start-of-day baseline finish; an
+    # A calendar only for the projects with a start-of-day finish on either side; an
     # end-of-day pair diffs identically without one.
     calendars = project_sched_calendars(
-        pid for pid, ps in pairs.items() if any(base[1] for base, _ in ps)
+        pid for pid, ps in pairs.items() if any(base[1] or actual[1] for base, actual in ps)
     )
     deltas = {
-        pid: [
-            finish_shift_days(base, (actual, False), calendars.get(str(pid))) for base, actual in ps
-        ]
+        pid: [finish_shift_days(base, actual, calendars.get(str(pid))) for base, actual in ps]
         for pid, ps in pairs.items()
     }
     return {pid: sum(ds) / len(ds) for pid, ds in deltas.items() if ds}

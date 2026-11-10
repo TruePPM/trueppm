@@ -15,6 +15,7 @@ from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
     Calendar,
+    Dependency,
     Project,
     ScopeChangeStatus,
     Sprint,
@@ -1268,6 +1269,11 @@ def _bind_milestone_with_baseline(
         # pinned in test_baseline_finish_reading.py.
         milestone_at_day_end=True,
     )
+    # "Follows work" has to be true in the graph too: a recorded actual on a milestone
+    # with no live work predecessor is read at the START of its day (#4460), which
+    # against this end-of-day baseline would be the same instant, not a slip.
+    work = Task.objects.create(project=project, name="Build", duration=1)
+    Dependency.objects.create(predecessor=work, successor=milestone, dep_type="FS")
     sprint.target_milestone = milestone
     sprint.save(update_fields=["target_milestone"])
     if with_baseline:
