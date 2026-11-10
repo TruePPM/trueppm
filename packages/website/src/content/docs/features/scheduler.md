@@ -1,7 +1,7 @@
 ---
 title: "CPM Scheduler"
 description: "Forward/backward pass, lead/lag on every link, Monte Carlo simulation, and auto-scheduling."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 **This page is for Python developers** who want to use TruePPM's scheduling math in their own code — an end user never installs anything here; it's what runs behind the scenes on the Schedule view and the Monte Carlo forecast. The scheduling engine ships independently as [`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) on PyPI, with no dependency on the rest of TruePPM.
@@ -654,14 +654,19 @@ input up front rather than spinning on a degenerate project (a calendar with no
 working day, or a century-long duration, would otherwise drive the day-by-day
 walk to the `date` ceiling and raise an opaque `OverflowError`):
 
+:::note[Ships in 0.5]
+The current release (0.4) refuses a project whose task durations and lags **sum** past 366,000 days, as if every task ran in series: about 73,000 tasks at a 5-day average, measured refusing at 64,000 ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)). From 0.5 the engine bounds the **longest dependency chain** instead, so parallel work no longer counts against the span; the sum keeps a separate, CPU-based ceiling of 3,660,000 days.
+:::
+
 | Input | Limit |
 |-------|-------|
 | `Calendar.working_days` | An integer bitmask in `[0, 127]` that sets at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
 | Task `duration` (and each PERT estimate) | `0` to `MAX_DURATION_DAYS` (`36_525`, ~100 years); negatives rejected. |
 | `Dependency.lag` | Within `±MAX_LAG_DAYS` (`36_525`). |
 | Dependency count | At most `MAX_DEPENDENCIES` (`100_000`) edges. |
-| Cumulative project span | Sum of every task's worst-case duration + every lag must stay under `MAX_PROJECT_SPAN_DAYS` (`366_000`, ~1000 years), regardless of task count. |
-| Agile (scrum) chain span | A scrum task's velocity worst case (`(ceil(story_points / mean velocity) * 4 + 10) * sprint_length_days` working days) is not added to the sum above. It is charged along the longest dependency chain instead, so parallel stories do not add up, and that chain must also stay under `MAX_PROJECT_SPAN_DAYS`. |
+| Project span (longest dependency chain) | The heaviest chain of task worst-case durations plus the lags along it must stay under `MAX_PROJECT_SPAN_DAYS` (`366_000`, ~1000 years). Parallel tasks do not add up, so task count never trips it. |
+| Project work (total) | Σ every task's worst-case duration + Σ every lag magnitude must stay under `MAX_PROJECT_WORK_DAYS` (`3_660_000`, 10x the span cap). This is a CPU bound, not a schedule length: 100 parallel max-duration tasks sit at the cap and take about 2 s. |
+| Agile (scrum) chain span | A scrum task's velocity worst case (`(ceil(story_points / mean velocity) * 4 + 10) * sprint_length_days` working days) is weighed on the same longest dependency chain, so parallel stories do not add up, and that chain must also stay under `MAX_PROJECT_SPAN_DAYS`. |
 | Agile sprint total | The uncapped sprint horizon summed over every scrum task must stay under `366_000` sprints, which bounds the velocity sampler's total draws. For an all-agile project this is usually the real ceiling: about 26,000 five-point stories. |
 | `monte_carlo(runs=…)` | Must be `>= 1`. |
 

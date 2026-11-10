@@ -286,6 +286,11 @@
       "issue": "#1505",
       "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
     },
+    "expected/per_task_calendar_ss_cross.json": {
+      "provenance": "regenerated",
+      "issue": "#4465",
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; the Rust engine is compared against it by wasm:conformance (cargo test)"
+    },
     "expected/planned_start_snet.json": {
       "provenance": "unknown",
       "issue": "#39",
@@ -496,6 +501,11 @@
       "issue": "#1505",
       "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
     },
+    "expected/ss_negative_lag_weekend.json": {
+      "provenance": "regenerated",
+      "issue": "#4465",
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; the Rust engine is compared against it by wasm:conformance (cargo test)"
+    },
     "expected/sub_start_floors_move_nothing.json": {
       "provenance": "unknown",
       "issue": "#4635",
@@ -635,6 +645,16 @@
       "provenance": "unknown",
       "issue": "#749",
       "evidence": "bebf486ab: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/project_work_over_max.json": {
+      "provenance": "unknown",
+      "issue": "#3830",
+      "evidence": "added with the work-ceiling split; 101 parallel max-duration tasks, a rejection input with no expected output"
+    },
+    "invalid/cycle_over_span_serial_sum.json": {
+      "provenance": "unknown",
+      "issue": "#3830",
+      "evidence": "added with the longest-chain bound; a 12-task ring whose serial-sum fallback exceeds the span cap"
     },
     "invalid/sf_below_min_date.json": {
       "provenance": "unknown",
@@ -1011,6 +1031,11 @@
       "issue": "#1504",
       "evidence": "c2a774fa9: added; no regeneration or hand-derivation statement in history"
     },
+    "per_task_calendar_ss_cross.json": {
+      "provenance": "unknown",
+      "issue": "#4465",
+      "evidence": "added for #4465; input fixture, no hand-derivation claimed"
+    },
     "planned_start_snet.json": {
       "provenance": "unknown",
       "issue": "#39",
@@ -1220,6 +1245,11 @@
       "provenance": "unknown",
       "issue": "#1505",
       "evidence": "99b2ef872: added; no regeneration or hand-derivation statement in history"
+    },
+    "ss_negative_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#4465",
+      "evidence": "added for #4465; input fixture, no hand-derivation claimed"
     },
     "sub_start_floors_move_nothing.json": {
       "provenance": "unknown",

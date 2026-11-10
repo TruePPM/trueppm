@@ -418,6 +418,9 @@ from trueppm_scheduler.engine.limits import (
     MAX_PROJECT_SPAN_DAYS as MAX_PROJECT_SPAN_DAYS,
 )
 from trueppm_scheduler.engine.limits import (
+    MAX_PROJECT_WORK_DAYS as MAX_PROJECT_WORK_DAYS,
+)
+from trueppm_scheduler.engine.limits import (
     MAX_VELOCITY_SPRINTS as MAX_VELOCITY_SPRINTS,
 )
 from trueppm_scheduler.engine.limits import (

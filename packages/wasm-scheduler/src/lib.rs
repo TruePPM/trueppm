@@ -1782,7 +1782,16 @@ mod tests {
             name: "span".to_string(),
             start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
             tasks: (0..n).map(|i| make_task(&format!("T{i}"), 1)).collect(),
-            dependencies: vec![],
+            // A zero-lag chain: the span bound is the longest chain (#3830), so
+            // these fixtures chain to keep Σ durations == the bound.
+            dependencies: (1..n)
+                .map(|i| crate::models::Dependency {
+                    predecessor_id: format!("T{}", i - 1),
+                    successor_id: format!("T{i}"),
+                    dep_type: crate::models::DependencyType::FS,
+                    lag: 0.0,
+                })
+                .collect(),
             calendar: Calendar::default(),
             status_date: None,
             calendars: None,
@@ -1867,12 +1876,7 @@ mod tests {
         for t in project.tasks.iter_mut() {
             t.duration = 10.0 * 86_400.0;
         }
-        project.dependencies = vec![crate::models::Dependency {
-            predecessor_id: "T0".to_string(),
-            successor_id: "T1".to_string(),
-            dep_type: crate::models::DependencyType::FS,
-            lag: 400.0 * 86_400.0,
-        }];
+        project.dependencies[0].lag = 400.0 * 86_400.0; // T0 -> T1 of the chain
         let at = |days: i64| project.start_date + chrono::Duration::days(days);
         let (p0, p1, p2, st, af) = (at(50), at(300_000), at(300_000), at(365_000), at(100));
         project.tasks[0].planned_start = Some(p0);

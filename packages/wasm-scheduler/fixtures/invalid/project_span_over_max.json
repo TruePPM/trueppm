@@ -1,6 +1,6 @@
 {
   "id": "inv-span-over-max",
-  "name": "Cumulative span over max (11 x 100yr tasks)",
+  "name": "Chained span over max (11 x 100yr tasks in one chain)",
   "start_date": "2026-04-01",
   "tasks": [
     {
@@ -59,7 +59,68 @@
       "duration": 3155760000.0
     }
   ],
-  "dependencies": [],
+  "dependencies": [
+    {
+      "predecessor_id": "t0",
+      "successor_id": "t1",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t1",
+      "successor_id": "t2",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t2",
+      "successor_id": "t3",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t3",
+      "successor_id": "t4",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t4",
+      "successor_id": "t5",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t5",
+      "successor_id": "t6",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t6",
+      "successor_id": "t7",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t7",
+      "successor_id": "t8",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t8",
+      "successor_id": "t9",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t9",
+      "successor_id": "t10",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
   "calendar": {
     "working_days": 31,
     "exceptions": [],

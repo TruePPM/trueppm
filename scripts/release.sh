@@ -644,6 +644,16 @@ bump_manifest packages/scheduler/pyproject.toml \
   "s/^version = \"${CURRENT_PEP440_ESCAPED}\"/version = \"${NEW_PEP440}\"/" \
   "version = \"${NEW_PEP440}\""
 
+# CITATION.cff is the file GitLab/GitHub render as "Cite this repository" and the
+# one a Zenodo archive snapshots, so its version and release date move with the
+# tag (#3857). tests/test_public_surface.py gates the same fields.
+bump_manifest packages/scheduler/CITATION.cff \
+  "s/^version: ${CURRENT_PEP440_ESCAPED}\$/version: ${NEW_PEP440}/" \
+  "version: ${NEW_PEP440}"
+bump_manifest packages/scheduler/CITATION.cff \
+  "s/^date-released: .*/date-released: ${TODAY}/" \
+  "date-released: ${TODAY}"
+
 # The MCP server is the second PyPI package (#2809) and takes the PEP 440 form,
 # same as the scheduler. Its version lives in three places that must move
 # together: the manifest and BOTH version fields in server.json. The uv.lock
