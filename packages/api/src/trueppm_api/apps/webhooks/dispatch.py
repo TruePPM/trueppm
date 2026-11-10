@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 import redis as redis_lib
+from celery.exceptions import SoftTimeLimitExceeded
 from kombu.exceptions import (
     OperationalError as KombuOperationalError,
 )
@@ -261,6 +262,10 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         try:
             sequence = _next_delivery_sequence(webhook.id)
             body = build_delivery_body(webhook, event_type, payload, sequence, str(project_id))
+        except SoftTimeLimitExceeded:
+            # dispatch_webhooks runs inside Celery tasks: the soft limit must stop
+            # the whole dispatch, not be logged as one bad webhook and skipped.
+            raise
         except Exception:
             # One bad subscription (deleted concurrently, unrenderable body) must
             # not cost every other subscriber its delivery now that rows are

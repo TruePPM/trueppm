@@ -601,3 +601,31 @@ def test_dispatch_one_failing_webhook_does_not_drop_the_others(
     delivered = set(WebhookDelivery.objects.values_list("webhook_id", flat=True))
     assert delivered == {h.id for h in hooks} - {bad.id}
     assert delay.call_count == 2
+
+
+@pytest.mark.django_db
+def test_dispatch_soft_time_limit_is_not_swallowed_as_one_bad_webhook(
+    project: Project, user: object
+) -> None:
+    """The per-webhook skip must not catch Celery's soft limit: a task that hits it
+    stops dispatching instead of logging every remaining webhook as failed."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from trueppm_api.apps.webhooks import dispatch as wh_dispatch
+    from trueppm_api.apps.webhooks import models as wh_models
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    _make_hooks(project, user, 2)
+
+    def soft_limit(webhook_id: object) -> int:
+        raise SoftTimeLimitExceeded
+
+    with (
+        patch.object(wh_models, "_next_delivery_sequence", soft_limit),
+        patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()) as delay,
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        wh_dispatch.dispatch_webhooks(str(project.pk), "task.created", dict(_FLAT_TASK_PAYLOAD))
+
+    assert not WebhookDelivery.objects.exists()
+    delay.assert_not_called()
