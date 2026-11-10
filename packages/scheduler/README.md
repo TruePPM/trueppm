@@ -771,8 +771,7 @@ release it is scheduled for:
 - **Scale / performance** — the engine bounds the longest dependency chain, not
   the task count, so a 100,000-task project of ordinary parallel work schedules;
   only the total work ceiling (`MAX_PROJECT_WORK_DAYS`, see Project work above)
-  applies to it
-  ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)). Scale benchmarks at
+  applies to it. Scale benchmarks at
   50,000 and 100,000 tasks are tracked with the benchmark suite
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); Monte Carlo
   holds three `(runs × tasks)` float64 matrices live in memory, already 2.3 GB
@@ -804,10 +803,9 @@ they will ship with 0.5 or that release will slip:
   independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings the engine itself into scope
-  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the span-guard
-  bug above will be fixed, raising the supported envelope toward 50,000 tasks
-  ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830),
-  [#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
+  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the supported
+  envelope will be raised toward 50,000 tasks
+  ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
 - **Performance** — a published `pytest-benchmark` suite at 100–5,000 tasks,
   with measured numbers in this README
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); the Monte Carlo
@@ -843,9 +841,6 @@ they will ship with 0.5 or that release will slip:
   CPM/leveling pass
   ([#84](https://gitlab.com/trueppm/trueppm/-/issues/84),
   [#744](https://gitlab.com/trueppm/trueppm/-/issues/744)).
-- **Packaging** — stale/placeholder `CITATION.cff` metadata (a fake ORCID and
-  DOI) will be corrected
-  ([#3857](https://gitlab.com/trueppm/trueppm/-/issues/3857)).
 
 May also land in 0.5, but not yet committed (reserve, stretch, or not yet
 triaged): the zero-duration back-solve that can put a Monte Carlo P50 before
