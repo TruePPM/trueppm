@@ -230,8 +230,13 @@ def record_project_visit(user: Any, project: Any) -> None:
 
 
 def _max_project_role(user: Any) -> int | None:
+    # Archived projects confer no role (matches has_org_role_from_live_project and
+    # most_recent_project). _has_any_membership below deliberately still counts
+    # them: the user is not a newcomer, and an archived-only Admin lands on My Work
+    # either way (most_recent_project already skips archived), so the path is
+    # unchanged (#4627).
     value = ProjectMembership.objects.filter(
-        user=user, is_deleted=False, project__is_deleted=False
+        user=user, is_deleted=False, project__is_deleted=False, project__is_archived=False
     ).aggregate(_max=Max("role"))["_max"]
     return int(value) if value is not None else None
 
