@@ -727,3 +727,78 @@ def test_task_list_completed_milestone_variance_query_count_is_flat(
     with django_assert_num_queries(one):
         rows = fetch()
     assert len(rows) == 5
+
+
+@pytest.mark.django_db
+def test_task_list_has_work_predecessor_annotation_matches_the_fallback_lookup(
+    client: APIClient, project: Project, admin: Any
+) -> None:
+    """#4460: the list's ``has_work_predecessor`` annotation (True and False branches)
+    gives the same variance as the un-annotated serializer fallback, and only a live
+    work predecessor moves a milestone's actual to end-of-day."""
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+    from trueppm_api.apps.projects.views import annotate_tasks_queryset
+
+    baseline = Baseline.objects.create(
+        project=project, name="B", created_by=admin, is_active=True, has_cpm_dates=True
+    )
+
+    def milestone(name: str) -> Task:
+        ms = Task.objects.create(
+            project=project,
+            name=name,
+            duration=0,
+            is_milestone=True,
+            early_start=MON,
+            early_finish=MON,
+            actual_finish=MON,
+        )
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=ms.pk,
+            task_name=ms.name,
+            start=MON,
+            finish=MON,
+            duration=0,
+            finish_at_day_start=True,
+        )
+        return ms
+
+    live_ms, deleted_ms, ms_pred_ms = milestone("Live"), milestone("Deleted"), milestone("MsPred")
+    work = Task.objects.create(project=project, name="Work", duration=3)
+    dead_work = Task.objects.create(project=project, name="DeadWork", duration=3)
+    upstream = Task.objects.create(project=project, name="Up", duration=0, is_milestone=True)
+    Dependency.objects.create(predecessor=work, successor=live_ms, dep_type="FS")
+    Dependency.objects.create(predecessor=dead_work, successor=deleted_ms, dep_type="FS")
+    Dependency.objects.create(predecessor=upstream, successor=ms_pred_ms, dep_type="FS")
+    Task.objects.filter(pk=dead_work.pk).update(is_deleted=True)
+    for ms in (live_ms, deleted_ms, ms_pred_ms):
+        _complete_on(ms, MON)
+
+    listed = {r["id"]: r["schedule_variance_days"] for r in _task_rows(client, project)}
+
+    serializer = TaskSerializer()
+    annotated = {
+        t.pk: t
+        for t in annotate_tasks_queryset(
+            Task.objects.filter(project=project), None, str(project.pk)
+        )
+        if t.pk in {live_ms.pk, deleted_ms.pk, ms_pred_ms.pk}
+    }
+    assert annotated[live_ms.pk].has_work_predecessor is True
+    assert annotated[deleted_ms.pk].has_work_predecessor is False
+    assert annotated[ms_pred_ms.pk].has_work_predecessor is False
+    for pk, obj in annotated.items():
+        del obj.has_work_predecessor  # force the one-lookup fallback path
+        assert listed[str(pk)] == serializer.get_schedule_variance_days(obj)
+
+    assert listed[str(deleted_ms.pk)] == 0
+    assert listed[str(ms_pred_ms.pk)] == 0
+    assert listed[str(live_ms.pk)] is not None and listed[str(live_ms.pk)] > 0
+
+
+def _task_rows(client: APIClient, project: Project) -> list[dict[str, Any]]:
+    res = client.get(f"/api/v1/tasks/?project={project.pk}&page_size=500")
+    assert res.status_code == 200, res.content
+    body = res.json()
+    return body["results"] if isinstance(body, dict) else body
