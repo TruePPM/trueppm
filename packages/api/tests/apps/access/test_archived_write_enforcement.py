@@ -515,6 +515,21 @@ def test_running_monte_carlo_on_an_archived_project_is_refused(
     assert resp.json()["detail"] == ARCHIVED_DETAIL
 
 
+def test_refused_monte_carlo_run_writes_no_history_and_latest_stays_readable(
+    client: APIClient, archived: Project
+) -> None:
+    """The refusal precedes every write; the read-only ``latest`` route is not gated (#2551)."""
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    _task(archived)
+    resp = client.post(f"/api/v1/projects/{archived.pk}/monte-carlo/", {}, format="json")
+    assert resp.status_code == 403, resp.data
+    assert not MonteCarloRun.objects.filter(project=archived).exists()
+    latest = client.get(f"/api/v1/projects/{archived.pk}/monte-carlo/latest/")
+    # 404 is "no run cached yet", which is correct here — the point is it is not a 403.
+    assert latest.status_code in (200, 404), latest.data
+
+
 def test_running_monte_carlo_on_a_live_project_still_works(
     client: APIClient, live: Project
 ) -> None:
