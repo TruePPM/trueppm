@@ -27899,7 +27899,7 @@
         "/api/v1/projects/{project_pk}/imports/": {
             "get": {
                 "operationId": "v1_projects_imports_retrieve",
-                "description": "Page of import-request provenance rows for the project, newest first.\n\n`status` is one of pending / dispatched / done / dead. `initiated_by` is the user's integer id; `initiated_by_username` carries the name and is null once that user is deleted. `task_count` comes from the linked TaskRun summary and is null until the import completes.\n\n`warnings` lists everything the import did not carry over — MS Project constraints, deadlines, baselines, priority, work and cost have no TruePPM column and are reported with per-family task counts. The strings are prose for a person, so match the leading `Not imported: ` / `Partially imported: ` marker rather than the whole line. Empty for a queued or dead import.\n\nRows are purged after `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7), so this is a recent-activity view, not durable audit history.",
+                "description": "Page of import-request provenance rows for the project, newest first.\n\n`status` is one of pending / dispatched / done / dead. `initiated_by_username` carries the initiator's name and is null once that user is deleted. `task_count` comes from the linked TaskRun summary and is null until the import completes.\n\n`warnings` lists everything the import did not carry over — MS Project constraints, deadlines, baselines, priority, work and cost have no TruePPM column and are reported with per-family task counts. The strings are prose for a person, so match the leading `Not imported: ` / `Partially imported: ` marker rather than the whole line. Empty for a queued or dead import.\n\nRows are purged after `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7), so this is a recent-activity view, not durable audit history.",
                 "parameters": [
                     {
                         "in": "query",
@@ -27960,7 +27960,6 @@
                                                     "status": "done",
                                                     "creates_project": false,
                                                     "requested_at": "2026-05-28T14:03:00Z",
-                                                    "initiated_by": 17,
                                                     "initiated_by_username": "sarah",
                                                     "task_count": 142,
                                                     "warnings": [
@@ -57961,11 +57960,6 @@
                         "format": "date-time",
                         "readOnly": true
                     },
-                    "initiated_by": {
-                        "type": "integer",
-                        "readOnly": true,
-                        "nullable": true
-                    },
                     "initiated_by_username": {
                         "type": "string",
                         "nullable": true,
@@ -57991,7 +57985,6 @@
                     "creates_project",
                     "filename",
                     "id",
-                    "initiated_by",
                     "initiated_by_username",
                     "requested_at",
                     "status",
@@ -80961,7 +80954,7 @@
             },
             "TaskRun": {
                 "type": "object",
-                "description": "Read-only serializer for TaskRun progress records.\n\nExposes all fields needed to drive a progress indicator: status,\nprogress_pct, progress_msg, and timing fields for duration display.\nAll fields are read-only — TaskRun records are created and updated\nby the Celery worker, never directly via the API.",
+                "description": "Read-only serializer for TaskRun progress records.\n\nExposes all fields needed to drive a progress indicator: status,\nprogress_pct, progress_msg, and timing fields for duration display.\nAll fields are read-only — TaskRun records are created and updated\nby the Celery worker, never directly via the API.\n\n``initiated_by`` is exposed as a username string, not the raw auth.User\ninteger PK, so a Viewer-tier member cannot harvest user ids. ``error_detail``\nis blank for callers below the Admin role.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -80982,10 +80975,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
-                    "initiated_by": {
-                        "type": "integer",
-                        "readOnly": true,
-                        "nullable": true
+                    "initiated_by_username": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
                     },
                     "status": {
                         "allOf": [
@@ -81036,7 +81029,7 @@
                     "created_at",
                     "error_detail",
                     "id",
-                    "initiated_by",
+                    "initiated_by_username",
                     "progress_msg",
                     "progress_pct",
                     "project",

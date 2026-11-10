@@ -51,8 +51,10 @@ class ProjectTaskRunViewSet(
     def get_queryset(self) -> QuerySet[TaskRun]:
         project_pk = self.kwargs["project_pk"]
         # select_related('project') so the cancel action (obj.project) avoids an
-        # extra query per retrieved instance.
-        return TaskRun.objects.filter(project_id=project_pk).select_related("project")
+        # extra query per retrieved instance; initiated_by feeds initiated_by_username.
+        return TaskRun.objects.filter(project_id=project_pk).select_related(
+            "project", "initiated_by"
+        )
 
     def get_object(self) -> TaskRun:
         obj: TaskRun = super().get_object()
@@ -127,7 +129,7 @@ class GlobalTaskRunViewSet(ReadOnlyModelViewSet[TaskRun]):
         project_ids = ProjectMembership.objects.filter(
             user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
-        return TaskRun.objects.filter(project_id__in=project_ids)
+        return TaskRun.objects.filter(project_id__in=project_ids).select_related("initiated_by")
 
     @extend_schema(
         summary="List active task runs",

@@ -192,6 +192,9 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
     await page.goto(`${BASE_URL}/board`);
     // Smart-default lands on the single active sprint (Atlas 4).
     await expect(page).toHaveURL(/[?&]sprint=sprint-atlas-4/);
+    // The header burndown is a lazy chunk (#1536); let it swap in before touching the
+    // card, or the late re-render can close the actions menu mid-interaction.
+    await expect(page.getByLabel(/burndown$/i).first()).toBeVisible();
     const card = page.getByText('In the sprint', { exact: true });
     await expect(card).toBeVisible();
     await card.hover();

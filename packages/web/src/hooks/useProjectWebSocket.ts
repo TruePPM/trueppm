@@ -27,7 +27,7 @@
  *   comment_created → invalidate riskComments (risk comments only — task comments use task_comment_*)
  *   task_comment_created / task_comment_updated / task_comment_deleted / task_comment_reaction_added / task_comment_reaction_removed / task_comment_ack_changed → invalidate task-comments[taskId]
  *   task_attachment_created / task_attachment_deleted → invalidate task-attachments[taskId]
- *   task_note_created / task_note_updated / task_note_deleted / task_note_pinned → invalidate task-notes[taskId] + tasks (latest_note_at freshness chip)
+ *   task_note_created / task_note_updated / task_note_deleted / task_note_pinned → invalidate task-notes[taskId] immediately + tasks via the burst debounce (latest_note_at freshness chip)
  *   task_relation_created / task_relation_updated / task_relation_deleted → invalidate every
  *                  mounted task-relations query (payload is relation-id-only, no task id, #2068/#3774)
  *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
@@ -711,7 +711,10 @@ function registerCollaborationHandlers(on: OnFn, deps: WsHandlerDeps): void {
       if (typeof taskId === 'string') {
         void queryClient.invalidateQueries({ queryKey: ['task-notes', taskId] });
       }
-      void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+      // Debounced: a burst of notes from a peer would otherwise trigger one full
+      // multi-page serial task refetch per event. The payload carries no
+      // timestamp, so latest_note_at cannot be spliced into the cache directly.
+      scheduleInvalidate('tasks');
       if (event_type === 'task_note_decision_toggled') {
         void queryClient.invalidateQueries({ queryKey: ['decisions', projectIdRef.current] });
       }

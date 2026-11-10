@@ -32,6 +32,8 @@ from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
 logger = logging.getLogger(__name__)
 
+WS_FAILURE_MESSAGE = "Task failed. An administrator can see the details on the run."
+
 # Redis key patterns (both expire automatically).
 _DEBOUNCE_KEY = "task_run_debounce:{task_run_id}"
 _CANCEL_KEY = "task_run_cancel:{task_run_id}"
@@ -199,7 +201,11 @@ class TaskRunTracker:
                 "task_run_failed",
                 {
                     "task_run_id": self._task_run_id,
-                    "error_detail": str(exc_val),
+                    # Generic on purpose (#1726): this fans out to every project
+                    # member including Viewers, and the raw exception text can
+                    # carry paths, SQL or worker internals. The full text stays
+                    # on TaskRun.error_detail, served to Admin+ over REST.
+                    "error_detail": WS_FAILURE_MESSAGE,
                 },
             )
             return False  # re-raise

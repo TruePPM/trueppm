@@ -109,7 +109,8 @@ def recalculate_schedule(
         # the task, and leaving the outbox row DISPATCHED makes the drain's orphan
         # recovery re-dispatch it every ten minutes forever (a fresh FailedTask and
         # alert each time). TaskRunTracker has already marked the run FAILED and
-        # broadcast task_run_failed with the engine's actionable message before we
+        # broadcast task_run_failed with the generic WS_FAILURE_MESSAGE (the engine's
+        # message stays in the Admin-only error_detail) before we
         # got here; retire the outbox row as DONE (the drain's own "retired" state;
         # DEAD would turn the System Health outbox card CRIT over a data problem),
         # keep the dead-letter row so operators still see it, and end the task

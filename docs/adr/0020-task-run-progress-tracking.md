@@ -97,7 +97,7 @@ connect, enabling personal notifications for runs on projects the user has open.
 | `task_run_started` | Tracker `__enter__` | `task_run_id`, `task_name`, `project_id` |
 | `task_run_progress` | `tracker.update()` | `task_run_id`, `pct`, `msg` |
 | `task_run_completed` | Success exit | `task_run_id`, `result_summary` |
-| `task_run_failed` | Exception exit | `task_run_id`, `error_detail` |
+| `task_run_failed` | Exception exit | `task_run_id`, `error_detail` (generic message; full text is Admin+ over REST, #1726) |
 | `task_run_cancelled` | Cancellation | `task_run_id` |
 
 `recalculate_schedule` is migrated to use `TaskRunTracker`. The existing `cpm_queued`,
@@ -230,6 +230,11 @@ Backwards-compat: `recalculatedAt` aliased to `scheduler.last_run_at` for one
 release; removed in next minor. Documented in changelog.
 
 #### `initiated_by` exposure
+
+> **Superseded 2026-11-09 by #1726.** Task-run payloads no longer carry `initiated_by`
+> (the raw user id); they carry `initiated_by_username`. `error_detail` is blank below
+> the project Admin role, and the `task_run_failed` WebSocket event sends a generic
+> message. The original decision is kept below as history.
 
 Returned as `{id, display_name}` to all project members. Not redacted.
 Rationale: project members are already inside the project trust boundary; redacting

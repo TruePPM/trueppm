@@ -23,9 +23,7 @@ export interface ImportProvenanceRow {
   status: ImportRequestStatus;
   creates_project: boolean;
   requested_at: string;
-  /** PK of the user who initiated the import; null when the user was deleted. */
-  initiated_by: number | null;
-  /** Display username; null when initiated_by is null. */
+  /** Display username; null when the initiating user was deleted. */
   initiated_by_username: string | null;
   /**
    * Tasks created by the import, read from the linked TaskRun summary.

@@ -12,35 +12,44 @@
  * the "aggregate only — no individual breakdown" guarantee self-evident (VoC
  * Morgan/Priya), not buried in docs.
  *
- * Charts use Recharts with CSS-var color tokens (mirroring BurnChart) and
+ * Charts (FlowCharts.tsx, lazy-loaded) use Recharts with CSS-var color tokens (mirroring BurnChart) and
  * `isAnimationActive={false}` (reduced motion + deterministic tests). Each chart
  * carries an sr-only text summary so the data is reachable without seeing the SVG
  * (web-rule 176).
  */
 import { LockIcon } from '@/components/Icons';
-import { type ReactNode, useCallback, useState } from 'react';
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { type ReactNode, Suspense, lazy, useCallback, useState } from 'react';
 
 import { ForecastHorizonHelp } from '@/features/sprints/ForecastHorizonHelp';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import {
-  type CfdCounts,
   type FlowMetrics,
   type SprintForecast,
   useFlowMetrics,
   useSprintForecast,
 } from '@/hooks/useSprints';
 import type { BoardCadence } from '@/types';
+
+// Recharts is the single heaviest dependency on the board route and the panel is
+// collapsed by default, so the chart bodies load on first expansion (#1536). The
+// disclosure button and the non-chart stat strip stay in the eager chunk.
+const CumulativeFlowChart = lazy(() =>
+  import('./FlowCharts').then((m) => ({ default: m.CumulativeFlowChart })),
+);
+const ThroughputChart = lazy(() =>
+  import('./FlowCharts').then((m) => ({ default: m.ThroughputChart })),
+);
+
+/** Skeleton ghost matching a chart cell's footprint (web-rule 248). */
+function ChartSkeleton() {
+  return (
+    <div
+      className="h-36 motion-safe:animate-pulse rounded-card bg-neutral-surface-sunken"
+      aria-hidden="true"
+      data-testid="flow-chart-skeleton"
+    />
+  );
+}
 
 interface Props {
   projectId: string;
@@ -51,24 +60,6 @@ interface Props {
    */
   boardCadence?: BoardCadence;
 }
-
-// DS-v2 tokens are bare RGB channel triples, so an SVG fill/stroke must wrap them
-// in `rgb(var(--…))` and carry NO `--color-` prefix — a bare or `--color-`-prefixed
-// ref resolves to nothing and the chart falls back to black-on-navy (issue 1791,
-// the BurnChart bug this panel mirrors per web-rule 176).
-/** CFD bands in board order; rendered downstream-first so Complete sits at the base. */
-const CFD_BANDS: { key: keyof CfdCounts; label: string; color: string }[] = [
-  { key: 'BACKLOG', label: 'Backlog', color: 'rgb(var(--neutral-border))' },
-  { key: 'NOT_STARTED', label: 'To Do', color: 'rgb(var(--neutral-text-disabled))' },
-  { key: 'IN_PROGRESS', label: 'In Progress', color: 'rgb(var(--brand-primary))' },
-  { key: 'REVIEW', label: 'Review', color: 'rgb(var(--semantic-at-risk))' },
-  { key: 'COMPLETE', label: 'Complete', color: 'rgb(var(--semantic-on-track))' },
-];
-
-const AXIS_TICK = {
-  fill: 'rgb(var(--neutral-text-secondary))',
-  fontSize: 11,
-} as const;
 
 function usePersistentDisclosure(key: string, fallback: boolean) {
   const [open, setOpen] = useState<boolean>(() => {
@@ -330,8 +321,12 @@ function PanelBody({
         <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />Team-private · aggregate only — no individual breakdown
       </p>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <CumulativeFlowChart cfd={data.cfd} />
-        <ThroughputChart throughput={data.throughput} />
+        <Suspense fallback={<ChartSkeleton />}>
+          <CumulativeFlowChart cfd={data.cfd} />
+        </Suspense>
+        <Suspense fallback={<ChartSkeleton />}>
+          <ThroughputChart throughput={data.throughput} />
+        </Suspense>
         <CycleLeadStrip cycle={data.cycle_time} lead={data.lead_time} windowDays={data.window_days} />
       </div>
       <DataIntegrityNote integrity={data.data_integrity} />
@@ -354,118 +349,6 @@ function SuppressedWall() {
         diagram are shared with the team and their coach only — by the team&apos;s choice.
       </p>
     </div>
-  );
-}
-
-/**
- * Wraps a chart's SVG in `aria-hidden` with an sr-only text summary as the real
- * accessible read (issue 2175). Any Recharts root rendered inside `children`
- * MUST pass `accessibilityLayer={false}` — Recharts 3.x's accessibility layer
- * (default on) injects its own focusable keyboard-nav overlay into the SVG,
- * which becomes an invisible focus trap under `aria-hidden` (axe
- * `aria-hidden-focus`, #3482; see BurnChartCanvas's docstring for the full
- * rationale).
- */
-function ChartFrame({
-  title,
-  summary,
-  children,
-  footer,
-}: {
-  title: string;
-  summary: string;
-  children: ReactNode;
-  footer?: ReactNode;
-}) {
-  return (
-    <figure className="m-0">
-      <figcaption className="mb-1 text-xs font-medium text-neutral-text-secondary">{title}</figcaption>
-      <p className="sr-only">{summary}</p>
-      <div className="h-36" aria-hidden="true">
-        {children}
-      </div>
-      {footer}
-    </figure>
-  );
-}
-
-/** Visible legend so the CFD bands are not distinguished by color alone (WCAG 1.4.1).
- * aria-hidden — the chart's sr-only summary already names every band for readers. */
-function CfdLegend() {
-  return (
-    <ul aria-hidden="true" className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-neutral-text-disabled">
-      {CFD_BANDS.map((band) => (
-        <li key={band.key} className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-chip" style={{ backgroundColor: band.color }} />
-          {band.label}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function CumulativeFlowChart({ cfd }: { cfd: FlowMetrics['cfd'] }) {
-  const points = cfd.map((row) => ({ date: row.date, ...row.counts }));
-  const last = cfd.at(-1)?.counts;
-  const summary = last
-    ? `Cumulative flow over ${cfd.length} days. Latest: ${last.COMPLETE} complete, ${last.REVIEW} in review, ${last.IN_PROGRESS} in progress, ${last.NOT_STARTED} to do, ${last.BACKLOG} in backlog.`
-    : 'Cumulative flow diagram. No data in the window.';
-  return (
-    <ChartFrame title="Cumulative flow" summary={summary} footer={<CfdLegend />}>
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart
-          data={points}
-          margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
-          accessibilityLayer={false}
-        >
-          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgb(var(--neutral-border))" />
-          <XAxis dataKey="date" tick={AXIS_TICK} tickFormatter={formatShortDate} minTickGap={28} tickLine={false} axisLine={false} />
-          <YAxis tick={AXIS_TICK} width={28} tickLine={false} axisLine={false} allowDecimals={false} />
-          <Tooltip labelFormatter={(d) => formatShortDate(String(d))} />
-          {/* Render downstream-first so Complete forms the base of the stack. */}
-          {[...CFD_BANDS].reverse().map((band) => (
-            <Area
-              key={band.key}
-              type="monotone"
-              dataKey={band.key}
-              name={band.label}
-              stackId="cfd"
-              stroke={band.color}
-              fill={band.color}
-              fillOpacity={0.85}
-              isAnimationActive={false}
-            />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
-    </ChartFrame>
-  );
-}
-
-function ThroughputChart({ throughput }: { throughput: FlowMetrics['throughput'] }) {
-  const total = throughput.reduce((sum, w) => sum + w.completed_count, 0);
-  const summary = `Weekly throughput over ${throughput.length} weeks. ${total} items completed in total.`;
-  return (
-    <ChartFrame title="Throughput / week" summary={summary}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart
-          data={throughput}
-          margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
-          accessibilityLayer={false}
-        >
-          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgb(var(--neutral-border))" />
-          <XAxis dataKey="week_start" tick={AXIS_TICK} tickFormatter={formatShortDate} minTickGap={20} tickLine={false} axisLine={false} />
-          <YAxis tick={AXIS_TICK} width={28} tickLine={false} axisLine={false} allowDecimals={false} />
-          <Tooltip labelFormatter={(d) => `Week of ${formatShortDate(String(d))}`} />
-          <Bar
-            dataKey="completed_count"
-            name="Completed"
-            fill="rgb(var(--semantic-on-track))"
-            isAnimationActive={false}
-          />
-        </BarChart>
-      </ResponsiveContainer>
-    </ChartFrame>
   );
 }
 

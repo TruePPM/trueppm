@@ -3145,10 +3145,28 @@ describe('useProjectWebSocket — missing task_id guards', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
     dispatch('task_note_created', { id: 'note-1' });
+    flushDebounce();
 
     expect(keysInvalidated(invalidateSpy.mock.calls, 'task-notes')).toHaveLength(0);
     // latest_note_at is annotated on the task serializer, so the list still refreshes.
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('coalesces a burst of task_note events into one debounced tasks refetch (#1537)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_note_created', { id: 'n1', task_id: 'task-1' });
+    dispatch('task_note_updated', { id: 'n1', task_id: 'task-1' });
+    dispatch('task_note_pinned', { id: 'n2', task_id: 'task-2' });
+
+    // Per-task notes refresh immediately; the heavy tasks list has not fired yet.
+    expect(keysInvalidated(invalidateSpy.mock.calls, 'task-notes')).toHaveLength(3);
+    expect(keysInvalidated(invalidateSpy.mock.calls, 'tasks')).toHaveLength(0);
+
+    flushDebounce();
+
+    expect(keysInvalidated(invalidateSpy.mock.calls, 'tasks')).toHaveLength(1);
   });
 
   it('does nothing for a task-link event with no task_id', () => {
