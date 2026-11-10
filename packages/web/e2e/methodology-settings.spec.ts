@@ -101,6 +101,8 @@ async function baseSetup(page: Page, opts: { workspaceRole?: number | null } = {
         initials: 'AL',
         email: 'alice@truescope.io',
         workspace_role: opts.workspaceRole === undefined ? 300 : opts.workspaceRole,
+        // The project-settings rail withholds the full nav until /auth/me carries this verdict (#3449).
+        can_access_admin_settings: true,
       }),
     ),
   );
