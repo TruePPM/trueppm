@@ -128,6 +128,22 @@ if [ "${1:-}" = "--self-test" ]; then
     > "$d/docs/adr/0001-example.md"
   st_probe "docs/adr/ consequence line (exempt tree)" expect-pass "$d"
 
+  # --- the success message this gate's own advice quotes is the real one ---
+  # #3799: five surfaces, this script's fixture among them, kept quoting the
+  # pre-#2859 message after the boundary gate changed it, and nothing compared
+  # the documented output to the real output. Derive the real message by running
+  # the boundary gate on an empty `packages/` tree (no second literal to drift),
+  # then require the "Use instead:" advice in this file to quote exactly that.
+  st_real_dir="$st_tmp/realmsg"; mkdir -p "$st_real_dir/packages"
+  st_real=$(cd "$st_real_dir" && bash "$(dirname "$st_self")/check-enterprise-imports.sh" 2>&1 || true)
+  st_quoted=$(sed -n 's/^  make enterprise-boundary-check   # //p' "$st_self" | head -n 1)
+  if [ -z "$st_real" ] || [ "$st_real" != "$st_quoted" ]; then
+    echo "SELF-TEST FAILED: the advice quotes '$st_quoted' but check-enterprise-imports.sh prints '$st_real'." >&2
+    st_rc=1
+  else
+    echo "SELF-TEST OK: the quoted success message matches check-enterprise-imports.sh."
+  fi
+
   [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
 fi
