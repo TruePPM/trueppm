@@ -26,6 +26,7 @@ from trueppm_scheduler.engine.limits import (
     MAX_DURATION_DAYS,
     MAX_LAG_DAYS,
     MAX_PROJECT_SPAN_DAYS,
+    MAX_PROJECT_WORK_DAYS,
 )
 from trueppm_scheduler.models import (
     Calendar,
@@ -792,13 +793,12 @@ def _validate_span_bounds(project: Project) -> None:
 
     Two bounds, because the two worst cases cost different things (#4695):
 
-    * **Work span** — every task's deterministic/PERT worst case and every ``|lag|``,
-      summed, plus the furthest pin, data date or actual. This is unchanged and is
-      deliberately a *sum*, not a path: :func:`schedule`'s forward and backward
-      passes walk each task's duration day by day, so the sum bounds their total
-      work as well as the span. It mirrors ``validate_span`` in the Rust engine.
-    * **Chain span** — only when a scrum task takes the velocity path. Each task
-      weighs the larger of its PERT worst case and its velocity worst case, and the
+    * **Work** — every task's deterministic/PERT worst case and every ``|lag|``,
+      summed, against :data:`MAX_PROJECT_WORK_DAYS`. A sum bounds the passes' total
+      work but says nothing about the span: summing parallel tasks refused ordinary
+      100k-task projects against the span cap (#3830).
+    * **Chain span** — always. Each task weighs the larger of its PERT worst case and
+      its velocity worst case, and the
       bound is the longest dependency chain of those weights plus ``|lag|`` per link,
       plus the same once-only shift. Velocity durations are only ever *sampled* by
       Monte Carlo and laid out by index lookups, never walked, so the work they
@@ -856,30 +856,41 @@ def _validate_span_bounds(project: Project) -> None:
     # along the timeline, so the furthest of them adds to the span bound exactly once
     # (they don't accumulate the way durations on a chain do).
     shift = max(max_snet_days, max(0, status_offset), max_actual_days)
-    total_span += lag_total + shift
-    if total_span > MAX_PROJECT_SPAN_DAYS:
+    # Work bound: Σ(durations) + Σ|lag|. The forward/backward passes touch every task
+    # once, so this sizes their total work, not the span (#3830). It is capped far
+    # above the span cap because parallel work is not a longer schedule.
+    total_work = total_span + lag_total
+    if total_work > MAX_PROJECT_WORK_DAYS:
         raise InvalidScheduleInput(
-            f"Total project span ({total_span} days across all task durations and lags) "
-            f"exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days; the schedule cannot be "
-            "computed within a representable date range."
+            f"Total project work ({total_work} days across all task durations and lags) "
+            f"exceeds the maximum of {MAX_PROJECT_WORK_DAYS} days; the schedule cannot be "
+            "computed within a bounded amount of work."
         )
 
-    reach_span = total_span
+    # Span bound: the longest dependency chain, which is what actually reaches
+    # into the calendar. A cyclic graph has no longest path; it falls back to the
+    # serial sum and is reported as a cycle afterwards.
+    weight = {
+        t.id: max(_task_worst_case_days(t), velocity_days.get(t.id, 0)) for t in project.tasks
+    }
+    chain = _longest_chain_days(project, weight)
+    if chain is None:
+        chain = sum(weight.values()) + lag_total
+    chain_span = chain + shift
+    if chain_span > MAX_PROJECT_SPAN_DAYS:
+        what = (
+            "along the longest dependency chain, counting each scrum task's velocity worst case"
+            if velocity_days
+            else "along the longest dependency chain"
+        )
+        raise InvalidScheduleInput(
+            f"Total project span ({chain_span} days {what}) exceeds the maximum of "
+            f"{MAX_PROJECT_SPAN_DAYS} days; the schedule cannot be computed within a "
+            "representable date range."
+        )
+
+    reach_span = chain_span
     if velocity_days:
-        weight = {
-            t.id: max(_task_worst_case_days(t), velocity_days.get(t.id, 0)) for t in project.tasks
-        }
-        chain = _longest_chain_days(project, weight)
-        if chain is None:
-            chain = sum(weight.values()) + lag_total
-        chain_span = chain + shift
-        if chain_span > MAX_PROJECT_SPAN_DAYS:
-            raise InvalidScheduleInput(
-                f"Total project span ({chain_span} days along the longest dependency "
-                "chain, counting each scrum task's velocity worst case) exceeds the "
-                f"maximum of {MAX_PROJECT_SPAN_DAYS} days; the schedule cannot be "
-                "computed within a representable date range."
-            )
         # _velocity_worst_case_days returns max_sprints * sprint_length_days exactly.
         assert project.sprint_length_days is not None
         total_sprints = sum(velocity_days.values()) // project.sprint_length_days
@@ -889,7 +900,6 @@ def _validate_span_bounds(project: Project) -> None:
                 f"tasks) exceeds the maximum of {_MAX_VELOCITY_SPRINT_TOTAL}; reduce "
                 "story_points or the number of scrum tasks."
             )
-        reach_span = max(reach_span, chain_span)
 
     # date.max overflow guard (#1207). The engine walks in *calendar* days; a valid
     # weekday-only calendar inflates a working-day span by up to 7x, and a single

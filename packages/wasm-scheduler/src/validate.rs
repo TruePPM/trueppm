@@ -24,6 +24,12 @@ pub const MAX_CALENDAR_SCAN_DAYS: i64 = 366 * 100;
 /// plus the magnitude of every lag). Bounds the day-by-day walk regardless of
 /// task count. Mirrors `trueppm_scheduler.engine.limits.MAX_PROJECT_SPAN_DAYS`.
 pub const MAX_PROJECT_SPAN_DAYS: i64 = 366 * 1000;
+
+/// Ceiling on Σ(worst-case durations) + Σ|lag|, the work the passes do. Parallel
+/// work is not a longer schedule (#3830), so the span is bounded by the longest
+/// chain and this sum gets its own 100x looser cap. Mirrors
+/// `trueppm_scheduler.engine.limits.MAX_PROJECT_WORK_DAYS`.
+pub const MAX_PROJECT_WORK_DAYS: i64 = MAX_PROJECT_SPAN_DAYS * 100;
 /// Ceiling on the raw dependency-edge count as submitted, before any per-edge
 /// pass touches the list. The most fundamental of the edge caps: even the O(E)
 /// validation/graph-build pre-passes and the list's own memory become pathological
@@ -448,6 +454,59 @@ struct SpanTerms {
     /// anchors the calendar walk just as badly as a far-future one (#951
     /// precedent, mirrors Python's `max_actual_days`).
     max_actual_days: i64,
+    /// Worst-case duration of each task, in `project.tasks` order.
+    weights: Vec<i64>,
+}
+
+/// Longest dependency chain of `weights` plus `|lag|` per link, or `None` when the
+/// graph is cyclic or a link names an unknown task (the caller then falls back to
+/// the serial sum; the cycle / unknown id is reported later). Kahn's algorithm,
+/// O(tasks + dependencies). Mirrors Python `_longest_chain_days`.
+fn longest_chain_days(project: &Project, weights: &[i64]) -> Option<i64> {
+    let index: std::collections::HashMap<&str, usize> = project
+        .tasks
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.id.as_str(), i))
+        .collect();
+    let n = weights.len();
+    let mut indegree = vec![0usize; n];
+    let mut successors: Vec<Vec<(usize, i64)>> = vec![Vec::new(); n];
+    for dep in &project.dependencies {
+        let p = *index.get(dep.predecessor_id.as_str())?;
+        let q = *index.get(dep.successor_id.as_str())?;
+        successors[p].push((q, dep.lag_days().abs()));
+        indegree[q] += 1;
+    }
+    let mut ready: Vec<usize> = (0..n).filter(|&i| indegree[i] == 0).collect();
+    let mut start_at = vec![0i64; n];
+    let (mut longest, mut visited) = (0i64, 0usize);
+    while let Some(i) = ready.pop() {
+        visited += 1;
+        let finish = start_at[i] + weights[i];
+        longest = longest.max(finish);
+        for &(q, lag) in &successors[i] {
+            start_at[q] = start_at[q].max(finish + lag);
+            indegree[q] -= 1;
+            if indegree[q] == 0 {
+                ready.push(q);
+            }
+        }
+    }
+    (visited == n).then_some(longest)
+}
+
+/// Longest chain, or the serial sum (an upper bound) when the graph has no path
+/// order. Plus the lag total in the fallback so it stays an upper bound.
+fn chain_or_serial(project: &Project, terms: &SpanTerms) -> i64 {
+    longest_chain_days(project, &terms.weights).unwrap_or_else(|| {
+        terms.task_days
+            + project
+                .dependencies
+                .iter()
+                .map(|d| d.lag_days().abs())
+                .sum::<i64>()
+    })
 }
 
 fn span_terms(project: &Project) -> SpanTerms {
@@ -455,6 +514,7 @@ fn span_terms(project: &Project) -> SpanTerms {
         task_days: 0,
         max_snet_days: 0,
         max_actual_days: 0,
+        weights: Vec::with_capacity(project.tasks.len()),
     };
     for t in &project.tasks {
         // Worst case across the deterministic duration AND every PERT estimate:
@@ -475,6 +535,7 @@ fn span_terms(project: &Project) -> SpanTerms {
             task_max = task_max.max((seconds / 86_400.0).round() as i64);
         }
         terms.task_days += task_max.max(0);
+        terms.weights.push(task_max.max(0));
         if let Some(snet) = t.planned_start {
             terms.max_snet_days = terms
                 .max_snet_days
@@ -489,10 +550,11 @@ fn span_terms(project: &Project) -> SpanTerms {
     terms
 }
 
-/// Cumulative span: an upper bound on the longest path (and the Monte Carlo
-/// completion offset, which samples up to the pessimistic duration). Bounding the
-/// sum keeps the day-by-day walk from spinning or overflowing the date range no
-/// matter how many tasks are chained.
+/// Project span: the longest dependency chain (durations plus `|lag|`) plus the
+/// furthest pin/data-date/actual, an upper bound on any reachable finish and on the
+/// Monte Carlo completion offset (which samples up to the pessimistic duration).
+/// Summing every task instead refused ordinary parallel projects (#3830); the sum
+/// is bounded separately by [`MAX_PROJECT_WORK_DAYS`].
 fn validate_span(project: &Project, status_offset: i64) -> Result<(), String> {
     let terms = span_terms(project);
 
@@ -510,22 +572,26 @@ fn validate_span(project: &Project, status_offset: i64) -> Result<(), String> {
         ));
     }
 
-    let mut total_span = terms.task_days;
-    for dep in &project.dependencies {
-        total_span += dep.lag_days().abs();
+    let lag_total: i64 = project.dependencies.iter().map(|d| d.lag_days().abs()).sum();
+    let total_work = terms.task_days + lag_total;
+    if total_work > MAX_PROJECT_WORK_DAYS {
+        return Err(format!(
+            "Total project work ({total_work} days across all task durations and lags) \
+             exceeds the maximum of {MAX_PROJECT_WORK_DAYS} days."
+        ));
     }
     // A planned_start pin, the data-date floor, and a recorded actual each shift
     // work along the timeline, so the furthest of the three adds to the span
     // bound exactly once (they don't accumulate the way durations on a chain
-    // do). Mirrors the Python _validate_project (#1086 / #1068, and #1564 for
-    // the status_date / actuals terms).
-    total_span += terms
-        .max_snet_days
-        .max(status_offset.max(0))
-        .max(terms.max_actual_days);
+    // do). Mirrors the Python _validate_span_bounds (#1086 / #1068, and #1564).
+    let total_span = chain_or_serial(project, &terms)
+        + terms
+            .max_snet_days
+            .max(status_offset.max(0))
+            .max(terms.max_actual_days);
     if total_span > MAX_PROJECT_SPAN_DAYS {
         return Err(format!(
-            "Total project span ({total_span} days across all task durations and lags) \
+            "Total project span ({total_span} days along the longest dependency chain) \
              exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days."
         ));
     }
@@ -564,7 +630,7 @@ fn check_far_future_reach(start_date: NaiveDate, total_span: i64) -> Result<(), 
 /// back down is handled in O(log n) rather than rescanning every task. The
 /// checks reuse the same helpers and messages as [`validate_project`].
 pub struct SessionBounds {
-    /// `task_days + sum(|lag|)`: the span terms independent of any pin.
+    /// Longest dependency chain: the span term independent of any pin.
     base_span: i64,
     /// `max(status_offset.max(0), max_actual_days)`: the other span "floor" term.
     other_floor: i64,
@@ -579,11 +645,6 @@ impl SessionBounds {
     pub(crate) fn new(project: &Project) -> Self {
         let terms = span_terms(project);
         let status_offset = checked_status_offset(project).unwrap_or(0);
-        let lags: i64 = project
-            .dependencies
-            .iter()
-            .map(|d| d.lag_days().abs())
-            .sum();
         let mut snet_offsets = std::collections::BTreeMap::new();
         for t in &project.tasks {
             if let Some(d) = t.planned_start {
@@ -593,7 +654,7 @@ impl SessionBounds {
             }
         }
         SessionBounds {
-            base_span: terms.task_days + lags,
+            base_span: chain_or_serial(project, &terms),
             other_floor: status_offset.max(0).max(terms.max_actual_days),
             snet_offsets,
         }
@@ -641,7 +702,7 @@ impl SessionBounds {
         let total_span = self.base_span + max_snet.max(self.other_floor);
         let checked = if total_span > MAX_PROJECT_SPAN_DAYS {
             Err(format!(
-                "Total project span ({total_span} days across all task durations and lags) \
+                "Total project span ({total_span} days along the longest dependency chain) \
                  exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days."
             ))
         } else {
@@ -873,15 +934,43 @@ mod tests {
         assert!(validate_project(&p).is_err());
     }
 
+    fn chain_deps(n: usize) -> Vec<Dependency> {
+        (1..n)
+            .map(|i| dep(&format!("t{}", i - 1), &format!("t{i}"), DependencyType::FS, 0.0))
+            .collect()
+    }
+
     #[test]
     fn rejects_cumulative_span_over_max() {
-        // Each task is within the per-task cap, but together they exceed the
-        // cumulative project span (11 * 36525 = 401,775 > 366,000).
+        // Each task is within the per-task cap, but chained they exceed the
+        // project span (11 * 36525 = 401,775 > 366,000).
+        let tasks: Vec<Task> = (0..11)
+            .map(|i| task(&format!("t{i}"), MAX_DURATION_DAYS))
+            .collect();
+        let p = project(tasks, chain_deps(11), Calendar::default());
+        let err = validate_project(&p).unwrap_err();
+        assert!(err.contains("longest dependency chain"), "{err}");
+    }
+
+    #[test]
+    fn accepts_parallel_tasks_above_the_serial_sum() {
+        // #3830: the same 11 tasks with no dependencies are parallel work.
         let tasks: Vec<Task> = (0..11)
             .map(|i| task(&format!("t{i}"), MAX_DURATION_DAYS))
             .collect();
         let p = project(tasks, vec![], Calendar::default());
-        assert!(validate_project(&p).is_err());
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_total_work_over_ceiling() {
+        let n = (MAX_PROJECT_WORK_DAYS / MAX_DURATION_DAYS) as usize + 2;
+        let tasks: Vec<Task> = (0..n)
+            .map(|i| task(&format!("t{i}"), MAX_DURATION_DAYS))
+            .collect();
+        let p = project(tasks, vec![], Calendar::default());
+        let err = validate_project(&p).unwrap_err();
+        assert!(err.contains("Total project work"), "{err}");
     }
 
     #[test]
@@ -895,7 +984,7 @@ mod tests {
                 t
             })
             .collect();
-        let p = project(tasks, vec![], Calendar::default());
+        let p = project(tasks, chain_deps(11), Calendar::default());
         assert!(validate_project(&p).is_err());
     }
 

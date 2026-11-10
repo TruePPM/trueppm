@@ -13,6 +13,7 @@ import contextlib
 import random
 import time
 from datetime import date, timedelta
+from itertools import pairwise
 
 import pytest
 
@@ -34,7 +35,9 @@ from trueppm_scheduler.engine import (
     MAX_DURATION_DAYS,
     MAX_LAG_DAYS,
     MAX_PROJECT_SPAN_DAYS,
+    MAX_PROJECT_WORK_DAYS,
     _collect_leaves,
+    _validate_span_bounds,
     expand_summary_dependencies,
 )
 
@@ -241,18 +244,24 @@ class TestDependencyCount:
             monte_carlo(self._over_cap_project(), runs=10, max_tasks=None)
 
 
+def _chain(tasks: list[Task]) -> list[Dependency]:
+    return [Dependency(predecessor_id=a.id, successor_id=b.id) for a, b in pairwise(tasks)]
+
+
 class TestProjectSpan:
     def test_cumulative_span_over_max_rejected(self) -> None:
-        # Each task is within the per-task cap, but together they exceed the
-        # cumulative project span — the case per-field bounds alone miss.
+        # Each task is within the per-task cap, but chained they exceed the
+        # project span — the case per-field bounds alone miss.
         n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
-        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        tasks = [task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)]
+        p = make_project(tasks, _chain(tasks))
         with pytest.raises(InvalidScheduleInput, match="Total project span"):
             schedule(p)
 
     def test_cumulative_span_rejected_in_monte_carlo(self) -> None:
         n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
-        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        tasks = [task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)]
+        p = make_project(tasks, _chain(tasks))
         with pytest.raises(InvalidScheduleInput, match="Total project span"):
             monte_carlo(p, runs=10, max_tasks=None)
 
@@ -274,9 +283,47 @@ class TestProjectSpan:
             )
             for i in range(n)
         ]
-        p = make_project(tasks)
+        p = make_project(tasks, _chain(tasks))
         with pytest.raises(InvalidScheduleInput, match="Total project span"):
             monte_carlo(p, runs=10, max_tasks=None)
+
+    def test_parallel_work_above_serial_sum_is_not_refused(self) -> None:
+        # #3830: Σ(durations) above the span cap is ordinary parallel work, not a
+        # longer schedule. Before the fix this was refused as a >1,000-year span.
+        n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
+        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        assert len(schedule(p).tasks) == n
+
+    def test_wide_fan_out_project_above_serial_sum_is_scheduled(self) -> None:
+        # 100k-task shape from #3830: a root, 100k parallel 1-20 day leaves, a sink.
+        n = 100_000
+        leaves = [task(f"t{i}", 1 + i % 20) for i in range(n)]
+        root, sink = task("root", 1), task("sink", 1)
+        deps = [Dependency(predecessor_id="root", successor_id=t.id) for t in leaves]
+        deps += [Dependency(predecessor_id=t.id, successor_id="sink") for t in leaves[:1]]
+        p = make_project([root, *leaves, sink], deps)
+        # Σ durations = ~1.05M > MAX_PROJECT_SPAN_DAYS, longest chain = 22.
+        _validate_span_bounds(p)
+
+    def test_refusal_names_the_chain_span_not_the_sum(self) -> None:
+        n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
+        tasks = [task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)]
+        p = make_project(tasks, _chain(tasks))
+        with pytest.raises(InvalidScheduleInput, match="longest dependency chain"):
+            schedule(p)
+
+    def test_total_work_over_ceiling_rejected(self) -> None:
+        # Parallel work is exempt from the span cap but not unbounded: Σ durations
+        # above MAX_PROJECT_WORK_DAYS is refused before any pass runs.
+        n = MAX_PROJECT_WORK_DAYS // MAX_DURATION_DAYS + 2
+        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        with pytest.raises(InvalidScheduleInput, match="Total project work"):
+            schedule(p)
+
+    def test_far_future_start_still_rejected_with_short_chain(self) -> None:
+        p = make_project([task("A", 5)], start=date(9999, 12, 1))
+        with pytest.raises(InvalidScheduleInput):
+            schedule(p)
 
 
 class TestRunsGuard:
