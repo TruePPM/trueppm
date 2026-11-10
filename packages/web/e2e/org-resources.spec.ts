@@ -270,6 +270,13 @@ test('deactivate resource — shows confirm and soft-deletes', async ({ page }) 
 
   // Confirm dialog appears
   await expect(page.getByText(/deactivate alice nguyen/i)).toBeVisible();
+  // #3584: the dialog says deactivation does not revoke login/memberships/tokens.
+  const note = page.getByTestId('deactivate-not-revoked-note');
+  await expect(note).toContainText('not revoke their login');
+  await expect(note.getByRole('link', { name: 'workspace Members' })).toHaveAttribute(
+    'href',
+    '/settings/members',
+  );
   await page.getByRole('button', { name: /^deactivate$/i }).click();
 
   // Resource is gone from default list
