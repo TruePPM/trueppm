@@ -447,6 +447,14 @@ def _pinned_placement(task: Task, cal: Calendar, start_base: date) -> tuple[date
         return None
 
     full_days = task.duration.days
+    if task.actual_finish is not None and full_days == 0:
+        # A milestone is an instant, and with split actuals that instant is the
+        # ``actual_finish`` day — a milestone is reached when its work finishes
+        # (#4433), and that is the day its successors link from
+        # (:func:`_pinned_milestone_instant`). Showing ``early_start`` (and so
+        # ``scheduled_start`` and ``late_start``) on ``actual_start`` instead put
+        # the milestone on one day and linked it from another (#4458).
+        return task.actual_finish, task.actual_finish
     if task.actual_finish is not None:
         # Finish is known; start is the recorded actual, else a full duration back
         # from the finish (the actual_finish drives FS successors, the resolved

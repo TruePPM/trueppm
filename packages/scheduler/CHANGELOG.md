@@ -68,6 +68,15 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A closed milestone whose `actual_start` and `actual_finish` differ is now
+  shown on its `actual_finish` day
+  ([#4458](https://gitlab.com/trueppm/trueppm/-/issues/4458)).** Its successors
+  already linked from `actual_finish`, but its `early_start`, `scheduled_start`
+  and `late_start` still named `actual_start`, so the milestone was shown on one
+  day and linked from another. All three now name `actual_finish`, in both the
+  Python and Rust/WASM engines; `early_finish`, `late_finish` and every
+  successor's dates do not change.
+
 - **`expand_summary_dependencies` now raises `CyclicDependencyError` for a link
   between a summary task and its own descendant, instead of silently rewriting it
   ([#4705](https://gitlab.com/trueppm/trueppm/-/issues/4705),

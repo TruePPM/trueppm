@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
+
 from trueppm_scheduler import Calendar, Dependency, Project, Task
 from trueppm_scheduler.derive import (
     Derivation,
@@ -431,6 +433,43 @@ def test_completed_with_actual_finish_is_finish_first() -> None:
     # Finish-first ordering; the binding follows the requested quantity.
     assert _contribs(p, "A", Quantity.EARLY_FINISH) == [{**af, "is_binding": True}, as_]
     assert _contribs(p, "A", Quantity.EARLY_START) == [af, {**as_, "is_binding": True}]
+
+
+@pytest.mark.parametrize(
+    "actual_start",
+    [date(2026, 1, 5), date(2026, 1, 7), None],
+    ids=["split", "same-day", "finish-only"],
+)
+def test_split_actuals_milestone_cites_actual_finish_as_binding(actual_start: date | None) -> None:
+    """Every closed milestone is pinned at actual_finish, so that is what is cited (#4458)."""
+    p = Project(
+        id="m",
+        name="M",
+        start_date=date(2026, 1, 5),
+        tasks=[
+            Task(
+                id="M",
+                name="Milestone",
+                duration=timedelta(days=0),
+                percent_complete=100,
+                actual_start=actual_start,
+                actual_finish=date(2026, 1, 7),
+            )
+        ],
+        dependencies=[],
+        calendar=Calendar(),
+    )
+    for q in (Quantity.EARLY_START, Quantity.EARLY_FINISH):
+        d = derive_value(p, "M", q)
+        assert d.binding is not None
+        assert d.binding.kind == "actual_finish"
+        assert d.binding.imposed_date == date(2026, 1, 7)
+        starts = [c for c in d.contributions if c.kind == "actual_start"]
+        if actual_start is None:
+            assert starts == []
+        for c in starts:
+            assert not c.is_binding
+            assert c.imposed_date == actual_start
 
 
 def test_completed_with_actual_start_only_is_start_first() -> None:
