@@ -1080,7 +1080,8 @@ export function useRestoreTask(projectId: string | null) {
 }
 
 // ---------------------------------------------------------------------------
-// useBulkRestoreTasks — fan out POST /api/v1/tasks/{id}/restore/ per id
+// useBulkRestoreTasks — fan out POST /api/v1/tasks/{id}/restore/ per id,
+// capped at BULK_RESTORE_CONCURRENCY requests in flight
 // ---------------------------------------------------------------------------
 
 /** Max restore POSTs in flight at once — bounds the undo burst of a select-all delete (#3121). */
