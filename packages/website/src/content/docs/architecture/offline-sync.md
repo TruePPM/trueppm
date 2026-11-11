@@ -250,7 +250,7 @@ raises the floor in the same transaction as the delete and never lowers it. A pu
 client discards its store and pulls again from `since=0`. The program pull has the
 same guard against an installation-wide floor, raised whenever programs or program
 memberships are hard-deleted (`hard_delete_program` and `purge_workspace`). The
-floor never exceeds the sequence head, so the full re-sync always terminates. See
+floor never exceeds the sequence head, so the full re-sync always terminates. Until #4948 is fixed, reaping a deleted task that still had time entries, task links, relations, recurrence rules or suggested assignees forces a full re-sync for every client of that project. See
 [Tombstone retention and `resync_required`](/features/offline-sync/#tombstone-retention-and-resync_required)
 for the client contract and ADR-0686 for the concurrency argument.
 

@@ -386,8 +386,10 @@ bumped after commit on a best-effort basis.
 The backfill does **not** cover a reap run by an old worker during the rollout. That is
 a residual, not a guarantee, for two reasons. The old reap's `qs.delete()` cascades to
 live children with no floor at all, and their cursors can postdate the backfill. And
-`sync_seq` is drawn on every save, so a tombstone saved again after its deletion keeps an
-old `deleted_at`, stays eligible, and can carry a cursor above the backfilled floor. The
+`sync_seq` is drawn on every save, so on the registry models that age on `deleted_at`
+(Task, Dependency, TaskRelation) a tombstone saved again after its deletion keeps an old
+`deleted_at`, stays eligible, and can carry a cursor above the backfilled floor. (Risk and
+Sprint age on `updated_at`, so a re-save renews them.) The
 operator mitigation is in the 0.5 upgrade notes: stop `celery-beat` before `migrate`, or
 roll the workers first.
 

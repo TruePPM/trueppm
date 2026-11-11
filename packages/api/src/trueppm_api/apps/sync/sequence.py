@@ -243,11 +243,11 @@ def bump_cached_forecast_plan_versions(project_model: Any) -> int:
     cache must not fail ``migrate`` — the cost of a miss is one forecast reading
     ``project_changed`` until it expires or is re-run. Returns the entries updated.
     """
-    from django.core.cache import cache
-
-    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
-
     try:
+        from django.core.cache import cache
+
+        from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
         heads = {
             pk: int(head)
             for pk, head in project_model._base_manager.filter(last_sync_version__gt=1).values_list(
