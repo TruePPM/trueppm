@@ -19405,7 +19405,7 @@
                                 }
                             }
                         },
-                        "description": "Prioritised attention list, ordered by severity bucket (critical > warning > info). An overallocation item is raised when a resource's committed units on open tasks exceed their capacity ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
+                        "description": "Prioritised attention list, ordered by severity bucket (critical > warning > info). An overallocation item is raised when a resource's committed units on open tasks exceed their capacity ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units. The load on a day is the resource's TaskResource.units on open tasks plus an estimated 1.0 for each open task assigned to the linked user with no TaskResource row of theirs; when such an estimate covers the peak day the detail says so ('includes N task(s) with no tracked units, assumed full-time')."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -79595,7 +79595,7 @@
                         "type": "boolean",
                         "readOnly": true,
                         "default": false,
-                        "description": "True only when assignee_is_overallocated is true AND the assignee owns an open task in this project that has no TaskResource row for them, so the overallocation counts it at an assumed full-time 1.0 instead of a tracked figure. Always false for a row that is not overallocated (#3059)."
+                        "description": "True only when assignee_is_overallocated is true AND an open task in this project assigned to them with no TaskResource row of theirs (counted at an assumed full-time 1.0 instead of a tracked figure) covers an over-capacity day. An estimated task on some other date does not set it. Always false for a row that is not overallocated (#3059)."
                     },
                     "sprint": {
                         "type": "string",
@@ -83143,7 +83143,7 @@
                         "type": "boolean",
                         "readOnly": true,
                         "default": false,
-                        "description": "True only when assignee_is_overallocated is true AND the assignee owns an open task in this project that has no TaskResource row for them, so the overallocation counts it at an assumed full-time 1.0 instead of a tracked figure. Always false for a row that is not overallocated (#3059)."
+                        "description": "True only when assignee_is_overallocated is true AND an open task in this project assigned to them with no TaskResource row of theirs (counted at an assumed full-time 1.0 instead of a tracked figure) covers an over-capacity day. An estimated task on some other date does not set it. Always false for a row that is not overallocated (#3059)."
                     },
                     "sprint": {
                         "type": "string",

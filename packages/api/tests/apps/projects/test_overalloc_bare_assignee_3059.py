@@ -9,6 +9,7 @@ owns instead of the user's own resources. Each case pairs a control with its def
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -18,12 +19,13 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus, TaskType
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
 
 DAY = (date(2026, 3, 2), date(2026, 3, 6))
+APRIL = (date(2026, 4, 13), date(2026, 4, 17))
 
 
 @pytest.fixture
@@ -154,6 +156,38 @@ class TestTaskListFlag:
         assert rows["a"]["assignee_is_overallocated"] is False
         assert rows["a"]["assignee_load_includes_estimate"] is False
 
+    def test_off_peak_estimate_is_not_disclosed(
+        self, client: APIClient, project: Project, user: Any
+    ) -> None:
+        # The 120% peak is week 1 and made only of tracked units; the bare task sits
+        # alone in April at 100%. The flag is right, the estimate caveat would not be.
+        res = Resource.objects.create(name="Ada", max_units=Decimal("1.0"), user=user)
+        for name in ("t1", "t2"):
+            TaskResource.objects.create(
+                task=_task(project, user, name), resource=res, units=Decimal("0.6")
+            )
+        _task(project, user, "april", APRIL)
+        rows = _rows(client, project)
+        assert all(r["assignee_is_overallocated"] is True for r in rows.values())
+        assert not any(r["assignee_load_includes_estimate"] for r in rows.values())
+
+    def test_estimate_on_the_peak_day_is_disclosed_for_a_tracked_anchor(
+        self, client: APIClient, project: Project, user: Any
+    ) -> None:
+        # The bare task starts before the tracked one and spans its start, so the
+        # over-capacity anchor is the TRACKED task's start day.
+        res = Resource.objects.create(name="Ada", max_units=Decimal("1.0"), user=user)
+        TaskResource.objects.create(
+            task=_task(project, user, "tracked", (date(2026, 3, 4), date(2026, 3, 6))),
+            resource=res,
+            units=Decimal("0.6"),
+        )
+        _task(project, user, "bare", (date(2026, 2, 23), date(2026, 3, 5)))
+        Task.objects.filter(name="bare").update(early_start=date(2026, 2, 23))
+        row = _rows(client, project)["tracked"]
+        assert row["assignee_is_overallocated"] is True
+        assert row["assignee_load_includes_estimate"] is True
+
 
 @pytest.mark.django_db
 class TestAttentionBucket:
@@ -184,6 +218,42 @@ class TestAttentionBucket:
         _task(project, user, "bare")
         assert _attention(client, project) == []
 
+    def test_off_peak_estimate_is_not_disclosed(
+        self, client: APIClient, project: Project, user: Any
+    ) -> None:
+        res = Resource.objects.create(name="Ada", max_units=Decimal("1.0"), user=user)
+        for name in ("t1", "t2"):
+            TaskResource.objects.create(
+                task=_task(project, user, name), resource=res, units=Decimal("0.6")
+            )
+        _task(project, user, "april", APRIL)
+        items = _attention(client, project)
+        assert [i["task_name"] for i in items] == ["Ada"]
+        assert "120%" in items[0]["detail"]
+        assert "no tracked units" not in items[0]["detail"]
+
+    @pytest.mark.parametrize(
+        "update",
+        [
+            {"status": TaskStatus.BACKLOG},
+            {"type": TaskType.EPIC},
+            {"is_recurring": True},
+        ],
+        ids=["backlog", "epic", "recurring"],
+    )
+    def test_uncommitted_task_does_not_load_the_tracked_pass(
+        self, client: APIClient, project: Project, user: Any, update: dict[str, Any]
+    ) -> None:
+        # Same set as the estimate pass and the drawer: Task.committed minus COMPLETE.
+        res = Resource.objects.create(name="Ada", max_units=Decimal("1.0"), user=user)
+        for name in ("work", "parked"):
+            TaskResource.objects.create(
+                task=_task(project, user, name), resource=res, units=Decimal("0.6")
+            )
+        assert [i["task_name"] for i in _attention(client, project)] == ["Ada"]
+        Task.objects.filter(name="parked").update(**update)
+        assert _attention(client, project) == []
+
     def test_tracked_row_suppresses_the_estimate(
         self, client: APIClient, project: Project, user: Any
     ) -> None:
@@ -209,26 +279,57 @@ class TestStatusSetAndGuard:
         assert rows["active"]["assignee_is_overallocated"] is True
         assert rows["held"]["assignee_load_includes_estimate"] is True
 
-    def test_estimate_exists_is_evaluated_only_inside_the_overalloc_case(
+    def test_user_load_halves_are_index_usable(
         self, client: APIClient, project: Project, user: Any
     ) -> None:
+        """The per-user load set must not be ``assignee = uid OR EXISTS(row of uid)``.
+
+        That OR shape defeated the assignee index and ran the correlated EXISTS over
+        every open task in the project per returned row, per anchor and per covering
+        day (3-6x slower than the pre-#3059 read, superlinear in project size). With
+        sequential scans priced out, the plan must reach the bare half through an
+        index condition on ``assignee_id`` and the tracked half through one on the
+        resource's ``user_id``, and no filter may OR the assignee test with a subplan.
+        A wall-clock bound would be too flaky for CI; the plan shape is the contract.
+        """
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
+        res = Resource.objects.create(name="Ada", max_units=Decimal("1.0"), user=user)
+        TaskResource.objects.create(
+            task=_task(project, user, "tracked"), resource=res, units=Decimal("0.6")
+        )
         _task(project, user, "bare")
         with CaptureQueriesContext(connection) as ctx:
             _rows(client, project)
-        sql = next(q["sql"] for q in ctx.captured_queries if '"projects_task"."name"' in q["sql"])
-        select_list = sql
-        # Every untracked-estimate EXISTS is the one carrying the NOT EXISTS over
-        # TaskResource; assert each sits after a THEN, i.e. is a CASE branch, never a
-        # bare top-level select column.
-        marker = "NOT (EXISTS("
-        assert select_list.count(marker) == 1
-        idx = 0
-        while (idx := select_list.find(marker, idx)) != -1:
-            head = select_list[:idx]
-            then_pos = head.rfind(" THEN ")
-            end_pos = head.rfind(" END")
-            assert then_pos > end_pos, "untracked EXISTS escaped its CASE guard"
-            idx += len(marker)
+        sql = next(
+            q["sql"]
+            for q in ctx.captured_queries
+            if q["sql"].startswith("SELECT")
+            and '"projects_task"."wbs_path"' in q["sql"]
+            and "LIMIT" in q["sql"]
+        )
+        with connection.cursor() as cur:
+            cur.execute("SET LOCAL enable_seqscan = off")
+            cur.execute("EXPLAIN (FORMAT JSON) " + sql)
+            plan = cur.fetchone()[0]
+
+        conds: list[str] = []
+        filters: list[str] = []
+
+        def walk(node: dict[str, Any]) -> None:
+            conds.extend(node[k] for k in ("Index Cond", "Recheck Cond") if k in node)
+            filters.extend(node[k] for k in ("Filter", "Join Filter") if k in node)
+            for child in node.get("Plans", []):
+                walk(child)
+
+        walk(plan[0]["Plan"])
+        # Tracked half: Resource.user_id = <the row's assignee> is an index condition.
+        assert any("user_id = projects_task.assignee_id" in c for c in conds), conds
+        # Bare half: the assignee test is never one arm of an OR whose other arm is a
+        # subplan -- the shape that cannot use any index for either arm.
+        arm = r"\(assignee_id = [\w.]+\)"
+        sub = r"\(?(?:EXISTS\s*\()?\(?(?:alternatives: |hashed )?SubPlan"
+        old_shape = re.compile(rf"{arm} OR {sub}|{sub}[^()]*\)+ OR {arm}")
+        offending = [f for f in filters if old_shape.search(f)]
+        assert offending == [], offending

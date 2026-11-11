@@ -4065,6 +4065,31 @@ class LabelSerializer(serializers.ModelSerializer[Label]):
         return attrs
 
 
+# Values of the task list's ``assignee_overalloc_state`` annotation
+# (``annotate_tasks_queryset``). One integer carries both serializer flags so the
+# per-row overallocation subqueries run once rather than once per flag.
+OVERALLOC_NONE = 0
+OVERALLOC_TRACKED = 1
+OVERALLOC_WITH_ESTIMATE = 2
+
+
+class _OverallocStateField(serializers.BooleanField):
+    """A boolean read off ``assignee_overalloc_state``: true at or above ``threshold``.
+
+    A row without the annotation (a serializer used outside the viewset) falls back
+    to the field's ``default`` rather than inventing a warning.
+    """
+
+    def __init__(self, threshold: int, **kwargs: Any) -> None:
+        self.threshold = threshold
+        super().__init__(**kwargs)
+
+    def to_representation(self, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        return int(value) >= self.threshold
+
+
 class TaskSerializer(serializers.ModelSerializer[Task]):
     # The three PERT estimate fields, shared by the phase-rollup lock and the
     # three-point ordering guard in ``validate()``. A frozenset so ``& set(attrs)``
@@ -4355,7 +4380,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # shows a stale warning when called outside the viewset (e.g. in tests or nested
     # serializers). The comparison basis is published in help_text because it changed
     # meaning without changing type (#3574) — it was a hardcoded 1.0.
-    assignee_is_overallocated = serializers.BooleanField(
+    assignee_is_overallocated = _OverallocStateField(
+        OVERALLOC_TRACKED,
+        source="assignee_overalloc_state",
         read_only=True,
         default=False,
         help_text=(
@@ -4370,14 +4397,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "max_units, else 1.0 for an assignee with no Resource row at all."
         ),
     )
-    assignee_load_includes_estimate = serializers.BooleanField(
+    assignee_load_includes_estimate = _OverallocStateField(
+        OVERALLOC_WITH_ESTIMATE,
+        source="assignee_overalloc_state",
         read_only=True,
         default=False,
         help_text=(
-            "True only when assignee_is_overallocated is true AND the assignee owns an "
-            "open task in this project that has no TaskResource row for them, so the "
-            "overallocation counts it at an assumed full-time 1.0 instead of a tracked "
-            "figure. Always false for a row that is not overallocated (#3059)."
+            "True only when assignee_is_overallocated is true AND an open task in "
+            "this project assigned to them with no TaskResource row of theirs (counted "
+            "at an assumed full-time 1.0 instead of a tracked figure) covers an "
+            "over-capacity day. An estimated task on some other date does not set it. "
+            "Always false for a row that is not overallocated (#3059)."
         ),
     )
 
