@@ -22,6 +22,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
+from django.core.checks import Error, run_checks
 from django.test import override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -94,10 +95,18 @@ def test_reset_email_does_not_overpromise_immediate_signout(user) -> None:
     assert "every other device" not in body
     assert "within a few minutes" in body
 
+    html_part = mail.outbox[0].alternatives[0][0]
+    assert "every other device" not in html_part
+    assert "within a few minutes" in html_part
+
 
 def test_allauth_email_verification_is_mandatory() -> None:
     """Fail closed if allauth routes are ever mounted (#1732)."""
     assert settings.ACCOUNT_EMAIL_VERIFICATION == "mandatory"
+    # "mandatory" requires an email field at signup; allauth's system check errors otherwise.
+    assert "email*" in settings.ACCOUNT_SIGNUP_FIELDS
+    errors = [c for c in run_checks() if isinstance(c, Error)]
+    assert errors == []
 
 
 @override_settings(EMAIL_BACKEND=_LOCMEM, FRONTEND_BASE_URL="https://ppm.example.com")

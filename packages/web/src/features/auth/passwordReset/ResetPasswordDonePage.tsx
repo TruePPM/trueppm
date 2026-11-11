@@ -2,15 +2,16 @@ import { Link } from 'react-router';
 import { AuthShell } from './AuthShell';
 
 /**
- * Screen 4 — reset complete (issue 765). Confirms success and that other sessions were
- * signed out (the confirm endpoint blacklists every other refresh token; ADR-0209).
+ * Screen 4 — reset complete (issue 765). Confirms success and that other sessions are
+ * being signed out (the confirm endpoint revokes every other refresh token at once, but
+ * already-issued access tokens stay valid up to 15 minutes; ADR-0209).
  */
 export function ResetPasswordDonePage() {
   return (
     <AuthShell
       icon={<SuccessBadge />}
       title="You're all set"
-      subtitle="Your password has been updated. For your security, we signed out your other sessions."
+      subtitle="Your password has been updated. For your security, we're signing you out of your other sessions; it can take a few minutes."
       backToSignIn={false}
     >
       <Link

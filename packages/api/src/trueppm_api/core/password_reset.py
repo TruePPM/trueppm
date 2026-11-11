@@ -8,7 +8,9 @@ Two unauthenticated (``AllowAny``) endpoints drive the forgot-password flow:
   (no user enumeration). Both branches return ``200`` with the same body.
 - ``POST /api/v1/auth/password/reset/confirm/`` — accepts ``uid`` + ``token`` +
   ``new_password``, validates the stateless token, enforces the password policy,
-  sets the new password, and revokes every other session the account holds.
+  sets the new password, and revokes every other session the account holds
+  (refresh and API tokens at once; already-issued access tokens live out their
+  ``ACCESS_TOKEN_LIFETIME``, up to 15 minutes).
 
 Token scheme (ADR-0209): Django's built-in ``default_token_generator``
 (``PasswordResetTokenGenerator``) over a URL-safe-base64-encoded user PK — the same

@@ -306,6 +306,10 @@ describe('terminal screens', () => {
       'href',
       '/login',
     );
+    expect(
+      screen.getByText(/we're signing you out of your other sessions; it can take a few minutes/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/we signed out your other sessions/)).not.toBeInTheDocument();
   });
 
   it('ResetPasswordExpiredPage offers a fresh link', () => {
