@@ -123,11 +123,13 @@ export const CASCADE_MAX_ENTRIES = 200;
 /**
  * A CPM run the client knows happened but cannot itemize (#3158).
  *
- * A `task_dates_updated` frame with `truncated: true` carries the moved COUNT and
- * nothing else — no ids, no old values. The client re-fetches, and the re-fetch
- * goes through the full-snapshot path, which must not open cascade entries (see
+ * A `task_dates_updated` frame with `truncated: true` carries the server's
+ * moved-set COUNT and nothing else — no ids, no old values. That set includes
+ * rows whose late dates or float alone changed, so it is NOT a count of moved
+ * bars (#2598). The client re-fetches, and the re-fetch goes through the
+ * full-snapshot path, which must not open cascade entries (see
  * {@link ReconcileObservation.previous}). So the only true statement available
- * is "N tasks moved and this run cannot be listed". This record is that
+ * is "the schedule of N tasks changed and this run cannot be listed". This record is that
  * statement, and deliberately nothing more: it names no task and no cause, so
  * it cannot fabricate a per-row move or a driver (ADR-0784 §D5).
  *

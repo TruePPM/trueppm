@@ -274,23 +274,33 @@ test.describe('Schedule reconciliation — refusals (#2725)', () => {
     await expect.poll(() => socket !== undefined, { timeout: 10_000 }).toBe(true);
 
     if (!socket) throw new Error('expected the project WebSocket to have connected');
-    socket.send(
-      JSON.stringify({
-        protocol_version: 1,
-        event_type: 'task_dates_updated',
-        payload: { count: 1287, truncated: true },
-        seq: null,
-      }),
-    );
+    const ws = socket;
+    const sendTruncated = (route: WebSocketRoute) =>
+      route.send(
+        JSON.stringify({
+          protocol_version: 1,
+          event_type: 'task_dates_updated',
+          payload: { count: 1287, truncated: true },
+          seq: null,
+        }),
+      );
+    sendTruncated(ws);
 
     const panel = page.getByRole('region', { name: 'What moved and why' });
     await expect(panel).toBeVisible();
-    await expect(panel).toContainText('Too many dates changed to list.');
+    await expect(panel).toContainText('Too many changes to list.');
     await expect(page.getByTestId('reforecast-unitemized')).toHaveText(
-      /1,287 tasks moved in one recalculation, too many to list one by one\./,
+      /A recalculation changed the schedule of 1,287 tasks \(dates or float\), too many to list one by one\./,
     );
     // No per-task rows and no driver are invented from a bare count.
     await expect(panel.getByRole('listitem')).toHaveCount(0);
-    await expect(page.getByTestId('reconcile-live')).toHaveText(/1,287 tasks moved/);
+    await expect(page.getByTestId('reconcile-live')).toHaveText(/1,287 tasks \(dates or float\)/);
+
+    // A dismissal about this run must not swallow the NEXT one — its only
+    // explanation is this panel.
+    await panel.getByRole('button', { name: 'Dismiss' }).click();
+    await expect(panel).toHaveCount(0);
+    sendTruncated(ws);
+    await expect(panel).toBeVisible();
   });
 });

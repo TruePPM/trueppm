@@ -179,22 +179,24 @@ describe('changedCountLabel', () => {
 describe('unitemized run copy', () => {
   it('states the count and that the run cannot be listed', () => {
     expect(unitemizedRunSentence(1287)).toBe(
-      '1,287 tasks moved in one recalculation, too many to list one by one.',
+      'A recalculation changed the schedule of 1,287 tasks (dates or float), too many to list one by one.',
     );
+    // The count includes float-only changes, so it is never claimed as moves.
+    expect(unitemizedRunSentence(1287)).not.toMatch(/tasks moved/);
   });
 
   it('falls back to a count-free sentence when the frame carried no count', () => {
     expect(unitemizedRunSentence(null)).toBe(
-      'A recalculation moved too many tasks to list one by one.',
+      'A recalculation changed more tasks than can be listed here.',
     );
   });
 
   it('is announced on its own, and alongside itemized changes', () => {
-    expect(announcement(0, null, { count: 600 })).toBe(
-      'Schedule recomputed. 600 tasks moved in one recalculation, too many to list one by one.',
-    );
+    const run =
+      'A recalculation changed the schedule of 600 tasks (dates or float), too many to list one by one.';
+    expect(announcement(0, null, { count: 600 })).toBe(`Schedule recomputed. ${run}`);
     expect(announcement(2, null, { count: 600 })).toBe(
-      'Schedule recomputed. 2 dates changed. 600 tasks moved in one recalculation, too many to list one by one.',
+      `Schedule recomputed. 2 dates changed. ${run}`,
     );
   });
 });

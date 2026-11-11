@@ -15,14 +15,26 @@ function reset() {
       entries: {},
       reviewFilterActive: false,
       workingDaysMask: MON_FRI_MASK,
+      unitemizedRun: null,
     });
   });
 }
 
+function truncatedRun(count: number, since: number) {
+  act(() => {
+    useReconcileStore.setState({ unitemizedRun: { count, since } });
+  });
+}
+
+const RUN_600 =
+  'A recalculation changed the schedule of 600 tasks (dates or float), too many to list one by one.';
+
 /** Drive a task through preview → diverged, the way a real commit would. */
 function diverge(taskId: string, taskName: string, from: string, to: string) {
   act(() => {
-    useReconcileStore.getState().registerPreview({ taskId, taskName, field: 'finish', value: from });
+    useReconcileStore
+      .getState()
+      .registerPreview({ taskId, taskName, field: 'finish', value: from });
     useReconcileStore.getState().observe([{ taskId, field: 'finish', value: to }]);
   });
 }
@@ -127,7 +139,12 @@ describe('ScheduleReconcileStrip — refusals', () => {
     act(() => {
       useReconcileStore
         .getState()
-        .registerPreview({ taskId: 't9', taskName: 'Locked task', field: 'start', value: '2026-10-13' });
+        .registerPreview({
+          taskId: 't9',
+          taskName: 'Locked task',
+          field: 'start',
+          value: '2026-10-13',
+        });
       useReconcileStore.getState().reject('t9', 'start', 'You do not have permission.', retry);
     });
   }
@@ -147,7 +164,9 @@ describe('ScheduleReconcileStrip — refusals', () => {
     renderStrip();
     refuse(retry);
 
-    await user.click(screen.getByRole('button', { name: /Retry the refused change on Locked task/ }));
+    await user.click(
+      screen.getByRole('button', { name: /Retry the refused change on Locked task/ }),
+    );
     expect(retry).toHaveBeenCalledTimes(1);
     // The re-issued mutation's onMutate opens a fresh preview, so the stale
     // rejection must not outlive the write it described.
@@ -170,5 +189,32 @@ describe('ScheduleReconcileStrip — refusals', () => {
     await user.click(screen.getByTestId('reconcile-ack-all'));
     expect(screen.queryByTestId('reconcile-count')).not.toBeInTheDocument();
     expect(screen.getByTestId('reconcile-rejected-count')).toBeInTheDocument();
+  });
+
+  // #3158 — a truncated run is announced once, on arrival, and never re-read.
+  describe('a run too large to itemize', () => {
+    it('announces the run once, then drops it from a later unrelated recompute', () => {
+      renderStrip(null);
+      truncatedRun(600, 1);
+      expect(screen.getByTestId('reconcile-live')).toHaveTextContent(
+        `Schedule recomputed. ${RUN_600}`,
+      );
+      diverge('t1', 'Spec freeze', '2026-10-13', '2026-10-16');
+      const live = screen.getByTestId('reconcile-live');
+      expect(live).toHaveTextContent('Schedule recomputed. 1 date changed.');
+      expect(live).not.toHaveTextContent('dates or float');
+    });
+
+    it('announces a second same-count run as a new announcement', () => {
+      renderStrip(null);
+      truncatedRun(600, 1);
+      const first = screen.getByTestId('reconcile-live').firstElementChild;
+      expect(first).toHaveTextContent(RUN_600);
+      truncatedRun(600, 2);
+      const second = screen.getByTestId('reconcile-live').firstElementChild;
+      expect(second).toHaveTextContent(RUN_600);
+      // Same string, but a NEW node: an unchanged text node is not re-announced.
+      expect(second).not.toBe(first);
+    });
   });
 });

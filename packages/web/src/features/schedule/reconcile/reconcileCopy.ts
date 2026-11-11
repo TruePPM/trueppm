@@ -143,13 +143,20 @@ export function announcement(
 
 /**
  * The one sentence the client can truthfully say about a truncated CPM run
- * (#3158): how many tasks moved, and that they cannot be listed. It names no
- * task and no cause — the frame carried neither (ADR-0784 §D5).
+ * (#3158): how many tasks the run changed, and that they cannot be listed. It
+ * names no task and no cause — the frame carried neither (ADR-0784 §D5).
+ *
+ * Never "N tasks moved". The frame's `count` is the server's moved set, which
+ * counts a row whose late dates or float changed as well as one whose bar moved
+ * (`_CPM_DELTA_FIELDS`). On the common trigger — a critical-path edit — that
+ * marks every row while a handful of bars move (#2598 measured 2,000 of 2,000
+ * against 10), so "moved" would overstate by orders of magnitude. The copy says
+ * "dates or float" so the number is claimed only for what it measures.
  */
 export function unitemizedRunSentence(count: number | null): string {
-  if (count === null) return 'A recalculation moved too many tasks to list one by one.';
+  if (count === null) return 'A recalculation changed more tasks than can be listed here.';
   const tasks = count === 1 ? '1 task' : `${count.toLocaleString('en-US')} tasks`;
-  return `${tasks} moved in one recalculation, too many to list one by one.`;
+  return `A recalculation changed the schedule of ${tasks} (dates or float), too many to list one by one.`;
 }
 
 /** Strip count label — "3 dates changed". */

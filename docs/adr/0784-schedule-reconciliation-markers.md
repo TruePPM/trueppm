@@ -221,11 +221,15 @@ caused them; that is the same follow-up as D5.
 > largest cascades produce no panel rows at all.
 >
 > **Amended by #3158:** the panel is no longer silent for that run. The
-> truncated frame still carries only a moved `count`, so the client records it as
-> an `UnitemizedRun` beside the entry map and the panel states it — "N tasks
-> moved in one recalculation, too many to list one by one" — with no per-task
-> rows and no driver, because the frame names neither (D5). The polite
-> announcement says the same. Itemizing the run is still server work: #2598's
+> truncated frame still carries only a `count`, so the client records it as an
+> `UnitemizedRun` beside the entry map and the panel states it — "A recalculation
+> changed the schedule of N tasks (dates or float), too many to list one by one"
+> — with no per-task rows and no driver, because the frame names neither (D5).
+> The copy never says "N tasks moved": `count` is the server's moved set, which
+> includes rows whose late dates or float alone changed, and on a critical-path
+> edit that is every row while a handful of bars move (#2598). The polite
+> announcement states the run once, on arrival. A run arriving after the panel
+> was dismissed re-opens it; itemized rows after a dismissal do not yet (#4947). Itemizing the run is still server work: #2598's
 > option 1 (split the delta so the bar-moving fields always ship) would let
 > `previous` survive and make this statement unnecessary for the common case.
 

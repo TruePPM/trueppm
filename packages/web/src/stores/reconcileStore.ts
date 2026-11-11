@@ -50,7 +50,10 @@ interface ReconcileState {
    * The latest CPM run too large to ship as a delta (#3158) — the reforecast
    * panel's only way to know it happened. Replaced, not summed, by a later one:
    * two truncated runs may move overlapping rows, and adding their counts would
-   * overstate what moved. Cleared with the cascades on Dismiss / Acknowledge all.
+   * overstate what moved. Cleared by `acknowledgeAll` (the strip's "Acknowledge
+   * all"), by a project switch, and by `prune` once {@link CASCADE_TTL_MS} has
+   * passed. The reforecast panel's Dismiss does NOT clear it — that only hides
+   * the panel (see `reforecastPanelVisible`).
    */
   unitemizedRun: UnitemizedRun | null;
 

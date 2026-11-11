@@ -75,7 +75,14 @@ export function ReforecastPanel({
     >
       <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-border">
         <span className="text-[13px] font-semibold text-neutral-text-primary">
-          {rows.length > 0 ? summarizeCausalChain(rows) : 'Too many dates changed to list.'}
+          {/* With a run present the causal summary would undercount — it covers
+              only the rows that could be itemized — so the header says the list
+              is partial and the summary moves above the list as "Listed below". */}
+          {unitemizedRun
+            ? rows.length > 0
+              ? 'Not every change can be listed.'
+              : 'Too many changes to list.'
+            : summarizeCausalChain(rows)}
         </span>
 
         {/* Both numbers, never one. */}
@@ -111,15 +118,23 @@ export function ReforecastPanel({
       {unitemizedRun && (
         // One statement, not rows: the truncated frame carried a count and
         // nothing per-task, so listing tasks or naming a driver here would be
-        // invented (ADR-0784 §D5). The dates themselves are current — the
-        // client re-fetched — and the copy says so, so this does not read as
-        // the schedule being stale.
+        // invented (ADR-0784 §D5). It makes no claim that the dates on screen
+        // are already current: the re-fetch is debounced, paginated, and can
+        // fail, and this renders before it lands.
         <p
           data-testid="reforecast-unitemized"
           className="px-4 py-1.5 text-xs text-neutral-text-secondary"
         >
-          {unitemizedRunSentence(unitemizedRun.count)} Their new dates are on the schedule; what
-          moved each one is not shown.
+          {unitemizedRunSentence(unitemizedRun.count)} The cause of each change is not shown.
+        </p>
+      )}
+
+      {unitemizedRun && rows.length > 0 && (
+        <p
+          data-testid="reforecast-listed-summary"
+          className="px-4 pt-1 text-xs text-neutral-text-secondary"
+        >
+          Listed below: {summarizeCausalChain(rows)}
         </p>
       )}
 

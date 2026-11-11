@@ -217,6 +217,7 @@ import {
 import { ScheduleCoachBar } from './buildMode/ScheduleCoachBar';
 import { ConversionNotice } from './buildMode/ConversionNotice';
 import { ReforecastPanel } from './reforecast/ReforecastPanel';
+import { reforecastPanelVisible } from './reforecast/reforecastVisibility';
 import { ineligiblePredecessorIds } from './deps/cycleSafety';
 import {
   useIndentTask,
@@ -1126,10 +1127,12 @@ export function ScheduleView() {
   const reviewFilterActive = useReconcileStore((s) => s.reviewFilterActive);
   const reconcileEntries = useReconcileStore((s) => s.entries);
   const unitemizedRun = useReconcileStore((s) => s.unitemizedRun);
-  // Dismissal is per-recompute: a new divergence re-opens the panel rather than
-  // staying hidden because the planner closed the last one (#2965).
-  const [reforecastDismissed, setReforecastDismissed] = useState(false);
-  // #3388: dismissed for this mount only, same as `reforecastDismissed` above —
+  // Dismissal is per-VISIT for itemized rows: once closed, later divergences
+  // stay hidden until the Schedule remounts (#4947 tracks that). A recalculation
+  // too large to itemize that lands after the dismiss re-opens it (#3158) — see
+  // `reforecastPanelVisible`.
+  const [reforecastDismissedAt, setReforecastDismissedAt] = useState<number | null>(null);
+  // #3388: dismissed for this mount only, like the reforecast panel above —
   // reopening the Schedule (or another tab) is a fresh "you're near the tested
   // ceiling" moment worth restating, not a preference to remember forever.
   const [taskCeilingDismissed, setTaskCeilingDismissed] = useState(false);
@@ -4822,7 +4825,7 @@ export function ScheduleView() {
 
       {/* What moved and why (#2965) — the question a planner has after the
           per-row markers (#2725) tell them THAT something changed. */}
-      {!reforecastDismissed && (
+      {reforecastPanelVisible(reforecastDismissedAt, unitemizedRun) && (
         <ReforecastPanel
           entries={reconcileEntries}
           unitemizedRun={unitemizedRun}
@@ -4830,7 +4833,7 @@ export function ScheduleView() {
           tasks={allTasks}
           cpmFinish={cpmFinish}
           p80={mcResult?.p80 ?? null}
-          onDismiss={() => setReforecastDismissed(true)}
+          onDismiss={() => setReforecastDismissedAt(Date.now())}
         />
       )}
 
