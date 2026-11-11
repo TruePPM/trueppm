@@ -45,6 +45,7 @@ from trueppm_scheduler.engine.milestones import (
     _start_is_recorded,
 )
 from trueppm_scheduler.engine.validate import (
+    _velocity_mean,
     _velocity_worst_case_days,
 )
 from trueppm_scheduler.models import (
@@ -110,12 +111,13 @@ def _mc_horizon(
                 floor = max(floor, pinned)
     bound: dict[str, date] = {}
     horizon = floor
+    velocity_mean = _velocity_mean(project)
     for tid in topo_order:
         t = task_map[tid]
         d_days = t.duration.days
         if t.pessimistic_duration is not None:
             d_days = max(d_days, t.pessimistic_duration.days)
-        d_days = max(0, d_days, _velocity_worst_case_days(t, project))
+        d_days = max(0, d_days, _velocity_worst_case_days(t, project, mean=velocity_mean))
         anchor = floor
         for pred in g.predecessors(tid):
             lag_days = max(0, g[pred][tid]["dep"].lag.days)
@@ -236,6 +238,7 @@ def _mc_pre_start_pad_days(
         link_lo[tid] = bound
 
     earliest = project.start_date
+    velocity_mean = _velocity_mean(project)
     for tid in topo_order:
         task = task_map[tid]
         cal = cal_of[tid]
@@ -276,7 +279,7 @@ def _mc_pre_start_pad_days(
         longest = max(
             task.duration.days,
             0 if task.pessimistic_duration is None else task.pessimistic_duration.days,
-            _velocity_worst_case_days(task, project),
+            _velocity_worst_case_days(task, project, mean=velocity_mean),
         )
         # Arithmetic, not a day walk: ``longest`` includes a velocity worst case,
         # which the span guard no longer bounds in total over parallel tasks (#4695).

@@ -118,10 +118,12 @@ def test_conversion_adds_an_index_sized_table_not_a_matrix(
 ) -> None:
     """Re-expressing the columns on the union ruler must not copy a runs x tasks matrix.
 
-    The traced peak is reset where the reference index is built, just before the
-    conversion, so what is measured is what the conversion (and the percentile
-    reads after it) adds on top of the live matrices. One float64 matrix here is
-    ~16 MB; the per-calendar table and bounded gather blocks are a small fraction.
+    The traced peak is reset around each in-place conversion call, so what is
+    measured is what the conversion adds on top of the live matrices. (It used to be
+    reset where the reference index is built; since the forward pass runs over row
+    chunks, #3824, that index is built before the pass, and a reset there would
+    measure the pass itself.) One float64 matrix here is ~16 MB; the per-calendar
+    table and bounded gather blocks are a small fraction.
     """
     runs, n = 20_000, 100
     tasks = [
@@ -144,25 +146,25 @@ def test_conversion_adds_an_index_sized_table_not_a_matrix(
         dependencies=[Dependency(f"t{i - 1}", f"t{i}") for i in range(1, n)],
         calendars={"seven": Calendar(working_days=0b111_1111)},
     )
-    baseline: list[int] = []
-    real = engine._build_reference_index
+    added: list[int] = []
+    real = mc_run._to_reference_columns_inplace
 
     def spy(*args: Any, **kwargs: Any) -> Any:
-        out = real(*args, **kwargs)
-        baseline.append(tracemalloc.get_traced_memory()[0])
+        before = tracemalloc.get_traced_memory()[0]
         tracemalloc.reset_peak()
+        out = real(*args, **kwargs)
+        added.append(tracemalloc.get_traced_memory()[1] - before)
         return out
 
-    monkeypatch.setattr(mc_run, "_build_reference_index", spy)
+    monkeypatch.setattr(mc_run, "_to_reference_columns_inplace", spy)
     tracemalloc.start()
     try:
         monte_carlo(project, runs=runs, seed=1)
-        peak = tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
     matrix = runs * n * 8
-    assert baseline, "multi-calendar path was not taken"
-    assert peak - baseline[0] < matrix // 2, (peak - baseline[0], matrix)
+    assert added, "multi-calendar path was not taken"
+    assert max(added) < matrix // 2, (max(added), matrix)
 
 
 def _oracle_and_inplace(

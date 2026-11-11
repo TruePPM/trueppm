@@ -329,6 +329,46 @@ def test_monte_carlo_lag_delta_table_peak_memory() -> None:
     )
 
 
+def test_monte_carlo_forward_pass_peak_memory() -> None:
+    """The forward pass runs over row chunks, and its peak is asserted, not just its time (#3824).
+
+    4,000 PERT tasks x 2,000 runs. Before chunking the pass held five runs x tasks
+    matrices (29 bytes a cell) for every run at once and ``tracemalloc`` peaked at
+    ~302 MB on this shape; chunked it peaks at ~186 MB, most of which is the float64
+    sampled-duration matrix the seeded stream requires in full. The 240 MB bound sits
+    between the two, so an unchunked pass fails it while allocator noise does not.
+    """
+    import tracemalloc
+    from dataclasses import replace
+
+    base = _make_mixed_topology(4_000)
+    project = replace(
+        base,
+        tasks=[
+            replace(
+                t,
+                optimistic_duration=timedelta(days=1),
+                most_likely_duration=timedelta(days=2),
+                pessimistic_duration=timedelta(days=5),
+            )
+            for t in base.tasks
+        ],
+    )
+
+    tracemalloc.start()
+    try:
+        result = monte_carlo(project, runs=2_000, seed=3824)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert result.p50 <= result.p80 <= result.p95
+    assert peak < 240_000_000, (
+        f"peak {peak / 1e6:.1f} MB — the Monte Carlo forward pass is no longer chunked "
+        "over runs (unchunked it peaks at ~302 MB on this shape)."
+    )
+
+
 def test_monte_carlo_max_lag_delta_cells_rejects_before_allocating() -> None:
     """A request-scoped ``max_lag_delta_cells`` rejects an over-cap table (#4129)."""
     import tracemalloc

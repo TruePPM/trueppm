@@ -336,3 +336,50 @@ def test_parallel_project_above_the_span_cap_keeps_the_working_day_index_bounded
     size = engine._mc_index_size(_horizon(project), project.start_date, [project.calendar], n)
     assert size < 2 * engine.MAX_DURATION_DAYS  # one chain of one task, not n of them
     assert size < engine.MAX_INDEX_CELLS
+
+
+def test_velocity_worst_case_reads_a_precomputed_mean_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Callers walking every task pass the project's mean in, so it is computed once (#1532)."""
+    from trueppm_scheduler.engine import montecarlo, validate
+
+    tasks = [
+        Task(
+            id=f"s{i}",
+            name=f"s{i}",
+            duration=timedelta(days=1),
+            delivery_mode=DeliveryMode.SCRUM,
+            story_points=13.0,
+        )
+        for i in range(25)
+    ]
+    project = Project(
+        id="v",
+        name="v",
+        start_date=date(2026, 1, 5),
+        tasks=tasks,
+        velocity_samples=[5.0, 8.0, 0.0],
+        sprint_length_days=10,
+    )
+    # Same answer whether the mean is passed in or computed: ceil(13 / (13/3)) = 3.
+    expected = (3 * 4 + 10) * 10
+    assert validate._velocity_worst_case_days(tasks[0], project) == expected
+    assert (
+        validate._velocity_worst_case_days(tasks[0], project, mean=validate._velocity_mean(project))
+        == expected
+    )
+    # ``None`` passed in is "no signal", not "compute it".
+    assert validate._velocity_worst_case_days(tasks[0], project, mean=None) == 0
+
+    calls = 0
+    real = validate._velocity_mean
+
+    def counting(p: Project) -> float | None:
+        nonlocal calls
+        calls += 1
+        return real(p)
+
+    monkeypatch.setattr(validate, "_velocity_mean", counting)
+    monkeypatch.setattr(montecarlo.index, "_velocity_mean", counting)
+    monte_carlo(project, runs=20, seed=1)
+    # One per task-walking pass (span sweep, horizon walk), never one per task.
+    assert 0 < calls <= 3
