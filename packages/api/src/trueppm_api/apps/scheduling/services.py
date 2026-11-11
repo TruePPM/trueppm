@@ -157,6 +157,73 @@ def enqueue_recalculate(
         )
 
 
+def failed_task_is_actionable(failed_task_id: str) -> bool:
+    """True unless the operator dropped the dead letter (``DISMISSED``).
+
+    The requeue workflow checks this immediately before it re-dispatches: the
+    row is no longer stamped at request time (#2994), so an operator can drop it
+    while this workflow waits in the outbox, and that drop must be honored.
+
+    ``RETRIED`` is deliberately still actionable. During a rolling update an
+    API pod running the pre-#2994 code stamps ``RETRIED`` when the requeue is
+    POSTed, before its workflow has run; a worker on the new code that refused
+    ``RETRIED`` would drop that requeue silently. A second workflow for an
+    already-retried row cannot arise from the current code: the view refuses a
+    requeue of a ``RETRIED`` row, and the workflow key is bound to the observed
+    ``failure_count``, so one failure maps to one workflow.
+    """
+    from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+
+    return (
+        FailedTask.objects.filter(pk=failed_task_id)
+        .exclude(status=FailedTaskStatus.DISMISSED)
+        .exists()
+    )
+
+
+def mark_failed_task_retried(failed_task_id: str, resolved_by_id: int | None) -> int:
+    """Stamp a dead letter ``RETRIED`` once its requeue has actually run (#2994).
+
+    Called by the requeue workflow's activity *after* the re-dispatch succeeded,
+    never by the view: stamping at request time made the admin screen assert a
+    recovery the code had not delivered, and a requeue workflow that then failed
+    left a row that read as resolved. A ``DISMISSED`` row is not touched, so a
+    row the operator dropped in the meantime is not resurrected; a row already
+    ``RETRIED`` (stamped by a pre-#2994 pod at POST time) is re-stamped with the
+    real completion time. Returns the number of rows updated.
+
+    ``resolved_by_id`` was captured when the requeue was POSTed and the user may
+    have been deleted since. The FK is checked at COMMIT, after the caller's
+    error handling has run, so a dangling id would fail the whole step and
+    re-dispatch the task again. The user row is therefore locked here: if it is
+    gone the stamp records no operator, and if it exists the lock keeps it from
+    being deleted before this transaction commits. ``FOR NO KEY UPDATE`` is
+    enough to block that delete and does not block other transactions' FK
+    checks (``FOR KEY SHARE``) against the same user row.
+    """
+    from django.contrib.auth import get_user_model
+
+    from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+
+    if resolved_by_id is not None:
+        resolved_by_id = (
+            get_user_model()
+            .objects.select_for_update(no_key=True)
+            .filter(pk=resolved_by_id)
+            .values_list("pk", flat=True)
+            .first()
+        )
+    return (
+        FailedTask.objects.filter(pk=failed_task_id)
+        .exclude(status=FailedTaskStatus.DISMISSED)
+        .update(
+            status=FailedTaskStatus.RETRIED,
+            resolved_by_id=resolved_by_id,
+            resolved_at=timezone.now(),
+        )
+    )
+
+
 def redispatch_dead_lettered_task(
     task_name: str,
     args: list[Any] | tuple[Any, ...],

@@ -36,6 +36,29 @@ class WorkflowStatus(enum.StrEnum):
     CANCELED = "canceled"
 
 
+class NonRetryableError(Exception):
+    """Raised by an activity to say that running it again cannot succeed.
+
+    The default backend retries any other exception up to a bounded budget before
+    it gives up and rolls the workflow back. Raise this one for a failure nothing
+    can fix (a malformed input, a target that no longer exists) so the workflow
+    fails at once instead of spending attempts it cannot use.
+    """
+
+
+class RestartRefusedError(RuntimeError):
+    """Raised by ``start_workflow(restart_failed=True)`` when a re-run is unsafe.
+
+    The restart replays from step 0, and completed steps return their cached
+    results, so it resumes at the failed step. Once the saga rollback has
+    compensated a step, its cached result stands in for a side effect that is
+    gone, so a workflow that ran compensation is refused a restart. The default
+    backend records that fact outside the purgeable history, so the refusal
+    survives ``WORKFLOW_HISTORY_RETENTION_DAYS``. The caller must start a fresh
+    workflow under a new idempotency key instead.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     """Retry behaviour for an activity run via :meth:`WorkflowBackend.run_activity`.
@@ -98,8 +121,26 @@ class WorkflowBackend(ABC):
         *,
         idempotency_key: str | None = None,
         wait_for_completion: bool = False,
+        restart_failed: bool = False,
     ) -> str:
         """Start a workflow and return its id.
+
+        ``restart_failed=True`` re-runs an existing instance that ended ``FAILED``
+        under the same ``idempotency_key`` instead of returning it untouched. Without
+        it a failed workflow is terminal for its key, so an operator's retry of the
+        same logical request would silently be a no-op. The re-run replays from
+        step 0 and steps that already completed are served from the
+        once-and-only-once cache, so it resumes at the failed step. A workflow
+        whose rollback ran compensation is refused with
+        :class:`RestartRefusedError` — even after its history has been purged —
+        because a cached result would stand in for an undone side effect.
+
+        Backends that predate this flag need not accept it. The service layer
+        (``workflows.services.start_workflow``) forwards it only when it is true
+        and this method's signature accepts it (by name or ``**kwargs``); against
+        a backend that does not, it starts without the flag and logs a warning, so
+        a FAILED instance under the key comes back unchanged rather than the call
+        raising ``TypeError``. A backend that wants restarts must add the keyword.
 
         Fire-and-forget by default (``wait_for_completion=False``); blocking on
         completion defeats the durability guarantee and is reserved for
@@ -146,3 +187,13 @@ class WorkflowBackend(ABC):
     @abstractmethod
     def get_history(self, workflow_id: str) -> list[HistoryEvent]:
         """Return the workflow's ordered, append-only history."""
+
+    def in_flight_idempotency_keys(self, idempotency_keys: list[str]) -> set[str]:
+        """Return the subset of ``idempotency_keys`` whose workflow has not finished.
+
+        Lets a caller skip work it already started without a marker of its own.
+        Deliberately not abstract, so a backend written before it existed keeps
+        working: the default answers "none in flight", which costs that caller
+        only a wasted re-start that the idempotency key already de-duplicates.
+        """
+        return set()

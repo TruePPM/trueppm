@@ -7,8 +7,12 @@
  *
  * Requeue round-trips through the durable workflow backend server-side; the
  * client just POSTs. Every mutation invalidates `failedTasksKeys.all` so the
- * list and the open detail pane both refetch — the acted-on row changes status
- * (→ retried/dismissed) and drops out of the default `dead`/`pending_retry` view.
+ * list and the open detail pane both refetch. A drop moves the row to
+ * `dismissed` at once. A requeue does NOT: the row stays `dead` until the
+ * requeue workflow has actually re-dispatched the task and stamps it `retried`
+ * (a few seconds on a healthy worker), so the refetch right after the POST can
+ * still show it as actionable. Requeuing it again in that window is harmless —
+ * the server de-duplicates on the workflow's idempotency key.
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';

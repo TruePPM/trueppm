@@ -28,6 +28,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
 from trueppm_api.apps.workflow_engine.models import WorkflowInstance
 from trueppm_api.workflows.consumers.requeue_failed_task import WORKFLOW_NAME
+from trueppm_api.workflows.interface import NonRetryableError
 
 User = get_user_model()
 
@@ -95,6 +96,31 @@ def _failed(
     )
 
 
+def _run_requeue_workflow(
+    instance: WorkflowInstance, redispatch_error: Exception | None = None
+) -> None:
+    """Drive the requeue workflow's pending step as the Celery worker would.
+
+    Under the test transaction ``on_commit`` never fires, so the step is advanced
+    explicitly; the broker hop is patched.
+    """
+    from unittest.mock import patch
+
+    from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
+    from trueppm_api.apps.workflow_engine.tasks import _do_advance
+
+    row = WorkflowOutboxRow.objects.filter(
+        workflow=instance, status=WorkflowOutboxStatus.PENDING
+    ).first()
+    assert row is not None
+    with patch(
+        "trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task",
+        side_effect=redispatch_error,
+        return_value="celery-new",
+    ):
+        _do_advance(str(row.id))
+
+
 @pytest.mark.django_db
 class TestRequeue:
     def test_requeue_routes_through_workflow_backend(self) -> None:
@@ -112,10 +138,75 @@ class TestRequeue:
 
         # The response carries the started workflow id and the updated row.
         assert res.data["workflow_id"] == str(instance.id)
+        # RETRIED is an outcome, not a request-time claim (#2994): until the workflow
+        # has actually re-dispatched, the row stays actionable.
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD
+        assert failed.resolved_by is None
+
+        _run_requeue_workflow(instance)
         failed.refresh_from_db()
         assert failed.status == FailedTaskStatus.RETRIED
         assert failed.resolved_by is not None
         assert failed.resolved_at is not None
+
+    def test_failed_redispatch_does_not_read_as_resolved(self) -> None:
+        failed = _failed()
+        client = _admin_client()
+        client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+        _run_requeue_workflow(instance, redispatch_error=NonRetryableError("broker gone"))
+        instance.refresh_from_db()
+        assert instance.status == "failed"
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD  # still actionable, never RETRIED
+
+        # And the operator's retry is a real re-run, not the failed instance back.
+        res = client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        assert res.status_code == 200
+        instance.refresh_from_db()
+        assert instance.status == "running"
+        _run_requeue_workflow(instance)
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.RETRIED
+
+    def test_transient_broker_failure_keeps_row_dead_while_workflow_retries(self) -> None:
+        """A broker blip is retried by the engine; the dead letter must not move."""
+        from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow
+
+        failed = _failed()
+        _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+        _run_requeue_workflow(instance, redispatch_error=ConnectionError("broker down"))
+
+        instance.refresh_from_db()
+        assert instance.status == "running"  # retrying, not failed
+        row = WorkflowOutboxRow.objects.get(workflow=instance)
+        assert row.status == "dead" and row.next_attempt_at is not None
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD
+        assert failed.resolved_at is None
+
+    def test_requeue_skips_a_row_dropped_while_the_workflow_waited(self) -> None:
+        """The activity re-checks the row: a drop in the meantime is honored."""
+        from unittest.mock import patch
+
+        from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow
+        from trueppm_api.apps.workflow_engine.tasks import _do_advance
+
+        failed = _failed()
+        client = _admin_client()
+        client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        assert client.post(f"{BASE}/{failed.id}/drop/", {}, format="json").status_code == 200
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+        row = WorkflowOutboxRow.objects.get(workflow=instance)
+        with patch("trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task") as send:
+            _do_advance(str(row.id))
+        send.assert_not_called()
+        instance.refresh_from_db()
+        assert instance.status == "completed"
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DISMISSED  # not resurrected
 
     def test_requeue_honours_backoff(self) -> None:
         failed = _failed()
@@ -143,6 +234,7 @@ class TestRequeue:
         failed = _failed()
         client = _admin_client()
         assert client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json").status_code == 200
+        _run_requeue_workflow(WorkflowInstance.objects.get(name=WORKFLOW_NAME))
         # Second requeue: the row is now RETRIED (terminal) → 400, no second enqueue.
         assert client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json").status_code == 400
         assert WorkflowInstance.objects.count() == 1
@@ -242,8 +334,11 @@ class TestBulkActions:
 
         dead.refresh_from_db()
         dismissed.refresh_from_db()
-        assert dead.status == FailedTaskStatus.RETRIED
+        assert dead.status == FailedTaskStatus.DEAD  # RETRIED only once the workflow ran
         assert dismissed.status == FailedTaskStatus.DISMISSED
+        _run_requeue_workflow(WorkflowInstance.objects.get(name=WORKFLOW_NAME))
+        dead.refresh_from_db()
+        assert dead.status == FailedTaskStatus.RETRIED
 
     def test_bulk_is_bounded_and_reports_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from trueppm_api.apps.scheduling import views
@@ -259,6 +354,29 @@ class TestBulkActions:
         assert res.data["capped"] is True
         # Exactly one row was dropped despite three matching.
         assert FailedTask.objects.filter(status=FailedTaskStatus.DISMISSED).count() == 1
+
+    def test_requeue_all_skips_rows_whose_requeue_is_in_flight(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A repeat "Requeue all" before workers stamp the batch moves on (#2994)."""
+        from trueppm_api.apps.scheduling import views
+
+        monkeypatch.setattr(views, "FAILED_TASK_BULK_ACTION_MAX", 1)
+        for i in range(2):
+            _failed(task_name="scheduling.relay", task_id=f"q-{i}")
+        client = _admin_client()
+
+        first = client.post(f"{BASE}/requeue-all/", {}, format="json")
+        assert first.data["processed"] == 1
+        assert first.data["capped"] is True
+        second = client.post(f"{BASE}/requeue-all/", {}, format="json")
+        assert second.data["processed"] == 1
+        # Two distinct rows got a workflow, not the same oldest row twice.
+        assert WorkflowInstance.objects.filter(name=WORKFLOW_NAME).count() == 2
+        assert second.data["capped"] is False
+        third = client.post(f"{BASE}/requeue-all/", {}, format="json")
+        assert third.data["processed"] == 0
+        assert WorkflowInstance.objects.filter(name=WORKFLOW_NAME).count() == 2
 
     def test_the_bound_is_actually_bound_to_a_setting(self) -> None:
         """The cap is documented as tunable, so a settings module has to bind it.
@@ -389,3 +507,165 @@ class TestPermissions:
         url = BASE + path_suffix.format(id=failed.id)
         res = _admin_client().post(url, body, format="json")
         assert res.status_code == 200
+
+
+def _advance_until_settled(instance: WorkflowInstance, max_attempts: int = 3) -> None:
+    """Run the requeue step and every engine retry, as the drain would.
+
+    A transiently failed row goes DEAD with a retry clock; the drain flips it back
+    to PENDING. This loop does the same, so a step that fails on every attempt
+    shows up as repeated activity runs rather than a single one.
+    """
+    from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
+    from trueppm_api.apps.workflow_engine.tasks import _do_advance
+
+    for _ in range(max_attempts):
+        row = WorkflowOutboxRow.objects.get(workflow=instance)
+        if row.status == WorkflowOutboxStatus.DEAD and row.next_attempt_at is not None:
+            WorkflowOutboxRow.objects.filter(id=row.id).update(
+                status=WorkflowOutboxStatus.PENDING, next_attempt_at=None
+            )
+        elif row.status != WorkflowOutboxStatus.PENDING:
+            return
+        _do_advance(str(row.id))
+
+
+@pytest.mark.django_db
+class TestRequeueStampIsolation:
+    """A failing RETRIED stamp must not re-dispatch the original task (#2994)."""
+
+    def test_db_error_in_the_stamp_does_not_redispatch_again(self) -> None:
+        from unittest.mock import patch
+
+        from django.db import connection
+
+        failed = _failed()
+        _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+
+        def _broken_stamp(*_args: Any, **_kwargs: Any) -> int:
+            # A real DB error aborts the enclosing savepoint, unlike a Python one.
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1/0")
+            return 0
+
+        with (
+            patch(
+                "trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task",
+                return_value="celery-new",
+            ) as send,
+            patch(
+                "trueppm_api.apps.scheduling.services.mark_failed_task_retried",
+                side_effect=_broken_stamp,
+            ),
+        ):
+            _advance_until_settled(instance)
+
+        instance.refresh_from_db()
+        assert instance.status == "completed"
+        assert send.call_count == 1
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD  # stamp failed; row stays actionable
+
+    def test_retried_row_from_an_old_pod_is_still_redispatched(self) -> None:
+        """Mixed-version rollout: an old pod stamped RETRIED at POST time."""
+        from unittest.mock import patch
+
+        failed = _failed()
+        _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        FailedTask.objects.filter(pk=failed.pk).update(status=FailedTaskStatus.RETRIED)
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+        with patch(
+            "trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task",
+            return_value="celery-new",
+        ) as send:
+            _advance_until_settled(instance)
+        send.assert_called_once()
+        instance.refresh_from_db()
+        assert instance.status == "completed"
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.RETRIED
+        assert failed.resolved_by is not None and failed.resolved_at is not None
+
+    def test_requeue_works_against_a_legacy_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A WorkflowBackend that predates ``restart_failed`` must not 500 a requeue."""
+        from trueppm_api.workflows import services
+
+        calls: list[str | None] = []
+
+        class _Legacy:
+            def start_workflow(
+                self,
+                name: str,
+                input: dict[str, Any],
+                *,
+                idempotency_key: str | None = None,
+                wait_for_completion: bool = False,
+            ) -> str:
+                calls.append(idempotency_key)
+                return "legacy-id"
+
+        monkeypatch.setattr(services, "get_backend", lambda: _Legacy())
+        failed = _failed()
+        res = _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        assert res.status_code == 200
+        assert res.data["workflow_id"] == "legacy-id"
+        assert len(calls) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_stamp_naming_a_deleted_user_does_not_fail_the_commit() -> None:
+    """The deferred FK check fires at COMMIT, outside any try in the activity."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
+    from trueppm_api.apps.workflow_engine.tasks import advance_workflow_step
+    from trueppm_api.workflows.services import start_workflow
+
+    failed = _failed()
+    gone = User.objects.create_user(username="dl_gone", password="pw")
+    with patch.object(advance_workflow_step, "delay", side_effect=ConnectionError("no broker")):
+        wf_id = start_workflow(
+            WORKFLOW_NAME,
+            {
+                "failed_task_id": str(failed.id),
+                "task_name": failed.task_name,
+                "args": failed.args,
+                "kwargs": failed.kwargs,
+                "backoff_seconds": 0,
+                "resolved_by_id": gone.pk,
+            },
+            idempotency_key="requeue-gone-user",
+        )
+    gone.delete()
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    with patch(
+        "trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task",
+        return_value="celery-new",
+    ) as send:
+        _advance_until_settled(instance)
+    send.assert_called_once()
+    instance.refresh_from_db()
+    assert instance.status == "completed"
+    row = WorkflowOutboxRow.objects.get(workflow=instance)
+    assert row.status == WorkflowOutboxStatus.DONE
+    failed.refresh_from_db()
+    assert failed.status == FailedTaskStatus.RETRIED
+    assert failed.resolved_by_id is None
+
+
+@pytest.mark.django_db
+def test_stamp_locks_the_operator_row_without_blocking_fk_checks() -> None:
+    """``FOR NO KEY UPDATE``, not ``FOR UPDATE``: a plain update lock conflicts
+    with the ``FOR KEY SHARE`` every concurrent FK insert naming the user takes."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from trueppm_api.apps.scheduling.services import mark_failed_task_retried
+
+    failed = _failed()
+    operator = User.objects.create_user(username="dl_lock", password="pw")
+    with CaptureQueriesContext(connection) as ctx:
+        assert mark_failed_task_retried(str(failed.id), operator.pk) == 1
+    locks = [q["sql"] for q in ctx.captured_queries if " FOR " in q["sql"]]
+    assert locks and all("FOR NO KEY UPDATE" in sql for sql in locks)

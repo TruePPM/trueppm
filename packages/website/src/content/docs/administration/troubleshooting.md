@@ -388,6 +388,22 @@ curl -s -H "Authorization: Bearer $ADMIN_JWT" \
 Anything above zero is triaged from **Settings → Workspace → System health** — see
 [Dead-letter Alerting](/administration/dead-letter-alerting/).
 
+:::note[Ships in 0.5]
+In 0.5, a workflow step that fails transiently will be retried by the outbox
+drain (three attempts, 60 seconds apart) before the workflow is rolled back, and
+an operator will be able to see which workflow failed, at which step, and why:
+
+```bash
+curl -s -H "Authorization: Bearer $ADMIN_JWT" \
+  "https://trueppm.example.com/api/v1/admin/workflows/?status=failed"
+```
+
+A dead-letter requeue will also stay actionable until its workflow has actually
+re-dispatched the task, instead of being marked retried at request time. On the
+current release, a failed workflow step is terminal at once and the
+`/api/v1/admin/workflows/` endpoint does not exist.
+:::
+
 **Confirm the fix.** `inspect ping` answers, `/api/v1/health/beat/` returns `200`,
 and a fresh edit to a task's duration produces a recalculated schedule within a
 few seconds.

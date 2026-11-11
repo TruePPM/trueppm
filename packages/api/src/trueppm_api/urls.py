@@ -196,6 +196,7 @@ urlpatterns = [
     path(_API_V1_PREFIX, include("trueppm_api.apps.projects.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.resources.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.scheduling.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.workflow_engine.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.sync.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.history.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.msproject.urls")),

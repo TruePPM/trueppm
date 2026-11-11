@@ -170,6 +170,20 @@ are acted on; already-terminal rows in the set are skipped and counted.
    row is `RETRIED`, so a second requeue is a 409/400. `drop` on an already-dismissed
    row is a no-op.
 
+   > **Amended 2026-11-10 (#2994).** The view no longer stamps `RETRIED` at request
+   > time. Stamping before the fire-and-forget workflow had run made the inspector
+   > assert a recovery that had not happened, and a requeue workflow that then failed
+   > left a row that read as resolved. The requeue activity now re-checks that the row
+   > is still `dead`/`pending_retry` (so a drop in the meantime is honored), re-dispatches,
+   > and only then stamps `RETRIED`. Until that happens the row stays actionable, so
+   > the status guard above no longer covers the gap between the POST and the worker:
+   > a second requeue in that window is absorbed by layer 2 (the same
+   > `requeue:{id}:{failure_count}` key returns the in-flight instance), and
+   > `requeue_all` skips rows whose requeue workflow is still in flight so a repeat
+   > does not re-pick the same oldest batch. A requeue whose workflow `FAILED` is
+   > re-run by the next requeue (`start_workflow(restart_failed=True)`) instead of
+   > returning the failed instance.
+
 ### 6. Authorization — `IsAdminUser` (Django `is_staff`)
 
 Every action keeps `permission_classes=[IsAdminUser]`, consistent with ADR-0172 §5 and

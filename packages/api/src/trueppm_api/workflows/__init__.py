@@ -7,6 +7,8 @@ backend, ``celery``, ``dbos``, or ``temporalio`` (ADR-0080 §E).
 
 from trueppm_api.workflows.interface import (
     HistoryEvent,
+    NonRetryableError,
+    RestartRefusedError,
     RetryPolicy,
     WorkflowState,
     WorkflowStatus,
@@ -24,6 +26,8 @@ from trueppm_api.workflows.services import (
 
 __all__ = [
     "HistoryEvent",
+    "NonRetryableError",
+    "RestartRefusedError",
     "RetryPolicy",
     "WorkflowState",
     "WorkflowStatus",

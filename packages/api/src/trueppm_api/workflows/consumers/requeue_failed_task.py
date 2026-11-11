@@ -22,9 +22,14 @@ cannot double-dispatch the original task.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from django.db import transaction
+
 from trueppm_api.workflows.registry import WorkflowDefinition, WorkflowStep
+
+logger = logging.getLogger(__name__)
 
 WORKFLOW_NAME = "scheduling.requeue_failed_task"
 
@@ -38,15 +43,44 @@ def _redispatch_activity(ctx: dict[str, Any]) -> dict[str, Any] | None:
     """
     # Imported lazily and from the service layer (not `celery`) to honour the
     # consumer import discipline; the service owns the `send_task` boundary.
-    from trueppm_api.apps.scheduling.services import redispatch_dead_lettered_task
+    from trueppm_api.apps.scheduling.services import (
+        failed_task_is_actionable,
+        mark_failed_task_retried,
+        redispatch_dead_lettered_task,
+    )
 
     wf_input = ctx["workflow_input"]
+    # The row is only stamped once this runs, so it can have been dropped while
+    # the workflow waited. Re-dispatching it then would resurrect work the
+    # operator discarded. A RETRIED row is still re-dispatched: see
+    # ``failed_task_is_actionable`` for the mixed-version rollout that produces one.
+    if not failed_task_is_actionable(wf_input["failed_task_id"]):
+        logger.info(
+            "requeue: failed task %s is no longer actionable — not re-dispatching",
+            wf_input["failed_task_id"],
+        )
+        return {"failed_task_id": wf_input.get("failed_task_id"), "skipped": True}
     dispatched_task_id = redispatch_dead_lettered_task(
         task_name=wf_input["task_name"],
         args=wf_input.get("args", []),
         kwargs=wf_input.get("kwargs", {}),
         countdown=int(wf_input.get("backoff_seconds", 0) or 0),
     )
+    # Stamp RETRIED only now that the re-dispatch happened (#2994). A failure in the
+    # stamp must not fail the step: the engine would retry it and re-dispatch the
+    # original task a second time. The stamp runs in its own savepoint because a
+    # database error aborts the enclosing one, and catching the exception alone
+    # would leave the engine's own write of this activity's result to fail on the
+    # aborted transaction — which is a step failure, and a re-dispatch, after all.
+    try:
+        with transaction.atomic():
+            mark_failed_task_retried(wf_input["failed_task_id"], wf_input.get("resolved_by_id"))
+    except Exception:
+        logger.exception(
+            "requeue: re-dispatched %s but could not stamp failed task %s RETRIED",
+            wf_input["task_name"],
+            wf_input["failed_task_id"],
+        )
     return {
         "failed_task_id": wf_input.get("failed_task_id"),
         "dispatched_task_id": dispatched_task_id,

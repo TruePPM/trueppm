@@ -150,6 +150,14 @@ class WorkflowOutboxStatus(models.TextChoices):
     DEAD = "dead", "Dead"
 
 
+class WorkflowOutboxFailureReason(models.TextChoices):
+    """Why a step row stopped, stored so no reader re-derives it from prose."""
+
+    ERROR = "error", "Step raised"
+    UNFIXABLE = "unfixable", "Step raised a non-retryable error"
+    STALLED = "stalled", "Worker never reported back"
+
+
 class WorkflowOutboxRow(models.Model):
     """Transactional outbox for advancing a workflow step.
 
@@ -158,9 +166,17 @@ class WorkflowOutboxRow(models.Model):
     (ADR-0080 §Implementation Notes 2). Written atomically with the workflow
     state transition; the ``workflows_outbox_drain`` Beat task re-dispatches
     ``PENDING`` rows older than the 5-minute orphan window so it never races
-    with an in-flight commit. Rows with ``attempt_count > 0`` are inside
-    Celery's own retry chain and are skipped by the drain (same rule as
-    ``WebhookDelivery``).
+    with an in-flight commit. ``attempt_count`` counts every entry into the
+    step and is the attempt budget: the drain re-queues a failed row only while
+    it is below the cap, and abandons an orphaned ``DISPATCHED`` row that has
+    spent it.
+
+    ``next_attempt_at`` carries one invariant: **null means no further attempt
+    will be made** (#2994, mirroring ``SprintCloseRequest``, #2894). A ``DEAD`` row
+    with a live clock is a transient failure waiting for the drain to re-queue
+    it; a ``DEAD`` row without one is terminal. Every writer of a terminal state
+    clears it, so "terminal" is one testable condition rather than a rule each
+    reader re-derives.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -180,11 +196,25 @@ class WorkflowOutboxRow(models.Model):
     celery_task_id = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     dispatched_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    # ``db_default`` as well as ``default``: during a rolling update an old pod
+    # inserts rows without naming these columns, and a NOT NULL column with only a
+    # Python-side default would reject every one of them.
+    failure_reason = models.CharField(
+        max_length=16,
+        choices=WorkflowOutboxFailureReason.choices,
+        blank=True,
+        default="",
+        db_default="",
+    )
+    error_message = models.TextField(blank=True, default="", db_default="")
 
     class Meta:
         ordering = ["created_at"]
         indexes = [
             models.Index(fields=["status", "created_at"], name="workflow_outbox_drain_idx"),
+            # Retry sweep: DEAD rows whose retry clock has come round.
+            models.Index(fields=["status", "next_attempt_at"], name="workflow_outbox_retry_idx"),
             # Orphan recovery: the drain ranges on dispatched_at for DISPATCHED
             # rows past the recovery window; without dispatched_at as the 2nd
             # column Postgres post-filters the (status, created_at) scan.

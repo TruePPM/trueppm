@@ -40,6 +40,18 @@ pointer to the feature page that covers them.
 `drop-all`) is the Celery dead-letter queue surface, fully documented in
 [System health](/administration/system-health/#api).
 
+## Admin: workflows
+
+:::note[Ships in 0.5]
+These endpoints will ship in 0.5; the current release does not serve them.
+Workspace-operator-only and read-only.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/admin/workflows/` | Workflow instances, newest first. Filter with `?status=` and `?name=` |
+| GET | `/api/v1/admin/workflows/{id}/` | One workflow: `status`, `error`, `terminal`, `retrying`, and `current_step` (attempt count, `next_attempt_at`, `failure_reason`, error) |
+:::
+
 ## Readiness probe
 
 | Method | Path | Description |

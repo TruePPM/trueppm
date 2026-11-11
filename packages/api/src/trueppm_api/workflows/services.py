@@ -8,6 +8,9 @@ here is what keeps consumer code backend-neutral (ADR-0080 §E).
 
 from __future__ import annotations
 
+import inspect
+import logging
+from collections.abc import Callable
 from datetime import timedelta
 from functools import lru_cache
 from typing import Any
@@ -23,6 +26,13 @@ from trueppm_api.workflows.interface import (
 )
 
 DEFAULT_BACKEND = "trueppm_api.workflows.backends.default.DefaultWorkflowBackend"
+
+logger = logging.getLogger(__name__)
+
+# Backend classes already warned about ignoring ``restart_failed``. The warning
+# is a configuration fact, not a per-request event, so it is logged once per
+# process instead of on every requeue.
+_warned_legacy_backends: set[type[Any]] = set()
 
 
 @lru_cache(maxsize=1)
@@ -45,13 +55,56 @@ def start_workflow(
     *,
     idempotency_key: str | None = None,
     wait_for_completion: bool = False,
+    restart_failed: bool = False,
 ) -> str:
-    """Start a workflow; see :meth:`WorkflowBackend.start_workflow`."""
-    return get_backend().start_workflow(
+    """Start a workflow; see :meth:`WorkflowBackend.start_workflow`.
+
+    ``WORKFLOW_BACKEND`` is an extension point, and a backend written against
+    the signature that predates ``restart_failed`` (#2994) does not accept it.
+    The flag is therefore forwarded only when it is true *and* the backend's
+    ``start_workflow`` can take it. Against a legacy backend a restart request
+    degrades to a plain start — the backend's own behavior for an existing key,
+    which is what every requeue got before #2994 — and a warning is logged once
+    per process per backend class, so an operator's requeue still succeeds
+    instead of raising ``TypeError``.
+
+    The capability is read from the signature rather than by catching
+    ``TypeError`` and retrying: a ``TypeError`` raised *inside* a backend would
+    otherwise run the start a second time.
+    """
+    backend = get_backend()
+    extra: dict[str, Any] = {}
+    if restart_failed:
+        if _accepts_kwarg(backend.start_workflow, "restart_failed"):
+            extra["restart_failed"] = True
+        elif type(backend) not in _warned_legacy_backends:
+            _warned_legacy_backends.add(type(backend))
+            logger.warning(
+                "start_workflow: backend %s does not accept restart_failed; starting %r "
+                "without it, so a FAILED instance under this key is returned unchanged "
+                "(logged once per process)",
+                type(backend).__name__,
+                name,
+            )
+    return backend.start_workflow(
         name,
         input,
         idempotency_key=idempotency_key,
         wait_for_completion=wait_for_completion,
+        **extra,
+    )
+
+
+def _accepts_kwarg(func: Callable[..., Any], kwarg: str) -> bool:
+    """True when ``func`` takes ``kwarg`` by name, explicitly or via ``**kwargs``."""
+    try:
+        params = inspect.signature(func).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        p.kind is inspect.Parameter.VAR_KEYWORD
+        or (p.name == kwarg and p.kind is not inspect.Parameter.POSITIONAL_ONLY)
+        for p in params
     )
 
 
@@ -88,3 +141,8 @@ def run_activity(name: str, input: dict[str, Any], retry_policy: RetryPolicy | N
 def get_history(workflow_id: str) -> list[HistoryEvent]:
     """Fetch history; see :meth:`WorkflowBackend.get_history`."""
     return get_backend().get_history(workflow_id)
+
+
+def in_flight_idempotency_keys(idempotency_keys: list[str]) -> set[str]:
+    """Keys whose workflow is still running; see the backend method."""
+    return get_backend().in_flight_idempotency_keys(idempotency_keys)

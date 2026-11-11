@@ -326,7 +326,7 @@ under the `trueppm.*` namespace.
 | `http.server.active_requests` | up/down counter | In-flight API requests | `http.*` semantic conventions |
 | `flower.task.runtime.seconds` | histogram | Celery task duration, from the auto-instrumentor | task name, worker |
 | `trueppm.task.duration_seconds` | histogram | Celery task duration, from `task_prerun` to `task_postrun` | `trueppm.celery.task_name`, `trueppm.celery.outcome` (`success` \| `failure` \| `retry` \| etc.) |
-| `trueppm.outbox.depth` | gauge | Live backlog of a transactional outbox (rows not yet done) | `trueppm.outbox.name` (`schedule` \| `workflow`), `trueppm.outbox.state` (`pending` \| `dispatched`) |
+| `trueppm.outbox.depth` | gauge | Live backlog of a transactional outbox (rows not yet done) | `trueppm.outbox.name` (`schedule` \| `workflow`), `trueppm.outbox.state` (`pending` \| `dispatched`; the `workflow` outbox adds `retrying` in 0.5 — a failed step waiting on its retry clock) |
 | `trueppm.outbox.oldest_age_seconds` | gauge | Age of the oldest not-yet-done outbox row — the dispatch **lag** (0 when empty) | `trueppm.outbox.name` |
 | `trueppm.db.connections` | gauge | Server-side PostgreSQL backend count for the current database | `trueppm.db.state` (`active` \| `idle` \| `idle_in_transaction` \| `other`) |
 | `trueppm.broker.queue.depth` | gauge | Celery messages **waiting** in the broker (Valkey/Redis `LLEN`), downstream of the outboxes | `messaging.destination.name` (queue, e.g. `celery`) |
