@@ -56,6 +56,11 @@ regexes = [
   # through to this default. Safe to allowlist by value because it must never be
   # a production key.
   '''cNHot7PnbAHGIuY4zUht8FwB5wYGv06O7ppzGyhzR84=''',
+  # The PREVIOUS deterministic dev/pytest Fernet key, still present in git history
+  # (commit 8fa0eca9, settings/dev.py) and surfaced by the full-history scan in
+  # security:gitleaks:history (#942). Same fence as the key above: dev/pytest only,
+  # guarded by _assert_dev_environment_safe, never a production key, since replaced.
+  '''C8H7H6Pu0qoWjAdL69gAbU0c3UAcCAaqg9PWFRwSj_4=''',
   # Fake GitLab PAT used as encrypt/decrypt round-trip plaintext in
   # test_encryption.py — a literal "fake-token", not a credential. Matched on
   # the fixture prefix because the gitlab-pat rule truncates its capture.

@@ -1120,6 +1120,25 @@ lint:sonar-exclusions:
     - bash scripts/check-sonar-exclusions.sh
     - bash scripts/check-sonar-exclusions.sh --self-test
 
+lint:curl-hardening:
+  extends: .fast-job
+  # curl redirect-hardening gate (#2990). A `curl -L` without --proto-redir '=https'
+  # can be redirected onto plaintext http://, and in the drill scripts the fetched
+  # bytes are later `kubectl apply`d as cluster-admin (#2988). The only thing that
+  # caught it was the scheduled-only sonar:scan, days after merge. Pure text matching
+  # over `git ls-files` — no network, <1s. Waive a deliberate site with a
+  # `# curl-hardening-ok: <reason>` comment on the line above (see the script header).
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash git grep sed
+  script:
+    - bash scripts/check-curl-hardening.sh --self-test
+    - bash scripts/check-curl-hardening.sh
+
 ci:gate-selftest-parity:
   extends: .fast-job
   # Every CI gate proves it can still fail, in its own job, or records why it cannot
@@ -6840,6 +6859,89 @@ security:gitleaks:
   script:
     - gitleaks dir . --config .gitleaks.toml --no-banner --redact --exit-code 1
 
+security:gitleaks:history:
+  # Full-history secret scan on main (#942). security:gitleaks scans the checked-out
+  # TREE, which catches anything present now but is blind to a secret that was
+  # committed and then deleted — it is still in git history, still cloneable, and
+  # still needs rotating. This job walks every commit. MR pipelines are covered by
+  # the tree scan (it sees the whole diff) and by the pre-commit hook, so this one
+  # runs on main only, where a full clone (GIT_DEPTH 0) is affordable. The same
+  # .gitleaks.toml allowlist applies (it already carries the CI integration
+  # SECRET_KEY shape and other documented non-secrets).
+  stage: security
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  needs: []
+  variables:
+    GIT_DEPTH: "0"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache wget git
+    - wget -q -O /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+    - tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+    - chmod +x /usr/local/bin/gitleaks
+  script:
+    - gitleaks git . --config .gitleaks.toml --no-banner --redact --exit-code 1
+
+security:checkov:helm:
+  # IaC scan of the Helm chart with checkov (#941), automating the manual catch of
+  # #886 (default install shipped PG/Valkey credentials). Complements
+  # security:trivy:config, which gates HIGH/CRITICAL; checkov adds the Kubernetes
+  # hardening checks Trivy rates lower.
+  #
+  # Two passes over the chart rendered with default values:
+  #   1. HARD GATE on the checks the issue names that the chart already satisfies:
+  #      CKV_K8S_23 (no root containers; CKV_K8S_6 is a PodSecurityPolicy check that
+  #      never applies to Deployments, so it is not gated), CKV_K8S_20 (no privilege escalation),
+  #      CKV_K8S_37 (capabilities dropped), CKV_K8S_28 (no NET_RAW). A regression in
+  #      any of these fails the job.
+  #   2. INFORMATIONAL full scan (--soft-fail) so the remaining findings stay
+  #      visible in the log without blocking.
+  #
+  # Triaged baseline — accepted exceptions (NOT gated; do not "fix" by editing the
+  # gate list without revisiting these):
+  #   - CKV_K8S_10/11/12/13 (CPU/memory requests+limits): the API Deployment's
+  #     init containers (migrate, bootstrap, collectstatic) set no resources; sizing
+  #     a one-shot migration is install-specific and a limit risks OOM-killing it.
+  #   - CKV_K8S_22 (read-only root FS) on the bundled postgresql/valkey sub-charts:
+  #     same documented, intentional omission as .trivyignore.yaml KSV-0014; the
+  #     stateful images write sockets/AOF to the root filesystem. Dev/demo only.
+  #   - CKV2_K8S_6 (NetworkPolicy): the policies are opt-in (networkPolicy values),
+  #     off in the default render that is scanned here.
+  #   - CKV_K8S_21 (default namespace): `helm template` renders into `default`; real
+  #     installs set the release namespace.
+  #   - CKV_K8S_15/43/40/31/35/8/9: image-pull-policy, digest pinning, high UID,
+  #     seccomp, secrets-as-env and probes are operator-tunable chart values or a
+  #     deliberate design choice; tracked as hardening, not gated.
+  # Chart secrets: default credentials are covered by security:gitleaks and the
+  # values.schema.json required-credential checks, not by checkov.
+  #
+  # checkov's helm framework shells out to `helm template`, so the pinned helm
+  # release is installed with a checksum, matching the trivy/gitleaks pinned-binary
+  # pattern. Bump helm version + hash, and checkov, together deliberately.
+  stage: security
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/helm/**/*
+        - .gitlab-ci.yml
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates
+    - |
+      HELM_VERSION=3.14.0
+      HELM_SHA256=f43e1c3387de24547506ab05d24e5309c0ce0b228c23bd8aa64e9ec4b8206651
+      curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tar.gz
+      echo "${HELM_SHA256}  /tmp/helm.tar.gz" | sha256sum -c -
+      tar -xzf /tmp/helm.tar.gz -C /usr/local/bin --strip-components=1 linux-amd64/helm
+    - pip install --quiet --no-cache-dir checkov==3.3.30
+  script:
+    - |
+      checkov -d packages/helm --framework helm --quiet --compact \
+        --check CKV_K8S_20,CKV_K8S_23,CKV_K8S_28,CKV_K8S_37
+    - checkov -d packages/helm --framework helm --quiet --compact --soft-fail
+
 security:trivy:config:
   # IaC misconfiguration scan (Dockerfiles + Helm chart) via Trivy. Complements
   # security:osv (which covers dependency CVEs): this catches container/k8s
@@ -6903,6 +7005,28 @@ security:semgrep:
   # MR). Refresh with scripts/update-semgrep-rules.sh; keep the pack list there in
   # lockstep with the .semgrep/*.yml configs below. No Semgrep AppSec Platform
   # account or token is used — this is a self-contained, local-rules run.
+  #
+  # Web/TypeScript coverage (#943): packages/web/src is scanned by the default,
+  # react, typescript and javascript packs (XSS sinks, dangerouslySetInnerHTML,
+  # unvalidated redirects, injection). That satisfies the "SAST for web/TS" ask
+  # without a second job; the gate is the same ERROR+WARNING threshold as the
+  # API. Secrets are deliberately NOT a semgrep pack here — security:gitleaks
+  # owns that. Bandit was not superseded (separate decision).
+  #
+  # Timeouts (#3066). Semgrep's defaults are --timeout 5 (per rule, per file) and
+  # --timeout-threshold 3 (stop running rules on a file after 3 rule timeouts).
+  # The oversized modules (projects/views.py 18k lines, models.py, ScheduleView.tsx,
+  # BoardView.tsx) sat at 2 of 3 allowed timeouts on a normal run, so whether
+  # views.py was fully scanned was decided by runner load, not by the diff — and a
+  # file abandoned mid-scan still exited 0, so the green check overstated coverage.
+  # Two changes close that: --timeout 30 lets the slow rules finish (views.py scans
+  # clean in ~20s total locally with zero timeouts), and the script below FAILS the
+  # job if semgrep ever logs "stopped running rules", because a timeout is a
+  # Warning: line only and never changes the exit code. --timeout-threshold is
+  # raised to 5 for headroom but deliberately not 0: with 0 abandonment is
+  # impossible, so a rule that genuinely hangs would stall the job instead of
+  # being named. Do not lower --timeout back toward the default without
+  # re-checking those four files.
   stage: security
   image:
     name: semgrep/semgrep:1.166.0@sha256:c180f0c93a17b420c0af5006214a29d3c747c5459c732b740191adf657dd0068
@@ -6921,12 +7045,25 @@ security:semgrep:
   script:
     # --config against local files (not p/ pack names) → no network, no registry
     # variance. Scope, severity gate, and excludes are unchanged from the live run.
-    - semgrep scan
-        --config .semgrep/default.yml --config .semgrep/django.yml --config .semgrep/react.yml
-        --severity ERROR --severity WARNING --error --metrics off
-        --exclude 'node_modules' --exclude 'dist'
-        --exclude '*.test.ts' --exclude '*.test.tsx' --exclude 'e2e' --exclude 'tests'
-        packages/web/src packages/api/src packages/scheduler/src
+    # Output goes to a file (not a pipe) so the abandonment check below can read it
+    # and the semgrep exit code is not masked by pipefail/SIGPIPE quirks.
+    - |
+      rc=0
+      semgrep scan \
+        --config .semgrep/default.yml --config .semgrep/django.yml --config .semgrep/react.yml \
+        --config .semgrep/typescript.yml --config .semgrep/javascript.yml \
+        --severity ERROR --severity WARNING --error --metrics off \
+        --timeout 30 --timeout-threshold 5 \
+        --exclude 'node_modules' --exclude 'dist' \
+        --exclude '*.test.ts' --exclude '*.test.tsx' --exclude 'e2e' --exclude 'tests' \
+        packages/web/src packages/api/src packages/scheduler/src > semgrep.log 2>&1 || rc=$?
+      cat semgrep.log
+      if grep -q 'Semgrep stopped running rules' semgrep.log; then
+        echo "FAIL: semgrep abandoned a file after repeated rule timeouts (partial SAST coverage, #3066):" >&2
+        grep 'Semgrep stopped running rules' semgrep.log >&2
+        exit 1
+      fi
+      exit "$rc"
 
 renovate:
   # Self-hosted Renovate runner (the #1153 rollout, step 4). Opens grouped

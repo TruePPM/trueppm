@@ -68,7 +68,7 @@ install_publisher() {
   dir="$(mktemp -d)"
   # --proto '=https' keeps -L from following a redirect off HTTPS; the
   # SHA-256 check below catches a swapped payload, not a downgraded hop.
-  curl -sSfL --proto '=https' -o "$dir/mcp-publisher.tgz" \
+  curl -sSfL --proto '=https' --proto-redir '=https' -o "$dir/mcp-publisher.tgz" \
     "https://github.com/modelcontextprotocol/registry/releases/download/v${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
   echo "${PUBLISHER_SHA256}  $dir/mcp-publisher.tgz" | sha256sum -c -
   tar -xzf "$dir/mcp-publisher.tgz" -C "$dir" mcp-publisher
