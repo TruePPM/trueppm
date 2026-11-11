@@ -762,9 +762,13 @@ release it is scheduled for:
   applies to it. Scale benchmarks at
   50,000 and 100,000 tasks are tracked with the benchmark suite
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); Monte Carlo
-  holds three `(runs × tasks)` float64 matrices live in memory, already 2.3 GB
-  at 50,000 tasks
-  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)).
+  runs its forward pass over chunks of runs, which brings the peak at 50,000
+  tasks × 1,000 runs to about 920 MB (about 2.1 GB unchunked). The floor that
+  remains is the whole float64 sampled-duration matrix, which has to stay whole
+  to keep seeded results byte-identical; the target is under 250 MB
+  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)), and the remaining
+  options are tracked in
+  [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953).
 - **API contract / errors** — the derivation vocabulary
   (`DerivationContribution.kind`, `Derivation.quantity`/`pass_`) is still an
   open string, not a published enum
