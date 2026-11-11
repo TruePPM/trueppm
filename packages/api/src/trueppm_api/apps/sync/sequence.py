@@ -187,6 +187,32 @@ def raise_program_tombstone_floor() -> int:
     return seq
 
 
+def backfill_tombstone_floors(project_model: Any, program_sequence_model: Any) -> None:
+    """Raise every tombstone floor just above its sequence head (#2474 upgrade).
+
+    Called by ``sync.0008_backfill_tombstone_floor`` with the historical models.
+    Tombstones reaped before the floor existed never raised it, so the server
+    cannot tell which clients missed one: every cursor a client holds has to be
+    treated as stale, once. Each non-empty sequence therefore draws one fresh
+    value and its floor is set to it — strictly above every ``since`` already
+    handed out (``_below_tombstone_floor`` is a strict comparison, so a floor
+    equal to the old head would spare a client sitting exactly on it), and still
+    equal to the new head, so the ``timestamp`` a full re-sync adopts is never
+    below the floor. A sequence at 0 has handed out no cursor and is left alone.
+
+    One ``UPDATE`` per table: PostgreSQL evaluates every ``SET`` expression
+    against the pre-update row, so both columns receive ``old head + 1``.
+    """
+    project_model._base_manager.filter(last_sync_version__gt=0).update(
+        last_sync_version=F("last_sync_version") + 1,
+        tombstone_floor=Greatest(F("tombstone_floor"), F("last_sync_version") + 1),
+    )
+    program_sequence_model._base_manager.filter(value__gt=0).update(
+        value=F("value") + 1,
+        tombstone_floor=Greatest(F("tombstone_floor"), F("value") + 1),
+    )
+
+
 def _raise_to(project_ids: Iterable[Any], seq: int) -> None:
     """Raise every project's allocator to at least ``seq`` (monotonic)."""
     from trueppm_api.apps.projects.models import Project

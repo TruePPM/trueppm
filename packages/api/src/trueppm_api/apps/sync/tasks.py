@@ -261,8 +261,21 @@ def _do_reap(*, override_days: int | None = None) -> dict[str, int]:
 
     # One short transaction per project rather than one for the whole run, so a
     # nightly reap never holds every project's row lock at once.
+    # A failure in one project (a deadlock with a concurrent writer, a lock
+    # timeout) rolls back only that project's transaction — its tombstones and
+    # its floor together, so nothing leaks — and the next night retries it. It
+    # must not abort every remaining project's reap.
+    from django.db import OperationalError
+
     for project_id in sorted(candidates, key=str):
-        _reap_project(project_id, eligible, counts)
+        try:
+            _reap_project(project_id, eligible, counts)
+        except OperationalError:
+            logger.exception(
+                "reap_domain_tombstones: reap of project %s failed and was rolled back; "
+                "it will be retried on the next run",
+                project_id,
+            )
 
     for label, deleted in counts.items():
         if deleted:
@@ -290,17 +303,71 @@ def _owner_path(project_filters: dict[str, Any]) -> str:
     raise ValueError(f"registry entry has no project liveness filter: {project_filters!r}")
 
 
-def _delete_tracking_sync_seq(qs: Any) -> tuple[int, int]:
+def _delta_lookups(model: Any, project_id: Any) -> dict[str, Any] | None:
+    """Return the filter selecting ``model`` rows that ``project_id``'s pull delivers.
+
+    Mirrors the scoping of ``ProjectSyncView``'s delta: a row counts toward a
+    project's floor only if that project's single-project pull would have
+    delivered it. Graph edges are delivered only when **both** ends sit in the
+    project, so a cross-project ``Dependency`` / ``TaskRelation`` is never part of
+    either project's delta — and its ``sync_seq`` was drawn from the
+    predecessor's / source's sequence, which is a different number line from this
+    project's whenever the reaped task is the successor / target. Counting it
+    would inflate the floor above every cursor this project's clients hold and
+    force spurious re-syncs.
+
+    Returns ``None`` for a model outside the project sync union (it carries
+    ``sync_seq = 0`` and no pull delivers it) and for one this helper cannot
+    attribute to a single project (``Calendar``, which a task reap never
+    cascades to).
+    """
+    from trueppm_api.apps.projects.models import (
+        Dependency,
+        RetroActionItem,
+        SprintRetro,
+        TaskRelation,
+    )
+    from trueppm_api.apps.sync.sequence import OWNER_RESOLVERS
+
+    if model not in OWNER_RESOLVERS:
+        return None
+    if model is Dependency:
+        return {"predecessor__project_id": project_id, "successor__project_id": project_id}
+    if model is TaskRelation:
+        return {"source__project_id": project_id, "target__project_id": project_id}
+    if model is SprintRetro:
+        return {"sprint__project_id": project_id}
+    if model is RetroActionItem:
+        return {"retro__sprint__project_id": project_id}
+    names = {f.name for f in model._meta.concrete_fields}
+    if "project" in names:
+        return {"project_id": project_id}
+    if "task" in names:
+        return {"task__project_id": project_id}
+    return None
+
+
+def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int]:
     """Delete ``qs`` like ``QuerySet.delete()`` and return ``(rows, max_sync_seq)``.
 
-    The maximum covers every row the delete removes, **cascades included**. A
-    reaped ``Task`` cascades to rows that are not themselves eligible — a
-    ``Dependency`` tombstone still inside its retention window, or a live
-    ``TaskLink`` — and each of those vanishes without a deliverable tombstone just
-    as surely as the task does. A floor computed from the eligible rows alone
-    would let a client whose ``since`` sits between the task's cursor and the
-    cascaded row's keep the cascaded row forever. Rows outside the sync union
-    carry ``sync_seq = 0`` and contribute nothing.
+    The maximum covers every row the delete removes that ``project_id``'s pull
+    would have delivered, **cascades included**. A reaped ``Task`` cascades to
+    rows that are not themselves eligible — a ``Dependency`` tombstone still
+    inside its retention window, or a live ``TaskLink`` — and each of those
+    vanishes without a deliverable tombstone just as surely as the task does. A
+    floor computed from the eligible rows alone would let a client whose
+    ``since`` sits between the task's cursor and the cascaded row's keep the
+    cascaded row forever.
+
+    A cascaded row this project's pull never delivers — a cross-project edge, or
+    a row outside the sync union — is left out (:func:`_delta_lookups`): no
+    client of this project holds it, and its ``sync_seq`` may belong to another
+    project's sequence. The values are read from the database before the delete
+    so every row is filtered by the same lookups whether the collector loaded it
+    or queued it as a fast delete.
+
+    Soft-deleting a parent while its children stay live is a separate gap
+    (#4948): those children are not tombstones and the reap never sees them.
     """
     from django.db.models import Max
     from django.db.models.deletion import Collector
@@ -313,15 +380,20 @@ def _delete_tracking_sync_seq(qs: Any) -> tuple[int, int]:
     collector = Collector(using=del_query.db, origin=qs)
     collector.collect(del_query)
 
+    def _top(rows: Any, model: Any) -> int:
+        lookups = _delta_lookups(model, project_id)
+        if lookups is None or not _has_sync_seq(model):
+            return 0
+        value = rows.filter(**lookups).aggregate(top=Max("sync_seq"))["top"]
+        return int(value) if value is not None else 0
+
     top = 0
     for model, instances in collector.data.items():
-        if _has_sync_seq(model):
-            top = max([top, *(int(getattr(i, "sync_seq", 0)) for i in instances)])
+        pks = [i.pk for i in instances]
+        if pks:
+            top = max(top, _top(model._base_manager.filter(pk__in=pks), model))
     for fast in collector.fast_deletes:
-        if _has_sync_seq(fast.model):
-            value = fast.aggregate(top=Max("sync_seq"))["top"]
-            if value is not None:
-                top = max(top, int(value))
+        top = max(top, _top(fast, fast.model))
     deleted, _ = collector.delete()
     return int(deleted), top
 
@@ -340,13 +412,16 @@ def _reap_project(
     pull's tombstone query, and then the pull's post-query re-read of the floor
     (``ProjectSyncView``) sees the raised value and answers ``resync_required``.
 
-    **The project row is locked first, before any tombstone is read.** Every
-    ``sync_seq`` draw ``UPDATE``s this row (``apps/sync/sequence.py``), so holding
-    its lock means no tombstone of this project can be re-saved to a higher
-    ``sync_seq`` between the ``MAX`` below and the delete — the floor is exactly
-    the highest cursor removed. Taking the project lock before any row lock is
-    also the order every writer uses (allocate, then write the row), so the reap
-    cannot form a lock cycle with a sync upload.
+    **Atomicity, not lock order, keeps the floor sound.** The project row is
+    locked first, and every ``sync_seq`` draw ``UPDATE``s that row
+    (``apps/sync/sequence.py``), so no tombstone of this project can be re-saved
+    to a higher ``sync_seq`` between the reads below and the delete. That lock
+    order is *not* shared by every writer: many lock a ``Task`` row first and
+    then allocate (``projects/services.py``, ``Task.save()``), so the reap can
+    deadlock with one of them. PostgreSQL then aborts one side; if it is the
+    reap, the whole transaction — deletes and floor together — rolls back, no
+    tombstone is lost without its floor, and ``_do_reap`` moves on to the next
+    project and retries this one on the next run.
     """
     from django.db import transaction
     from django.db.models import F, Value
@@ -368,13 +443,12 @@ def _reap_project(
         floor = 0
         for Model, owner, qs in eligible:
             scoped = qs.filter(**{owner: project_id})
-            deleted, top = _delete_tracking_sync_seq(scoped)
+            deleted, top = _delete_tracking_sync_seq(scoped, project_id)
             counts[Model._meta.label_lower] += deleted
             floor = max(floor, top)
-        # Clamp to the project's own head. A cascade can reach a row that drew
-        # its cursor from ANOTHER project's sequence (a cross-project edge on a
-        # reaped task); its value means nothing on this project's number line.
-        # A floor above ``last_sync_version`` would make the full re-sync's own
+        # Clamp to the project's own head (defense in depth: every row counted
+        # above drew from this project's sequence, so it should already hold). A
+        # floor above ``last_sync_version`` would make the full re-sync's own
         # ``timestamp`` fall below it — a resync_required loop. ``floor <= head``
         # is the invariant that makes a full re-sync always terminate.
         floor = min(floor, int(head))

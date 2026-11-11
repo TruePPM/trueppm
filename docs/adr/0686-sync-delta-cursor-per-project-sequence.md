@@ -315,13 +315,22 @@ reap has removed. That includes rows the delete cascaded to, such as a dependenc
 tombstone that was still inside its window, or a live task link. The floor is
 clamped to `last_sync_version`.
 
-The reap runs one transaction per project. It locks the project row first, then
-reaps and raises the floor with `Greatest()` before it commits. Taking the lock
-first does two things:
+The floor counts only rows this project's own pull delivers. A cross-project
+`Dependency` or `TaskRelation` cascaded from a reaped task is in neither project's
+delta, and its `sync_seq` may come from the other project's sequence, so counting it
+would inflate the floor and force spurious re-syncs.
 
-- No tombstone can be re-saved to a higher cursor between the `MAX` and the delete.
-- The reap uses the same lock order as every writer (allocate, then write the row),
-  so it cannot deadlock with an upload.
+The reap runs one transaction per project. It locks the project row first, then
+reaps and raises the floor with `Greatest()` before it commits. Because every
+`sync_seq` draw updates that row, no tombstone can be re-saved to a higher cursor
+between the reads and the delete.
+
+**Atomicity, not lock order, is what keeps the floor sound.** Many writers lock a
+`Task` row first and then allocate (`projects/services.py`, `Task.save()`), the
+opposite of the reap's order, so the reap can deadlock with them. PostgreSQL then
+aborts one transaction. If it aborts the reap, the deletes and the floor roll back
+together, so no tombstone disappears without its floor. The reap logs the error,
+continues with the next project, and retries this one on the next run.
 
 `tombstone_floor` is in `_SERVER_OWNED_FIELDS`, so a stale `save()` cannot lower it.
 
@@ -349,10 +358,17 @@ rows.
 
 **Program pull (ADR-0747).** The program pull carries the same guard, against
 `ProgramSyncSequence.tombstone_floor`. No reaper removes program tombstones today.
-The one hard delete of program-scoped rows is `hard_delete_program` (sample-data
-teardown), which removes live rows with no tombstone at all. In the same transaction
-it draws a fresh program sequence value and raises the floor to it, so every client
-holding the deleted program re-syncs.
+Two paths hard-delete program-scoped rows, both removing live rows with no
+tombstone at all: `hard_delete_program` (sample-data teardown) and `purge_workspace`
+(ADR-0174). In the same transaction each one draws a fresh program sequence value and
+raises the floor to it, so every client holding the deleted programs re-syncs.
+
+**Upgrade backfill.** Tombstones reaped before the floor existed never raised it, and
+during a rolling update an old worker can still reap without raising it.
+`sync.0008_backfill_tombstone_floor` therefore draws one fresh value per project
+sequence and for the program sequence, and sets each floor to it. Every client re-syncs
+once after the upgrade. Rows an old worker reaps during the rollout are older than the
+retention window, so their cursors sit below the backfilled floor.
 
 **Ordering with #2342.** #2342 widens the reap registry from 5 models to every
 collection the delta serves. The reap computes the floor from whatever it deletes,

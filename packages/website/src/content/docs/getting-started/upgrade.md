@@ -127,6 +127,29 @@ retried, so a delivery attempted during the window is not replayed automatically
 once you fix the list. Set the new variables on the API, Celery worker, and Celery
 beat processes. See [Networking](/administration/networking/#split-horizon-and-internal-only-names).
 
+### Offline and sync clients re-sync once (`sync.0008`)
+
+0.5 will add a tombstone-retention floor to the delta pull (#2474). A pull whose
+`since` is older than the floor answers `resync_required: true`, and the client
+discards its local store and pulls again from `since=0` (see
+[Tombstone retention and `resync_required`](/features/offline-sync/#tombstone-retention-and-resync_required)).
+
+`sync.0008_backfill_tombstone_floor` raises every project's floor, and the
+program pull's floor, just above the current cursor. Tombstones the nightly
+reaper removed before the upgrade never recorded a floor, so the server cannot
+tell which clients missed one; the backfill therefore asks **every offline or
+sync client to re-sync once** after the upgrade. Expect one full pull per client
+and project, and a short spike in sync traffic.
+
+The backfill also covers the rolling update itself. A worker still running the
+0.4 image can run the nightly reap while the new pods start, and it does not
+raise the floor. The tombstones it can remove are older than the retention
+window, so their cursors predate the upgrade and sit below the backfilled floor,
+and a client that missed them is still asked to re-sync.
+
+**Rollback notes:** the migration's reverse is a no-op. Rolling back leaves the
+raised floors in place, which 0.4 never reads.
+
 ---
 
 ## Upgrading to 0.4

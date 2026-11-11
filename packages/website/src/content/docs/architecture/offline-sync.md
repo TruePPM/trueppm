@@ -1,6 +1,7 @@
 ---
 title: Offline sync architecture
 description: The primitive underneath every mobile and offline-first client — VersionedModel, the two counters that answer two different questions, soft-delete tombstones, the per-project delta cursor, and mobile batch atomicity.
+documentedFor: "0.5"
 ---
 
 [Offline Sync](/features/offline-sync/) documents the WatermelonDB-compatible
@@ -226,6 +227,28 @@ client that missed exactly one nightly cycle would never receive the
 tombstone and would carry a phantom row indefinitely. The fix added a
 dedicated `deleted_at` timestamp, stamped only inside `soft_delete()`, giving
 both models the same 90-day window `Risk` and `Sprint` already had.
+
+:::note[Ships in 0.5]
+The current release has no guard against a client that stays offline for longer
+than the retention window: its next pull is an ordinary delta that silently omits
+every deletion the job already reaped, and the phantom rows stay on the device.
+The tombstone floor and `resync_required` described below ship in 0.5.
+:::
+
+**The retention window still needs a floor.** A grace window only shrinks the
+phantom-row problem; it cannot close it. Once a tombstone is hard-deleted, no
+`sync_seq__gt=since` query can return that deletion, so a client offline for
+longer than the window would still keep the row. Each project therefore carries a
+`tombstone_floor`: the highest `sync_seq` of any row the reap removed, cascades
+included, counting only rows that project's own pull delivers. The reap raises it
+in the same transaction as the delete and never lowers it. A pull with
+`0 < since < floor` answers `resync_required: true` instead of a delta, and the
+client discards its store and pulls again from `since=0`. The program pull has the
+same guard against an installation-wide floor, raised whenever programs or program
+memberships are hard-deleted (`hard_delete_program` and `purge_workspace`). The
+floor never exceeds the sequence head, so the full re-sync always terminates. See
+[Tombstone retention and `resync_required`](/features/offline-sync/#tombstone-retention-and-resync_required)
+for the client contract and ADR-0686 for the concurrency argument.
 
 ### UUID primary keys
 

@@ -98,6 +98,17 @@ listed on the Retention & purge settings page. Changing the coordinator's schedu
 setting its frequency to `Off` — does not affect it. Tombstones inside an **archived**
 project are skipped entirely and retained indefinitely.
 
+:::note[Ships in 0.5]
+Starting in 0.5, the reap will also raise a per-project **tombstone floor**: the highest sync cursor
+of any row it removed. A sync client whose last pull is older than the floor may hold a
+row whose deletion can no longer be delivered, so its next pull will answer
+`resync_required: true` and the client will re-sync from scratch (see
+[Tombstone retention and `resync_required`](/features/offline-sync/#tombstone-retention-and-resync_required)).
+Lowering `TRUEPPM_TOMBSTONE_RETENTION_DAYS` will therefore make more long-offline clients
+re-sync. In the current release the reap raises no floor, and such a client silently
+keeps the deleted row.
+:::
+
 **The WebSocket event-replay buffer is reaped on its own schedule, too.**
 `TRUEPPM_BOARD_EVENT_RETENTION_HOURS` (default `24`) bounds how long `BoardEvent` rows —
 the replay buffer a reconnecting collaboration client uses to catch up on missed

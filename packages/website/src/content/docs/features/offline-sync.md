@@ -187,7 +187,9 @@ The shape is chosen to fail safe for a client that does not know the flag. It ap
 
 **Concurrency.** The floor is read twice: once off the project row before the delta, and again after the delta queries. The second read is what makes the guard sound. A delta query can miss a reaped tombstone only if the reap committed before that query ran. Because the floor was raised in that same transaction, the later read sees it.
 
-The program pull (`GET /api/v1/sync/user/programs/`) carries the same guard against an installation-wide floor. The program pull's floor is raised when a program is hard-deleted (sample-data teardown). That delete removes the program and its memberships without a tombstone, so every client holding them is asked to re-sync.
+The program pull (`GET /api/v1/sync/user/programs/`) carries the same guard against an installation-wide floor. The program pull's floor is raised whenever programs are hard-deleted: sample-data teardown and a full workspace purge. Both remove programs and their memberships without a tombstone, so every client holding them is asked to re-sync.
+
+After the upgrade to 0.5, every client is asked to re-sync once: the upgrade raises every floor just above the current cursor, because tombstones reaped before 0.5 never recorded one (see [Upgrading to 0.5](/getting-started/upgrade/#upgrading-to-05)).
 
 Task deletion cascades: all Dependency rows where the task is predecessor or successor are also soft-deleted. Mobile clients receive tombstones for both.
 

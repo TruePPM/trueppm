@@ -336,6 +336,14 @@ def purge_workspace() -> None:
         # PROTECT memberships must precede their parents.
         ProjectMembership.objects.all().delete()
         ProgramMembership.objects.all().delete()
+        # Programs and program memberships go without a tombstone, so every
+        # client holding them would keep them through any later program pull.
+        # Raising the program pull's floor in this transaction makes those pulls
+        # answer resync_required instead (#2474). Project pulls need no floor:
+        # their projects are gone, and the pull 404s.
+        from trueppm_api.apps.sync.sequence import raise_program_tombstone_floor
+
+        raise_program_tombstone_floor()
         # Projects cascade tasks/deps/baselines/sprints/risks/attachments/etc.
         Project.objects.all().delete()
         Program.objects.all().delete()
