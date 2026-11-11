@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Unit tests for ProgramScheduleLegend — covers the "Limited-view task"
  * hatch swatch, which moved off a hardcoded rgba(0,0,0,…) fill onto the

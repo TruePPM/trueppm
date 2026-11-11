@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // public/boot-guard.js is a classic script served outside the bundle (#4408);

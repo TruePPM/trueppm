@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Unit coverage for the drag/keyboard preview overlay.
  *

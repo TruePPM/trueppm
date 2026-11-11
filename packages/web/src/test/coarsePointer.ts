@@ -3,9 +3,9 @@ import { syncRowMetrics, syncComfortableRows } from '@/features/schedule/schedul
 let previousMatchMedia: { had: boolean; value: unknown } | null = null;
 
 /**
- * Make `(pointer: coarse)` answerable — and flippable — under jsdom (#2997).
+ * Make `(pointer: coarse)` answerable — and flippable — under the test DOM (#2997).
  *
- * jsdom ships no `matchMedia` at all, so every coarse-pointer branch in the app
+ * jsdom ships no `matchMedia` at all, and setup.ts installs a `min-width`-only stub for every environment, so every coarse-pointer branch in the app
  * resolves to `false` by default and a test that means to exercise the 44px path
  * will quietly assert the 28px one. That failure is invisible: the test passes.
  *

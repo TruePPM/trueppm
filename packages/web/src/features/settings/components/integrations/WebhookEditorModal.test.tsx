@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * WebhookEditorModal — create/edit flow + delivery log (#849).
  *
