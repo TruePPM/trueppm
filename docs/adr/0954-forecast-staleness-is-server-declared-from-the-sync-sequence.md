@@ -180,7 +180,9 @@ removes. It only ever runs while the socket is down, and pauses on a hidden tab.
   installation-wide; exposing it would be a genuine cross-tenant write-volume oracle rather
   than a per-project one.
 * This module is now a **consumer of the sync allocator's monotonicity invariant**, whose
-  writer-side precondition is tracked in #2617. A future change to the allocator changes
+  writer-side precondition is tracked in #2617.
+  *Amended 2026-11-10: closed by #2617* — `VersionedModel.save()` now commits the cursor draw
+  and its row in one transaction, and direct allocator draws are gated by `_require_atomic()`. A future change to the allocator changes
   what "stale" means here — a coupling invisible from either file alone, and the strongest
   single reason this is an ADR.
 * **The `unknown` tail is permanent in Enterprise.** The nullable-no-backfill precedent

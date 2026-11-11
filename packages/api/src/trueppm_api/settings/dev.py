@@ -90,6 +90,9 @@ environ.Env.read_env(env_file=".env", overwrite=False)
 
 DEBUG = True
 
+# Raise, rather than log, when a sync cursor is drawn in autocommit (#2617).
+TRUEPPM_SYNC_SEQ_REQUIRE_ATOMIC = True
+
 ALLOWED_HOSTS = ["*"]
 
 # Deterministic Fernet key for dev / pytest only — never use this value in

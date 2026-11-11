@@ -14,7 +14,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models, transaction
+from django.db import models, router, transaction
 from django.db.models import Exists, F, OuterRef, Q, QuerySet
 from django.db.models.functions import Lower, Upper
 from django.utils import timezone
@@ -339,6 +339,30 @@ class VersionedModel(models.Model):
         ``F()`` semantics — concurrent writers serialize on the row lock and get a
         strict version order — while removing the separate refetch query (#1527).
         """
+        # The ``sync_seq`` draw (an UPDATE on the owning project) and the row write
+        # below are separate statements, and the delta pull is lossless only if they
+        # commit together (#2617). Otherwise, in autocommit, the allocator bump
+        # commits first: a pull in the gap reports ``last_sync_version = W`` while
+        # the row stamped ``W`` is still invisible, the client adopts ``since = W``,
+        # and ``sync_seq__gt=W`` excludes that row from every later pull. No reader
+        # isolation level can close that window — a snapshot cannot reveal a row
+        # that has not committed — so the writer must.
+        #
+        # Inside an existing transaction (every HTTP request via ATOMIC_REQUESTS,
+        # and every batch writer) the statements already commit together, so the
+        # block is opened ONLY in autocommit: the hot path issues no extra
+        # SAVEPOINT round-trips and its error/rollback semantics are unchanged.
+        using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+        if transaction.get_connection(using).in_atomic_block:
+            self._save_versioned(args, known_exists, kwargs)
+            return
+        with transaction.atomic(using=using):
+            self._save_versioned(args, known_exists, kwargs)
+
+    def _save_versioned(
+        self, args: tuple[Any, ...], known_exists: bool | None, kwargs: dict[str, Any]
+    ) -> None:
+        """Body of :meth:`save`; must run inside a transaction (see ``save``)."""
         manager = type(self).objects  # type: ignore[attr-defined]
         # DRF's serializer.save() cannot forward an extra save() kwarg down to the
         # model, so the sync upload marks the instance instead; the marker is a

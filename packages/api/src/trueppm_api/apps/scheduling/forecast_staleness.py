@@ -72,7 +72,8 @@ subset of its owner's own access — the mixin confines tokens to safe methods b
 same ``IsProjectMember`` gate — but "no new audience" would be the wrong summary.
 
 This module is now a *consumer* of the allocator's monotonicity invariant, whose
-writer-side precondition is tracked in #2617 — a change to the allocator changes what
+writer-side precondition is enforced by ``VersionedModel.save()`` and the allocator's
+autocommit guard (#2617) — a change to the allocator changes what
 "stale" means here.
 
 **Composes with, and does not supersede, ``risk_premium_state``.** That enum answers a
