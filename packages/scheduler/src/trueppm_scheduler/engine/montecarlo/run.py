@@ -81,7 +81,7 @@ _MC_REFERENCE_BLOCK_CELLS = 65_536
 # Cells (runs x tasks) per forward-pass chunk (#3824). The forward pass keeps five
 # runs x tasks matrices live (ES, EF and the instant deficit in float64, the instant
 # ordinal in int32, its display flag in bool: 29 bytes a cell) plus a working-time
-# copy, so running it over every run at once peaked at ~1.4 GB for 50,000 tasks x
+# copy, so running it over every run at once peaked at ~2.1 GB (2,088 MB) for 50k tasks x
 # 1,000 runs. Each run is an independent row of that pass, so it runs over row
 # chunks instead and keeps only each run's finish. The forward pass walks the tasks
 # in a Python loop that issues ~10 small numpy calls per task per chunk, so its cost
