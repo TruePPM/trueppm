@@ -1,7 +1,7 @@
 ---
 title: Try TruePPM
 description: Two zero-config ways to evaluate TruePPM before you install anything — a hosted read-only demo and a one-command local trial.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 TruePPM's zero-config evaluation paths — a hosted read-only demo and a
@@ -52,11 +52,22 @@ docker compose -f docker-compose.demo.yml logs demo-seed | grep 'URL:'
 ```
 
 :::note[Read-only by construction]
-The demo seed runs **without** persona logins — there are no accounts and no
-authenticated write path, so there is nothing to lock down. This is deliberately
-**not** the local development stack (`docker compose up`, which creates the six
-`demo`-password persona logins). Use the demo compose file to *show* TruePPM; use
-the [dev stack](/getting-started/quickstart/) to *build* with it.
+The demo seed runs **without** persona logins, and the stack enforces read-only
+at the API: `DemoReadOnlyMiddleware` refuses every write request under `/api/`
+whatever the caller's authentication, and nginx only proxies the share, health and
+static-asset routes. This is deliberately **not** the local development stack
+(`docker compose up`, which creates the six `demo`-password persona logins). Use
+the demo compose file to *show* TruePPM; use the [dev stack](/getting-started/quickstart/)
+to *build* with it.
+:::
+
+:::note[Ships in 0.5]
+Per-install demo secrets: from 0.5, the first `up` generates a unique `SECRET_KEY` and
+`INTEGRATION_ENCRYPTION_KEY` for your install and stores them in the
+`demo_secrets` volume, so no two demo installs share a signing key. You do not
+need to set anything; `docker compose -f docker-compose.demo.yml down -v` discards
+them along with the rest of the demo's data. Until 0.5, the demo compose file bakes
+a public `SECRET_KEY`: do not expose that stack to a network you do not control.
 :::
 
 ### Pin a stable share URL

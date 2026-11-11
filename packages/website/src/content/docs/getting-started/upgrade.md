@@ -181,6 +181,17 @@ floor itself.
 **Rollback notes:** the migration's reverse is a no-op. Rolling back leaves the
 raised floors in place, which 0.4 never reads.
 
+### Demo compose stack generates its own secrets
+
+`docker-compose.demo.yml` will stop baking a shared `SECRET_KEY` and
+`INTEGRATION_ENCRYPTION_KEY` in 0.5. A new `secrets-init` service will generate
+them on first boot into a `demo_secrets` volume. **No action will be needed** on
+an existing demo install: its first `up` after the upgrade will create the
+secrets, and the demo holds no data that depends on the old keys. The Postgres
+password is unchanged, so your existing database volume will keep working. If you
+ran the demo stack on a reachable host before 0.5, treat the old public key as
+exposed and restart it on 0.5 so the key is replaced.
+
 ---
 
 ## Upgrading to 0.4

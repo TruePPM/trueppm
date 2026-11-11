@@ -91,14 +91,17 @@ single-server production stack below or the Helm chart.
 `docker-compose.demo.yml` is a **separate, hardened** stack for a public hosted
 demo (the mechanism behind `try.trueppm.com`, which went live with 0.4, the
 first beta) —
-not the dev stack above. It seeds the sample **without** persona logins, so the
-instance has **zero user accounts and no authenticated write path**; the only way
-in is the product's own anonymous, tokenized, read-only
-[schedule share link](/administration/sharing-and-access/).
+not the dev stack above. It seeds the sample **without** persona logins. The
+seeded accounts carry unusable passwords, so nobody can sign in, and
+`DemoReadOnlyMiddleware` refuses every write request under `/api/` whatever the
+caller's authentication. The only way in is the product's own anonymous,
+tokenized, read-only [schedule share link](/administration/sharing-and-access/).
 
-That no-accounts invariant is what makes the stack's baked demo `SECRET_KEY` safe,
-so the demo's reverse proxy (`nginx/demo.conf.template`) treats the API surface as
-an **explicit allowlist**, not a blanket proxy. Only these routes reach the API
+In 0.4 the stack bakes a demo `SECRET_KEY`. The read-only middleware plus the
+reverse-proxy allowlist below are what keep that safe, so the demo's reverse proxy
+(`nginx/demo.conf.template`) treats the API surface as an **explicit allowlist**,
+not a blanket proxy. From 0.5 the stack will generate per-install secrets on first
+start instead of shipping a shared key. Only these routes reach the API
 container from the public internet:
 
 | Public route | Why it is open |
@@ -106,7 +109,7 @@ container from the public internet:
 | `GET /api/v1/share/{schedule,board}/<token>/` | The anonymous, read-only, throttled share-link projections — the demo's only data plane. |
 | `GET /api/v1/health/` | Liveness probe for an upstream load balancer / ingress. |
 | `/static/` | Django-collected static assets (admin CSS, etc.). |
-| `/admin/` | Django admin — closed unconditionally by nginx's own `deny all`, which returns `403` before the request ever reaches the `api` container; the request never gets a chance to hit Django at all. Even a direct connection to `api` would find no accounts to administer, since this stack runs without `TRUEPPM_DJANGO_ADMIN_ENABLED`. |
+| `/admin/` | Django admin — closed unconditionally by nginx's own `deny all`, which returns `403` before the request ever reaches the `api` container; the request never gets a chance to hit Django at all. Even a direct connection to `api` would find no account that can sign in (the seeded accounts carry unusable passwords), and this stack runs without `TRUEPPM_DJANGO_ADMIN_ENABLED`. |
 
 Every **other** `/api/` route — `auth/token` and the rest of the auth surface,
 every project viewset, the Admin-only share-link *management* endpoints, workspace

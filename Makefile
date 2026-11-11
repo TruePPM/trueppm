@@ -395,6 +395,7 @@ demo-readonly-check: ## Fail if a demo manifest enables persona logins (#2773)
 	@# The hosted demo's read-only posture is what makes publishing it safe, and
 	@# it is enforced by the absence of one flag in two YAML files. Grep, ~1s.
 	@bash scripts/check-demo-readonly.sh
+	@bash scripts/check-demo-compose-secrets.sh
 
 enterprise-boundary-check: ## Fail if OSS source imports from trueppm-enterprise (#2603)
 	@# The Apache 2.0 boundary's one hard rule, which until #2603 was enforced by

@@ -109,6 +109,7 @@ ci:build-deploy-images:
         - packages/api/Dockerfile
         - packages/web/Dockerfile
         - nginx/demo.conf.template
+        - scripts/demo-init-secrets.sh
         - scripts/dev-demo-compose-drill.sh
         - .gitlab/ci/deploy-drills.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'

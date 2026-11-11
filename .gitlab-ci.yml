@@ -764,7 +764,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -817,11 +817,12 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
   script:
+    - bash scripts/tests/demo-init-secrets.test.sh
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
     - bash scripts/tests/assemble-changelog.test.sh
     - bash scripts/tests/release-staging.test.sh
@@ -1902,10 +1903,10 @@ docs:adr-status:
 security:demo-nginx-allowlist:
   extends: .fast-job
   # Public-demo nginx allowlist gate (#1763, extended #4356). The hosted
-  # read-only demo (try.trueppm.com / docker-compose.demo.yml) bakes a fixed
-  # SECRET_KEY that is safe ONLY because the demo has zero accounts and no
-  # authenticated write path — access is exclusively the anonymous, tokenized,
-  # read-only share link. A blanket `location /api/ { proxy_pass … }` on the
+  # read-only demo (try.trueppm.com / docker-compose.demo.yml) is
+  # read-only by construction (DemoReadOnlyMiddleware) and reachable only through
+  # the anonymous, tokenized, read-only share link; its SECRET_KEY is generated
+  # per install on first boot (#4946). A blanket `location /api/ { proxy_pass … }` on the
   # demo's nginx template (the production posture) would expose the full
   # authenticated API to the public internet, breaking that invariant. This
   # gate fails the pipeline if nginx/demo.conf.template ever regresses to
@@ -2564,12 +2565,14 @@ demo:readonly-posture:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
-    - apk add --no-cache bash grep sed
+    - apk add --no-cache bash grep sed gawk
   script:
     # Self-test first: a guard nobody has watched fail is indistinguishable from
     # one with a typo in its pattern.
     - bash scripts/check-demo-readonly.sh --self-test
     - bash scripts/check-demo-readonly.sh
+    - bash scripts/check-demo-compose-secrets.sh --self-test
+    - bash scripts/check-demo-compose-secrets.sh
 
 web:playwright-pins:
   extends: .fast-job

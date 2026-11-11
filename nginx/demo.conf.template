@@ -7,9 +7,9 @@
 # or reverse proxy (the demo deploy runbook covers try.trueppm.com's certificate).
 #
 # ── Public API surface is an ALLOWLIST, not a blanket proxy (#1763) ────────────
-# The demo's entire security model rests on one invariant: zero user accounts and
-# no authenticated write path (see the SECRET_KEY note in docker-compose.demo.yml,
-# which bakes a demo secret that is safe ONLY under that invariant). A blanket
+# The demo's read-only access rests on DemoReadOnlyMiddleware plus this
+# allowlist; its seeded accounts carry unusable passwords, so nothing can sign
+# in (see the SECRET_KEY note in docker-compose.demo.yml). A blanket
 # `location /api/ { proxy_pass … }` — as production uses — would expose the full
 # authenticated API surface (auth/token, every project viewset, the Admin-only
 # share-link management endpoints, workspace SSO, the OpenAPI schema) to the

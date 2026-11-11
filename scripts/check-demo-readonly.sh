@@ -67,7 +67,7 @@ READONLY_ENV_PATTERN='^[[:space:]]*TRUEPPM_DEMO_READ_ONLY:[[:space:]]*"true"[[:s
 
 # Two patterns, one posture. `--with-personas` creates login-capable persona
 # accounts; `create_admin` creates a superuser (#3187). Either one alone makes
-# the demo's baked, public SECRET_KEY a forgeable token for a real account, so
+# a leaked or shared SECRET_KEY a forgeable token for a real account, so
 # the guard has to cover both — it previously covered only the first, while
 # docker-compose.demo.yml ran create_admin and three of its own comments claimed
 # it did not.
@@ -144,7 +144,7 @@ and reach the write surface — including the ungoverned `legacy:full` token pat
 (#2749).
 
 It is worse than it looks on this stack specifically: docker-compose.demo.yml
-bakes a PUBLIC SECRET_KEY, and JWT_SIGNING_KEY derives from it, so any
+used to bake a PUBLIC SECRET_KEY (now generated per install, #4946), and JWT_SIGNING_KEY derives from it, so any
 login-capable account is one whose tokens anyone can forge from a value printed
 in this repository. The only thing between that and the internet is the `/api/`
 allowlist in nginx/demo.conf.template — one config line, no defense behind it.
