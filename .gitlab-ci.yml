@@ -880,6 +880,42 @@ boundary:check:
   script:
     - bash scripts/check-issue-boundary.sh
 
+tracker:release-labels:
+  extends: .fast-job
+  # Release-commitment label gate (#3444): every open issue in a dated milestone
+  # carries exactly one release::* label, and no audit-batch-labeled issue sits
+  # outside every milestone (CLAUDE.md § Milestone commitment). The gate reports;
+  # it never relabels - the value is a human's call. Runs on main pushes and on
+  # schedule, beside boundary:check, because the state it reads changes outside
+  # MRs.
+  #
+  # Reads the public issues list through scripts/lib/gitlab-issues.sh (retry,
+  # 429, ISSUES_API_TOKEN fallback) - the shared reader exists because per-gate
+  # tracker reads 429'd main. Exit 3 means the tracker was unreadable: that is
+  # infrastructure, so it is retried here instead of reding main on a code fix
+  # nobody can write.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  retry:
+    max: 2
+    exit_codes: [3]
+  # First landing: 92 open 0.5 issues carry no release:: label today (measured
+  # when this gate was written), so a hard failure would red main on merge for
+  # backlog nobody's commit caused. Exit 1 (violations found) is therefore an
+  # allowed failure - the job shows orange with the offender list - while exit 2
+  # (could not analyze) and exit 3 (tracker unreadable) still fail it. Tighten
+  # to a hard gate by deleting this block once the 0.5 backlog is labeled.
+  allow_failure:
+    exit_codes: [1]
+  before_script:
+    - apk add --no-cache curl jq bash
+  script:
+    - bash scripts/check-release-labels.sh --self-test
+    - bash scripts/check-release-labels.sh
+
 chore:release-stale-wip-labels:
   extends: .fast-job
   # Strip `status::wip` from closed issues (#2693). The label is a checked claim —

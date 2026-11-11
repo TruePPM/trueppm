@@ -65,6 +65,26 @@ gitlab_issues_by_label() {
   done
 }
 
+# gitlab_json_list <api> <project> <token-or-empty> <path> <query>
+#
+# Pages through any list endpoint under /projects/<project>/<path> (e.g.
+# `milestones`, `issues`) and prints ONE merged JSON array of every row, so a
+# caller that needs raw fields (created_at, description, due_date) does not
+# re-implement paging or retry (#3444). Same retry/429/token behavior as the
+# other readers; returns 2 when the tracker could not be read.
+gitlab_json_list() {
+  local api="$1" project="$2" token="$3" path="$4" query="$5"
+  local page=1 body n acc="[]"
+  while :; do
+    body=$(_gitlab_get "${api}/projects/${project}/${path}?per_page=100&${query}&page=${page}" "$token") || return 2
+    n=$(printf '%s' "$body" | jq 'length') || return 2
+    acc=$(jq -c -s '.[0] + .[1]' <(printf '%s' "$acc") <(printf '%s' "$body")) || return 2
+    [ "$n" -lt 100 ] && break
+    page=$((page + 1))
+  done
+  printf '%s\n' "$acc"
+}
+
 _gitlab_issue_batch() {
   local api="$1" project="$2" token="$3"
   shift 3

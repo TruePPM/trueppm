@@ -221,6 +221,7 @@ hold exactly one of these and the tracker enforces it:
   instruction already names the label, apply it without asking. If the user does not
   answer, leave the issue unlabeled and say so — an unlabeled issue in a dated milestone
   is a visible gap, a guessed label is an invisible one.
+- `tracker:release-labels` (`scripts/check-release-labels.sh`, main + schedule) fails when a dated-milestone issue lacks exactly one of the three, or when an audit-batch-labeled issue (`voc-audit`, `ux-audit-*`, `*-audit-YYYYMMDD`, …) has no milestone at all; it only reports, the fix is `glab issue update`.
 - Changing an issue's commitment is applying the new value; the scoped key drops the old
   one. Do not stack them.
 - `direction` remains the label for intended-but-unmilestoned work; it is not a fourth
