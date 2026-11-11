@@ -486,6 +486,17 @@ def monte_carlo(
        ``duration=20`` violated the binding just as hard.
 
     .. note::
+       An in-progress task's remaining work is **subtractive** (ADR-0132, #1495):
+       its elapsed portion is history — ``int(duration * percent_complete / 100)``
+       working days of the *planned* duration, as :func:`schedule` counts it — and
+       each run's sampled total less that fixed elapsed is the work still to do. A
+       run therefore equals :func:`schedule` of the task holding the same elapsed
+       days and the sampled total, not of a task whose percentage is applied to the
+       sampled total. Because sampled totals are floored at ``duration`` first,
+       remaining work is never below the deterministic remaining work, and a
+       nearly complete task keeps its estimate's whole spread on the work left.
+
+    .. note::
        The per-run sprint horizon of the velocity path is capped at
        ``ceil(story_points / mean_velocity) * 4 + 10`` sprints; any run that has
        not burned down by that horizon is clamped to it rather than sampled

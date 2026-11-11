@@ -228,6 +228,25 @@ date (`packages/scheduler/tests/test_started_link_anchor.py`, and the `started_`
   for an in-progress SCRUM task. This mapping is applied in the shared API
   input-builder (§4), since `remaining_points` is a Django-side concept.
 
+> **Amendment (2026-11-11, #1495) — Monte Carlo's PERT remaining work is
+> subtractive, not scaled.** The engines never implemented the PERT half of the
+> first bullet. For the deterministic duration the two readings coincide
+> (`duration − int(duration × pct / 100)`), but Monte Carlo takes each run's
+> sampled total *less the fixed elapsed* `int(duration × pct / 100)` working days of
+> the planned duration, rather than scaling the three points by `f`. That is now
+> the recorded rule, for three reasons: elapsed time is history, so it should not
+> vary run to run; the derived span start that SS/SF links from started work
+> measure from (§2a) is a fixed number of elapsed days before the remaining window,
+> which a per-run elapsed would move; and the what-if transform
+> (`_shift_remaining_work`, `perturb_task_duration`, #4820) is built on a fixed
+> elapsed. The truncation #1495 was filed for — a sample below the elapsed days
+> flooring the remainder at one day — cannot occur since every sampled total is
+> floored at `duration` first (#3765). The consequence to know: the whole sampled
+> spread lands on the remaining work, so a nearly complete task keeps its full
+> estimate band. The fixed-sample oracle for this model is "pinned estimate `k`
+> equals `schedule()` of the task holding the same elapsed days and `k` in total"
+> (`tests/test_monte_carlo_in_progress_remaining.py`).
+
 ### 4. Single shared input-builder (closes the #1185 bug class)
 
 Introduce `build_sched_project(db_project, db_tasks, db_deps, *, status_date)`
