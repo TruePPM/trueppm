@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  _isoMsCacheSize,
   buildScaleData,
   buildScaleDataFromPxPerDay,
   clampPxPerDay,
@@ -361,5 +362,21 @@ describe('buildScaleDataFromPxPerDay', () => {
     // The discrete builder pins the exact tier label regardless of deriveTier.
     const s = buildScaleData('quarter', '2026-01-01', '2027-01-01');
     expect(s.zoomLevel).toBe('quarter');
+  });
+});
+
+describe('dateToLeft ISO→ms memo (#1539)', () => {
+  it('memoizes each distinct date string once and returns identical x', () => {
+    const sc = buildScaleData('week', '2026-04-01', '2026-05-01');
+    const before = _isoMsCacheSize();
+    const a = dateToLeft('2031-07-09', sc);
+    expect(_isoMsCacheSize()).toBe(before + 1);
+    expect(dateToLeft('2031-07-09', sc)).toBe(a);
+    expect(_isoMsCacheSize()).toBe(before + 1);
+    // Same date at a different zoom still maps correctly (memo is scale-free).
+    const sc2 = buildScaleData('day', '2026-04-01', '2026-05-01');
+    expect(dateToLeft('2031-07-09', sc2)).toBeCloseTo(
+      (new Date('2031-07-09T00:00:00Z').getTime() - sc2.start.getTime()) * sc2.pxPerMs,
+    );
   });
 });

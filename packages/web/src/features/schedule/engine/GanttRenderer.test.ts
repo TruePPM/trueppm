@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import {
   drawDependencyArrows,
   prepareDependencyLayout,
@@ -8,6 +8,7 @@ import {
   drawScheduleVarianceBadge,
   drawTimelineHeader,
   drawRowBands,
+  resetTextMeasureCache,
   drawGridLines,
   drawTodayLine,
   drawMilestone,
@@ -46,6 +47,10 @@ import {
 import { CADENCE_RAIL_HEIGHT, HEADER_HEIGHT } from '../scheduleConstants';
 import type { Task } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
+
+// Text widths are memoized per (font, text) across calls (#1539); tests that
+// stub measureText differently must not inherit a prior test's cached widths.
+beforeEach(() => resetTextMeasureCache());
 
 function makeCtxSpy() {
   const calls: Array<{ name: string; args: unknown[] }> = [];
@@ -781,6 +786,20 @@ describe('drawTaskBar — skipLabel parameter (z-order regression)', () => {
     drawTaskBar(ctx, task, 0, scales, 0, false, VIEWPORT_W);
     const nameCalls = calls.filter((c) => c.name === 'fillText' && c.args[0] === 'My Task');
     expect(nameCalls.length).toBeGreaterThan(0);
+  });
+
+  it('memoizes text widths per (font, text) until reset (#1539)', () => {
+    const { ctx } = makeCtxSpy();
+    const task = makeBarTask({ name: 'My Task' });
+    const measure = ctx.measureText as ReturnType<typeof vi.fn>;
+    drawTaskBarLabel(ctx, task, 0, scales, 0, VIEWPORT_W);
+    const first = measure.mock.calls.length;
+    expect(first).toBeGreaterThan(0);
+    drawTaskBarLabel(ctx, task, 0, scales, 0, VIEWPORT_W);
+    expect(measure.mock.calls.length).toBe(first);
+    resetTextMeasureCache();
+    drawTaskBarLabel(ctx, task, 0, scales, 0, VIEWPORT_W);
+    expect(measure.mock.calls.length).toBe(first * 2);
   });
 
   it('drawTaskBarLabel draws only the task name (no bar fill, no chip, no initials)', () => {
@@ -1678,6 +1697,14 @@ describe('draw primitives (#848 coverage)', () => {
       // rows 1 and 3 are odd → two alternating bands
       expect(rects.length).toBe(2);
       expect(rects[0].args[1]).toBeCloseTo(1 * ROW_HEIGHT + HEADER_HEIGHT);
+    });
+
+    it('does not overdraw past the viewport width when scrolled (#1539)', () => {
+      const { ctx, calls } = makeCtxSpy();
+      drawRowBands(ctx, 0, 3, 640, 0, 1000);
+      for (const r of calls.filter((c) => c.name === 'fillRect')) {
+        expect(r.args[2]).toBe(1000);
+      }
     });
 
     it('draws nothing when the range contains no odd rows', () => {

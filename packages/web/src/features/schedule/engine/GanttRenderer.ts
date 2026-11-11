@@ -516,6 +516,39 @@ function isWeekend(date: Date): boolean {
 // Draw: background layer
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Text measurement cache (#1539)
+// ---------------------------------------------------------------------------
+
+/**
+ * `ctx.measureText` width keyed by (font, text). A width is a pure function of
+ * those two, but measuring is a layout call and the label / chip / initials
+ * passes repeated it for the same frame-invariant strings on every repaint.
+ * Entries are dropped wholesale when the web font finishes loading (widths
+ * change) and past a size cap; callers must have set `ctx.font` first.
+ */
+const _textWidthCache = new Map<string, number>();
+const TEXT_WIDTH_CACHE_MAX = 5_000;
+
+export function resetTextMeasureCache(): void {
+  _textWidthCache.clear();
+}
+
+if (typeof document !== 'undefined' && document.fonts?.addEventListener) {
+  document.fonts.addEventListener('loadingdone', resetTextMeasureCache);
+}
+
+function measureTextWidth(ctx: CanvasRenderingContext2D, text: string): number {
+  const key = `${ctx.font}\u0000${text}`;
+  let w = _textWidthCache.get(key);
+  if (w === undefined) {
+    if (_textWidthCache.size >= TEXT_WIDTH_CACHE_MAX) _textWidthCache.clear();
+    w = ctx.measureText(text).width;
+    _textWidthCache.set(key, w);
+  }
+  return w;
+}
+
 /**
  * Draw alternating row bands for the given visible row range.
  * Called on canvas-bg; only odd rows get the alt shade.
@@ -525,7 +558,7 @@ export function drawRowBands(
   ctx: CanvasRenderingContext2D,
   firstRow: number,
   lastRow: number,
-  scrollLeft: number,
+  _scrollLeft: number,
   scrollTop: number,
   canvasWidth: number,
 ): void {
@@ -536,7 +569,8 @@ export function drawRowBands(
   for (let i = firstRow; i <= lastRow; i++) {
     if (i % 2 !== 0) {
       ctx.fillStyle = _palette.rowBandAlt;
-      ctx.fillRect(0, i * rowH + CHART_HEADER_HEIGHT - scrollTop, canvasWidth + scrollLeft, rowH);
+      // canvasWidth is already viewport-space; adding scrollLeft overdrew the band.
+      ctx.fillRect(0, i * rowH + CHART_HEADER_HEIGHT - scrollTop, canvasWidth, rowH);
     }
   }
 }
@@ -1024,7 +1058,6 @@ function drawHeaderCell(
   ctx.restore();
 }
 
-
 /** Safety cap on the backward walk in `findCellStart` — the largest possible
  *  header cell is one year (365/366 days, calendar or fiscal), so this bounds
  *  the search to a small constant regardless of total project length. */
@@ -1350,7 +1383,7 @@ function drawCadenceSegmentLabel(
   canvasWidth: number,
 ): void {
   const label = truncateToWidth(ctx, segment.label, width - CADENCE_LABEL_PAD_X * 2);
-  const textWidth = ctx.measureText(label).width;
+  const textWidth = measureTextWidth(ctx, label);
   let x = left + (width - textWidth) / 2;
   const lo = Math.max(left + CADENCE_LABEL_PAD_X, CADENCE_LABEL_PAD_X);
   const hi = Math.min(
@@ -1433,7 +1466,7 @@ function drawTaskBarChip(
 
   ctx.save();
   ctx.font = chipFont();
-  const textW = ctx.measureText(label).width;
+  const textW = measureTextWidth(ctx, label);
   const chipW = Math.max(28, textW + chipPadX * 2);
   const chipX = barLeft + 4;
   const chipY = barTop + (BAR_HEIGHT - chipH) / 2;
@@ -1959,7 +1992,7 @@ function drawAssigneeInitials(
   ctx.font = canvasFont();
   ctx.fillStyle = _palette.chipTextOnSurface;
   ctx.textBaseline = 'middle';
-  const textWidth = ctx.measureText(initials).width;
+  const textWidth = measureTextWidth(ctx, initials);
   ctx.fillText(initials, barLeft + barWidth - 4 - textWidth, barTop + BAR_HEIGHT / 2);
   ctx.font = canvasFont(); // Reset to engine default (rule 71)
 }
@@ -2026,7 +2059,7 @@ export function drawTaskBarLabel(
   ctx.fillStyle = _palette.textSecondary;
   ctx.textBaseline = 'middle';
   const nameY = barTop + BAR_HEIGHT / 2;
-  const nameWidth = ctx.measureText(task.name).width;
+  const nameWidth = measureTextWidth(ctx, task.name);
   // Shift the label right past the external-link dot when one is drawn (issue 767).
   const rightOfBar = barRight + (hasLinkStatusDot(task, scales) ? LINK_DOT_LABEL_OFFSET : 4);
   const nameRight = rightOfBar + nameWidth;
@@ -2044,12 +2077,12 @@ export function drawTaskBarLabel(
     // ellipsis names no task and reads as a rendering fault, so the floor is the
     // ellipsis plus a glyph — below it the label is omitted, which is what the
     // absent-vs-broken distinction asks for.
-    const floor = ctx.measureText('…W').width;
+    const floor = measureTextWidth(ctx, '…W');
     const leftRoom = barLeft - 4;
     const rightRoom = viewportWidth - 8 - rightOfBar;
     if (leftRoom >= rightRoom && leftRoom >= floor) {
       const capped = truncateToWidth(ctx, task.name, leftRoom);
-      const leftX = barLeft - 4 - ctx.measureText(capped).width;
+      const leftX = barLeft - 4 - measureTextWidth(ctx, capped);
       strokeLabelHalo(ctx, capped, leftX, nameY);
       ctx.fillText(capped, leftX, nameY);
     } else if (rightRoom >= floor) {
@@ -2091,14 +2124,14 @@ function strokeLabelHalo(ctx: CanvasRenderingContext2D, text: string, x: number,
 
 /** Truncate `text` to fit `maxWidth` px, appending an ellipsis. `ctx.font` must be set. */
 function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
-  if (ctx.measureText(text).width <= maxWidth) return text;
+  if (measureTextWidth(ctx, text) <= maxWidth) return text;
   const ellipsis = '…';
   let lo = 0;
   let hi = text.length;
   // Binary-search the longest prefix that fits with the ellipsis appended.
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    if (ctx.measureText(text.slice(0, mid) + ellipsis).width <= maxWidth) lo = mid;
+    if (measureTextWidth(ctx, text.slice(0, mid) + ellipsis) <= maxWidth) lo = mid;
     else hi = mid - 1;
   }
   return lo > 0 ? text.slice(0, lo) + ellipsis : ellipsis;
@@ -3839,7 +3872,14 @@ export function paintDependencyLayout(
     pendingPaths,
     pendingJunctions,
   );
-  collectNonFSPaths(pc, layout.nonFSLinks, layout.nodes, visibleFirstRow, visibleLastRow, pendingPaths);
+  collectNonFSPaths(
+    pc,
+    layout.nonFSLinks,
+    layout.nodes,
+    visibleFirstRow,
+    visibleLastRow,
+    pendingPaths,
+  );
   // #4087: the path-count budget — the falsification line for the fix above.
   // Captured right after collection, before hop detection/stroking add nothing
   // further to either array.
