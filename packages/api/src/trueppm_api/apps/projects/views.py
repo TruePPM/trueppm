@@ -5860,8 +5860,71 @@ def _snapshot_task_before_update(instance: Task | None) -> _TaskUpdateSnapshot:
     )
 
 
+#: Columns every save() rewrites regardless of what changed, so they carry no
+#: signal about whether the edit changed the task. ``status_changed_at`` moves
+#: only together with ``status``, which is compared itself.
+_TASK_DIFF_BOOKKEEPING = frozenset(
+    {"server_version", "sync_seq", "deleted_version", "edited_at", "status_changed_at"}
+)
+
+
+def _task_diff_columns() -> dict[str, str]:
+    """Map ``attname -> name`` for every stored Task column the no-op diff compares.
+
+    Every concrete, non-M2M column except the primary key and the bookkeeping
+    stamps, so a column the serializer or ``save()`` derives (``status``,
+    ``actual_start``, ``actual_finish``, ``early_start``, the project-start shift,
+    ...) is compared even though it was never submitted (#2564).
+    """
+    return {
+        f.attname: f.name
+        for f in Task._meta.concrete_fields
+        if not f.primary_key and f.name not in _TASK_DIFF_BOOKKEEPING
+    }
+
+
+def _snapshot_task_columns(task_id: Any) -> dict[str, Any]:
+    """Read the task's compared columns straight from the database.
+
+    Both sides of the diff come from the same query shape on purpose: in-memory
+    values can differ from their stored form (a Decimal's scale, a naive vs
+    tz-aware datetime, a date string a validator left unparsed), which would make
+    an unchanged column look changed — or, worse, the instance may already hold a
+    value validate() wrote onto it, which would make a changed one look unchanged.
+    Re-reading after save also catches a column a ``post_save`` receiver rewrote
+    with a queryset ``update()`` that the instance never saw.
+    """
+    row = Task._default_manager.filter(pk=task_id).values(*_task_diff_columns()).first()
+    return row or {}
+
+
+def _actually_changed_fields(
+    submitted: set[str], before: dict[str, Any], after: dict[str, Any]
+) -> set[str]:
+    """Field names whose stored value really changed in this edit (#2564).
+
+    ``validated_data`` is the set of submitted keys, so a PATCH that re-sends a
+    stored value (e.g. a Gantt resize whose serializer re-injects the existing
+    ``duration``) looks like a change — and the serializer's derived writes
+    (``status`` from a past ``planned_start``, ``actual_finish`` from
+    ``percent_complete: 100``) never appear in it at all. So the diff runs over
+    every stored column, submitted or not, and adds every submitted key that has
+    no comparable column (write-only inputs such as ``owners``, M2M ``labels``):
+    an unknowable comparison errs toward recalculating and announcing.
+    """
+    columns = _task_diff_columns()
+    compared = set(columns) | set(columns.values())
+    changed = {key for key in submitted if key not in compared}
+    changed.update(
+        columns[attname]
+        for attname in columns
+        if attname not in before or attname not in after or before[attname] != after[attname]
+    )
+    return changed
+
+
 def _defer_task_update_broadcasts(
-    instance: Task, changed_fields: set[str], actor_id: str | None
+    instance: Task, changed_fields: set[str], actor_id: str | None, *, noop: bool = False
 ) -> None:
     """Queue the CPM recalc and the three post-commit board broadcasts for an edit.
 
@@ -5880,7 +5943,10 @@ def _defer_task_update_broadcasts(
     project_id = str(instance.project_id)
     task_id = str(instance.pk)
 
-    if not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS:
+    # ``noop``: fields were submitted but every value equals the stored one (#2564).
+    # Distinct from an empty ``changed_fields`` with noop=False, which means "unknown"
+    # and still recalculates defensively.
+    if not noop and (not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS):
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
 
     # ADR-0152 (#327): carry the field-level delta (names only — never gated values),
@@ -5888,15 +5954,16 @@ def _defer_task_update_broadcasts(
     # suppress its own echo instead of re-fetching over its optimistic update.
     delta_fields = sorted(changed_fields)
     version = instance.server_version
-    transaction.on_commit(
-        lambda: broadcast_task_updated(
-            project_id,
-            task_id=task_id,
-            changed_fields=delta_fields,
-            version=version,
-            actor_id=actor_id,
+    if not noop:
+        transaction.on_commit(
+            lambda: broadcast_task_updated(
+                project_id,
+                task_id=task_id,
+                changed_fields=delta_fields,
+                version=version,
+                actor_id=actor_id,
+            )
         )
-    )
     # #867: this edit pulled the project start earlier (auto-shift in
     # TaskSerializer.update). Broadcast the project change in the same batch
     # so collaborators re-fetch the new boundary alongside the task update.
@@ -6760,6 +6827,10 @@ class TaskViewSet(
         self._merge_concurrent_fields = check_field_conflict(self.request, serializer)
 
         before = _snapshot_task_before_update(serializer.instance)
+        # Pre-save copy of every stored column, for the no-op diff below (#2564).
+        columns_before = (
+            _snapshot_task_columns(serializer.instance.pk) if serializer.instance else {}
+        )
 
         # Amend (#2964). `amend_reason` is a declared write-only field, so it is
         # already validated and is popped here rather than reaching Task.save().
@@ -6809,8 +6880,19 @@ class TaskViewSet(
         if amending:
             notify_amend(instance, actor=actor, reason=amend_reason)
 
-        changed_fields = set(getattr(serializer, "validated_data", {}).keys())
-        _defer_task_update_broadcasts(instance, changed_fields, actor_id)
+        submitted = set(getattr(serializer, "validated_data", {}).keys())
+        changed_fields = _actually_changed_fields(
+            submitted, columns_before, _snapshot_task_columns(instance.pk)
+        )
+        # Fields were submitted and no stored column moved — not even one the
+        # serializer derives. Nothing happened, so nothing is announced: no recalc,
+        # no task_updated, no task.updated webhook (#2564). An empty submit stays
+        # "unknown" (noop=False) and is announced defensively, as before. The #867
+        # project-start shift writes the PROJECT row, which the task-column diff
+        # cannot see, and the project start is a CPM input — so it is never a no-op.
+        project_shifted = getattr(instance, "_project_start_shifted_from", None) is not None
+        noop = bool(submitted) and not changed_fields and not project_shifted
+        _defer_task_update_broadcasts(instance, changed_fields, actor_id, noop=noop)
 
         # Capture the calling surface from X-Source header so downstream consumers
         # (webhooks, future audit views) can distinguish a status flip from /me/work
@@ -6822,7 +6904,8 @@ class TaskViewSet(
         raw_source = self.request.headers.get("X-Source", "unknown")
         source = raw_source if _VALID_SOURCE.fullmatch(raw_source) else "unknown"
         payload = _task_webhook_payload(instance, source=source)
-        transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.updated", payload))
+        if not noop:
+            transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.updated", payload))
 
         # Granular task events (#638). Each fires only when the relevant field
         # actually changed — a PATCH that doesn't touch the assignee/date does not

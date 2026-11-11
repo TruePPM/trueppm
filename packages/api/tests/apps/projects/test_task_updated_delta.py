@@ -104,6 +104,233 @@ def test_non_schedule_field_patch_still_broadcasts_delta(
     assert payload["changed_fields"] == ["name"]
 
 
+@pytest.mark.django_db
+def test_noop_patch_skips_recalc_and_broadcast(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: re-sending a stored value is not a change — no CPM recalc, no fanout."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{task.pk}/", {"duration": 5}, format="json")
+        assert r.status_code == 200
+
+    recalc.assert_not_called()
+    assert not _task_updated_calls(mock_bcast)
+
+
+@pytest.mark.django_db
+def test_mixed_patch_reports_only_the_real_change(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: changed_fields is a diff — the unchanged key is dropped, recalc still runs."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(
+                f"/api/v1/tasks/{task.pk}/", {"duration": 5, "status": "IN_PROGRESS"}, format="json"
+            )
+        assert r.status_code == 200
+
+    recalc.assert_called_once()
+    _pid, _event, payload = _task_updated_calls(mock_bcast)[-1]
+    # ``duration`` (unchanged) is dropped; ``actual_start`` is the server's derived
+    # write for the IN_PROGRESS transition, so it really changed and is reported.
+    assert payload["changed_fields"] == ["actual_start", "status"]
+
+
+@pytest.mark.django_db
+def test_empty_patch_still_recalculates(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: nothing submitted is "unknown", not "no-op" — recalc as before."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{task.pk}/", {}, format="json")
+        assert r.status_code == 200
+
+    recalc.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_write_only_key_patch_counts_as_changed(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: a key with no comparable column (``owners``) errs toward recalc + fanout."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{task.pk}/", {"owners": []}, format="json")
+        assert r.status_code == 200
+
+    recalc.assert_called_once()
+    calls = _task_updated_calls(mock_bcast)
+    assert calls, "expected task_updated for a key with no comparable column"
+    assert "owners" in calls[-1][2]["changed_fields"]
+
+
+@pytest.mark.django_db
+def test_resent_past_planned_start_is_not_a_noop(
+    client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: an unchanged key whose serializer side effect changes a stored column.
+
+    Re-sending a past ``planned_start`` on a NOT_STARTED task promotes it to
+    IN_PROGRESS and pins ``actual_start`` (``_apply_date_gated_start_transition``).
+    Those derived writes never appear in ``validated_data``, so a diff over the
+    submitted keys alone would call this a no-op and skip the recalc and fanout.
+    """
+    t = Task.objects.create(project=project, name="T", duration=5, planned_start=date(2026, 4, 1))
+    t.refresh_from_db()
+    assert t.status == "NOT_STARTED"
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(
+                f"/api/v1/tasks/{t.pk}/", {"planned_start": "2026-04-01"}, format="json"
+            )
+        assert r.status_code == 200
+
+    t.refresh_from_db()
+    assert t.status == "IN_PROGRESS"
+    recalc.assert_called_once()
+    calls = _task_updated_calls(mock_bcast)
+    assert calls, "expected task_updated for a derived status change"
+    changed = calls[-1][2]["changed_fields"]
+    assert "status" in changed
+    assert "actual_start" in changed
+    assert "planned_start" not in changed
+
+
+@pytest.mark.django_db
+def test_resent_full_percent_complete_is_not_a_noop(
+    client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: ``percent_complete: 100`` re-sent on an IN_PROGRESS task completes it.
+
+    ``_apply_percent_complete_auto_status`` injects ``status`` and the transition
+    side effects stamp ``actual_finish`` (a CPM input), so this must recalc.
+    """
+    t = Task.objects.create(
+        project=project, name="T", duration=5, status="IN_PROGRESS", percent_complete=100
+    )
+    t.refresh_from_db()
+    assert t.status == "IN_PROGRESS" and t.percent_complete == 100
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{t.pk}/", {"percent_complete": 100}, format="json")
+        assert r.status_code == 200
+
+    t.refresh_from_db()
+    assert t.status == "COMPLETE"
+    recalc.assert_called_once()
+    calls = _task_updated_calls(mock_bcast)
+    assert calls, "expected task_updated for a derived completion"
+    changed = calls[-1][2]["changed_fields"]
+    assert "status" in changed
+    assert "percent_complete" not in changed
+
+
+@pytest.mark.django_db
+def test_resent_planned_start_that_shifts_project_start_is_not_a_noop(
+    client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: the #867 project-start shift writes the Project row, not a Task column.
+
+    A stored ``planned_start`` earlier than a project start that later moved forward,
+    re-sent unchanged, pulls the project start back. No task column moves, but the
+    project start is a CPM input, so this must still recalculate.
+    """
+    t = Task.objects.create(
+        project=project,
+        name="T",
+        duration=5,
+        planned_start=date(2026, 3, 16),
+        status="IN_PROGRESS",
+        actual_start=date(2026, 3, 16),
+    )
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(
+                f"/api/v1/tasks/{t.pk}/", {"planned_start": "2026-03-16"}, format="json"
+            )
+        assert r.status_code == 200
+
+    project.refresh_from_db()
+    assert project.start_date == date(2026, 3, 16)
+    recalc.assert_called_once()
+    assert any(c.args[1] == "project_updated" for c in mock_bcast.call_args_list)
+
+
+@pytest.mark.django_db
+def test_noop_patch_skips_task_updated_webhook(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: the ``task.updated`` webhook is gated on the same no-op decision."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        patch("trueppm_api.apps.projects.views._dispatch_webhooks") as hooks,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{task.pk}/", {"duration": 5}, format="json")
+        assert r.status_code == 200
+
+    assert not [c for c in hooks.call_args_list if c.args[1] == "task.updated"]
+
+
+@pytest.mark.django_db
+def test_real_change_still_fires_task_updated_webhook(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Control for the webhook gate: a real change still dispatches ``task.updated``."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        patch("trueppm_api.apps.projects.views._dispatch_webhooks") as hooks,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{task.pk}/", {"duration": 6}, format="json")
+        assert r.status_code == 200
+
+    assert [c for c in hooks.call_args_list if c.args[1] == "task.updated"]
+
+
 def test_broadcast_task_updated_payload_shape() -> None:
     """Helper assembles a stable, sorted, names-only payload."""
     with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as m:

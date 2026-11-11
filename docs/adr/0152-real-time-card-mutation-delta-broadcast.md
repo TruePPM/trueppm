@@ -72,6 +72,16 @@ do **not** introduce a global `post_save` broadcaster.
    the old values). Non-serializer paths (retro pull, product-backlog reorder, sync
    upload) pass the specific field(s) they mutate (e.g. `["sprint"]`, `["order"]`).
 
+   > **Superseded by #2564.** As built, `perform_update` used the submitted keys with
+   > no diff at all; a diff over only the submitted keys would still miss the
+   > serializer's derived writes (`status`, `actual_start`, `actual_finish`, ...).
+   > `perform_update` now diffs **every stored task column** before and after save
+   > (bookkeeping stamps excluded), reports each column that changed whether or not it
+   > was submitted, and counts a submitted key with no comparable column (`owners`,
+   > `labels`) as changed. Only when no stored column changes, and the edit did not
+   > shift the project start (#867, a Project-row write), is the PATCH a no-op: no
+   > recalculation, no `task_updated`, no `task.updated` webhook.
+
 4. **Web: self-echo suppression + version guard (this ADR); targeted splice (follow-up).**
    - The hook reads the current user id (from the `useCurrentUser` cache); on
      `task_updated` where `actor_id === currentUserId`, **skip** — the originating

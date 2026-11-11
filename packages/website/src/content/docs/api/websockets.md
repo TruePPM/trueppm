@@ -345,6 +345,13 @@ already applied), and `actor_id` lets the originating client suppress its own ec
 rather than re-fetching over its optimistic update. The `id` key is retained for
 backward compatibility.
 
+`changed_fields` lists every stored task field the write changed, including fields
+the server derives from the submitted ones (for example `status` and `actual_start`
+when a past `planned_start` starts a task). A PATCH emits no `task_updated`, triggers
+no recalculation, and dispatches no `task.updated` webhook only when no stored field
+changes at all, derived fields included. Re-sending a value the task already holds
+can still change a derived field, and that write is announced as a change.
+
 ## WebSocket ↔ webhook event taxonomy
 
 The *same* domain event uses two different naming conventions depending on the
