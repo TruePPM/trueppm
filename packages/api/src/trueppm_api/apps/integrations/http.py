@@ -414,7 +414,7 @@ class _GuardedHTTPHandler(urllib.request.HTTPHandler):
             _note_proxied()
             return self.do_open(http.client.HTTPConnection, req)
         conn = functools.partial(_GuardedHTTPConnection, egress_purpose=self._egress_purpose)
-        return self.do_open(conn, req)  # type: ignore[arg-type]
+        return self.do_open(conn, req)
 
 
 class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
@@ -428,7 +428,7 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
             _note_proxied()
             return self.do_open(http.client.HTTPSConnection, req, context=ctx)
         conn = functools.partial(_GuardedHTTPSConnection, egress_purpose=self._egress_purpose)
-        return self.do_open(conn, req, context=ctx)  # type: ignore[arg-type]
+        return self.do_open(conn, req, context=ctx)
 
 
 def build_guarded_opener(*, purpose: EgressPurpose | None = None) -> urllib.request.OpenerDirector:
