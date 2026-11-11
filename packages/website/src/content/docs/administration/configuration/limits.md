@@ -20,6 +20,11 @@ this page is in 0.4.
 | `TRUEPPM_PASSWORD_RESET_TIMEOUT` | `1800` | Seconds a password-reset link stays valid (30 minutes). Django's own default is 3 days; this is deliberately much shorter, since the link is a bearer credential sitting in a mailbox. Raise it only if your users routinely hit expiry. |
 | `TRUEPPM_RATE_LIMIT_DISABLE_ACK` | _(empty)_ | Acknowledgment sentinel required **in addition to** `TRUEPPM_RATE_LIMIT_ENABLED=false` to actually turn throttling off. Without both, limits stay on and the attempt is logged at CRITICAL — a stray env var cannot silently open a DoS path. See [disabling rate limiting entirely](#disabling-rate-limiting-entirely). |
 | `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` | `false` | Re-enables the legacy WebSocket token-in-query-string authentication. **Leave off.** A query string is logged by proxies, load balancers, and browser history, so the token leaks into places a header never reaches. Only for a client too old to use the ticket flow, and only while you upgrade it. |
+| `TRUEPPM_WS_ALLOWED_ORIGINS` | _(empty)_ | Comma-separated extra `Origin` values the WebSocket handshake accepts, on top of every host in `ALLOWED_HOSTS`. Use `https://app.example.com` (scheme and port must match) or a bare `.example.com` for a domain and its subdomains. Only needed when the web app is served from a different host than the API. A browser handshake from any other origin is refused. |
+| `TRUEPPM_WS_REQUIRE_ORIGIN` | `false` | A handshake with no `Origin` header comes from a non-browser client (script, integration), so it is allowed by default. Set `true` to refuse those too. |
+| `TRUEPPM_WS_MAX_FRAME_BYTES` | `8192` | Largest frame a client may send on a project socket. The server defines no client-to-server message, so a larger frame closes the socket with code 1009. |
+| `TRUEPPM_WS_RATE_LIMIT_FRAMES` | `30` | Frames a single project socket may send per window. Going over closes it with code 4029. |
+| `TRUEPPM_WS_RATE_LIMIT_WINDOW_SECONDS` | `10` | Length of the sliding window for the frame budget above. The counter is per connection and held in process memory. |
 
 ## General API rate limiting
 

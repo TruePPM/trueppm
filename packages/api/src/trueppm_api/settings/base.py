@@ -510,6 +510,28 @@ TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED: bool = env.bool(
     "TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED", default=False
 )
 
+# WebSocket handshake Origin allowlist (#1729). The ASGI websocket branch is wrapped
+# in an Origin validator that accepts any host in ALLOWED_HOSTS; these two settings
+# widen/narrow it. Auth is ticket-in-query (not cookie-borne), so this is
+# defense-in-depth against cross-site WebSocket hijacking should auth ever move to a
+# cookie. Extra entries take Channels' pattern syntax (``https://app.example.com`` or
+# a bare ``.example.com``).
+TRUEPPM_WS_ALLOWED_ORIGINS: list[str] = env.list("TRUEPPM_WS_ALLOWED_ORIGINS", default=[])
+# A browser always sends Origin, so a missing header means a non-browser client
+# (script, integration, test harness) -- not a CSWSH vector. Allowed by default;
+# set true to refuse them as well.
+TRUEPPM_WS_REQUIRE_ORIGIN: bool = env.bool("TRUEPPM_WS_REQUIRE_ORIGIN", default=False)
+
+# Board-consumer inbound limits (#1729). The server defines no client->server frame
+# (every inbound frame is discarded), so these bound pure abuse: a pre-parse size
+# ceiling and a per-connection sliding-window frame budget held in process memory
+# (no Redis/DB work per frame).
+TRUEPPM_WS_MAX_FRAME_BYTES: int = env.int("TRUEPPM_WS_MAX_FRAME_BYTES", default=8192)
+TRUEPPM_WS_RATE_LIMIT_FRAMES: int = env.int("TRUEPPM_WS_RATE_LIMIT_FRAMES", default=30)
+TRUEPPM_WS_RATE_LIMIT_WINDOW_SECONDS: int = env.int(
+    "TRUEPPM_WS_RATE_LIMIT_WINDOW_SECONDS", default=10
+)
+
 # Celery accepts a sentinel:// URL, but ONLY together with a master_name in the
 # transport options — the URL alone silently connects to whichever sentinel
 # answers rather than to the primary. Broker and result backend take separate

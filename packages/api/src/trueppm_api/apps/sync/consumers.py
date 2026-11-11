@@ -7,9 +7,12 @@ import contextlib
 import json
 import logging
 import sys
+import time
+from collections import deque
 from typing import Any, cast
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from django.conf import settings
 
 from trueppm_api.apps.access.permissions import role_can_subscribe_live
 from trueppm_api.apps.observability.otel import metrics
@@ -69,6 +72,10 @@ _REPLAY_CAP = 1000
 # accept path. Its code never reaches a browser, by design.
 WS_CLOSE_UNAUTHENTICATED = 4001
 WS_CLOSE_FORBIDDEN = 4003
+# Inbound abuse limits (#1729). 1009 is the RFC 6455 "message too big" code; 4029 is
+# the application-range analogue of HTTP 429 for a socket over its frame budget.
+WS_CLOSE_TOO_BIG = 1009
+WS_CLOSE_RATE_LIMITED = 4029
 
 
 def _presence_key(project_pk: str) -> str:
@@ -171,6 +178,11 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     #: returns before the increment — never underflows the gauge (#1900).
     _ws_counted: bool = False
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Monotonic timestamps of recent inbound frames (sliding window, #1729).
+        self._frame_times: deque[float] = deque()
+
     async def websocket_connect(self, message: dict[str, Any]) -> None:
         """Override to run sync DB queries before accepting the socket."""
         # Authenticate the handshake before calling super() which sends ACCEPT.
@@ -265,6 +277,34 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         if client is not None:
             await client.aclose()
             self._redis = None
+
+    async def receive(
+        self, text_data: str | None = None, bytes_data: bytes | None = None, **kwargs: Any
+    ) -> None:
+        """Bound inbound frames BEFORE parsing or any Redis work (#1729).
+
+        The server defines no client->server frame, so a legitimate client sends
+        nothing; the limits only ever bite an abusive one. Order matters: the rate
+        check comes first (cheapest), then the size ceiling on the raw payload, so
+        a flood of large frames is never parsed or allocated into a dict. State is
+        per connection and in memory -- a per-frame DB/Redis counter would be the
+        very cost being defended against.
+        """
+        now = time.monotonic()
+        window = settings.TRUEPPM_WS_RATE_LIMIT_WINDOW_SECONDS
+        stamps = self._frame_times
+        while stamps and now - stamps[0] > window:
+            stamps.popleft()
+        if len(stamps) >= settings.TRUEPPM_WS_RATE_LIMIT_FRAMES:
+            await self.close(code=WS_CLOSE_RATE_LIMITED)
+            return
+        stamps.append(now)
+
+        size = len(text_data.encode("utf-8")) if text_data is not None else len(bytes_data or b"")
+        if size > settings.TRUEPPM_WS_MAX_FRAME_BYTES:
+            await self.close(code=WS_CLOSE_TOO_BIG)
+            return
+        await super().receive(text_data=text_data, bytes_data=bytes_data, **kwargs)
 
     async def receive_json(self, content: Any, **kwargs: Any) -> None:
         # Heartbeat: client messages refresh the presence TTL so the user is
