@@ -669,14 +669,12 @@ def _apply_update(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
 
 
 def _apply_delete(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOutcome) -> None:
-    """Soft-delete one row, mirroring ``IsProjectMemberWriteOrOwn``."""
+    """Soft-delete one row, decided by the same ``can_user_edit_task`` predicate
+    ``IsProjectMemberWriteOrOwn`` enforces, so there is one rule (#2747)."""
     task = _resolve_target(index, op, ctx, out)
     if task is None:
         return
-    if (
-        ctx.caller_role < Role.ADMIN
-        and not task.assignments.filter(resource__user=ctx.caller).exists()
-    ):
+    if not can_user_edit_task(ctx.request, task, method="DELETE"):
         out.reject(
             index,
             task.pk,

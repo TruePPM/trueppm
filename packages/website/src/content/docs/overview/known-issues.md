@@ -142,9 +142,10 @@ same way, so the same caveat applies to the throughput forecast.
 ### A task with only an assignee contributes no load to any capacity view
 
 There are two ways to record who is working on a task, and only one of them creates
-capacity load. Setting a task's **assignee** names the person responsible and drives the
-"can edit their own tasks" permission rule. Adding a **resource assignment** — a person
-plus the fraction of their time the task takes — is what the heatmap, the utilization
+capacity load. Setting a task's **assignee** names the person responsible. Either an
+assignee or a resource assignment grants a Member the "edit and delete their own tasks"
+permission. Adding a **resource assignment** — a person
+plus the fraction of their time the task takes — is the only one that creates load: it is what the heatmap, the utilization
 card, overallocation warnings and resource contention all sum.
 
 A task that has an assignee but no resource assignment is therefore real, visible, and

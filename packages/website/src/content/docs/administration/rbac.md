@@ -13,7 +13,7 @@ TruePPM uses a 5-role per-project permission model stored in `ProjectMembership`
 | **Owner** | 400 | Project Admin | Program Admin | Full control. Manages members, can assign any role below Owner, deletes project. |
 | **Admin** | 300 | Project Manager | Program Manager | Full task and dependency edit, project settings, baseline creation. |
 | **Scheduler** | 200 | Resource Manager | Resource Manager | Assigns resources and edits dependencies. Cannot edit task content. |
-| **Member** | 100 | Team Member | Team Member | Edits own assigned tasks. Logs time. |
+| **Member** | 100 | Team Member | Team Member | Edits own tasks (assignee or resource assignment). Logs time. |
 | **Viewer** | 1 | Viewer | Viewer | Read-only. Can pull delta sync to mobile. |
 
 **One ordinal, named for its container.** The two label columns are not two role models. `ProjectMembership` and `ProgramMembership` share the same five roles and the same ordinals, so a Program Manager and a Project Manager hold the same rank — 300 — and differ only in what they hold it over. Only the top two tiers are renamed; 200, 100, and 1 read identically in both scopes. Program surfaces (`GET /programs/{id}/members/` and the `my_role_label` field on `GET /programs/{id}/`) return the program wording, project surfaces return the project wording, and the numeric `role` field is the same value either way — integrate against the ordinal, never against the label.
@@ -137,7 +137,7 @@ from `0` to `1` in 0.4; see the changelog.
 | View project data | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Pull delta sync | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Connect WebSocket | ✓ | ✓ | ✓ | ✓ | — |
-| Edit own assigned tasks | ✓ | ✓ | — | ✓ | — |
+| Edit own tasks (assignee or resource assignment) | ✓ | ✓ | — | ✓ | — |
 | Create/edit any task | ✓ | ✓ | — | — | — |
 | Create/edit dependencies | ✓ | ✓ | ✓ | — | — |²
 | Assign resources | ✓ | ✓ | ✓ | — | — |
@@ -162,7 +162,7 @@ The 5 roles are capability levels, not job titles. The same role may serve diffe
 | Product Owner | Project Manager (Admin) | Backlog and sprint content authority requires the same write access as a PM. |
 | Scrum Master / Agile Delivery Lead | Project Manager (Admin) | Opens/closes sprints, manages velocity, runs ceremonies — same capability tier as a PM. |
 | Resource Manager | Resource Manager (Scheduler) | Assigns resources without touching task content or the schedule directly. |
-| Team Member / Contributor | Team Member (Member) | Edits their own assigned tasks and logs time. |
+| Team Member / Contributor | Team Member (Member) | Edits their own tasks (assignee or resource assignment) and logs time. |
 | Agile Coach | Viewer | Observes team health signals; editing authority belongs to the team, not the coach. |
 
 ### Why Product Owner and Scrum Master map to Project Manager (Admin)
@@ -276,7 +276,7 @@ WebSocket connections authenticate with a short-lived, single-use **ticket** (`?
 
 ## Server-derived capability flags
 
-Every task in the API response carries two read-only booleans for the requesting user: `can_edit` and `can_delete`. They are computed server-side from the **same** predicate the write-permission check enforces (`can_user_edit_task`), so a client never re-implements the rule and the declared capability can never drift from the enforced one. The values reflect the full per-task rule, including the assignee-own case (a Member may edit a task only when they are its assignee) and the Product Owner facet (a PO may edit — but not delete — `EPIC`/`STORY` items). `can_delete` differs from `can_edit` only for a Product Owner, who grooms stories but does not delete them.
+Every task in the API response carries two read-only booleans for the requesting user: `can_edit` and `can_delete`. They are computed server-side from the **same** predicate the write-permission check enforces (`can_user_edit_task`), so a client never re-implements the rule and the declared capability can never drift from the enforced one. The values reflect the full per-task rule, including the assignee-own case (a Member may edit a task only when they are its assignee or hold a resource assignment on it) and the Product Owner facet (a PO may edit — but not delete — `EPIC`/`STORY` items). `can_delete` differs from `can_edit` only for a Product Owner, who grooms stories but does not delete them.
 
 These flags are advisory for clients (the server still authorizes every write — hiding a control is defense-in-depth, never the only gate). The web app gates the entire task detail drawer off `can_edit`: a user who cannot edit a task sees a fully read-only drawer with a **"View only"** indicator in the header, rather than controls that silently fail on submit. A future admin role-capability matrix view (`GET /projects/{id}/role-capabilities/`) will expose the full role × capability grid for compliance review.
 
