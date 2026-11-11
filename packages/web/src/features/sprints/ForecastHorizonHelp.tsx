@@ -28,7 +28,18 @@ export type ForecastHorizonBasis = 'velocity' | 'throughput';
  * `FieldHelp` rather than `Tooltip` is forced by rule 287(b) — the content carries
  * a docs link, and an `aria-describedby` tooltip's link is unreachable (rule 121).
  */
-export function ForecastHorizonHelp({ basis }: { basis: ForecastHorizonBasis }) {
+export function ForecastHorizonHelp({
+  basis,
+  saturated,
+}: {
+  basis: ForecastHorizonBasis;
+  /**
+   * The server's `horizon_saturated` (#4954). `false` = no run was truncated, so the
+   * floor paragraph would be untrue and is replaced. `true`/`null`/absent keep the
+   * floor wording: null is unknown, and unknown must not read as the all-clear.
+   */
+  saturated?: boolean | null;
+}) {
   const velocity = basis === 'velocity';
   const unit = velocity ? 'sprint' : 'week';
   const source = velocity ? "your team's closed-sprint velocity" : 'your recent weekly throughput';
@@ -53,11 +64,18 @@ export function ForecastHorizonHelp({ basis }: { basis: ForecastHorizonBasis }) 
             are counted as finishing <em>at</em> the horizon rather than sampled further, so
             the slowest outcomes are cut off.
           </p>
-          <p className="text-xs text-neutral-text-secondary">
-            That makes the upper percentiles a <strong className="text-neutral-text-primary">floor</strong>:
-            the true P80 and P95 are this date or later, never earlier. The gap widens the
-            more {velocity ? 'your velocity varies sprint to sprint' : 'your weekly throughput varies'}.
-          </p>
+          {saturated === false ? (
+            <p className="text-xs text-neutral-text-secondary">
+              In this simulation <strong className="text-neutral-text-primary">no run reached
+              the horizon</strong>, so the upper percentiles were not truncated.
+            </p>
+          ) : (
+            <p className="text-xs text-neutral-text-secondary">
+              That makes the upper percentiles a <strong className="text-neutral-text-primary">floor</strong>:
+              the true P80 and P95 are this date or later, never earlier. The gap widens the
+              more {velocity ? 'your velocity varies sprint to sprint' : 'your weekly throughput varies'}.
+            </p>
+          )}
           <p className="text-xs text-neutral-text-secondary">
             For a date you have to commit to externally, estimate that work with three-point
             (PERT) durations instead — the PERT path is not clamped.
@@ -65,5 +83,29 @@ export function ForecastHorizonHelp({ basis }: { basis: ForecastHorizonBasis }) 
         </div>
       }
     />
+  );
+}
+
+/**
+ * The inline "lower bound" caveat beside a clamped percentile (#4954). Rendered only
+ * when the server says runs were truncated (`horizon_saturated === true`); `false`
+ * needs no caveat and `null` (unknown / suppressed) must not be dressed as either.
+ */
+export function HorizonCaveat({
+  saturated,
+  basis,
+}: {
+  saturated: boolean | null | undefined;
+  basis: ForecastHorizonBasis;
+}) {
+  if (saturated !== true) return null;
+  return (
+    <>
+      {' — '}
+      <strong className="font-medium" data-testid="horizon-caveat">
+        a lower bound
+      </strong>
+      {`: some runs hit the ${basis === 'velocity' ? 'sprint' : 'week'} horizon`}
+    </>
   );
 }

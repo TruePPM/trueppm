@@ -596,6 +596,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
         basis: 'monte_carlo',
         forecast_basis: 'velocity',
         velocity_suppressed: false,
+        horizon_saturated: null,
       }),
     ),
   );

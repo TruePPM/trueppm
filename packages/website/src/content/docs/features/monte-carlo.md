@@ -53,6 +53,13 @@ three values (working days):
 | **Most Likely (M)** | Your honest expected duration under normal conditions |
 | **Pessimistic (P)** | Duration if significant problems occur — realistic tail risk, not fantasy |
 
+:::note[Ships in 0.5]
+The **New task** dialog will accept the same three values when you create a task
+(collapsed by default; all three or none, ordered optimistic ≤ most likely ≤
+pessimistic). It is not shown on agile projects. The current release sets estimates
+only from the task detail drawer, after the task exists.
+:::
+
 All three fields must be set for a waterfall task to be sampled from its
 three-point estimate. A waterfall task with any of the three missing is treated
 as having zero duration uncertainty: its deterministic `duration` is used for
@@ -760,6 +767,17 @@ never earlier, and the gap widens the more the team's sprint-to-sprint velocity 
 week-to-week throughput) varies. The product says so next to every affected number —
 look for the "a floor, not a percentile" qualifier and its help icon on the backlog
 forecast, the sprint release-horizon chips, and the board's flow analytics card.
+
+:::note[Ships in 0.5]
+The current release shows that "a floor, not a percentile" qualifier on every
+affected number whether or not any run was actually cut off. Release 0.5 will change
+the qualifier to read "a lower bound" and show it only when the server reports that
+runs were truncated (`horizon_saturated`); when none were, the number will be shown
+without it, and when the server cannot say (no forecast yet, or a reader below the
+velocity audience) nothing will be claimed either way. The finish-date forecast on
+the Schedule view will also gain a note with the share of runs that reached the
+horizon when `velocity_saturated_runs` is non-zero.
+:::
 
 This does **not** affect the schedule forecast built from three-point (PERT) task
 estimates, which is unclamped. For a date you must commit to externally, estimate

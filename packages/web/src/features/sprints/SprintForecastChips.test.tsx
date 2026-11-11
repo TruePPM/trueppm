@@ -24,6 +24,7 @@ const READY_FORECAST = {
   basis: 'monte_carlo',
   forecast_basis: 'velocity',
   velocity_suppressed: false,
+  horizon_saturated: true,
 };
 
 const THROUGHPUT_FORECAST = {
@@ -39,6 +40,7 @@ const THROUGHPUT_FORECAST = {
   basis: 'monte_carlo',
   forecast_basis: 'throughput',
   velocity_suppressed: false,
+  horizon_saturated: true,
 };
 
 beforeEach(() => {
@@ -56,11 +58,18 @@ describe('SprintForecastChips', () => {
   it('renders the release-horizon chip from a ready forecast, linking to overview', () => {
     forecastMock.mockReturnValue({ data: READY_FORECAST });
     renderWithRouter(<SprintForecastChips projectId="p1" sprintId="s1" />);
-    // "at the earliest" is load-bearing, not decoration (#2495): the sampler clamps
-    // each run's sprint horizon, so P80 is a floor.
+    // "at the earliest" is load-bearing (#2495) and appears only when the server says
+    // runs were clamped (#4954).
     expect(chipsText()).toContain('clears in ~3 sprints (P80 4 at the earliest)');
     const link = screen.getByRole('link', { name: /Release horizon/ });
     expect(link.getAttribute('href')).toBe('/projects/p1/overview');
+  });
+
+  it.each([false, null])('drops "at the earliest" when saturation is %s (#4954)', (horizon_saturated) => {
+    forecastMock.mockReturnValue({ data: { ...READY_FORECAST, horizon_saturated } });
+    renderWithRouter(<SprintForecastChips projectId="p1" sprintId="s1" />);
+    expect(chipsText()).toContain('clears in ~3 sprints (P80 4)');
+    expect(chipsText()).not.toContain('at the earliest');
   });
 
   it('renders a throughput release-horizon chip with item counts + dates, no sprint vocab', () => {

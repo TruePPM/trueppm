@@ -8,14 +8,13 @@
  * to Early/Likely/Late. Renders an explicit team-private wall when the velocity
  * signal is gated (ADR-0104) and a warm-up state until two sprints have closed.
  *
- * Honest, but not unbiased (#2495): both samplers clamp each run's horizon, so the
- * upper percentiles are a floor rather than a true P80/P95. Percentile vocabulary
- * stays — the distribution is real — but every ready state carries a
- * {@link ForecastHorizonHelp} saying which direction the bias runs. Remove the
- * qualifier only when #2469 fixes the estimator, not before.
+ * Honest, but not always unbiased (#2495, #4954): both samplers clamp each run's
+ * horizon, so when the server reports `horizon_saturated` the upper percentiles are
+ * lower bounds. The inline caveat renders only then; every ready state still carries
+ * a {@link ForecastHorizonHelp} explaining the mechanism.
  */
 import { LockIcon } from '@/components/Icons';
-import { ForecastHorizonHelp } from '@/features/sprints/ForecastHorizonHelp';
+import { ForecastHorizonHelp, HorizonCaveat } from '@/features/sprints/ForecastHorizonHelp';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintForecast } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -97,9 +96,10 @@ function Body({ data }: { data: NonNullable<ReturnType<typeof useSprintForecast>
           <span className="tppm-mono">{formatShortDate(data.p80_date)}</span> (
           <span className="tppm-mono">{data.p80_sprints}</span>{' '}
           {data.p80_sprints === 1 ? itl.lower : itl.lowerPlural}) · Monte&nbsp;Carlo over
-          velocity — <strong className="font-medium">a floor, not a percentile</strong>
+          velocity
+          <HorizonCaveat saturated={data.horizon_saturated} basis="velocity" />
         </span>
-        <ForecastHorizonHelp basis="velocity" />
+        <ForecastHorizonHelp basis="velocity" saturated={data.horizon_saturated} />
       </p>
     </div>
   );
@@ -162,10 +162,10 @@ function ThroughputBody({
               <span className="tppm-mono">{formatShortDate(data.p95_date)}</span>
             </>
           ) : null}{' '}
-          · Monte&nbsp;Carlo over weekly throughput —{' '}
-          <strong className="font-medium">a floor, not a percentile</strong>
+          · Monte&nbsp;Carlo over weekly throughput
+          <HorizonCaveat saturated={data.horizon_saturated} basis="throughput" />
         </span>
-        <ForecastHorizonHelp basis="throughput" />
+        <ForecastHorizonHelp basis="throughput" saturated={data.horizon_saturated} />
       </p>
     </div>
   );

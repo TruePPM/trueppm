@@ -155,7 +155,7 @@ async function setupRoutes(
     route.fulfill(json({ tasks: [] })),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/sprint-forecast/`, (route: Route) =>
-    route.fulfill(json({ status: 'insufficient_data', remaining_points: 0, sample_count: 0 })),
+    route.fulfill(json({ status: 'insufficient_data', remaining_points: 0, sample_count: 0, horizon_saturated: null })),
   );
   await page.route('**/api/v1/projects/*/status-summary/', (route: Route) =>
     route.fulfill(

@@ -149,3 +149,21 @@ describe('ForecastHorizonHelp mount gate (#2653)', () => {
     );
   });
 });
+
+describe('ForecastHorizonHelp saturation (#4954)', () => {
+  it('drops the floor claim when the server says no run reached the horizon', async () => {
+    const user = userEvent.setup();
+    render(<ForecastHorizonHelp basis="velocity" saturated={false} />);
+    await user.click(screen.getByRole('button', { name: /forecast horizon/i }));
+    const text = screen.getByRole('dialog').textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(text).toMatch(/no run reached the horizon/i);
+    expect(text).not.toContain('never earlier');
+  });
+
+  it.each([true, null])('keeps the floor claim when saturated is %s', async (saturated) => {
+    const user = userEvent.setup();
+    render(<ForecastHorizonHelp basis="velocity" saturated={saturated} />);
+    await user.click(screen.getByRole('button', { name: /forecast horizon/i }));
+    expect(screen.getByRole('dialog').textContent).toContain('never earlier');
+  });
+});

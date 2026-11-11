@@ -27,6 +27,7 @@ const READY: SprintForecast = {
   basis: 'monte_carlo',
   forecast_basis: 'velocity',
   velocity_suppressed: false,
+  horizon_saturated: true,
 };
 
 const THROUGHPUT_READY: SprintForecast = {
@@ -42,6 +43,7 @@ const THROUGHPUT_READY: SprintForecast = {
   basis: 'monte_carlo',
   forecast_basis: 'throughput',
   velocity_suppressed: false,
+  horizon_saturated: true,
 };
 
 describe('SprintForecastWidget', () => {
@@ -55,17 +57,31 @@ describe('SprintForecastWidget', () => {
     expect(screen.getByText(/P80/)).toBeTruthy();
   });
 
-  // #2495 — both bases clamp each run's horizon, so a ready forecast must say the
-  // upper percentiles are a floor. The not-shown half of the branch is the point:
-  // a state with no percentile on screen must not carry an orphaned caveat.
+  // #4954 — the caveat follows the server's flag. Only `true` says "lower bound";
+  // `false` is an honest all-clear and `null` is unknown, which must not read as
+  // either. The help affordance stays mounted in every ready state.
   it.each([
     ['velocity', READY],
     ['throughput', THROUGHPUT_READY],
-  ] as const)('qualifies the %s percentiles as a floor, with help alongside', (_basis, data) => {
+  ] as const)('qualifies the %s percentiles as a lower bound when runs were clamped', (_basis, data) => {
     setForecast(data);
     render(<SprintForecastWidget projectId="p1" />);
-    expect(screen.getByText(/a floor, not a percentile/i)).toBeTruthy();
+    expect(screen.getByTestId('horizon-caveat').textContent).toMatch(/a lower bound/i);
     expect(screen.getByRole('button', { name: /forecast horizon/i })).toBeTruthy();
+  });
+
+  it.each([
+    ['velocity', READY],
+    ['throughput', THROUGHPUT_READY],
+  ] as const)('%s: shows no lower-bound caveat when not saturated (false) or unknown (null)', (_basis, data) => {
+    for (const horizon_saturated of [false, null]) {
+      setForecast({ ...data, horizon_saturated });
+      const { unmount } = render(<SprintForecastWidget projectId="p1" />);
+      expect(screen.queryByTestId('horizon-caveat')).toBeNull();
+      expect(screen.queryByText(/a floor, not a percentile/i)).toBeNull();
+      expect(screen.getByRole('button', { name: /forecast horizon/i })).toBeTruthy();
+      unmount();
+    }
   });
 
   it.each([
@@ -74,7 +90,7 @@ describe('SprintForecastWidget', () => {
   ])('shows no floor caveat when no percentile is rendered (%s)', (_state, data) => {
     setForecast(data);
     render(<SprintForecastWidget projectId="p1" />);
-    expect(screen.queryByText(/a floor, not a percentile/i)).toBeNull();
+    expect(screen.queryByTestId('horizon-caveat')).toBeNull();
     expect(screen.queryByRole('button', { name: /forecast horizon/i })).toBeNull();
   });
 

@@ -50,6 +50,7 @@ const FORECAST_READY: SprintForecast = {
   basis: 'monte_carlo',
   forecast_basis: 'throughput',
   velocity_suppressed: false,
+  horizon_saturated: true,
 };
 
 const POPULATED: FlowMetrics = {
