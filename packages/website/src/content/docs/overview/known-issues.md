@@ -160,7 +160,7 @@ product currently says so.
   appear in capacity views, not only an assignee. A task that has both is counted once,
   from the assignment. The assignment has to be on a resource **linked to the
   assignee's user account** — one on a different resource does not stand in for them.
-- **Partly fixed in 0.5** — [#3059](https://gitlab.com/trueppm/trueppm/-/issues/3059).
+- **Partly fixed in 0.5** — [#3059](https://gitlab.com/trueppm/trueppm/-/issues/3059). <!-- known-issues-ack:closed -->
   0.5 will count an assignee-only task at an assumed full-time load (`1.0`) in three
   places: the overallocation indicator on a task, the **overallocated** row in the
   project's attention feed, and the overallocation warning shown when you assign
