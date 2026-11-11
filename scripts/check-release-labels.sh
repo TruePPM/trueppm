@@ -11,7 +11,7 @@
 #      40"); no number in the description -> skipped.
 #   2. Unmilestoned end. An issue is in no milestone's list, so check 1 cannot
 #      see it. An open issue with NO milestone carrying an audit-batch label
-#      (voc-audit, ux-audit-*, threat-model-*, *-audit-YYYYMMDD,
+#      (voc-audit, ux-audit-*, threat-model-*, *-audit-YYYYMMDD[-topic], red-team-YYYYMMDD,
 #      prerelease-audit-*, release-audit-*) came from a deliberate sweep and is
 #      expected to be scheduled: it FAILS, unless younger than
 #      RELEASE_LABELS_GRACE_HOURS (default 24) where it only WARNS, so filing a
@@ -39,7 +39,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/gitlab-issues.sh
 . "${HERE}/lib/gitlab-issues.sh"
 
-AUDIT_LABEL_RE='^(voc-audit|ux-audit-.*|threat-model-.*|.*-audit-[0-9]{8}|prerelease-audit-.*|release-audit-.*)$'
+# Matched case-insensitively (test($re; "i")): real labels include
+# Fable-audit-20260703-UI-Checks and Opus-Audit-20260706-priorities, and dated
+# sweeps carry a topic suffix (fable-audit-20260702-perf) or are red-team-YYYYMMDD.
+AUDIT_LABEL_RE='^(voc-audit|ux-audit-.*|threat-model-.*|.*-audit-[0-9]{8}(-.*)?|red-team-[0-9]{8}(-.*)?|prerelease-audit-.*|release-audit-.*)$'
 
 # analyze <milestones-json> <issues-json> <orphans-json> <now-epoch> <grace-hours>
 #
@@ -66,7 +69,7 @@ analyze() {
         | "WARN: milestone \($m.title): \($c) release::reserve issues exceed the stated reserve of \($r.n)" )
     ' <<<"$1") || return 2
   orph_out=$(jq -r --argjson now "$4" --argjson grace "$5" --arg re "$AUDIT_LABEL_RE" '
-    .[] | select([(.labels // [])[] | select(test($re))] | length > 0)
+    .[] | select([(.labels // [])[] | select(test($re; "i"))] | length > 0)
     | (($now - (.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) / 3600) as $age
     | if $age < $grace
       then "WARN: unmilestoned audit-batch issue #\(.iid) — \(.title) (younger than \($grace)h)"
@@ -109,7 +112,11 @@ self_test() {
    {"iid":10,"title":"old sweep","labels":["voc-audit"],"created_at":"2027-01-01T00:00:00.000Z"},
    {"iid":11,"title":"fresh sweep","labels":["ux-audit-20260101"],"created_at":"2027-01-15T07:59:00.000Z"},
    {"iid":12,"title":"plain backlog","labels":["backlog"],"created_at":"2020-01-01T00:00:00.000Z"},
-   {"iid":13,"title":"dated family","labels":["ui-audit-20260906"],"created_at":"2020-01-01T00:00:00.000Z"}]'
+   {"iid":13,"title":"dated family","labels":["ui-audit-20260906"],"created_at":"2020-01-01T00:00:00.000Z"},
+   {"iid":14,"title":"suffixed","labels":["fable-audit-20260702-perf"],"created_at":"2020-01-01T00:00:00.000Z"},
+   {"iid":15,"title":"capitalized","labels":["Opus-Audit-20260706-priorities"],"created_at":"2020-01-01T00:00:00.000Z"},
+   {"iid":16,"title":"red team","labels":["red-team-20260709"],"created_at":"2020-01-01T00:00:00.000Z"},
+   {"iid":17,"title":"not a sweep","labels":["audit-log","performance"],"created_at":"2020-01-01T00:00:00.000Z"}]'
   # now = 2027-01-15T08:00:00Z
   out=$(analyze "$ms" "$issues" "$orphans" "$now" 24) && rc=0 || rc=$?
   assert() { grep -qF -- "$1" <<<"$out" || { echo "SELF-TEST FAIL: expected: $1" >&2; fail=1; }; }
@@ -125,6 +132,10 @@ self_test() {
   refute "FAIL: unmilestoned audit-batch issue #11"
   assert "FAIL: unmilestoned audit-batch issue #13"
   refute "#12"
+  assert "FAIL: unmilestoned audit-batch issue #14"
+  assert "FAIL: unmilestoned audit-batch issue #15"
+  assert "FAIL: unmilestoned audit-batch issue #16"
+  refute "#17"
   # A clean tracker passes; a warn-only tracker passes; orphans checked with no dated milestone.
   out=$(analyze "$ms" '[{"iid":1,"title":"ok","labels":["release::stretch"],"milestone":{"title":"0.5"}}]' '[]' "$now" 24) && rc=0 || rc=$?
   [ "$rc" -eq 0 ] || { echo "SELF-TEST FAIL: clean input exited $rc" >&2; fail=1; }
@@ -138,7 +149,20 @@ self_test() {
   out=$(analyze "$ms" "$big" '[]' "$now" 24) && rc=0 || rc=$?
   [ "$rc" -eq 1 ] && [ "$(grep -c '^FAIL: milestone 0.5' <<<"$out")" -eq 20000 ] ||
     { echo "SELF-TEST FAIL: large payload not fully analyzed (rc=$rc)" >&2; fail=1; }
+  # An empty open-issue list means a wrong project id or a filter regression
+  # (the tracker holds ~1,000), never a clean run: exit 3 so the job retries.
+  out=$(require_nonempty_issues '[]' 2>&1) && rc=0 || rc=$?
+  [ "$rc" -eq "$TRACKER_UNREADABLE_EXIT" ] && grep -q 'zero open issues' <<<"$out" ||
+    { echo "SELF-TEST FAIL: empty issue list exited $rc, expected $TRACKER_UNREADABLE_EXIT" >&2; fail=1; }
+  require_nonempty_issues '[{"iid":1}]' || { echo "SELF-TEST FAIL: non-empty list rejected" >&2; fail=1; }
   [ "$fail" -eq 0 ] && echo "self-test OK" || return 1
+}
+
+require_nonempty_issues() { # <issues-json>
+  if [ "$(jq 'length' <<<"$1")" -eq 0 ]; then
+    echo "ERROR: tracker returned zero open issues in dated milestones; the tracker holds ~1,000, so this is a wrong CI_PROJECT_ID or a filter regression, not a clean run." >&2
+    return "$TRACKER_UNREADABLE_EXIT"
+  fi
 }
 
 if [ "${1:-}" = "--self-test" ]; then
@@ -147,7 +171,11 @@ if [ "${1:-}" = "--self-test" ]; then
 fi
 
 API="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
-PROJECT="${CI_PROJECT_ID:-trueppm%2Ftrueppm}"
+PROJECT="${CI_PROJECT_ID:-}"
+if [ -z "$PROJECT" ]; then
+  echo "ERROR: CI_PROJECT_ID is not set. This script is intended to run in CI." >&2
+  exit 2
+fi
 TOKEN="${ISSUES_API_TOKEN:-}"
 GRACE="${RELEASE_LABELS_GRACE_HOURS:-24}"
 
@@ -162,6 +190,7 @@ unreadable() {
 # issues list is public, and one fewer token requirement is one fewer way for
 # this gate to fail closed.
 issues=$(gitlab_json_list "$API" "$PROJECT" "$TOKEN" issues "state=opened&milestone=Any") || unreadable
+require_nonempty_issues "$issues" || exit $?
 milestones=$(jq -c 'map(.milestone) | unique_by(.id)' <<<"$issues")
 orphans=$(gitlab_json_list "$API" "$PROJECT" "$TOKEN" issues "state=opened&milestone=None") || unreadable
 
