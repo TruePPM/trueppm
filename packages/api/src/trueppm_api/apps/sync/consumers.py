@@ -78,6 +78,34 @@ WS_CLOSE_TOO_BIG = 1009
 WS_CLOSE_RATE_LIMITED = 4029
 
 
+# Inbound frame budget shared by every socket of one (project, user) in THIS worker
+# process (#1729). Per-connection state would hand a user N sockets x the budget.
+# In-process on purpose: a Redis counter per frame is the cost being defended
+# against, so the budget is per API worker, not cluster-wide. Memory is bounded:
+# a key is dropped as soon as its window empties, and a periodic sweep removes
+# keys whose sockets went quiet without sending another frame.
+_frame_budgets: dict[tuple[str, str], deque[float]] = {}
+_BUDGET_SWEEP_EVERY = 512
+_budget_calls = 0
+
+
+def _budget_admit(key: tuple[str, str], now: float) -> bool:
+    """Record a frame for ``key``; return False when its window budget is spent."""
+    global _budget_calls
+    window = settings.TRUEPPM_WS_RATE_LIMIT_WINDOW_SECONDS
+    _budget_calls += 1
+    if _budget_calls % _BUDGET_SWEEP_EVERY == 0:
+        for k in [k for k, d in _frame_budgets.items() if not d or now - d[-1] > window]:
+            del _frame_budgets[k]
+    stamps = _frame_budgets.setdefault(key, deque())
+    while stamps and now - stamps[0] > window:
+        stamps.popleft()
+    if len(stamps) >= settings.TRUEPPM_WS_RATE_LIMIT_FRAMES:
+        return False
+    stamps.append(now)
+    return True
+
+
 def _presence_key(project_pk: str) -> str:
     return f"project:{project_pk}:presence"
 
@@ -177,11 +205,6 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     #: accept). Guards the disconnect decrement so an early-rejected connect — which
     #: returns before the increment — never underflows the gauge (#1900).
     _ws_counted: bool = False
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        # Monotonic timestamps of recent inbound frames (sliding window, #1729).
-        self._frame_times: deque[float] = deque()
 
     async def websocket_connect(self, message: dict[str, Any]) -> None:
         """Override to run sync DB queries before accepting the socket."""
@@ -287,18 +310,18 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         nothing; the limits only ever bite an abusive one. Order matters: the rate
         check comes first (cheapest), then the size ceiling on the raw payload, so
         a flood of large frames is never parsed or allocated into a dict. State is
-        per connection and in memory -- a per-frame DB/Redis counter would be the
+        per (project, user), in process memory -- a per-frame DB/Redis counter would be the
         very cost being defended against.
         """
-        now = time.monotonic()
-        window = settings.TRUEPPM_WS_RATE_LIMIT_WINDOW_SECONDS
-        stamps = self._frame_times
-        while stamps and now - stamps[0] > window:
-            stamps.popleft()
-        if len(stamps) >= settings.TRUEPPM_WS_RATE_LIMIT_FRAMES:
+        user = getattr(self, "_user", None)
+        key = (
+            (str(self.project_pk), str(user.pk))
+            if user is not None
+            else ("conn", str(id(self)))  # pre-auth frame: fall back to this socket
+        )
+        if not _budget_admit(key, time.monotonic()):
             await self.close(code=WS_CLOSE_RATE_LIMITED)
             return
-        stamps.append(now)
 
         size = len(text_data.encode("utf-8")) if text_data is not None else len(bytes_data or b"")
         if size > settings.TRUEPPM_WS_MAX_FRAME_BYTES:

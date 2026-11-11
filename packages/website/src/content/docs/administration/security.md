@@ -68,7 +68,8 @@ WebSocket connections authenticate with a short-lived, single-use **ticket**
 (`?ticket=<ticket>`), minted via `POST /api/v1/ws/ticket/`, so no JWT ever
 reaches a URL or an access log. The legacy `?token=<jwt>` handshake is disabled
 by default and opt-in only via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED`
-(deprecated). See [WebSocket connections](/administration/deployment/#websocket-connections).
+(deprecated).
+From 0.5 the handshake also validates the `Origin` header against `ALLOWED_HOSTS` and `TRUEPPM_WS_ALLOWED_ORIGINS`; a refused handshake gets an HTTP 403 on the upgrade, which a browser reports as close code 1006, so the client retries. See [WebSocket connections](/administration/deployment/#websocket-connections).
 
 ### Login rate limiting and per-account lockout
 

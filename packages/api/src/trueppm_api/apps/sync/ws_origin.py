@@ -2,10 +2,36 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
+from urllib.parse import urlparse
 
-from channels.security.websocket import OriginValidator
+from channels.security.websocket import OriginValidator, WebsocketDenier
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+# Denied handshakes are attacker-controlled volume, so the warning is rate-limited
+# to one line per interval per process (the count since the last line is included).
+_DENY_LOG_INTERVAL = 60.0
+_last_deny_log = float("-inf")
+_suppressed = 0
+
+
+def _log_denied(origin: str | None) -> None:
+    global _last_deny_log, _suppressed
+    now = time.monotonic()
+    if now - _last_deny_log < _DENY_LOG_INTERVAL:
+        _suppressed += 1
+        return
+    logger.warning(
+        "WebSocket handshake denied: Origin %r not allowed (%d similar suppressed)",
+        (origin or "")[:200],
+        _suppressed,
+    )
+    _last_deny_log = now
+    _suppressed = 0
 
 
 class TruePPMOriginValidator(OriginValidator):  # type: ignore[misc]
@@ -36,4 +62,29 @@ class TruePPMOriginValidator(OriginValidator):  # type: ignore[misc]
     def valid_origin(self, parsed_origin: Any) -> bool:
         if parsed_origin is None:
             return not settings.TRUEPPM_WS_REQUIRE_ORIGIN
-        return bool(self.validate_origin(parsed_origin))
+        try:
+            return bool(self.validate_origin(parsed_origin))
+        except ValueError:
+            # e.g. an Origin whose port is out of range: urlparse().port raises.
+            return False
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> Any:
+        """Parse Origin defensively: a malformed value is a denial, never a 500."""
+        raw: str | None = None
+        for name, value in scope.get("headers", []):
+            if name == b"origin":
+                raw = value.decode("latin1")
+                break
+        parsed = None
+        ok = True
+        if raw is not None:
+            try:
+                parsed = urlparse(raw)
+            except ValueError:
+                ok = False
+        if ok:
+            ok = self.valid_origin(parsed)
+        if not ok:
+            _log_denied(raw)
+            return await WebsocketDenier()(scope, receive, send)
+        return await self.application(scope, receive, send)
