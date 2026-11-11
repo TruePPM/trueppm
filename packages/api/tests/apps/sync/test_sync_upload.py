@@ -1596,6 +1596,16 @@ _GUARDRAIL_BODY = {
     "suggested_action": "assign_child_tasks",
 }
 
+_SPRINT_DATES_LOCKED_BODY = {
+    "code": "sprint_committed_dates_locked",
+    "detail": (
+        "This backlog task is targeted at a planned or active sprint and has no scheduled "
+        "date. Its timing comes from the sprint; remove it from the sprint to date it "
+        "directly."
+    ),
+    "suggested_action": "remove_from_sprint",
+}
+
 
 def _refusal_progress(project: Project, user: Any) -> tuple[int, Task, dict[str, Any]]:
     """A Team Member records progress on an unanchored task (ADMIN+ is exempt)."""
@@ -1652,11 +1662,35 @@ def _refusal_guardrail(project: Project, user: Any) -> tuple[int, Task, dict[str
     return Role.OWNER, summary, {"sprint": str(sprint.pk)}
 
 
+def _refusal_sprint_dates_locked(project: Project, user: Any) -> tuple[int, Task, dict[str, Any]]:
+    """An undated BACKLOG task in an ACTIVE sprint is dated offline (#2984).
+
+    Sprint sovereignty holds on the sync write path too, for every role: the upload
+    validates through the same ``TaskSerializer`` guard as ``PATCH /tasks/{id}/``.
+    """
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 5),
+        finish_date=date(2026, 1, 16),
+        state=SprintState.ACTIVE,
+    )
+    task = Task.objects.create(
+        project=project, name="Idea", duration=3, sprint=sprint, status=TaskStatus.BACKLOG
+    )
+    return Role.OWNER, task, {"planned_start": "2026-01-07"}
+
+
 _REFUSAL_CASES = [
     pytest.param(_refusal_progress, _PROGRESS_BODY, id="progress_requires_anchor"),
     pytest.param(_refusal_rollup, _ROLLUP_BODY, id="milestone_rollup_locked"),
     pytest.param(_refusal_zero_duration, _ZERO_DURATION_BODY, id="zero_duration_not_milestone"),
     pytest.param(_refusal_guardrail, _GUARDRAIL_BODY, id="guardrail_blocked"),
+    pytest.param(
+        _refusal_sprint_dates_locked,
+        _SPRINT_DATES_LOCKED_BODY,
+        id="sprint_committed_dates_locked",
+    ),
 ]
 
 
@@ -1667,7 +1701,7 @@ def test_structured_refusal_is_400_with_the_rest_body(
 ) -> None:
     """Each structured refusal is a 400 carrying REST's exact body — not a 500.
 
-    These four exceptions bypass ``ValidationError`` so their ``code`` survives, which
+    These exceptions bypass ``ValidationError`` so their ``code`` survives, which
     used to mean ``is_valid()`` let them escape the upload as an unstructured 500 —
     and a 5xx tells an offline client to retry a refusal forever. The REST PATCH of the
     same change on the same state must answer with the identical bytes: one refusal,

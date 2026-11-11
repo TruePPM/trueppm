@@ -245,10 +245,10 @@ export interface Task {
   canEditEstimates?: boolean;
   /**
    * Sprint sovereignty (#2984). Wire key `dates_locked_by_sprint`, mapped in
-   * `mapTask`. `true` when the task has no `planned_start` and belongs to a PLANNED
-   * or ACTIVE sprint: the server refuses any write that sets `planned_start` or
-   * `planned_finish` on it, for every role. Rescheduling an already-dated task is
-   * unaffected. `undefined` on rows that predate the field.
+   * `mapTask`. `true` when the task has no `planned_start`, is `BACKLOG` status, and
+   * belongs to a PLANNED or ACTIVE sprint: the server refuses any write that sets
+   * `planned_start` or `planned_finish` on it, for every role. Committed
+   * (non-BACKLOG) sprint tasks and already-dated tasks are unaffected. `undefined` on rows that predate the field.
    */
   datesLockedBySprint?: boolean;
   /** ISO date string — when work actually began (ADR-0023). Auto-recorded on the

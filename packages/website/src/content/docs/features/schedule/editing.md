@@ -190,5 +190,13 @@ If you'd rather not drag — or you're working from the keyboard — every backl
 Backlog items already targeted at a sprint are grouped under a **Targeted: {sprint}** header in the gutter and cannot be dragged onto the timeline. Their timing comes from the sprint, and the team commits to them at Sprint Planning. A date set from the timeline would look exactly like a team commitment afterwards, with nothing to tell the two apart.
 
 :::note[Ships in 0.5]
-The server will enforce this rule as well. In 0.4 only the gutter does: the same task can still be dated by selecting it in the task list and using bulk edit (`⌘⇧K`), or through the API. From 0.5, a write that sets a start or finish date on an undated task in a **planned** or **active** sprint will be refused for every role, including Owner and Admin. The API returns `sprint_committed_dates_locked`, and a bulk edit rejects just that row. Each task also reports `dates_locked_by_sprint`, so clients can show the lock before anyone tries. Rescheduling a sprint task that already has a date stays allowed. Tasks with no sprint are unaffected, and so are tasks in a completed sprint, which keep their existing status freeze. To date one of these tasks directly, remove it from the sprint first.
+The server will enforce this rule as well. In 0.4 only the gutter does: the same task can still be dated by selecting it in the task list and using bulk edit (`⌘⇧K`), or through the API. From 0.5, a write that sets a start or finish date on an undated **Backlog**-status task in a **planned** or **active** sprint will be refused for every role, including Owner and Admin. These are the rows the gutter shows as read-only. The API returns `sprint_committed_dates_locked`, and a bulk edit rejects just that row. Each task also reports `dates_locked_by_sprint`, so clients can show the lock before anyone tries.
+
+The lock covers Backlog-status rows only. Sprint tasks that are Not started, In progress, or In review are committed work, so the lock does not apply to them. Dragging or resizing their bars on the timeline still works, and so does **Commit start** on an in-progress task. Rescheduling a sprint task that already has a date stays allowed. Tasks with no sprint are unaffected, and so are tasks in a completed sprint, which keep their existing status freeze.
+
+To date one of these tasks directly, remove it from the sprint first. Some writes are still allowed on purpose:
+
+- **Add to a sprint** on the Board adds a task to a sprint and dates it in one step. Adding to an active sprint goes through the existing pending-scope review.
+- You can remove a task from its sprint, then add it back with a date.
+- You can move a task out of Backlog status and date it in the same edit.
 :::

@@ -79766,7 +79766,7 @@
                     },
                     "dates_locked_by_sprint": {
                         "type": "boolean",
-                        "description": "Whether a write that dates this task would be refused (sprint sovereignty).\n\n``True`` when the task has no ``planned_start`` and belongs to a PLANNED or\nACTIVE sprint: its timing comes from the sprint, so setting ``planned_start``\nor ``planned_finish`` is refused with ``sprint_committed_dates_locked`` for\nevery role. Rescheduling a task that already has a date is not affected.",
+                        "description": "Whether a write that dates this task would be refused (sprint sovereignty).\n\n``True`` when the task has no ``planned_start``, is BACKLOG status, and belongs\nto a PLANNED or ACTIVE sprint: its timing comes from the sprint, so setting\n``planned_start`` or ``planned_finish`` is refused with\n``sprint_committed_dates_locked`` for every role. Committed (non-BACKLOG)\nsprint tasks and tasks that already have a date are not affected.",
                         "readOnly": true
                     },
                     "custom_fields": {
@@ -83307,7 +83307,7 @@
                     },
                     "dates_locked_by_sprint": {
                         "type": "boolean",
-                        "description": "Whether a write that dates this task would be refused (sprint sovereignty).\n\n``True`` when the task has no ``planned_start`` and belongs to a PLANNED or\nACTIVE sprint: its timing comes from the sprint, so setting ``planned_start``\nor ``planned_finish`` is refused with ``sprint_committed_dates_locked`` for\nevery role. Rescheduling a task that already has a date is not affected.",
+                        "description": "Whether a write that dates this task would be refused (sprint sovereignty).\n\n``True`` when the task has no ``planned_start``, is BACKLOG status, and belongs\nto a PLANNED or ACTIVE sprint: its timing comes from the sprint, so setting\n``planned_start`` or ``planned_finish`` is refused with\n``sprint_committed_dates_locked`` for every role. Committed (non-BACKLOG)\nsprint tasks and tasks that already have a date are not affected.",
                         "readOnly": true
                     },
                     "custom_fields": {

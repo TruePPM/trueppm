@@ -4430,9 +4430,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # permission class enforces. Fail closed: ``False`` without a request.
     can_log_time = serializers.SerializerMethodField()
     # Server-declared sprint-sovereignty verdict (#2984). ``True`` when this task has
-    # no committed ``planned_start`` and sits in a PLANNED or ACTIVE sprint, so a
-    # write dating it is refused by ``_reject_dating_sprint_committed_task`` for
-    # every role. The Unscheduled gutter and any other client gate off this rather
+    # no ``planned_start``, is still BACKLOG status, and sits in a PLANNED or ACTIVE
+    # sprint, so a write dating it is refused by ``_reject_dating_sprint_committed_task``
+    # for every role. The Unscheduled gutter and any other client gate off this rather
     # than re-deriving the rule from sprint state, so presentation and enforcement
     # call one predicate (ADR-0133's "one rule; it is called twice").
     dates_locked_by_sprint = serializers.SerializerMethodField()
@@ -5457,7 +5457,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             )
 
     def _reject_dating_sprint_committed_task(self, attrs: dict[str, Any]) -> None:
-        """#2984: an undated task in a PLANNED or ACTIVE sprint cannot be dated here.
+        """#2984: an undated BACKLOG task in a PLANNED or ACTIVE sprint cannot be dated.
 
         Sprint sovereignty: the team commits sprint work at Sprint Planning, and the
         sprint window is its schedule. A PM-set ``planned_start`` on such a task is
@@ -5469,6 +5469,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         Scoped deliberately narrow, per the maintainer's decision on the issue:
 
+        - BACKLOG status only — exactly the rows the gutter renders read-only
+          (``useUnscheduledTasks``). A NOT_STARTED / IN_PROGRESS / REVIEW sprint task is
+          committed work: it is undated by design (the ADR-0168 sprint floor schedules
+          it), and the Gantt drag/resize (ADR-0067) and ADR-0603 "Commit start" must
+          be able to write its first ``planned_start``. Refusing those broke both.
         - Only the null → date transition is refused. Rescheduling a sprint task that
           already carries a ``planned_start`` stays allowed, so ADR-0067's
           pull-to-commit Gantt drag keeps working.
@@ -5481,12 +5486,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
           capability, so it runs unconditionally rather than inside
           ``can_user_edit_task``.
 
-        The guard keys on the task's *current* sprint, and a write that also takes the
-        task out of live sprints (``sprint: null``, or a move to a non-live sprint) is
-        allowed — that is the documented remedy. A write that pulls an undated backlog
-        row *into* a live sprint and dates it in one PATCH is also allowed: it is the
-        Board's shipped "Add to a sprint" promote (``ScheduleTaskDialog``), whose
-        ACTIVE-sprint case is already gated as pending scope by ADR-0102.
+        Accepted residuals — this guard closes the direct side door, it does not make
+        a BACKLOG sprint row undatable by any sequence of writes:
+
+        - The guard keys on the task's *current* sprint. A write that pulls an undated
+          row with no sprint *into* a live sprint and dates it in one PATCH is allowed:
+          it is the Board's shipped "Add to a sprint" promote (``ScheduleTaskDialog``),
+          whose ACTIVE-sprint case is already gated as pending scope by ADR-0102.
+        - A write that also takes the task out of live sprints (``sprint: null``, or a
+          move to a non-live sprint) is allowed — that is the documented remedy — and
+          so is removing it first, then re-assigning it with a date in a second write.
+        - Status is read *after* the write, like the sprint: moving the row out of
+          BACKLOG (committing it) and dating it in one write is allowed, as the same
+          two steps in two writes would be.
         """
         if self.instance is None or self.instance.planned_start is not None:
             return
@@ -5494,6 +5506,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             return
         current = self.instance.sprint
         if current is None or current.state not in _SPRINT_STATES_LOCKING_DATES:
+            return
+        if attrs.get("status", self.instance.status) != TaskStatus.BACKLOG:
             return
         after = attrs.get("sprint", current)
         if after is not None and after.state in _SPRINT_STATES_LOCKING_DATES:
@@ -6125,15 +6139,20 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     def get_dates_locked_by_sprint(self, obj: Task) -> bool:
         """Whether a write that dates this task would be refused (sprint sovereignty).
 
-        ``True`` when the task has no ``planned_start`` and belongs to a PLANNED or
-        ACTIVE sprint: its timing comes from the sprint, so setting ``planned_start``
-        or ``planned_finish`` is refused with ``sprint_committed_dates_locked`` for
-        every role. Rescheduling a task that already has a date is not affected.
+        ``True`` when the task has no ``planned_start``, is BACKLOG status, and belongs
+        to a PLANNED or ACTIVE sprint: its timing comes from the sprint, so setting
+        ``planned_start`` or ``planned_finish`` is refused with
+        ``sprint_committed_dates_locked`` for every role. Committed (non-BACKLOG)
+        sprint tasks and tasks that already have a date are not affected.
         """
         # Same predicate as ``_reject_dating_sprint_committed_task``. ``obj.sprint`` is
         # read only when ``sprint_id`` is set, and the task list querysets
         # ``select_related("sprint")``, so this adds no query per row.
-        if obj.planned_start is not None or obj.sprint_id is None:
+        if (
+            obj.planned_start is not None
+            or obj.sprint_id is None
+            or obj.status != TaskStatus.BACKLOG
+        ):
             return False
         sprint = obj.sprint
         return sprint is not None and sprint.state in _SPRINT_STATES_LOCKING_DATES
@@ -7758,24 +7777,26 @@ class TaskWriteRefusal(APIException):
         }
 
 
-#: Sprint states whose undated tasks may not be dated directly (#2984). The same
-#: set the Unscheduled gutter renders read-only. COMPLETED and CANCELLED are absent
-#: on purpose: COMPLETED has its own status freeze, and the issue scoped this guard
-#: to the live states.
+#: Sprint states whose undated BACKLOG-status tasks may not be dated directly
+#: (#2984). The status half of the predicate lives in the guard: the gutter renders
+#: read-only only the BACKLOG rows of these sprints, because a committed (non-BACKLOG)
+#: sprint task floors to the sprint window and draws a real, draggable bar.
+#: COMPLETED and CANCELLED are absent on purpose: COMPLETED has its own status
+#: freeze, and the issue scoped this guard to the live states.
 _SPRINT_STATES_LOCKING_DATES: frozenset[str] = frozenset(
     {SprintState.PLANNED.value, SprintState.ACTIVE.value}
 )
 
 #: REST and sync-upload body text for :class:`SprintCommittedDatesLockedError`.
 MSG_SPRINT_COMMITTED_DATES_LOCKED = (
-    "This task is committed to a planned or active sprint and has no scheduled date. "
-    "Its timing comes from the sprint; remove it from the sprint to date it directly."
+    "This backlog task is targeted at a planned or active sprint and has no scheduled "
+    "date. Its timing comes from the sprint; remove it from the sprint to date it directly."
 )
 
 
 class SprintCommittedDatesLockedError(TaskWriteRefusal):
-    """Raised by ``TaskSerializer.validate`` when a write dates an undated task in a
-    PLANNED or ACTIVE sprint (#2984, sprint sovereignty).
+    """Raised by ``TaskSerializer.validate`` when a write dates an undated BACKLOG
+    task in a PLANNED or ACTIVE sprint (#2984, sprint sovereignty).
 
     The stable ``sprint_committed_dates_locked`` code lets a client map the refusal
     to the same read-only affordance ``dates_locked_by_sprint`` declares.

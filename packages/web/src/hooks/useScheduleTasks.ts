@@ -79,8 +79,9 @@ export interface ApiTask {
    *  `can_edit`: under `pm_only` a Member may edit the task but not its PERT
    *  fields. Optional for the same reason as the two above. */
   can_edit_estimates?: boolean;
-  /** Sprint sovereignty (#2984): `true` when the task has no `planned_start` and
-   *  sits in a PLANNED or ACTIVE sprint, so the server refuses any write that dates
+  /** Sprint sovereignty (#2984): `true` when the task has no `planned_start`, is
+   *  `BACKLOG` status, and sits in a PLANNED or ACTIVE sprint (the rows the
+   *  Unscheduled gutter renders read-only), so the server refuses any write that dates
    *  it (`sprint_committed_dates_locked`). Optional for the same reason as above. */
   dates_locked_by_sprint?: boolean;
   actual_start: string | null;
