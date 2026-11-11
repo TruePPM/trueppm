@@ -1092,8 +1092,9 @@ Beyond semgrep and bandit, the repository's CI runs these gates:
   default values and hard-gates the Kubernetes hardening checks for non-root
   containers, no privilege escalation, dropped capabilities, and no `NET_RAW`.
   A second, informational pass lists the remaining findings.
-- **gitleaks history scan.** `security:gitleaks` scans the full git history
-  with `.gitleaks.toml`, not only the current tree.
+- **gitleaks history scan.** `security:gitleaks:history` scans the full git
+  history with `.gitleaks.toml` on `main`. Merge requests get the working-tree
+  scan, `security:gitleaks`.
 - **curl redirect hardening.** `scripts/check-curl-hardening.sh`
   (`make curl-hardening-check`) fails any tracked `*.sh` file whose `curl`
   follows redirects (`-L`, `--location`, or a bundle such as `-fsSL`) without
