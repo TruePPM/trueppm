@@ -18,7 +18,7 @@
 # NOT a production deployment. Front it with TLS at your load balancer / ingress.
 #
 # ── The printed share URL ─────────────────────────────────────────────────────
-# The share link is the ONLY way in — there are no accounts — so the URL logged
+# The share link is the ONLY way in — nobody logs in — so the URL logged
 # by `demo-seed` has to be one you can actually open. It therefore defaults to
 # `http://localhost`, which is where nginx below publishes the stack and which
 # ALLOWED_HOSTS already accepts. Override TRUEPPM_DEMO_BASE_URL only when you are
@@ -37,25 +37,47 @@
 #
 # The URL is then:  http://localhost/share/schedule/your-fixed-token
 #
-# ── Security note ─────────────────────────────────────────────────────────────
-# The SECRET_KEY / INTEGRATION_ENCRYPTION_KEY below are BAKED DEMO VALUES, safe
-# ONLY because this stack has zero login-capable accounts and no authenticated
-# write path (nobody ever logs in — access is exclusively via the anonymous
-# read-only share endpoint). Do NOT copy these into a real deployment; use
-# docker-compose.prod.yml with generated secrets for anything that holds real
-# data.
+# ── Security note: per-install secrets (#4946) ────────────────────────────────
+# SECRET_KEY and INTEGRATION_ENCRYPTION_KEY are NOT in this file. The one-shot
+# `secrets-init` service generates each from the OS CSPRNG on first boot, stores
+# them (0600) on the `demo_secrets` volume, and every API-image container
+# sources them from there before starting — so api-init, demo-seed and api share
+# one value and no two installs share a key. Later boots reuse the stored values;
+# `down -v` discards them. To supply your own, set SECRET_KEY /
+# INTEGRATION_ENCRYPTION_KEY in the environment; they override the stored value.
 #
-# That "zero accounts" claim is load-bearing, not decorative. A public
-# SECRET_KEY means a public JWT_SIGNING_KEY (base.py derives one from the
-# other), so any account that CAN log in has a token anyone can forge. Two
-# things keep the claim true, and both must stay true together:
+# Why this matters: base.py derives JWT_SIGNING_KEY from SECRET_KEY, and
+# load_sample_project creates an active sample OWNER account (with an unusable
+# password). With a PUBLIC key anyone could forge a valid JWT for that account.
+# A per-install key removes that.
+#
+# What actually stops writes is NOT "there are no accounts" — there is one. It is
+# DemoReadOnlyMiddleware (TRUEPPM_DEMO_READ_ONLY below, #3924/#3932), which
+# refuses every unsafe HTTP method under /api/ whatever the caller's
+# authentication, plus nginx/demo.conf.template's route allowlist. The posture
+# of not creating login-capable accounts is defense in depth:
 #
 #   1. api-init does not run create_admin — no superuser is created.
 #   2. demo-seed runs load_sample_project WITHOUT --with-personas, so its
 #      accounts are created with unusable passwords.
 #
-# scripts/check-demo-readonly.sh enforces both. If you ever need a real account
-# on this stack, the baked keys must go first.
+# scripts/check-demo-readonly.sh enforces both and the read-only flag.
+#
+# Not generated, on purpose: DB_PASSWORD and Valkey. The `db` and `valkey`
+# services publish no ports and sit on this project's private compose network,
+# so only the stack's own containers can reach them; the Postgres password is
+# also fixed into the data volume at first init, so rotating it on upgrade would
+# lock existing installs out of their database. Do not reuse this file's
+# DB_PASSWORD default outside a private compose network. This is still a demo,
+# not a production template: use docker-compose.prod.yml with generated secrets
+# for anything that holds real data.
+
+# Secrets are injected by secrets-init, not by this anchor: it deliberately sets
+# neither SECRET_KEY nor INTEGRATION_ENCRYPTION_KEY.
+x-secrets-entrypoint: &secrets-entrypoint
+  # Source the generated secrets, then exec the service's own command (the
+  # explicit `command:` on each service).
+  entrypoint: ["/bin/sh", "-c", ". /secrets/env && exec \"$$@\"", "--"]
 
 # Shared environment for every API-image container (init, seed, api).
 # Top-level `x-` extension field + YAML anchor keeps the demo config in one place.
@@ -63,10 +85,8 @@ x-api-env: &api-env
   DATABASE_URL: postgres://trueppm:${DB_PASSWORD:-trueppm-demo}@db:5432/trueppm
   REDIS_URL: redis://valkey:6379
   DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
-  # Baked demo secrets — safe only because the demo has no accounts / no auth
-  # write path (see header). Override with your own for any real deployment.
-  SECRET_KEY: ${SECRET_KEY:-trueppm-public-demo-secret-key-read-only-no-accounts-0000}
-  INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-bCrnaS7Vi4J94X52yHZ5V1clG-7Sn-WUhO_pIIX8qBk=}
+  # SECRET_KEY / INTEGRATION_ENCRYPTION_KEY come from the secrets-init volume
+  # (see header), never from this file.
   ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,api,try.trueppm.com}
   # Internal Docker network links only; TLS is terminated upstream.
   TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
@@ -136,11 +156,29 @@ services:
       timeout: 3s
       retries: 5
 
+  # Generates per-install secrets on first boot (#4946); see the header. Runs as
+  # root only so it can create the 0700 directory on a fresh named volume and
+  # hand it to the image's unprivileged `trueppm` user (uid 1000). The script
+  # never prints a secret value.
+  secrets-init:
+    <<: *logging
+    image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
+    user: "0"
+    entrypoint: ["/bin/sh", "/demo-init-secrets.sh"]
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-}
+      INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-}
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./scripts/demo-init-secrets.sh:/demo-init-secrets.sh:ro
+      - demo_secrets:/secrets
+
   # Runs migrations + collectstatic once. It deliberately does NOT run
   # create_admin (#3187): this stack's entire security posture is that no
-  # login-capable account exists, which is what makes the baked public
-  # SECRET_KEY above harmless. A superuser plus a published signing key is a
-  # forgeable superuser token, held back only by the /api/ allowlist in
+  # login-capable account exists. Even with a per-install SECRET_KEY, a
+  # superuser is one more credential to protect; with a leaked signing key it is
+  # a forgeable superuser token, held back only by the /api/ allowlist in
   # nginx/demo.conf.template — one config line with no defense behind it.
   #
   # It used to run create_admin anyway, and because api-init completes before
@@ -152,7 +190,7 @@ services:
   # Share links need no admin account: demo-seed mints them with
   # create_demo_share_link.
   api-init:
-    <<: *logging
+    <<: [*logging, *secrets-entrypoint]
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
       sh -c "python manage.py migrate --noinput &&
@@ -162,7 +200,10 @@ services:
       STATIC_ROOT: /app/staticfiles
     volumes:
       - demo_static_files:/app/staticfiles
+      - demo_secrets:/secrets:ro
     depends_on:
+      secrets-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       valkey:
@@ -175,7 +216,7 @@ services:
   # with the sample's own persona account, which also carries an unusable
   # password — _resolve_owner's third branch, which is now the one that runs.
   demo-seed:
-    <<: *logging
+    <<: [*logging, *secrets-entrypoint]
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
       sh -c "python manage.py load_sample_project &&
@@ -187,12 +228,14 @@ services:
       TRUEPPM_DEMO_BASE_URL: ${TRUEPPM_DEMO_BASE_URL:-http://localhost}
       # Optional: pin a fixed token for a stable, reprintable share URL.
       TRUEPPM_DEMO_SHARE_TOKEN: ${TRUEPPM_DEMO_SHARE_TOKEN:-}
+    volumes:
+      - demo_secrets:/secrets:ro
     depends_on:
       api-init:
         condition: service_completed_successfully
 
   api:
-    <<: *logging
+    <<: [*logging, *secrets-entrypoint]
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     restart: unless-stopped
     security_opt:
@@ -200,6 +243,9 @@ services:
     mem_limit: 768m
     cpus: 1.0
     pids_limit: 512
+    # Overriding `entrypoint` makes Compose drop the image's CMD, so restate it
+    # (packages/api/Dockerfile's CMD). Keep the two in step.
+    command: ["uvicorn", "trueppm_api.asgi:application", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       <<: *api-env
       # Not in the *api-env anchor — api-init sets it separately, so this
@@ -212,6 +258,7 @@ services:
     # Swagger-UI asset 404s while api-init reports a clean collectstatic (#2828).
     volumes:
       - demo_static_files:/app/staticfiles
+      - demo_secrets:/secrets:ro
     depends_on:
       demo-seed:
         condition: service_completed_successfully
@@ -281,3 +328,4 @@ volumes:
   demo_postgres_data:
   demo_frontend_dist:
   demo_static_files:
+  demo_secrets:
