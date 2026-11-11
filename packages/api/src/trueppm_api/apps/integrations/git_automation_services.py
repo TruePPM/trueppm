@@ -111,25 +111,25 @@ def _pr_key(provider: str, url: str) -> tuple[Any, ...] | None:
 def _find_linked_task(project_id: Any, provider: str, pr_url: str) -> Task | None:
     """Find the project task whose ``TaskLink`` points at ``pr_url``.
 
-    No normalized URL column exists (ADR-0158 §4), so this is parse-and-compare,
-    bounded to the project's own links — the candidate set is small. The first
-    matching link wins; a task linked to the same PR more than once is degenerate.
+    No normalized URL column exists (ADR-0158 §4), so this is parse-and-compare
+    over the project's own links of this provider only. Only ``(url, task_id)`` is
+    read per candidate: ``select_related("task").only(...)`` would expand to every
+    ``Task`` column for every link, on an unauthenticated path. The single winning
+    task is fetched by pk. The first matching link wins; a task linked to the same
+    PR more than once is degenerate.
     """
     target = _pr_key(provider, pr_url)
     if target is None:
         return None
-    candidates = (
-        TaskLink.objects.filter(
-            task__project_id=project_id,
-            is_deleted=False,
-            task__is_deleted=False,
-        )
-        .select_related("task")
-        .only("url", "task")
-    )
-    for link in candidates:
-        if _pr_key(provider, link.url) == target:
-            return link.task
+    candidates = TaskLink.objects.filter(
+        task__project_id=project_id,
+        provider=provider,
+        is_deleted=False,
+        task__is_deleted=False,
+    ).values_list("url", "task_id")
+    for url, task_id in candidates:
+        if _pr_key(provider, url) == target:
+            return Task.objects.filter(pk=task_id, is_deleted=False).first()
     return None
 
 
