@@ -254,5 +254,6 @@ one, each fanned out and persisted as an ADR-0236 replay row. The event is now
 suppressed when `count` is 0 (single-project and program pass alike). `cpm_complete`
 still fires unconditionally. No client depends on the empty frame:
 `useProjectWebSocket` already skipped the splice on an empty delta, and
-`ProgramScheduleLiveSync` only refetches on the event type, so a no-op pass no longer
-triggers that refetch.
+`ProgramScheduleLiveSync` only refetches on the event type. The change removes the
+empty frame and its ADR-0236 replay rows; the refetch is unchanged because
+`cpm_complete` still triggers it.
