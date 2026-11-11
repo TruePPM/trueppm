@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Branch coverage for the mobile backlog shell: header identity, the empty /
  * loading / no-results forks, the facet chips and their bottom sheets, the

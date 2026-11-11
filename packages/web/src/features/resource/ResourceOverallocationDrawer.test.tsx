@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { userEvent } from '@testing-library/user-event';

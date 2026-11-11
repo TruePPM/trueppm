@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act, render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';

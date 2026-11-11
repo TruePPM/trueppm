@@ -15,7 +15,11 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'jsdom',
+    // happy-dom initializes ~2x faster than jsdom per file (#1366; shard 2: 191s -> 112s).
+    // The 21 files that need jsdom's stricter DOM (accessible-name computation, a
+    // writable navigator.clipboard, storage/history behavior) opt back in per file with
+    // a leading `// @vitest-environment jsdom`; add the same line to any new file that fails here.
+    environment: 'happy-dom',
     setupFiles: ['src/test/setup.ts'],
     // Suppress ONLY the known orphan-XHR / abort noise, not every unhandled
     // rejection. Components that mount API-backed hooks (TanStack Query, polling)
