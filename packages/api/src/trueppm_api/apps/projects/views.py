@@ -5227,11 +5227,7 @@ def annotate_tasks_queryset(
         )
 
     # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
-    # Sum TaskResource.units across all active (non-COMPLETE, non-BACKLOG) tasks
-    # in this project where the assignee user matches the outer task's assignee.
-    # Resource has no direct user FK, so we join through Task.assignee instead of
-    # Resource.user — units allocated to any resource on a task assigned to the
-    # same user contribute to that user's overallocation total.
+    # The load measured is the assignee's own: see ``_user_load_tasks`` below.
     #
     # Capacity was a hardcoded 1.0, so this badge called a half-time person
     # overallocated at 0.6 while the heat map beside it read 120% of 0.5 and the
@@ -5241,6 +5237,8 @@ def annotate_tasks_queryset(
     # else that Resource's own max_units; else 1.0 for an assignee with no Resource
     # row at all, which is the pre-#3574 behavior for exactly the population it was
     # right for.
+    from decimal import Decimal
+
     from django.db.models.functions import Coalesce
 
     from trueppm_api.apps.resources.capacity import DEFAULT_MAX_UNITS
@@ -5250,84 +5248,97 @@ def annotate_tasks_queryset(
 
     _units_field = db_models.DecimalField(max_digits=4, decimal_places=2)
 
-    # Both capacity candidates correlate against the TaskResource subquery's OWN
-    # columns (``task__project_id`` / ``task__assignee_id``), not the outer Task
-    # row, so the comparison can live in the aggregate's HAVING.
+    # Which tasks load a user, and how much (#3059). The pre-#3059 read summed
+    # TaskResource.units of ANY resource on a task whose assignee is the user, so
+    # Alice and Carol working a task Bob owns inflated Bob's total while Bob's own
+    # TaskResource rows on tasks others own were ignored, and a task whose only
+    # assignment signal is a bare ``Task.assignee`` (no TaskResource row: PATCH
+    # /tasks/, retro promotion, Jira import) contributed nothing at all. The
+    # same class as ``_check_overallocation`` (#3047) and the attention feed.
     #
-    # Keeping it there rather than in an outer Case/When is what matters:
-    # ``Query.resolve_ref`` inlines an annotation's whole expression into a ``When``
-    # condition instead of emitting a reference to its alias, so the Case form
-    # compiled both capacity subqueries into the OUTER task queryset's SELECT list
-    # and GROUP BY key — the one this file already measures at 115 ms -> 5,753 ms
-    # under ?ordering=wbs_path, at page_size up to 500. Here they stay inside the
-    # subquery. Django still repeats the Coalesce in that subquery's own GROUP BY
-    # alongside the HAVING (it is functionally determined by the two grouped
-    # columns, so the partition is unchanged) — the win is the outer query, not a
-    # single evaluation.
+    # The set is therefore built from the TASK side, keyed on ``Resource.user``:
+    # an open task is in the user's set when they are its assignee OR a resource
+    # linked to them holds a TaskResource row on it. Its load is the sum of that
+    # user's active rows; a task with no row of theirs at all (active or not, so a
+    # deactivated resource is not resurrected as an estimate, #3572) is the bare case
+    # and counts at DEFAULT_MAX_UNITS-per-task, the full-time assumption
+    # ``Task.assignee`` already encodes everywhere else.
     #
+    # Everything correlates through the ``_uid`` annotation (the user being
+    # measured) rather than the outer queryset directly, so the capacity candidates
+    # stay inside each subquery's HAVING. Putting them in an outer Case/When instead
+    # makes ``Query.resolve_ref`` inline them into the OUTER task queryset's SELECT
+    # list and GROUP BY, the shape this file measures at 115 ms -> 5,753 ms under
+    # ``?ordering=wbs_path``.
+    _open_statuses = [TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW]
+    _load_field = db_models.DecimalField(max_digits=8, decimal_places=2)
+
+    def _user_load_tasks(uid: Any, pid: Any) -> Any:
+        any_row = _TR.objects.filter(task_id=OuterRef("pk"), resource__user_id=OuterRef("_uid"))
+        user_units = (
+            _TR.objects.active()
+            .filter(task_id=OuterRef("pk"), resource__user_id=OuterRef("_uid"))
+            .order_by()
+            .values("task_id")
+            .annotate(_u=Sum("units"))
+            .values("_u")[:1]
+        )
+        return (
+            Task.objects.filter(project_id=pid, status__in=_open_statuses, is_deleted=False)
+            .annotate(_uid=uid)
+            .filter(Q(assignee_id=F("_uid")) | Exists(any_row))
+            .annotate(
+                _load=Case(
+                    When(
+                        Exists(any_row),
+                        then=Coalesce(
+                            Subquery(user_units, output_field=_load_field),
+                            db_models.Value(Decimal("0"), output_field=_load_field),
+                        ),
+                    ),
+                    default=db_models.Value(DEFAULT_MAX_UNITS, output_field=_load_field),
+                    output_field=_load_field,
+                )
+            )
+        )
+
     # units_override is nullable and 0 is a legitimate value, so the roster row's
     # own Coalesce (override -> the resource default) resolves inside its subquery
     # and only a MISSING roster row falls through to the next candidate.
-    roster_capacity_subq = (
-        _PR.objects.filter(
-            project_id=OuterRef("task__project_id"),
-            resource__user_id=OuterRef("task__assignee_id"),
-            is_deleted=False,
+    def _capacity(uid: Any, pid: Any) -> Any:
+        roster = (
+            _PR.objects.filter(project_id=pid, resource__user_id=uid, is_deleted=False)
+            .annotate(_cap=Coalesce("units_override", "resource__max_units"))
+            .order_by("resource__name")
+            .values("_cap")[:1]
         )
-        .annotate(_cap=Coalesce("units_override", "resource__max_units"))
-        .order_by("resource__name")
-        .values("_cap")[:1]
-    )
-    # No project correlation, deliberately: ``Resource`` is an org-wide catalog
-    # (ADR-0034) and this branch answers "what is this person's own capacity" for an
-    # assignee with no roster row here. It relies on that catalog being single-tenant
-    # — if Resource ever becomes tenant-scoped this filter has no scope to inherit
-    # and must gain one.
-    #
-    # ``is_deleted=False`` here and NOT on the roster subquery above is intentional:
-    # a live roster row is an explicit per-project statement and stands on its own,
-    # while this fallback matches by user link alone and must not resurrect a retired
-    # catalog row that nobody put on this project.
-    #
-    # ``Resource.user`` is a plain FK, not a OneToOne, so one user can own several
-    # resource rows ("Ada" and "Ada (contract)"). Both subqueries tie-break by name
-    # so the answer is at least deterministic; which row *should* win is genuinely
-    # unspecified, and the roster row above is the one that resolves it when the
-    # project cares.
-    resource_capacity_subq = (
-        _Res.objects.filter(user_id=OuterRef("task__assignee_id"), is_deleted=False)
-        .order_by("name")
-        .values("max_units")[:1]
-    )
+        # No project correlation, deliberately: ``Resource`` is an org-wide catalog
+        # (ADR-0034) and this branch answers "what is this person's own capacity" for
+        # an assignee with no roster row here. It relies on that catalog being
+        # single-tenant. ``is_deleted=False`` here and NOT on the roster subquery is
+        # intentional: a live roster row is an explicit per-project statement, while
+        # this fallback matches by user link alone and must not resurrect a retired
+        # catalog row nobody put on this project. ``Resource.user`` is a plain FK, so
+        # one user can own several rows; both candidates tie-break by name so the
+        # answer is at least deterministic, and the roster row is what resolves it
+        # when the project cares.
+        catalog = (
+            _Res.objects.filter(user_id=uid, is_deleted=False)
+            .order_by("name")
+            .values("max_units")[:1]
+        )
+        return Coalesce(
+            Subquery(roster, output_field=_units_field),
+            Subquery(catalog, output_field=_units_field),
+            db_models.Value(DEFAULT_MAX_UNITS, output_field=_units_field),
+        )
 
-    # ``.active()`` (#3572): a deactivated resource's assignment rows are retained
-    # for audit, so without this the drawer keeps flagging a user as over-allocated
-    # on load nobody is carrying. Same class as ProjectAttentionView's
-    # over-allocation bucket below.
     overallocated_subq = (
-        _TR.objects.active()
-        .filter(
-            task__assignee_id=OuterRef("assignee_id"),
-            task__project_id=OuterRef("project_id"),
-            task__status__in=[
-                TaskStatus.NOT_STARTED,
-                TaskStatus.IN_PROGRESS,
-                TaskStatus.REVIEW,
-            ],
-            task__is_deleted=False,
-        )
-        # task__project_id is grouped as well as filtered so the HAVING below may
-        # correlate against it; the filter already pins it to one value, so the
-        # partition is unchanged.
-        .values("task__assignee_id", "task__project_id")
-        .annotate(total=Sum("units"))
-        .filter(
-            total__gt=Coalesce(
-                Subquery(roster_capacity_subq, output_field=_units_field),
-                Subquery(resource_capacity_subq, output_field=_units_field),
-                db_models.Value(DEFAULT_MAX_UNITS, output_field=_units_field),
-            )
-        )
+        _user_load_tasks(OuterRef("assignee_id"), OuterRef("project_id"))
+        .order_by()
+        .values("project_id")
+        .annotate(total=Sum("_load"))
+        .filter(total__gt=_capacity(OuterRef("_uid"), OuterRef("project_id")))
         .values("total")[:1]
     )
 
@@ -5339,35 +5350,21 @@ def annotate_tasks_queryset(
     # already flags, and Postgres guarantees CASE short-circuits.
     #
     # The per-day check is one correlated pass, not a per-row computation: each of the
-    # assignee's open assignments is an "anchor" whose own span start is the candidate
-    # day (the peak of boxcars is attained on some span's first day, see
-    # ``projects.utilization._peak_candidate_days``), and ``_peak_total`` sums every
-    # assignment covering that day. Undated assignments (no span, or end < start) count
-    # on every day, exactly as ``peak_concurrent_units`` folds them in. The one
-    # approximation: the candidate is the span's first CALENDAR day, not its first
-    # working day under the resource's calendar -- CPM never dates a task onto a
-    # non-working day, and resolving a per-resource calendar in SQL is the per-row cost
-    # this annotation must not take.
+    # user's open tasks is an "anchor" whose own span start is the candidate day (the
+    # peak of boxcars is attained on some span's first day, see
+    # ``projects.utilization._peak_candidate_days``), and the covering total sums
+    # every task of the user's set covering that day. Undated tasks (no span, or end <
+    # start) count on every day, exactly as ``peak_concurrent_units`` folds them in.
+    # The one approximation: the candidate is the span's first CALENDAR day, not its
+    # first working day under the resource's calendar -- CPM never dates a task onto a
+    # non-working day, and resolving a per-resource calendar in SQL is the per-row
+    # cost this annotation must not take.
     from django.db.models import DateField
 
-    def _open_assignments() -> Any:
-        return _TR.objects.active().filter(
-            task__status__in=[
-                TaskStatus.NOT_STARTED,
-                TaskStatus.IN_PROGRESS,
-                TaskStatus.REVIEW,
-            ],
-            task__is_deleted=False,
-        )
-
-    _span_start = Coalesce("task__scheduled_start", "task__early_start", output_field=DateField())
+    _span_start = Coalesce("scheduled_start", "early_start", output_field=DateField())
     covering_total_subq = (
-        _open_assignments()
-        .filter(
-            task__assignee_id=OuterRef("task__assignee_id"),
-            task__project_id=OuterRef("task__project_id"),
-        )
-        .annotate(_b_start=_span_start, _b_end=F("task__early_finish"))
+        _user_load_tasks(OuterRef("_uid"), OuterRef("project_id"))
+        .annotate(_b_start=_span_start, _b_end=F("early_finish"))
         .filter(
             Q(_b_start__isnull=True)
             | Q(_b_end__isnull=True)
@@ -5375,26 +5372,30 @@ def annotate_tasks_queryset(
             | Q(_b_start__lte=OuterRef("_day"), _b_end__gte=OuterRef("_day"))
         )
         .order_by()
-        .values("task__assignee_id")
-        .annotate(t=Sum("units"))
+        .values("project_id")
+        .annotate(t=Sum("_load"))
         .values("t")[:1]
     )
     peak_overallocated_subq = (
-        _open_assignments()
-        .filter(
-            task__assignee_id=OuterRef("assignee_id"),
-            task__project_id=OuterRef("project_id"),
-        )
+        _user_load_tasks(OuterRef("assignee_id"), OuterRef("project_id"))
         .annotate(
             _day=_span_start,
             _peak_total=Subquery(covering_total_subq, output_field=_units_field),
         )
-        .filter(
-            _peak_total__gt=Coalesce(
-                Subquery(roster_capacity_subq, output_field=_units_field),
-                Subquery(resource_capacity_subq, output_field=_units_field),
-                db_models.Value(DEFAULT_MAX_UNITS, output_field=_units_field),
-            )
+        .filter(_peak_total__gt=_capacity(OuterRef("_uid"), OuterRef("project_id")))
+    )
+    # The caveat that travels with the flag: some of the user's open load is an
+    # estimate (a bare assignee, no tracked units). An Exists on its own, not read
+    # back off ``assignee_is_overallocated`` -- an annotation referenced from a When
+    # is inlined into the outer SELECT (see above).
+    untracked_subq = Task.objects.filter(
+        project_id=OuterRef("project_id"),
+        assignee_id=OuterRef("assignee_id"),
+        status__in=_open_statuses,
+        is_deleted=False,
+    ).exclude(
+        Exists(
+            _TR.objects.filter(task_id=OuterRef("pk"), resource__user_id=OuterRef("assignee_id"))
         )
     )
     qs = qs.annotate(
@@ -5402,7 +5403,8 @@ def annotate_tasks_queryset(
             When(Exists(overallocated_subq), then=Exists(peak_overallocated_subq)),
             default=db_models.Value(False),
             output_field=BooleanField(),
-        )
+        ),
+        assignee_load_includes_estimate=Exists(untracked_subq),
     )
 
     # Prefetch sprint scope-change audit rows (ADR-0060) so TaskSerializer
@@ -14085,6 +14087,63 @@ class ProjectAttentionView(APIView):
                 out.append((task, drift_days))
         return out
 
+    def _bare_assignee_allocations(
+        self, project: Project
+    ) -> tuple[dict[Any, list[Any]], dict[Any, int]]:
+        """Full-time estimates for open tasks assigned to a user with no TaskResource row.
+
+        Returns ``({resource_id: [Allocation]}, {resource_id: task_count})``. A task is
+        bare for a user when they are its assignee and no resource linked to them holds
+        a TaskResource row on it (active or not, so a deactivated resource is not
+        resurrected as an estimate, #3572). When a user owns several Resource rows the
+        estimate lands on the first by name -- the same deterministic tie-break the
+        task-list annotation uses -- so one person is never reported twice.
+        """
+        from decimal import Decimal
+
+        from django.db.models import DateField, Exists, OuterRef
+        from django.db.models.functions import Coalesce
+
+        from trueppm_api.apps.projects.models import Task
+        from trueppm_api.apps.projects.utilization import Allocation
+        from trueppm_api.apps.resources.models import Resource, TaskResource
+
+        rows = list(
+            Task.committed.filter(project=project, assignee__isnull=False)
+            .exclude(status=TaskStatus.COMPLETE)
+            .exclude(
+                Exists(
+                    TaskResource.objects.filter(
+                        task_id=OuterRef("pk"), resource__user_id=OuterRef("assignee_id")
+                    )
+                )
+            )
+            .annotate(
+                _span_start=Coalesce("scheduled_start", "early_start", output_field=DateField())
+            )
+            .values_list("assignee_id", "_span_start", "early_finish")[
+                : self._MAX_ASSIGNEE_SCAN * 4
+            ]
+        )
+        if not rows:
+            return {}, {}
+        resource_by_user: dict[Any, Any] = {}
+        for res in Resource.objects.filter(
+            is_deleted=False, user_id__in={r[0] for r in rows}
+        ).order_by("name", "pk"):
+            resource_by_user.setdefault(res.user_id, res.pk)
+        allocations: dict[Any, list[Any]] = {}
+        counts: dict[Any, int] = {}
+        for user_id, span_start, span_end in rows:
+            rid = resource_by_user.get(user_id)
+            if rid is None:
+                continue
+            allocations.setdefault(rid, []).append(
+                Allocation(units=Decimal("1.0"), start=span_start, end=span_end)
+            )
+            counts[rid] = counts.get(rid, 0) + 1
+        return allocations, counts
+
     def _overallocation_items(self, project: Project) -> list[dict[str, Any]]:
         """Resources whose peak single-day load exceeds their capacity on open tasks.
 
@@ -14127,6 +14186,17 @@ class ProjectAttentionView(APIView):
             .distinct()
             .order_by("resource__name", "resource_id")[: self._MAX_ASSIGNEE_SCAN]
         ]
+
+        # Bare-assignee fallback (#3059, the read-side sibling of #3047): an open
+        # task whose only signal is ``Task.assignee`` has no TaskResource row, so
+        # the pass above never sees it. It is folded in at a full-time estimate for
+        # the active resource linked to that user via ``Resource.user`` -- the only
+        # correlation there is -- and a resource reachable only this way still
+        # becomes a candidate (a half-time person with one bare task is 200%).
+        bare_allocations, bare_counts = self._bare_assignee_allocations(project)
+        for rid in bare_allocations:
+            if rid not in resource_ids and len(resource_ids) < self._MAX_ASSIGNEE_SCAN:
+                resource_ids.append(rid)
         if not resource_ids:
             return []
 
@@ -14150,6 +14220,9 @@ class ProjectAttentionView(APIView):
             allocations.setdefault(rid, []).append(
                 Allocation(units=units, start=span_start, end=span_end)
             )
+        for rid, extra in bare_allocations.items():
+            if rid in resource_ids:
+                allocations.setdefault(rid, []).extend(extra)
 
         cal_project = (
             Project.objects.select_related("calendar")
@@ -14173,6 +14246,12 @@ class ProjectAttentionView(APIView):
             )
             if peak <= roster_units.get(str(rid), res.max_units):
                 continue
+            n_bare = bare_counts.get(rid, 0)
+            estimate_note = (
+                f" (includes {n_bare} task(s) with no tracked units, assumed full-time)"
+                if n_bare
+                else ""
+            )
             out.append(
                 {
                     "severity": "warning",
@@ -14181,7 +14260,7 @@ class ProjectAttentionView(APIView):
                     "task_name": res.name,
                     "assignee_name": None,
                     "date": None,
-                    "detail": f"Allocated {peak:.0%} — over capacity",
+                    "detail": f"Allocated {peak:.0%} — over capacity{estimate_note}",
                     "link_target": None,
                 }
             )

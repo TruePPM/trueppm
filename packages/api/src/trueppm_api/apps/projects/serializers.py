@@ -4359,12 +4359,24 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True,
         default=False,
         help_text=(
-            "True when the assignee's TaskResource.units held on any single day across "
-            "active tasks in this project exceed their capacity ON THIS PROJECT (tasks "
-            "with no schedule dates count on every day). Capacity is resolved in "
+            "True when the units the assignee holds on any single day across active "
+            "tasks in this project exceed their capacity ON THIS PROJECT (tasks "
+            "with no schedule dates count on every day). The load is the "
+            "TaskResource.units of resources linked to the assignee via Resource.user; "
+            "a task assigned to them with no such row counts as full-time (1.0), see "
+            "assignee_load_includes_estimate. Capacity is resolved in "
             "three steps: the roster units_override for the Resource that "
             "Resource.user links to this assignee (0 included), else that Resource's "
             "max_units, else 1.0 for an assignee with no Resource row at all."
+        ),
+    )
+    assignee_load_includes_estimate = serializers.BooleanField(
+        read_only=True,
+        default=False,
+        help_text=(
+            "True when the assignee owns an open task in this project that has no "
+            "TaskResource row for them, so assignee_is_overallocated counts it at an "
+            "assumed full-time 1.0 instead of a tracked figure (#3059)."
         ),
     )
 
@@ -4520,6 +4532,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "status_changed_at",
             "priority_rank",
             "assignee_is_overallocated",
+            "assignee_load_includes_estimate",
             "sprint",
             "sprint_pending",
             "story_points",
@@ -4650,6 +4663,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "external_link_summary",
             "status_changed_at",
             "assignee_is_overallocated",
+            "assignee_load_includes_estimate",
             # Seed provenance (ADR-0786 §5) — server-owned, and read-only for a
             # sharper reason than "the server writes it". A client that could set
             # ``edited_at`` could make a row it never touched survive B4's sweep;

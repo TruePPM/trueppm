@@ -197,6 +197,14 @@ From 0.4 `effective_max_units` will be the denominator behind
 `GET /sprints/{id}/capacity/`. Cross-project reads keep `Resource.max_units` — see
 the note under **Programs** above.
 
+From 0.5 the over-allocation reads that key on a person will measure the load of the
+resources linked to that person through `Resource.user`, and will count an open task whose
+only assignment signal is `Task.assignee` (no `TaskResource` row) as a full-time estimate,
+as the `assignment_not_unit_tracked` warning already does. `Task.assignee_is_overallocated`
+will be accompanied by `assignee_load_includes_estimate`, which is `true` when that figure
+includes such an estimate; the `overallocation` items on `/projects/{id}/attention/` will
+say so in their `detail`.
+
 A plain `DELETE` returns `409 Conflict` with code `roster_has_assignments` if the
 resource has live task assignments on the project; the response body lists the
 `affected_tasks`, a sample of `task_names`, and the `assignment_count`. Passing

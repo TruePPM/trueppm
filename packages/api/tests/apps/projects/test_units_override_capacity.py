@@ -245,12 +245,13 @@ class TestAssigneeIsOverallocatedUsesEffectiveCapacity:
         self, client: APIClient, project: Project, owner: Any
     ) -> None:
         """Nothing links this user to a capacity, so full time stands in — exactly
-        the population the old hardcoded value was right for."""
-        unlinked = _resource("Equipment")
-        task = _task(project, assignee=owner)
-        TaskResource.objects.create(task=task, resource=unlinked, units=Decimal("1.2"))
-
-        assert self._flag(client, task) is True
+        the population the old hardcoded value was right for. With no Resource row
+        there are no tracked units either (#3059): each task counts as one full-time
+        assignment, so one is within 1.0 and two overlapping are not."""
+        first = _task(project, assignee=owner, name="A", wbs="1")
+        assert self._flag(client, first) is False
+        _task(project, assignee=owner, name="B", wbs="2")
+        assert self._flag(client, first) is True
 
     def test_an_override_on_another_project_does_not_leak(
         self, client: APIClient, project: Project, cal: Calendar, owner: Any

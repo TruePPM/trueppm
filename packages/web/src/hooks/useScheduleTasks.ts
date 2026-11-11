@@ -149,6 +149,8 @@ export interface ApiTask {
   readiness?: string | null;
   // Wave 3 (#210) — passive overalloc indicator in task drawer.
   assignee_is_overallocated?: boolean;
+  // True when that load includes a full-time estimate for an assigned task with no tracked units (#3059).
+  assignee_load_includes_estimate?: boolean;
   server_version?: number;
   // Sprint membership (issue #317) — null/absent when not in a sprint.
   sprint?: string | null;
