@@ -83,10 +83,18 @@ _MC_REFERENCE_BLOCK_CELLS = 65_536
 # ordinal in int32, its display flag in bool: 29 bytes a cell) plus a working-time
 # copy, so running it over every run at once peaked at ~1.4 GB for 50,000 tasks x
 # 1,000 runs. Each run is an independent row of that pass, so it runs over row
-# chunks instead and keeps only each run's finish. 4M cells is ~116 MB of forward
-# matrices; a project of up to 400 tasks still runs 10,000 runs in one chunk, so the
-# common case pays no per-chunk loop overhead at all.
-_MC_FORWARD_CHUNK_CELLS = 4_000_000
+# chunks instead and keeps only each run's finish. The forward pass walks the tasks
+# in a Python loop that issues ~10 small numpy calls per task per chunk, so its cost
+# is (chunks x tasks) of fixed call overhead and shrinking a chunk buys memory at the
+# price of time (#4955; profiled at 50,000 x 1,000, 650,000 `_mc_edge_constraints`
+# calls at 4M cells). Measured on the mixed ~2 edges/task network at 50,000 tasks x
+# 1,000 runs: 4M cells 6.5 s / 790 MB RSS, 8M 5.9 s / 918 MB, 16M 5.3 s / 1,142 MB,
+# unchunked 4.9 s / 2,088 MB. 8M cells (~232 MB of forward matrices, 7 chunks at that
+# size) recovers about 0.6 s for ~130 MB; going further buys memory back faster than
+# it buys time. 10,000 tasks x 1,000 runs was never slower (2 chunks). A project of up
+# to 800 tasks still runs 10,000 runs in one chunk, so the common case pays no
+# per-chunk loop overhead at all.
+_MC_FORWARD_CHUNK_CELLS = 8_000_000
 
 
 def _mc_forward_chunk_rows(runs: int, n_tasks: int, *, whole: bool) -> int:
