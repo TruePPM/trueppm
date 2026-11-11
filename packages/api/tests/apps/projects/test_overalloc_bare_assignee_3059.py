@@ -324,8 +324,12 @@ class TestStatusSetAndGuard:
                 walk(child)
 
         walk(plan[0]["Plan"])
-        # Tracked half: Resource.user_id = <the row's assignee> is an index condition.
-        assert any("user_id = projects_task.assignee_id" in c for c in conds), conds
+        # Tracked half: Resource.user_id = <the row's assignee> is applied as an index
+        # condition or a filter (the planner picks; either is fine, the OR is not).
+        assert any("user_id = projects_task.assignee_id" in c for c in conds + filters), (
+            conds,
+            filters,
+        )
         # Bare half: the assignee test is never one arm of an OR whose other arm is a
         # subplan -- the shape that cannot use any index for either arm.
         arm = r"\(assignee_id = [\w.]+\)"

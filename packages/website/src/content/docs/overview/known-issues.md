@@ -164,8 +164,9 @@ product currently says so.
   0.5 will count an assignee-only task at an assumed full-time load (`1.0`) in three
   places: the overallocation indicator on a task, the **overallocated** row in the
   project's attention feed, and the overallocation warning shown when you assign
-  someone. Each will say when that estimate is part of the over-capacity day. The
-  heatmap, daily utilization and the digest will still count such a task as zero
+  someone. The task indicator and the attention row will say when that estimate is
+  part of the over-capacity day. The assignment warning flags any such task on the
+  assignee, wherever it falls. The heatmap, daily utilization and the digest will still count such a task as zero
   ([#4936](https://gitlab.com/trueppm/trueppm/-/issues/4936)).
 - **Tracked on** [#3605](https://gitlab.com/trueppm/trueppm/-/issues/3605), which will
   rule on whether the two paths are reconciled, disclosed in the product, or collapsed.
