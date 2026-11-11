@@ -161,6 +161,112 @@ def allocate_program_seq() -> int:
     return seq if seq is not None else 0
 
 
+def raise_program_tombstone_floor() -> int:
+    """Mark every current program-pull cursor as unable to see a hard delete (#2474).
+
+    Call inside the transaction that hard-deletes ``Program`` or
+    ``ProgramMembership`` rows. Those rows vanish without a tombstone, so *every*
+    client that already holds them — not just a stale one — would keep them
+    forever. The floor therefore has to sit above every cursor a client can hold,
+    which is the sequence head. Drawing a fresh value (rather than reading the
+    head) both lands the floor strictly above every adopted ``since`` and takes
+    the singleton's row lock, so commit order with concurrent program writes is
+    preserved. The new head equals the floor, so the ``timestamp`` a full re-sync
+    adopts is never below it and recovery cannot loop.
+
+    Returns the new floor, or 0 when the singleton row is missing (a database
+    predating its backfill migration — then no client holds a program cursor).
+    """
+    from trueppm_api.apps.sync.models import ProgramSyncSequence
+
+    seq = allocate_program_seq()
+    if seq:
+        ProgramSyncSequence.objects.filter(pk=ProgramSyncSequence.SINGLETON_PK).update(
+            tombstone_floor=Greatest(F("tombstone_floor"), Value(seq))
+        )
+    return seq
+
+
+def backfill_tombstone_floors(
+    project_model: Any, program_sequence_model: Any, run_model: Any
+) -> None:
+    """Raise every tombstone floor just above its sequence head (#2474 upgrade).
+
+    Called by ``sync.0008_backfill_tombstone_floor`` with the historical models.
+    Tombstones reaped before the floor existed never raised it, so the server
+    cannot tell which clients missed one: every cursor a client holds has to be
+    treated as stale, once. Each non-empty sequence therefore draws one fresh
+    value and its floor is set to it — strictly above every ``since`` already
+    handed out (``_below_tombstone_floor`` is a strict comparison, so a floor
+    equal to the old head would spare a client sitting exactly on it), and still
+    equal to the new head, so the ``timestamp`` a full re-sync adopts is never
+    below the floor. A sequence at 0 has handed out no cursor and is left alone.
+
+    One ``UPDATE`` per table: PostgreSQL evaluates every ``SET`` expression
+    against the pre-update row, so both columns receive ``old head + 1``.
+
+    **The head bump is not a plan change, so the plan-version copies move with
+    it.** ``Project.last_sync_version`` is also the Monte Carlo plan version
+    (``scheduling/forecast_staleness.py``, compared with ``!=``): a
+    ``MonteCarloRun`` recorded at the pre-upgrade head would otherwise read
+    ``project_changed`` after the upgrade — on the web, and to MCP clients — when
+    nothing in the plan moved. Runs at exactly the old head are therefore bumped
+    by one first, in the same transaction; a run already behind stays behind. The
+    other copy, the cached ``monte-carlo/latest/`` entry, is not a database row:
+    :func:`bump_cached_forecast_plan_versions` handles it after commit, best effort.
+    """
+    # Before the project UPDATE, while ``project__last_sync_version`` still holds
+    # the old head the run was compared against.
+    run_model._base_manager.filter(
+        plan_version__isnull=False,
+        plan_version=F("project__last_sync_version"),
+        project__last_sync_version__gt=0,
+    ).update(plan_version=F("plan_version") + 1)
+    project_model._base_manager.filter(last_sync_version__gt=0).update(
+        last_sync_version=F("last_sync_version") + 1,
+        tombstone_floor=Greatest(F("tombstone_floor"), F("last_sync_version") + 1),
+    )
+    program_sequence_model._base_manager.filter(value__gt=0).update(
+        value=F("value") + 1,
+        tombstone_floor=Greatest(F("tombstone_floor"), F("value") + 1),
+    )
+
+
+def bump_cached_forecast_plan_versions(project_model: Any) -> int:
+    """Move cached Monte Carlo entries along with the backfill's head bump (#2474).
+
+    A run triggered by a Member refreshes the 24-hour ``monte-carlo/latest/``
+    cache entry and persists no row (#1502), so its ``plan_version`` exists only
+    there. An entry recorded at the old head (``last_sync_version - 1`` once the
+    backfill committed) is bumped to the new head so it keeps reading ``current``.
+    Best effort by design: the cache is not transactional, and an unreachable
+    cache must not fail ``migrate`` — the cost of a miss is one forecast reading
+    ``project_changed`` until it expires or is re-run. Returns the entries updated.
+    """
+    try:
+        from django.core.cache import cache
+
+        from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+        heads = {
+            pk: int(head)
+            for pk, head in project_model._base_manager.filter(last_sync_version__gt=1).values_list(
+                "pk", "last_sync_version"
+            )
+        }
+        keys = {mc_latest_cache_key(pk): head for pk, head in heads.items()}
+        updated = 0
+        for key, entry in cache.get_many(list(keys)).items():
+            head = keys[key]
+            version = entry.get("plan_version") if isinstance(entry, dict) else None
+            if type(version) is int and version == head - 1:
+                cache.set(key, {**entry, "plan_version": head}, timeout=86400)
+                updated += 1
+        return updated
+    except Exception:  # a cache outage must not fail the migration
+        return 0
+
+
 def _raise_to(project_ids: Iterable[Any], seq: int) -> None:
     """Raise every project's allocator to at least ``seq`` (monotonic)."""
     from trueppm_api.apps.projects.models import Project

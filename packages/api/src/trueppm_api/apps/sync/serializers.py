@@ -561,6 +561,16 @@ class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-a
             "missing data presented as a complete sync."
         ),
     )
+    resync_required = serializers.BooleanField(
+        help_text=(
+            "True when `since` is below the tombstone-retention floor (#2474): a "
+            "deletion this client needs was hard-deleted after the retention window "
+            "and can no longer be delivered, so no delta can be complete. The "
+            "response then carries no changes, `timestamp: 0` and no cursor. Discard "
+            "the local store for this scope and pull again from `since=0`. False on "
+            "every normal page. `since=0` never returns true."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

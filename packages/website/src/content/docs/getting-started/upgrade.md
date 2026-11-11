@@ -127,6 +127,60 @@ retried, so a delivery attempted during the window is not replayed automatically
 once you fix the list. Set the new variables on the API, Celery worker, and Celery
 beat processes. See [Networking](/administration/networking/#split-horizon-and-internal-only-names).
 
+### Offline and sync clients re-sync once (`sync.0008`)
+
+0.5 will add a tombstone-retention floor to the delta pull (#2474). A pull whose
+`since` is older than the floor answers `resync_required: true`, and the client
+discards its local store and pulls again from `since=0` (see
+[Tombstone retention and `resync_required`](/features/offline-sync/#tombstone-retention-and-resync_required)).
+
+`sync.0008_backfill_tombstone_floor` raises every project's floor, and the
+program pull's floor, just above the current cursor. Tombstones the nightly
+reaper removed before the upgrade never recorded a floor, so the server cannot
+tell which clients missed one; the backfill therefore asks **every offline or
+sync client to re-sync once** after the upgrade. Expect one full pull per client
+and project at the upgrade, and a short spike in sync traffic. Until #4948 is
+fixed, a later reap of a deleted task that still had live child rows forces the
+same full re-sync again, recurring rather than one-time.
+
+The same migration moves every Monte Carlo run recorded at the old cursor
+along with it. The cursor doubles as the forecast's plan version, so without
+that a forecast that was current before the upgrade would read "project
+changed" after it. A forecast cached in the last 24 hours is moved too, on a
+best-effort basis: if the cache is unreachable during `migrate`, that forecast
+reads "project changed" until it expires or someone re-runs it.
+
+#### Stop the reaper before you migrate
+
+The backfill does **not** cover a reap that a 0.4 worker runs during the
+rolling update itself. Such a reap does not raise the floor, and two things can
+leave a client holding a deleted row afterward with no re-sync:
+
+- The 0.4 reap's delete cascades to live child rows of a reaped task, such as a
+  dependency or a task link. Those rows can carry cursors from after the
+  backfill.
+- A tombstone that was saved again after it was deleted, on a model that ages on
+  its deletion date (tasks, dependencies and task relations), keeps its old
+  deletion date, so it is still eligible, but its cursor was drawn at that later
+  save. If that save came after the backfill, its cursor sits above the floor.
+  Risks and sprints age on their last update, so a re-save renews them.
+
+The reap runs on the beat schedule (`sync.reap_domain_tombstones`, daily at
+03:30 UTC). To close the window, stop the scheduler before the migration runs
+and let the upgrade start it again:
+
+- **Helm:** `kubectl scale deployment -n <ns> -l app.kubernetes.io/component=celery-beat,app.kubernetes.io/instance=<release> --replicas=0`, then
+  `helm upgrade`. The upgrade restores the replica count.
+- **Docker Compose:** `docker compose stop celery-beat`, then pull and
+  `docker compose up -d`.
+
+Alternatively, schedule the upgrade away from 03:30 UTC, or roll the workers
+to the new image before the API pods run `migrate`. A 0.5 worker raises the
+floor itself.
+
+**Rollback notes:** the migration's reverse is a no-op. Rolling back leaves the
+raised floors in place, which 0.4 never reads.
+
 ---
 
 ## Upgrading to 0.4

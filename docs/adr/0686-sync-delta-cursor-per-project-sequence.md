@@ -300,3 +300,99 @@ require DDL per project. The project row is already the serialization point.
   the ADR-0217 field-level lost-update guard is inert for every row whose counter
   sits below the watermark, silently degrading to last-writer-wins. Filed as
   #2499.
+
+## Amendment 2026-11-11 — tombstone-retention floor and `resync_required` (#2474)
+
+The cursor this ADR defines makes a delta *ordered*. It does not make it *complete*
+once `sync.reap_domain_tombstones` hard-deletes a tombstone: after the reap, no
+`sync_seq__gt=since` query can return that deletion. A client offline for longer
+than `TRUEPPM_TOMBSTONE_RETENTION_DAYS` used to get a normal-looking delta that
+silently kept the deleted row.
+
+**Decision.** Each project now has a `tombstone_floor` column on `Project`, next to
+the `last_sync_version` allocator. It holds the highest `sync_seq` of any row the
+reap has removed. That includes tombstones the delete cascaded to, such as a
+dependency tombstone that was still inside its window. The floor is clamped to
+`last_sync_version`.
+
+A cascaded **live** row (`is_deleted=False`, or a model with no `is_deleted`,
+such as a live dependency or task link of a reaped task) needs more than its own
+cursor. A client whose `since` is at or above that cursor already holds the row,
+and the floor comparison is strict, so a floor equal to the cursor spares it and
+it keeps the row forever. When the reap removes any in-scope live row, it draws a
+fresh value of the project sequence and raises the floor to it, the same
+reasoning as the program floor below. Every client of that project re-syncs once.
+
+The floor counts only rows this project's own pull delivers. A cross-project
+`Dependency` or `TaskRelation` cascaded from a reaped task is in neither project's
+delta, and its `sync_seq` may come from the other project's sequence, so counting it
+would inflate the floor and force spurious re-syncs.
+
+The reap runs one transaction per project. It locks the project row first, then
+reaps and raises the floor with `Greatest()` before it commits. Because every
+`sync_seq` draw updates that row, no tombstone can be re-saved to a higher cursor
+between the reads and the delete.
+
+**Atomicity, not lock order, is what keeps the floor sound.** Many writers lock a
+`Task` row first and then allocate (`projects/services.py`, `Task.save()`), the
+opposite of the reap's order, so the reap can deadlock with them. PostgreSQL then
+aborts one transaction. If it aborts the reap, the deletes and the floor roll back
+together, so no tombstone disappears without its floor. The reap logs the error,
+continues with the next project, and retries this one on the next run.
+
+`tombstone_floor` is in `_SERVER_OWNED_FIELDS`, so a stale `save()` cannot lower it.
+
+When `0 < since < floor`, the pull answers `200` with `resync_required: true`,
+empty `changes`, `timestamp: 0` and no cursor. It does not return `409`, so the
+pull uses the same vocabulary as the WebSocket `resync_required` frame (ADR-1285).
+
+The floor is checked twice:
+
+- Before the delta, off the project row the pull has already fetched. This check
+  costs nothing.
+- After the delta queries, as a single primary-key read. This check is the one that
+  makes the guard sound. Under READ COMMITTED, a delta query can miss a reaped
+  tombstone only if the reap committed before that query ran. The floor was raised
+  in that same transaction, so the later read observes it.
+
+`since = 0` is always served. Because `floor <= last_sync_version`, a full re-sync's
+`timestamp` is never below the floor, so recovery cannot loop.
+
+`timestamp: 0` makes the shape fail safe for a client that ignores the flag. Such a
+client applies nothing, adopts `0`, and then does a full pull. That pull is no worse
+than the behavior before this amendment, and the client is never frozen on a stale
+cursor. Only a client that honors the flag and discards its store loses the phantom
+rows.
+
+**Program pull (ADR-0747).** The program pull carries the same guard, against
+`ProgramSyncSequence.tombstone_floor`. No reaper removes program tombstones today.
+Two paths hard-delete program-scoped rows, both removing live rows with no
+tombstone at all: `hard_delete_program` (sample-data teardown) and `purge_workspace`
+(ADR-0174). In the same transaction each one draws a fresh program sequence value and
+raises the floor to it, so every client holding the deleted programs re-syncs.
+
+**Upgrade backfill.** Tombstones reaped before the floor existed never raised it, and
+during a rolling update an old worker can still reap without raising it.
+`sync.0008_backfill_tombstone_floor` therefore draws one fresh value per project
+sequence and for the program sequence, and sets each floor to it. Every client re-syncs
+once after the upgrade.
+
+`last_sync_version` is also the Monte Carlo plan version (#3140), compared with `!=`.
+The same transaction bumps every `MonteCarloRun.plan_version` that equals the old head,
+so a forecast that was current does not read `project_changed` because of the backfill.
+The cached `monte-carlo/latest/` entry, the only copy for a Member-triggered run, is
+bumped after commit on a best-effort basis.
+
+The backfill does **not** cover a reap run by an old worker during the rollout. That is
+a residual, not a guarantee, for two reasons. The old reap's `qs.delete()` cascades to
+live children with no floor at all, and their cursors can postdate the backfill. And
+`sync_seq` is drawn on every save, so on the registry models that age on `deleted_at`
+(Task, Dependency, TaskRelation) a tombstone saved again after its deletion keeps an old
+`deleted_at`, stays eligible, and can carry a cursor above the backfilled floor. (Risk and
+Sprint age on `updated_at`, so a re-save renews them.) The
+operator mitigation is in the 0.5 upgrade notes: stop `celery-beat` before `migrate`, or
+roll the workers first.
+
+**Ordering with #2342.** #2342 widens the reap registry from 5 models to every
+collection the delta serves. The reap computes the floor from whatever it deletes,
+so #2342 needs no further pull-side change. It must not ship without this amendment.

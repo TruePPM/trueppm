@@ -127,6 +127,43 @@ class WebSocketTicketView(IdempotencyMixin, APIView):
         return Response({"ticket": ticket, "expires_in": TICKET_TTL_SECONDS})
 
 
+def _below_tombstone_floor(since: int, floor: int) -> bool:
+    """True when a pull from ``since`` can no longer be a complete delta (#2474).
+
+    ``since == 0`` is a full sync and is always served: it is the recovery path,
+    and it holds nothing that could be stale. Strictly below the floor only — a
+    client at exactly the floor already received the highest reaped tombstone.
+    The writers keep ``floor <= `` the sequence head, so the ``timestamp`` a full
+    re-sync adopts is never below the floor and the recovery cannot loop.
+    """
+    return 0 < since < floor
+
+
+def _resync_required_response() -> Response:
+    """The ``resync_required`` envelope (#2474), shaped to fail safe.
+
+    Same keys as a delta page, so a client that does not know the flag still
+    parses it. ``changes`` is empty and ``timestamp`` is ``0``: a client that
+    ignores the flag applies nothing and adopts ``0`` as its next ``since`` — a
+    full pull, which delivers every live row and every surviving tombstone. It
+    cannot remove the rows whose tombstones were reaped (only discarding the local
+    store does that, which is what the flag asks for), but it is never worse than
+    the pre-#2474 behavior and never wedges the client on a stale cursor. Echoing
+    ``since`` back instead would freeze such a client forever, and any
+    non-zero ``timestamp`` would be adopted as a checkpoint over rows it never
+    received.
+    """
+    return Response(
+        {
+            "changes": {},
+            "timestamp": 0,
+            "next_cursor": None,
+            "has_more": False,
+            "resync_required": True,
+        }
+    )
+
+
 class ProjectSyncView(IdempotencyMixin, APIView):
     """Pull-only delta sync endpoint for the mobile offline store.
 
@@ -233,6 +270,15 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied("You must be a member of this project.")
+
+        # Tombstone-retention guard (#2474). Below the floor a tombstone this
+        # client needs may already be reaped, so no delta can be complete: answer
+        # resync_required rather than a delta that silently omits a deletion. This
+        # check is free (the floor is on the row fetched above) and only saves the
+        # delta work; the re-read after the delta queries below is the one that
+        # makes the guard sound against a concurrent reap.
+        if _below_tombstone_floor(since, project.tombstone_floor):
+            return _resync_required_response()
 
         # Read the high-water mark BEFORE the delta queries. This ORDERING is the
         # whole guarantee — not an isolation level. ATOMIC_REQUESTS does wrap this
@@ -473,14 +519,32 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             version_field="sync_seq",
         )
 
+        # Re-read the floor AFTER the delta queries (#2474). This, not the check
+        # above, is what makes the guard sound. The reap raises the floor in the
+        # same transaction as the delete (sync/tasks.py::_reap_project), so a
+        # tombstone query that missed a reaped row ran after that reap committed —
+        # and this statement, later still and with its own READ COMMITTED
+        # snapshot, observes the raised floor. One primary-key read per page.
+        if _below_tombstone_floor(since, self._tombstone_floor(project.pk)):
+            return _resync_required_response()
+
         return Response(
             {
                 "changes": changes,
                 "timestamp": timestamp,
                 "next_cursor": next_cursor.encode() if next_cursor is not None else None,
                 "has_more": has_more,
+                "resync_required": False,
             }
         )
+
+    @staticmethod
+    def _tombstone_floor(project_pk: Any) -> int:
+        """Current ``Project.tombstone_floor`` (#2474), read fresh by primary key."""
+        value = (
+            Project.objects.filter(pk=project_pk).values_list("tombstone_floor", flat=True).first()
+        )
+        return int(value or 0)
 
     @staticmethod
     def _resolve_page_size(request: Request) -> int:
@@ -928,14 +992,34 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
             version_field="sync_seq",
         )
 
+        # Tombstone-retention guard (#2474), read AFTER the delta queries for the
+        # same reason as ProjectSyncView: the floor is raised in the hard delete's
+        # own transaction, so a delta that missed a hard-deleted row is always
+        # followed by a read that sees the raised floor. One primary-key read.
+        if _below_tombstone_floor(since, self._tombstone_floor()):
+            return _resync_required_response()
+
         return Response(
             {
                 "changes": changes,
                 "timestamp": timestamp,
                 "next_cursor": next_cursor.encode() if next_cursor is not None else None,
                 "has_more": has_more,
+                "resync_required": False,
             }
         )
+
+    @staticmethod
+    def _tombstone_floor() -> int:
+        """Current ``ProgramSyncSequence.tombstone_floor`` (#2474)."""
+        from trueppm_api.apps.sync.models import ProgramSyncSequence
+
+        value = (
+            ProgramSyncSequence.objects.filter(pk=ProgramSyncSequence.SINGLETON_PK)
+            .values_list("tombstone_floor", flat=True)
+            .first()
+        )
+        return int(value or 0)
 
     @staticmethod
     def _watermark(accessible_ids: Any) -> int:

@@ -261,6 +261,14 @@ class ProgramSyncSequence(models.Model):
 
     id = models.BigAutoField(primary_key=True)
     value = models.BigIntegerField(default=0, editable=False)
+    #: Tombstone-retention floor for the program pull (#2474), the installation-wide
+    #: twin of ``Project.tombstone_floor``. A program pull whose ``since`` is below
+    #: it answers ``resync_required``: program-scoped rows at or below this cursor
+    #: were hard-deleted without a deliverable tombstone. Raised only, in the same
+    #: transaction as the hard delete (:func:`raise_program_tombstone_floor`).
+    #: ``db_default`` keeps an old pod's INSERT valid during a rolling update
+    #: (migration rule 8).
+    tombstone_floor = models.BigIntegerField(default=0, db_default=0, editable=False)
 
     objects: models.Manager[ProgramSyncSequence] = models.Manager()
 
