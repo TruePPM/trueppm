@@ -708,6 +708,7 @@ def _recompute_and_reforecast_milestone(sprint: Any, req: Any) -> None:
             reforecast_bound_milestone,
         )
 
+        # velocity-unfiltered-ok: writes ForecastSnapshot rows on sprint close; no reader.
         forecast = reforecast_bound_milestone(sprint.target_milestone_id)
         # #861 — push the PM cohort the milestone-confidence shift so the bridge
         # reforecast isn't silent when the team closes the sprint outside the PM's

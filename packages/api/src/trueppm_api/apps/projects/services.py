@@ -885,7 +885,7 @@ def scheduler_velocity_inputs(
     return samples, sprint_length_working
 
 
-def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
+def velocity_summary_unfiltered(project_id: str | uuid.UUID) -> dict[str, Any]:
     """Return rolling velocity stats and forecast range for a project.
 
     Uses the last 8 closed sprints (per ADR-0037). For each metric (points,
@@ -945,18 +945,18 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     }
 
 
-def velocity_bands_for_projects(
+def velocity_bands_for_projects_unfiltered(
     project_ids: Iterable[str | uuid.UUID],
 ) -> dict[str, dict[str, Any]]:
     """Rolling-average and forecast band for many projects in ONE query (#1630).
 
-    The batch twin of the four band fields of :func:`velocity_summary` — the only
+    The batch twin of the four band fields of :func:`velocity_summary_unfiltered` — the only
     ones a cross-project card renders. Same window (the last 8 COMPLETED sprints per
     project *including* excluded ones), same eligibility (``exclude_from_velocity``
     leaves the statistic), same :func:`_velocity_stats`; only the fetch differs: a
     ``ROW_NUMBER() OVER (PARTITION BY project ORDER BY closed_at DESC)`` window
     replaces one query per project. Projects with no closed sprints get the
-    all-``None`` band, matching ``velocity_summary``. Keyed by ``str(project_id)``.
+    all-``None`` band, matching ``velocity_summary_unfiltered``. Keyed by ``str(project_id)``.
     """
     from django.db.models import F, Window
     from django.db.models.functions import RowNumber
@@ -2182,6 +2182,7 @@ def sprint_outcome_payload(sprint: Any, request: Any) -> dict[str, Any]:
         "goal": sprint.goal,
         "goal_outcome": sprint.goal_outcome,
         "commitment": _commitment_block(sprint),
+        # velocity-unfiltered-ok: emitted only when velocity_readable (next line).
         "velocity": _velocity_block(sprint) if velocity_readable else None,
         "didnt_ship": didnt_ship,
         "didnt_ship_summary": _didnt_ship_summary(didnt_ship, velocity_readable=velocity_readable),
@@ -2317,7 +2318,8 @@ def _velocity_block(sprint: Any) -> dict[str, Any]:
 
     snapshot_list = list(sprint.burn_snapshots.all().order_by("snapshot_date"))
     burn = compute_sprint_burn_status(sprint, snapshot_list)
-    summary_v = velocity_summary(sprint.project_id)
+    # velocity-unfiltered-ok: the only caller emits this block iff velocity_readable.
+    summary_v = velocity_summary_unfiltered(sprint.project_id)
     entry = next((e for e in summary_v["sprints"] if e["id"] == str(sprint.pk)), None)
     return {
         "completed_points": sprint.completed_points,
@@ -4667,7 +4669,8 @@ def reforecast_preview(
     if cpm_finish is None:
         cpm_finish = sprint.finish_date
 
-    vel = velocity_summary(sprint.project_id)
+    # velocity-unfiltered-ok: SprintViewSet.reforecast_preview gates the band (#2982).
+    vel = velocity_summary_unfiltered(sprint.project_id)
     velocity_low = vel["forecast_range_low"]
     velocity_high = vel["forecast_range_high"]
     avg = vel["rolling_avg_points"]
@@ -4871,7 +4874,8 @@ def reforecast_bound_milestone(
         return None
 
     cpm_finish = milestone.early_finish
-    vel = velocity_summary(milestone.project_id)
+    # velocity-unfiltered-ok: snapshot write on sprint close, never returned to a reader.
+    vel = velocity_summary_unfiltered(milestone.project_id)
     velocity_low = vel["forecast_range_low"]
     velocity_high = vel["forecast_range_high"]
     avg = vel["rolling_avg_points"]
@@ -5469,7 +5473,8 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
         TaskStatus,
     )
 
-    vel = velocity_summary(project_id)
+    # velocity-unfiltered-ok: raw band feeds the forecast; every view of it gates (#981).
+    vel = velocity_summary_unfiltered(project_id)
     low = vel["forecast_range_low"]
     high = vel["forecast_range_high"]
 
@@ -5837,6 +5842,7 @@ def sprint_forecast(
     from django.core.cache import cache
     from django.utils import timezone
 
+    # velocity-unfiltered-ok: sprint_forecast is gated by its view (ProjectSprintForecastView).
     data = project_forecast(project_id)
     vel = data["velocity"]
     remaining = data["remaining_committed_points"] or 0

@@ -17248,6 +17248,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         self.check_object_permissions(request, sprint)
         milestone_id = request.query_params.get("milestone_id") or None
         try:
+            # velocity-unfiltered-ok: velocity_low/high suppressed below (#2982).
             payload = reforecast_preview(sprint, milestone_id=milestone_id)
         except MilestoneNotFound:
             return Response(
@@ -18849,7 +18850,7 @@ class MeActiveSprintsView(APIView):
         from trueppm_api.apps.projects.services import (
             capacity_summaries_for_sprints,
             sprint_trend_points,
-            velocity_bands_for_projects,
+            velocity_bands_for_projects_unfiltered,
         )
         from trueppm_api.apps.projects.signal_privacy_services import (
             can_read_signal_for_projects,
@@ -18924,7 +18925,8 @@ class MeActiveSprintsView(APIView):
         # batch each; the gate decision is the same ladder as `can_read_signal`, and a
         # suppressed project's band is withheld exactly as before.
         sprint_project_ids = {str(sp.project_id) for sp in sprints}
-        bands = velocity_bands_for_projects(sprint_project_ids)
+        # velocity-unfiltered-ok: suppressed per project below via can_read_signal_for_projects.
+        bands = velocity_bands_for_projects_unfiltered(sprint_project_ids)
         readable = can_read_signal_for_projects(request, sprint_project_ids, "velocity")
         for sprint in sprints:
             window = (sprint.finish_date - sprint.start_date).days + 1
@@ -19842,17 +19844,13 @@ class ProjectVelocityView(APIView):
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.projects.services import velocity_summary
-        from trueppm_api.apps.projects.signal_privacy_services import (
-            can_read_signal,
-            suppress_velocity_summary,
-        )
+        from trueppm_api.apps.projects.signal_privacy_services import velocity_summary_for
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
-        summary = velocity_summary(project.pk)
-        # ADR-0104 §2.1: strip the team-private velocity detail (series + rolling
-        # points) when the requester's band is outside the velocity audience.
+        # ADR-0104 §2.1: velocity_summary_for strips the team-private velocity
+        # detail (series + rolling points) when the requester's band is outside the
+        # velocity audience.
         #
         # The gate is an INVERSION of the usual role ordering, and reading it as
         # "higher role sees more" gets it backwards (#2915). The ladder measures
@@ -19868,8 +19866,7 @@ class ProjectVelocityView(APIView):
         # executive dashboards" is a documented hard NO). Raising the audience WIDENS
         # the readership rather than narrowing it, and takes majority team
         # ratification with no management bypass.
-        if not can_read_signal(request, project.pk, "velocity"):
-            summary = suppress_velocity_summary(summary)
+        summary = velocity_summary_for(request, project.pk)
         return Response(summary, status=status.HTTP_200_OK)
 
 
@@ -19954,6 +19951,7 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
+        # velocity-unfiltered-ok: suppressed below when can_read_signal is False (#981).
         data = project_forecast(project.pk)
         velocity = data["velocity"]
         remaining = data["remaining_committed_points"]
@@ -20028,6 +20026,7 @@ class ProjectSprintForecastView(McpReadableViewMixin, APIView):
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
+        # velocity-unfiltered-ok: whole payload replaced below when can_read_signal is False.
         data = sprint_forecast(project.pk)
         if not can_read_signal(request, project.pk, "velocity"):
             # The entire payload is velocity-derived, so a below-audience reader

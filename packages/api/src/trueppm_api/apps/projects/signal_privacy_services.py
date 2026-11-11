@@ -290,6 +290,29 @@ def suppress_velocity_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
+def velocity_summary_for(request: Request, project_id: Any) -> dict[str, Any]:
+    """The ordinary way to read a project's velocity summary: already privacy-gated.
+
+    Returns :func:`~trueppm_api.apps.projects.services.velocity_summary_unfiltered`
+    passed through :func:`suppress_velocity_summary` when the requester's band is
+    outside the velocity audience (ADR-0104 §2.1). A sink that reads velocity for a
+    response calls this, so the gate is not a second line its author has to
+    remember (#2993).
+
+    The raw accessor stays for internal computation (snapshot writes, on-close
+    reforecasts, derived payloads that a view gates field by field), and every call
+    to it must carry a ``velocity-unfiltered-ok:`` comment — enforced by
+    ``tests/apps/projects/test_velocity_unfiltered_guard.py``.
+    """
+    from trueppm_api.apps.projects.services import velocity_summary_unfiltered
+
+    # velocity-unfiltered-ok: this IS the gated accessor; suppression is on the next line.
+    summary = velocity_summary_unfiltered(project_id)
+    if not can_read_signal(request, project_id, "velocity"):
+        return suppress_velocity_summary(summary)
+    return summary
+
+
 # flow_metrics arrays that are team-private historical performance detail
 # (cycle/lead distributions, the CFD series, the weekly throughput series).
 # Emptied for a below-tier reader; the keys themselves and the aggregate-only
