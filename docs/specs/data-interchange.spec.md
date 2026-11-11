@@ -356,6 +356,17 @@ export endpoint). Import is server-side.
   work or ownership to a non-member; an unmatched value is a warning and the field is left
   empty. This is a security property, not a convenience: it is what stops a crafted file
   from reaching across projects.
+
+  **Amended (#2485).** The shipped importer used to match people by display name against
+  the workspace-global resource library, which conflicted with the paragraph above. The
+  contract is now: people **bind only within the project** (its active roster plus members
+  reachable through `Resource.user`), tried as UUID, email, username, then exact
+  case-insensitive name, from an index built once per import. Binding never falls back to
+  the global library. An unmatched value is a row-level warning; because a spreadsheet
+  migration into an empty project has no roster to match, the importer still **creates** a
+  `Resource` for it, but creation is **bounded** by `IMPORT_MAX_RESOURCES_CREATED`
+  (default 200) per import and **reported** (`resources_created`, `resources_created_names`).
+  Past the cap the value gets a warning, no row is created, and its assignments are skipped.
 - Exported id-shaped columns (a risk's `qualified_id`, a task's `WBS`) are **informational
   on export and ignored on import**. They round-trip visually without ever being trusted
   as identity.

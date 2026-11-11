@@ -232,6 +232,7 @@ export interface CsvImportStatusResponse {
     /** Name of the summary task they landed under, or '' when none did. */
     review_branch_name?: string;
     resources_created?: number;
+    resources_created_names?: string[];
     dependencies_created?: number;
     rows_read?: number;
     rows_skipped?: number;

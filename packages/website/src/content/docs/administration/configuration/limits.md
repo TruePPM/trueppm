@@ -268,6 +268,7 @@ The MS Project and Jira import paths (below) share one more bulk-write knob:
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
 | `IMPORT_BULK_BATCH_SIZE` | `500` | rows | `batch_size` for the shared importer's `bulk_create()` calls |
+| `IMPORT_MAX_RESOURCES_CREATED` | `200` | resources | New workspace resources one import may create for people who match nobody on the project's roster or members; the rest get a warning and no row |
 
 Without a `batch_size`, Django would emit one giant multi-row `INSERT` that pins
 the whole task/dependency set in a single statement (and can exceed PostgreSQL's

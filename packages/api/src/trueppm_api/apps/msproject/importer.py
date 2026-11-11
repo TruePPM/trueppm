@@ -87,7 +87,7 @@ def import_project(
 
     # --- Step 1: Create or match resources ---
     _update(10, "Matching resources...")
-    resource_uid_to_pk = _import_resources(data, summary, batch_size=batch_size)
+    resource_uid_to_pk = _import_resources(project_id, data, summary, batch_size=batch_size)
 
     # --- Step 2: Create tasks ---
     _update(30, f"Creating {len(data.tasks)} tasks...")
@@ -297,52 +297,124 @@ def _import_labels(
         summary["label_assignments_created"] = len(assignments)
 
 
+def _build_people_index(project_id: str) -> _PeopleIndex:
+    """Index the people a file may bind to: this project's roster and members only.
+
+    Built once per import in two constant-count queries (roster joined to Resource;
+    Resources whose linked user holds a live membership), never per row. The global
+    Resource library is deliberately NOT consulted: it spans every project, so a
+    display-name collision would bind imported work to a person who belongs to no
+    project the caller can see (spec data-interchange §5.3, #2485).
+    """
+    from trueppm_api.apps.resources.models import ProjectResource, Resource
+
+    resources: dict[str, Any] = {}
+    for pr in (
+        ProjectResource.objects.active()
+        .filter(project_id=project_id)
+        .select_related("resource__user")
+    ):
+        resources[str(pr.resource_id)] = pr.resource
+    for r in Resource.objects.filter(
+        is_deleted=False,
+        user__memberships__project_id=project_id,
+        user__memberships__is_deleted=False,
+    ).select_related("user"):
+        resources[str(r.pk)] = r
+
+    index = _PeopleIndex()
+    for r in resources.values():
+        index.by_uuid[str(r.pk)] = r
+        for email in (r.email, r.user.email if r.user else ""):
+            if email:
+                index.by_email.setdefault(email.lower(), r)
+        if r.user:
+            index.by_username.setdefault(r.user.get_username().lower(), r)
+        index.by_name.setdefault(r.name.lower(), r)
+    return index
+
+
+class _PeopleIndex:
+    """Lookup tables over the project's people; see :func:`_build_people_index`."""
+
+    def __init__(self) -> None:
+        self.by_uuid: dict[str, Any] = {}
+        self.by_email: dict[str, Any] = {}
+        self.by_username: dict[str, Any] = {}
+        self.by_name: dict[str, Any] = {}
+
+    def resolve(self, value: str) -> Any | None:
+        """Match order: UUID, email, username, exact case-insensitive name."""
+        key = value.strip().lower()
+        return (
+            self.by_uuid.get(key)
+            or self.by_email.get(key)
+            or self.by_username.get(key)
+            or self.by_name.get(key)
+        )
+
+
 def _import_resources(
-    data: ProjectData, summary: dict[str, Any], *, batch_size: int
+    project_id: str, data: ProjectData, summary: dict[str, Any], *, batch_size: int
 ) -> dict[int, str]:
-    """Match parsed resources to the shared library by name, creating the rest.
+    """Bind the file's people to this project's roster/members; create the rest, bounded.
 
     Returns a map from the file's resource UID to the TruePPM Resource PK.
+
+    Unmatched values never fall back to the global library. Each distinct one earns a
+    warning; a new Resource is created for it only while the per-import cap
+    (``IMPORT_MAX_RESOURCES_CREATED``) has room, so a crafted sheet cannot mint an
+    unbounded number of workspace-wide rows from a project-scoped action.
     """
+    from django.conf import settings
+
     from trueppm_api.apps.resources.models import Resource
 
     resource_uid_to_pk: dict[int, str] = {}
+    summary["resources_created_names"] = []
     if not data.resources:
         return resource_uid_to_pk
 
-    existing = {r.name.lower(): r for r in Resource.objects.all()}
+    cap = max(0, int(getattr(settings, "IMPORT_MAX_RESOURCES_CREATED", 200)))
+    index = _build_people_index(project_id)
     new_resources: list[Resource] = []
+    created_by_key: dict[str, Resource] = {}
+    refused: set[str] = set()
 
     for rd in data.resources:
-        name_lower = rd.name.lower()
-        if name_lower in existing:
-            resource_uid_to_pk[rd.uid] = str(existing[name_lower].pk)
+        key = rd.name.strip().lower()
+        matched = index.resolve(rd.name)
+        if matched is not None:
+            resource_uid_to_pk[rd.uid] = str(matched.pk)
             summary["resources_matched"] += 1
-        else:
+        elif key in created_by_key:
+            resource_uid_to_pk[rd.uid] = str(created_by_key[key].pk)
+        elif key in refused:
+            continue
+        elif len(new_resources) < cap:
             # server_version=1: bulk_create skips save(), the only place that sets it.
-            new_resources.append(Resource(name=rd.name, max_units=rd.max_units, server_version=1))
+            # UUID PKs are assigned client-side, so the instance carries its own PK.
+            res = Resource(name=rd.name, max_units=rd.max_units, server_version=1)
+            new_resources.append(res)
+            created_by_key[key] = res
+            resource_uid_to_pk[rd.uid] = str(res.pk)
+            summary["warnings"].append(
+                f"Resource '{rd.name}' is not on this project's roster or member list; "
+                "a new resource was created for it"
+            )
+        else:
+            refused.add(key)
+            summary["warnings"].append(
+                f"Resource '{rd.name}' is not on this project's roster or member list and "
+                f"the import limit of {cap} new resources was reached; "
+                "it was not created and its assignments were skipped"
+            )
 
     if new_resources:
         Resource.objects.bulk_create(new_resources, batch_size=batch_size)
         summary["resources_created"] = len(new_resources)
-        _map_created_resource_pks(data, resource_uid_to_pk)
+        summary["resources_created_names"] = [r.name for r in new_resources]
     return resource_uid_to_pk
-
-
-def _map_created_resource_pks(data: ProjectData, resource_uid_to_pk: dict[int, str]) -> None:
-    """Fill in PKs for the just-created resources by re-reading the library by name.
-
-    bulk_create does not populate PKs on the passed instances for every backend, so
-    the newly created rows are re-fetched and matched to their file UIDs by name.
-    """
-    from trueppm_api.apps.resources.models import Resource
-
-    all_resources = {r.name.lower(): r for r in Resource.objects.all()}
-    for rd in data.resources:
-        if rd.uid not in resource_uid_to_pk:
-            matched = all_resources.get(rd.name.lower())
-            if matched:
-                resource_uid_to_pk[rd.uid] = str(matched.pk)
 
 
 def _create_tasks(

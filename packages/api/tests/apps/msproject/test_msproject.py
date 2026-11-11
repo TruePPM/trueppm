@@ -657,7 +657,8 @@ class TestImporter:
         assert dep.lag == 2
 
     def test_import_resources_match_existing(self, project: Project) -> None:
-        Resource.objects.create(name="Alice")
+        alice = Resource.objects.create(name="Alice")
+        ProjectResource.objects.create(project=project, resource=alice, server_version=1)
         data = ProjectData(
             tasks=[
                 TaskData(
@@ -690,7 +691,8 @@ class TestImporter:
         assert float(bob.max_units) == 0.8
 
     def test_import_resource_case_insensitive(self, project: Project) -> None:
-        Resource.objects.create(name="Alice Johnson")
+        aj = Resource.objects.create(name="Alice Johnson")
+        ProjectResource.objects.create(project=project, resource=aj, server_version=1)
         data = ProjectData(
             tasks=[TaskData(uid=1, name="Task A")],
             resources=[ResourceData(uid=10, name="alice johnson")],
@@ -698,6 +700,87 @@ class TestImporter:
         summary = import_project(str(project.pk), data)
         assert summary["resources_matched"] == 1
         assert summary["resources_created"] == 0
+
+    # --- #2485: people bind only within the project, creation is bounded ---
+
+    @staticmethod
+    def _one_assignee(name: str) -> ProjectData:
+        return ProjectData(
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="Task A",
+                    resource_assignments=[AssignmentData(task_uid=1, resource_uid=10)],
+                ),
+            ],
+            resources=[ResourceData(uid=10, name=name)],
+        )
+
+    def test_name_collision_with_non_member_does_not_bind(self, project: Project) -> None:
+        outsider = Resource.objects.create(name="A. Rivera")
+        summary = import_project(str(project.pk), self._one_assignee("A. Rivera"))
+        assert summary["resources_matched"] == 0
+        assert summary["resources_created"] == 1
+        assert summary["resources_created_names"] == ["A. Rivera"]
+        assert any("A. Rivera" in w and "roster" in w for w in summary["warnings"])
+        # The outsider is neither assigned work nor rostered onto this project.
+        assert not TaskResource.objects.filter(resource=outsider).exists()
+        assert not ProjectResource.objects.filter(project=project, resource=outsider).exists()
+        assert Resource.objects.filter(name="A. Rivera").count() == 2
+
+    def test_matches_by_email_username_uuid_and_name_within_roster(
+        self, project: Project, user: Any
+    ) -> None:
+        by_email = Resource.objects.create(name="Em", email="em@example.com")
+        Resource.objects.create(name="Us", user=user)
+        by_uuid = Resource.objects.create(name="Id")
+        by_name = Resource.objects.create(name="Nm")
+        for r in (by_email, by_uuid, by_name):
+            ProjectResource.objects.create(project=project, resource=r, server_version=1)
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        data = ProjectData(
+            tasks=[TaskData(uid=1, name="T")],
+            resources=[
+                ResourceData(uid=1, name="EM@Example.com"),
+                ResourceData(uid=2, name="MSP_USER"),
+                ResourceData(uid=3, name=str(by_uuid.pk).upper()),
+                ResourceData(uid=4, name="nm"),
+            ],
+        )
+        summary = import_project(str(project.pk), data)
+        assert summary["resources_matched"] == 4
+        assert summary["resources_created"] == 0
+        assert not any("roster" in w for w in summary["warnings"])
+
+    def test_creation_capped_with_warning_past_cap(self, project: Project) -> None:
+        data = ProjectData(
+            tasks=[TaskData(uid=1, name="T")],
+            resources=[ResourceData(uid=i, name=f"Person {i}") for i in range(1, 6)],
+        )
+        with override_settings(IMPORT_MAX_RESOURCES_CREATED=2):
+            summary = import_project(str(project.pk), data)
+        assert summary["resources_created"] == 2
+        assert len(summary["resources_created_names"]) == 2
+        assert Resource.objects.count() == 2
+        assert len([w for w in summary["warnings"] if "limit of 2" in w]) == 3
+
+    def test_people_index_query_count_does_not_scale_with_rows(self, project: Project) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from trueppm_api.apps.msproject.importer import _import_resources
+
+        def count(n: int) -> int:
+            data = ProjectData(
+                tasks=[],
+                resources=[ResourceData(uid=i, name=f"Q{n}-{i}") for i in range(n)],
+            )
+            summary: dict[str, Any] = {"resources_matched": 0, "warnings": []}
+            with CaptureQueriesContext(connection) as ctx:
+                _import_resources(str(project.pk), data, summary, batch_size=500)
+            return len(ctx)
+
+        assert count(3) == count(30)
 
     def test_import_milestones(self, project: Project) -> None:
         data = ProjectData(
