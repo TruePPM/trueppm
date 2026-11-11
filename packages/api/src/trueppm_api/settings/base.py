@@ -524,8 +524,9 @@ TRUEPPM_WS_REQUIRE_ORIGIN: bool = env.bool("TRUEPPM_WS_REQUIRE_ORIGIN", default=
 
 # Board-consumer inbound limits (#1729). The server defines no client->server frame
 # (every inbound frame is discarded), so these bound pure abuse: a pre-parse size
-# ceiling and a per-connection sliding-window frame budget held in process memory
-# (no Redis/DB work per frame).
+# ceiling and a per-(project, user) sliding-window frame budget, per worker, held in
+# process memory. Admitted frames still refresh presence (_presence_heartbeat ->
+# Redis EXPIRE); over-budget frames do no work.
 TRUEPPM_WS_MAX_FRAME_BYTES: int = env.int("TRUEPPM_WS_MAX_FRAME_BYTES", default=8192)
 TRUEPPM_WS_RATE_LIMIT_FRAMES: int = env.int("TRUEPPM_WS_RATE_LIMIT_FRAMES", default=30)
 TRUEPPM_WS_RATE_LIMIT_WINDOW_SECONDS: int = env.int(

@@ -82,8 +82,8 @@ WS_CLOSE_RATE_LIMITED = 4029
 # process (#1729). Per-connection state would hand a user N sockets x the budget.
 # In-process on purpose: a Redis counter per frame is the cost being defended
 # against, so the budget is per API worker, not cluster-wide. Memory is bounded:
-# a key is dropped as soon as its window empties, and a periodic sweep removes
-# keys whose sockets went quiet without sending another frame.
+# only the periodic sweep (every _BUDGET_SWEEP_EVERY calls) removes keys whose
+# windows have emptied, so a quiet key lingers until the next sweep.
 _frame_budgets: dict[tuple[str, str], deque[float]] = {}
 _BUDGET_SWEEP_EVERY = 512
 _budget_calls = 0

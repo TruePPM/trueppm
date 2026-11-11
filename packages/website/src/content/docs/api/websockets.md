@@ -84,7 +84,7 @@ first is what lets `CloseEvent.code` carry the reason.
 |------|------|------|--------------------|
 | `4001` | Missing, invalid, expired, or already-consumed ticket; a ticket (or, on the deprecated path, a token) issued before the account's credential cutoff, such as one minted just before a password reset (0.5 and later); or, on the deprecated path, an invalid token | after accept | yes |
 | `4003` | Authenticated, but not a member of the project, or a role below Team Member — also sent to a live socket when the user is demoted or removed | after accept | yes |
-| `4029` | The socket sent more than `TRUEPPM_WS_RATE_LIMIT_FRAMES` frames in the window (default 30 per 10 s). Clients are not expected to send any frame (0.5 and later) | closes the open socket | yes |
+| `4029` | This user sent more than `TRUEPPM_WS_RATE_LIMIT_FRAMES` frames across their sockets on this project in the window, counted per API worker (default 30 per 10 s). Clients are not expected to send any frame (0.5 and later) | closes the open socket | yes |
 | `1009` | A client frame larger than `TRUEPPM_WS_MAX_FRAME_BYTES` (default 8192) (0.5 and later) | closes the open socket | yes |
 | `4404` | The path matched no WebSocket route | **before** accept | no — the browser sees `1006` |
 
