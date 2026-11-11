@@ -157,6 +157,28 @@ def enqueue_recalculate(
         )
 
 
+def mark_failed_task_retried(failed_task_id: str, resolved_by_id: int | None) -> int:
+    """Stamp a dead letter ``RETRIED`` once its requeue has actually run (#2994).
+
+    Called by the requeue workflow's activity *after* the re-dispatch succeeded,
+    never by the view: stamping at request time made the admin screen assert a
+    recovery the code had not delivered, and a requeue workflow that then failed
+    left a row that read as resolved. Only actionable rows are touched, so a
+    row the operator dropped in the meantime is not resurrected. Returns the
+    number of rows updated.
+    """
+    from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+
+    return FailedTask.objects.filter(
+        pk=failed_task_id,
+        status__in=[FailedTaskStatus.DEAD, FailedTaskStatus.PENDING_RETRY],
+    ).update(
+        status=FailedTaskStatus.RETRIED,
+        resolved_by_id=resolved_by_id,
+        resolved_at=timezone.now(),
+    )
+
+
 def redispatch_dead_lettered_task(
     task_name: str,
     args: list[Any] | tuple[Any, ...],

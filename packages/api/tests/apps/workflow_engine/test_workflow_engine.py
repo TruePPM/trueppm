@@ -31,6 +31,7 @@ from trueppm_api.apps.workflow_engine.models import (
     WorkflowTimer,
 )
 from trueppm_api.apps.workflow_engine.tasks import (
+    _MAX_STEP_ATTEMPTS,
     _complete,
     _do_advance,
     _do_outbox_drain,
@@ -38,6 +39,7 @@ from trueppm_api.apps.workflow_engine.tasks import (
     _do_timer_drain,
 )
 from trueppm_api.workflows.backends.default import DefaultWorkflowBackend, run_activity_oaoo
+from trueppm_api.workflows.interface import NonRetryableError
 from trueppm_api.workflows.registry import WORKFLOWS, WorkflowDefinition, WorkflowStep
 
 pytestmark = pytest.mark.django_db
@@ -266,7 +268,7 @@ def test_failure_compensates_completed_steps_in_reverse(
     events: list[str] = []
 
     def boom(ctx: dict[str, Any]) -> dict[str, Any]:
-        raise RuntimeError("step three failed")
+        raise NonRetryableError("step three failed")
 
     _register(
         "saga",
@@ -307,7 +309,7 @@ def test_compensation_failure_does_not_mask_original(
         "saga2",
         [
             WorkflowStep("one", lambda ctx: {"ok": 1}, compensate=bad_compensate),
-            WorkflowStep("two", lambda ctx: (_ for _ in ()).throw(RuntimeError("two failed"))),
+            WorkflowStep("two", lambda ctx: (_ for _ in ()).throw(NonRetryableError("two failed"))),
         ],
     )
     wf_id = backend.start_workflow("saga2", {})
@@ -516,3 +518,216 @@ def test_outbox_recovery_index_covers_drain_recovery_filter() -> None:
     index = {idx.name: idx for idx in WorkflowOutboxRow._meta.indexes}
     assert "workflow_outbox_recovery_idx" in index
     assert index["workflow_outbox_recovery_idx"].fields == ["status", "dispatched_at"]
+
+
+# ---------------------------------------------------------------------------
+# Failure recovery (#2994) — the #2894 class: terminal, unobservable, unrecoverable
+# ---------------------------------------------------------------------------
+
+
+def _flaky(fail_times: int) -> Any:
+    """An activity that raises ``fail_times`` times, then succeeds."""
+    calls = {"n": 0}
+
+    def activity(ctx: dict[str, Any]) -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] <= fail_times:
+            raise RuntimeError(f"transient {calls['n']}")
+        return {"ok": True}
+
+    return activity
+
+
+def _expire_retry_clock(row_id: str) -> None:
+    WorkflowOutboxRow.objects.filter(id=row_id).update(
+        next_attempt_at=timezone.now() - timedelta(seconds=1)
+    )
+
+
+def test_transient_failure_schedules_retry_and_does_not_fail_workflow(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    events: list[str] = []
+    _register(
+        "flaky",
+        [
+            WorkflowStep("one", lambda ctx: {"a": 1}, compensate=lambda ctx: events.append("undo")),
+            WorkflowStep("two", _flaky(1)),
+        ],
+    )
+    wf_id = backend.start_workflow("flaky", {})
+    _drive(wf_id)
+
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    assert instance.status == WorkflowStatus.RUNNING  # not FAILED, not rolled back
+    assert events == []
+    row = WorkflowOutboxRow.objects.filter(workflow=instance).order_by("-created_at").first()
+    assert row is not None
+    assert row.status == WorkflowOutboxStatus.DEAD
+    assert row.next_attempt_at is not None  # live clock: not terminal
+    assert row.failure_reason == "error"
+    assert "transient 1" in row.error_message
+    assert row.attempt_count == 1
+
+
+def test_drain_requeues_failed_row_and_workflow_completes(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    _register("flaky2", [WorkflowStep("only", _flaky(1))])
+    wf_id = backend.start_workflow("flaky2", {})
+    _drive(wf_id)
+    row = WorkflowOutboxRow.objects.get(workflow_id=wf_id)
+
+    # Clock not yet due: the drain leaves it alone.
+    with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step.delay") as delay:
+        delay.return_value = MagicMock(id="t1")
+        _do_outbox_drain()
+    delay.assert_not_called()
+
+    _expire_retry_clock(str(row.id))
+    with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step.delay") as delay:
+        delay.return_value = MagicMock(id="t2")
+        _do_outbox_drain()
+    delay.assert_called_once_with(str(row.id))
+    row.refresh_from_db()
+    assert row.status == WorkflowOutboxStatus.DISPATCHED
+    assert row.next_attempt_at is None
+
+    _do_advance(str(row.id))  # the dispatched retry runs
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.COMPLETED
+    row.refresh_from_db()
+    assert row.status == WorkflowOutboxStatus.DONE
+    assert row.attempt_count == 2
+    assert row.error_message == ""
+
+
+def test_budget_exhaustion_is_terminal_and_compensates(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    events: list[str] = []
+    _register(
+        "always",
+        [
+            WorkflowStep("one", lambda ctx: {"a": 1}, compensate=lambda ctx: events.append("undo")),
+            WorkflowStep("two", _flaky(10_000)),
+        ],
+    )
+    wf_id = backend.start_workflow("always", {})
+    _drive(wf_id)
+    row = WorkflowOutboxRow.objects.filter(workflow_id=wf_id).order_by("-created_at").first()
+    assert row is not None
+    for _ in range(_MAX_STEP_ATTEMPTS - 1):
+        _expire_retry_clock(str(row.id))
+        with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step.delay") as d:
+            d.return_value = MagicMock(id="x")
+            _do_outbox_drain()
+        _do_advance(str(row.id))
+        row.refresh_from_db()
+
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    assert instance.status == WorkflowStatus.FAILED
+    assert events == ["undo"]
+    assert row.attempt_count == _MAX_STEP_ATTEMPTS
+    assert row.status == WorkflowOutboxStatus.DEAD
+    assert row.next_attempt_at is None  # null == no further attempt
+
+    # Terminal means the drain never touches it again.
+    with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step.delay") as d:
+        _do_outbox_drain()
+    d.assert_not_called()
+
+
+def test_non_retryable_failure_is_terminal_on_first_attempt(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    def boom(ctx: dict[str, Any]) -> None:
+        raise NonRetryableError("cannot work")
+
+    _register("unfixable", [WorkflowStep("a", boom)])
+    wf_id = backend.start_workflow("unfixable", {})
+    _drive(wf_id)
+    row = WorkflowOutboxRow.objects.get(workflow_id=wf_id)
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+    assert row.next_attempt_at is None
+    assert row.failure_reason == "unfixable"
+
+
+def test_orphan_recovery_is_bounded_and_abandons_into_failed(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    _register("orph", [WorkflowStep("a", lambda ctx: None)])
+    wf_id = backend.start_workflow("orph", {})
+    row = WorkflowOutboxRow.objects.get(workflow_id=wf_id)
+    WorkflowOutboxRow.objects.filter(id=row.id).update(
+        status=WorkflowOutboxStatus.DISPATCHED,
+        attempt_count=_MAX_STEP_ATTEMPTS,
+        dispatched_at=timezone.now() - timedelta(minutes=11),
+    )
+    with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step.delay") as d:
+        _do_outbox_drain()
+    d.assert_not_called()
+    row.refresh_from_db()
+    assert row.status == WorkflowOutboxStatus.DEAD  # abandoned, not wedged DISPATCHED
+    assert row.failure_reason == "stalled"
+    assert row.next_attempt_at is None
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    assert instance.status == WorkflowStatus.FAILED
+    assert "stopped responding" in instance.error
+
+
+def test_purge_spares_dead_row_with_live_retry_clock(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    _register("pg", [WorkflowStep("a", lambda ctx: None)])
+    live = backend.start_workflow("pg", {"k": 1})
+    terminal = backend.start_workflow("pg", {"k": 2})
+    old = timezone.now() - timedelta(days=30)
+    WorkflowOutboxRow.objects.filter(workflow_id=live).update(
+        status=WorkflowOutboxStatus.DEAD,
+        created_at=old,
+        next_attempt_at=timezone.now() + timedelta(seconds=60),
+    )
+    WorkflowOutboxRow.objects.filter(workflow_id=terminal).update(
+        status=WorkflowOutboxStatus.DEAD, created_at=old
+    )
+    _do_purge_workflow_records()
+    assert WorkflowOutboxRow.objects.filter(workflow_id=live).exists()
+    assert not WorkflowOutboxRow.objects.filter(workflow_id=terminal).exists()
+
+
+def test_restart_failed_reruns_a_failed_workflow(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    def boom(ctx: dict[str, Any]) -> None:
+        raise NonRetryableError("x")
+
+    _register("rs", [WorkflowStep("a", boom)])
+    wf_id = backend.start_workflow("rs", {}, idempotency_key="k")
+    _drive(wf_id)
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+
+    # Without the flag the key still returns the failed instance untouched.
+    assert backend.start_workflow("rs", {}, idempotency_key="k") == wf_id
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+
+    assert backend.start_workflow("rs", {}, idempotency_key="k", restart_failed=True) == wf_id
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    assert instance.status == WorkflowStatus.RUNNING
+    assert instance.error == ""
+    assert WorkflowOutboxRow.objects.filter(
+        workflow_id=wf_id, status=WorkflowOutboxStatus.PENDING
+    ).exists()
+
+
+def test_health_card_does_not_count_retrying_row_as_dead(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    from trueppm_api.apps.observability.selectors import _outbox_card
+
+    _register("hc", [WorkflowStep("a", _flaky(1))])
+    wf_id = backend.start_workflow("hc", {})
+    _drive(wf_id)
+    row = WorkflowOutboxRow.objects.get(workflow_id=wf_id)
+    assert row.status == WorkflowOutboxStatus.DEAD and row.next_attempt_at is not None
+    assert _outbox_card()["status"] != "crit"
+    assert "0 dead" in _outbox_card()["meta"]

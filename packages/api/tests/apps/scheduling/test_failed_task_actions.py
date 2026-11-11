@@ -28,6 +28,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
 from trueppm_api.apps.workflow_engine.models import WorkflowInstance
 from trueppm_api.workflows.consumers.requeue_failed_task import WORKFLOW_NAME
+from trueppm_api.workflows.interface import NonRetryableError
 
 User = get_user_model()
 
@@ -95,6 +96,31 @@ def _failed(
     )
 
 
+def _run_requeue_workflow(
+    instance: WorkflowInstance, redispatch_error: Exception | None = None
+) -> None:
+    """Drive the requeue workflow's pending step as the Celery worker would.
+
+    Under the test transaction ``on_commit`` never fires, so the step is advanced
+    explicitly; the broker hop is patched.
+    """
+    from unittest.mock import patch
+
+    from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
+    from trueppm_api.apps.workflow_engine.tasks import _do_advance
+
+    row = WorkflowOutboxRow.objects.filter(
+        workflow=instance, status=WorkflowOutboxStatus.PENDING
+    ).first()
+    assert row is not None
+    with patch(
+        "trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task",
+        side_effect=redispatch_error,
+        return_value="celery-new",
+    ):
+        _do_advance(str(row.id))
+
+
 @pytest.mark.django_db
 class TestRequeue:
     def test_requeue_routes_through_workflow_backend(self) -> None:
@@ -112,10 +138,37 @@ class TestRequeue:
 
         # The response carries the started workflow id and the updated row.
         assert res.data["workflow_id"] == str(instance.id)
+        # RETRIED is an outcome, not a request-time claim (#2994): until the workflow
+        # has actually re-dispatched, the row stays actionable.
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD
+        assert failed.resolved_by is None
+
+        _run_requeue_workflow(instance)
         failed.refresh_from_db()
         assert failed.status == FailedTaskStatus.RETRIED
         assert failed.resolved_by is not None
         assert failed.resolved_at is not None
+
+    def test_failed_redispatch_does_not_read_as_resolved(self) -> None:
+        failed = _failed()
+        client = _admin_client()
+        client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+        _run_requeue_workflow(instance, redispatch_error=NonRetryableError("broker gone"))
+        instance.refresh_from_db()
+        assert instance.status == "failed"
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD  # still actionable, never RETRIED
+
+        # And the operator's retry is a real re-run, not the failed instance back.
+        res = client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        assert res.status_code == 200
+        instance.refresh_from_db()
+        assert instance.status == "running"
+        _run_requeue_workflow(instance)
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.RETRIED
 
     def test_requeue_honours_backoff(self) -> None:
         failed = _failed()
@@ -143,6 +196,7 @@ class TestRequeue:
         failed = _failed()
         client = _admin_client()
         assert client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json").status_code == 200
+        _run_requeue_workflow(WorkflowInstance.objects.get(name=WORKFLOW_NAME))
         # Second requeue: the row is now RETRIED (terminal) → 400, no second enqueue.
         assert client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json").status_code == 400
         assert WorkflowInstance.objects.count() == 1
@@ -242,8 +296,11 @@ class TestBulkActions:
 
         dead.refresh_from_db()
         dismissed.refresh_from_db()
-        assert dead.status == FailedTaskStatus.RETRIED
+        assert dead.status == FailedTaskStatus.DEAD  # RETRIED only once the workflow ran
         assert dismissed.status == FailedTaskStatus.DISMISSED
+        _run_requeue_workflow(WorkflowInstance.objects.get(name=WORKFLOW_NAME))
+        dead.refresh_from_db()
+        assert dead.status == FailedTaskStatus.RETRIED
 
     def test_bulk_is_bounded_and_reports_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from trueppm_api.apps.scheduling import views

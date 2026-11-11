@@ -22,9 +22,12 @@ cannot double-dispatch the original task.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from trueppm_api.workflows.registry import WorkflowDefinition, WorkflowStep
+
+logger = logging.getLogger(__name__)
 
 WORKFLOW_NAME = "scheduling.requeue_failed_task"
 
@@ -38,7 +41,10 @@ def _redispatch_activity(ctx: dict[str, Any]) -> dict[str, Any] | None:
     """
     # Imported lazily and from the service layer (not `celery`) to honour the
     # consumer import discipline; the service owns the `send_task` boundary.
-    from trueppm_api.apps.scheduling.services import redispatch_dead_lettered_task
+    from trueppm_api.apps.scheduling.services import (
+        mark_failed_task_retried,
+        redispatch_dead_lettered_task,
+    )
 
     wf_input = ctx["workflow_input"]
     dispatched_task_id = redispatch_dead_lettered_task(
@@ -47,6 +53,17 @@ def _redispatch_activity(ctx: dict[str, Any]) -> dict[str, Any] | None:
         kwargs=wf_input.get("kwargs", {}),
         countdown=int(wf_input.get("backoff_seconds", 0) or 0),
     )
+    # Stamp RETRIED only now that the re-dispatch happened (#2994). A failure in the
+    # stamp must not raise: the engine would retry the step and re-dispatch the
+    # original task a second time, so it is logged and the row stays actionable.
+    try:
+        mark_failed_task_retried(wf_input["failed_task_id"], wf_input.get("resolved_by_id"))
+    except Exception:
+        logger.exception(
+            "requeue: re-dispatched %s but could not stamp failed task %s RETRIED",
+            wf_input["task_name"],
+            wf_input["failed_task_id"],
+        )
     return {
         "failed_task_id": wf_input.get("failed_task_id"),
         "dispatched_task_id": dispatched_task_id,

@@ -36,6 +36,16 @@ class WorkflowStatus(enum.StrEnum):
     CANCELED = "canceled"
 
 
+class NonRetryableError(Exception):
+    """Raised by an activity to say that running it again cannot succeed.
+
+    The default backend retries any other exception up to a bounded budget before
+    it gives up and rolls the workflow back. Raise this one for a failure nothing
+    can fix (a malformed input, a target that no longer exists) so the workflow
+    fails at once instead of spending attempts it cannot use.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     """Retry behaviour for an activity run via :meth:`WorkflowBackend.run_activity`.
@@ -98,8 +108,14 @@ class WorkflowBackend(ABC):
         *,
         idempotency_key: str | None = None,
         wait_for_completion: bool = False,
+        restart_failed: bool = False,
     ) -> str:
         """Start a workflow and return its id.
+
+        ``restart_failed=True`` re-runs an existing instance that ended ``FAILED``
+        under the same ``idempotency_key`` instead of returning it untouched. Without
+        it a failed workflow is terminal for its key, so an operator's retry of the
+        same logical request would silently be a no-op.
 
         Fire-and-forget by default (``wait_for_completion=False``); blocking on
         completion defeats the durability guarantee and is reserved for

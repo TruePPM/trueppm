@@ -202,6 +202,7 @@ class DefaultWorkflowBackend(WorkflowBackend):
         *,
         idempotency_key: str | None = None,
         wait_for_completion: bool = False,
+        restart_failed: bool = False,
     ) -> str:
         if wait_for_completion:
             raise NotImplementedError(
@@ -218,6 +219,19 @@ class DefaultWorkflowBackend(WorkflowBackend):
             )
             if created:
                 record_history(instance, "workflow_started", {"input": input})
+                enqueue_step(str(instance.id), 0)
+            elif restart_failed and instance.status == WorkflowStatus.FAILED:
+                # A FAILED instance is terminal for its key, so without this an
+                # operator's retry of the same request returns the corpse and
+                # does nothing (#2994). Steps that already completed return their
+                # cached result (once-and-only-once), so the rerun resumes at the
+                # failed step — but compensation already ran and is not replayed,
+                # which is why only idempotent consumers opt in.
+                instance.status = WorkflowStatus.RUNNING
+                instance.error = ""
+                instance.completed_at = None
+                instance.save(update_fields=["status", "error", "completed_at", "updated_at"])
+                record_history(instance, "workflow_restarted", {})
                 enqueue_step(str(instance.id), 0)
         return str(instance.id)
 

@@ -2087,7 +2087,9 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
 
         return qs
 
-    def _start_requeue_workflow(self, failed: FailedTask, backoff_seconds: int) -> str:
+    def _start_requeue_workflow(
+        self, failed: FailedTask, backoff_seconds: int, resolved_by_id: int | None = None
+    ) -> str:
         """Start the durable requeue workflow for one task (ADR-0210 §1).
 
         Routes the re-enqueue through the #652 outbox-composing workflow backend
@@ -2105,8 +2107,12 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
                 "args": failed.args,
                 "kwargs": failed.kwargs,
                 "backoff_seconds": backoff_seconds,
+                "resolved_by_id": resolved_by_id,
             },
             idempotency_key=f"requeue:{failed.id}:{failed.failure_count}",
+            # An operator retrying a requeue whose workflow FAILED must get a real
+            # re-run, not the failed instance back (#2994).
+            restart_failed=True,
         )
 
     @extend_schema(
@@ -2132,17 +2138,14 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         payload.is_valid(raise_exception=True)
         backoff_seconds = payload.validated_data["backoff_seconds"]
 
-        # Start the durable workflow first, then stamp the row: the side effect is the
-        # durable part, so if the status update failed the workflow still ran and a
-        # re-run dedupes on the idempotency key. Both commit together under
-        # ATOMIC_REQUESTS, so a mid-action error rolls the whole thing back.
-        workflow_id = self._start_requeue_workflow(failed, backoff_seconds)
-        FailedTask.objects.filter(pk=failed.pk).update(
-            status=FailedTaskStatus.RETRIED,
-            resolved_by=request.user,
-            resolved_at=timezone.now(),
+        # The row is NOT stamped RETRIED here (#2994). It used to be, before the
+        # fire-and-forget workflow had run, so a re-dispatch that failed left the
+        # admin looking at a row that read as resolved. The workflow's activity
+        # stamps it once the re-dispatch has actually happened; until then the row
+        # stays actionable and ``workflow_id`` is the handle to observe the attempt.
+        workflow_id = self._start_requeue_workflow(
+            failed, backoff_seconds, getattr(request.user, "pk", None)
         )
-        failed.refresh_from_db()
         logger.info(
             "dead-letter requeue: task %s (%s) requeued by user %s, backoff=%ss, workflow=%s",
             failed.id,
@@ -2219,13 +2222,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         matched = qs.count()
         batch = list(qs.order_by("last_failed_at")[:FAILED_TASK_BULK_ACTION_MAX])
         for failed in batch:
-            self._start_requeue_workflow(failed, backoff_seconds)
-        if batch:
-            FailedTask.objects.filter(pk__in=[f.pk for f in batch]).update(
-                status=FailedTaskStatus.RETRIED,
-                resolved_by=request.user,
-                resolved_at=timezone.now(),
-            )
+            self._start_requeue_workflow(failed, backoff_seconds, getattr(request.user, "pk", None))
         logger.info(
             "dead-letter requeue_all: %d of %d task(s) requeued by user %s, backoff=%ss",
             len(batch),

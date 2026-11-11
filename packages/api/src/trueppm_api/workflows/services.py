@@ -45,6 +45,7 @@ def start_workflow(
     *,
     idempotency_key: str | None = None,
     wait_for_completion: bool = False,
+    restart_failed: bool = False,
 ) -> str:
     """Start a workflow; see :meth:`WorkflowBackend.start_workflow`."""
     return get_backend().start_workflow(
@@ -52,6 +53,7 @@ def start_workflow(
         input,
         idempotency_key=idempotency_key,
         wait_for_completion=wait_for_completion,
+        restart_failed=restart_failed,
     )
 
 

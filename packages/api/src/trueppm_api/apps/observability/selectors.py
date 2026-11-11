@@ -250,7 +250,13 @@ def _outbox_card() -> dict[str, str]:
         ),
     )
     wf = WorkflowOutboxRow.objects.aggregate(
-        dead=Count("id", filter=Q(status=WorkflowOutboxStatus.DEAD)),
+        # A DEAD row with a live retry clock is a transient failure the drain will
+        # re-queue, not a dead one (#2994); counting it would raise CRIT on
+        # something already recovering.
+        dead=Count(
+            "id",
+            filter=Q(status=WorkflowOutboxStatus.DEAD, next_attempt_at__isnull=True),
+        ),
         stuck=Count(
             "id",
             filter=Q(status=WorkflowOutboxStatus.DISPATCHED, dispatched_at__lt=cutoff),

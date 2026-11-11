@@ -1114,6 +1114,161 @@
                 }
             }
         },
+        "/api/v1/admin/workflows/": {
+            "get": {
+                "operationId": "v1_admin_workflows_list",
+                "description": "Read-only, install-operator-only inspector for workflow instances.\n\nGated on :class:`IsWorkspaceOperator` like the dead-letter inspector it sits\nbeside: the error text and step internals are operator material.",
+                "summary": "List workflow instances (operator)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Exact workflow name."
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter by workflow status."
+                    }
+                ],
+                "tags": [
+                    "meta"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedWorkflowInstanceList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/workflows/{id}/": {
+            "get": {
+                "operationId": "v1_admin_workflows_retrieve",
+                "description": "Read-only, install-operator-only inspector for workflow instances.\n\nGated on :class:`IsWorkspaceOperator` like the dead-letter inspector it sits\nbeside: the error text and step internals are operator material.",
+                "summary": "Retrieve one workflow instance (operator)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this workflow instance.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "meta"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowInstance"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agent-actions/": {
             "get": {
                 "operationId": "v1_agent_actions_list",
@@ -63760,6 +63915,37 @@
                     }
                 }
             },
+            "PaginatedWorkflowInstanceList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WorkflowInstance"
+                        }
+                    }
+                }
+            },
             "PaginatedWorkspaceExportJobList": {
                 "type": "object",
                 "required": [
@@ -84800,6 +84986,93 @@
                 "required": [
                     "delivery_id"
                 ]
+            },
+            "WorkflowInstance": {
+                "type": "object",
+                "description": "Operator view of one workflow.\n\n``terminal`` names the give-up condition so no client re-derives it: the\nworkflow itself is in a finished status. ``retrying`` is the other half — a\nstep failed transiently and the drain will re-queue it at ``next_attempt_at``.\n``input`` is deliberately omitted; it can carry task args and kwargs.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/WorkflowInstanceStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "error": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "cancel_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "terminal": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "retrying": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "current_step": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "cancel_reason",
+                    "completed_at",
+                    "created_at",
+                    "current_step",
+                    "error",
+                    "id",
+                    "name",
+                    "retrying",
+                    "status",
+                    "terminal",
+                    "updated_at"
+                ]
+            },
+            "WorkflowInstanceStatusEnum": {
+                "enum": [
+                    "pending",
+                    "running",
+                    "sleeping",
+                    "completed",
+                    "failed",
+                    "canceled"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `running` - Running\n* `sleeping` - Sleeping\n* `completed` - Completed\n* `failed` - Failed\n* `canceled` - Canceled",
+                "x-trueppm-enum": "open"
             },
             "WorkspaceEmailHealth": {
                 "type": "object",
