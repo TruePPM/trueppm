@@ -216,6 +216,69 @@ def test_patch_committing_and_dating_a_backlog_row_in_one_write_is_allowed(
     assert r.status_code == 200, r.content
 
 
+@pytest.mark.django_db
+def test_patch_board_schedule_task_dialog_payload_is_allowed(
+    admin_client: APIClient, project: Project
+) -> None:
+    """Residual (accepted): the Board's ScheduleTaskDialog payload must keep working.
+
+    BacklogBand ··· sends ``{planned_start, status: NOT_STARTED, sprint: <current>}``.
+    The guard reads the status after the write, so this leaves Backlog and dates the
+    row in one edit and is allowed. Flagged to the maintainer on the MR.
+    """
+    task = _task(project, SprintState.ACTIVE)
+    assert task.sprint is not None
+    r = _patch(
+        admin_client,
+        task,
+        {
+            "planned_start": NEW_DATE,
+            "status": TaskStatus.NOT_STARTED,
+            "sprint": str(task.sprint.pk),
+        },
+    )
+    assert r.status_code == 200, r.content
+
+
+@pytest.mark.django_db
+def test_post_create_with_live_sprint_backlog_and_date_is_not_guarded(
+    admin_client: APIClient, project: Project
+) -> None:
+    """Residual (accepted): creates are never guarded (``instance is None``)."""
+    sprint = _live_sprint(project, "Create target")
+    with patch("trueppm_api.apps.projects.views._enqueue_recalculate"):
+        r = admin_client.post(
+            "/api/v1/tasks/",
+            {
+                "project": str(project.pk),
+                "name": "Created dated",
+                "duration": 3,
+                "sprint": str(sprint.pk),
+                "status": TaskStatus.BACKLOG,
+                "planned_start": NEW_DATE,
+            },
+            format="json",
+        )
+    assert r.status_code == 201, r.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("state", [SprintState.COMPLETED, SprintState.CANCELLED])
+def test_patch_dating_backlog_task_in_closed_sprint_is_not_this_guards_refusal(
+    admin_client: APIClient, project: Project, state: str
+) -> None:
+    """A BACKLOG task in a COMPLETED/CANCELLED sprint is outside this guard's states.
+
+    The #2680 closed-sprint freeze applies only when dating changes status; this pins
+    whatever happens today. Client gating on the field is #4938.
+    """
+    task = _task(project, state)
+    r = _patch(admin_client, task, {"planned_start": NEW_DATE})
+    # Dating leaves a BACKLOG row's status alone, so the #2680 freeze (status
+    # changes only) does not fire either: the write succeeds. TODO(#4938)
+    assert r.status_code == 200, r.content
+
+
 def _live_sprint(project: Project, name: str) -> Sprint:
     return Sprint.objects.create(
         project=project,

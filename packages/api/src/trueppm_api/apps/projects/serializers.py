@@ -5498,7 +5498,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
           so is removing it first, then re-assigning it with a date in a second write.
         - Status is read *after* the write, like the sprint: moving the row out of
           BACKLOG (committing it) and dating it in one write is allowed, as the same
-          two steps in two writes would be.
+          two steps in two writes would be. This is deliberate: the Board's shipped
+          ``ScheduleTaskDialog`` (BacklogBand ··· menu) sends
+          ``PATCH {planned_start, status: NOT_STARTED, sprint: <current sprint>}``,
+          and reading the status before the write would break it. An Admin can do the
+          same through a raw PATCH. Flagged to the maintainer as an accepted residual.
+        - Creates are never guarded (``self.instance is None``): ``POST /tasks/``, a
+          bulk ``create`` with a new id, and a sync create carrying a live sprint,
+          BACKLOG status and ``planned_start`` all succeed. Only updates (PATCH, bulk
+          update and create-as-edit, sync update) are refused.
+        - A BACKLOG task in a COMPLETED or CANCELLED sprint is not covered here (see
+          ``_SPRINT_STATES_LOCKING_DATES``); whether it can be dated is decided by the
+          #2680 freeze alone. TODO(#4938) tracks client gating on
+          ``dates_locked_by_sprint``.
         """
         if self.instance is None or self.instance.planned_start is not None:
             return
