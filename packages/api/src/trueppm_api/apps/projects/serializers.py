@@ -6129,7 +6129,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # ``select_related("sprint")``, so this adds no query per row.
         if obj.planned_start is not None or obj.sprint_id is None:
             return False
-        return obj.sprint.state in _SPRINT_STATES_LOCKING_DATES
+        sprint = obj.sprint
+        return sprint is not None and sprint.state in _SPRINT_STATES_LOCKING_DATES
 
     def get_can_delete(self, obj: Task) -> bool:
         """Authoritative per-task delete verdict (ADR-0133).
@@ -7755,7 +7756,9 @@ class TaskWriteRefusal(APIException):
 #: set the Unscheduled gutter renders read-only. COMPLETED and CANCELLED are absent
 #: on purpose: COMPLETED has its own status freeze, and the issue scoped this guard
 #: to the live states.
-_SPRINT_STATES_LOCKING_DATES = frozenset({SprintState.PLANNED, SprintState.ACTIVE})
+_SPRINT_STATES_LOCKING_DATES: frozenset[str] = frozenset(
+    {SprintState.PLANNED.value, SprintState.ACTIVE.value}
+)
 
 #: REST and sync-upload body text for :class:`SprintCommittedDatesLockedError`.
 MSG_SPRINT_COMMITTED_DATES_LOCKED = (
