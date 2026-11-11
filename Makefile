@@ -418,6 +418,12 @@ boundary-doc-check: ## Fail if a doc instructs the stale naive boundary grep (#2
 	@bash scripts/check-boundary-doc-command.sh --self-test
 	@bash scripts/check-boundary-doc-command.sh
 
+release-labels-check: ## Self-test the release-commitment label gate (#3444)
+	@# Offline fixtures only. The live run reads tracker state that changes outside
+	@# the diff and runs as tracker:release-labels on main + schedule, so it cannot
+	@# be a push gate; the logic it applies can, and that is what this proves.
+	@bash scripts/check-release-labels.sh --self-test
+
 web-rule-numbers-check: ## Fail if two packages/web/CLAUDE.md rules share a number (#2933)
 	@# Rule numbers are the file's addressing scheme — code comments, ADRs and MR
 	@# descriptions cite "rule NNN" and expect one answer. A duplicate exists only
@@ -770,6 +776,7 @@ pre-push-checks: dependency-soft-delete-check
 pre-push-checks: membership-live-floor-check
 pre-push-checks: enterprise-boundary-check
 pre-push-checks: boundary-doc-check
+pre-push-checks: release-labels-check
 pre-push-checks: demo-readonly-check
 pre-push-checks: helm-metric-names-check
 pre-push-checks: nginx-headers-check
