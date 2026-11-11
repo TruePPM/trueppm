@@ -1335,6 +1335,24 @@ ZERO_LAG_SS_CHAIN_INTO_A_CLOSED_WEEK = RefProject(
     task_calendar={"T4": "fourx", "L": "tuesat"},
 )
 
+#: #4436, the lagged sibling the audit of the fix drew: ``W(4d) -FS+2d-> M1``, ``M1``
+#: on a Monday-to-Friday week closed 01-14..01-16. ``M1`` lands at Wednesday
+#: 01-14 midnight, inside the closure, and is shown at the start of Monday 01-19:
+#: the project ends at the start of a day. Seeding ``W``'s late finish on its own
+#: calendar stopped short of that shown day, so ``W`` reported 2 days of float
+#: where a slip of 3 moved nothing.
+LAGGED_FS_INTO_A_MILESTONE_ON_A_CLOSED_WEEK = RefProject(
+    start=date(2026, 1, 7),
+    durations={"W": 4, "M1": 0},
+    links=(RefLink("W", "M1", "FS", 2),),
+    calendars={
+        "fivex": RefCalendar(
+            working_mask=MON_TO_FRI, exceptions=((date(2026, 1, 14), date(2026, 1, 16)),)
+        ),
+    },
+    task_calendar={"M1": "fivex"},
+)
+
 #: The fixed shapes the slip oracle separates from their pre-fix engines.
 FIXED_PROGRESS_SHAPES = (
     COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
@@ -1350,6 +1368,7 @@ FIXED_PROGRESS_SHAPES = (
     ZERO_LAG_MILESTONE_CHAIN_INTO_A_FOUR_DAY_WEEK,
     ZERO_LAG_CHAIN_READING_SWITCHED_BY_A_NARROWER_WEEK,
     ZERO_LAG_SS_CHAIN_INTO_A_CLOSED_WEEK,
+    LAGGED_FS_INTO_A_MILESTONE_ON_A_CLOSED_WEEK,
 )
 
 

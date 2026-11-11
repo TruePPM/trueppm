@@ -1305,6 +1305,36 @@
       "provenance": "hand-verified",
       "issue": "#4526",
       "evidence": "REGEN_EXPECTED=1 with the #4526 fix, then checked against the slip oracle (float_perturbation_violations), which fails the same shape on the pre-fix engine"
+    },
+    "zero_lag_ss_chain_into_a_closed_week.json": {
+      "provenance": "unknown",
+      "issue": "#4526",
+      "evidence": "added with the #4436/#4526 fix round: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES, serialized by project_document"
+    },
+    "expected/zero_lag_ss_chain_into_a_closed_week.json": {
+      "provenance": "regenerated",
+      "issue": "#4526",
+      "evidence": "REGEN_EXPECTED=1 from the Python engine with the #4436/#4526 fix; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines"
+    },
+    "start_of_day_milestone_past_work_on_its_own_calendar.json": {
+      "provenance": "unknown",
+      "issue": "#4436",
+      "evidence": "added with the #4436/#4526 fix round: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py PROGRESS_EXAMPLES, serialized by project_document"
+    },
+    "expected/start_of_day_milestone_past_work_on_its_own_calendar.json": {
+      "provenance": "regenerated",
+      "issue": "#4436",
+      "evidence": "REGEN_EXPECTED=1 from the Python engine with the #4436/#4526 fix; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines"
+    },
+    "lagged_fs_into_a_milestone_on_a_closed_week.json": {
+      "provenance": "unknown",
+      "issue": "#4436",
+      "evidence": "added with the #4436/#4526 fix round: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES, serialized by project_document"
+    },
+    "expected/lagged_fs_into_a_milestone_on_a_closed_week.json": {
+      "provenance": "regenerated",
+      "issue": "#4436",
+      "evidence": "REGEN_EXPECTED=1 from the Python engine with the #4436/#4526 fix; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines"
     }
   }
 }
