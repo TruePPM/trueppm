@@ -27,25 +27,25 @@
     },
     {
       "id": "B",
-      "early_start": "2026-03-11",
-      "early_finish": "2026-03-13",
+      "early_start": "2026-03-12",
+      "early_finish": "2026-03-16",
       "late_start": "2026-04-13",
       "late_finish": "2026-04-15",
-      "total_float": 1987200.0,
-      "free_float": 1987200.0,
+      "total_float": 1900800.0,
+      "free_float": 1900800.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-11"
+      "scheduled_start": "2026-03-12"
     },
     {
       "id": "C",
-      "early_start": "2026-03-06",
-      "early_finish": "2026-03-10",
+      "early_start": "2026-03-09",
+      "early_finish": "2026-03-11",
       "late_start": "2026-04-13",
       "late_finish": "2026-04-15",
-      "total_float": 2246400.0,
-      "free_float": 2246400.0,
+      "total_float": 2160000.0,
+      "free_float": 2160000.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-06"
+      "scheduled_start": "2026-03-09"
     },
     {
       "id": "D",
@@ -71,25 +71,25 @@
     },
     {
       "id": "F",
-      "early_start": "2026-03-05",
-      "early_finish": "2026-03-06",
+      "early_start": "2026-03-06",
+      "early_finish": "2026-03-07",
       "late_start": "2026-04-14",
       "late_finish": "2026-04-15",
-      "total_float": 2937600.0,
-      "free_float": 2937600.0,
+      "total_float": 2851200.0,
+      "free_float": 2851200.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-05"
+      "scheduled_start": "2026-03-06"
     },
     {
       "id": "M",
-      "early_start": "2026-03-11",
-      "early_finish": "2026-03-11",
+      "early_start": "2026-03-12",
+      "early_finish": "2026-03-12",
       "late_start": "2026-04-15",
       "late_finish": "2026-04-15",
-      "total_float": 2160000.0,
-      "free_float": 2160000.0,
+      "total_float": 2073600.0,
+      "free_float": 2073600.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-11"
+      "scheduled_start": "2026-03-12"
     },
     {
       "id": "N",
