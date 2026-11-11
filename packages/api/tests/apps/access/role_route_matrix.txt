@@ -98,6 +98,8 @@
 -++++++  GET api/v1/^acceptance-criteria/(?P<pk>[^/.]+)/$::retrieve
 -------  GET api/v1/^admin/failed-tasks/$::list
 -------  GET api/v1/^admin/failed-tasks/(?P<pk>[^/.]+)/$::retrieve
+-------  GET api/v1/^admin/workflows/$::list
+-------  GET api/v1/^admin/workflows/(?P<pk>[^/.]+)/$::retrieve
 -++++++  GET api/v1/^calendars/$::list
 -++++++  GET api/v1/^calendars/(?P<pk>[^/.]+)/$::retrieve
 -++++++  GET api/v1/^cascade-classification-operations/$::list
