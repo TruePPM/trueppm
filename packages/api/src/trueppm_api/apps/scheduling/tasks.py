@@ -1903,7 +1903,9 @@ def _finalize_status_date_floor_arming(
         )
     )
 
-    if not is_arming_status_date_floor:
+    # An empty delta (count 0, no truncation) tells a client nothing, yet it would
+    # still fan out and persist an ADR-0236 replay row (#2599, ADR-0091 amendment).
+    if not is_arming_status_date_floor and delta_payload.get("count"):
 
         def _broadcast_dates(pid: str = project_id, pay: dict[str, object] = delta_payload) -> None:
             broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
@@ -2098,7 +2100,10 @@ def _register_program_broadcasts(
                 status_date=None,
             )
         )
-        transaction.on_commit(_dates)
+        # Skip the empty frame: in a program pass every member the edit did not
+        # touch would otherwise get one (#2599).
+        if delta_payload.get("count"):
+            transaction.on_commit(_dates)
         transaction.on_commit(_capture)
 
 

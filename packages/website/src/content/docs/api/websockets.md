@@ -123,7 +123,8 @@ The set is open-ended and grows as features land; current event types include:
 
 - **Tasks**: `task_created`, `task_updated`, `task_deleted`, `task_duration_changed`,
   `task_dates_updated`, `task_restored`, `tasks_reordered`, `tasks_restructured`,
-  `tasks_bulk_mutated`
+  `tasks_bulk_mutated`. No `task_dates_updated` frame is sent when a CPM pass moves no
+  tasks; `cpm_complete` always fires.
 - **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`,
   `dependency_accepted`, `dependency_rejected`, `dependencies_bulk_created` (one
   aggregated event per `POST /tasks/bulk/` batch, carrying every applied edge's id

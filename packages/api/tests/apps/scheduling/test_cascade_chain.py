@@ -261,6 +261,33 @@ def test_run_schedule_broadcasts_per_task_date_deltas(
 
 
 @pytest.mark.django_db
+def test_noop_recalculation_ships_no_task_dates_updated_frame(
+    project: Project,
+    chain: tuple[Task, Task, Task, Task],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """A pass that moves nothing sends no task_dates_updated frame (#2599),
+    while cpm_complete still fires."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        _run_schedule(str(project.pk))  # warm: dates null -> computed
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        _run_schedule(str(project.pk))
+
+    types = [c.kwargs.get("event_type") for c in mock_broadcast.call_args_list]
+    assert "task_dates_updated" not in types
+    assert "cpm_complete" in types
+
+
+@pytest.mark.django_db
 def test_run_schedule_truncates_delta_above_cap(
     project: Project,
     chain: tuple[Task, Task, Task, Task],
