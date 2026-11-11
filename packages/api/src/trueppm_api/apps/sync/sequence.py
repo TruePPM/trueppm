@@ -274,6 +274,10 @@ def coalesce_sync_seq() -> Iterator[None]:
     if _batch_cache() is not None:
         yield
         return
+    # Only the first draw per project reaches the allocator; later saves in the
+    # batch reuse the cached value. If the batch itself runs in autocommit, each
+    # save commits separately and the #2617 window reopens, so gate the batch here.
+    _require_atomic()
     _batch_state.active = {}
     try:
         yield

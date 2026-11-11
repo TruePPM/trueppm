@@ -167,12 +167,37 @@ def test_beat_recurrence_sweep_does_not_publish_a_cursor_ahead_of_its_rows(
     assert occurrences, "fixture invalid — the sweep materialized nothing"
     _assert_no_published_gap(observed, [t.sync_seq for t in occurrences])
 
-    # End to end: a client that pulled before the sweep still gets every occurrence.
-    since = template.sync_seq
+    # End to end: a client that pulled inside the gap adopts the watermark it saw
+    # there as its checkpoint, and must still receive every occurrence afterwards.
+    # Pre-fix that watermark equals the first occurrence's cursor, so it is skipped.
+    since = observed[0][0]
     delivered = set(
         Task.objects.filter(project=project, sync_seq__gt=since).values_list("pk", flat=True)
     )
     assert {t.pk for t in occurrences} <= delivered
+
+
+def test_coalesced_batch_in_autocommit_raises_in_strict_mode(project: Project) -> None:
+    """Only the first draw per project hits the allocator; the batch itself is gated."""
+    with (
+        pytest.raises(SyncSeqOutsideTransactionError),
+        sequence.coalesce_sync_seq(),
+    ):
+        Task.objects.create(project=project, name="t", duration=1)
+    with transaction.atomic(), sequence.coalesce_sync_seq():
+        Task.objects.create(project=project, name="t", duration=1)
+
+
+@override_settings(TRUEPPM_SYNC_SEQ_REQUIRE_ATOMIC=False)
+def test_coalesced_batch_in_autocommit_logs_in_production(
+    project: Project, caplog: pytest.LogCaptureFixture
+) -> None:
+    with (
+        caplog.at_level(logging.ERROR, logger="trueppm_api.apps.sync.sequence"),
+        sequence.coalesce_sync_seq(),
+    ):
+        pass
+    assert any("#2617" in r.getMessage() for r in caplog.records)
 
 
 def test_save_inside_a_transaction_adds_no_savepoint(project: Project) -> None:
