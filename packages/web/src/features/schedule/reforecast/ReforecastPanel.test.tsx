@@ -156,3 +156,38 @@ describe('ReforecastPanel', () => {
     expect(onDismiss).toHaveBeenCalled();
   });
 });
+
+// #3158 — a CPM run above the delta cap ships a count and nothing per-task.
+describe('ReforecastPanel — a run too large to itemize', () => {
+  afterEach(cleanup);
+  const RUN = { count: 1287, since: 0 };
+
+  it('opens the panel and says what it cannot list, instead of rendering nothing', () => {
+    render(<ReforecastPanel {...props} entries={{}} unitemizedRun={RUN} />);
+    expect(screen.getByRole('region', { name: 'What moved and why' })).toBeInTheDocument();
+    expect(screen.getByText('Too many dates changed to list.')).toBeInTheDocument();
+    expect(screen.getByTestId('reforecast-unitemized')).toHaveTextContent(
+      '1,287 tasks moved in one recalculation, too many to list one by one.',
+    );
+  });
+
+  it('invents no per-task rows and no driver for the run', () => {
+    render(<ReforecastPanel {...props} entries={{}} unitemizedRun={RUN} />);
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+    expect(screen.queryByText(/moved because/)).not.toBeInTheDocument();
+    expect(screen.queryByText('changed on its own')).not.toBeInTheDocument();
+  });
+
+  it('sits alongside itemized rows without replacing them', () => {
+    render(<ReforecastPanel {...props} entries={diverged('permits')} unitemizedRun={RUN} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByText('1 date changed.')).toBeInTheDocument();
+    expect(screen.getByTestId('reforecast-unitemized')).toBeInTheDocument();
+  });
+
+  it('still shows both finish numbers', () => {
+    render(<ReforecastPanel {...props} entries={{}} unitemizedRun={RUN} />);
+    expect(screen.getByText('Oct 16')).toBeInTheDocument();
+    expect(screen.getByText('Oct 24')).toBeInTheDocument();
+  });
+});

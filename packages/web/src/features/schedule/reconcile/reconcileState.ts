@@ -114,11 +114,51 @@ export const CASCADE_TTL_MS = 600_000;
  * Be honest about the ceiling above this one: when a CPM run moves too many rows
  * to ship as a delta, the server sets `truncated` and the client falls back to a
  * full refetch that carries no per-row `previous` at all — so a very large
- * cascade produces NO panel rows, which is exactly when a planner would most want
- * them. That is a pre-existing limit of the delta protocol, not something this
- * cap introduces, and closing it is server work.
+ * cascade cannot be itemized. It is recorded as an {@link UnitemizedRun} instead,
+ * so the panel says the run happened and that it cannot list it (#3158), rather
+ * than rendering nothing. Itemizing it is server work (#2598's delta split).
  */
 export const CASCADE_MAX_ENTRIES = 200;
+
+/**
+ * A CPM run the client knows happened but cannot itemize (#3158).
+ *
+ * A `task_dates_updated` frame with `truncated: true` carries the moved COUNT and
+ * nothing else — no ids, no old values. The client re-fetches, and the re-fetch
+ * goes through the full-snapshot path, which must not open cascade entries (see
+ * {@link ReconcileObservation.previous}). So the only true statement available
+ * is "N tasks moved and this run cannot be listed". This record is that
+ * statement, and deliberately nothing more: it names no task and no cause, so
+ * it cannot fabricate a per-row move or a driver (ADR-0784 §D5).
+ *
+ * Kept beside the entry map rather than in it: an entry is keyed by
+ * (task, field), and this belongs to no task.
+ */
+export interface UnitemizedRun {
+  /** Moved-task count the server reported; `null` if the frame carried none. */
+  count: number | null;
+  /** `Date.now()` when the frame arrived. Bounded by {@link CASCADE_TTL_MS}. */
+  since: number;
+}
+
+/**
+ * Normalize a truncated frame's `count` — positive integers only. Anything else
+ * (missing, zero, negative, non-numeric) becomes `null`, which the copy layer
+ * renders without a number rather than as "0 tasks moved".
+ */
+export function unitemizedRunCount(raw: unknown): number | null {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : null;
+}
+
+/**
+ * Expire an unitemized run on the same clock as a cascade: it is the same kind
+ * of news (something moved on its own account), and should not outlive the
+ * itemized rows a smaller run would have produced.
+ */
+export function pruneUnitemizedRun(run: UnitemizedRun | null, nowMs: number): UnitemizedRun | null {
+  if (run && nowMs - run.since >= CASCADE_TTL_MS) return null;
+  return run;
+}
 
 /** One observed server-authoritative value, from either delivery path. */
 export interface ReconcileObservation {

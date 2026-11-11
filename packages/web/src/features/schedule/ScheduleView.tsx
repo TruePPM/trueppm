@@ -1125,6 +1125,7 @@ export function ScheduleView() {
   useScheduleReconciliation(projectId, allTasks);
   const reviewFilterActive = useReconcileStore((s) => s.reviewFilterActive);
   const reconcileEntries = useReconcileStore((s) => s.entries);
+  const unitemizedRun = useReconcileStore((s) => s.unitemizedRun);
   // Dismissal is per-recompute: a new divergence re-opens the panel rather than
   // staying hidden because the planner closed the last one (#2965).
   const [reforecastDismissed, setReforecastDismissed] = useState(false);
@@ -4824,6 +4825,7 @@ export function ScheduleView() {
       {!reforecastDismissed && (
         <ReforecastPanel
           entries={reconcileEntries}
+          unitemizedRun={unitemizedRun}
           links={allLinks}
           tasks={allTasks}
           cpmFinish={cpmFinish}

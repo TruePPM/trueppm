@@ -219,6 +219,15 @@ caused them; that is the same follow-up as D5.
 > when a run moves too many rows to ship as a delta, the broadcast sets
 > `truncated` and the client full-refetches — carrying no `previous`, so the
 > largest cascades produce no panel rows at all.
+>
+> **Amended by #3158:** the panel is no longer silent for that run. The
+> truncated frame still carries only a moved `count`, so the client records it as
+> an `UnitemizedRun` beside the entry map and the panel states it — "N tasks
+> moved in one recalculation, too many to list one by one" — with no per-task
+> rows and no driver, because the frame names neither (D5). The polite
+> announcement says the same. Itemizing the run is still server work: #2598's
+> option 1 (split the delta so the bar-moving fields always ship) would let
+> `previous` survive and make this statement unnecessary for the common case.
 
 ### D7 — The review strip is a sibling of the forecast bar, not part of it
 

@@ -124,11 +124,32 @@ export function cellAriaLabel(
  *   which is worse than silence: it states a number that is wrong rather than
  *   leaving the listener to ask.
  */
-export function announcement(movedCount: number, projectFinishIso: string | null): string {
-  if (movedCount === 0) return '';
-  const dates = movedCount === 1 ? '1 date changed' : `${movedCount} dates changed`;
+export function announcement(
+  movedCount: number,
+  projectFinishIso: string | null,
+  unitemizedRun: { count: number | null } | null = null,
+): string {
+  if (movedCount === 0 && !unitemizedRun) return '';
+  const parts: string[] = [];
+  if (movedCount > 0) {
+    parts.push(movedCount === 1 ? '1 date changed.' : `${movedCount} dates changed.`);
+  }
+  // A run too large to itemize (#3158) is announced too — otherwise a
+  // screen-reader user hears nothing about the largest cascades at all.
+  if (unitemizedRun) parts.push(unitemizedRunSentence(unitemizedRun.count));
   const finish = projectFinishIso ? ` Project finish now ${fmtUtcLong(projectFinishIso)}.` : '';
-  return `Schedule recomputed. ${dates}.${finish}`;
+  return `Schedule recomputed. ${parts.join(' ')}${finish}`;
+}
+
+/**
+ * The one sentence the client can truthfully say about a truncated CPM run
+ * (#3158): how many tasks moved, and that they cannot be listed. It names no
+ * task and no cause — the frame carried neither (ADR-0784 §D5).
+ */
+export function unitemizedRunSentence(count: number | null): string {
+  if (count === null) return 'A recalculation moved too many tasks to list one by one.';
+  const tasks = count === 1 ? '1 task' : `${count.toLocaleString('en-US')} tasks`;
+  return `${tasks} moved in one recalculation, too many to list one by one.`;
 }
 
 /** Strip count label — "3 dates changed". */

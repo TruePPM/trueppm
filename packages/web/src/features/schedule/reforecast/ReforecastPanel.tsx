@@ -2,10 +2,16 @@ import { useMemo } from 'react';
 import { CloseIcon } from '@/components/Icons';
 import type { Task } from '@/types';
 import { orderByCausalChain, summarizeCausalChain, type ChainLink } from './causalChain';
-import type { ReconcileEntries } from '../reconcile/reconcileState';
+import type { ReconcileEntries, UnitemizedRun } from '../reconcile/reconcileState';
+import { unitemizedRunSentence } from '../reconcile/reconcileCopy';
 
 interface Props {
   entries: ReconcileEntries;
+  /**
+   * A CPM run too large to ship as a delta (#3158). Known only by its count, so
+   * it renders as one statement — never as per-task rows the client cannot know.
+   */
+  unitemizedRun?: UnitemizedRun | null;
   links: readonly ChainLink[];
   tasks: readonly Task[];
   /** Deterministic CPM finish, formatted. */
@@ -33,6 +39,7 @@ interface Props {
  */
 export function ReforecastPanel({
   entries,
+  unitemizedRun = null,
   links,
   tasks,
   cpmFinish,
@@ -56,7 +63,10 @@ export function ReforecastPanel({
     return orderByCausalChain(unique, links, tasks);
   }, [entries, links, tasks]);
 
-  if (rows.length === 0) return null;
+  // A truncated run with no itemizable rows still opens the panel (#3158).
+  // Before this, the largest cascades — the runs a planner most needs explained
+  // — returned null here and the panel simply was not there.
+  if (rows.length === 0 && !unitemizedRun) return null;
 
   return (
     <section
@@ -65,7 +75,7 @@ export function ReforecastPanel({
     >
       <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-border">
         <span className="text-[13px] font-semibold text-neutral-text-primary">
-          {summarizeCausalChain(rows)}
+          {rows.length > 0 ? summarizeCausalChain(rows) : 'Too many dates changed to list.'}
         </span>
 
         {/* Both numbers, never one. */}
@@ -98,29 +108,46 @@ export function ReforecastPanel({
         </button>
       </div>
 
-      <ol className="max-h-[220px] overflow-y-auto py-1">
-        {rows.map((row) => (
-          <li
-            key={row.taskId}
-            className="flex items-baseline gap-2 px-4 py-1 text-xs"
-            // Indent by depth so a chain reads as a chain. Capped: past three
-            // levels the indent stops carrying meaning and starts eating width.
-            style={{ paddingLeft: 16 + Math.min(row.depth, 3) * 14 }}
-          >
-            <span className="text-neutral-text-primary">{row.taskName || 'Untitled'}</span>
-            {row.driverName ? (
-              <span className="text-neutral-text-secondary">
-                moved because <span className="text-neutral-text-primary">{row.driverName}</span>{' '}
-                moved
-              </span>
-            ) : (
-              // The rows worth reading. Named plainly rather than left blank,
-              // because "no driver" is the finding, not missing data.
-              <span className="text-neutral-text-secondary">changed on its own</span>
-            )}
-          </li>
-        ))}
-      </ol>
+      {unitemizedRun && (
+        // One statement, not rows: the truncated frame carried a count and
+        // nothing per-task, so listing tasks or naming a driver here would be
+        // invented (ADR-0784 §D5). The dates themselves are current — the
+        // client re-fetched — and the copy says so, so this does not read as
+        // the schedule being stale.
+        <p
+          data-testid="reforecast-unitemized"
+          className="px-4 py-1.5 text-xs text-neutral-text-secondary"
+        >
+          {unitemizedRunSentence(unitemizedRun.count)} Their new dates are on the schedule; what
+          moved each one is not shown.
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <ol className="max-h-[220px] overflow-y-auto py-1">
+          {rows.map((row) => (
+            <li
+              key={row.taskId}
+              className="flex items-baseline gap-2 px-4 py-1 text-xs"
+              // Indent by depth so a chain reads as a chain. Capped: past three
+              // levels the indent stops carrying meaning and starts eating width.
+              style={{ paddingLeft: 16 + Math.min(row.depth, 3) * 14 }}
+            >
+              <span className="text-neutral-text-primary">{row.taskName || 'Untitled'}</span>
+              {row.driverName ? (
+                <span className="text-neutral-text-secondary">
+                  moved because <span className="text-neutral-text-primary">{row.driverName}</span>{' '}
+                  moved
+                </span>
+              ) : (
+                // The rows worth reading. Named plainly rather than left blank,
+                // because "no driver" is the finding, not missing data.
+                <span className="text-neutral-text-secondary">changed on its own</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   );
 }

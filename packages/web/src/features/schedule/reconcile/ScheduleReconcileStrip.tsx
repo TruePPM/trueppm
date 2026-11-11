@@ -110,7 +110,8 @@ export function ScheduleReconcileStrip({ workingDaysMask, projectFinish = null }
   // and a row they never wrote has nothing for them to answer there. The
   // reforecast panel is where cascades are read.
   const moved = useMemo(() => movedEntries(entries), [entries]);
-  const liveText = announcement(moved.length, projectFinish);
+  const unitemizedRun = useReconcileStore((s) => s.unitemizedRun);
+  const liveText = announcement(moved.length, projectFinish, unitemizedRun);
   const idle = diverged.length === 0 && rejected.length === 0;
 
   return (

@@ -1171,6 +1171,42 @@ describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  // #3158: the re-fetch a truncated frame triggers carries no `previous`, so it
+  // opens no cascade entries. Without a record of the run the reforecast panel
+  // stays silent for exactly the largest cascades.
+  it('records a truncated run for the reforecast panel without inventing per-task entries', () => {
+    seedTasks();
+    useReconcileStore.setState({ projectId: 'proj-1', entries: {}, unitemizedRun: null });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ count: 1287, truncated: true });
+
+    const s = useReconcileStore.getState();
+    expect(s.unitemizedRun?.count).toBe(1287);
+    // Count only — no task is named and no row is marked from it.
+    expect(s.entries).toEqual({});
+  });
+
+  it('records a truncated run with no count when the frame carries none', () => {
+    seedTasks();
+    useReconcileStore.setState({ projectId: 'proj-1', entries: {}, unitemizedRun: null });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ count: 'lots', truncated: true });
+
+    expect(useReconcileStore.getState().unitemizedRun).toMatchObject({ count: null });
+  });
+
+  it('does not record an unitemized run for an ordinary delta', () => {
+    seedTasks();
+    useReconcileStore.setState({ projectId: 'proj-1', entries: {}, unitemizedRun: null });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ count: 0, tasks: [] });
+
+    expect(useReconcileStore.getState().unitemizedRun).toBeNull();
+  });
+
   // #2573: the server used to build the delta from the whole CPM write-back set,
   // so a 1,000-task project always shipped `truncated` and every client re-fetched
   // ~5 pages per single-field edit. With the server sending only the moved subset,

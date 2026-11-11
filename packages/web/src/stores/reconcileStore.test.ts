@@ -2,7 +2,7 @@ import { act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useReconcileStore } from './reconcileStore';
 import { MON_FRI_MASK } from '@/features/schedule/reconcile/reconcileCopy';
-import { reconcileKey } from '@/features/schedule/reconcile/reconcileState';
+import { CASCADE_TTL_MS, reconcileKey } from '@/features/schedule/reconcile/reconcileState';
 
 const INITIAL = useReconcileStore.getState();
 
@@ -129,5 +129,46 @@ describe('reconcileStore', () => {
     });
     act(() => useReconcileStore.getState().acknowledge('t1', 'start'));
     expect(useReconcileStore.getState().reviewFilterActive).toBe(false);
+  });
+
+  // #3158 — a truncated CPM run is known only by its count.
+  describe('unitemized run', () => {
+    it('records the latest run, replacing (not summing) an earlier one', () => {
+      act(() => useReconcileStore.getState().recordUnitemizedRun(600));
+      act(() => useReconcileStore.getState().recordUnitemizedRun(700));
+      expect(useReconcileStore.getState().unitemizedRun?.count).toBe(700);
+    });
+
+    it('is cleared by Acknowledge all and by a project switch', () => {
+      act(() => {
+        useReconcileStore.getState().setProject('p1');
+        useReconcileStore.getState().recordUnitemizedRun(600);
+        useReconcileStore.getState().acknowledgeAll();
+      });
+      expect(useReconcileStore.getState().unitemizedRun).toBeNull();
+
+      act(() => {
+        useReconcileStore.getState().recordUnitemizedRun(600);
+        useReconcileStore.getState().setProject('p2');
+      });
+      expect(useReconcileStore.getState().unitemizedRun).toBeNull();
+    });
+
+    it('expires on the cascade TTL, and prune is a no-op before it', () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(1_000_000);
+        act(() => useReconcileStore.getState().recordUnitemizedRun(600));
+        const before = useReconcileStore.getState();
+        vi.setSystemTime(1_000_000 + CASCADE_TTL_MS - 1);
+        act(() => useReconcileStore.getState().prune());
+        expect(useReconcileStore.getState()).toBe(before);
+        vi.setSystemTime(1_000_000 + CASCADE_TTL_MS);
+        act(() => useReconcileStore.getState().prune());
+        expect(useReconcileStore.getState().unitemizedRun).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
