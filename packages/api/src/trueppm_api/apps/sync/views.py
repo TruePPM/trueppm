@@ -256,10 +256,11 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         #
         # Fact 2 rests on a WRITER-side precondition: the allocator bump and the row
         # write must land in one transaction. ATOMIC_REQUESTS supplies it for every
-        # HTTP write and the batch writers open an explicit atomic(); a synced write
-        # in autocommit would violate it, and no reader isolation level can
-        # compensate — a snapshot cannot reveal an uncommitted row whose already-
-        # committed allocator bump the reader can see. Tracked in #2617.
+        # HTTP write and the batch writers open an explicit atomic(); in autocommit
+        # VersionedModel.save() opens its own, and the allocator refuses (dev/test)
+        # or logs (prod) a direct draw outside one (#2617). No reader isolation
+        # level could compensate — a snapshot cannot reveal an uncommitted row whose
+        # already-committed allocator bump the reader can see.
         #
         # The value is taken off the Project row fetched above rather than re-read,
         # so the snapshot instant is the RBAC fetch — earlier still, which only

@@ -56,12 +56,14 @@ so recompute leaves the cursor untouched, matching the delta.
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from django.db import models
+from django.conf import settings
+from django.db import connection, models
 from django.db.models import F, Value
 from django.db.models.functions import Greatest
 
@@ -82,6 +84,42 @@ def _batch_cache() -> dict[Any, int] | None:
     return getattr(_batch_state, "active", None)
 
 
+logger = logging.getLogger(__name__)
+
+
+class SyncSeqOutsideTransactionError(RuntimeError):
+    """A sync cursor was drawn in autocommit, apart from the row it stamps (#2617)."""
+
+
+def _require_atomic() -> None:
+    """Refuse (or, in production, loudly report) a cursor draw in autocommit.
+
+    Every draw is an ``UPDATE`` that commits on its own in autocommit. The row it
+    stamps is written by a *later* statement, so for that gap the allocator reads
+    ``W`` while the row carrying ``W`` is invisible — a pull there publishes ``W``
+    as the client's next ``since`` and the row is skipped by every pull after it,
+    permanently and silently (#2617). ``VersionedModel.save()`` opens its own
+    transaction for this reason; the bulk writers that call the allocator directly
+    (``bulk_create`` / ``QuerySet.update`` paths) must run inside one.
+
+    Strict mode (``TRUEPPM_SYNC_SEQ_REQUIRE_ATOMIC``, on in dev and tests) raises,
+    so a new autocommit caller fails the first test that exercises it outside a
+    test transaction. Production logs an error instead of failing the write: the
+    caller's work is still correct apart from this window, and turning a narrow
+    race into a hard outage is the worse trade for an operator.
+    """
+    if connection.in_atomic_block:
+        return
+    message = (
+        "sync_seq drawn in autocommit: the allocator bump commits before the row it "
+        "stamps, so a concurrent delta pull can skip that row permanently. Wrap the "
+        "write in transaction.atomic() (#2617)."
+    )
+    if getattr(settings, "TRUEPPM_SYNC_SEQ_REQUIRE_ATOMIC", False):
+        raise SyncSeqOutsideTransactionError(message)
+    logger.error(message, stack_info=True)
+
+
 def _next_seq(project_id: Any) -> int:
     """Draw the next value of ``project_id``'s sequence, or 0 if the row is gone.
 
@@ -95,6 +133,7 @@ def _next_seq(project_id: Any) -> int:
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.core.db import increment_returning
 
+    _require_atomic()
     seq = increment_returning(Project, "last_sync_version", project_id)
     return seq if seq is not None else 0
 
@@ -117,6 +156,7 @@ def allocate_program_seq() -> int:
     from trueppm_api.apps.sync.models import ProgramSyncSequence
     from trueppm_api.core.db import increment_returning
 
+    _require_atomic()
     seq = increment_returning(ProgramSyncSequence, "value", ProgramSyncSequence.SINGLETON_PK)
     return seq if seq is not None else 0
 

@@ -11,6 +11,7 @@ from datetime import date
 from unittest.mock import patch
 
 import pytest
+from django.db import transaction
 
 from trueppm_api.apps.msproject.dataclasses import (
     PredecessorLinkData,
@@ -44,7 +45,9 @@ def test_import_inserts_every_bulk_row_at_server_version_one() -> None:
         resources=[ResourceData(uid=1, name="Imported Person")],
     )
 
-    with patch(BROADCAST), patch(RECALC):
+    # Production runs the import inside the Celery task's atomic() (msproject/tasks.py);
+    # a bare autocommit call would draw sync cursors apart from their rows (#2617).
+    with patch(BROADCAST), patch(RECALC), transaction.atomic():
         import_project(str(project.pk), data)
 
     assert Task.objects.filter(project=project).count() == 2
@@ -72,7 +75,9 @@ def test_reimport_recreates_a_soft_deleted_label() -> None:
         ],
     )
 
-    with patch(BROADCAST), patch(RECALC):
+    # Production runs the import inside the Celery task's atomic() (msproject/tasks.py);
+    # a bare autocommit call would draw sync cursors apart from their rows (#2617).
+    with patch(BROADCAST), patch(RECALC), transaction.atomic():
         import_project(str(project.pk), data)
 
     assert Label.objects.filter(project=project, name="Urgent", is_deleted=False).count() == 1

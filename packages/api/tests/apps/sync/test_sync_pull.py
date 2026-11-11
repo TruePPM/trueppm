@@ -1123,7 +1123,8 @@ def test_project_delete_and_restore_cascades_are_delivered(
 #      the next pull. Reading it after would be the lossy order.
 #   3. That argument has a writer-side precondition — the allocator bump and the
 #      row write must commit together — which `ATOMIC_REQUESTS` supplies for every
-#      HTTP write. The autocommit hole is tracked separately in #2617.
+#      HTTP write. The autocommit half is closed in #2617 — see
+#      test_sync_seq_writer_atomicity.py.
 # ---------------------------------------------------------------------------
 
 
@@ -1241,7 +1242,8 @@ def test_write_landing_after_the_delta_queries_is_not_lost(
 
     What it does not prove: one connection is used, so a second transaction's
     commit visibility is not exercised. That half rests on the project row lock
-    (ADR-0686) and on writer atomicity (#2617), not on this ordering.
+    (ADR-0686) and on writer atomicity (#2617, pinned with two connections in
+    ``test_sync_seq_writer_atomicity.py``), not on this ordering.
     """
     body, task = _pull_with_interleaved_write(authed_client, project, before_queries=False)
     since = body["timestamp"]

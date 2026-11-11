@@ -39,6 +39,7 @@ from datetime import date
 from unittest.mock import patch
 
 import pytest
+from django.db import transaction
 
 from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
 from trueppm_api.apps.jiraimport.models import JiraImportRequest, JiraImportStatus
@@ -254,7 +255,9 @@ def test_create_from_import_writes_verbatim_even_over_existing_rows(
     from trueppm_api.apps.msproject.parser import parse_xml
 
     data = parse_xml(MSP_MINIMAL.read_bytes())
-    with patch(BROADCAST), patch(RECALC):
+    # Production runs the import inside the Celery task's atomic() (msproject/tasks.py);
+    # a bare autocommit call would draw sync cursors apart from their rows (#2617).
+    with patch(BROADCAST), patch(RECALC), transaction.atomic():
         import_project(str(occupied_project.pk), data, wipe_existing=True)
 
     assert _paths(occupied_project) == {"1"}

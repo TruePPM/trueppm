@@ -2211,6 +2211,13 @@ TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS: int = env.int("TRUEPPM_SYNC_INFLIGHT_TTL_SECO
 TRUEPPM_SYNC_PULL_PAGE_SIZE: int = env.int("TRUEPPM_SYNC_PULL_PAGE_SIZE", default=1000)
 TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE: int = env.int("TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE", default=5000)
 
+# A sync cursor drawn in autocommit commits before the row it stamps, which lets a
+# concurrent delta pull skip that row for good (#2617). Strict mode raises on such a
+# draw; production only logs, so a missed caller degrades to a logged race rather
+# than a failed write. Not an operator knob — dev.py (and so the test suite) turns
+# it on so a new autocommit writer fails in development.
+TRUEPPM_SYNC_SEQ_REQUIRE_ATOMIC: bool = False
+
 # Retention window in days for per-row soft-deleted tombstones in live projects
 # (is_deleted=True rows on Task, Risk, Sprint, Dependency). Rows older than this
 # are hard-deleted by the nightly sync.reap_domain_tombstones task. The 90-day
