@@ -2047,6 +2047,124 @@ def _allocate_cascade_seq(project_id: uuid.UUID | str) -> int:
     return allocate_for_projects([project_id])
 
 
+def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
+    """Tombstone many tasks with the cascade :meth:`Task.soft_delete` performs, in O(1) queries.
+
+    The set-based twin of calling ``soft_delete()`` on each row (#2765). The per-row
+    path costs ~8 statements per task (edge scan, child scan, version bump, sync_seq
+    draw, deleted_version write, history row), so a 2000-task template undo was
+    ~16k round-trips in one request. The cascade is identical — each root, its whole
+    WBS subtree (drawer subtasks and structural children, ``task_subtree``'s project
+    scoping, so a same-shaped path in another project is untouched), and every live
+    dependency edge touching any of them — but is resolved with set queries and
+    written with ``QuerySet.update()``.
+
+    Preserved on purpose, because ``update()`` skips ``save()``:
+
+    * ``server_version`` / ``deleted_version`` — ``F() + 1`` on both, so within one
+      UPDATE ``deleted_version`` equals the new ``server_version`` as the per-row path
+      records it;
+    * ``sync_seq`` — drawn explicitly, or the tombstones sit below every client
+      checkpoint and never reach an offline client (ADR-0686). Two independent draws,
+      each per owning project: edges are keyed by the *predecessor's* project (the
+      resolver ``save()`` uses), tasks by their *own* project, so a cross-project edge
+      is stamped against the predecessor's project rather than the victim's. Each pass
+      draws in sorted project order, but the two passes can interleave across projects
+      (edges by predecessor project, then tasks by own project, with every lock held
+      until commit), exactly as the per-row path did, so this gives no global lock
+      order across concurrent undos;
+    * ``deleted_at`` — the nightly reap's retention clock;
+    * ``edited_at`` is left alone: deleting is not editing (ADR-0786 §4);
+    * the Task post_save soft-delete receivers' effects, which ``update()`` would
+      otherwise skip: ``RetroActionItem.promoted_task_id`` is cleared (ADR-0071) and a
+      ``BacklogItem`` still ``PULLED`` from a victim goes back to ``PROPOSED``
+      (ADR-0069). Both cost one query when nothing matches.
+
+    Not preserved: ``django-simple-history`` rows (same trade-off as
+    :func:`cascade_project_children_soft_delete`; sync and the reap key off
+    ``deleted_version``), and so no Enterprise ``history_record_created`` audit events
+    are emitted for these rows; no ``task_status_changed`` fires — a delete never changes
+    status, so ``Task.soft_delete`` does not fire it either.
+
+    Rows already tombstoned are skipped, so unlike a per-row loop over stale instances a
+    child swept by its parent's cascade is not bumped a second time.
+
+    Returns:
+        The number of task rows tombstoned (roots plus swept descendants).
+    """
+    roots = list(tasks)
+    if not roots:
+        return 0
+    now = timezone.now()
+
+    # Roots plus their descendants, live rows only, row-locked like the per-row
+    # path's ``select_for_update`` on children.
+    victims = list(
+        task_subtrees(roots)
+        .filter(is_deleted=False)
+        .select_for_update()
+        .values_list("pk", "project_id")
+    )
+    if not victims:
+        return 0
+    victim_ids = [pk for pk, _ in victims]
+
+    # Edges first, while their endpoints still resolve; both orders are equivalent
+    # (soft-delete keeps project_id) but this keeps the read before any write.
+    edges = list(
+        Dependency.objects.filter(
+            Q(predecessor_id__in=victim_ids) | Q(successor_id__in=victim_ids),
+            is_deleted=False,
+        )
+        .select_for_update()
+        .values_list("pk", "predecessor__project_id")
+    )
+    edge_ids_by_project: dict[Any, list[Any]] = {}
+    for edge_id, pred_project in edges:
+        edge_ids_by_project.setdefault(pred_project, []).append(edge_id)
+    for pred_project in sorted(edge_ids_by_project, key=str):
+        edge_ids = edge_ids_by_project[pred_project]
+        Dependency.objects.filter(pk__in=edge_ids).update(
+            is_deleted=True,
+            server_version=F("server_version") + 1,
+            sync_seq=_allocate_cascade_seq(pred_project),
+            deleted_version=F("server_version") + 1,
+            deleted_at=now,
+        )
+
+    ids_by_project: dict[Any, list[Any]] = {}
+    for pk, project_id in victims:
+        ids_by_project.setdefault(project_id, []).append(pk)
+    for project_id in sorted(ids_by_project, key=str):
+        ids = ids_by_project[project_id]
+        Task.objects.filter(pk__in=ids).update(
+            is_deleted=True,
+            server_version=F("server_version") + 1,
+            sync_seq=_allocate_cascade_seq(project_id),
+            deleted_version=F("server_version") + 1,
+            deleted_at=now,
+        )
+
+    # The Task post_save soft-delete receivers never fire for ``update()``; run their
+    # effects set-wise. Retro action items are one UPDATE (the receiver sets only
+    # ``promoted_task_id``). Backlog items keep the service's own ``save()`` so
+    # ``server_version`` and the program's ``sync_seq`` are drawn exactly as before;
+    # only items actually still PULLED from a victim are visited.
+    from trueppm_api.apps.projects.backlog_services import reset_pulled_item_on_task_delete
+
+    RetroActionItem.objects.filter(promoted_task_id__in=victim_ids).update(promoted_task_id=None)
+    pulled_task_ids = list(
+        BacklogItem.objects.filter(
+            pulled_task_id__in=victim_ids,
+            is_deleted=False,
+            status=BacklogItemStatus.PULLED,
+        ).values_list("pulled_task_id", flat=True)
+    )
+    for task_id in pulled_task_ids:
+        reset_pulled_item_on_task_delete(str(task_id))
+    return len(victim_ids)
+
+
 def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None:
     """Un-tombstone every child of a soft-deleted project (#1113, ADR-0202).
 
@@ -4210,6 +4328,9 @@ class Task(VersionedModel):
         (which performs the actual save), so the nightly tombstone reap can apply
         the TRUEPPM_TOMBSTONE_RETENTION_DAYS grace window instead of treating every
         soft-deleted task as immediately eligible for hard deletion.
+
+        Any new side effect added here, or to a Task ``post_save`` receiver, must also
+        be mirrored in :func:`bulk_soft_delete_tasks`, its set-based twin.
         """
         # Soft-delete all edges where this task is predecessor or successor.
         edges = Dependency.objects.filter(predecessor=self) | Dependency.objects.filter(
