@@ -110,6 +110,12 @@ describe('useScheduleTasks mapper', () => {
     expect(task.deliveryMode).toBeUndefined();
   });
 
+  it('maps the server-declared sprint date lock, undefined when absent (#2984)', () => {
+    expect(mapTask({ ...base, dates_locked_by_sprint: true }).datesLockedBySprint).toBe(true);
+    expect(mapTask({ ...base, dates_locked_by_sprint: false }).datesLockedBySprint).toBe(false);
+    expect(mapTask(base).datesLockedBySprint).toBeUndefined();
+  });
+
   it('maps free_float, and reads an older payload without it as "not computed" (#3344)', () => {
     expect(mapTask({ ...base, free_float: 2 }).freeFloat).toBe(2);
     expect(mapTask({ ...base, free_float: 0 }).freeFloat).toBe(0);

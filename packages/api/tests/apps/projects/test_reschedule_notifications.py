@@ -135,8 +135,15 @@ def test_active_sprint_notifies_team_excluding_assignee_and_actor(
         finish_date=date(2026, 6, 14),
         state=SprintState.ACTIVE,
     )
+    # Already dated: a reschedule moves a committed date. Dating an undated
+    # sprint task is refused outright (#2984), so it is not a reschedule.
     moved = Task.objects.create(
-        project=project, name="Login API", duration=1, assignee=bob, sprint=sprint
+        project=project,
+        name="Login API",
+        duration=1,
+        assignee=bob,
+        sprint=sprint,
+        planned_start=date(2026, 6, 10),
     )
     # carol owns another task in the same sprint — she is "the team".
     Task.objects.create(
@@ -173,8 +180,15 @@ def test_planned_sprint_does_not_fan_out_to_team(
         finish_date=date(2026, 7, 14),
         state=SprintState.PLANNED,
     )
+    # Already dated: a reschedule moves a committed date. Dating an undated
+    # sprint task is refused outright (#2984), so it is not a reschedule.
     moved = Task.objects.create(
-        project=project, name="Login API", duration=1, assignee=bob, sprint=sprint
+        project=project,
+        name="Login API",
+        duration=1,
+        assignee=bob,
+        sprint=sprint,
+        planned_start=date(2026, 6, 10),
     )
     Task.objects.create(
         project=project, name="Carol task", duration=1, assignee=carol, sprint=sprint
@@ -201,8 +215,15 @@ def test_soft_removed_member_excluded_from_sprint_fanout(
         finish_date=date(2026, 8, 14),
         state=SprintState.ACTIVE,
     )
+    # Already dated: a reschedule moves a committed date. Dating an undated
+    # sprint task is refused outright (#2984), so it is not a reschedule.
     moved = Task.objects.create(
-        project=project, name="Login API", duration=1, assignee=bob, sprint=sprint
+        project=project,
+        name="Login API",
+        duration=1,
+        assignee=bob,
+        sprint=sprint,
+        planned_start=date(2026, 6, 10),
     )
     Task.objects.create(
         project=project, name="Carol task", duration=1, assignee=carol, sprint=sprint

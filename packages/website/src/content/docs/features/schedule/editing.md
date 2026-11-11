@@ -184,3 +184,11 @@ The **Unscheduled gutter** beneath the timeline now includes a **Backlog** secti
 To pull a backlog item into your plan, **drag its card from the gutter up onto the timeline**. Dropping it adds the idea to the sprint at the drop date — a confirmation reads "Added '{name}' to the sprint, starting {date}" — and CPM cascades the rest of the plan automatically, so any successors re-forecast in the same motion. The drop dialog speaks in sprint terms ("Add to a sprint", a **Target date**) rather than CPM vocabulary, so you don't need to know about early start or float to commit an idea.
 
 If you'd rather not drag — or you're working from the keyboard — every backlog card has an **Add to a sprint** action (both in the gutter and on the [Board](/features/board/)). It opens a target-date picker and does exactly the same thing: add the idea to the sprint at the chosen date.
+
+### Sprint-targeted rows are read-only
+
+Backlog items already targeted at a sprint are grouped under a **Targeted: {sprint}** header in the gutter and cannot be dragged onto the timeline. Their timing comes from the sprint, and the team commits to them at Sprint Planning. A date set from the timeline would look exactly like a team commitment afterwards, with nothing to tell the two apart.
+
+:::note[Ships in 0.5]
+The server will enforce this rule as well. In 0.4 only the gutter does: the same task can still be dated by selecting it in the task list and using bulk edit (`⌘⇧K`), or through the API. From 0.5, a write that sets a start or finish date on an undated task in a **planned** or **active** sprint will be refused for every role, including Owner and Admin. The API returns `sprint_committed_dates_locked`, and a bulk edit rejects just that row. Each task also reports `dates_locked_by_sprint`, so clients can show the lock before anyone tries. Rescheduling a sprint task that already has a date stays allowed. Tasks with no sprint are unaffected, and so are tasks in a completed sprint, which keep their existing status freeze. To date one of these tasks directly, remove it from the sprint first.
+:::
