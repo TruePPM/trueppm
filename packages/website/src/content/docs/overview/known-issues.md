@@ -158,7 +158,16 @@ product currently says so.
   assignments were made the simpler way.
 - **Workaround:** add a resource assignment (with units) to any task whose load should
   appear in capacity views, not only an assignee. A task that has both is counted once,
-  from the assignment.
+  from the assignment. The assignment has to be on a resource **linked to the
+  assignee's user account** — one on a different resource does not stand in for them.
+- **Partly fixed in 0.5** — [#3059](https://gitlab.com/trueppm/trueppm/-/issues/3059). <!-- known-issues-ack:closed -->
+  0.5 will count an assignee-only task at an assumed full-time load (`1.0`) in three
+  places: the overallocation indicator on a task, the **overallocated** row in the
+  project's attention feed, and the overallocation warning shown when you assign
+  someone. The task indicator and the attention row will say when that estimate is
+  part of the over-capacity day. The assignment warning flags any such task on the
+  assignee, wherever it falls. The heatmap, daily utilization and the digest will still count such a task as zero
+  ([#4936](https://gitlab.com/trueppm/trueppm/-/issues/4936)).
 - **Tracked on** [#3605](https://gitlab.com/trueppm/trueppm/-/issues/3605), which will
   rule on whether the two paths are reconciled, disclosed in the product, or collapsed.
 

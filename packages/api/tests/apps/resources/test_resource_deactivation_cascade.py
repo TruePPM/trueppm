@@ -682,18 +682,23 @@ class TestMissedSiblings:
     ) -> None:
         """``assignee_is_overallocated`` is a capacity read like the heat map.
 
-        The flag is computed per *assignee user*, summing the units of every
-        resource assigned to that user's tasks. A deactivated person's retained
+        The flag is computed per *assignee user*, summing the units of the
+        resources linked to that user. A deactivated person's retained
         rows kept a user flagged as over-allocated on load nobody carries.
         """
         member = User.objects.create_user(username="drawer_3572", password="pw")
         ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+        alice.user = member
+        alice.save(update_fields=["user"])
         task = _task(project, "Heavy", "1")
         task.assignee = member
         task.save(update_fields=["assignee"])
+        other = _task(project, "Heavier", "2")
+        other.assignee = member
+        other.save(update_fields=["assignee"])
         # 0.8 + 0.8 = 1.6 > 1.0, so the flag is on while both count.
         TaskResource.objects.create(task=task, resource=alice, units=Decimal("0.80"))
-        TaskResource.objects.create(task=task, resource=bob, units=Decimal("0.80"))
+        TaskResource.objects.create(task=other, resource=alice, units=Decimal("0.80"))
 
         def _flag() -> bool:
             resp = client.get(f"/api/v1/tasks/{task.pk}/")

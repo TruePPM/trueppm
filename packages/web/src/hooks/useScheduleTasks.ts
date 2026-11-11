@@ -149,6 +149,8 @@ export interface ApiTask {
   readiness?: string | null;
   // Wave 3 (#210) — passive overalloc indicator in task drawer.
   assignee_is_overallocated?: boolean;
+  // True when that load includes a full-time estimate for an assigned task with no tracked units (#3059).
+  assignee_load_includes_estimate?: boolean;
   server_version?: number;
   // Sprint membership (issue #317) — null/absent when not in a sprint.
   sprint?: string | null;
@@ -480,6 +482,7 @@ export function mapTask(t: ApiTask): Task {
     priorityRank: t.priority_rank ?? undefined,
     readiness: (t.readiness as TaskReadiness | undefined) ?? undefined,
     assigneeIsOverallocated: t.assignee_is_overallocated ?? false,
+    assigneeLoadIncludesEstimate: t.assignee_load_includes_estimate ?? false,
     serverVersion: t.server_version,
     sprintId: t.sprint ?? null,
     sprintPending: t.sprint_pending ?? false,

@@ -55,8 +55,10 @@ def client(user: object, membership: ProjectMembership) -> APIClient:
 
 
 @pytest.fixture
-def resource(db: object) -> Resource:
-    return Resource.objects.create(name="Jane Smith")
+def resource(db: object, user: object) -> Resource:
+    # Linked to the assignee: the flag measures a user's load through Resource.user
+    # (#3059), not every resource that happens to sit on a task they own.
+    return Resource.objects.create(name="Jane Smith", user=user)  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------

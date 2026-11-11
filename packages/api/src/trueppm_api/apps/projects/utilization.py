@@ -4,7 +4,9 @@ Computes per-resource daily load for the resource view (issue #22).
 
 Design decisions:
   - Uses TaskResource assignments, not Task.assignee — TaskResource carries
-    units (fractional allocation) and the resource's own calendar.
+    units (fractional allocation) and the resource's own calendar. The heat map
+    therefore counts tracked units only; #4936 tracks folding in bare-assignee
+    estimates.
   - Load per working day = resource.calendar.hours_per_day × assignment.units.
     This is the standard resource planning convention: full allocation rate
     regardless of percent_complete; the scheduler decides what's "done".

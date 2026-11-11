@@ -228,6 +228,23 @@ capacity as everything else, so a person whose **max units** is not `1.0` is aff
 with no override — someone at `1.5` stops being flagged at 130%, and someone at `0.8`
 starts being flagged at 90%. An assignee with no linked resource still uses 100%.
 
+:::note[Ships in 0.5]
+In 0.4 the overallocation indicator on a task, the attention feed's **overallocated**
+row and the assignment warning count only resource assignments, so a task that has an
+assignee but no resource assignment adds no load. From 0.5 those three will measure a
+person's own load: the units of resources linked to their user account, on any open
+task in the project, plus an assumed full-time `1.0` for each open task assigned to them
+that carries no assignment of theirs. Someone else's assignment on a task you own will
+no longer count toward your load.
+
+When that assumed load is part of the over-capacity day, the task's indicator tooltip
+and the attention row will say the figure includes an estimate. An assignee-only task on
+some other date does not trigger the note. Adding an assignment with units removes the
+estimate, but only if the assignment is on a resource linked to the assignee. The
+heatmap and daily utilization will still count assignee-only tasks as zero
+([#4936](https://gitlab.com/trueppm/trueppm/-/issues/4936)).
+:::
+
 ## What a resource manager can do today
 
 1. Maintain the Workspace resource catalog (name, role, capacity, calendar). From
