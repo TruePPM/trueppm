@@ -172,9 +172,19 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: currentRoleMock, roleLabel: null, isLoading: false }),
 }));
 
+import { BulkRestoreError } from '@/hooks/useTaskMutations';
 const bulkDeleteMutate = vi.fn();
 const bulkRestoreMutate = vi.fn();
 vi.mock('@/hooks/useTaskMutations', () => ({
+  BulkRestoreError: class BulkRestoreError extends Error {
+    restored: string[];
+    failed: string[];
+    constructor(restored: string[], failed: string[]) {
+      super('partial');
+      this.restored = restored;
+      this.failed = failed;
+    }
+  },
   useUpdateTask: () => ({ mutate: vi.fn(), isPending: false }),
   useBulkDeleteTasks: () => ({ mutate: bulkDeleteMutate, isPending: false }),
   useBulkRestoreTasks: () => ({ mutate: bulkRestoreMutate, isPending: false }),
@@ -961,6 +971,18 @@ describe('GridView — bulk restore result toasts (#2078)', () => {
     await renderGrid();
     await deleteThenUndo(user);
     expect(await screen.findByText(/couldn't restore tasks/i)).toBeInTheDocument();
+  });
+
+  it('reports restored vs failed counts on a partial undo failure (#3121)', async () => {
+    bulkRestoreMutate.mockImplementation(
+      (_ids: string[], opts?: { onError?: (e: unknown) => void }) => {
+        opts?.onError?.(new BulkRestoreError(['a'], ['b']));
+      },
+    );
+    const user = userEvent.setup();
+    await renderGrid();
+    await deleteThenUndo(user);
+    expect(await screen.findByText(/restored 1 of \d+ tasks — 1 couldn't be restored/i)).toBeInTheDocument();
   });
 });
 

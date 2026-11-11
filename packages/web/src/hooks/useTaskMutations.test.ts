@@ -23,6 +23,7 @@ import {
   useBulkUpdateTasks,
   useRestoreTask,
   useBulkRestoreTasks,
+  BulkRestoreError,
   useReorderTasks,
   usePromoteTask,
   useRemoveDependency,
@@ -933,12 +934,47 @@ describe('useBulkRestoreTasks (#2078)', () => {
     postMock.mockResolvedValue({ data: {} });
   });
 
-  it('fans out one restore POST per id (the single endpoint, not a bulk op)', async () => {
+  it('sends one restore POST per id (the single endpoint, not a bulk op)', async () => {
     const { result } = renderHook(() => useBulkRestoreTasks('p1'), { wrapper: makeWrapper(qc) });
     result.current.mutate(['t1', 't2']);
     await waitFor(() => expect(postMock).toHaveBeenCalledWith('/tasks/t1/restore/'));
     expect(postMock).toHaveBeenCalledWith('/tasks/t2/restore/');
     expect(postMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps concurrent restore POSTs (#3121)', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    postMock.mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      return { data: {} };
+    });
+    const ids = Array.from({ length: 30 }, (_, i) => `t${i}`);
+    const { result } = renderHook(() => useBulkRestoreTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate(ids);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(postMock).toHaveBeenCalledTimes(30);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it('attempts every id on partial failure and reports restored vs failed (#3121)', async () => {
+    postMock.mockImplementation((url: string) => {
+      if (url === '/tasks/t2/restore/') return Promise.reject(new Error('409'));
+      return Promise.resolve({ data: {} });
+    });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useBulkRestoreTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate(['t1', 't2', 't3']);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const err = result.current.error as BulkRestoreError;
+    expect(err).toBeInstanceOf(BulkRestoreError);
+    expect(err.restored).toEqual(['t1', 't3']);
+    expect(err.failed).toEqual(['t2']);
+    expect(postMock).toHaveBeenCalledTimes(3);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] });
   });
 
   it('falls back to undefined query key when projectId is null', async () => {

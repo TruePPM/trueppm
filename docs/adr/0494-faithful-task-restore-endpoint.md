@@ -131,6 +131,11 @@ path (its up-front `select_for_update` prefetch filters `is_deleted=False`, so a
 need a second trashed-lookup + lock branch threaded through a 200-line method — real risk for
 little gain at this batch's scale).
 
+> **Amended 2026-11-10 (#3121):** bulk restore no longer uses an unbounded `Promise.all`. It runs at
+> most 4 restores in flight (`mapWithConcurrency`), attempts every id even after a failure, and rejects
+> with `BulkRestoreError{restored, failed}` so callers can report partial success. A bulk endpoint was
+> not pursued.
+
 The two downsides are bounded: (i) N `_enqueue_recalculate` calls — but recalc is **already
 server-side coalesced**, so a burst collapses to one recompute; (ii) N `task_restored` broadcasts
 — each just invalidates the web tasks query, which TanStack Query dedupes. Idempotency and
