@@ -1738,6 +1738,11 @@ REST_FRAMEWORK = {
         # estimates and re-running the forecast a handful of times, while blunting a
         # scripted resource-exhaustion flood.
         "monte_carlo": _STRICT_RATE,
+        # Webhook test ping (#2936). Each POST makes one server-side request to an
+        # admin-chosen public URL, so an unthrottled loop is a small outbound-request
+        # amplifier against a third party (and burns delivery sequence numbers). 10/min
+        # per user is far above a human clicking Test while debugging a receiver.
+        "webhook_test": _STRICT_RATE,
         # Non-mutating Monte Carlo what-if (#993). The what-if endpoint runs *two*
         # CPM passes and *two* Monte Carlo simulations per call (baseline vs the
         # perturbed schedule, so the delta isolates the perturbation) — roughly

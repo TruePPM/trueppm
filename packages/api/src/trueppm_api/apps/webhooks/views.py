@@ -31,6 +31,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.models import ProjectMembership
@@ -126,6 +127,19 @@ _ARCHIVED_OR_NOT_ADMIN = (
 # pinned for the same reason as `deliveries`: operationId is the *method name* in a
 # generated client, so fixing a response shape must not rename every caller's method
 # (#2583).
+class WebhookTestPingThrottle(UserRateThrottle):
+    """Per-user cap on ``test_ping`` (#2936), fixed to the ``webhook_test`` scope.
+
+    Deliberately a ``UserRateThrottle`` with a class-level ``scope`` rather than a
+    ``ScopedRateThrottle``: the latter reads ``view.throttle_scope``, which is a
+    per-VIEW attribute, so it cannot express a per-@action scope and silently falls
+    back to no limit (#2402). Passed through ``@action(throttle_classes=...)``,
+    which replaces the global default throttles for this action only.
+    """
+
+    scope = "webhook_test"
+
+
 @extend_schema_view(
     create=extend_schema(
         summary="Register a webhook",
@@ -300,7 +314,12 @@ class WebhookViewSet(
             ),
         },
     )
-    @action(detail=True, methods=["post"], url_path="test")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="test",
+        throttle_classes=[WebhookTestPingThrottle],
+    )
     def test_ping(self, request: Request, **kwargs: object) -> Response:
         """Send a test ping to the webhook URL.
 

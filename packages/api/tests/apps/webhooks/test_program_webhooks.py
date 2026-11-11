@@ -165,3 +165,31 @@ def test_program_webhook_test_action(admin_client: APIClient, program: Program) 
     resp = admin_client.post(f"{_url(program)}{wh.pk}/test/")
     assert resp.status_code == 202
     assert "delivery_id" in resp.data
+
+
+@pytest.mark.django_db
+def test_program_webhook_rejects_public_http_url(admin_client: APIClient, program: Program) -> None:
+    resp = admin_client.post(
+        _url(program),
+        {"url": "http://example.com/h", "secret": "s", "events": ["task.created"]},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "url" in resp.data
+    assert not Webhook.objects.filter(program=program).exists()
+
+
+@pytest.mark.django_db
+def test_program_webhook_test_ping_is_throttled(admin_client: APIClient, program: Program) -> None:
+    """The program route shares the 10/min ``webhook_test`` throttle (#2936)."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    wh = Webhook.objects.create(
+        program=program, url="https://example.com/h", secret="s", events=["task.created"]
+    )
+    with patch.object(wh_tasks.deliver_webhook, "delay"):
+        codes = [admin_client.post(f"{_url(program)}{wh.pk}/test/").status_code for _ in range(11)]
+    assert codes[:10] == [202] * 10
+    assert codes[10] == 429

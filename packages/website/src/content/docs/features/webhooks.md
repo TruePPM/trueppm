@@ -23,6 +23,16 @@ Content-Type: application/json
 }
 ```
 
+The URL must be **`https://`**. A plaintext `http://` receiver is rejected with
+`400`, because it would expose every payload (task names, assignee ids, comment
+metadata) and each signed delivery to anyone on the network path, which defeats the
+replay protection the signature provides. URLs that resolve to a private, loopback,
+or link-local address are rejected as well, so there is no `http://localhost`
+exception. The `https://` requirement also applies to hosts on the operator egress
+allow-list (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`), which are exempt from the
+private-address check but not from this rule. A webhook registered with `http://` before this rule keeps delivering and
+stays editable as long as its URL is not changed; repointing it requires `https://`.
+
 `events` is an array of **one or more** event type strings (see below). It is
 required and may not be empty — there is no "subscribe to everything" shorthand,
 because a catalog that grows would silently widen an existing subscription.
@@ -260,6 +270,9 @@ renders through the subscription's format, is signed identically, and consumes a
 sequence number with a matching `_meta.sequence`, so a test click never shows up
 as a gap in your counter. Handle it as a no-op, or use it to confirm your endpoint
 is reachable.
+
+Test pings are rate limited to 10 per minute per user (`429` beyond that;
+tunable with the `webhook_test` scope in `DEFAULT_THROTTLE_RATES`).
 
 ## Delivery ordering and gap detection
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import secrets
 from typing import Any
+from urllib.parse import urlsplit
 
 from rest_framework import serializers
 
@@ -233,6 +234,21 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
             EgressError,
             assert_url_allowed,
         )
+
+        # Plaintext receivers hand any on-path observer the signed delivery (the
+        # capture ADR-0837's replay window assumes is hard) and the payload itself.
+        # Enforced here, not in assert_url_allowed, which other callers legitimately
+        # use with http:// for on-cluster targets. An UNCHANGED url on an existing
+        # row is exempt so a legacy http:// webhook stays editable (rename, change
+        # events, rotate secret) and keeps delivering; only a new or changed target
+        # must be https. This also applies to hosts on the operator egress allow-list
+        # (EGRESS_ALLOWLISTED_HOSTS), which assert_url_allowed otherwise exempts.
+        unchanged = self.instance is not None and value == getattr(self.instance, "url", None)
+        if not unchanged and urlsplit(value).scheme.lower() != "https":
+            raise serializers.ValidationError(
+                "Webhook URLs must use https://. Plaintext http:// receivers expose "
+                "the payload and the signed delivery to anyone on the network path."
+            )
 
         try:
             assert_url_allowed(value)
