@@ -517,7 +517,7 @@ window.
 
 ### `search` / `ordering` no longer declared where they were ignored (#3452)
 
-About 50 operations published `search` and/or `ordering` query parameters that the
+55 operations published `search` and/or `ordering` query parameters that the
 server never read: custom actions that build their own queryset (for example
 `GET /api/v1/projects/{id}/export/jobs/`, `/projects/trash/`, `/tasks/search/`) and
 list endpoints whose view declares no `search_fields`. A request that sent them got the
