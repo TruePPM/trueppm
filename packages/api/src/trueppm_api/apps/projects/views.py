@@ -20031,6 +20031,9 @@ class ProjectSprintForecastView(McpReadableViewMixin, APIView):
                 # forecast a velocity or throughput one.
                 "forecast_basis": data["forecast_basis"],
                 "velocity_suppressed": True,
+                # Whether the team's pace ever failed to clear the backlog within
+                # the horizon is itself velocity-derived (#2469), so it is withheld.
+                "horizon_saturated": None,
             }
         return Response(SprintForecastSerializer(data).data, status=status.HTTP_200_OK)
 

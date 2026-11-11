@@ -428,7 +428,7 @@ Each part of the system runs out at a different size, and for a different reason
 | **Schedule recalculation — memory** | ~30 KB of resident memory per task; the chart limits the worker to 2 GiB | Extrapolates past 2 GiB near 60,000 tasks | [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) |
 | **Schedule recalculation — time** | Linear, ~0.9 ms per task, and repeated in full on every edit | Well inside the 480 s task limit at 100,000 tasks; the cost is per edit | [#235](https://gitlab.com/trueppm/trueppm/-/issues/235) |
 | **Dependencies** | `MAX_DEPENDENCIES` and `MAX_EXPANDED_EDGES` = 100,000 | 100,000 edges — about one per task | [#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825) |
-| **Monte Carlo** | `MC_TASK_CAP` = 5,000, and three runs × tasks matrices held at once | Refuses above 5,000 tasks; 2.3 GB at 50,000 if the cap were lifted | [#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825), [#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824), [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) |
+| **Monte Carlo** | `MC_TASK_CAP` = 5,000. The forward pass runs over chunks of runs; the sampled durations, one runs × tasks float64 matrix, are held whole | Refuses above 5,000 tasks; ~750 MB at 50,000 × 1,000 runs if the cap were lifted (2.3 GB before the chunked pass) | [#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825), [#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824), [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) |
 | **Import** | CSV/Excel parser limit | 5,000 rows per file | [#743](https://gitlab.com/trueppm/trueppm/-/issues/743) |
 | **The database** | Not a constraint at this size | 208 MB for 100,000 tasks fits in `shared_buffers`; the first page stays at 127 ms | — |
 

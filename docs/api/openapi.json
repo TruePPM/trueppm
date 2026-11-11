@@ -76629,11 +76629,16 @@
                     },
                     "velocity_suppressed": {
                         "type": "boolean"
+                    },
+                    "horizon_saturated": {
+                        "type": "boolean",
+                        "nullable": true
                     }
                 },
                 "required": [
                     "basis",
                     "forecast_basis",
+                    "horizon_saturated",
                     "p50_date",
                     "p50_sprints",
                     "p80_date",

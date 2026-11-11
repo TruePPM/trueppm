@@ -379,6 +379,8 @@ def test_throughput_forecast_ready(project: Project) -> None:
     assert result["basis"] == "monte_carlo"
     assert result["remaining_count"] == 4
     assert result["remaining_points"] is None
+    # A steady weekly pace never reaches the bootstrap horizon (#2469).
+    assert result["horizon_saturated"] is False
     # P50/P80/P95 dates present and monotonically ordered.
     assert result["p50_date"] is not None
     assert result["p95_date"] is not None
@@ -628,4 +630,5 @@ def test_backlog_sprint_counts_tolerate_float_accumulation(v: float, k: int) -> 
     from trueppm_api.apps.projects.services import _sample_backlog_sprint_counts
 
     out = _sample_backlog_sprint_counts(round(v * k, 10), [v], 20, 1)
-    assert set(out.tolist()) == {float(k)}
+    assert out is not None
+    assert set(out.counts.tolist()) == {float(k)}

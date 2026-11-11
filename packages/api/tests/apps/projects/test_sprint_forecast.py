@@ -189,6 +189,8 @@ def test_endpoint_returns_ready_forecast(client: APIClient, project: Project) ->
     assert body["velocity_suppressed"] is False
     assert body["p50_sprints"] is not None
     assert body["p50_date"] is not None
+    # A steady ~20 pts/sprint team never reaches the bootstrap horizon (#2469).
+    assert body["horizon_saturated"] is False
 
 
 @pytest.mark.django_db
@@ -210,6 +212,8 @@ def test_endpoint_suppresses_for_below_velocity_audience(
     assert resp.data["p50_sprints"] is None
     assert resp.data["p50_date"] is None
     assert resp.data["remaining_points"] is None
+    # Whether the pace ever failed to clear the backlog is velocity-derived (#2469).
+    assert resp.data["horizon_saturated"] is None
     # The closed-sprint count and a "ready" status are themselves team-private
     # organisational facts (ADR-0104) — withheld too.
     assert resp.data["sample_count"] is None
@@ -238,3 +242,28 @@ def test_endpoint_suppresses_pm_by_default(project: Project) -> None:
     assert resp.data["status"] == "warming_up"
     assert resp.data["p50_sprints"] is None
     assert resp.data["sample_count"] is None
+
+
+@pytest.mark.django_db
+def test_warming_up_reports_no_saturation_reading(project: Project) -> None:
+    _closed_sprint(project, "S1", 20)
+    _backlog(project, 60)
+    assert sprint_forecast(project.pk)["horizon_saturated"] is None
+
+
+@pytest.mark.django_db
+def test_clamped_runs_report_a_saturated_horizon(project: Project) -> None:
+    """A run clamped at the bootstrap horizon makes the response say so (#2469).
+
+    The horizon is shrunk below the ~3 sprints this backlog needs, so every run is
+    clamped; the sampler-level saturation arithmetic is covered in
+    ``test_services_units.py`` and ``test_velocity_sampler_conformance.py``.
+    """
+    for name, pts in [("S1", 18), ("S2", 20), ("S3", 22)]:
+        _closed_sprint(project, name, pts)
+    _backlog(project, 60)
+    with patch("trueppm_api.apps.projects.services._bootstrap_horizon", return_value=2):
+        result = sprint_forecast(project.pk)
+    assert result["status"] == "ready"
+    assert result["horizon_saturated"] is True
+    assert result["p50_sprints"] == 2

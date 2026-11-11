@@ -11186,6 +11186,11 @@ class SprintForecastSerializer(serializers.Serializer[dict[str, Any]]):
     # New ADR-0130 D3 discriminator: "velocity" | "throughput".
     forecast_basis = serializers.CharField()
     velocity_suppressed = serializers.BooleanField()
+    # #2469: true when at least one simulated run hit the bootstrap horizon
+    # (min(ceil(remaining / mean pace) * 4 + 10, MAX_VELOCITY_SPRINTS) periods) and
+    # was clamped there, so P80/P95 are lower bounds rather than estimates. Null
+    # until a forecast exists, and for a reader below the velocity audience.
+    horizon_saturated = serializers.BooleanField(allow_null=True)
 
 
 class _FlowPercentilesSerializer(serializers.Serializer[dict[str, Any]]):

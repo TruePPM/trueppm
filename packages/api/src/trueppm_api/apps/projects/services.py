@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from django.db import transaction
 from django.utils import timezone
@@ -5609,20 +5609,80 @@ def _typical_sprint_length_days(project_id: str | uuid.UUID, default: int = 14) 
     return span if span and span > 0 else default
 
 
+# Cells (runs x horizon) per bootstrap draw block — the same bound, and therefore
+# the same row-major stream order, as the scheduler's ``_sample_velocity_durations``:
+# drawing whole-row blocks consumes the seeded stream exactly as one full
+# ``(runs, horizon)`` matrix would, while peak memory stays ~20 MB at any horizon.
+_BOOTSTRAP_CHUNK_CELLS = 2_500_000
+
+
+def _bootstrap_horizon(target: float, mean: float) -> int:
+    """Per-run period horizon of a bootstrap burn-down (#2645).
+
+    The one formula both API samplers use, and the scheduler's velocity sampler too:
+    ~4x the mean-pace period count plus a floor, capped at the scheduler's own
+    :data:`trueppm_scheduler.MAX_VELOCITY_SPRINTS` (imported, not restated, so the
+    two cannot drift: the API once capped at a literal 2000 while the library
+    capped at 10,000). A run that has not burned down by the horizon is clamped to
+    it, which the samplers report as saturation (#2469).
+    """
+    import numpy as np
+    from trueppm_scheduler import MAX_VELOCITY_SPRINTS
+
+    return min(int(np.ceil(target / mean)) * 4 + 10, MAX_VELOCITY_SPRINTS)
+
+
+class _BootstrapCounts(NamedTuple):
+    """Periods-to-completion per run, and how many runs the horizon clamped."""
+
+    counts: Any
+    saturated_runs: int
+
+
+def _bootstrap_periods_to_completion(
+    observations: Any, target: float, n: int, rng: Any, *, rtol: float
+) -> _BootstrapCounts:
+    """Bootstrap periods needed to burn down ``target`` from per-period ``observations``.
+
+    For each of ``n`` runs, draw observations with replacement and count the periods
+    until the running total reaches ``target * rtol``; a run that never reaches it
+    by :func:`_bootstrap_horizon` counts as the horizon and is reported in
+    ``saturated_runs``, because its count is a lower bound rather than an estimate
+    (#2469). ``observations`` must have a positive mean.
+    """
+    import numpy as np
+
+    horizon = _bootstrap_horizon(target, float(observations.mean()))
+    counts = np.empty(n, dtype=np.int64)
+    saturated = 0
+    chunk_rows = max(1, _BOOTSTRAP_CHUNK_CELLS // horizon)
+    for lo in range(0, n, chunk_rows):
+        rows = min(chunk_rows, n - lo)
+        draws = rng.choice(observations, size=(rows, horizon), replace=True)
+        reached = np.cumsum(draws, axis=1) >= target * rtol
+        burned_down = reached.any(axis=1)
+        counts[lo : lo + rows] = np.where(burned_down, reached.argmax(axis=1) + 1, horizon)
+        saturated += int(np.count_nonzero(~burned_down))
+    return _BootstrapCounts(counts.astype(np.float64), saturated)
+
+
 def _sample_backlog_sprint_counts(
     remaining_points: float,
     velocity_samples: list[float],
     runs: int,
     seed: int,
-) -> Any:
+) -> _BootstrapCounts | None:
     """Bootstrap sprint-count-to-completion from team velocity (#487).
 
     Throughput Monte Carlo: for each run, bootstrap-sample completed-points-per-
     sprint observations with replacement, accumulate, and count the sprints needed
-    to reach ``remaining_points``. Mirrors the scheduler's
-    ``_sample_velocity_durations`` (its canonical implementation) but stays
-    API-local and calendar-free — sprint_forecast is a Django-layer read, so a
-    cross-package dependency on a private scheduler primitive isn't worth it.
+    to reach ``remaining_points``. It matches the scheduler's
+    ``_sample_velocity_durations`` at ``sprint_length_days=1`` run for run under a
+    shared seed — same observation filter, horizon (:func:`_bootstrap_horizon`),
+    reach tolerance and stream order — and
+    ``tests/apps/projects/test_velocity_sampler_conformance.py`` enforces that
+    (#2645). It stays API-local and calendar-free rather than calling the
+    scheduler's private primitive, since sprint_forecast is a Django-layer read.
 
     A zero-point sprint is a real observation — the team ran the sprint and delivered
     nothing — and is bootstrapped like any other (#4535); ``exclude_from_velocity`` is
@@ -5633,7 +5693,8 @@ def _sample_backlog_sprint_counts(
     observation is zero (no pace to project — sprints-to-completion is unbounded), or
     ``remaining_points`` is non-positive; a single observation yields a constant
     (degenerate) distribution, which is honest — one observation cannot express
-    variance.
+    variance. Otherwise returns the per-run counts and how many runs the horizon
+    clamped (#2469).
     """
     import numpy as np
 
@@ -5642,22 +5703,12 @@ def _sample_backlog_sprint_counts(
     )
     if remaining_points <= 0 or observations.size == 0:
         return None
-    mean = float(observations.mean())
-    if mean <= 0:
+    if float(observations.mean()) <= 0:
         return None
-    rng = np.random.default_rng(seed)
-    # Bound the per-run horizon so a pathologically slow bootstrap path can't spin
-    # — and hard-cap it so a bad-data backlog (e.g. a 100k-point import against a
-    # slow mean) can't drive an unbounded runs×max_sprints allocation. 2000 sprints
-    # is ~77 years at a fortnightly cadence; beyond that the answer is "never", and
-    # runs saturate to the cap (already handled as the not-reached branch below).
-    max_sprints = min(int(np.ceil(remaining_points / mean)) * 4 + 10, 2000)
-    draws = rng.choice(observations, size=(runs, max_sprints), replace=True)
-    cumulative = np.cumsum(draws, axis=1)
     # Relative tolerance: float accumulation can land an ulp short of an exact target (#4699).
-    reached = cumulative >= remaining_points * (1.0 - 1e-12)
-    counts = np.where(reached.any(axis=1), reached.argmax(axis=1) + 1, max_sprints)
-    return counts.astype(np.float64)
+    return _bootstrap_periods_to_completion(
+        observations, remaining_points, runs, np.random.default_rng(seed), rtol=1.0 - 1e-12
+    )
 
 
 def _prefers_throughput_forecast(
@@ -5770,6 +5821,9 @@ def sprint_forecast(
         "basis": "monte_carlo",
         "forecast_basis": "velocity",
         "velocity_suppressed": False,
+        # Whether any simulated run hit the bootstrap horizon (#2469): then the
+        # upper percentiles are lower bounds. ``None`` until there is a forecast.
+        "horizon_saturated": None,
     }
     # Route to the throughput (flow) forecast for a continuous-flow team: either a
     # board that predominantly runs in kanban delivery mode, or one with no usable
@@ -5791,15 +5845,17 @@ def sprint_forecast(
         base["status"] = "warming_up"
         return base
 
-    key = f"sprint_forecast:v1:{project_id}:{remaining}:{sprint_length}:{hash(tuple(samples))}"
+    # v2: the payload gained ``horizon_saturated`` (#2469), which a v1 entry lacks.
+    key = f"sprint_forecast:v2:{project_id}:{remaining}:{sprint_length}:{hash(tuple(samples))}"
     cached: dict[str, Any] | None = cache.get(key)
     if cached is not None:
         return cached
 
-    counts = _sample_backlog_sprint_counts(float(remaining), samples, runs=runs, seed=seed)
-    if counts is None:
+    sampled = _sample_backlog_sprint_counts(float(remaining), samples, runs=runs, seed=seed)
+    if sampled is None:
         base["status"] = "warming_up"
         return base
+    counts = sampled.counts
 
     import numpy as np
 
@@ -5819,6 +5875,7 @@ def sprint_forecast(
         "p50_date": (today + timedelta(days=p50_days)).isoformat(),
         "p80_date": (today + timedelta(days=p80_days)).isoformat(),
         "p95_date": (today + timedelta(days=p95_days)).isoformat(),
+        "horizon_saturated": sampled.saturated_runs > 0,
     }
     cache.set(key, result, 3600)
     return result
@@ -6319,7 +6376,7 @@ def _sample_throughput_counts(
     remaining_count: float,
     n: int,
     rng: Any,
-) -> Any:
+) -> _BootstrapCounts | None:
     """Bootstrap weeks-to-completion from a weekly throughput series (ADR-0130 D3).
 
     Count-based Monte Carlo, the item-count analogue of
@@ -6355,19 +6412,10 @@ def _sample_throughput_counts(
     observations = np.asarray(
         [max(w or 0, 0) for w in weekly_throughput[first_active:]], dtype=float
     )
-    mean = float(observations.mean())
-    # Bound the per-run horizon the same way the velocity sampler does: ~4× the
-    # naive estimate, hard-capped so a pathological backlog/slow-mean pair can't
-    # drive an unbounded allocation. 2000 weeks is ~38 years — beyond that the
-    # answer is "never" and runs saturate to the cap.
-    max_weeks = min(int(np.ceil(remaining_count / mean)) * 4 + 10, 2000)
-    draws = rng.choice(observations, size=(n, max_weeks), replace=True)
-    cumulative = np.cumsum(draws, axis=1)
-    # No float tolerance here (cf. _sample_backlog_sprint_counts, #4699): weekly throughput is
+    # The horizon is the velocity sampler's (_bootstrap_horizon, #2645). No float
+    # tolerance here (cf. _sample_backlog_sprint_counts, #4699): weekly throughput is
     # integer completion counts, so the cumsum is exact.
-    reached = cumulative >= remaining_count
-    counts = np.where(reached.any(axis=1), reached.argmax(axis=1) + 1, max_weeks)
-    return counts.astype(np.float64)
+    return _bootstrap_periods_to_completion(observations, remaining_count, n, rng, rtol=1.0)
 
 
 def throughput_forecast(
@@ -6430,6 +6478,7 @@ def throughput_forecast(
         "basis": "monte_carlo",
         "forecast_basis": "throughput",
         "velocity_suppressed": False,
+        "horizon_saturated": None,
     }
 
     # Honest insufficiency: too few non-zero weeks to express weekly variance, or no
@@ -6439,10 +6488,11 @@ def throughput_forecast(
         return base
 
     rng = np.random.default_rng(seed)
-    counts = _sample_throughput_counts(weekly, float(remaining_count), runs, rng)
-    if counts is None:
+    sampled = _sample_throughput_counts(weekly, float(remaining_count), runs, rng)
+    if sampled is None:
         base["status"] = "insufficient_flow_history"
         return base
+    counts = sampled.counts
 
     today = timezone.localdate()
     # Pace the continuous percentile (in weeks) onto the calendar so P80/P95 land
@@ -6456,6 +6506,7 @@ def throughput_forecast(
         "p50_date": (today + timedelta(days=p50_days)).isoformat(),
         "p80_date": (today + timedelta(days=p80_days)).isoformat(),
         "p95_date": (today + timedelta(days=p95_days)).isoformat(),
+        "horizon_saturated": sampled.saturated_runs > 0,
     }
 
 

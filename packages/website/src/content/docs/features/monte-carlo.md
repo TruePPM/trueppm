@@ -765,8 +765,16 @@ This does **not** affect the schedule forecast built from three-point (PERT) tas
 estimates, which is unclamped. For a date you must commit to externally, estimate
 that work with PERT durations rather than reading it off a velocity forecast.
 
-The estimator fix is tracked as
-[#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469), planned for 0.5.
+Whether the horizon actually cut a run off is reported rather than left to the
+reader ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)). The backlog
+forecast response carries `horizon_saturated`, `true` when at least one simulated
+run hit the horizon. The scheduler library's `MonteCarloResult` carries
+`velocity_saturated_runs`, the number of runs in which an open scrum task's velocity
+draw hit it. When either is false or zero, nothing was truncated and the upper
+percentiles are ordinary estimates. The horizon is
+`min(ceil(remaining / mean pace) × 4 + 10, 10,000)` sprints or weeks, and the API and
+the library share that one cap
+([#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)).
 
 **Read the distribution, not just the percentiles.** The `distribution` field
 contains every simulated finish date. A bimodal distribution — two clusters of
