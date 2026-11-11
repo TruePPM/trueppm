@@ -52,6 +52,9 @@ export function BacklogTruncatedNotice({
         onClick={onLoadMore}
         disabled={loading}
         aria-busy={loading || undefined}
+        // 44px touch floor (rule 5) without a 44px-tall strip: a sized hit-area cushion
+        // that fits inside the strip's py-2 (28px + 2×8px), so it adds no overflow (rule 399).
+        className="relative before:absolute before:inset-x-0 before:top-1/2 before:h-11 before:-translate-y-1/2 before:content-['']"
       >
         {loading ? 'Loading…' : `Load next ${next.toLocaleString()}`}
       </Button>
