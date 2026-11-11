@@ -345,6 +345,9 @@ already applied), and `actor_id` lets the originating client suppress its own ec
 rather than re-fetching over its optimistic update. The `id` key is retained for
 backward compatibility.
 
+A PATCH whose submitted values all equal the stored values emits no `task_updated`
+and triggers no recalculation.
+
 ## WebSocket ↔ webhook event taxonomy
 
 The *same* domain event uses two different naming conventions depending on the

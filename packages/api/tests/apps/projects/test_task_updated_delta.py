@@ -145,6 +145,45 @@ def test_mixed_patch_reports_only_the_real_change(
     assert payload["changed_fields"] == ["status"]
 
 
+@pytest.mark.django_db
+def test_empty_patch_still_recalculates(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: nothing submitted is "unknown", not "no-op" — recalc as before."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{task.pk}/", {}, format="json")
+        assert r.status_code == 200
+
+    recalc.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_write_only_key_patch_counts_as_changed(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: a key with no comparable column (``owners``) errs toward recalc + fanout."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{task.pk}/", {"owners": []}, format="json")
+        assert r.status_code == 200
+
+    recalc.assert_called_once()
+    calls = _task_updated_calls(mock_bcast)
+    assert calls, "expected task_updated for a key with no comparable column"
+    assert "owners" in calls[-1][2]["changed_fields"]
+
+
 def test_broadcast_task_updated_payload_shape() -> None:
     """Helper assembles a stable, sorted, names-only payload."""
     with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as m:
