@@ -99,6 +99,15 @@ setting its frequency to `Off` — does not affect it. Tombstones inside an **ar
 project are skipped entirely and retained indefinitely.
 
 :::note[Ships in 0.5]
+In 0.5 the reap will also cover soft-deleted **labels**, **sprint retrospectives**, and
+**time entries**, which today accumulate forever. Labels and sprint retrospectives record no
+deletion timestamp, so their age is measured from the row's last update: a later edit or
+touch resets the clock, which errs toward keeping a tombstone rather than reaping one early.
+Other soft-deletable models (for example project memberships, retro action items, task links,
+and recurrence rules) are still not reaped.
+:::
+
+:::note[Ships in 0.5]
 Starting in 0.5, the reap will also raise a per-project **tombstone floor**: the highest sync cursor
 of any row it removed. A sync client whose last pull is older than the floor may hold a
 row whose deletion can no longer be delivered, so its next pull will answer

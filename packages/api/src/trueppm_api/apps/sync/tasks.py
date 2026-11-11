@@ -225,7 +225,7 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
             {"task__project__is_deleted": False, "task__project__is_archived": False},
             "deleted_at",
         ),
-        # NOT yet covered, because no column records WHEN they were deleted and a
+        # TODO(#2342): NOT yet covered, because no column records WHEN they were deleted and a
         # created_at/absent age would reap inside the grace window: ProjectMembership,
         # RetroActionItem, TaskSuggestedAssignee, TaskLink, TaskRecurrenceRule (need a
         # deleted_at column + migration). Calendar is shared across projects, so it has

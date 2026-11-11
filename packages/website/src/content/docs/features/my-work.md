@@ -135,6 +135,12 @@ Tasks appear in My Work when:
 - You **create a task** in a project you're a member of and put yourself on the assignee field.
 - **An external tool pushes** a task into the project via [Inbound task sync](/features/inbound-task-sync/) — Jira, Linear, GitHub Issues, or any custom source. The payload's assignee email is resolved to a TruePPM user, so a pushed task that's yours lands here automatically.
 
+:::note[Ships in 0.5]
+My Work will count resource-owned tasks as described below. In the current release only tasks where you are the direct assignee appear.
+:::
+
+**What "assigned" means.** A task counts as assigned to you if you are its direct assignee, **or** if a live resource assignment on it points at a resource linked to your account. A task matched both ways appears once. Owning a task through a resource does not make you its assignee, so it never grants you edit rights the assignee field would. The same definition drives the Today / This Sprint / Upcoming grouping, your active sprints, the sidebar due-today badge, and the retrospective follow-ups on this page. A resource that has been deactivated, or a project you no longer belong to, drops the task from your list.
+
 Separately, [Connected accounts](/features/connected-accounts/) let you attach your own GitLab/GitHub credentials to see live MR, PR, and issue status on the tasks themselves.
 
 ## Work from connected tools *(shipped in 0.4)*
