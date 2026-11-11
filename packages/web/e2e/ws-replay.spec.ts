@@ -145,9 +145,10 @@ test.describe('WebSocket event replay (#321)', () => {
     let listGets = 0;
     let detailGets = 0;
     // Registered after setupTaskStore, so it wins for the detail path only.
-    await page.route(/\/api\/v1\/tasks\/w1\/$/, async (route) => {
+    await page.route(/\/api\/v1\/tasks\/w1\/(\?.*)?$/, async (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       detailGets += 1;
+      expect(new URL(route.request().url()).searchParams.get('project')).toBe(FIXTURE_PROJECT_ID);
       return route.fulfill({
         status: 200,
         contentType: 'application/json',

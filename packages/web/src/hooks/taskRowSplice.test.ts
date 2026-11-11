@@ -22,7 +22,9 @@ function row(id: string, name: string, serverVersion: number): Task {
 
 describe('isSpliceableChange', () => {
   it('accepts plain fields and rejects missing/empty/structural lists', () => {
-    expect(isSpliceableChange(['name', 'labels', 'owners'])).toBe(true);
+    expect(isSpliceableChange(['name', 'labels'])).toBe(true);
+    // owners upserts TaskResource rows, which can flip other tasks' overallocation.
+    expect(isSpliceableChange(['name', 'owners'])).toBe(false);
     expect(isSpliceableChange(['percent_complete'])).toBe(false);
     expect(isSpliceableChange(['name', 'status'])).toBe(false);
     for (const f of [
@@ -68,11 +70,26 @@ describe('createTaskRowSplicer', () => {
     make().request('a', 2);
     await flush();
     expect(getMock).toHaveBeenCalledTimes(1);
-    expect(getMock).toHaveBeenCalledWith('/tasks/a/', expect.anything());
+    // project= is required for the server to annotate the baseline overlay.
+    expect(getMock).toHaveBeenCalledWith(
+      '/tasks/a/',
+      expect.objectContaining({ params: { project: 'p1' } }),
+    );
     const rows = qc.getQueryData<Task[]>(['tasks', 'p1'])!;
     expect(rows[0]).toMatchObject({ name: 'A2', serverVersion: 2, wbs: 'W-a' });
     expect(rows[1].name).toBe('B');
     expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it('keeps the baseline overlay from the project-scoped read', async () => {
+    getMock.mockResolvedValue({
+      data: { ...api('a', 'A2', 2), baseline_start: '2026-01-05', baseline_finish: '2026-01-09' },
+    });
+    make().request('a', 2);
+    await flush();
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])![0]).toMatchObject({
+      baselineStart: '2026-01-05',
+    });
   });
 
   it('coalesces frames for the same id into one GET', async () => {

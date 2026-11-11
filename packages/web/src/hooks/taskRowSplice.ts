@@ -36,15 +36,16 @@ export const TASK_SPLICE_MAX_BURST = 20;
 //    sprint, story_points): the serializer overwrites an ANCESTOR summary's (and a
 //    milestone's) percent_complete from its children, but only the edited child is
 //    broadcast, so splicing one row would leave ancestors stale;
-//  - cross-row derived state (blocking_task, blocked_by, assignee): they change
-//    another row's `is_blocked` / `assignee_is_overallocated`.
+//  - cross-row derived state (blocking_task, blocked_by, assignee, owners): they
+//    change another row's `is_blocked` / `assignee_is_overallocated` (`owners` upserts
+//    TaskResource rows, so the same resource's OTHER tasks can flip overallocated).
+// TODO(#4950): rollup-input and cross-row edits still take the full refetch.
 const SPLICEABLE_FIELDS: ReadonlySet<string> = new Set([
   'name',
   'description',
   'notes',
   'labels',
   'label_ids',
-  'owners',
   'priority',
   'custom_fields',
   'custom_field_values',
@@ -90,7 +91,10 @@ export function createTaskRowSplicer(opts: {
   ): Promise<boolean> {
     // Returns true when the row was handled (spliced or intentionally dropped).
     try {
+      // `project` is what the server keys the active-baseline annotation on; without
+      // it baseline_start/finish come back null and the splice would blank the overlay.
       const { data } = await apiClient.get<ApiTask>(`/tasks/${taskId}/`, {
+        params: { project: projectId },
         signal: abort.signal,
       });
       if (disposed || getProjectId() !== projectId) return true;
