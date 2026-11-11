@@ -729,6 +729,14 @@ fn pinned_placement(
         return Ok(None);
     }
     let full_days = task.duration_days();
+    if let (Some(af), 0) = (task.actual_finish, full_days) {
+        // A milestone is an instant, and with split actuals that instant is the
+        // `actual_finish` day — the day its successors link from
+        // (`pinned_milestone_instant`, #4433). Showing `early_start` on
+        // `actual_start` instead put it on one day and linked it from another
+        // (#4458).
+        return Ok(Some((af, af)));
+    }
     if let Some(af) = task.actual_finish {
         // Finish known; start is the recorded actual, else a full duration back
         // from the finish.

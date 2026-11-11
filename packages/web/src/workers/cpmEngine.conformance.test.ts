@@ -194,6 +194,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // cannot feed the actual_finish or the handed-back live_day_end_on.
   progress_closed_milestone_predecessor_after_sign_off:
     'adapter: does not thread actuals/status date',
+  // #4458: split milestone actuals; the split-actual preview case is pinned in
+  // cpmEngine.test.ts instead, on the dates the server hands the client.
+  progress_closed_milestone_split_actuals: 'adapter: does not thread actuals/status date',
   progress_closed_milestone_handed_back_edge_after_sign_off:
     'adapter: does not thread actuals/status date',
   // #4345. Pins a milestone's free instant reading a work successor's Saturday

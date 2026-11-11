@@ -321,6 +321,11 @@
       "issue": "#4703",
       "evidence": "REGEN_EXPECTED=1 from the Python engine; each M/B row was checked against the edge and successor start stated by hand in the input fixture's task names before regeneration"
     },
+    "expected/progress_closed_milestone_split_actuals.json": {
+      "provenance": "hand-verified",
+      "issue": "#4458",
+      "evidence": "REGEN_EXPECTED=1 output checked by hand: M shown and linked at start of Wed 2026-01-07; SS/FS successors start Wed; FF/SF successors finish at end of Tue (the instant read as a finish anchor); N, placed by W finishing Wed, sits at the end of Wed (milestone_at_day_end) and its SS successor T starts Thu; Z sets the finish"
+    },
     "expected/progress_completed_actuals_milestone_instant.json": {
       "provenance": "unknown",
       "issue": "#4433",
@@ -1065,6 +1070,11 @@
       "provenance": "hand-verified",
       "issue": "#4703",
       "evidence": "input derived by hand from the README rule (end of day only from completed work placing the milestone on the recorded day)"
+    },
+    "progress_closed_milestone_split_actuals.json": {
+      "provenance": "hand-verified",
+      "issue": "#4458",
+      "evidence": "input written by hand for #4458: M has no predecessor, so it is an instant at the start of its actual_finish day (Wed) per the README closed-milestone rule"
     },
     "progress_completed_actuals_milestone_instant.json": {
       "provenance": "unknown",

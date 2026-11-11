@@ -488,6 +488,41 @@ describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
       expect(byId('B').deltaDays).toBe(0);
     });
 
+    it('reads a closed milestone with split actuals at its actual_finish day, as the server does', () => {
+      // #4458. A milestone with actual_start Monday and actual_finish Wednesday
+      // is shown on, and linked from, Wednesday server-side: its early_start,
+      // scheduled_start and early_finish all name actual_finish. The preview
+      // must read the same instant, so its SS and FS successors stay on
+      // Wednesday rather than moving to the actual_start day.
+      const m = {
+        ...task('M', '2026-01-07', '2026-01-07', {
+          isMilestone: true,
+          isComplete: true,
+          durationDays: 0,
+          actualStart: '2026-01-05',
+          actualFinish: '2026-01-07',
+        }),
+        milestoneAtDayEnd: false,
+      };
+      const tasks: CpmTask[] = [
+        m,
+        task('S', '2026-01-07', '2026-01-07'),
+        task('F', '2026-01-07', '2026-01-07'),
+        task('X', '2026-01-05', '2026-01-05'),
+      ];
+      const edges: CpmEdge[] = [edge('M', 'S', 'SS'), edge('M', 'F', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'X', '2026-01-06');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      expect(byId('M').earlyStart).toBe('2026-01-07');
+      expect(byId('M').deltaDays).toBe(0);
+      expect(byId('S').earlyStart).toBe('2026-01-07');
+      expect(byId('S').deltaDays).toBe(0);
+      expect(byId('F').earlyStart).toBe('2026-01-07');
+      expect(byId('F').deltaDays).toBe(0);
+    });
+
     it('still moves a complete-without-actuals task when it is the drag target', () => {
       // The drop lands as `planned_start`, which the server's pin honors for a
       // task with no actuals — so unlike an actuals-pinned task, it moves, keeps

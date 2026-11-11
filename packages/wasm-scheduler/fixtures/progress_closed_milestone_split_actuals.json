@@ -1,0 +1,30 @@
+{
+  "id": "p-progress-closed-milestone-split-actuals",
+  "name": "A closed milestone with actual_start before actual_finish is shown on, and linked from, its actual_finish day by every link type (#4458)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "M", "name": "Milestone, actual_start Monday, actual_finish Wednesday", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2026-01-05", "actual_finish": "2026-01-07"},
+    {"id": "S", "name": "SS successor: starts Wednesday, not Monday", "duration": 86400.0},
+    {"id": "F", "name": "FS successor: starts Wednesday", "duration": 86400.0},
+    {"id": "G", "name": "FF successor: finishes no earlier than Tuesday's end (the instant read as an FF anchor)", "duration": 86400.0},
+    {"id": "H", "name": "SF successor: finishes no earlier than Tuesday's end", "duration": 86400.0},
+    {"id": "W", "name": "Completed work, Mon..Wed", "duration": 259200.0, "percent_complete": 100.0, "actual_start": "2026-01-05", "actual_finish": "2026-01-07"},
+    {"id": "N", "name": "Milestone after W, actual_start Monday, actual_finish Wednesday: W finishing Wednesday placed it, so it sits at the end of Wednesday", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2026-01-05", "actual_finish": "2026-01-07"},
+    {"id": "T", "name": "SS successor of N: starts Thursday, not Monday", "duration": 86400.0},
+    {"id": "Z", "name": "Long live task that sets the project finish", "duration": 864000.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "M", "successor_id": "S", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "M", "successor_id": "F", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "M", "successor_id": "G", "dep_type": "FF", "lag": 0.0},
+    {"predecessor_id": "M", "successor_id": "H", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "W", "successor_id": "N", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "N", "successor_id": "T", "dep_type": "SS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

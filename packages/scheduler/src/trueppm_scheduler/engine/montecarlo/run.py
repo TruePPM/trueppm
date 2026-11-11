@@ -775,9 +775,9 @@ def monte_carlo(
     wt_mat = ef_mat
     milestone_cols = [task_idx[tid] for tid in milestone_ids]
     # A closed start-of-day milestone sits at its instant, the start of its shown day
-    # (#4601). Read off the instant, not the pinned ES: with split actuals the ES is
-    # ``actual_start`` while the instant is ``actual_finish`` (#4458), and ranking it
-    # at the ES skewed the sensitivity tornado. Run-invariant, so one offset each.
+    # (#4601). Read off the instant itself, the position successors link from, rather
+    # than the pinned ES (the two coincide since #4458, when split actuals stopped
+    # showing the ES on ``actual_start``). Run-invariant, so one offset each.
     closed_positions = {
         task_idx[tid]: _index_offset(
             completed_instants[tid][0],

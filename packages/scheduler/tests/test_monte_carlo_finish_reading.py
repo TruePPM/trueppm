@@ -444,9 +444,10 @@ def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
     Split milestone actuals (#4458) are deliberately kept, although the issue
     suggested excluding them. They are most of the closed milestones this strategy
     draws that finish the project, so excluding them left the property almost
-    nothing of this issue's class to check. #4458 is about which day the engines
-    link such a milestone from. Monte Carlo reads the shown instant off the same
-    deterministic pass as schedule(), so the two readings must still agree.
+    nothing of this issue's class to check. #4458 settled which day such a
+    milestone is shown on and linked from (``actual_finish``). Monte Carlo reads the
+    shown instant off the same deterministic pass as schedule(), so the two readings
+    must still agree.
     """
     project = _zero_variance(project)
     try:
