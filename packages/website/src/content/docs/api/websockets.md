@@ -84,7 +84,15 @@ first is what lets `CloseEvent.code` carry the reason.
 |------|------|------|--------------------|
 | `4001` | Missing, invalid, expired, or already-consumed ticket; a ticket (or, on the deprecated path, a token) issued before the account's credential cutoff, such as one minted just before a password reset (0.5 and later); or, on the deprecated path, an invalid token | after accept | yes |
 | `4003` | Authenticated, but not a member of the project, or a role below Team Member — also sent to a live socket when the user is demoted or removed | after accept | yes |
+| `4029` | This user sent more than `TRUEPPM_WS_RATE_LIMIT_FRAMES` frames across their sockets on this project in the window, counted per API worker (default 30 per 10 s). Clients are not expected to send any frame (0.5 and later) | closes the open socket | yes |
+| `1009` | A client frame larger than `TRUEPPM_WS_MAX_FRAME_BYTES` (default 8192) (0.5 and later) | closes the open socket | yes |
 | `4404` | The path matched no WebSocket route | **before** accept | no — the browser sees `1006` |
+
+From 0.5, a handshake whose `Origin` header is not in `ALLOWED_HOSTS` or
+`TRUEPPM_WS_ALLOWED_ORIGINS` is rejected at the upgrade (HTTP `403`, browser close
+code `1006`, so a client retries rather than seeing a code). A handshake with no `Origin` header, which is what a non-browser client
+sends, is allowed unless `TRUEPPM_WS_REQUIRE_ORIGIN=true`. See
+[Rate limits](/administration/configuration/limits/).
 
 `4003` is the same for a project that does not exist and one the caller is not a
 member of, so the code does not reveal whether a project exists. `4404` stays a

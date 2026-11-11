@@ -14,6 +14,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "trueppm_api.settings.dev")
 # Initialize Django ASGI app early so AppRegistry is ready before Channels.
 django_asgi_app = get_asgi_application()
 
+from trueppm_api.apps.sync.ws_origin import TruePPMOriginValidator  # noqa: E402
 from trueppm_api.routing import websocket_urlpatterns  # noqa: E402
 
 
@@ -44,6 +45,6 @@ websocket_app = URLRouter([*websocket_urlpatterns, re_path(r".*", _CloseConsumer
 application = ProtocolTypeRouter(
     {
         "http": django_asgi_app,
-        "websocket": otel.wrap_asgi_app(websocket_app),
+        "websocket": otel.wrap_asgi_app(TruePPMOriginValidator(websocket_app)),
     }
 )

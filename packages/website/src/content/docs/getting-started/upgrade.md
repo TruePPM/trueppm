@@ -1372,6 +1372,10 @@ kubectl get deployment -n trueppm trueppm-api \
 
 ---
 
+**Reverse proxies and WebSockets (0.5).** Starting with 0.5, a proxy that rewrites the `Host` or `Origin` the API sees will make WebSockets fail with `1006`. Set `TRUEPPM_WS_ALLOWED_ORIGINS` to the origin the browser sends.
+
+---
+
 ## Common issues
 
 **Migrations fail on startup**
