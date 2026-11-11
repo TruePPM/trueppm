@@ -1,7 +1,7 @@
 ---
 title: Networking
 description: DNS, TLS termination, WebSockets through a proxy, load balancing, health checks, and the ports and firewall rules a TruePPM install needs.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 Everything between your users and the API: the DNS records to create, where TLS
@@ -122,6 +122,18 @@ No wildcards. The variable is read once at process start, so a change takes effe
 webhooks, SMTP, integration credential verification), so only list a host you
 trust at least as much as your identity provider. See
 [Outbound requests](/administration/security/#outbound-requests-ssrf-boundary).
+
+:::note[Ships in 0.5]
+From 0.5 the allow-list is split by surface, and a host on one list is exempt
+only for that surface: `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` (the identity
+provider; the legacy `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is merged into it),
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` (the mail relay),
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS` (a self-hosted GitLab or Jira for
+Connected Accounts), and `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS` (webhook
+receivers). The example above becomes
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO=keycloak.sso.svc.cluster.local` plus
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP=smtp.internal.example.com`.
+:::
 
 ### Internal (cluster) DNS
 

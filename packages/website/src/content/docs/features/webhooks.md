@@ -1,7 +1,7 @@
 ---
 title: Webhooks
 description: Outbound HTTP callbacks for project events — integrate TruePPM with CI systems, Slack, or custom tooling.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 
@@ -32,6 +32,14 @@ exception. The `https://` requirement also applies to hosts on the operator egre
 allow-list (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`), which are exempt from the
 private-address check but not from this rule. A webhook registered with `http://` before this rule keeps delivering and
 stays editable as long as its URL is not changed; repointing it requires `https://`.
+
+:::note[Ships in 0.5]
+From 0.5 webhooks honor only the webhook allow-list,
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS`. A host your operator allow-listed for
+single sign-on (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`), such as an in-cluster
+identity provider, is refused as a webhook target, both at registration and at
+delivery.
+:::
 
 `events` is an array of **one or more** event type strings (see below). It is
 required and may not be empty — there is no "subscribe to everything" shorthand,

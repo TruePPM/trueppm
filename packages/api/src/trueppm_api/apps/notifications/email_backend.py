@@ -165,11 +165,12 @@ def _assert_host_public(host: str, port: int) -> None:
     from trueppm_api.apps.integrations.http import (
         EgressBlocked,
         EgressError,
+        EgressPurpose,
         assert_host_allowed,
     )
 
     try:
-        assert_host_allowed(host, port)
+        assert_host_allowed(host, port, purpose=EgressPurpose.SMTP)
     except EgressBlocked as exc:
         # Do NOT copy the EgressBlocked text into EmailTransportError: it can
         # embed the DNS-resolved internal address, which the serializer would
@@ -179,7 +180,7 @@ def _assert_host_public(host: str, port: int) -> None:
         raise EmailHostNotAllowedError(
             "The mail server host is not permitted — it resolves to a non-public "
             "address. If this is a trusted internal relay on a private network, "
-            "add its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, "
+            "add its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP on the API, "
             "Celery worker, and Celery beat processes, restart or redeploy them "
             "(the setting is read at startup), then save these settings again."
         ) from exc

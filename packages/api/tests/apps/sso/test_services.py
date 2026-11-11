@@ -1031,7 +1031,7 @@ def test_exchange_code_non_json_body_raises_token_exchange_error(
 def _jwks_only(monkeypatch: pytest.MonkeyPatch, response: Any) -> None:
     """Serve ``response`` for the JWKS fetch and no-op the SSRF pre-check."""
     monkeypatch.setattr(services.egress, "get", lambda url, **kw: response)
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
 
 
 def test_signing_key_ssrf_block_raises_provider_unreachable(
@@ -1049,7 +1049,7 @@ def test_signing_key_ssrf_block_raises_provider_unreachable(
 def test_signing_key_timeout_raises_provider_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     from trueppm_api.apps.integrations import http as egress
 
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressTimeout("slow jwks")))
     with pytest.raises(services.OIDCProviderUnreachable):
         services._signing_key_for(f"{ISSUER}/jwks", make_id_token())
@@ -1501,7 +1501,7 @@ def test_check_reachability_oidc_jwks_unreachable(
         raise egress.EgressTimeout("jwks timed out")
 
     monkeypatch.setattr(services.egress, "get", _get)
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     result = services.check_provider_reachability(provider_ctx)
     assert result["ok"] is False
     assert result["error"] == "jwks_unreachable"
@@ -1540,7 +1540,7 @@ def test_check_reachability_oidc_jwks_empty(
         return _egress_response(payload={"keys": []})
 
     monkeypatch.setattr(services.egress, "get", _get)
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     result = services.check_provider_reachability(provider_ctx)
     assert result["ok"] is False
     assert result["error"] == "jwks_empty"
@@ -1558,7 +1558,7 @@ def test_check_reachability_oidc_jwks_non_200_is_empty(
         return _egress_response(500)
 
     monkeypatch.setattr(services.egress, "get", _get)
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     result = services.check_provider_reachability(provider_ctx)
     assert result["ok"] is False
     assert result["error"] == "jwks_empty"
@@ -1581,7 +1581,7 @@ def test_check_reachability_oidc_bypasses_the_discovery_cache(
         return _egress_response(payload=JWKS)
 
     monkeypatch.setattr(services.egress, "get", _get)
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     _stub_token_probe(monkeypatch, payload={"error": "invalid_grant"})
     result = services.check_provider_reachability(provider_ctx)
     assert result["ok"] is True
@@ -1595,7 +1595,7 @@ def test_check_reachability_github_ok(
 ) -> None:
     """An unauthenticated 401 still proves the GitHub API host is reachable."""
     monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(status))
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     _stub_token_probe(monkeypatch, status=200, payload={"error": "bad_verification_code"})
     result = services.check_provider_reachability(github_ctx)
     assert result["ok"] is True
@@ -1611,7 +1611,7 @@ def test_check_reachability_github_incorrect_credentials_fail(
 ) -> None:
     """GitHub answers 200 + ``incorrect_client_credentials`` for a wrong client secret."""
     monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(200))
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     sent = _stub_token_probe(
         monkeypatch, status=200, payload={"error": "incorrect_client_credentials"}
     )
@@ -1628,7 +1628,7 @@ def test_check_reachability_github_unrecognized_probe_answer_is_unverified(
     github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(200))
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     _stub_token_probe(monkeypatch, status=200, payload={"error": "redirect_uri_mismatch"})
     result = services.check_provider_reachability(github_ctx)
     assert result["ok"] is True
@@ -1640,7 +1640,7 @@ def test_check_reachability_github_unexpected_status_is_failure(
     github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(503))
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     result = services.check_provider_reachability(github_ctx)
     assert result["ok"] is False
     assert result["error"] == "github_unreachable"
@@ -1683,7 +1683,7 @@ def _counting_jwks(monkeypatch: pytest.MonkeyPatch, documents: list[Any]) -> lis
         return _egress_response(payload=documents[index])
 
     monkeypatch.setattr(services.egress, "get", _get)
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
     return calls
 
 

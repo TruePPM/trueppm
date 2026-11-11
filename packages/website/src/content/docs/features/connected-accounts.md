@@ -1,8 +1,14 @@
 ---
 title: Connected Accounts & Git-Aware Links
 description: Connect your own GitLab, GitHub, or generic Git account to track live MR, PR, and issue status on TruePPM tasks — and preview Google Drive, Dropbox, Box, and OneDrive file links inline, no account needed.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS` setting for a self-hosted
+instance on a private network ships in 0.5. In 0.4 that host goes in
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. Everything else on this page is in 0.4.
+:::
 
 TruePPM lets each contributor connect their **own** Git host credentials and
 then track the live status of merge requests, pull requests, and issues from the
@@ -162,7 +168,9 @@ field limits (custom fields are excluded there too).
     the host to `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` — the allow-list above controls
     where your token may be sent, while a separate SSRF guard blocks private
     addresses unless the host is explicitly trusted. A publicly-reachable instance
-    needs only the first setting.
+    needs only the first setting. From 0.5 that second setting is
+    `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS`. The un-suffixed variable
+    then applies to single sign-on only (see the note at the top of this page).
 
   Then choose **what to pull** — the issues assigned to you (recommended) or a
   specific **JQL** filter (JQL is Jira's own search-query language, for anyone who

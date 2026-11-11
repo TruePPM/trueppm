@@ -1,7 +1,7 @@
 ---
 title: Outbound Email (SMTP)
 description: How TruePPM sends outbound notification email, the writable Workspace Email & SMTP page, and the Django EMAIL_* settings that configure the fallback transport.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 
@@ -230,6 +230,15 @@ worker and beat processes re-run the same check at send time, so a mismatch
 between them fails a save on one process and every actual send on another. The variable is read at process start, so restart or redeploy all three after changing it (a `helm upgrade` that changes an `env:` value rolls them; a change to an `envFrom` ConfigMap or Secret does not, so restart them yourself).
 After setting it, save the Email & SMTP settings again to re-run validation
 against the now-allowed host.
+
+:::note[Ships in 0.5]
+From 0.5 the relay host goes in `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` instead,
+and the error names that variable. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` then
+exempts hosts for single sign-on only, so a relay listed there is refused after
+the upgrade until you move it. Each surface has its own list, so a relay you
+trust for mail is not reachable from a webhook URL. See
+[Advanced configuration](/administration/configuration/advanced/).
+:::
 
 The allowlist is a single **global** list, not scoped to the mail transport —
 allow-listing a relay for email also opens it to every other egress surface

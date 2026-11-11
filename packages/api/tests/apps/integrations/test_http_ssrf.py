@@ -128,34 +128,109 @@ def test_literal_ip_host_is_classified_without_resolution(
 
 
 # ---------------------------------------------------------------------------
-# Operator allow-list (ADR-0590) — EGRESS_ALLOWLISTED_HOSTS bypasses the
-# private-address deny-list for a trusted internal host (e.g. in-cluster IdP).
+# Operator allow-lists (ADR-0590, scoped per purpose by #2851) — a host on the
+# list for the caller's declared purpose bypasses the private-address deny-list
+# for a trusted internal host (e.g. an in-cluster IdP for SSO), and ONLY for
+# that purpose.
 # ---------------------------------------------------------------------------
+
+SSO = http.EgressPurpose.SSO
+
+
+def _clear_allowlists(settings: Any) -> None:
+    for name in (
+        "EGRESS_ALLOWLISTED_HOSTS",
+        "EGRESS_ALLOWLISTED_HOSTS_SSO",
+        "EGRESS_ALLOWLISTED_HOSTS_SMTP",
+        "EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS",
+        "EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS",
+    ):
+        setattr(settings, name, [])
+
+
+def _resolves_private(*args: object, **kwargs: object) -> Any:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 8080))]
 
 
 def test_allowlisted_host_bypasses_private_deny(
     monkeypatch: pytest.MonkeyPatch, settings: Any
 ) -> None:
-    """An allow-listed hostname is admitted even though it resolves privately.
+    """An allow-listed hostname is admitted for its purpose even though it resolves privately.
 
     A bare hostname (not an IP literal) goes through the resolver path, so the
     allow-list must short-circuit *before* resolution — proven here by making
     ``getaddrinfo`` blow up if it is reached.
     """
-    settings.EGRESS_ALLOWLISTED_HOSTS = ["keycloak"]
+    _clear_allowlists(settings)
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = ["keycloak"]
+    settings.EGRESS_ALLOWLISTED_HOSTS_SMTP = ["relay"]
 
     def _boom(*args: object, **kwargs: object) -> Any:
         raise AssertionError("allow-listed host must not be resolved")
 
     monkeypatch.setattr(http.socket, "getaddrinfo", _boom)
     # Both guards honor the allow-list; port is irrelevant (host-level trust).
-    http.assert_url_allowed("http://keycloak:8080/realms/ci/.well-known/openid-configuration")
-    http.assert_host_allowed("keycloak", 8080)
+    http.assert_url_allowed(
+        "http://keycloak:8080/realms/ci/.well-known/openid-configuration", purpose=SSO
+    )
+    http.assert_host_allowed("relay", 25, purpose=http.EgressPurpose.SMTP)
+
+
+def test_legacy_allowlist_still_admits_the_sso_purpose(
+    monkeypatch: pytest.MonkeyPatch, settings: Any
+) -> None:
+    """``TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`` keeps working for its documented SSO use."""
+    _clear_allowlists(settings)
+    settings.EGRESS_ALLOWLISTED_HOSTS = ["keycloak"]
+    monkeypatch.setattr(http.socket, "getaddrinfo", _resolves_private)
+    http.assert_url_allowed("http://keycloak:8080/", purpose=SSO)
+
+
+@pytest.mark.parametrize(
+    "purpose",
+    [
+        None,
+        http.EgressPurpose.WEBHOOKS,
+        http.EgressPurpose.INTEGRATIONS,
+        http.EgressPurpose.SMTP,
+    ],
+)
+@pytest.mark.parametrize("setting", ["EGRESS_ALLOWLISTED_HOSTS", "EGRESS_ALLOWLISTED_HOSTS_SSO"])
+def test_sso_allowlisted_host_is_refused_for_every_other_purpose(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Any,
+    purpose: http.EgressPurpose | None,
+    setting: str,
+) -> None:
+    """#2851 / #3561: an IdP host trusted for SSO is NOT reachable from other surfaces.
+
+    Before the split, allow-listing ``keycloak`` for in-cluster SSO let a project
+    Admin's webhook URL (or a pasted git link, or an SMTP host) reach it too.
+    """
+    _clear_allowlists(settings)
+    setattr(settings, setting, ["keycloak"])
+    monkeypatch.setattr(http.socket, "getaddrinfo", _resolves_private)
+    http.assert_url_allowed("http://keycloak:8080/", purpose=SSO)
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("https://keycloak:8080/admin/realms/x", purpose=purpose)
+    with pytest.raises(http.EgressBlocked):
+        http.assert_host_allowed("keycloak", 8080, purpose=purpose)
+
+
+def test_purpose_lists_do_not_leak_into_sso(monkeypatch: pytest.MonkeyPatch, settings: Any) -> None:
+    """The scoping is symmetric: a webhook-trusted host does not widen SSO."""
+    _clear_allowlists(settings)
+    settings.EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS = ["hooks.internal"]
+    monkeypatch.setattr(http.socket, "getaddrinfo", _resolves_private)
+    http.assert_url_allowed("https://hooks.internal/x", purpose=http.EgressPurpose.WEBHOOKS)
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("https://hooks.internal/x", purpose=SSO)
 
 
 def test_allowlist_match_is_case_insensitive(settings: Any) -> None:
-    settings.EGRESS_ALLOWLISTED_HOSTS = ["KeyCloak"]
-    http.assert_url_allowed("http://keycloak:8080/")
+    _clear_allowlists(settings)
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = ["KeyCloak"]
+    http.assert_url_allowed("http://keycloak:8080/", purpose=SSO)
 
 
 def test_allowlist_is_exact_not_suffix(monkeypatch: pytest.MonkeyPatch, settings: Any) -> None:
@@ -165,28 +240,31 @@ def test_allowlist_is_exact_not_suffix(monkeypatch: pytest.MonkeyPatch, settings
     deny-list. Here the lookalike resolves to a private IP, so the guard blocks it —
     proving the allow-list did not suffix-match.
     """
-    settings.EGRESS_ALLOWLISTED_HOSTS = ["keycloak"]
-
-    def _resolves_private(*args: object, **kwargs: object) -> Any:
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 8080))]
-
+    _clear_allowlists(settings)
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = ["keycloak"]
     monkeypatch.setattr(http.socket, "getaddrinfo", _resolves_private)
     with pytest.raises(http.EgressBlocked):
-        http.assert_url_allowed("http://keycloak.evil.example:8080/")
+        http.assert_url_allowed("http://keycloak.evil.example:8080/", purpose=SSO)
 
 
 def test_allowlist_still_enforces_scheme(settings: Any) -> None:
     """The allow-list bypasses the address deny-list, not the scheme gate."""
-    settings.EGRESS_ALLOWLISTED_HOSTS = ["keycloak"]
+    _clear_allowlists(settings)
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = ["keycloak"]
     with pytest.raises(http.EgressBlocked):
-        http.assert_url_allowed("file://keycloak/etc/passwd")
+        http.assert_url_allowed("file://keycloak/etc/passwd", purpose=SSO)
 
 
 def test_empty_allowlist_is_default_posture(settings: Any) -> None:
     """With no allow-list, a private host is blocked exactly as before."""
-    settings.EGRESS_ALLOWLISTED_HOSTS = []
+    _clear_allowlists(settings)
     with pytest.raises(http.EgressBlocked):
-        http.assert_url_allowed("http://10.0.0.5/")
+        http.assert_url_allowed("http://10.0.0.5/", purpose=SSO)
+
+
+def test_every_purpose_has_a_setting() -> None:
+    """A new EgressPurpose without a settings mapping would KeyError at call time."""
+    assert set(http._PURPOSE_SETTINGS) == set(http.EgressPurpose)
 
 
 def test_unresolvable_host_raises_egress_error(monkeypatch: pytest.MonkeyPatch) -> None:

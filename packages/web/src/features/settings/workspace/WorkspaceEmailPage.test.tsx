@@ -448,7 +448,7 @@ describe('WorkspaceEmailPage — send test email', () => {
     const egressMessage =
       'The mail server host is not permitted — it resolves to a non-public ' +
       'address. If this is a trusted internal relay on a private network, add ' +
-      'its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, Celery ' +
+      'its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP on the API, Celery ' +
       'worker, and Celery beat processes, restart or redeploy them (the setting ' +
       'is read at startup), then save these settings again.';
     useSendTestEmail.mockReturnValue({
@@ -827,7 +827,7 @@ describe('WorkspaceEmailPage — save-failure surfacing', () => {
     const egressMessage =
       'The mail server host is not permitted — it resolves to a non-public ' +
       'address. If this is a trusted internal relay on a private network, add ' +
-      'its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, Celery ' +
+      'its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP on the API, Celery ' +
       'worker, and Celery beat processes, restart or redeploy them (the setting ' +
       'is read at startup), then save these settings again.';
     const mutateAsync = vi.fn().mockRejectedValue(axios400({ non_field_errors: [egressMessage] }));

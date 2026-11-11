@@ -233,7 +233,7 @@ def patch_jwks(monkeypatch: pytest.MonkeyPatch) -> None:
         return egress.EgressResponse(status=200, body=body, headers={})
 
     monkeypatch.setattr(services.egress, "get", _fake_get)
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
 
 
 @pytest.fixture
@@ -316,7 +316,7 @@ def stub_github_egress(
 
     monkeypatch.setattr(services.egress, "post_form", _fake_post)
     monkeypatch.setattr(services.egress, "get", _fake_get)
-    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url, **_kw: None)
 
 
 # ---------------------------------------------------------------------------

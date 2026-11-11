@@ -47,7 +47,11 @@ def _stub_get(monkeypatch: pytest.MonkeyPatch, **kwargs: object) -> None:
     """
 
     def _fake_get(
-        url: str, *, headers: dict[str, str] | None = None, timeout: float = http.DEFAULT_TIMEOUT
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float = http.DEFAULT_TIMEOUT,
+        purpose: http.EgressPurpose | None = None,
     ) -> http.EgressResponse:
         if "raises" in kwargs:
             raise kwargs["raises"]  # type: ignore[misc]
