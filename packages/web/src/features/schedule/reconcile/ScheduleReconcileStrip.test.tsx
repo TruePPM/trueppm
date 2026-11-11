@@ -216,5 +216,20 @@ describe('ScheduleReconcileStrip — refusals', () => {
       // Same string, but a NEW node: an unchanged text node is not re-announced.
       expect(second).not.toBe(first);
     });
+
+    it('keeps the run sentence across a re-render that leaves the base text unchanged', () => {
+      renderStrip(null);
+      truncatedRun(600, 1);
+      expect(screen.getByTestId('reconcile-live')).toHaveTextContent(RUN_600);
+      // Toggling the review filter re-renders the strip without moving the count.
+      act(() => {
+        useReconcileStore.setState({ reviewFilterActive: true });
+      });
+      expect(screen.getByTestId('reconcile-live')).toHaveTextContent(RUN_600);
+      act(() => {
+        useReconcileStore.setState({ reviewFilterActive: false });
+      });
+      expect(screen.getByTestId('reconcile-live')).toHaveTextContent(RUN_600);
+    });
   });
 });

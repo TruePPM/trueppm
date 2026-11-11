@@ -197,6 +197,10 @@ That difference is always shown, never applied silently:
 - **A change the server refuses** — permission, a lock, a validation error —
   is listed with the reason it gave and a **Retry**. It is never reverted
   without explanation.
+- **A recalculation too large to itemize** — when one recalculation changes too
+  many tasks to list, the **What moved and why** panel says how many tasks
+  changed (dates or float) without listing them or giving causes. It re-opens
+  even if you had dismissed it.
 
 The marker states the change as a fact — *"Finish moved Oct 13 → Oct 16"* — and
 adds a reason only where one can be proven from the project's work week (*"Oct
