@@ -128,7 +128,7 @@ function groomingPayload(empty = false) {
 
 async function setup(
   page: import('@playwright/test').Page,
-  { empty = false }: { empty?: boolean } = {},
+  { empty = false, truncated = false }: { empty?: boolean; truncated?: boolean } = {},
 ) {
   await setupAuth(page);
   await setupCatchAll(page);
@@ -142,7 +142,7 @@ async function setup(
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(groomingPayload(empty)),
+      body: JSON.stringify({ ...groomingPayload(empty), truncated, limit: 500 }),
     }),
   );
   await page.route('**/api/v1/tasks/', (route) => {
@@ -165,6 +165,24 @@ async function setup(
 }
 
 test.describe('Product backlog grooming (#494/#921/#922)', () => {
+  test('shows a truncation notice when the story list is capped (#2344)', async ({ page }) => {
+    await setup(page, { truncated: true });
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByTestId('backlog-truncated-notice')).toHaveText(
+      'Showing the top 500 of 3 stories',
+      { timeout: 10_000 },
+    );
+  });
+
+  test('shows no truncation notice for an uncapped backlog (#2344)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId('backlog-truncated-notice')).toHaveCount(0);
+  });
+
   test('renders epics, stories, and the active-model score column', async ({ page }) => {
     await setup(page);
     await page.goto(`${BASE_URL}/product-backlog`);
@@ -180,7 +198,9 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await expect(page.getByText('Telemetry')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Open story Loose investigation' }),
+    ).toBeVisible();
 
     // #922 score column: the model name appears (header badge + column header) and rows
     // show the computed score. "WSJF" renders in both the badge and the column header, so
@@ -318,7 +338,10 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, async (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       return route.fulfill(
-        json({ ...FIXTURE_PROJECTS[0], my_facets: { is_product_owner: true, is_scrum_master: false } }),
+        json({
+          ...FIXTURE_PROJECTS[0],
+          my_facets: { is_product_owner: true, is_scrum_master: false },
+        }),
       );
     });
     const planned = {
@@ -400,7 +423,10 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, async (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       return route.fulfill(
-        json({ ...FIXTURE_PROJECTS[0], my_facets: { is_product_owner: true, is_scrum_master: false } }),
+        json({
+          ...FIXTURE_PROJECTS[0],
+          my_facets: { is_product_owner: true, is_scrum_master: false },
+        }),
       );
     });
     const planned = {

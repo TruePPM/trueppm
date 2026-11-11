@@ -1131,6 +1131,18 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
           />
         )}
 
+        {backlog.truncated && (
+          <div
+            role="status"
+            data-testid="backlog-truncated-notice"
+            className="flex items-center gap-2 border-b border-semantic-at-risk/80 bg-semantic-warning-bg px-6 py-2 text-xs text-semantic-warning"
+          >
+            <span>
+              Showing the top {backlog.limit} of {health.storyCount} stories
+            </span>
+          </div>
+        )}
+
         {conflict && (
           <div
             role="status"

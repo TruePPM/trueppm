@@ -84,6 +84,8 @@ function makeBacklog(overrides: Partial<ProductBacklog> = {}): ProductBacklog {
       storyCount: 0,
     },
     scoring: { model: 'wsjf' as ProductBacklog['scoring']['model'] },
+    truncated: false,
+    limit: 500,
     ...overrides,
   };
 }

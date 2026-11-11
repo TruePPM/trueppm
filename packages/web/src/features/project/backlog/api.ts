@@ -29,6 +29,8 @@ interface ApiProductBacklog {
     story_count: number;
   };
   scoring: { model: PrioritizationModel };
+  truncated?: boolean;
+  limit?: number;
 }
 
 function mapHealth(h: ApiProductBacklog['health']): GroomingHealth {
@@ -62,6 +64,8 @@ export function fromApiProductBacklog(raw: ApiProductBacklog): ProductBacklog {
     ungrouped: raw.ungrouped.map(mapTask),
     health: mapHealth(raw.health),
     scoring: { model: raw.scoring.model },
+    truncated: raw.truncated ?? false,
+    limit: raw.limit ?? 0,
   };
 }
 

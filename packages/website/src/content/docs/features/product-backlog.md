@@ -75,7 +75,9 @@ The grooming endpoint (`GET /projects/{id}/product-backlog/`) returns at most 50
 per request, in rank order, so opening the board on an imported backlog of thousands of
 stories stays fast. Pass `?limit=N` (maximum 2000) to change the cap. The health strip and
 each epic's rollup always count the whole backlog; the response carries `truncated: true`
-when stories were left out.
+when stories were left out. The grooming page surfaces this as a notice above the table,
+for example "Showing the top 500 of 3000 stories", so a capped list is never mistaken for the
+whole backlog.
 
 ## Work-item types
 

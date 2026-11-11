@@ -395,6 +395,8 @@ function makeBacklog(over: Partial<ProductBacklog> = {}): ProductBacklog {
       storyCount: 3,
     },
     scoring: { model: 'wsjf' },
+    truncated: false,
+    limit: 500,
     ...over,
   };
 }
@@ -481,6 +483,31 @@ describe('ProductBacklogPage layout swap (issue 1044)', () => {
   });
 });
 
+// ── Story-cap truncation notice (#2344) ─────────────────────────────────────
+describe('ProductBacklogPage truncation notice (#2344)', () => {
+  it('tells the user the list is capped while health still counts the whole backlog', () => {
+    h.bp.value = 'lg';
+    setData(
+      makeBacklog({
+        truncated: true,
+        limit: 500,
+        health: { ...makeBacklog().health, storyCount: 3000 },
+      }),
+    );
+    renderPage();
+    expect(screen.getByTestId('backlog-truncated-notice')).toHaveTextContent(
+      'Showing the top 500 of 3000 stories',
+    );
+  });
+
+  it('shows no notice when the backlog is not truncated', () => {
+    h.bp.value = 'lg';
+    setData(makeBacklog({ truncated: false }));
+    renderPage();
+    expect(screen.queryByTestId('backlog-truncated-notice')).not.toBeInTheDocument();
+  });
+});
+
 // ── Loading / error / empty gates ───────────────────────────────────────────
 describe('DesktopGroomingView data gates', () => {
   it('shows a skeleton status region while loading', () => {
@@ -560,7 +587,7 @@ describe('DesktopGroomingView data gates', () => {
     expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
   });
 
-  it('shows no banner on an EMPTY backlog under WATERFALL — that is the empty state\'s job', () => {
+  it("shows no banner on an EMPTY backlog under WATERFALL — that is the empty state's job", () => {
     h.effectiveMethodology = 'WATERFALL';
     setData(makeBacklog({ epics: [], ungrouped: [] }));
     renderPage();

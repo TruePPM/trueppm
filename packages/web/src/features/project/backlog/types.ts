@@ -41,4 +41,8 @@ export interface ProductBacklog {
   scoring: {
     model: PrioritizationModel;
   };
+  /** True when the server capped the story list; health still covers the whole backlog. */
+  truncated: boolean;
+  /** The story cap the server applied. */
+  limit: number;
 }

@@ -78,6 +78,8 @@ function backlog(overrides: Partial<ProductBacklog> = {}): ProductBacklog {
       storyCount: 3,
     },
     scoring: { model: 'none' },
+    truncated: false,
+    limit: 500,
     ...overrides,
   };
 }
