@@ -50,6 +50,12 @@ resolve() {
   name="$1" override="$2" generator="$3"
   file="${SECRETS_DIR}/${name}"
   if [ -n "${override}" ]; then
+    # The env file single-quotes values; a quote (or newline) would break out of
+    # it into the shell that sources it.
+    case "${override}" in
+      *\'*|*"
+"*) echo "error: ${name} must not contain a single quote or newline" >&2; exit 1 ;;
+    esac
     value="${override}"
   elif [ -s "${file}" ]; then
     value="$(cat "${file}")"

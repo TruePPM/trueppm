@@ -309,7 +309,7 @@ export default defineConfig({
             { slug: "getting-started/bring-your-plan-in" },
             { slug: "getting-started/waterfall-day-one" },
             { slug: "getting-started/migrating-from-project-online" },
-            { slug: "getting-started/try-it" },
+            { slug: "getting-started/try-it", badge: { text: "0.5", variant: "caution" } },
             { slug: "getting-started/sample-projects" },
             { slug: "getting-started/sample-project-tour" },
             { slug: "getting-started/evaluation-guide" },

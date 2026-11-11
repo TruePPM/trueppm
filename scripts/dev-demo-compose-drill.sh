@@ -389,10 +389,11 @@ else # DRILL_MODE=demo
   # #4946: the stack must run on a generated key, never the one that used to be
   # baked into the compose file. Read the secret from the volume through the
   # api image (values are compared, never echoed).
-  if compose run --rm --no-deps -T --entrypoint /bin/sh api -c \
-      'grep -q "trueppm-public-demo" /secrets/env || [ "$(stat -c %a /secrets/secret_key)" != 600 ]' ; then
-    fail "demo secrets are the old baked value or are not mode 0600"
-  fi
+  secrets_out="$(compose run --rm --no-deps -T --entrypoint /bin/sh api -c \
+      'if grep -q -e trueppm-public-demo -e bCrnaS7Vi4J94X52yHZ5V1clG-7Sn-WUhO_pIIX8qBk= /secrets/env \
+          || [ "$(stat -c %a /secrets/secret_key)" != 600 ]; then echo BAD; else echo OK; fi')" \
+    || fail "could not inspect /secrets in the api image"
+  [ "${secrets_out}" = "OK" ] || fail "demo secrets are the old baked value or are not mode 0600 (got '${secrets_out}')"
 
   log "waiting for api-init (migrate -> collectstatic) to complete"
   wait_exited_zero api-init

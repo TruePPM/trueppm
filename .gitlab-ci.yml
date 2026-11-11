@@ -2565,12 +2565,14 @@ demo:readonly-posture:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
-    - apk add --no-cache bash grep sed
+    - apk add --no-cache bash grep sed gawk
   script:
     # Self-test first: a guard nobody has watched fail is indistinguishable from
     # one with a typo in its pattern.
     - bash scripts/check-demo-readonly.sh --self-test
     - bash scripts/check-demo-readonly.sh
+    - bash scripts/check-demo-compose-secrets.sh --self-test
+    - bash scripts/check-demo-compose-secrets.sh
 
 web:playwright-pins:
   extends: .fast-job

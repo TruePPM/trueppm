@@ -69,5 +69,9 @@ run "$A" "SECRET_KEY=$override" >/dev/null
 [[ "$(cat "$A/secret_key")" == "$override" ]]
 check "operator-supplied SECRET_KEY overrides" $?
 
+# A value with a single quote is refused (it would inject into the sourced env file).
+rc=0; run "$B" "SECRET_KEY=a'b" >/dev/null 2>&1 || rc=$?
+[[ "$rc" -ne 0 && "$(cat "$B/secret_key")" != "a'b" ]]; check "override containing a quote is rejected" $?
+
 echo "demo-init-secrets: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

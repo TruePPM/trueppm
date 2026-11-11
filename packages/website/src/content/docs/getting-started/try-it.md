@@ -1,7 +1,7 @@
 ---
 title: Try TruePPM
 description: Two zero-config ways to evaluate TruePPM before you install anything — a hosted read-only demo and a one-command local trial.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 TruePPM's zero-config evaluation paths — a hosted read-only demo and a
@@ -61,8 +61,8 @@ the demo compose file to *show* TruePPM; use the [dev stack](/getting-started/qu
 to *build* with it.
 :::
 
-:::note[Per-install secrets ship in 0.5]
-From 0.5, the first `up` generates a unique `SECRET_KEY` and
+:::note[Ships in 0.5]
+Per-install demo secrets: from 0.5, the first `up` generates a unique `SECRET_KEY` and
 `INTEGRATION_ENCRYPTION_KEY` for your install and stores them in the
 `demo_secrets` volume, so no two demo installs share a signing key. You do not
 need to set anything; `docker compose -f docker-compose.demo.yml down -v` discards
