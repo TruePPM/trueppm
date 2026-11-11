@@ -1717,6 +1717,10 @@ const PERT_INPUT_CLASS =
   'w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60';
 
 /** Collapsed-by-default disclosure for the create-mode three-point estimate (#2918). */
+// TODO(#2918): the triple is only reachable from this modal, which the board, schedule,
+// calendar, grid and sprints views share. Not covered yet: the paste-many O/M/P column
+// mapping, the CSV/Jira importers' mapping targets, and the build-mode blank draft row and
+// lane/mobile quick-add composers (name-only; they do not open this modal).
 function PertCreateFields({
   form,
   disabled,

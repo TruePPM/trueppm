@@ -125,6 +125,7 @@ async function setupRoutes(
         basis: 'monte_carlo',
         forecast_basis: 'velocity',
         velocity_suppressed: false,
+        horizon_saturated: null,
       }),
     ),
   );

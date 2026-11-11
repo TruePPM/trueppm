@@ -578,6 +578,12 @@ describe('TaskFormModal (issue #305)', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/optimistic . most likely . pessimistic/i);
     });
 
+    it('is hidden on an AGILE project (estimates there are story points, not days)', () => {
+      mockEffectiveMethodology = 'AGILE';
+      renderModal();
+      expect(screen.queryByTestId('task-pert-create')).not.toBeInTheDocument();
+    });
+
     it('is absent in edit mode and in milestone-create mode', () => {
       const { unmount } = renderModal({ task: baseTask({ name: 'Existing' }) });
       expect(screen.queryByTestId('task-pert-create')).not.toBeInTheDocument();

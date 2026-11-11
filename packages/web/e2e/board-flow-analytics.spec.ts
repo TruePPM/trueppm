@@ -77,6 +77,7 @@ const FORECAST_THROUGHPUT_READY = {
   basis: 'monte_carlo',
   forecast_basis: 'throughput',
   velocity_suppressed: false,
+  horizon_saturated: null,
 };
 
 interface SetupOpts {
