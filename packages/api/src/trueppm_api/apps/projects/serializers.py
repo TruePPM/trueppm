@@ -4429,6 +4429,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # replacing the 0.3 ``can_edit`` proxy. Calls the SAME predicate the CanLogTime
     # permission class enforces. Fail closed: ``False`` without a request.
     can_log_time = serializers.SerializerMethodField()
+    # Server-declared sprint-sovereignty verdict (#2984). ``True`` when this task has
+    # no ``planned_start``, is still BACKLOG status, and sits in a PLANNED or ACTIVE
+    # sprint, so a write dating it is refused by ``_reject_dating_sprint_committed_task``
+    # for every role. The Unscheduled gutter and any other client gate off this rather
+    # than re-deriving the rule from sprint state, so presentation and enforcement
+    # call one predicate (ADR-0133's "one rule; it is called twice").
+    dates_locked_by_sprint = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -4553,6 +4560,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "can_edit_estimates",
             # Server-derived time-log capability (ADR-0185, #1258)
             "can_log_time",
+            # Server-derived sprint-sovereignty date lock (#2984)
+            "dates_locked_by_sprint",
             # Per-task custom-field values (#2143) — flat {field_id: value} map.
             "custom_fields",
             # Seed provenance (ADR-0786, #2730). All read-only and server-owned.
@@ -4802,6 +4811,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         else:
             self._enforce_zero_duration_is_a_milestone(attrs)
         self._reject_milestone_unflag_with_live_sprint(attrs)
+        # Must precede ``_resolve_planned_finish_duration``: that helper pops the
+        # write-only ``planned_finish`` key this guard inspects.
+        self._reject_dating_sprint_committed_task(attrs)
         self._resolve_planned_finish_duration(attrs, is_milestone=is_milestone)
         self._validate_sprint_project_ownership(attrs)
         self._validate_blocking_task(attrs)
@@ -5444,6 +5456,75 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 }
             )
 
+    def _reject_dating_sprint_committed_task(self, attrs: dict[str, Any]) -> None:
+        """#2984: an undated BACKLOG task in a PLANNED or ACTIVE sprint cannot be dated.
+
+        Sprint sovereignty: the team commits sprint work at Sprint Planning, and the
+        sprint window is its schedule. A PM-set ``planned_start`` on such a task is
+        indistinguishable afterwards from a team commitment — there is no provenance
+        marker — so velocity and confidence signals would read the two identically.
+        The Unscheduled gutter renders these rows read-only, but that was the only
+        enforcement: ``PATCH /tasks/{id}/`` and the bulk endpoint (reachable from the
+        ``⌘⇧K`` sheet) wrote the date for any Admin+.
+
+        Scoped deliberately narrow, per the maintainer's decision on the issue:
+
+        - BACKLOG status only — exactly the rows the gutter renders read-only
+          (``useUnscheduledTasks``). A NOT_STARTED / IN_PROGRESS / REVIEW sprint task is
+          committed work: it is undated by design (the ADR-0168 sprint floor schedules
+          it), and the Gantt drag/resize (ADR-0067) and ADR-0603 "Commit start" must
+          be able to write its first ``planned_start``. Refusing those broke both.
+        - Only the null → date transition is refused. Rescheduling a sprint task that
+          already carries a ``planned_start`` stays allowed, so ADR-0067's
+          pull-to-commit Gantt drag keeps working.
+        - ``planned_finish`` (write-only; resolved into ``duration``) counts as dating
+          too, so a resize cannot be used as a side door.
+        - PLANNED and ACTIVE only — the two states the gutter presents as read-only.
+          COMPLETED keeps its own freeze (``_reject_status_change_on_closed_sprint``);
+          a backlog row with no sprint is unguarded.
+        - No role override. Like the closed-sprint guard this only ever removes a
+          capability, so it runs unconditionally rather than inside
+          ``can_user_edit_task``.
+
+        Accepted residuals — this guard closes the direct side door, it does not make
+        a BACKLOG sprint row undatable by any sequence of writes:
+
+        - The guard keys on the task's *current* sprint. A write that pulls an undated
+          row with no sprint *into* a live sprint and dates it in one PATCH is allowed:
+          it is the Board's shipped "Add to a sprint" promote (``ScheduleTaskDialog``),
+          whose ACTIVE-sprint case is already gated as pending scope by ADR-0102.
+        - A write that also takes the task out of live sprints (``sprint: null``, or a
+          move to a non-live sprint) is allowed — that is the documented remedy — and
+          so is removing it first, then re-assigning it with a date in a second write.
+        - Status is read *after* the write, like the sprint: moving the row out of
+          BACKLOG (committing it) and dating it in one write is allowed, as the same
+          two steps in two writes would be. This is deliberate: the Board's shipped
+          ``ScheduleTaskDialog`` (BacklogBand ··· menu) sends
+          ``PATCH {planned_start, status: NOT_STARTED, sprint: <current sprint>}``,
+          and reading the status before the write would break it. An Admin can do the
+          same through a raw PATCH. Flagged to the maintainer as an accepted residual.
+        - Creates are never guarded (``self.instance is None``): ``POST /tasks/``, a
+          bulk ``create`` with a new id, and a sync create carrying a live sprint,
+          BACKLOG status and ``planned_start`` all succeed. Only updates (PATCH, bulk
+          update and create-as-edit, sync update) are refused.
+        - A BACKLOG task in a COMPLETED or CANCELLED sprint is not covered here (see
+          ``_SPRINT_STATES_LOCKING_DATES``); whether it can be dated is decided by the
+          #2680 freeze alone. TODO(#4938) tracks client gating on
+          ``dates_locked_by_sprint``.
+        """
+        if self.instance is None or self.instance.planned_start is not None:
+            return
+        if attrs.get("planned_start") is None and attrs.get("planned_finish") is None:
+            return
+        current = self.instance.sprint
+        if current is None or current.state not in _SPRINT_STATES_LOCKING_DATES:
+            return
+        if attrs.get("status", self.instance.status) != TaskStatus.BACKLOG:
+            return
+        after = attrs.get("sprint", current)
+        if after is not None and after.state in _SPRINT_STATES_LOCKING_DATES:
+            raise SprintCommittedDatesLockedError()
+
     def _evaluate_sprint_guardrails(self, attrs: dict[str, Any]) -> None:
         """Sprint/Phase/WBS guardrails (ADR-0101), evaluated on sprint assignment.
 
@@ -6066,6 +6147,27 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         from trueppm_api.apps.access.permissions import can_user_edit_task
 
         return can_user_edit_task(request, obj, method="PATCH")
+
+    def get_dates_locked_by_sprint(self, obj: Task) -> bool:
+        """Whether a write that dates this task would be refused (sprint sovereignty).
+
+        ``True`` when the task has no ``planned_start``, is BACKLOG status, and belongs
+        to a PLANNED or ACTIVE sprint: its timing comes from the sprint, so setting
+        ``planned_start`` or ``planned_finish`` is refused with
+        ``sprint_committed_dates_locked`` for every role. Committed (non-BACKLOG)
+        sprint tasks and tasks that already have a date are not affected.
+        """
+        # Same predicate as ``_reject_dating_sprint_committed_task``. ``obj.sprint`` is
+        # read only when ``sprint_id`` is set, and the task list querysets
+        # ``select_related("sprint")``, so this adds no query per row.
+        if (
+            obj.planned_start is not None
+            or obj.sprint_id is None
+            or obj.status != TaskStatus.BACKLOG
+        ):
+            return False
+        sprint = obj.sprint
+        return sprint is not None and sprint.state in _SPRINT_STATES_LOCKING_DATES
 
     def get_can_delete(self, obj: Task) -> bool:
         """Authoritative per-task delete verdict (ADR-0133).
@@ -7685,6 +7787,36 @@ class TaskWriteRefusal(APIException):
             "detail": self.message,
             "suggested_action": self.suggested_action,
         }
+
+
+#: Sprint states whose undated BACKLOG-status tasks may not be dated directly
+#: (#2984). The status half of the predicate lives in the guard: the gutter renders
+#: read-only only the BACKLOG rows of these sprints, because a committed (non-BACKLOG)
+#: sprint task floors to the sprint window and draws a real, draggable bar.
+#: COMPLETED and CANCELLED are absent on purpose: COMPLETED has its own status
+#: freeze, and the issue scoped this guard to the live states.
+_SPRINT_STATES_LOCKING_DATES: frozenset[str] = frozenset(
+    {SprintState.PLANNED.value, SprintState.ACTIVE.value}
+)
+
+#: REST and sync-upload body text for :class:`SprintCommittedDatesLockedError`.
+MSG_SPRINT_COMMITTED_DATES_LOCKED = (
+    "This backlog task is targeted at a planned or active sprint and has no scheduled "
+    "date. Its timing comes from the sprint; remove it from the sprint to date it directly."
+)
+
+
+class SprintCommittedDatesLockedError(TaskWriteRefusal):
+    """Raised by ``TaskSerializer.validate`` when a write dates an undated BACKLOG
+    task in a PLANNED or ACTIVE sprint (#2984, sprint sovereignty).
+
+    The stable ``sprint_committed_dates_locked`` code lets a client map the refusal
+    to the same read-only affordance ``dates_locked_by_sprint`` declares.
+    """
+
+    default_code = "sprint_committed_dates_locked"
+    message = MSG_SPRINT_COMMITTED_DATES_LOCKED
+    suggested_action = "remove_from_sprint"
 
 
 class ProgressAnchorError(TaskWriteRefusal):

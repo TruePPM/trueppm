@@ -2208,7 +2208,7 @@ class ProjectViewSet(
                 # (mirrors annotate_tasks_queryset). Both are forward FKs.
                 # ``project`` joins for the same reason: can_edit_estimates reads
                 # ``obj.project.estimation_mode`` per row (ADR-0743, #2596).
-                .select_related("project", "blocked_by", "blocking_task")
+                .select_related("project", "sprint", "blocked_by", "blocking_task")
                 .prefetch_related(
                     "assignments__resource",
                     # select_related("met_by") collapses each criterion's

@@ -358,9 +358,11 @@ def _validate_or_reject(ser: Any, index: int, row_id: Any, out: BulkOutcome) -> 
     rather than newly-reachable behavior.
     """
     from trueppm_api.apps.projects.serializers import (
+        MSG_SPRINT_COMMITTED_DATES_LOCKED,
         GuardrailBlockedError,
         MilestoneRollupLockedError,
         ProgressAnchorError,
+        SprintCommittedDatesLockedError,
         ZeroDurationNotMilestoneError,
     )
 
@@ -376,6 +378,11 @@ def _validate_or_reject(ser: Any, index: int, row_id: Any, out: BulkOutcome) -> 
         out.reject(
             index, row_id, CODE_INVALID, "This milestone's progress is rolled up from a sprint."
         )
+        return False
+    except SprintCommittedDatesLockedError:
+        # Sprint sovereignty (#2984): ⌘A + ⌘⇧K reaches sprint-committed rows, so the
+        # refusal must reject this one row, not the batch.
+        out.reject(index, row_id, CODE_INVALID, MSG_SPRINT_COMMITTED_DATES_LOCKED)
         return False
     except GuardrailBlockedError as exc:
         # A bulk ``sprint`` write can trip an Owner-escalated BLOCK rule exactly as a

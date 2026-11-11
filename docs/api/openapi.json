@@ -79764,6 +79764,11 @@
                         "description": "Authoritative per-task time-log verdict for the requesting user (ADR-0185 §3).\n\nDelegates to the SAME predicate the CanLogTime permission class enforces, so the\nclient's \"+ time\" gate can never drift from the server's rule. Fails closed to\n``False`` when serialized without a request (nested serialization, tests).",
                         "readOnly": true
                     },
+                    "dates_locked_by_sprint": {
+                        "type": "boolean",
+                        "description": "Whether a write that dates this task would be refused (sprint sovereignty).\n\n``True`` when the task has no ``planned_start``, is BACKLOG status, and belongs\nto a PLANNED or ACTIVE sprint: its timing comes from the sprint, so setting\n``planned_start`` or ``planned_finish`` is refused with\n``sprint_committed_dates_locked`` for every role. Committed (non-BACKLOG)\nsprint tasks and tasks that already have a date are not affected.",
+                        "readOnly": true
+                    },
                     "custom_fields": {
                         "type": "object",
                         "additionalProperties": true,
@@ -79825,6 +79830,7 @@
                     "criteria_met_count",
                     "criteria_total",
                     "custom_fields",
+                    "dates_locked_by_sprint",
                     "dor_blockers",
                     "dwell_days",
                     "early_finish",
@@ -83299,6 +83305,11 @@
                         "description": "Authoritative per-task time-log verdict for the requesting user (ADR-0185 §3).\n\nDelegates to the SAME predicate the CanLogTime permission class enforces, so the\nclient's \"+ time\" gate can never drift from the server's rule. Fails closed to\n``False`` when serialized without a request (nested serialization, tests).",
                         "readOnly": true
                     },
+                    "dates_locked_by_sprint": {
+                        "type": "boolean",
+                        "description": "Whether a write that dates this task would be refused (sprint sovereignty).\n\n``True`` when the task has no ``planned_start``, is BACKLOG status, and belongs\nto a PLANNED or ACTIVE sprint: its timing comes from the sprint, so setting\n``planned_start`` or ``planned_finish`` is refused with\n``sprint_committed_dates_locked`` for every role. Committed (non-BACKLOG)\nsprint tasks and tasks that already have a date are not affected.",
+                        "readOnly": true
+                    },
                     "custom_fields": {
                         "type": "object",
                         "additionalProperties": true,
@@ -83367,6 +83378,7 @@
                     "criteria_met_count",
                     "criteria_total",
                     "custom_fields",
+                    "dates_locked_by_sprint",
                     "dor_blockers",
                     "dwell_days",
                     "early_finish",
