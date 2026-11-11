@@ -21,6 +21,7 @@ import {
   acknowledge,
   acknowledgeAllDiverged,
   prune,
+  pruneUnitemizedRun,
   reconcile,
   reconcileKey,
   registerPreview,
@@ -29,6 +30,7 @@ import {
   type ReconcileEntries,
   type ReconcileField,
   type ReconcileObservation,
+  type UnitemizedRun,
 } from '@/features/schedule/reconcile/reconcileState';
 
 interface ReconcileState {
@@ -44,11 +46,23 @@ interface ReconcileState {
    * prove (ADR-0784 §D5). Defaults to Mon–Fri, the server's own fallback.
    */
   workingDaysMask: number;
+  /**
+   * The latest CPM run too large to ship as a delta (#3158) — the reforecast
+   * panel's only way to know it happened. Replaced, not summed, by a later one:
+   * two truncated runs may move overlapping rows, and adding their counts would
+   * overstate what moved. Cleared by `acknowledgeAll` (the strip's "Acknowledge
+   * all"), by a project switch, and by `prune` once {@link CASCADE_TTL_MS} has
+   * passed. The reforecast panel's Dismiss does NOT clear it — that only hides
+   * the panel (see `reforecastPanelVisible`).
+   */
+  unitemizedRun: UnitemizedRun | null;
 
   setProject: (projectId: string | null) => void;
   setWorkingDaysMask: (mask: number) => void;
   registerPreview: (input: PreviewInput) => void;
   observe: (observations: readonly ReconcileObservation[]) => void;
+  /** Record a `truncated` `task_dates_updated` frame. `count` is pre-normalized. */
+  recordUnitemizedRun: (count: number | null) => void;
   reject: (
     taskId: string,
     field: ReconcileField,
@@ -70,6 +84,7 @@ export const useReconcileStore = create<ReconcileState>((set, get) => ({
   entries: EMPTY,
   reviewFilterActive: false,
   workingDaysMask: MON_FRI_MASK,
+  unitemizedRun: null,
 
   setWorkingDaysMask: (workingDaysMask) => {
     if (get().workingDaysMask === workingDaysMask) return;
@@ -80,7 +95,7 @@ export const useReconcileStore = create<ReconcileState>((set, get) => ({
     if (get().projectId === projectId) return;
     // Entries are per-project by construction; carrying them across a switch
     // would mark rows in a plan the user never edited.
-    set({ projectId, entries: EMPTY, reviewFilterActive: false });
+    set({ projectId, entries: EMPTY, reviewFilterActive: false, unitemizedRun: null });
   },
 
   registerPreview: (input) =>
@@ -88,6 +103,8 @@ export const useReconcileStore = create<ReconcileState>((set, get) => ({
 
   observe: (observations) =>
     set((s) => ({ entries: reconcile(s.entries, observations, Date.now()) })),
+
+  recordUnitemizedRun: (count) => set({ unitemizedRun: { count, since: Date.now() } }),
 
   reject: (taskId, field, reason, retry = null) =>
     set((s) => ({ entries: reject(s.entries, taskId, field, reason, retry) })),
@@ -111,14 +128,20 @@ export const useReconcileStore = create<ReconcileState>((set, get) => ({
   acknowledgeAll: () =>
     set((s) => {
       const entries = acknowledgeAllDiverged(s.entries);
-      return { entries, ...clearFilterIfEmpty(entries, s.reviewFilterActive) };
+      return {
+        entries,
+        unitemizedRun: null,
+        ...clearFilterIfEmpty(entries, s.reviewFilterActive),
+      };
     }),
 
   prune: (knownTaskIds) =>
     set((s) => {
-      const entries = prune(s.entries, Date.now(), knownTaskIds);
-      if (entries === s.entries) return s;
-      return { entries, ...clearFilterIfEmpty(entries, s.reviewFilterActive) };
+      const now = Date.now();
+      const entries = prune(s.entries, now, knownTaskIds);
+      const unitemizedRun = pruneUnitemizedRun(s.unitemizedRun, now);
+      if (entries === s.entries && unitemizedRun === s.unitemizedRun) return s;
+      return { entries, unitemizedRun, ...clearFilterIfEmpty(entries, s.reviewFilterActive) };
     }),
 
   setReviewFilter: (reviewFilterActive) => set({ reviewFilterActive }),

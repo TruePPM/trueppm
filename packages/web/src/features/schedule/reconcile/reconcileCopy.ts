@@ -124,11 +124,39 @@ export function cellAriaLabel(
  *   which is worse than silence: it states a number that is wrong rather than
  *   leaving the listener to ask.
  */
-export function announcement(movedCount: number, projectFinishIso: string | null): string {
-  if (movedCount === 0) return '';
-  const dates = movedCount === 1 ? '1 date changed' : `${movedCount} dates changed`;
+export function announcement(
+  movedCount: number,
+  projectFinishIso: string | null,
+  unitemizedRun: { count: number | null } | null = null,
+): string {
+  if (movedCount === 0 && !unitemizedRun) return '';
+  const parts: string[] = [];
+  if (movedCount > 0) {
+    parts.push(movedCount === 1 ? '1 date changed.' : `${movedCount} dates changed.`);
+  }
+  // A run too large to itemize (#3158) is announced too — otherwise a
+  // screen-reader user hears nothing about the largest cascades at all.
+  if (unitemizedRun) parts.push(unitemizedRunSentence(unitemizedRun.count));
   const finish = projectFinishIso ? ` Project finish now ${fmtUtcLong(projectFinishIso)}.` : '';
-  return `Schedule recomputed. ${dates}.${finish}`;
+  return `Schedule recomputed. ${parts.join(' ')}${finish}`;
+}
+
+/**
+ * The one sentence the client can truthfully say about a truncated CPM run
+ * (#3158): how many tasks the run changed, and that they cannot be listed. It
+ * names no task and no cause — the frame carried neither (ADR-0784 §D5).
+ *
+ * Never "N tasks moved". The frame's `count` is the server's moved set, which
+ * counts a row whose late dates or float changed as well as one whose bar moved
+ * (`_CPM_DELTA_FIELDS`). On the common trigger — a critical-path edit — that
+ * marks every row while a handful of bars move (#2598 measured 2,000 of 2,000
+ * against 10), so "moved" would overstate by orders of magnitude. The copy says
+ * "dates or float" so the number is claimed only for what it measures.
+ */
+export function unitemizedRunSentence(count: number | null): string {
+  if (count === null) return 'A recalculation changed more tasks than can be listed here.';
+  const tasks = count === 1 ? '1 task' : `${count.toLocaleString('en-US')} tasks`;
+  return `A recalculation changed the schedule of ${tasks} (dates or float), too many to list one by one.`;
 }
 
 /** Strip count label — "3 dates changed". */

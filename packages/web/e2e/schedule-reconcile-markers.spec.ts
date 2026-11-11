@@ -17,7 +17,7 @@
  * optimistic value — which here would not just flake, it would fake the very
  * divergence under test.
  */
-import { test, expect } from './fixtures/coverage';
+import { test, expect, type WebSocketRoute } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-recon-00000000-0000-0000-0000-000000002725';
@@ -256,5 +256,51 @@ test.describe('Schedule reconciliation — refusals (#2725)', () => {
     await expect(
       page.getByRole('button', { name: /Retry the refused change on Spec freeze/ }),
     ).toBeVisible();
+  });
+
+  // #3158: a CPM run above the server's delta cap ships `{count, truncated: true}`
+  // and nothing per-task. The client re-fetches, and the re-fetch can mark no
+  // row — so before this fix the reforecast panel simply was not there for the
+  // largest cascades. It must now say the run happened and that it cannot list it.
+  test('a truncated CPM delta explains itself in the reforecast panel', async ({ page }) => {
+    let socket: WebSocketRoute | undefined;
+    await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+      socket = ws;
+    });
+
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Spec freeze')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'What moved and why' })).toHaveCount(0);
+    await expect.poll(() => socket !== undefined, { timeout: 10_000 }).toBe(true);
+
+    if (!socket) throw new Error('expected the project WebSocket to have connected');
+    const ws = socket;
+    const sendTruncated = (route: WebSocketRoute) =>
+      route.send(
+        JSON.stringify({
+          protocol_version: 1,
+          event_type: 'task_dates_updated',
+          payload: { count: 1287, truncated: true },
+          seq: null,
+        }),
+      );
+    sendTruncated(ws);
+
+    const panel = page.getByRole('region', { name: 'What moved and why' });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText('Too many changes to list.');
+    await expect(page.getByTestId('reforecast-unitemized')).toHaveText(
+      /A recalculation changed the schedule of 1,287 tasks \(dates or float\), too many to list one by one\./,
+    );
+    // No per-task rows and no driver are invented from a bare count.
+    await expect(panel.getByRole('listitem')).toHaveCount(0);
+    await expect(page.getByTestId('reconcile-live')).toHaveText(/1,287 tasks \(dates or float\)/);
+
+    // A dismissal about this run must not swallow the NEXT one — its only
+    // explanation is this panel.
+    await panel.getByRole('button', { name: 'Dismiss' }).click();
+    await expect(panel).toHaveCount(0);
+    sendTruncated(ws);
+    await expect(panel).toBeVisible();
   });
 });

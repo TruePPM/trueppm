@@ -9,6 +9,7 @@
  *   task_run_cancelled → taskRunStore.cancelRun()
  *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated)
  *   task_dates_updated → splice per-task CPM date deltas into the tasks cache; truncated payload → invalidate (ADR-0091)
+ *                        and record the moved count for the reforecast panel (#3158)
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
  *   project_calendar_changed → invalidate project (scheduling_calendar) + calendars
  *   task_created / task_deleted / task_restored → invalidate tasks
@@ -83,7 +84,10 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 import { useTaskRunStore } from '@/stores/taskRunStore';
 import { useReconcileStore } from '@/stores/reconcileStore';
-import type { ReconcileObservation } from '@/features/schedule/reconcile/reconcileState';
+import {
+  unitemizedRunCount,
+  type ReconcileObservation,
+} from '@/features/schedule/reconcile/reconcileState';
 import {
   useWsConnectionStore,
   WS_CLOSE_FORBIDDEN,
@@ -395,6 +399,11 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
     if (payload.truncated === true) {
       // Too many tasks moved to ship economically — fall back to a re-fetch.
       scheduleInvalidate('tasks');
+      // The re-fetch lands on the full-snapshot path, which carries no
+      // `previous` and so opens no cascade entries — without this record the
+      // largest cascades would leave the reforecast panel silent (#3158). Only
+      // the count is known; nothing per-task is invented from it.
+      useReconcileStore.getState().recordUnitemizedRun(unitemizedRunCount(payload.count));
     } else if (Array.isArray(payload.tasks)) {
       const deltas = payload.tasks as unknown as TaskDatesDelta[];
       if (deltas.length > 0) {

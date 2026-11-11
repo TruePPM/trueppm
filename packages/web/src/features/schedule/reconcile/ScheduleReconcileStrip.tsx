@@ -16,7 +16,7 @@
  * existing `ariaAssertiveRef` region already threaded through `useScheduleCommit`
  * (two assertive regions on one view is how announcements get lost).
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import { useReconcileStore } from '@/stores/reconcileStore';
 
@@ -94,6 +94,14 @@ function RejectedRow({
   );
 }
 
+/** Which truncated run the live region is announcing, and whether it is spent. */
+interface RunAnnounce {
+  since: number;
+  /** The rest of the announcement when the run arrived. */
+  base: string;
+  done: boolean;
+}
+
 export function ScheduleReconcileStrip({ workingDaysMask, projectFinish = null }: Props) {
   const entries = useReconcileStore((s) => s.entries);
   const reviewFilterActive = useReconcileStore((s) => s.reviewFilterActive);
@@ -110,7 +118,28 @@ export function ScheduleReconcileStrip({ workingDaysMask, projectFinish = null }
   // and a row they never wrote has nothing for them to answer there. The
   // reforecast panel is where cascades are read.
   const moved = useMemo(() => movedEntries(entries), [entries]);
-  const liveText = announcement(moved.length, projectFinish);
+  const unitemizedRun = useReconcileStore((s) => s.unitemizedRun);
+  // A truncated run (#3158) is announced ONCE. The record lives for ten
+  // minutes; leaving its sentence in this atomic region would re-read it as part
+  // of every later, unrelated recompute. So the sentence stays only until the
+  // rest of the announcement changes, then drops out. It is NOT dropped on the
+  // next mere re-render — the tasks re-fetch the run triggers re-renders this
+  // strip within a few hundred ms, which would blank the region mid-read.
+  // Keyed on `since`, not on the text, so a second run with the same count is a
+  // new announcement rather than an identical string the screen reader ignores.
+  // State-from-previous-render pattern (setState during render), not a ref.
+  const baseText = announcement(moved.length, projectFinish);
+  const [runAnnounce, setRunAnnounce] = useState<RunAnnounce | null>(null);
+  let ra = runAnnounce;
+  if (unitemizedRun && ra?.since !== unitemizedRun.since) {
+    ra = { since: unitemizedRun.since, base: baseText, done: false };
+  } else if (ra && !ra.done && ra.base !== baseText) {
+    ra = { ...ra, done: true };
+  }
+  if (ra !== runAnnounce) setRunAnnounce(ra);
+  const freshRun =
+    unitemizedRun && ra && ra.since === unitemizedRun.since && !ra.done ? unitemizedRun : null;
+  const liveText = announcement(moved.length, projectFinish, freshRun);
   const idle = diverged.length === 0 && rejected.length === 0;
 
   return (
@@ -130,7 +159,9 @@ export function ScheduleReconcileStrip({ workingDaysMask, projectFinish = null }
         at all.
       */}
       <span role="status" aria-live="polite" data-testid="reconcile-live" className="sr-only">
-        {liveText}
+        {/* Keyed so a fresh run whose sentence matches the last one replaces the
+            node — an unchanged text node is not re-announced. */}
+        <span key={freshRun?.since ?? 'moved'}>{liveText}</span>
       </span>
 
       {!idle && (

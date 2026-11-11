@@ -156,3 +156,47 @@ describe('ReforecastPanel', () => {
     expect(onDismiss).toHaveBeenCalled();
   });
 });
+
+// #3158 — a CPM run above the delta cap ships a count and nothing per-task.
+describe('ReforecastPanel — a run too large to itemize', () => {
+  afterEach(cleanup);
+  const RUN = { count: 1287, since: 0 };
+
+  it('opens the panel and says what it cannot list, instead of rendering nothing', () => {
+    render(<ReforecastPanel {...props} entries={{}} unitemizedRun={RUN} />);
+    expect(screen.getByRole('region', { name: 'What moved and why' })).toBeInTheDocument();
+    expect(screen.getByText('Too many changes to list.')).toBeInTheDocument();
+    const notice = screen.getByTestId('reforecast-unitemized');
+    expect(notice).toHaveTextContent(
+      'A recalculation changed the schedule of 1,287 tasks (dates or float), too many to list one by one.',
+    );
+    // Never claims the count as moves, nor that the dates on screen are current.
+    expect(notice).not.toHaveTextContent(/tasks moved/);
+    expect(notice).not.toHaveTextContent(/on the schedule/);
+  });
+
+  it('invents no per-task rows and no driver for the run', () => {
+    render(<ReforecastPanel {...props} entries={{}} unitemizedRun={RUN} />);
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+    expect(screen.queryByText(/moved because/)).not.toBeInTheDocument();
+    expect(screen.queryByText('changed on its own')).not.toBeInTheDocument();
+  });
+
+  it('sits alongside itemized rows without replacing them', () => {
+    render(<ReforecastPanel {...props} entries={diverged('permits')} unitemizedRun={RUN} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    // The header must not undercount: the causal summary covers only the
+    // itemized rows, so it is labeled as such rather than headlining the panel.
+    expect(screen.getByText('Not every change can be listed.')).toBeInTheDocument();
+    expect(screen.getByTestId('reforecast-listed-summary')).toHaveTextContent(
+      'Listed below: 1 date changed.',
+    );
+    expect(screen.getByTestId('reforecast-unitemized')).toBeInTheDocument();
+  });
+
+  it('still shows both finish numbers', () => {
+    render(<ReforecastPanel {...props} entries={{}} unitemizedRun={RUN} />);
+    expect(screen.getByText('Oct 16')).toBeInTheDocument();
+    expect(screen.getByText('Oct 24')).toBeInTheDocument();
+  });
+});

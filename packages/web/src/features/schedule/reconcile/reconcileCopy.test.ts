@@ -13,6 +13,7 @@ import {
   describeDivergence,
   fmtCellDate,
   isWorkingDay,
+  unitemizedRunSentence,
 } from './reconcileCopy';
 import type { ReconcileEntry } from './reconcileState';
 
@@ -99,7 +100,11 @@ describe('cellAriaLabel — the only sightless carrier of the marker', () => {
 
   it('carries the server reason on a refusal', () => {
     expect(
-      cellAriaLabel('finish', '2026-10-13', entry({ status: 'rejected', reason: 'Task is locked.' })),
+      cellAriaLabel(
+        'finish',
+        '2026-10-13',
+        entry({ status: 'rejected', reason: 'Task is locked.' }),
+      ),
     ).toBe('finishes Oct 13, change refused: Task is locked.');
   });
 
@@ -167,5 +172,31 @@ describe('changedCountLabel', () => {
   it('singularizes', () => {
     expect(changedCountLabel(1)).toBe('1 date changed');
     expect(changedCountLabel(4)).toBe('4 dates changed');
+  });
+});
+
+// #3158 — a truncated CPM run says what it can and nothing more.
+describe('unitemized run copy', () => {
+  it('states the count and that the run cannot be listed', () => {
+    expect(unitemizedRunSentence(1287)).toBe(
+      'A recalculation changed the schedule of 1,287 tasks (dates or float), too many to list one by one.',
+    );
+    // The count includes float-only changes, so it is never claimed as moves.
+    expect(unitemizedRunSentence(1287)).not.toMatch(/tasks moved/);
+  });
+
+  it('falls back to a count-free sentence when the frame carried no count', () => {
+    expect(unitemizedRunSentence(null)).toBe(
+      'A recalculation changed more tasks than can be listed here.',
+    );
+  });
+
+  it('is announced on its own, and alongside itemized changes', () => {
+    const run =
+      'A recalculation changed the schedule of 600 tasks (dates or float), too many to list one by one.';
+    expect(announcement(0, null, { count: 600 })).toBe(`Schedule recomputed. ${run}`);
+    expect(announcement(2, null, { count: 600 })).toBe(
+      `Schedule recomputed. 2 dates changed. ${run}`,
+    );
   });
 });
