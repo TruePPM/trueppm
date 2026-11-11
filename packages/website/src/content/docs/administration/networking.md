@@ -111,28 +111,30 @@ resolve to a globally routable address, or the request is refused. That blocks
 an in-cluster identity provider (`keycloak.sso.svc`), an internal SMTP relay, or
 a MinIO or SeaweedFS endpoint on a private VIP.
 
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is the escape hatch — a comma-separated list
-of exact, case-insensitive hostnames exempted from that check:
+The escape hatch is a set of per-surface allow-lists. Each is a comma-separated
+list of exact, case-insensitive hostnames exempted from that check, and a host on
+one list is exempt **only for that surface**:
+
+| Variable | Surface |
+|---|---|
+| `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` | Single sign-on (the identity provider). The legacy `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is merged into it. |
+| `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` | The mail relay |
+| `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS` | A self-hosted GitLab or Jira for Connected Accounts |
+| `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS` | Webhook receivers |
 
 ```bash
-TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc.cluster.local,smtp.internal.example.com
+TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO=keycloak.sso.svc.cluster.local
+TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP=smtp.internal.example.com
 ```
 
-No wildcards. The variable is read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes an `env:` value rolls them; a change to an `envFrom` ConfigMap or Secret does not, so restart them yourself). The allow-list is consulted by **every** egress caller (SSO,
-webhooks, SMTP, integration credential verification), so only list a host you
-trust at least as much as your identity provider. See
+No wildcards. The variables are read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes an `env:` value rolls them; a change to an `envFrom` ConfigMap or Secret does not, so restart them yourself). A host is trusted only for the surface whose list names it, so list a host only where you need it. See
 [Outbound requests](/administration/security/#outbound-requests-ssrf-boundary).
 
 :::note[Ships in 0.5]
-From 0.5 the allow-list is split by surface, and a host on one list is exempt
-only for that surface: `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` (the identity
-provider; the legacy `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is merged into it),
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` (the mail relay),
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS` (a self-hosted GitLab or Jira for
-Connected Accounts), and `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS` (webhook
-receivers). The example above becomes
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO=keycloak.sso.svc.cluster.local` plus
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP=smtp.internal.example.com`.
+In 0.4 there is a single list, `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, and it applies
+to **every** outbound caller (SSO, webhooks, SMTP, integration credential
+verification). Use it for all of the hosts above, and list only hosts you trust at
+least as much as your identity provider. The per-surface variables are not read.
 :::
 
 ### Internal (cluster) DNS

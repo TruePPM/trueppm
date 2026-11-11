@@ -165,12 +165,17 @@ field limits (custom fields are excluded there too).
     [Configuration](/administration/configuration/)); if it isn't, the wizard says
     so and names the setting — ask your operator to add the host. If your instance is
     reachable only on a private / internal network, your operator must **also** add
-    the host to `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` — the allow-list above controls
-    where your token may be sent, while a separate SSRF guard blocks private
+    the host to `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS` — the allow-list above
+    controls where your token may be sent, while a separate SSRF guard blocks private
     addresses unless the host is explicitly trusted. A publicly-reachable instance
-    needs only the first setting. From 0.5 that second setting is
-    `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS`. The un-suffixed variable
-    then applies to single sign-on only (see the note at the top of this page).
+    needs only the first setting. The un-suffixed
+    `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` applies to single sign-on only.
+
+    :::note[Ships in 0.5]
+    In 0.4, use `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` for a private-network instance;
+    it applies to every outbound caller. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS`
+    is not read.
+    :::
 
   Then choose **what to pull** — the issues assigned to you (recommended) or a
   specific **JQL** filter (JQL is Jira's own search-query language, for anyone who

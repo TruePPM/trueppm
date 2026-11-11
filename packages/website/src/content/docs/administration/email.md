@@ -221,7 +221,7 @@ error naming the host as not permitted, distinct from a generic connect
 failure (it does not tell you to re-check credentials that are already fine).
 
 To point TruePPM at an internal relay, add its hostname to the
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` environment variable (a comma-separated
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` environment variable (a comma-separated
 list, matched as an exact, case-insensitive hostname — no wildcard or suffix
 match, so allow-listing `mail-relay` does not admit
 `mail-relay.attacker.example`). **Set it on the API, Celery worker, and Celery
@@ -231,20 +231,20 @@ between them fails a save on one process and every actual send on another. The v
 After setting it, save the Email & SMTP settings again to re-run validation
 against the now-allowed host.
 
-:::note[Ships in 0.5]
-From 0.5 the relay host goes in `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` instead,
-and the error names that variable. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` then
-exempts hosts for single sign-on only, so a relay listed there is refused after
-the upgrade until you move it. Each surface has its own list, so a relay you
-trust for mail is not reachable from a webhook URL. See
+The SMTP list is scoped to the mail transport: a relay listed there is not
+reachable from a webhook URL, SSO, or credential verification, and a host listed
+for those surfaces is refused as a relay. The un-suffixed
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` exempts hosts for single sign-on only, so a
+relay left on it is refused. See
 [Advanced configuration](/administration/configuration/advanced/).
-:::
 
-The allowlist is a single **global** list, not scoped to the mail transport —
-allow-listing a relay for email also opens it to every other egress surface
-that shares this chokepoint (webhooks, SSO, PAT verification, git-link
-refresh). Until per-surface scoping ships (tracked in #3561), treat adding a
-host here as trusting it for outbound requests generally, not just for SMTP.
+:::note[Ships in 0.5]
+In 0.4 the relay host goes in `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, and the error
+names that variable. It applies to **every** outbound caller, not only mail, so
+allow-listing a relay also opens it to webhooks, SSO, PAT verification and
+git-link refresh; treat adding a host there as trusting it for outbound requests
+generally. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` is not read.
+:::
 
 :::note[No bounce webhook yet]
 This page previously offered a **Bounce webhook URL** field. It saved, validated

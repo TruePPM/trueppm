@@ -491,13 +491,14 @@ IdP on a private address; a public issuer needs no allow-list. This setting is
 operator configuration only and is never influenced by user input.
 
 :::note[Ships in 0.5]
-From 0.5 the SSO allow-list applies to **single sign-on only**. A host on it is
-**not** exempt for personal-access-token verification, git-link status refresh,
-webhook delivery, or SMTP relay checks, which take user- or Admin-supplied URLs —
-each of those has its own list
-([Advanced configuration](/administration/configuration/advanced/)). In 0.4,
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` exempted the host for **every** outbound
-integration, so on 0.4 list only the specific IdP host — never a broad internal name.
+The SSO allow-list applies to **single sign-on only**, and
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` is introduced by 0.5. A host on it is **not**
+exempt for personal-access-token verification, git-link status refresh, webhook
+delivery, or SMTP relay checks — each of those has its own list
+([Advanced configuration](/administration/configuration/advanced/)). In 0.4, use
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`; `_SSO` is not read. In 0.4 that variable
+exempts the host for **every** outbound integration, so list only the specific IdP
+host — never a broad internal name.
 :::
 
 ### If the allow-list does not fix it: check your own NetworkPolicy

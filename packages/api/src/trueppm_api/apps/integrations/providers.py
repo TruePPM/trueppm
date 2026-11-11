@@ -384,8 +384,9 @@ class FileLinkProvider(TaskLinkProvider):
 
     def fetch_metadata(self, url: str, credential: Any) -> LinkMetadata:
         try:
-            # No purpose: an anonymous unfurl of a public file host never needs an
+            # An anonymous unfurl of a public file host never needs an
             # operator-trusted internal host, so it honors no allow-list (#2851).
+            # egress-purpose: none — fixed public SaaS hosts only, no internal host
             response = http.get(url, headers={"Accept": "text/html,application/xhtml+xml"})
         except (http.EgressBlocked, http.EgressTimeout, http.EgressError):
             return LinkMetadata(status=LINK_STATUS_UNKNOWN)
