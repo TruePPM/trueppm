@@ -482,6 +482,7 @@ export function mapTask(t: ApiTask): Task {
     priorityRank: t.priority_rank ?? undefined,
     readiness: (t.readiness as TaskReadiness | undefined) ?? undefined,
     assigneeIsOverallocated: t.assignee_is_overallocated ?? false,
+    assigneeLoadIncludesEstimate: t.assignee_load_includes_estimate ?? false,
     serverVersion: t.server_version,
     sprintId: t.sprint ?? null,
     sprintPending: t.sprint_pending ?? false,

@@ -82,6 +82,23 @@ describe('TaskSummaryStrip', () => {
     expect(tooltip.textContent).not.toMatch(/1\.0/);
   });
 
+  it('discloses an estimated load in the over-allocation tooltip only when flagged', () => {
+    const { unmount } = render(
+      <TaskSummaryStrip
+        task={makeTask({ assigneeIsOverallocated: true, assigneeLoadIncludesEstimate: true })}
+      />,
+    );
+    fireEvent.focus(screen.getByRole('note', { name: /Jane Smith is over-allocated/ }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Includes tasks with no tracked units, assumed full-time.',
+    );
+    unmount();
+
+    render(<TaskSummaryStrip task={makeTask({ assigneeIsOverallocated: true })} />);
+    fireEvent.focus(screen.getByRole('note', { name: /Jane Smith is over-allocated/ }));
+    expect(screen.getByRole('tooltip').textContent).not.toMatch(/no tracked units/);
+  });
+
   describe('baseline chip', () => {
     it('pairs its tint with a signed day count, never color alone', () => {
       render(

@@ -4374,9 +4374,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True,
         default=False,
         help_text=(
-            "True when the assignee owns an open task in this project that has no "
-            "TaskResource row for them, so assignee_is_overallocated counts it at an "
-            "assumed full-time 1.0 instead of a tracked figure (#3059)."
+            "True only when assignee_is_overallocated is true AND the assignee owns an "
+            "open task in this project that has no TaskResource row for them, so the "
+            "overallocation counts it at an assumed full-time 1.0 instead of a tracked "
+            "figure. Always false for a row that is not overallocated (#3059)."
         ),
     )
 

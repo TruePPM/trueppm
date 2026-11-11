@@ -127,7 +127,13 @@ export function TaskSummaryStrip({ task }: { task: Task }) {
                 // beyond the terser aria-label, so `describe` stays the
                 // default `true` (aria-describedby wires the fuller sentence
                 // to AT too, rather than only sighted hover/focus/touch).
-                <Tooltip content="Peak resource units on a single day exceed this person's capacity on this project. Open the resource view to investigate.">
+                <Tooltip
+                  content={`Peak resource units on a single day exceed this person's capacity on this project.${
+                    task.assigneeLoadIncludesEstimate
+                      ? ' Includes tasks with no tracked units, assumed full-time.'
+                      : ''
+                  } Open the resource view to investigate.`}
+                >
                   <span
                     role="note"
                     className="inline-flex items-center px-1.5 py-px rounded-chip text-xs font-medium shrink-0

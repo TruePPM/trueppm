@@ -5270,7 +5270,12 @@ def annotate_tasks_queryset(
     # makes ``Query.resolve_ref`` inline them into the OUTER task queryset's SELECT
     # list and GROUP BY, the shape this file measures at 115 ms -> 5,753 ms under
     # ``?ordering=wbs_path``.
-    _open_statuses = [TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW]
+    # Same status set as the attention feed and ``_check_overallocation``:
+    # Task.committed (no BACKLOG/EPIC/recurring/deleted) minus COMPLETE, which keeps a
+    # legacy ON_HOLD task loading its assignee instead of silently dropping it.
+    def _open_tasks() -> Any:
+        return Task.committed.exclude(status=TaskStatus.COMPLETE)
+
     _load_field = db_models.DecimalField(max_digits=8, decimal_places=2)
 
     def _user_load_tasks(uid: Any, pid: Any) -> Any:
@@ -5284,7 +5289,8 @@ def annotate_tasks_queryset(
             .values("_u")[:1]
         )
         return (
-            Task.objects.filter(project_id=pid, status__in=_open_statuses, is_deleted=False)
+            _open_tasks()
+            .filter(project_id=pid)
             .annotate(_uid=uid)
             .filter(Q(assignee_id=F("_uid")) | Exists(any_row))
             .annotate(
@@ -5388,14 +5394,15 @@ def annotate_tasks_queryset(
     # estimate (a bare assignee, no tracked units). An Exists on its own, not read
     # back off ``assignee_is_overallocated`` -- an annotation referenced from a When
     # is inlined into the outer SELECT (see above).
-    untracked_subq = Task.objects.filter(
-        project_id=OuterRef("project_id"),
-        assignee_id=OuterRef("assignee_id"),
-        status__in=_open_statuses,
-        is_deleted=False,
-    ).exclude(
-        Exists(
-            _TR.objects.filter(task_id=OuterRef("pk"), resource__user_id=OuterRef("assignee_id"))
+    untracked_subq = (
+        _open_tasks()
+        .filter(project_id=OuterRef("project_id"), assignee_id=OuterRef("assignee_id"))
+        .exclude(
+            Exists(
+                _TR.objects.filter(
+                    task_id=OuterRef("pk"), resource__user_id=OuterRef("assignee_id")
+                )
+            )
         )
     )
     qs = qs.annotate(
@@ -5404,7 +5411,13 @@ def annotate_tasks_queryset(
             default=db_models.Value(False),
             output_field=BooleanField(),
         ),
-        assignee_load_includes_estimate=Exists(untracked_subq),
+        # Guarded by the same cheap lifetime-sum test so the untracked EXISTS runs only
+        # for overallocated rows, not for every returned row (O(rows x open tasks)).
+        assignee_load_includes_estimate=Case(
+            When(Exists(overallocated_subq), then=Exists(untracked_subq)),
+            default=db_models.Value(False),
+            output_field=BooleanField(),
+        ),
     )
 
     # Prefetch sprint scope-change audit rows (ADR-0060) so TaskSerializer

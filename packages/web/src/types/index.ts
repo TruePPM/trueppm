@@ -416,6 +416,11 @@ export interface Task {
    * resource. Server-owned; never re-derive it client-side.
    */
   assigneeIsOverallocated?: boolean;
+  /**
+   * True only when `assigneeIsOverallocated` is true and part of that load is an
+   * estimate: an open task assigned to them with no tracked units, counted full-time.
+   */
+  assigneeLoadIncludesEstimate?: boolean;
   /** Monotonically increasing version counter — used for optimistic locking on phase reorder. */
   serverVersion?: number;
   /**

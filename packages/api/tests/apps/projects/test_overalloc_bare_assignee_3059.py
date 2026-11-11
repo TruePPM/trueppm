@@ -192,3 +192,43 @@ class TestAttentionBucket:
             task=_task(project, user, "t"), resource=res, units=Decimal("0.5")
         )
         assert _attention(client, project) == []
+
+
+@pytest.mark.django_db
+class TestStatusSetAndGuard:
+    def test_on_hold_bare_task_loads_the_assignee(
+        self, client: APIClient, project: Project, user: Any
+    ) -> None:
+        # Legacy ON_HOLD is committed, non-COMPLETE work -- the attention feed counts it,
+        # so the drawer flag must too (the old NOT_STARTED/IN_PROGRESS/REVIEW list did not).
+        Resource.objects.create(name="Ada", max_units=Decimal("1.0"), user=user)
+        _task(project, user, "active")
+        held = _task(project, user, "held")
+        Task.objects.filter(pk=held.pk).update(status=TaskStatus.ON_HOLD)
+        rows = _rows(client, project)
+        assert rows["active"]["assignee_is_overallocated"] is True
+        assert rows["held"]["assignee_load_includes_estimate"] is True
+
+    def test_estimate_exists_is_evaluated_only_inside_the_overalloc_case(
+        self, client: APIClient, project: Project, user: Any
+    ) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        _task(project, user, "bare")
+        with CaptureQueriesContext(connection) as ctx:
+            _rows(client, project)
+        sql = next(q["sql"] for q in ctx.captured_queries if '"projects_task"."name"' in q["sql"])
+        select_list = sql
+        # Every untracked-estimate EXISTS is the one carrying the NOT EXISTS over
+        # TaskResource; assert each sits after a THEN, i.e. is a CASE branch, never a
+        # bare top-level select column.
+        marker = "NOT (EXISTS("
+        assert select_list.count(marker) == 1
+        idx = 0
+        while (idx := select_list.find(marker, idx)) != -1:
+            head = select_list[:idx]
+            then_pos = head.rfind(" THEN ")
+            end_pos = head.rfind(" END")
+            assert then_pos > end_pos, "untracked EXISTS escaped its CASE guard"
+            idx += len(marker)
