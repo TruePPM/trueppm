@@ -167,7 +167,10 @@ class TestImportComputability:
         assert not TaskResource.objects.filter(resource=outsider).exists()
         assert not ProjectResource.objects.filter(project=project, resource=outsider).exists()
         assert "A. Rivera" in summary["resources_created_names"]
-        assert any("A. Rivera" in w for w in summary["warnings"])
+        warning = next(w for w in summary["warnings"] if "A. Rivera" in w)
+        # Row-level (§5.8): 1-based source line plus the column the name came from.
+        assert warning.startswith("Line ")
+        assert "column '" in warning
 
     def test_owner_column_writes_task_resource_not_a_bare_assignee(self, project: Project) -> None:
         """The Owner mapping target must land on the capacity axis (ADR-0774, #2718).

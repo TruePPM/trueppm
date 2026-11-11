@@ -732,14 +732,22 @@ class TestImporter:
         self, project: Project, user: Any
     ) -> None:
         by_email = Resource.objects.create(name="Em", email="em@example.com")
-        Resource.objects.create(name="Us", user=user)
+        member_resource = Resource.objects.create(name="Us", user=user)
         by_uuid = Resource.objects.create(name="Id")
         by_name = Resource.objects.create(name="Nm")
         for r in (by_email, by_uuid, by_name):
             ProjectResource.objects.create(project=project, resource=r, server_version=1)
         ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
         data = ProjectData(
-            tasks=[TaskData(uid=1, name="T")],
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="T",
+                    resource_assignments=[
+                        AssignmentData(task_uid=1, resource_uid=u) for u in (1, 2, 3, 4)
+                    ],
+                )
+            ],
             resources=[
                 ResourceData(uid=1, name="EM@Example.com"),
                 ResourceData(uid=2, name="MSP_USER"),
@@ -750,11 +758,22 @@ class TestImporter:
         summary = import_project(str(project.pk), data)
         assert summary["resources_matched"] == 4
         assert summary["resources_created"] == 0
+        assert ProjectResource.objects.filter(
+            project=project, resource=member_resource, is_deleted=False
+        ).exists()
         assert not any("roster" in w for w in summary["warnings"])
 
     def test_creation_capped_with_warning_past_cap(self, project: Project) -> None:
         data = ProjectData(
-            tasks=[TaskData(uid=1, name="T")],
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="T",
+                    resource_assignments=[
+                        AssignmentData(task_uid=1, resource_uid=i) for i in range(1, 6)
+                    ],
+                )
+            ],
             resources=[ResourceData(uid=i, name=f"Person {i}") for i in range(1, 6)],
         )
         with override_settings(IMPORT_MAX_RESOURCES_CREATED=2):
@@ -763,6 +782,50 @@ class TestImporter:
         assert len(summary["resources_created_names"]) == 2
         assert Resource.objects.count() == 2
         assert len([w for w in summary["warnings"] if "limit of 2" in w]) == 3
+        # Assignments exist only for the resources actually created.
+        assert summary["assignments_created"] == 2
+        assigned = set(TaskResource.objects.values_list("resource__name", flat=True))
+        assert assigned == set(summary["resources_created_names"])
+
+    def test_unassigned_unmatched_resource_is_warned_not_created(self, project: Project) -> None:
+        data = ProjectData(
+            tasks=[TaskData(uid=1, name="T")],
+            resources=[ResourceData(uid=7, name="Idle Ivan")],
+        )
+        for _ in range(2):
+            summary = import_project(str(project.pk), data)
+            assert summary["resources_created"] == 0
+            assert any("Idle Ivan" in w and "resource UID 7" in w for w in summary["warnings"])
+        assert Resource.objects.count() == 0
+
+    def test_soft_deleted_resource_and_membership_do_not_match(
+        self, project: Project, user: Any
+    ) -> None:
+        dead = Resource.objects.create(name="Gone Gail", is_deleted=True)
+        ProjectResource.objects.create(project=project, resource=dead, server_version=1)
+        revoked = Resource.objects.create(name="Revoked Rex", user=user)
+        ProjectMembership.objects.create(
+            project=project, user=user, role=Role.MEMBER, is_deleted=True
+        )
+        data = ProjectData(
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="T",
+                    resource_assignments=[
+                        AssignmentData(task_uid=1, resource_uid=1),
+                        AssignmentData(task_uid=1, resource_uid=2),
+                    ],
+                )
+            ],
+            resources=[
+                ResourceData(uid=1, name="Gone Gail"),
+                ResourceData(uid=2, name="msp_user"),
+            ],
+        )
+        summary = import_project(str(project.pk), data)
+        assert summary["resources_matched"] == 0
+        assert not TaskResource.objects.filter(resource__in=[dead, revoked]).exists()
 
     def test_people_index_query_count_does_not_scale_with_rows(self, project: Project) -> None:
         from django.db import connection

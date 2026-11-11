@@ -266,7 +266,11 @@ schedule then stops recalculating until it is deleted or retyped.
 
 ## Assignee matching
 
-Assignee names are matched only against the project's roster and members (resource id, email, username, then exact name, case-insensitive), never the workspace-wide library. Anyone who matches nobody gets a warning and a new resource, up to `IMPORT_MAX_RESOURCES_CREATED` per import; past that the value is warned about and its assignments are skipped. See [Resource matching](/features/msproject-import-export/#resource-matching).
+:::note[Ships in 0.5]
+Project-scoped matching ships in 0.5. In the current release an assignee name is matched case-insensitively against the workspace-wide resource library, and every unmatched name creates a new resource with no warning and no cap.
+:::
+
+Assignee names are matched only against the project's roster and members (resource id, email, username, then exact name, case-insensitive), never the workspace-wide library. Anyone who matches nobody gets a warning naming the first source line, how many further lines repeat it, and the column and a new resource, up to `IMPORT_MAX_RESOURCES_CREATED` per import; past that the value is warned about and its assignments are skipped. See [Resource matching](/features/msproject-import-export/#resource-matching).
 
 ## Assignee allocation
 

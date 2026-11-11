@@ -1064,7 +1064,7 @@ function ConfirmStep({
         </dd>
         <dt className="text-neutral-text-secondary">Tasks to create</dt>
         <dd className="font-medium">{preview.task_count.toLocaleString()}</dd>
-        <dt className="text-neutral-text-secondary">Resources to create</dt>
+        <dt className="text-neutral-text-secondary">People named in the file</dt>
         <dd className="font-medium">{preview.resource_count.toLocaleString()}</dd>
         {parkedCount > 0 && (
           <>

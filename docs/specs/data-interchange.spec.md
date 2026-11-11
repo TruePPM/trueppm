@@ -362,11 +362,13 @@ export endpoint). Import is server-side.
   contract is now: people **bind only within the project** (its active roster plus members
   reachable through `Resource.user`), tried as UUID, email, username, then exact
   case-insensitive name, from an index built once per import. Binding never falls back to
-  the global library. An unmatched value is a row-level warning; because a spreadsheet
+  the global library. An unmatched value is a row-level warning (spreadsheet: first source line, count of
+  further lines, and column header; MS Project: the resource name and UID); because a spreadsheet
   migration into an empty project has no roster to match, the importer still **creates** a
   `Resource` for it, but creation is **bounded** by `IMPORT_MAX_RESOURCES_CREATED`
   (default 200) per import and **reported** (`resources_created`, `resources_created_names`).
   Past the cap the value gets a warning, no row is created, and its assignments are skipped.
+  A person nothing in the file assigns is never created, only warned about.
 - Exported id-shaped columns (a risk's `qualified_id`, a task's `WBS`) are **informational
   on export and ignored on import**. They round-trip visually without ever being trusted
   as identity.

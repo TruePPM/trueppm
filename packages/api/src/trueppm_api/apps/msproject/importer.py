@@ -354,6 +354,17 @@ class _PeopleIndex:
         )
 
 
+def _unmatched_warning(rd: Any, outcome: str) -> str:
+    """Locate an unmatched person for the operator (spec §5.8): spreadsheet line and
+    column when the parser recorded them, else the file's resource UID (MS Project)."""
+    base = f"Resource '{rd.name}' is not on this project's roster or member list; {outcome}"
+    if not rd.source_lines:
+        return f"{base} (resource UID {rd.uid})"
+    first, extra = rd.source_lines[0], len(rd.source_lines) - 1
+    more = f" and {extra} more line{'s' if extra > 1 else ''}" if extra else ""
+    return f"Line {first}{more}, column '{rd.source_column}': {base}"
+
+
 def _import_resources(
     project_id: str, data: ProjectData, summary: dict[str, Any], *, batch_size: int
 ) -> dict[int, str]:
@@ -381,6 +392,8 @@ def _import_resources(
     created_by_key: dict[str, Resource] = {}
     refused: set[str] = set()
 
+    assigned_uids = {ad.resource_uid for td in data.tasks for ad in td.resource_assignments}
+
     for rd in data.resources:
         key = rd.name.strip().lower()
         matched = index.resolve(rd.name)
@@ -391,6 +404,13 @@ def _import_resources(
             resource_uid_to_pk[rd.uid] = str(created_by_key[key].pk)
         elif key in refused:
             continue
+        elif rd.uid not in assigned_uids:
+            # Created rows are only rostered through an assignment, so an unassigned
+            # one would be an orphan global Resource minted again on every re-import.
+            refused.add(key)
+            summary["warnings"].append(
+                _unmatched_warning(rd, "it was not created: nothing in this file assigns it")
+            )
         elif len(new_resources) < cap:
             # server_version=1: bulk_create skips save(), the only place that sets it.
             # UUID PKs are assigned client-side, so the instance carries its own PK.
@@ -398,16 +418,15 @@ def _import_resources(
             new_resources.append(res)
             created_by_key[key] = res
             resource_uid_to_pk[rd.uid] = str(res.pk)
-            summary["warnings"].append(
-                f"Resource '{rd.name}' is not on this project's roster or member list; "
-                "a new resource was created for it"
-            )
+            summary["warnings"].append(_unmatched_warning(rd, "a new resource was created for it"))
         else:
             refused.add(key)
             summary["warnings"].append(
-                f"Resource '{rd.name}' is not on this project's roster or member list and "
-                f"the import limit of {cap} new resources was reached; "
-                "it was not created and its assignments were skipped"
+                _unmatched_warning(
+                    rd,
+                    f"the import limit of {cap} new resources was reached, so it was not "
+                    "created and its assignments were skipped",
+                )
             )
 
     if new_resources:
