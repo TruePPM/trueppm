@@ -1,3 +1,5 @@
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+
 /**
  * "Lower bound" caveat for a velocity-driven Monte Carlo P80/P95 (#4954).
  *
@@ -10,10 +12,13 @@
 export function VelocitySaturationNote({
   saturatedRuns,
   runs,
+  projectId,
 }: {
   saturatedRuns: number | undefined;
   runs: number;
+  projectId?: string;
 }) {
+  const itl = useIterationLabel(projectId);
   if (saturatedRuns === undefined || saturatedRuns <= 0 || runs <= 0) return null;
   // Never print 0% for a non-zero count: a handful of clamped runs in a large sample
   // would round down and read as the all-clear.
@@ -26,7 +31,7 @@ export function VelocitySaturationNote({
       <strong className="font-medium text-neutral-text-primary">P80 and P95 are lower bounds.</strong>{' '}
       <span className="tppm-mono">{saturatedRuns.toLocaleString()}</span> of{' '}
       <span className="tppm-mono">{runs.toLocaleString()}</span> runs (
-      <span className="tppm-mono">{pct}%</span>) reached the sprint horizon, so the true dates
+      <span className="tppm-mono">{pct}%</span>) reached the {itl.lower} horizon, so the true dates
       are this date or later.
     </p>
   );

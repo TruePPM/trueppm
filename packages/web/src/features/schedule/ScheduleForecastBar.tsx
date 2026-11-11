@@ -440,6 +440,7 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, variant = 'do
                 <VelocitySaturationNote
                   saturatedRuns={result.velocitySaturatedRuns}
                   runs={result.runs}
+                  projectId={projectId}
                 />
                 <MonteCarloHistogram result={result} />
               </div>
