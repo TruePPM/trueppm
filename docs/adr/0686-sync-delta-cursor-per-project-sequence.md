@@ -300,3 +300,60 @@ require DDL per project. The project row is already the serialization point.
   the ADR-0217 field-level lost-update guard is inert for every row whose counter
   sits below the watermark, silently degrading to last-writer-wins. Filed as
   #2499.
+
+## Amendment 2026-11-11 — tombstone-retention floor and `resync_required` (#2474)
+
+The cursor this ADR defines makes a delta *ordered*. It does not make it *complete*
+once `sync.reap_domain_tombstones` hard-deletes a tombstone: after the reap, no
+`sync_seq__gt=since` query can return that deletion. A client offline for longer
+than `TRUEPPM_TOMBSTONE_RETENTION_DAYS` used to get a normal-looking delta that
+silently kept the deleted row.
+
+**Decision.** Each project now has a `tombstone_floor` column on `Project`, next to
+the `last_sync_version` allocator. It holds the highest `sync_seq` of any row the
+reap has removed. That includes rows the delete cascaded to, such as a dependency
+tombstone that was still inside its window, or a live task link. The floor is
+clamped to `last_sync_version`.
+
+The reap runs one transaction per project. It locks the project row first, then
+reaps and raises the floor with `Greatest()` before it commits. Taking the lock
+first does two things:
+
+- No tombstone can be re-saved to a higher cursor between the `MAX` and the delete.
+- The reap uses the same lock order as every writer (allocate, then write the row),
+  so it cannot deadlock with an upload.
+
+`tombstone_floor` is in `_SERVER_OWNED_FIELDS`, so a stale `save()` cannot lower it.
+
+When `0 < since < floor`, the pull answers `200` with `resync_required: true`,
+empty `changes`, `timestamp: 0` and no cursor. It does not return `409`, so the
+pull uses the same vocabulary as the WebSocket `resync_required` frame (ADR-1285).
+
+The floor is checked twice:
+
+- Before the delta, off the project row the pull has already fetched. This check
+  costs nothing.
+- After the delta queries, as a single primary-key read. This check is the one that
+  makes the guard sound. Under READ COMMITTED, a delta query can miss a reaped
+  tombstone only if the reap committed before that query ran. The floor was raised
+  in that same transaction, so the later read observes it.
+
+`since = 0` is always served. Because `floor <= last_sync_version`, a full re-sync's
+`timestamp` is never below the floor, so recovery cannot loop.
+
+`timestamp: 0` makes the shape fail safe for a client that ignores the flag. Such a
+client applies nothing, adopts `0`, and then does a full pull. That pull is no worse
+than the behavior before this amendment, and the client is never frozen on a stale
+cursor. Only a client that honors the flag and discards its store loses the phantom
+rows.
+
+**Program pull (ADR-0747).** The program pull carries the same guard, against
+`ProgramSyncSequence.tombstone_floor`. No reaper removes program tombstones today.
+The one hard delete of program-scoped rows is `hard_delete_program` (sample-data
+teardown), which removes live rows with no tombstone at all. In the same transaction
+it draws a fresh program sequence value and raises the floor to it, so every client
+holding the deleted program re-syncs.
+
+**Ordering with #2342.** #2342 widens the reap registry from 5 models to every
+collection the delta serves. The reap computes the floor from whatever it deletes,
+so #2342 needs no further pull-side change. It must not ship without this amendment.

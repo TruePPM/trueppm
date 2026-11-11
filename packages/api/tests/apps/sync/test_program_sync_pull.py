@@ -63,7 +63,7 @@ def test_requires_auth() -> None:
 @pytest.mark.django_db
 def test_response_shape(authed_client: APIClient) -> None:
     body = authed_client.get(URL).json()
-    assert set(body) == {"changes", "timestamp", "next_cursor", "has_more"}
+    assert set(body) == {"changes", "timestamp", "next_cursor", "has_more", "resync_required"}
     assert set(body["changes"]) == {"programs", "program_memberships"}
     for bucket in body["changes"].values():
         assert set(bucket) == {"created", "updated", "deleted"}

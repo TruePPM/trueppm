@@ -159,6 +159,13 @@ def hard_delete_program(program_id: uuid.UUID | str, *, broadcast: bool = False)
     project_ids = list(Project.objects.filter(program_id=program_id).values_list("pk", flat=True))
     deleted = hard_delete_projects(project_ids, broadcast=broadcast)
     _purge_protecting_children(Program, [program_id])
+    # The program and its memberships are removed without a tombstone, so every
+    # client already holding them would keep them through any later program pull.
+    # Raising the program pull's floor in this transaction makes those pulls answer
+    # resync_required instead (#2474).
+    from trueppm_api.apps.sync.sequence import raise_program_tombstone_floor
+
+    raise_program_tombstone_floor()
     Program.objects.filter(pk=program_id).delete()
     return deleted
 

@@ -53,6 +53,13 @@ export interface PullResult {
    *  in 0.5, and a client that reads it as `undefined` treats a partial sync as
    *  a complete one. */
   nextCursor: string | null;
+  /** True when `since` is below the server's tombstone-retention floor (#2474):
+   *  a deletion this device needs has been hard-deleted and no delta can carry
+   *  it. The response then has empty `changes`, `timestamp: 0` and no cursor.
+   *  The adapter MUST discard the local store for this project (and its cursor)
+   *  and pull again from `since = 0` — upserting a full pull over the existing
+   *  store would keep the rows whose tombstones were reaped. */
+  resyncRequired: boolean;
 }
 
 /**

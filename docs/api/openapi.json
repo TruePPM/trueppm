@@ -78935,12 +78935,17 @@
                     "has_more": {
                         "type": "boolean",
                         "description": "DEPRECATED — removed in 0.5. True while more pages remain for this `since` session. Exactly equivalent to `next_cursor is not null`; loop on that instead. Announced here rather than removed in 0.4 (#2842) because a client following the published drain loop would read `undefined`, treat it as false, and silently stop after page one — missing data presented as a complete sync."
+                    },
+                    "resync_required": {
+                        "type": "boolean",
+                        "description": "True when `since` is below the tombstone-retention floor (#2474): a deletion this client needs was hard-deleted after the retention window and can no longer be delivered, so no delta can be complete. The response then carries no changes, `timestamp: 0` and no cursor. Discard the local store for this scope and pull again from `since=0`. False on every normal page. `since=0` never returns true."
                     }
                 },
                 "required": [
                     "changes",
                     "has_more",
                     "next_cursor",
+                    "resync_required",
                     "timestamp"
                 ]
             },

@@ -1,7 +1,7 @@
 ---
 title: "Offline Sync"
 description: "WatermelonDB-compatible delta protocol with soft-delete tombstones. Server-side today; no client implements it yet."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 **This page is for developers** building an offline-capable client against TruePPM's API — there is no end-user setting here. The sync endpoint provides a two-way delta protocol compatible with [WatermelonDB](https://watermelondb.dev/)'s `synchronize()` helper: `GET` pulls server changes since a watermark, and `POST` uploads a batch of local task mutations.
@@ -44,7 +44,8 @@ Any project member (Viewer+) may call this endpoint.
   },
   "timestamp": 42,
   "next_cursor": "eyJpIjoxLCJ2IjoxLCJpZCI6Ii4uLiIsInciOjQyfQ==",
-  "has_more": true
+  "has_more": true,
+  "resync_required": false
 }
 ```
 
@@ -53,6 +54,7 @@ Any project member (Viewer+) may call this endpoint.
 - `deleted` — string IDs of soft-deleted rows (tombstones)
 - `timestamp` — high-water mark to adopt as `since` **after** the delta is fully drained. Pinned when the session's first page is served, so it is identical on every page of that session
 - `next_cursor` — opaque continuation token, or `null` when the delta is exhausted
+- `resync_required` — `false` on every normal page. `true` means your `since` is too old for any delta to be complete; see [Tombstone retention and `resync_required`](#tombstone-retention-and-resync_required). The field ships in 0.5
 - `has_more` — **deprecated, removed in 0.5** — `true` while more pages remain for this `since` session. Exactly equivalent to `next_cursor !== null`; loop on the cursor instead
 
 ## Pagination
@@ -151,7 +153,41 @@ Cursor allocation takes the project row's write lock, so concurrent writes to on
 
 ## Soft delete
 
-Deleting a resource sets `is_deleted = True`, increments `server_version`, draws a fresh `sync_seq`, and records `deleted_version`. The row is never physically removed. On the next sync, the ID appears in `deleted`; WatermelonDB removes the local record.
+Deleting a resource sets `is_deleted = True`, increments `server_version`, draws a fresh `sync_seq`, and records `deleted_version`. The row stays in the database as a tombstone. On the next sync, the ID appears in `deleted`; WatermelonDB removes the local record. Tombstones are not kept forever: the nightly reaper hard-deletes them after `TRUEPPM_TOMBSTONE_RETENTION_DAYS` (default 90; see [Retention](/administration/retention/)).
+
+## Tombstone retention and `resync_required`
+
+:::note[Ships in 0.5]
+The current release has no guard here. A pull with a `since` older than the retention window gets an ordinary delta that is missing the deletions the reaper already removed, and nothing in the response says so. 0.5 adds the floor and the `resync_required` flag described below.
+:::
+
+Once a tombstone is reaped, no delta can tell a client that the row was deleted. A client that was offline for longer than the retention window would keep that row and believe it was fully synced. To prevent this, the server keeps a **tombstone floor** for each project: the highest `sync_seq` of any tombstone the reaper has hard-deleted. The reaper raises the floor in the same transaction as the delete, and it never lowers it.
+
+When `0 < since < floor`, the pull returns `200` with this envelope instead of a delta:
+
+```json
+{
+  "changes": {},
+  "timestamp": 0,
+  "next_cursor": null,
+  "has_more": false,
+  "resync_required": true
+}
+```
+
+On `resync_required: true`:
+
+1. Discard your local store for this project, including the stored cursor.
+2. Pull again from `since=0` and drain every page.
+3. Adopt that session's `timestamp` as your new `since`.
+
+A full pull (`since=0`) is always served. The floor never exceeds the project's current cursor, so the `timestamp` a full re-sync gives you is never below the floor and the recovery cannot loop. The check runs on every page, so a reap that lands partway through a paging session also ends that session with `resync_required`.
+
+The shape is chosen to fail safe for a client that does not know the flag. It applies no changes and adopts `timestamp: 0`, so its next pull is a full sync. That delivers every live row and every surviving tombstone, but it cannot remove rows whose tombstones were reaped. Only discarding the local store does that.
+
+**Concurrency.** The floor is read twice: once off the project row before the delta, and again after the delta queries. The second read is what makes the guard sound. A delta query can miss a reaped tombstone only if the reap committed before that query ran. Because the floor was raised in that same transaction, the later read sees it.
+
+The program pull (`GET /api/v1/sync/user/programs/`) carries the same guard against an installation-wide floor. The program pull's floor is raised when a program is hard-deleted (sample-data teardown). That delete removes the program and its memberships without a tombstone, so every client holding them is asked to re-sync.
 
 Task deletion cascades: all Dependency rows where the task is predecessor or successor are also soft-deleted. Mobile clients receive tombstones for both.
 

@@ -242,7 +242,9 @@ _HISTORY_EXCLUDED_DEPENDENCY = [*_HISTORY_EXCLUDED_BASE, "deleted_at", "is_drivi
 #: ``save()`` must never carry them, or it would overwrite the atomic increment
 #: (``server_version``) or the sequence allocation (``last_sync_version``,
 #: ADR-0686) that ran moments earlier in the same call.
-_SERVER_OWNED_FIELDS = frozenset({"server_version", "last_sync_version"})
+#: ``tombstone_floor`` (#2474) is raised by the tombstone reaper with a dedicated
+#: ``UPDATE``; a request holding a stale in-memory ``Project`` must not lower it.
+_SERVER_OWNED_FIELDS = frozenset({"server_version", "last_sync_version", "tombstone_floor"})
 
 #: Django app-label reference for the Project model.
 #:
@@ -1779,6 +1781,17 @@ class Project(VersionedModel):
     # the sync serializer.
     last_sync_version = models.BigIntegerField(default=0, editable=False)
 
+    # Tombstone-retention floor for the delta pull (#2474). The highest `sync_seq`
+    # of any tombstone in this project that `sync.reap_domain_tombstones` has
+    # hard-deleted. A client whose `since` is below it may hold a row whose
+    # deletion can no longer be delivered, so the pull answers `resync_required`
+    # instead of a delta that silently omits that deletion. Raised (never
+    # lowered) with `Greatest()` in the same transaction as the reap, which is
+    # what lets a pull that re-reads it after its delta queries detect a reap
+    # that raced it. Server-internal like `last_sync_version`: in
+    # _SERVER_OWNED_FIELDS, excluded from history and from every serializer.
+    tombstone_floor = models.BigIntegerField(default=0, editable=False)
+
     # Soft-delete timestamp, stamped in ``soft_delete()`` (mirrors Task/Dependency).
     # An ordinary save() never touches it, so it stays null while the row is live.
     # Drives the background hard-delete purge (#1114): a soft-deleted project is
@@ -1825,6 +1838,7 @@ class Project(VersionedModel):
             *_HISTORY_EXCLUDED_BASE,
             "recalculated_at",
             "last_sync_version",
+            "tombstone_floor",
             "deleted_at",
             "status_date_floor_armed_at",
         ]

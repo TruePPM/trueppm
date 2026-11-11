@@ -161,6 +161,32 @@ def allocate_program_seq() -> int:
     return seq if seq is not None else 0
 
 
+def raise_program_tombstone_floor() -> int:
+    """Mark every current program-pull cursor as unable to see a hard delete (#2474).
+
+    Call inside the transaction that hard-deletes ``Program`` or
+    ``ProgramMembership`` rows. Those rows vanish without a tombstone, so *every*
+    client that already holds them — not just a stale one — would keep them
+    forever. The floor therefore has to sit above every cursor a client can hold,
+    which is the sequence head. Drawing a fresh value (rather than reading the
+    head) both lands the floor strictly above every adopted ``since`` and takes
+    the singleton's row lock, so commit order with concurrent program writes is
+    preserved. The new head equals the floor, so the ``timestamp`` a full re-sync
+    adopts is never below it and recovery cannot loop.
+
+    Returns the new floor, or 0 when the singleton row is missing (a database
+    predating its backfill migration — then no client holds a program cursor).
+    """
+    from trueppm_api.apps.sync.models import ProgramSyncSequence
+
+    seq = allocate_program_seq()
+    if seq:
+        ProgramSyncSequence.objects.filter(pk=ProgramSyncSequence.SINGLETON_PK).update(
+            tombstone_floor=Greatest(F("tombstone_floor"), Value(seq))
+        )
+    return seq
+
+
 def _raise_to(project_ids: Iterable[Any], seq: int) -> None:
     """Raise every project's allocator to at least ``seq`` (monotonic)."""
     from trueppm_api.apps.projects.models import Project
