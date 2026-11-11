@@ -32,3 +32,7 @@ property-removed | response #/TaskRun.initiated_by | task-run-initiator-id-repla
 
 # #1726 - raw auth.User PK dropped from the member-readable import provenance list (security).
 property-removed | response #/ImportRequestProvenance.initiated_by | import-provenance-initiator-id-removed-1726 | user PK disclosure to Viewer-tier members
+# #3452 - search/ordering were published on operations that never read them.
+# Declaration correction, wire behavior unchanged.
+param-removed | * query:search | search--ordering-no-longer-declared-where-they-were-ignored-3452 | parameter was documented but ignored by the server
+param-removed | * query:ordering | search--ordering-no-longer-declared-where-they-were-ignored-3452 | parameter was documented but ignored by the server
