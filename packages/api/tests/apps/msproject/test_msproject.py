@@ -657,7 +657,8 @@ class TestImporter:
         assert dep.lag == 2
 
     def test_import_resources_match_existing(self, project: Project) -> None:
-        Resource.objects.create(name="Alice")
+        alice = Resource.objects.create(name="Alice")
+        ProjectResource.objects.create(project=project, resource=alice, server_version=1)
         data = ProjectData(
             tasks=[
                 TaskData(
@@ -690,7 +691,8 @@ class TestImporter:
         assert float(bob.max_units) == 0.8
 
     def test_import_resource_case_insensitive(self, project: Project) -> None:
-        Resource.objects.create(name="Alice Johnson")
+        aj = Resource.objects.create(name="Alice Johnson")
+        ProjectResource.objects.create(project=project, resource=aj, server_version=1)
         data = ProjectData(
             tasks=[TaskData(uid=1, name="Task A")],
             resources=[ResourceData(uid=10, name="alice johnson")],
@@ -698,6 +700,195 @@ class TestImporter:
         summary = import_project(str(project.pk), data)
         assert summary["resources_matched"] == 1
         assert summary["resources_created"] == 0
+
+    # --- #2485: people bind only within the project, creation is bounded ---
+
+    @staticmethod
+    def _one_assignee(name: str) -> ProjectData:
+        return ProjectData(
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="Task A",
+                    resource_assignments=[AssignmentData(task_uid=1, resource_uid=10)],
+                ),
+            ],
+            resources=[ResourceData(uid=10, name=name)],
+        )
+
+    def test_name_collision_with_non_member_does_not_bind(self, project: Project) -> None:
+        outsider = Resource.objects.create(name="A. Rivera")
+        other = Project.objects.create(name="Elsewhere", start_date=date(2026, 3, 2))
+        ProjectResource.objects.create(project=other, resource=outsider, server_version=1)
+        summary = import_project(str(project.pk), self._one_assignee("A. Rivera"))
+        assert summary["resources_matched"] == 0
+        assert summary["resources_created"] == 1
+        assert summary["resources_created_names"] == ["A. Rivera"]
+        assert any("A. Rivera" in w and "roster" in w for w in summary["warnings"])
+        # The outsider is neither assigned work nor rostered onto this project.
+        assert not TaskResource.objects.filter(resource=outsider).exists()
+        assert not ProjectResource.objects.filter(project=project, resource=outsider).exists()
+        assert Resource.objects.filter(name="A. Rivera").count() == 2
+
+    def test_matches_by_email_username_uuid_and_name_within_roster(
+        self, project: Project, user: Any
+    ) -> None:
+        by_email = Resource.objects.create(name="Em", email="em@example.com")
+        member_resource = Resource.objects.create(name="Us", user=user)
+        by_uuid = Resource.objects.create(name="Id")
+        by_name = Resource.objects.create(name="Nm")
+        for r in (by_email, by_uuid, by_name):
+            ProjectResource.objects.create(project=project, resource=r, server_version=1)
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        data = ProjectData(
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="T",
+                    resource_assignments=[
+                        AssignmentData(task_uid=1, resource_uid=u) for u in (1, 2, 3, 4)
+                    ],
+                )
+            ],
+            resources=[
+                ResourceData(uid=1, name="EM@Example.com"),
+                ResourceData(uid=2, name="MSP_USER"),
+                ResourceData(uid=3, name=str(by_uuid.pk).upper()),
+                ResourceData(uid=4, name="nm"),
+            ],
+        )
+        summary = import_project(str(project.pk), data)
+        assert summary["resources_matched"] == 4
+        assert summary["resources_created"] == 0
+        assert ProjectResource.objects.filter(
+            project=project, resource=member_resource, is_deleted=False
+        ).exists()
+        assert not any("roster" in w for w in summary["warnings"])
+
+    def test_creation_capped_with_warning_past_cap(self, project: Project) -> None:
+        data = ProjectData(
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="T",
+                    resource_assignments=[
+                        AssignmentData(task_uid=1, resource_uid=i) for i in range(1, 6)
+                    ],
+                )
+            ],
+            resources=[ResourceData(uid=i, name=f"Person {i}") for i in range(1, 6)],
+        )
+        with override_settings(IMPORT_MAX_RESOURCES_CREATED=2):
+            summary = import_project(str(project.pk), data)
+        assert summary["resources_created"] == 2
+        assert len(summary["resources_created_names"]) == 2
+        assert Resource.objects.count() == 2
+        cap_warnings = [w for w in summary["warnings"] if "per-import cap of 2" in w]
+        assert len(cap_warnings) == 1
+        assert cap_warnings[0].startswith("3 people were not created")
+        assert "IMPORT_MAX_RESOURCES_CREATED" in cap_warnings[0]
+        assert "Person 3" in cap_warnings[0]
+        assert summary["resources_refused_names"] == ["Person 3", "Person 4", "Person 5"]
+        # Assignments exist only for the resources actually created.
+        assert summary["assignments_created"] == 2
+        assigned = set(TaskResource.objects.values_list("resource__name", flat=True))
+        assert assigned == set(summary["resources_created_names"])
+
+    def test_one_user_with_two_resources_is_one_person(self, project: Project, user: Any) -> None:
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        rostered = Resource.objects.create(name="Rostered", user=user)
+        Resource.objects.create(name="Duplicate", user=user)
+        ProjectResource.objects.create(project=project, resource=rostered, server_version=1)
+        summary = import_project(str(project.pk), self._one_assignee("msp_user"))
+        assert summary["resources_matched"] == 1
+        assert not any("ambiguous" in w for w in summary["warnings"])
+        assert TaskResource.objects.get().resource_id == rostered.pk
+
+    def test_ambiguous_name_is_warned_and_left_unbound(self, project: Project) -> None:
+        for _ in range(2):
+            ProjectResource.objects.create(
+                project=project, resource=Resource.objects.create(name="Alice"), server_version=1
+            )
+        summary = import_project(str(project.pk), self._one_assignee("Alice"))
+        assert any("ambiguous: matches 2 people on this project" in w for w in summary["warnings"])
+        assert summary["resources_matched"] == 0
+        assert summary["resources_created"] == 0
+        assert summary["assignments_created"] == 0
+        assert Resource.objects.filter(name="Alice").count() == 2
+        assert not TaskResource.objects.exists()
+
+    def test_value_that_is_one_username_and_anothers_name_is_ambiguous(
+        self, project: Project, user: Any
+    ) -> None:
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        Resource.objects.create(name="Us", user=user)
+        other = Resource.objects.create(name="msp_user")
+        ProjectResource.objects.create(project=project, resource=other, server_version=1)
+        summary = import_project(str(project.pk), self._one_assignee("msp_user"))
+        assert any("ambiguous" in w for w in summary["warnings"])
+        assert summary["assignments_created"] == 0
+
+    def test_unassigned_unmatched_resource_is_warned_not_created(self, project: Project) -> None:
+        data = ProjectData(
+            tasks=[TaskData(uid=1, name="T")],
+            resources=[ResourceData(uid=7, name="Idle Ivan")],
+        )
+        for _ in range(2):
+            summary = import_project(str(project.pk), data)
+            assert summary["resources_created"] == 0
+            assert any("Idle Ivan" in w and "resource UID 7" in w for w in summary["warnings"])
+        assert Resource.objects.count() == 0
+
+    def test_soft_deleted_resource_and_membership_do_not_match(
+        self, project: Project, user: Any
+    ) -> None:
+        dead = Resource.objects.create(name="Gone Gail", is_deleted=True)
+        ProjectResource.objects.create(project=project, resource=dead, server_version=1)
+        revoked = Resource.objects.create(name="Revoked Rex", user=user)
+        ProjectMembership.objects.create(
+            project=project, user=user, role=Role.MEMBER, is_deleted=True
+        )
+        # Both people are live on a second project, so only THIS project's scope excludes them.
+        other = Project.objects.create(name="Elsewhere", start_date=date(2026, 3, 2))
+        ProjectResource.objects.create(project=other, resource=revoked, server_version=1)
+        ProjectMembership.objects.create(project=other, user=user, role=Role.MEMBER)
+        data = ProjectData(
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="T",
+                    resource_assignments=[
+                        AssignmentData(task_uid=1, resource_uid=1),
+                        AssignmentData(task_uid=1, resource_uid=2),
+                    ],
+                )
+            ],
+            resources=[
+                ResourceData(uid=1, name="Gone Gail"),
+                ResourceData(uid=2, name="msp_user"),
+            ],
+        )
+        summary = import_project(str(project.pk), data)
+        assert summary["resources_matched"] == 0
+        assert not TaskResource.objects.filter(resource__in=[dead, revoked]).exists()
+
+    def test_people_index_query_count_does_not_scale_with_rows(self, project: Project) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from trueppm_api.apps.msproject.importer import _import_resources
+
+        def count(n: int) -> int:
+            data = ProjectData(
+                tasks=[],
+                resources=[ResourceData(uid=i, name=f"Q{n}-{i}") for i in range(n)],
+            )
+            summary: dict[str, Any] = {"resources_matched": 0, "warnings": []}
+            with CaptureQueriesContext(connection) as ctx:
+                _import_resources(str(project.pk), data, summary, batch_size=500)
+            return len(ctx)
+
+        assert count(3) == count(30)
 
     def test_import_milestones(self, project: Project) -> None:
         data = ProjectData(

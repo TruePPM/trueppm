@@ -1442,6 +1442,12 @@ MSPROJECT_MAX_ROWS: int = env.int("MSPROJECT_MAX_ROWS", default=20_000)
 # import paths (both persist through msproject.importer.import_project).
 IMPORT_BULK_BATCH_SIZE: int = env.int("IMPORT_BULK_BATCH_SIZE", default=500)
 
+# Cap on new workspace Resource rows one import may create for people who match
+# nobody on the destination project's roster or member list (#2485). Resource is a
+# workspace-global library, so an uncapped import turns a project-scoped action into
+# an unbounded write to shared state. Values past the cap get a warning and no row.
+IMPORT_MAX_RESOURCES_CREATED: int = env.int("IMPORT_MAX_RESOURCES_CREATED", default=200)
+
 # Hard cap on the XML MPXJ streams to stdout when converting a .mpp (#1722). A
 # decompression-bomb .mpp within the 50 MB upload cap can expand to multi-GB XML;
 # buffering it unbounded (the old capture_output=True) OOMs the worker. We stream

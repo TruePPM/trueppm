@@ -14,6 +14,7 @@ import pytest
 from django.db import transaction
 
 from trueppm_api.apps.msproject.dataclasses import (
+    AssignmentData,
     PredecessorLinkData,
     ProjectData,
     ResourceData,
@@ -33,7 +34,14 @@ def test_import_inserts_every_bulk_row_at_server_version_one() -> None:
     data = ProjectData(
         name="Imported",
         tasks=[
-            TaskData(uid=1, name="First", outline_number="1", outline_level=1, labels=["Urgent"]),
+            TaskData(
+                uid=1,
+                name="First",
+                outline_number="1",
+                outline_level=1,
+                labels=["Urgent"],
+                resource_assignments=[AssignmentData(task_uid=1, resource_uid=1)],
+            ),
             TaskData(
                 uid=2,
                 name="Second",

@@ -413,7 +413,13 @@ TruePPM imports and exports this convention on both create-from-import and impor
 
 ## Resource matching
 
-When importing resources, TruePPM first searches for an existing `Resource` record with a name that matches case-insensitively. If a match is found the existing record is reused (no duplicate created). If no match exists, a new `Resource` record is created.
+:::note[Ships in 0.5]
+Project-scoped matching ships in 0.5. In the current release a resource name is matched case-insensitively against the workspace-wide resource library, and every unmatched name creates a new resource with no warning and no cap.
+:::
+
+People are matched only against the destination project's own roster and members, never the workspace-wide resource library. A value is matched by id, email, username or exact name within the project (case-insensitive); a value matching more than one person is warned and left unbound. A user who owns several `Resource` rows counts as one person. A person who exists elsewhere in the workspace but is not on this project is therefore not bound, even if the names collide.
+
+A name that matches nobody on the project gets a warning in the import result, and a new `Resource` is created for it so a migration into an empty project still works. Creation is capped per import by `IMPORT_MAX_RESOURCES_CREATED` (default 200); past the cap one summary line names the setting and up to three of the people refused, nothing is created, and their assignments are skipped; the result's `resources_refused_names` lists every refused value. A name nothing in the file assigns to a task is warned about and never created. Each warning names the resource and its UID. The result reports `resources_matched`, `resources_created`, `resources_created_names` and `resources_refused_names`. The CSV and Excel wizard uses the same matching.
 
 ## What the import does not carry over
 

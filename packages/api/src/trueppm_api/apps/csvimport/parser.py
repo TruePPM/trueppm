@@ -1866,8 +1866,8 @@ def _build_resources(
 
     Names are deduplicated case-insensitively but the first-seen spelling is
     kept, so "J. Smith" and "j. smith" become one resource named as first
-    written. ``import_project`` match-or-creates these against the project's
-    resource pool.
+    written. ``import_project`` binds these to the project's roster and
+    members only (never the global library), creating the rest within a cap.
 
     Allocation: a per-name ``Ana:50`` suffix wins; otherwise the row's
     Allocation column applies; otherwise 100%. A name repeated within one cell
@@ -1880,6 +1880,8 @@ def _build_resources(
     resources: list[ResourceData] = []
     uid_by_key: dict[str, int] = {}
     allocation_col = _one(by_field, "allocation") if "allocation" in by_field else None
+    resource_header = result.headers[_one(by_field, "resource")]
+    by_uid: dict[int, ResourceData] = {}
 
     for task in result.project_data.tasks:
         row = data_rows[task.uid - 1]
@@ -1906,7 +1908,15 @@ def _build_resources(
             key = name.lower()
             if key not in uid_by_key:
                 uid_by_key[key] = len(resources) + 1
-                resources.append(ResourceData(uid=uid_by_key[key], name=name[:255]))
+                rd = ResourceData(
+                    uid=uid_by_key[key], name=name[:255], source_column=resource_header
+                )
+                resources.append(rd)
+                by_uid[rd.uid] = rd
+            line = task.uid + 1  # header is line 1, so data row index i is line i + 2
+            lines = by_uid[uid_by_key[key]].source_lines
+            if line not in lines:
+                lines.append(line)
             units_by_uid[uid_by_key[key]] = 1.0 if percent is None else percent / 100.0
         for resource_uid, units in units_by_uid.items():
             task.resource_assignments.append(

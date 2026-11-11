@@ -101,6 +101,11 @@ class ResourceData:
     uid: int
     name: str
     max_units: float = 1.0
+    # Spreadsheet provenance for row-level warnings (§5.8): 1-based source lines
+    # that named this person, and the column header they were typed under. Empty
+    # for MS Project, which has no line concept.
+    source_lines: list[int] = field(default_factory=list)
+    source_column: str = ""
 
 
 @dataclass

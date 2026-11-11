@@ -8,7 +8,7 @@ documentedFor: "0.5"
 The per-route [request body ceilings](#request-body-ceilings) ship in 0.5. In 0.4
 every endpoint parses a JSON body of up to 100 MB (`DATA_UPLOAD_MAX_MEMORY_SIZE`)
 and the reference nginx configs allow 110M on every route. The five `TRUEPPM_WS_*` WebSocket Origin, frame-size and frame-rate settings
-also ship in 0.5. Every other limit on this page is in 0.4.
+and `IMPORT_MAX_RESOURCES_CREATED` also ship in 0.5. Every other limit on this page is in 0.4.
 :::
 
 ## Rate limiting and access
@@ -263,11 +263,13 @@ bytes; `MPXJ_MAX_HEAP_MB` is a second line of defense that bounds the JVM's own
 heap, so even a bomb the byte ceiling hasn't yet caught dies with a JVM
 `OutOfMemoryError` (a clean non-zero exit) rather than driving the host into swap.
 
-The MS Project and Jira import paths (below) share one more bulk-write knob:
+The import paths (below) share these knobs. `IMPORT_MAX_RESOURCES_CREATED` applies to
+CSV/Excel and MS Project imports only, not Jira:
 
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
 | `IMPORT_BULK_BATCH_SIZE` | `500` | rows | `batch_size` for the shared importer's `bulk_create()` calls |
+| `IMPORT_MAX_RESOURCES_CREATED` | `200` | resources | New workspace resources one import may create for people who match nobody on the project's roster or members; the rest get a warning and no row |
 
 Without a `batch_size`, Django would emit one giant multi-row `INSERT` that pins
 the whole task/dependency set in a single statement (and can exceed PostgreSQL's

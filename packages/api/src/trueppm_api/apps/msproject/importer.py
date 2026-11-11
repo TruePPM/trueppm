@@ -87,7 +87,7 @@ def import_project(
 
     # --- Step 1: Create or match resources ---
     _update(10, "Matching resources...")
-    resource_uid_to_pk = _import_resources(data, summary, batch_size=batch_size)
+    resource_uid_to_pk = _import_resources(project_id, data, summary, batch_size=batch_size)
 
     # --- Step 2: Create tasks ---
     _update(30, f"Creating {len(data.tasks)} tasks...")
@@ -297,52 +297,176 @@ def _import_labels(
         summary["label_assignments_created"] = len(assignments)
 
 
+def _build_people_index(project_id: str) -> _PeopleIndex:
+    """Index the people a file may bind to: this project's roster and members only.
+
+    Built once per import in two constant-count queries (roster joined to Resource;
+    Resources whose linked user holds a live membership), never per row. The global
+    Resource library is deliberately NOT consulted: it spans every project, so a
+    display-name collision would bind imported work to a person who belongs to no
+    project the caller can see (spec data-interchange §5.3, #2485).
+    """
+    from trueppm_api.apps.resources.models import ProjectResource, Resource
+
+    resources: dict[str, Any] = {}
+    for pr in (
+        ProjectResource.objects.active()
+        .filter(project_id=project_id)
+        .select_related("resource__user")
+    ):
+        resources[str(pr.resource_id)] = pr.resource
+    for r in Resource.objects.filter(
+        is_deleted=False,
+        user__memberships__project_id=project_id,
+        user__memberships__is_deleted=False,
+    ).select_related("user"):
+        resources[str(r.pk)] = r
+
+    # Resource.user is a plain FK, so one user can own several Resource rows. They are
+    # one person: keep the first seen (roster entries were inserted first), or a value
+    # naming that user would read as "ambiguous" between their own duplicates.
+    index = _PeopleIndex()
+    seen_users: set[Any] = set()
+    for r in resources.values():
+        if r.user_id is not None:
+            if r.user_id in seen_users:
+                continue
+            seen_users.add(r.user_id)
+        index.add(str(r.pk), r)
+    return index
+
+
+class _PeopleIndex:
+    """Lookup tables over the project's people; see :func:`_build_people_index`."""
+
+    def __init__(self) -> None:
+        self._tables: dict[str, dict[str, dict[str, Any]]] = {
+            "uuid": {},
+            "email": {},
+            "username": {},
+            "name": {},
+        }
+
+    def add(self, pk: str, r: Any) -> None:
+        keys = {"uuid": [pk], "email": [], "username": [], "name": [r.name]}
+        keys["email"] = [e for e in (r.email, r.user.email if r.user else "") if e]
+        if r.user:
+            keys["username"] = [r.user.get_username()]
+        for kind, values in keys.items():
+            for v in values:
+                self._tables[kind].setdefault(v.strip().lower(), {})[pk] = r
+
+    def candidates(self, value: str) -> dict[str, Any]:
+        """Every distinct person the value could mean, by UUID, email, username or name.
+
+        More than one means the value is ambiguous (two people share a name, or it is
+        one person's username and another's name). Binding to either would be a guess
+        that attaches work to the wrong person, so the caller refuses to bind.
+        """
+        key = value.strip().lower()
+        found: dict[str, Any] = {}
+        for table in self._tables.values():
+            found.update(table.get(key, {}))
+        return found
+
+
+def _unmatched_warning(rd: Any, outcome: str, *, head_only: bool = False) -> str:
+    """Locate an unmatched person for the operator (spec §5.8): spreadsheet line and
+    column when the parser recorded them, else the file's resource UID (MS Project)."""
+    base = f"Resource '{rd.name}'"
+    if not head_only:
+        base = f"{base} is not on this project's roster or member list; {outcome}"
+    if not rd.source_lines:
+        return f"{base} (resource UID {rd.uid})" if not head_only else f"{base} (UID {rd.uid})"
+    first, extra = rd.source_lines[0], len(rd.source_lines) - 1
+    more = f" and {extra} more line{'s' if extra > 1 else ''}" if extra else ""
+    return f"Line {first}{more}, column '{rd.source_column}': {base}"
+
+
 def _import_resources(
-    data: ProjectData, summary: dict[str, Any], *, batch_size: int
+    project_id: str, data: ProjectData, summary: dict[str, Any], *, batch_size: int
 ) -> dict[int, str]:
-    """Match parsed resources to the shared library by name, creating the rest.
+    """Bind the file's people to this project's roster/members; create the rest, bounded.
 
     Returns a map from the file's resource UID to the TruePPM Resource PK.
+
+    Unmatched values never fall back to the global library. Each distinct one earns a
+    warning; a new Resource is created for it only while the per-import cap
+    (``IMPORT_MAX_RESOURCES_CREATED``) has room, so a crafted sheet cannot mint an
+    unbounded number of workspace-wide rows from a project-scoped action.
     """
+    from django.conf import settings
+
     from trueppm_api.apps.resources.models import Resource
 
     resource_uid_to_pk: dict[int, str] = {}
+    summary["resources_created_names"] = []
+    summary["resources_refused_names"] = []
     if not data.resources:
         return resource_uid_to_pk
 
-    existing = {r.name.lower(): r for r in Resource.objects.all()}
+    cap = max(0, int(getattr(settings, "IMPORT_MAX_RESOURCES_CREATED", 200)))
+    index = _build_people_index(project_id)
     new_resources: list[Resource] = []
+    created_by_key: dict[str, Resource] = {}
+    refused: set[str] = set()
+    cap_refused: list[str] = []
+
+    assigned_uids = {ad.resource_uid for td in data.tasks for ad in td.resource_assignments}
 
     for rd in data.resources:
-        name_lower = rd.name.lower()
-        if name_lower in existing:
-            resource_uid_to_pk[rd.uid] = str(existing[name_lower].pk)
+        key = rd.name.strip().lower()
+        found = index.candidates(rd.name)
+        if len(found) > 1:
+            if key not in refused:
+                refused.add(key)
+                summary["warnings"].append(
+                    f"{_unmatched_warning(rd, '', head_only=True)}: ambiguous: matches "
+                    f"{len(found)} people on this project, so it was left unbound and "
+                    "nothing was created"
+                )
+            continue
+        if found:
+            resource_uid_to_pk[rd.uid] = str(next(iter(found.values())).pk)
             summary["resources_matched"] += 1
-        else:
+        elif key in created_by_key:
+            resource_uid_to_pk[rd.uid] = str(created_by_key[key].pk)
+        elif key in refused:
+            continue
+        elif rd.uid not in assigned_uids:
+            # Created rows are only rostered through an assignment, so an unassigned
+            # one would be an orphan global Resource minted again on every re-import.
+            refused.add(key)
+            summary["warnings"].append(
+                _unmatched_warning(rd, "it was not created: nothing in this file assigns it")
+            )
+        elif len(new_resources) < cap:
             # server_version=1: bulk_create skips save(), the only place that sets it.
-            new_resources.append(Resource(name=rd.name, max_units=rd.max_units, server_version=1))
+            # UUID PKs are assigned client-side, so the instance carries its own PK.
+            res = Resource(name=rd.name, max_units=rd.max_units, server_version=1)
+            new_resources.append(res)
+            created_by_key[key] = res
+            resource_uid_to_pk[rd.uid] = str(res.pk)
+            summary["warnings"].append(_unmatched_warning(rd, "a new resource was created for it"))
+        else:
+            refused.add(key)
+            cap_refused.append(rd.name)
+
+    if cap_refused:
+        shown = ", ".join(f"'{n}'" for n in cap_refused[:3])
+        more = f" and {len(cap_refused) - 3} more" if len(cap_refused) > 3 else ""
+        summary["warnings"].append(
+            f"{len(cap_refused)} people were not created: the per-import cap of {cap} "
+            f"(IMPORT_MAX_RESOURCES_CREATED={cap}) was reached ({shown}{more}); "
+            "their assignments were skipped"
+        )
+        summary["resources_refused_names"] = list(cap_refused)
 
     if new_resources:
         Resource.objects.bulk_create(new_resources, batch_size=batch_size)
         summary["resources_created"] = len(new_resources)
-        _map_created_resource_pks(data, resource_uid_to_pk)
+        summary["resources_created_names"] = [r.name for r in new_resources]
     return resource_uid_to_pk
-
-
-def _map_created_resource_pks(data: ProjectData, resource_uid_to_pk: dict[int, str]) -> None:
-    """Fill in PKs for the just-created resources by re-reading the library by name.
-
-    bulk_create does not populate PKs on the passed instances for every backend, so
-    the newly created rows are re-fetched and matched to their file UIDs by name.
-    """
-    from trueppm_api.apps.resources.models import Resource
-
-    all_resources = {r.name.lower(): r for r in Resource.objects.all()}
-    for rd in data.resources:
-        if rd.uid not in resource_uid_to_pk:
-            matched = all_resources.get(rd.name.lower())
-            if matched:
-                resource_uid_to_pk[rd.uid] = str(matched.pk)
 
 
 def _create_tasks(

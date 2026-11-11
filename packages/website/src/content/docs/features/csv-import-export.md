@@ -264,6 +264,14 @@ of the file still imports, and the import result's `warnings` list names each sk
 link. Ships in 0.5; in the current release the link is imported and the project's
 schedule then stops recalculating until it is deleted or retyped.
 
+## Assignee matching
+
+:::note[Ships in 0.5]
+Project-scoped matching ships in 0.5. In the current release an assignee name is matched case-insensitively against the workspace-wide resource library, and every unmatched name creates a new resource with no warning and no cap.
+:::
+
+Assignee names are matched only against the project's roster and members (matched by id, email, username or exact name, case-insensitive; a value matching more than one person is warned and left unbound), never the workspace-wide library. Anyone who matches nobody gets a warning naming the first source line, how many further lines repeat it, and the column and a new resource, up to `IMPORT_MAX_RESOURCES_CREATED` per import; past that one summary line names up to three of the people refused, their assignments are skipped, and `resources_refused_names` in the result lists them all. See [Resource matching](/features/msproject-import-export/#resource-matching).
+
 ## Assignee allocation
 
 :::note[Ships in 0.5]
