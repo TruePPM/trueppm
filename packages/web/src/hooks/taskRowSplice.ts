@@ -28,19 +28,36 @@ export const TASK_SPLICE_CONCURRENCY = 3;
  */
 export const TASK_SPLICE_MAX_BURST = 20;
 
-// Fields that move a row within the tree or reorder it. `computeWbsCodes` numbers
-// siblings by array index, so splicing one of these in place would render wrong
-// codes until the next full fetch.
-const STRUCTURAL_FIELD = /(^|_)(parent|wbs|order|rank|position|sort|outline|subtask)(_|$)/;
+// Allow-list, not a deny-list: only fields whose change is local to the edited row
+// may be spliced. Anything unknown takes the full refetch. Excluded on purpose:
+//  - structural fields (parent, wbs_path, order/rank, structure_role,
+//    auto_container, deleted_at): `computeWbsCodes` numbers siblings by array index;
+//  - rollup inputs (percent_complete, status, duration, actual_*, is_milestone,
+//    sprint, story_points): the serializer overwrites an ANCESTOR summary's (and a
+//    milestone's) percent_complete from its children, but only the edited child is
+//    broadcast, so splicing one row would leave ancestors stale;
+//  - cross-row derived state (blocking_task, blocked_by, assignee): they change
+//    another row's `is_blocked` / `assignee_is_overallocated`.
+const SPLICEABLE_FIELDS: ReadonlySet<string> = new Set([
+  'name',
+  'description',
+  'notes',
+  'labels',
+  'label_ids',
+  'owners',
+  'priority',
+  'custom_fields',
+  'custom_field_values',
+]);
 
 /**
- * True when the frame names a concrete, non-structural set of changed fields.
- * A missing/empty list (legacy emitters, `{"id"}`-only frames) means "unknown",
- * which must take the full-refetch path.
+ * True when the frame names a concrete set of changed fields that are ALL known
+ * row-local ones. A missing/empty list (legacy emitters, `{"id"}`-only frames)
+ * means "unknown", which must take the full-refetch path.
  */
 export function isSpliceableChange(changedFields: unknown): boolean {
   if (!Array.isArray(changedFields) || changedFields.length === 0) return false;
-  return changedFields.every((f) => typeof f === 'string' && !STRUCTURAL_FIELD.test(f));
+  return changedFields.every((f) => typeof f === 'string' && SPLICEABLE_FIELDS.has(f));
 }
 
 export interface TaskRowSplicer {
@@ -60,6 +77,11 @@ export function createTaskRowSplicer(opts: {
   const pending = new Map<string, number | null>();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  // One flush at a time: a new 100 ms window must not start more GETs while a slow
+  // batch is still running, or the in-flight count would be unbounded. An id in
+  // flight is not re-fetched concurrently; a newer frame for it waits in `pending`.
+  let flushing = false;
+  const abort = new AbortController();
 
   async function readOne(
     projectId: string,
@@ -68,7 +90,9 @@ export function createTaskRowSplicer(opts: {
   ): Promise<boolean> {
     // Returns true when the row was handled (spliced or intentionally dropped).
     try {
-      const { data } = await apiClient.get<ApiTask>(`/tasks/${taskId}/`);
+      const { data } = await apiClient.get<ApiTask>(`/tasks/${taskId}/`, {
+        signal: abort.signal,
+      });
       if (disposed || getProjectId() !== projectId) return true;
       const fresh = mapTask(data);
       const key = ['tasks', projectId];
@@ -105,6 +129,7 @@ export function createTaskRowSplicer(opts: {
 
   async function flush(): Promise<void> {
     timer = null;
+    if (flushing) return; // the running flush re-arms the timer when it ends
     const batch = [...pending];
     pending.clear();
     const projectId = getProjectId();
@@ -113,10 +138,18 @@ export function createTaskRowSplicer(opts: {
       fallback();
       return;
     }
-    const results = await mapWithConcurrency(batch, TASK_SPLICE_CONCURRENCY, ([id, v]) =>
-      readOne(projectId, id, v),
-    );
-    if (!disposed && results.some((ok) => !ok)) fallback();
+    flushing = true;
+    try {
+      const results = await mapWithConcurrency(batch, TASK_SPLICE_CONCURRENCY, ([id, v]) =>
+        readOne(projectId, id, v),
+      );
+      if (!disposed && results.some((ok) => !ok)) fallback();
+    } finally {
+      flushing = false;
+      if (!disposed && pending.size > 0) {
+        timer ??= setTimeout(() => void flush(), TASK_SPLICE_COALESCE_MS);
+      }
+    }
   }
 
   return {
@@ -128,6 +161,7 @@ export function createTaskRowSplicer(opts: {
     },
     dispose() {
       disposed = true;
+      abort.abort();
       if (timer !== null) clearTimeout(timer);
       timer = null;
       pending.clear();

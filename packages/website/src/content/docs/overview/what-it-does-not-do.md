@@ -209,6 +209,10 @@ on #3383. We are not publishing a target number until that work is measured — 
 published two figures in 2026 that better measurement overturned.
 
 :::note[Ships in 0.5]
+a collaborator's plain field edit (name, notes, labels, owners, custom fields) reads back and splices that one task instead of re-fetching the whole project. Edits to status, progress, duration, dates, parent, order, sprint, dependencies or assignee still re-fetch the whole list in 0.5, because they change other rows' rolled-up values. The 0.4 behavior above is unchanged.
+:::
+
+:::note[Ships in 0.5]
 The current release (0.4) refuses a project whose task durations and lags **sum** past 366,000 days, as if every task ran in series: about 73,000 tasks at a 5-day average, measured refusing at 64,000 ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)). From 0.5 the engine bounds the **longest dependency chain** instead, so parallel work no longer counts against the span; the sum keeps a separate, CPU-based ceiling of 3,660,000 days.
 :::
 

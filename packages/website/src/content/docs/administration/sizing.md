@@ -388,7 +388,7 @@ From 2,000 to 32,000 tasks — 16 times the data — the load takes about 100 ti
 |---|---|---|
 | [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Keyset pagination on the task read | Removes the `OFFSET` term, which is now the dominant cost — every page costs about what page 1 does |
 | [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382) | A slim bootstrap projection, so the Schedule stops fetching 99 fields per task to draw a bar | Cuts the per-page cost and the ~2.3 KB of JSON per task (below) |
-| [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) | Splice a remote `task_updated` into the cache instead of re-fetching | Stops every edit from costing every open Schedule a whole-project load |
+| [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) | Splice a remote `task_updated` into the cache instead of re-fetching | Stops a plain field edit (name, notes, labels, owners, custom fields) from costing every open Schedule a whole-project load; status, progress, duration, parent, order and assignee edits still re-fetch |
 | [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) | Count on the unannotated queryset | Now small — the first page, count included, is 127 ms at 100,000 tasks |
 
 **No 0.5 number is promised here.** Each change has a mechanism but not yet a measured outcome. The nightly budgets set in [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) are gross-regression tripwires (roughly the observed ceiling plus headroom for run-to-run contention), not a capacity signal: a green nightly rules out a large regression, and confirms no improvement. This page has already published one figure that a better measurement overturned. When the work above is measured, the rows will carry numbers instead of mechanisms.
@@ -432,6 +432,10 @@ Each part of the system runs out at a different size, and for a different reason
 | **Import** | CSV/Excel parser limit | 5,000 rows per file | [#743](https://gitlab.com/trueppm/trueppm/-/issues/743) |
 | **The database** | Not a constraint at this size | 208 MB for 100,000 tasks fits in `shared_buffers`; the first page stays at 127 ms | — |
 
+:::note[Ships in 0.5]
+a collaborator's plain field edit (name, notes, labels, owners, custom fields) reads back and splices that one task instead of re-fetching the whole project. Edits to status, progress, duration, dates, parent, order, sprint, dependencies or assignee still re-fetch the whole list in 0.5, because they change other rows' rolled-up values. The 0.4 behavior above is unchanged.
+:::
+
 The seeded projects are flat — leaf tasks with no summary rows — and their dependencies are strictly forward-linked, so a real WBS will cost more in the per-row subqueries, and a real network's sum of durations will be smaller than a single chain's. Treat the table as the shape of the problem, not as a guarantee at any size.
 
 ### Many users, many projects, and programs
@@ -447,7 +451,7 @@ Everything above is one user opening one project. Three more measurements, same 
 | 4 | 11.0 s | 4.0 s |
 | 8 | **22.5 s** | **7.3 s** |
 
-With one process the API pins at one core (118%) while PostgreSQL still has room; with four workers the API used 434% and PostgreSQL 1,107% at eight users. The shipped image runs one process and the chart has no setting to change it — [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) adds one; until then see [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count), or scale `replicaCount`. Each edit a user makes then multiplies this: while [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) is open, every open Schedule on the project re-fetches the whole project.
+With one process the API pins at one core (118%) while PostgreSQL still has room; with four workers the API used 434% and PostgreSQL 1,107% at eight users. The shipped image runs one process and the chart has no setting to change it — [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) adds one; until then see [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count), or scale `replicaCount`. Each edit a user makes then multiplies this: in 0.4 every open Schedule on the project re-fetches the whole project. 0.5 ([#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341)) narrows this to status, progress, duration, parent, order and assignee edits; plain field edits refresh one row.
 
 **Other projects in the same database barely matter.** A 5,000-task project opened in 1.87 s on its own and in 2.14 s with 19 more 5,000-task projects beside it — 100,000 tasks in the database. The program rollup went from 15 ms to 27 ms and the project list from 15 ms to 30 ms. Per-project reads are indexed on the project, so a large workspace costs a little, not a lot.
 

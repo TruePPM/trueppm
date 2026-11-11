@@ -739,7 +739,7 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
       await settle();
 
       expect(apiGetMock).toHaveBeenCalledTimes(1);
-      expect(apiGetMock).toHaveBeenCalledWith('/tasks/t1/');
+      expect(apiGetMock).toHaveBeenCalledWith('/tasks/t1/', expect.anything());
       const rows = qc.getQueryData<Task[]>(['tasks', 'proj-1'])!;
       expect(rows[0]).toMatchObject({ name: 'New', wbs: '1' });
       expect(rows[1].name).toBe('Other');
@@ -748,6 +748,7 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
 
     it.each([
       ['structural field', { changed_fields: ['parent'] }],
+      ['rollup input (child percent_complete)', { changed_fields: ['percent_complete'] }],
       ['missing changed_fields', {}],
       ['empty changed_fields', { changed_fields: [] }],
     ])('falls back to the list refetch for %s', async (_label, extra) => {
@@ -759,6 +760,55 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
 
       expect(apiGetMock).not.toHaveBeenCalled();
       expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+    });
+
+    it('falls back once, with no GETs, for a burst of more than 20 tasks', async () => {
+      const many = Array.from({ length: 25 }, (_, i) => ({
+        id: `m${i}`,
+        name: 'x',
+        serverVersion: 1,
+        wbs: `${i}`,
+      })) as unknown as Task[];
+      qc.setQueryData(['tasks', 'proj-1'], many);
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      for (const t of many) {
+        dispatchTaskUpdated({ id: t.id, actor_id: 'x', version: 2, changed_fields: ['name'] });
+      }
+      await settle();
+
+      expect(apiGetMock).not.toHaveBeenCalled();
+      expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+    });
+
+    it('splices a frame with no version', async () => {
+      apiGetMock.mockResolvedValue({
+        data: { id: 't1', name: 'NoVer', server_version: 2, is_summary: false },
+      });
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatchTaskUpdated({ id: 't1', actor_id: 'x', changed_fields: ['name'] });
+      await settle();
+
+      expect(qc.getQueryData<Task[]>(['tasks', 'proj-1'])![0].name).toBe('NoVer');
+    });
+
+    it('discards a GET that resolves after unmount', async () => {
+      let resolve!: (v: unknown) => void;
+      apiGetMock.mockReturnValue(new Promise((r) => (resolve = r)));
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      const { unmount } = renderHook(() => useProjectWebSocket('proj-1'), {
+        wrapper: makeWrapper(qc),
+      });
+      dispatchTaskUpdated({ id: 't1', actor_id: 'x', version: 2, changed_fields: ['name'] });
+      await settle();
+      unmount();
+      resolve({ data: { id: 't1', name: 'Late', server_version: 2, is_summary: false } });
+      await settle();
+
+      expect(qc.getQueryData<Task[]>(['tasks', 'proj-1'])![0].name).toBe('Old');
+      expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
     });
 
     it('falls back when the task is not in the cache', async () => {

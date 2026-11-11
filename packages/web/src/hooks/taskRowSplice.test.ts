@@ -22,7 +22,21 @@ function row(id: string, name: string, serverVersion: number): Task {
 
 describe('isSpliceableChange', () => {
   it('accepts plain fields and rejects missing/empty/structural lists', () => {
-    expect(isSpliceableChange(['name', 'status'])).toBe(true);
+    expect(isSpliceableChange(['name', 'labels', 'owners'])).toBe(true);
+    expect(isSpliceableChange(['percent_complete'])).toBe(false);
+    expect(isSpliceableChange(['name', 'status'])).toBe(false);
+    for (const f of [
+      'structure_role',
+      'auto_container',
+      'deleted_at',
+      'duration',
+      'sprint',
+      'blocked_by',
+      'assignee',
+      'some_new_field',
+    ]) {
+      expect(isSpliceableChange([f])).toBe(false);
+    }
     expect(isSpliceableChange(undefined)).toBe(false);
     expect(isSpliceableChange([])).toBe(false);
     expect(isSpliceableChange(['name', 'parent'])).toBe(false);
@@ -54,7 +68,7 @@ describe('createTaskRowSplicer', () => {
     make().request('a', 2);
     await flush();
     expect(getMock).toHaveBeenCalledTimes(1);
-    expect(getMock).toHaveBeenCalledWith('/tasks/a/');
+    expect(getMock).toHaveBeenCalledWith('/tasks/a/', expect.anything());
     const rows = qc.getQueryData<Task[]>(['tasks', 'p1'])!;
     expect(rows[0]).toMatchObject({ name: 'A2', serverVersion: 2, wbs: 'W-a' });
     expect(rows[1].name).toBe('B');
@@ -132,6 +146,55 @@ describe('createTaskRowSplicer', () => {
     await flush();
     expect(qc.getQueryData<Task[]>(['tasks', 'p1'])![0].name).toBe('A');
     expect(fallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('never exceeds the concurrency bound across consecutive flush windows', async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `t${i}`);
+    qc.setQueryData<Task[]>(
+      ['tasks', 'p1'],
+      ids.map((i) => row(i, i, 1)),
+    );
+    let inFlight = 0;
+    let peak = 0;
+    getMock.mockImplementation(async (url: string) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 400)); // outlives several 100 ms windows
+      inFlight--;
+      return { data: api(url.split('/')[2], 'x', 2) };
+    });
+    const s = make();
+    s.request('t0', 2);
+    s.request('t1', 2);
+    s.request('t2', 2);
+    await vi.advanceTimersByTimeAsync(TASK_SPLICE_COALESCE_MS + 1);
+    for (const i of ids.slice(3)) s.request(i, 2);
+    await vi.advanceTimersByTimeAsync(TASK_SPLICE_COALESCE_MS * 2);
+    s.request('t0', 3); // already in flight: waits, never runs concurrently
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(peak).toBeLessThanOrEqual(TASK_SPLICE_CONCURRENCY);
+    expect(getMock.mock.calls.filter(([u]) => u === '/tasks/t0/')).toHaveLength(2);
+  });
+
+  it('splices a frame that carries no version', async () => {
+    getMock.mockResolvedValue({ data: api('a', 'A2', 2) });
+    make().request('a', null);
+    await flush();
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])![0].name).toBe('A2');
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it('discards a late GET after dispose (no splice, no fallback)', async () => {
+    let resolve!: (v: unknown) => void;
+    getMock.mockReturnValue(new Promise((r) => (resolve = r)));
+    const s = make();
+    s.request('a', 2);
+    await flush();
+    s.dispose();
+    resolve({ data: api('a', 'Late', 2) });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])![0].name).toBe('A');
+    expect(fallback).not.toHaveBeenCalled();
   });
 
   it('dispose cancels pending work', async () => {
