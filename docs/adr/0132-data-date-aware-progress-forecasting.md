@@ -230,8 +230,10 @@ date (`packages/scheduler/tests/test_started_link_anchor.py`, and the `started_`
 
 > **Amendment (2026-11-11, #1495) — Monte Carlo's PERT remaining work is
 > subtractive, not scaled.** The engines never implemented the PERT half of the
-> first bullet. For the deterministic duration the two readings coincide
-> (`duration − int(duration × pct / 100)`), but Monte Carlo takes each run's
+> first bullet. The two readings agree only up to integer rounding: the
+> deterministic duration is `duration − int(duration × pct / 100)` (whole elapsed
+> days, truncated), where scaling would give `duration × f` with `f` fractional.
+> Monte Carlo takes each run's
 > sampled total *less the fixed elapsed* `int(duration × pct / 100)` working days of
 > the planned duration, rather than scaling the three points by `f`. That is now
 > the recorded rule, for three reasons: elapsed time is history, so it should not

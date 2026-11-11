@@ -355,6 +355,11 @@ class MonteCarloForecastSerializer(
             "cache hit; absent on the persisted-history fallback."
         ),
     )
+    # Deliberately NOT audience-gated, unlike ``horizon_saturated`` on the
+    # sprint-forecast view: this count is derived from the same velocity-driven
+    # result whose percentiles this endpoint already serves to every project
+    # member, so it reveals nothing those percentiles do not. The sprint-forecast
+    # surface is gated because it is a separate ADR-0104 signal surface.
     velocity_saturated_runs = serializers.IntegerField(
         required=False,
         min_value=0,

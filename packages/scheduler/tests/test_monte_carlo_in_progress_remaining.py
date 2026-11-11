@@ -100,3 +100,43 @@ def test_in_progress_mean_tracks_schedule_of_the_mean_estimate() -> None:
     shifted = replace(project, tasks=[_shift_remaining_work(project.tasks[0], 2), project.tasks[1]])
     reference = schedule(shifted).project_finish
     assert abs((result.p50 - reference).days) <= 1
+
+
+def _spread_days(estimate: tuple[int, int, int]) -> int:
+    """P95 - P5 of the finish distribution, in calendar days, for a 60%-done task."""
+    result = monte_carlo(_project(10, 60.0, estimate), runs=4_000, seed=1495)
+    ordered = sorted(result.distribution)
+    n = len(ordered)
+    return (ordered[int(n * 0.95)] - ordered[int(n * 0.05)]).days
+
+
+def test_spread_scales_with_the_estimate() -> None:
+    """Widening the three-point estimate widens the finish spread, roughly in proportion.
+
+    The remaining work is the sampled total less a *fixed* elapsed, so the spread of
+    the finish is the spread of the estimate (not shrunk by percent complete, #1495).
+    Doubling the O..P width must at least strictly grow the spread, and the ratio
+    must sit near the width ratio (generous tolerance: calendar days include weekends).
+    """
+    narrow = _spread_days((8, 12, 16))  # width 8
+    wide = _spread_days((6, 12, 20))  # width 14
+    widest = _spread_days((2, 12, 30))  # width 28
+    assert narrow < wide < widest
+    assert 1.2 <= wide / narrow <= 2.8
+    assert 1.2 <= widest / wide <= 2.8
+
+
+def test_in_progress_mean_finish_tracks_schedule_of_the_mean_estimate() -> None:
+    """The issue's test-plan check: the MC *mean* finish offset vs schedule() of the mean.
+
+    Estimate 10/12/14 has mean total 12 (symmetric); with 4 of 10 planned days
+    elapsed the reference is schedule() of the 12-day task holding those 4 days.
+    The mean of the simulated finish offsets must sit within a working day of it.
+    """
+    project = _project(10, 40.0, (10, 12, 14))
+    result = monte_carlo(project, runs=4_000, seed=1495)
+    shifted = replace(project, tasks=[_shift_remaining_work(project.tasks[0], 2), project.tasks[1]])
+    reference = schedule(shifted).project_finish
+    offsets = [(d - reference).days for d in result.distribution]
+    mean_offset = sum(offsets) / len(offsets)
+    assert abs(mean_offset) <= 1.0, mean_offset
