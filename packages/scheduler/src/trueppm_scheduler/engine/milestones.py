@@ -633,6 +633,18 @@ def _start_read_cap_on(
     def shown_by_finish(x: date) -> bool:
         if x > floor and _start_reading(x, start_display, cal):
             return False
+        # The switch clause is retained for safety; no test can distinguish it.
+        # Every inheritor ``u`` it names is itself capped on the link into it
+        # (:func:`_link_start_ref` with the end-of-day reading and ``u``'s own
+        # summary), and that cap already refuses each ``x`` with ``x`` after
+        # non-working time on ``u``'s calendar and ``x > m(u)``. A zero-lag link
+        # carries that bound up to this milestone's late instant, and the safe
+        # midnights are an initial run, so ``instant`` is already at or before
+        # every midnight this clause would refuse. It is kept because that holds
+        # only while every inheritor is capped on its own link; the clause makes
+        # this function exact on its own. Disabling it, or summarizing a switch by
+        # ``L(u)`` in place of ``m(u)``, changed no result over 400,000 fuzzed
+        # networks (#4526 review).
         return not any(x > m and _start_reading(x, False, c) for c, m in switches)
 
     while capped > floor and not shown_by_finish(capped):

@@ -203,6 +203,14 @@ fn start_read_cap_on(
             capped = checked_offset_days(capped, -1)?;
             continue;
         }
+        // The switch clause is retained for safety; no test can distinguish it.
+        // Every inheritor `u` it names is itself capped on the link into it
+        // (`link_start_ref` with the end-of-day reading and `u`'s own summary),
+        // which already refuses each midnight after non-working time on `u`'s
+        // calendar past `m(u)`; a zero-lag link carries that bound up to this
+        // milestone's late instant, and the safe midnights are an initial run.
+        // Kept so this function is exact on its own rather than only while every
+        // inheritor is capped on its own link (#4526 review).
         for &(c, m) in inheritors.switches.values() {
             if capped > m && start_reading(capped, false, c)? {
                 capped = checked_offset_days(capped, -1)?;
