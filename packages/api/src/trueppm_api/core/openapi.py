@@ -40,7 +40,9 @@ from copy import deepcopy
 from typing import Any, cast
 
 from drf_spectacular.openapi import AutoSchema
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework.permissions import SAFE_METHODS
+from rest_framework.settings import api_settings
 
 from trueppm_api.core.demo_read_only import DEMO_READ_ONLY_CODE
 
@@ -1087,6 +1089,27 @@ class TruePPMAutoSchema(AutoSchema):
     resource catalog, Git webhook, inbound task-sync and acceptance-result reporting).
     """
 
+    def _get_filter_parameters(self) -> list[dict[str, Any]]:
+        """Do not publish ``search`` on a view that declares no ``search_fields`` (#3452).
+
+        ``SearchFilter`` is a default backend, so drf-spectacular emits ``search`` on
+        every list-shaped operation; but with no ``search_fields`` the backend returns
+        the queryset untouched, so the parameter is accepted, documented and ignored.
+        That is a fact about the view's attributes, so it is derived here once rather
+        than excluded by hand on ~30 viewsets that would each have to remember it.
+        Operations whose handler never calls ``filter_queryset()`` are a different
+        failure and undeclare explicitly (``UNDECLARE_FILTER_PARAMS``).
+        """
+        # drf-spectacular ships this method untyped.
+        params: list[dict[str, Any]] = super()._get_filter_parameters()  # type: ignore[no-untyped-call]
+        if getattr(self.view, "search_fields", None):
+            return params
+        return [
+            p
+            for p in params
+            if not (p.get("in") == "query" and p.get("name") == api_settings.SEARCH_PARAM)
+        ]
+
     def get_auth(self) -> list[dict[str, Any]]:
         """Drop ``projectApiTokenAuth`` from unsafe operations on MCP-readable views (#2659).
 
@@ -1268,3 +1291,15 @@ def undo_summary_schema(description: str, **counts: str) -> dict[str, Any]:
         "required": list(counts),
         "additionalProperties": False,
     }
+
+
+# `search` / `ordering` are published by the default filter backends on every list-shaped
+# operation, but a custom `@action` (or a hand-written `list`/`create`) builds its own
+# queryset and never calls `filter_queryset()`, so the caller's value is accepted,
+# documented and dropped (#3452). Such an operation either honors them or stacks this on
+# its handler. `exclude=True` is the only form that removes an auto-generated parameter:
+# `parameters=[]` reads to drf-spectacular as "no overrides".
+UNDECLARE_FILTER_PARAMS = [
+    OpenApiParameter("search", exclude=True),
+    OpenApiParameter("ordering", exclude=True),
+]

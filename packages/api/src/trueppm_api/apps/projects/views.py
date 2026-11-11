@@ -340,6 +340,7 @@ from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutof
 from trueppm_api.core.detail_lookup import DetailLookupIgnoresSearchMixin
 from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import (
+    UNDECLARE_FILTER_PARAMS,
     ownership_refusal_403,
     state_refusal_400,
     suppress_list_pagination,
@@ -2607,6 +2608,7 @@ class ProjectViewSet(
         )
 
     @extend_schema(
+        parameters=UNDECLARE_FILTER_PARAMS,
         summary="List soft-deleted projects in Trash (recoverable within the retention window)",
         responses={
             200: inline_serializer(
@@ -3237,6 +3239,7 @@ class ProjectViewSet(
         return response
 
     @extend_schema(
+        parameters=UNDECLARE_FILTER_PARAMS,
         summary="List this project's async export jobs",
         responses={200: ProjectExportJobSerializer(many=True)},
     )
@@ -4247,6 +4250,7 @@ class ProjectViewSet(
         )
 
     @extend_schema(
+        parameters=UNDECLARE_FILTER_PARAMS,
         summary="Health summary across the caller's own projects (ADR-0401, #1941)",
         responses={
             200: inline_serializer(
@@ -4394,6 +4398,7 @@ class ProjectViewSet(
     @extend_schema(
         summary="Decision-flagged notes for this project (ADR-0167, #748)",
         parameters=[
+            *UNDECLARE_FILTER_PARAMS,
             OpenApiParameter(
                 name="sprint",
                 type=OpenApiTypes.UUID,
@@ -4403,7 +4408,7 @@ class ProjectViewSet(
                     "Scope to one sprint's decisions. Omit for the whole project "
                     "(including closed sprints)."
                 ),
-            )
+            ),
         ],
         responses={200: DecisionNoteSerializer(many=True)},
     )
@@ -7602,6 +7607,7 @@ class TaskViewSet(
         return Response({"deleted": deleted}, status=status.HTTP_200_OK)
 
     @extend_schema(
+        parameters=UNDECLARE_FILTER_PARAMS,
         summary="Duration-change audit events for a task (ADR-0151, #414)",
         # Without this, drf-spectacular infers the viewset's default TaskSerializer
         # and the paginated event list fails schema conformance against Task (#2127).
@@ -7636,6 +7642,7 @@ class TaskViewSet(
     @extend_schema(
         summary="Full-text search board cards by title and description (#323)",
         parameters=[
+            *UNDECLARE_FILTER_PARAMS,
             OpenApiParameter(
                 "project",
                 OpenApiTypes.UUID,

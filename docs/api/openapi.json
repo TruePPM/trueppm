@@ -28,15 +28,6 @@
                         "schema": {
                             "type": "integer"
                         }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -566,15 +557,6 @@
                         "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     },
                     {
@@ -1147,15 +1129,6 @@
                         }
                     },
                     {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "in": "query",
                         "name": "status",
                         "schema": {
@@ -1290,15 +1263,6 @@
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -2459,15 +2423,6 @@
                         "schema": {
                             "type": "integer"
                         }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -3353,15 +3308,6 @@
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -5539,15 +5485,6 @@
                         "schema": {
                             "type": "integer"
                         }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -6391,26 +6328,6 @@
             "get": {
                 "operationId": "v1_me_credentials_list",
                 "description": "Return one summary row per registered provider.\n\nProviders without a stored credential still appear (``exists=False``)\nso the page can render the \"Not connected\" state without two round-\ntrips. The encrypted secret is never serialized.",
-                "parameters": [
-                    {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
                 "tags": [
                     "me"
                 ],
@@ -6582,30 +6499,12 @@
                 "description": "Connect or rotate the credential for ``provider``.\n\n``create`` is a deliberate misnomer here: connect-and-rotate are\nthe same upsert. The viewset uses ``create`` so the standard DRF\naction set names the route ``POST /<provider>/`` rather than\n``POST /<provider>/rotate/``, which is what ADR-0049 §3 spells out.\n\nBefore persisting, the PAT is verified against the provider (#677):\nwe ping the provider's ``/user`` endpoint with the token so a wrong,\nexpired, wrong-scope, or wrong-host token is rejected here with 422\nrather than silently accepted and discovered later by #637's status\nfetch. The plaintext is never written to the DB on a failed verify —\n``upsert`` (and therefore encryption) is not reached.",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "provider",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -6875,15 +6774,6 @@
                         "schema": {
                             "type": "string"
                         }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -6937,30 +6827,12 @@
                 "description": "Per-user (event_type, channel) toggle matrix.\n\nGET    /me/notification-preferences/\nPATCH  /me/notification-preferences/{id}/     { enabled: bool }\n\nFirst GET backfills DEFAULT_PREFERENCES (Priya's email-OFF flip from V2 VoC)\nif the user has no rows yet — lazy initialization so user-create doesn't\nhave to know about this table.",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -7125,26 +6997,6 @@
                 "operationId": "v1_me_notification_preferences_apply_preset_create",
                 "description": "Apply a wholesale preference preset (#855) and return the new matrix.\n\nBody: ``{\"preset\": \"signal_only\" | \"everything\"}``.\n\n- ``signal_only`` — the contributor profile: in-app ON for the two\n  attention-worthy events (task.blocked, task.due_date_changed), every\n  other (event, channel) row OFF. This is Priya's escape from a noisy\n  default without auditing the full grid cell-by-cell.\n- ``everything`` — restore the enabled state from DEFAULT_PREFERENCES.\n\nImplemented as a bulk write over the existing per-(event, channel) rows\nrather than a new \"profile\" model, so the matrix stays the single source\nof truth and the data-driven settings page (ADR-0085) needs no special\ncasing. Scoped to ``request.user`` by construction.",
                 "summary": "Apply a notification preference preset",
-                "parameters": [
-                    {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
                 "tags": [
                     "me"
                 ],
@@ -7438,15 +7290,6 @@
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     },
                     {
@@ -8670,15 +8513,6 @@
                         "schema": {
                             "type": "string"
                         }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -8750,15 +8584,6 @@
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -12133,15 +11958,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -12249,15 +12065,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -12777,15 +12584,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -13435,15 +13233,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -14417,15 +14206,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -14968,15 +14748,6 @@
                 "description": "Nested CRUD for program memberships (ADR-0070).\n\nURL: ``/api/v1/programs/{program_pk}/members/``\n     ``/api/v1/programs/{program_pk}/members/{pk}/``\n\nPermission matrix mirrors :class:`ProjectMembershipViewSet`:\n  list/retrieve  — any program member (Viewer+)\n  create         — Owner only; cannot assign role >= caller's own\n  partial_update — Owner only; cannot assign role >= caller's own; last-Owner guard\n  destroy        — Owner only for others; self-remove allowed; last-Owner guard\n\nWhy membership is Owner-only while program *configuration* is Admin+\n(:class:`IsProgramAdmin` on rename/methodology/calendar/health/visibility/\nsharing/rollup/risk): the asymmetry is intentional (#2017 product decision).\nDeciding *who* belongs to a program and at *what* role is a sovereignty\n(ownership) decision — it grants or revokes another person's access — which\nis categorically distinct from reconfiguring a program whose membership is\nalready scoped. Admins may tune an already-scoped program; only Owners may\nchange its roster. Do not \"fix\" this by lowering the gate to Admin+.",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "program_pk",
                         "schema": {
@@ -14984,15 +14755,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -15468,15 +15230,6 @@
                 "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "program_pk",
                         "schema": {
@@ -15484,15 +15237,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -16482,15 +16226,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -18180,15 +17915,6 @@
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -20550,15 +20276,6 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
@@ -20574,15 +20291,6 @@
                         "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     },
                     {
@@ -20783,15 +20491,6 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
@@ -20807,15 +20506,6 @@
                         "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -21204,15 +20894,6 @@
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     },
                     {
@@ -25584,15 +25265,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -25700,15 +25372,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -27048,15 +26711,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -29012,15 +28666,6 @@
                 "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role == Role.OWNER)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
@@ -29028,15 +28673,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -29512,15 +29148,6 @@
                 "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
@@ -29528,15 +29155,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -30350,15 +29968,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -31522,15 +31131,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -31838,15 +31438,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -33193,15 +32784,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -33409,15 +32991,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     },
                     {
                         "in": "path",
@@ -33941,15 +33514,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     },
                     {
                         "in": "path",
@@ -35624,15 +35188,6 @@
                         "required": true
                     },
                     {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "task_pk",
                         "schema": {
@@ -36202,15 +35757,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     },
                     {
                         "in": "path",
@@ -36889,15 +36435,6 @@
                 "description": "Read-only team access, nested under a project.",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
@@ -36914,15 +36451,6 @@
                             "format": "uuid"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -37000,15 +36528,6 @@
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -37724,26 +37243,6 @@
                 "operationId": "v1_projects_health_summary_list",
                 "description": "Compact \"my projects\" health triage for the My Work page (ADR-0401).\n\nReturns one row per project the caller is a member of (excluding archived),\neach carrying a derived ``health_band`` plus the same at-risk / critical task\ncounts the single-project status-summary uses, so a PM overseeing many\nprojects can see \"which of mine is on fire?\" without opening each.\n\nScope is the caller's OWN member projects (adoption lens, OSS) — it is NOT a\ncross-program or portfolio rollup (that governance surface stays Enterprise,\nADR-0030/0088). The membership filter lives in ProjectScopedViewSet.get_queryset.\n\nAt-risk / critical use the status_summary semantics: incomplete tasks with\ntotal_float <= 5 working days → at_risk_count; incomplete is_critical=True →\ncritical_count. Leaf rows only (#4250) — a phase's total_float/is_critical\nare rollups of its children, not facts about the phase row itself\n(ADR-0024/ADR-0293); see :func:`task_is_phase_expr`.\n\nThe two counts come from :func:`program_rollup.risk_counts_by_project`, a\ngrouped query over ``Task`` keyed by ``project_id``, rather than a\nreverse-FK ``Count(\"tasks\", filter=...)`` annotation on this queryset —\nthe phase exclusion's RawSQL names its own FROM table literally and\ncannot safely ride a join whose alias this query does not control. See\nthat function's docstring for why.\n\nhealth_band comes from :func:`compute_health_band` — the same rule the\nsingle-project status-summary calls, so the two cannot disagree about one\nproject (#3501). health_band_source rides along for the same reason: the\nprovenance is published on both endpoints or on neither, or the two\ndisagree one level up about whether a band is a person's call (#3525).",
                 "summary": "Health summary across the caller's own projects (ADR-0401, #1941)",
-                "parameters": [
-                    {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
                 "tags": [
                     "projects"
                 ],
@@ -37861,26 +37360,6 @@
                 "operationId": "v1_projects_trash_list",
                 "description": "List the caller's soft-deleted projects still inside the retention window (#1113).\n\nAny member sees their own team's trashed projects (the queryset is\nmembership-scoped); ``can_restore`` is true only for the Owner, so the web can\ndisable Restore for non-Owners. The retention window comes from the #1114\nresolver: rows past ``now - window`` are omitted (they are eligible for the\nbackground purge and may already be gone); a NULL ``deleted_at`` (legacy delete,\nnever auto-purged) is always shown with an indefinite retention.",
                 "summary": "List soft-deleted projects in Trash (recoverable within the retention window)",
-                "parameters": [
-                    {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
                 "tags": [
                     "projects"
                 ],
@@ -38004,15 +37483,6 @@
                             "format": "uuid"
                         },
                         "description": "Filter to recurrence rules whose task is in this project."
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     },
                     {
                         "in": "query",
@@ -39670,30 +39140,12 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -40978,15 +40430,6 @@
                             "format": "uuid"
                         },
                         "description": "Filter to conflicts whose threatened task is in this project."
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     },
                     {
                         "in": "query",
@@ -44785,15 +44228,6 @@
                         "schema": {
                             "type": "integer"
                         }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -46085,15 +45519,6 @@
                         "schema": {
                             "type": "integer"
                         }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -46209,30 +45634,12 @@
                 "summary": "List active task runs",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -47572,15 +46979,6 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
@@ -47596,15 +46994,6 @@
                         "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -48616,15 +48005,6 @@
                 "summary": "Full-text search board cards by title and description (#323)",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "in": "query",
                         "name": "project",
                         "schema": {
@@ -48642,15 +48022,6 @@
                         },
                         "description": "Search term. Case-insensitive substring match over a card's name (title) and notes (description). Trimmed; capped at 100 chars.",
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -48779,30 +48150,12 @@
                 "description": "Roster list + role/facet assignment.\n\nURL: /api/v1/teams/{team_pk}/members/\n     /api/v1/teams/{team_pk}/members/{pk}/   (PATCH only)\n\nThe facets are soft-singletons: setting a facet on one member clears it from\nwhichever member currently holds it on the same team, in a single transaction\n(reassign-moves-the-facet — ADR-0078's \"transitional state during handoff\" is\nrealized as an atomic move rather than a tolerated double-holder).",
                 "parameters": [
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     },
                     {
@@ -49032,15 +48385,6 @@
                         "description": "A page number within the paginated result set.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -49307,15 +48651,6 @@
                             "type": "boolean"
                         },
                         "description": "When true, restrict to suggestions awaiting a decision (neither accepted nor dismissed)."
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     },
                     {
                         "in": "query",

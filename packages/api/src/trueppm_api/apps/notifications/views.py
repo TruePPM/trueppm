@@ -36,6 +36,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
+from trueppm_api.core.openapi import UNDECLARE_FILTER_PARAMS
 from trueppm_api.core.request_body import object_body
 
 from .categories import CATEGORIES, CATEGORY_MENTIONS, event_types_for_category
@@ -413,6 +414,7 @@ class NotificationPreferenceViewSet(
             return NotificationPreference.objects.none()
         return NotificationPreference.objects.filter(user=user).order_by("event_type", "channel")
 
+    @extend_schema(parameters=UNDECLARE_FILTER_PARAMS)
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_authenticated:
             get_or_create_default_preferences(request.user)
@@ -431,6 +433,7 @@ class NotificationPreferenceViewSet(
         serializer.save()
 
     @extend_schema(
+        parameters=UNDECLARE_FILTER_PARAMS,
         summary="Apply a notification preference preset",
         # Every field of the inferred contract was wrong (#2840). Without this,
         # drf-spectacular fell back to the viewset's NotificationPreferenceSerializer

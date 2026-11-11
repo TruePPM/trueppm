@@ -16,6 +16,7 @@ from trueppm_api.apps.access.permissions import IsProjectAdmin, IsProjectMember
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 from trueppm_api.apps.taskruns.serializers import SchedulerRunSerializer, TaskRunSerializer
+from trueppm_api.core.openapi import UNDECLARE_FILTER_PARAMS
 
 # Task name written by scheduling.tasks.recalculate_schedule via TaskRunTracker.
 # The scheduler-runs endpoint is a typed thin view over TaskRun filtered on this.
@@ -132,6 +133,7 @@ class GlobalTaskRunViewSet(ReadOnlyModelViewSet[TaskRun]):
         return TaskRun.objects.filter(project_id__in=project_ids).select_related("initiated_by")
 
     @extend_schema(
+        parameters=UNDECLARE_FILTER_PARAMS,
         summary="List active task runs",
         responses={200: TaskRunSerializer(many=True)},
     )

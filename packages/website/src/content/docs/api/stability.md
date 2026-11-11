@@ -515,6 +515,22 @@ window.
 | Announced | 0.4 (schema declaration corrected; wire behavior unchanged) |
 | Migration | regenerate clients; send `user` as an integer id |
 
+### `search` / `ordering` no longer declared where they were ignored (#3452)
+
+55 operations published `search` and/or `ordering` query parameters that the
+server never read: custom actions that build their own queryset (for example
+`GET /api/v1/projects/{id}/export/jobs/`, `/projects/trash/`, `/tasks/search/`) and
+list endpoints whose view declares no `search_fields`. A request that sent them got the
+unfiltered, unsorted result, exactly as before. The schema no longer advertises them, so
+a generated client drops the argument. Removing a documented parameter is **Breaking**
+on paper; on the wire nothing changes. Endpoints that honor the parameters (for example
+`/projects/`, `/tasks/`, `/resources/`, `/skills/`) are unchanged.
+
+| | |
+|---|---|
+| Announced | 0.5 (declaration correction; wire behavior unchanged) |
+| Migration | stop sending `search` / `ordering` to the listed operations; filter and sort client-side |
+
 ### `RoleEnum` replaced by `RoleOrdinal`
 
 **This is a pre-GA break with no deprecation window, not a scheduled
