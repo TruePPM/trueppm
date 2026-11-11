@@ -104,6 +104,9 @@ def test_agile_velocity_produces_spread() -> None:
         f"(got p50={body['p50']} p80={body['p80']} p95={body['p95']})"
     )
     assert body["p80"] >= body["p50"]
+    # A 20-40 pts/sprint team never reaches the sprint horizon, and the response
+    # says the band is an estimate, not a truncated lower bound (#2469).
+    assert body["velocity_saturated_runs"] == 0
 
 
 @pytest.mark.django_db

@@ -355,6 +355,16 @@ class MonteCarloForecastSerializer(
             "cache hit; absent on the persisted-history fallback."
         ),
     )
+    velocity_saturated_runs = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Runs in which an open scrum task's velocity draw reached the sprint "
+            "horizon without burning down and was clamped there (#2469). Non-zero "
+            "means P80/P95 are lower bounds, not estimates. Present on a live run or "
+            "a cache hit; absent on the persisted-history fallback."
+        ),
+    )
     cpm_finish = serializers.DateField(allow_null=True)
     cpm_finish_at_day_start = serializers.BooleanField(
         allow_null=True, help_text=_AT_DAY_START_HELP
