@@ -1415,6 +1415,34 @@ def test_product_backlog_blockers_and_met_by_no_n_plus_one(
     )
 
 
+@pytest.mark.django_db
+def test_product_backlog_member_assignee_check_no_n_plus_one(
+    project: Project, member: object
+) -> None:
+    """#2747: a plain Member (no short-circuit) serializes can_edit/can_delete per row
+    through the union assignee predicate. Without the ``assignments__resource``
+    prefetch each row that the Member is not the bare assignee of costs an extra
+    ``EXISTS`` query, so 25 rows would run ~20 queries above 5 rows.
+    """
+    from trueppm_api.apps.resources.models import Resource, TaskResource
+
+    res = Resource.objects.create(name="Dev", user=member)
+    client = APIClient()
+    client.force_authenticate(user=member)
+
+    def _fill(count: int) -> None:
+        for i in range(count):
+            t = _story(project, name=f"s{count}-{i}")
+            if i % 2:
+                TaskResource.objects.create(task=t, resource=res)
+
+    _fill(5)
+    small = _measure_backlog_queries(client, project)
+    _fill(20)
+    large = _measure_backlog_queries(client, project)
+    assert large == small, f"member backlog N+1: 25 rows cost {large} vs {small} for 5 rows"
+
+
 def test_split_query_count_is_bounded(
     owner_client: APIClient,
     project: Project,
