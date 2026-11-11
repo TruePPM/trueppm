@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Public-demo nginx allowlist gate (#1763, extended #4356).
 #
-# The hosted read-only demo (try.trueppm.com, docker-compose.demo.yml) bakes a
-# fixed SECRET_KEY that is safe ONLY because the demo has zero user accounts and
-# no authenticated write path — access is exclusively the anonymous, read-only,
+# The hosted read-only demo (try.trueppm.com, docker-compose.demo.yml) is
+# read-only because of DemoReadOnlyMiddleware plus this allowlist; its seeded
+# accounts carry unusable passwords, so nothing can sign in. Access is exclusively the
+# anonymous, read-only,
 # tokenized share link (#283/#1486). A blanket `location /api/ { proxy_pass … }`
 # on the demo's nginx template (the production posture) would expose the FULL
 # authenticated API — auth/token, every project viewset, the Admin-only

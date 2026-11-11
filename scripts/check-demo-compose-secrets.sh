@@ -26,7 +26,7 @@ check() {
   # The expected API-image services must each be found AND inspected; an image
   # rename would otherwise leave the awk below matching nothing and passing.
   for svc in api-init demo-seed api; do
-    if ! awk -v n="$svc" '$0 ~ "^  " n ":[[:space:]]*$" {s=1;next} /^  [A-Za-z0-9_-]+:[[:space:]]*$/{s=0} s&&/image:.*trueppm\/api/{f=1} END{exit !f}' "$compose"; then
+    if ! awk -v n="$svc" '$0 ~ "^  " n ":[[:space:]]*$" {s=1;next} /^  [A-Za-z0-9_-]+:[[:space:]]*$/{s=0} s{l=$0; sub(/(^|[[:space:]])#.*/,"",l)} s&&l ~ /image:.*trueppm\/api/{f=1} END{exit !f}' "$compose"; then
       echo "VIOLATION: expected API-image service '$svc' not found (or no trueppm/api image) in $compose" >&2
       rc=1
     fi
@@ -37,9 +37,10 @@ check() {
     /^services:/ { ins=1; next }
     /^[a-z]/ && !/^services:/ { flush(); name=""; ins=0 }
     ins && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { flush(); name=$1; sub(":","",name); api=0; ep=0; mnt=0; next }
-    ins && /image:.*trueppm\/api/ { api=1 }
-    ins && /^    <<:.*\*secrets-entrypoint/ { ep=1 }
-    ins && /- demo_secrets:\/secrets:ro/ { mnt=1 }
+    { l=$0; sub(/(^|[[:space:]])#.*/,"",l) }
+    ins && l ~ /image:.*trueppm\/api/ { api=1 }
+    ins && l ~ /^    <<:.*\*secrets-entrypoint/ { ep=1 }
+    ins && l ~ /^      - demo_secrets:\/secrets:ro/ { mnt=1 }
     END { flush() }
   ' "$compose" | while read -r svc ep mnt; do
     [ "$ep" = 1 ] || { echo "VIOLATION: service '$svc' does not use *secrets-entrypoint" >&2; echo bad; }
@@ -95,6 +96,10 @@ Y
   ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: renamed API image not caught" >&2; return 1; }
   good | awk '/^  api-init:/{s=1} s&&/<<:/{print "    <<: *logging"; print "    # was <<: [*logging, *secrets-entrypoint]"; s=0; next} {print}' > "$tmp/c.yml"
   ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: entrypoint present only in a comment not caught" >&2; return 1; }
+  good | awk '/^  api-init:/{s=1} s&&/<<:/{print "    <<: *logging  # *secrets-entrypoint"; s=0; next} {print}' > "$tmp/c.yml"
+  ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: trailing-comment entrypoint not caught" >&2; return 1; }
+  good | awk '/^  api-init:/{s=1} s&&/demo_secrets:\/secrets:ro/{print "      # - demo_secrets:/secrets:ro"; s=0; next} {print}' > "$tmp/c.yml"
+  ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: commented-out mount not caught" >&2; return 1; }
   echo "SELF-TEST OK: compliant fixture passes; drifted CMD, missing mount, missing entrypoint, renamed image and comment-only entrypoint are each caught."
 }
 

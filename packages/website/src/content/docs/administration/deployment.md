@@ -109,7 +109,7 @@ container from the public internet:
 | `GET /api/v1/share/{schedule,board}/<token>/` | The anonymous, read-only, throttled share-link projections — the demo's only data plane. |
 | `GET /api/v1/health/` | Liveness probe for an upstream load balancer / ingress. |
 | `/static/` | Django-collected static assets (admin CSS, etc.). |
-| `/admin/` | Django admin — closed unconditionally by nginx's own `deny all`, which returns `403` before the request ever reaches the `api` container; the request never gets a chance to hit Django at all. Even a direct connection to `api` would find no accounts to administer, since this stack runs without `TRUEPPM_DJANGO_ADMIN_ENABLED`. |
+| `/admin/` | Django admin — closed unconditionally by nginx's own `deny all`, which returns `403` before the request ever reaches the `api` container; the request never gets a chance to hit Django at all. Even a direct connection to `api` would find no account that can sign in (the seeded accounts carry unusable passwords), and this stack runs without `TRUEPPM_DJANGO_ADMIN_ENABLED`. |
 
 Every **other** `/api/` route — `auth/token` and the rest of the auth surface,
 every project viewset, the Admin-only share-link *management* endpoints, workspace
