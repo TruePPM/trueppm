@@ -113,15 +113,26 @@ export function useEnsureFullProductBacklog(
     const run = (async (): Promise<ProductBacklog | null> => {
       let backlog = qc.getQueryData<ProductBacklog>(key);
       if (!backlog || !projectId) return null;
-      // Merge each page into the CURRENT cache (never write a private accumulator): an
-      // optimistic reparent / quick-add / DoR write landing while a page is in flight
-      // would otherwise be clobbered. The next offset is also read from the cache.
+      // Merge each page into the CURRENT cache (never write a private accumulator): a
+      // reparent or a refetch landing while a page is in flight would otherwise be
+      // clobbered. A page fetched at offset `before` is only contiguous with a cache that
+      // is still `before` stories deep; if a refetch replaced the cache at another depth
+      // meanwhile, merging would leave a hole and mark the backlog complete, so the page
+      // is discarded and the loop re-reads the new depth.
       while (backlog.truncated) {
         const before = loadedStoryCount(backlog);
         const page = await fetchProductBacklog(projectId, before);
-        qc.setQueryData<ProductBacklog>(key, (cur) => (cur ? mergeBacklogPage(cur, page) : page));
+        let applied = false;
+        qc.setQueryData<ProductBacklog>(key, (cur) => {
+          if (!cur) return page;
+          if (loadedStoryCount(cur) !== before) return cur;
+          applied = true;
+          return mergeBacklogPage(cur, page);
+        });
         backlog = qc.getQueryData<ProductBacklog>(key) ?? backlog;
-        if (loadedStoryCount(backlog) === before) break;
+        // Stop only when a contiguous page added nothing; a discarded page is retried
+        // from the cache's new depth.
+        if (applied && loadedStoryCount(backlog) === before) break;
       }
       return backlog;
     })();

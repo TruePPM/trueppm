@@ -225,7 +225,7 @@ describe('product-backlog paging (#2344)', () => {
     expect(qc.getQueryData(productBacklogKeys.root('p1'))).toEqual(full);
   });
 
-  it('ensure-full merges each page into the CURRENT cache, keeping a concurrent optimistic write', async () => {
+  it('ensure-full merges each page into the CURRENT cache, keeping a concurrent depth-neutral write', async () => {
     const qc = makeQC();
     qc.setQueryData(productBacklogKeys.root('p1'), page1());
     let release!: (b: ProductBacklog) => void;
@@ -241,10 +241,13 @@ describe('product-backlog paging (#2344)', () => {
     act(() => {
       done = result.current();
     });
-    // An optimistic reparent/quick-add lands while page 2 is still in flight.
+    // An optimistic reparent lands while page 2 is still in flight: it renames/moves a
+    // loaded row but does not change how many stories are loaded.
     qc.setQueryData<ProductBacklog>(productBacklogKeys.root('p1'), (cur) => ({
       ...cur!,
-      ungrouped: [...cur!.ungrouped, story('optimistic')],
+      ungrouped: cur!.ungrouped.map((s) =>
+        s.id === 'u1' ? ({ ...s, name: 'optimistic' } as never) : s,
+      ),
     }));
     await act(async () => {
       release(page2());
@@ -253,8 +256,68 @@ describe('product-backlog paging (#2344)', () => {
     const ids = qc
       .getQueryData<ProductBacklog>(productBacklogKeys.root('p1'))!
       .ungrouped.map((s) => s.id);
-    expect(ids).toContain('optimistic');
+    const rows = qc.getQueryData<ProductBacklog>(productBacklogKeys.root('p1'))!.ungrouped;
+    expect(rows.find((s) => s.id === 'u1')!.name).toBe('optimistic');
     expect(ids).toContain('u2');
+  });
+
+  it('ensure-full leaves no hole when a refetch replaces the cache at a shallower depth mid-load', async () => {
+    const qc = makeQC();
+    const deep = makeBacklog({
+      epics: [
+        {
+          epic,
+          stories: [story('s1'), story('s1b')],
+          rollup: { storyCount: 5, pointsTotal: 0, pointsDone: 0 },
+        },
+      ],
+      ungrouped: [story('u1'), story('u1b')],
+      truncated: true,
+      limit: 2,
+    });
+    qc.setQueryData(productBacklogKeys.root('p1'), deep);
+    let release!: (b: ProductBacklog) => void;
+    fetchProductBacklogMock
+      .mockReturnValueOnce(
+        new Promise<ProductBacklog>((r) => {
+          release = r;
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeBacklog({
+          epics: [
+            {
+              epic,
+              stories: [story('s1b')],
+              rollup: { storyCount: 5, pointsTotal: 0, pointsDone: 0 },
+            },
+          ],
+          ungrouped: [story('u1b')],
+          truncated: false,
+          offset: 2,
+        }),
+      );
+    const { result } = renderHook(() => useEnsureFullProductBacklog('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+    let done!: Promise<ProductBacklog | null>;
+    act(() => {
+      done = result.current();
+    });
+    // A WS-invalidation refetch swaps in a shallower (page-one) cache while offset 4 is in flight.
+    qc.setQueryData(productBacklogKeys.root('p1'), page1());
+    let full: ProductBacklog | null = null;
+    await act(async () => {
+      release(makeBacklog({ ungrouped: [story('u3')], truncated: false, offset: 4 }));
+      full = await done;
+    });
+    const ids = [
+      ...full!.epics.flatMap((g) => g.stories.map((s) => s.id)),
+      ...full!.ungrouped.map((s) => s.id),
+    ];
+    expect(ids).toEqual(expect.arrayContaining(['s1', 's1b', 'u1', 'u1b']));
+    expect(ids).not.toContain('u3');
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(2, 'p1', 2);
   });
 
   it('ensure-full fetches nothing on a complete backlog', async () => {

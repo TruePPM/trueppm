@@ -217,7 +217,9 @@ function StoryPickerPickBody({
               {allRowsEmpty
                 ? 'The backlog is empty.'
                 : readyOnly
-                  ? 'No Ready stories to pull.'
+                  ? loadedCount != null
+                    ? `No Ready stories among the ${loadedCount.toLocaleString()} loaded stories.`
+                    : 'No Ready stories to pull.'
                   : loadedCount != null
                     ? `No backlog stories match your search among the ${loadedCount.toLocaleString()} loaded stories.`
                     : 'No backlog stories match your search.'}

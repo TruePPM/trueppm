@@ -149,6 +149,24 @@ describe('StoryPickerModal', () => {
     ).toBeInTheDocument();
   });
 
+  it('qualifies the Ready-only empty state as loaded-only on a truncated backlog (#2344)', () => {
+    const b = backlog();
+    useProductBacklogMock.mockReturnValue({
+      data: {
+        ...b,
+        ungrouped: b.ungrouped.filter((s) => s.dor !== 'ready'),
+        truncated: true,
+        limit: 1,
+        health: { ...b.health, storyCount: 40 },
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderModal({ readyOnlyDefault: true });
+    expect(screen.getByText('No Ready stories among the 1 loaded stories.')).toBeInTheDocument();
+    expect(screen.queryByText('No Ready stories to pull.')).not.toBeInTheDocument();
+  });
+
   it('renders as a dialog naming the target sprint', () => {
     renderModal();
     expect(screen.getByRole('dialog', { name: /Pull stories into SP-A1/i })).toBeInTheDocument();
