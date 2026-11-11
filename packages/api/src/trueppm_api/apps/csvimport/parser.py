@@ -1866,8 +1866,8 @@ def _build_resources(
 
     Names are deduplicated case-insensitively but the first-seen spelling is
     kept, so "J. Smith" and "j. smith" become one resource named as first
-    written. ``import_project`` match-or-creates these against the project's
-    resource pool.
+    written. ``import_project`` binds these to the project's roster and
+    members only (never the global library), creating the rest within a cap.
 
     Allocation: a per-name ``Ana:50`` suffix wins; otherwise the row's
     Allocation column applies; otherwise 100%. A name repeated within one cell

@@ -368,7 +368,11 @@ export endpoint). Import is server-side.
   `Resource` for it, but creation is **bounded** by `IMPORT_MAX_RESOURCES_CREATED`
   (default 200) per import and **reported** (`resources_created`, `resources_created_names`).
   Past the cap the value gets a warning, no row is created, and its assignments are skipped.
-  A person nothing in the file assigns is never created, only warned about.
+  A person nothing in the file assigns is never created, only warned about. A value that
+  matches **more than one** person on the project (two people share a name, or it is one
+  person's username and another's name) is **ambiguous**: it is warned ("ambiguous: matches N
+  people on this project"), left unbound, and never created. Warnings for values refused at
+  the cap collapse into one aggregate line.
 - Exported id-shaped columns (a risk's `qualified_id`, a task's `WBS`) are **informational
   on export and ignored on import**. They round-trip visually without ever being trusted
   as identity.

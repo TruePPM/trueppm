@@ -718,6 +718,8 @@ class TestImporter:
 
     def test_name_collision_with_non_member_does_not_bind(self, project: Project) -> None:
         outsider = Resource.objects.create(name="A. Rivera")
+        other = Project.objects.create(name="Elsewhere", start_date=date(2026, 3, 2))
+        ProjectResource.objects.create(project=other, resource=outsider, server_version=1)
         summary = import_project(str(project.pk), self._one_assignee("A. Rivera"))
         assert summary["resources_matched"] == 0
         assert summary["resources_created"] == 1
@@ -781,11 +783,38 @@ class TestImporter:
         assert summary["resources_created"] == 2
         assert len(summary["resources_created_names"]) == 2
         assert Resource.objects.count() == 2
-        assert len([w for w in summary["warnings"] if "limit of 2" in w]) == 3
+        cap_warnings = [w for w in summary["warnings"] if "per-import cap of 2" in w]
+        assert len(cap_warnings) == 1
+        assert cap_warnings[0].startswith("3 more people were not created")
+        assert "Person 3" in cap_warnings[0]
         # Assignments exist only for the resources actually created.
         assert summary["assignments_created"] == 2
         assigned = set(TaskResource.objects.values_list("resource__name", flat=True))
         assert assigned == set(summary["resources_created_names"])
+
+    def test_ambiguous_name_is_warned_and_left_unbound(self, project: Project) -> None:
+        for _ in range(2):
+            ProjectResource.objects.create(
+                project=project, resource=Resource.objects.create(name="Alice"), server_version=1
+            )
+        summary = import_project(str(project.pk), self._one_assignee("Alice"))
+        assert any("ambiguous: matches 2 people on this project" in w for w in summary["warnings"])
+        assert summary["resources_matched"] == 0
+        assert summary["resources_created"] == 0
+        assert summary["assignments_created"] == 0
+        assert Resource.objects.filter(name="Alice").count() == 2
+        assert not TaskResource.objects.exists()
+
+    def test_value_that_is_one_username_and_anothers_name_is_ambiguous(
+        self, project: Project, user: Any
+    ) -> None:
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        Resource.objects.create(name="Us", user=user)
+        other = Resource.objects.create(name="msp_user")
+        ProjectResource.objects.create(project=project, resource=other, server_version=1)
+        summary = import_project(str(project.pk), self._one_assignee("msp_user"))
+        assert any("ambiguous" in w for w in summary["warnings"])
+        assert summary["assignments_created"] == 0
 
     def test_unassigned_unmatched_resource_is_warned_not_created(self, project: Project) -> None:
         data = ProjectData(
@@ -807,6 +836,10 @@ class TestImporter:
         ProjectMembership.objects.create(
             project=project, user=user, role=Role.MEMBER, is_deleted=True
         )
+        # Both people are live on a second project, so only THIS project's scope excludes them.
+        other = Project.objects.create(name="Elsewhere", start_date=date(2026, 3, 2))
+        ProjectResource.objects.create(project=other, resource=revoked, server_version=1)
+        ProjectMembership.objects.create(project=other, user=user, role=Role.MEMBER)
         data = ProjectData(
             tasks=[
                 TaskData(

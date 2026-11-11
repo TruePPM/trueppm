@@ -324,13 +324,7 @@ def _build_people_index(project_id: str) -> _PeopleIndex:
 
     index = _PeopleIndex()
     for r in resources.values():
-        index.by_uuid[str(r.pk)] = r
-        for email in (r.email, r.user.email if r.user else ""):
-            if email:
-                index.by_email.setdefault(email.lower(), r)
-        if r.user:
-            index.by_username.setdefault(r.user.get_username().lower(), r)
-        index.by_name.setdefault(r.name.lower(), r)
+        index.add(str(r.pk), r)
     return index
 
 
@@ -338,28 +332,44 @@ class _PeopleIndex:
     """Lookup tables over the project's people; see :func:`_build_people_index`."""
 
     def __init__(self) -> None:
-        self.by_uuid: dict[str, Any] = {}
-        self.by_email: dict[str, Any] = {}
-        self.by_username: dict[str, Any] = {}
-        self.by_name: dict[str, Any] = {}
+        self._tables: dict[str, dict[str, dict[str, Any]]] = {
+            "uuid": {},
+            "email": {},
+            "username": {},
+            "name": {},
+        }
 
-    def resolve(self, value: str) -> Any | None:
-        """Match order: UUID, email, username, exact case-insensitive name."""
+    def add(self, pk: str, r: Any) -> None:
+        keys = {"uuid": [pk], "email": [], "username": [], "name": [r.name]}
+        keys["email"] = [e for e in (r.email, r.user.email if r.user else "") if e]
+        if r.user:
+            keys["username"] = [r.user.get_username()]
+        for kind, values in keys.items():
+            for v in values:
+                self._tables[kind].setdefault(v.strip().lower(), {})[pk] = r
+
+    def candidates(self, value: str) -> dict[str, Any]:
+        """Every distinct person the value could mean, by UUID, email, username or name.
+
+        More than one means the value is ambiguous (two people share a name, or it is
+        one person's username and another's name). Binding to either would be a guess
+        that attaches work to the wrong person, so the caller refuses to bind.
+        """
         key = value.strip().lower()
-        return (
-            self.by_uuid.get(key)
-            or self.by_email.get(key)
-            or self.by_username.get(key)
-            or self.by_name.get(key)
-        )
+        found: dict[str, Any] = {}
+        for table in self._tables.values():
+            found.update(table.get(key, {}))
+        return found
 
 
-def _unmatched_warning(rd: Any, outcome: str) -> str:
+def _unmatched_warning(rd: Any, outcome: str, *, head_only: bool = False) -> str:
     """Locate an unmatched person for the operator (spec §5.8): spreadsheet line and
     column when the parser recorded them, else the file's resource UID (MS Project)."""
-    base = f"Resource '{rd.name}' is not on this project's roster or member list; {outcome}"
+    base = f"Resource '{rd.name}'"
+    if not head_only:
+        base = f"{base} is not on this project's roster or member list; {outcome}"
     if not rd.source_lines:
-        return f"{base} (resource UID {rd.uid})"
+        return f"{base} (resource UID {rd.uid})" if not head_only else f"{base} (UID {rd.uid})"
     first, extra = rd.source_lines[0], len(rd.source_lines) - 1
     more = f" and {extra} more line{'s' if extra > 1 else ''}" if extra else ""
     return f"Line {first}{more}, column '{rd.source_column}': {base}"
@@ -391,14 +401,24 @@ def _import_resources(
     new_resources: list[Resource] = []
     created_by_key: dict[str, Resource] = {}
     refused: set[str] = set()
+    cap_refused: list[str] = []
 
     assigned_uids = {ad.resource_uid for td in data.tasks for ad in td.resource_assignments}
 
     for rd in data.resources:
         key = rd.name.strip().lower()
-        matched = index.resolve(rd.name)
-        if matched is not None:
-            resource_uid_to_pk[rd.uid] = str(matched.pk)
+        found = index.candidates(rd.name)
+        if len(found) > 1:
+            if key not in refused:
+                refused.add(key)
+                summary["warnings"].append(
+                    f"{_unmatched_warning(rd, '', head_only=True)}: ambiguous: matches "
+                    f"{len(found)} people on this project, so it was left unbound and "
+                    "nothing was created"
+                )
+            continue
+        if found:
+            resource_uid_to_pk[rd.uid] = str(next(iter(found.values())).pk)
             summary["resources_matched"] += 1
         elif key in created_by_key:
             resource_uid_to_pk[rd.uid] = str(created_by_key[key].pk)
@@ -421,13 +441,15 @@ def _import_resources(
             summary["warnings"].append(_unmatched_warning(rd, "a new resource was created for it"))
         else:
             refused.add(key)
-            summary["warnings"].append(
-                _unmatched_warning(
-                    rd,
-                    f"the import limit of {cap} new resources was reached, so it was not "
-                    "created and its assignments were skipped",
-                )
-            )
+            cap_refused.append(rd.name)
+
+    if cap_refused:
+        shown = ", ".join(f"'{n}'" for n in cap_refused[:3])
+        more = f" and {len(cap_refused) - 3} more" if len(cap_refused) > 3 else ""
+        summary["warnings"].append(
+            f"{len(cap_refused)} more people were not created: the per-import cap of {cap} "
+            f"was reached ({shown}{more}); their assignments were skipped"
+        )
 
     if new_resources:
         Resource.objects.bulk_create(new_resources, batch_size=batch_size)
