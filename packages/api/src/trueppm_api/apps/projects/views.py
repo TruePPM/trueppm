@@ -5861,9 +5861,6 @@ def _snapshot_task_before_update(instance: Task | None) -> _TaskUpdateSnapshot:
     )
 
 
-_UNCOMPARABLE = object()
-
-
 def _snapshot_submitted_values(instance: Task | None, keys: Any) -> dict[str, Any]:
     """Pre-save stored values for the submitted keys that map to a concrete column.
 
@@ -5880,7 +5877,7 @@ def _snapshot_submitted_values(instance: Task | None, keys: Any) -> dict[str, An
             field = Task._meta.get_field(key)
         except FieldDoesNotExist:
             continue
-        if getattr(field, "concrete", False) and not field.many_to_many:
+        if isinstance(field, db_models.Field) and field.concrete and not field.many_to_many:
             snap[key] = getattr(instance, field.attname)
     return snap
 
@@ -5901,8 +5898,10 @@ def _actually_changed_fields(
         if key not in before_values:
             changed.add(key)
             continue
-        attname = Task._meta.get_field(key).attname
-        if getattr(instance, attname) != before_values[key]:
+        field = Task._meta.get_field(key)
+        # Only concrete Fields are ever snapshotted, so this narrows for mypy.
+        assert isinstance(field, db_models.Field)
+        if getattr(instance, field.attname) != before_values[key]:
             changed.add(key)
     return changed
 
