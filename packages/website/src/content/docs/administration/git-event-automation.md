@@ -33,6 +33,10 @@ trailer, and no search — matching is an exact URL comparison against the links
 saved on the project's tasks. If no task links to the incoming PR/MR, the delivery
 verifies successfully, your provider shows a green check, and **nothing moves**.
 
+Only links recognized as the same provider as the delivery are compared. A link to a
+self-hosted GitLab or GitHub Enterprise Server instance that was saved without a
+matching connected-account credential is stored as a generic link and does not move cards.
+
 This is the single most common reason a correctly configured webhook appears to do
 nothing, so do it first:
 

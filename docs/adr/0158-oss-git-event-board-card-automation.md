@@ -220,6 +220,7 @@ status; `POST .../rotate-secret/` to mint/rotate the webhook secret, returned on
   - **URL matching is parse-and-compare**, not an indexed normalized key. Bounded by project
     scope so the candidate set is tiny; if it ever becomes hot, a future migration can add a
     normalized `pr_key` column to `TaskLink` (out of scope here).
+    (#2930: now provider-filtered, two-column read, pk fetch; partial index tasklink_provider_live_idx; links stored as `generic` are not candidates; normalized pr_key tracked in #4942)
   - **Boundary creep is the real risk.** The day someone adds OAuth, bidirectional
     writeback to Git, conflict resolution, or a second trigger/action pair, this stops being
     the ADR-0148-style narrow carve-out and becomes the Enterprise Integration Hub. A
