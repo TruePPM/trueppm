@@ -682,11 +682,13 @@ def test_x_source_invalid_value_falls_back_to_unknown(calendar: Calendar, alice:
         "\U0001f916",  # unicode (robot emoji)
         "",  # empty
     ]
-    for raw in invalid_cases:
+    # Each iteration renames the task: re-sending an unchanged value is a no-op that
+    # dispatches no webhook at all (#2564), which would make this test vacuous.
+    for i, raw in enumerate(invalid_cases):
         with patch("trueppm_api.apps.projects.views._dispatch_webhooks") as mock_dispatch:
             resp = _client(alice).patch(
                 f"/api/v1/tasks/{task.pk}/",
-                data={"status": TaskStatus.IN_PROGRESS},
+                data={"name": f"T {i}"},
                 format="json",
                 headers={"X-Source": raw},
             )
