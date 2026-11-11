@@ -482,45 +482,127 @@ function runForwardPassCore(
   const previous = activeWorkingDay;
   activeWorkingDay = buildWorkingDayPredicate(calendar);
   try {
-    return forwardPass(tasks, edges, targetTaskId, applyOverride);
+    return runPrepared(buildPrepared(tasks, edges), targetTaskId, applyOverride);
   } finally {
     activeWorkingDay = previous;
   }
 }
 
-function forwardPass(
-  tasks: CpmTask[],
-  edges: CpmEdge[],
-  targetTaskId: string,
-  applyOverride: (target: TaskState | undefined) => void,
-): {
-  results: PreviewTaskResult[];
-  worstMilestone: PreviewMilestone | null;
-} {
-  // --- Build state map ---
-  const stateMap = new Map<string, TaskState>();
-  for (const t of tasks) stateMap.set(t.id, toTaskState(t));
+/**
+ * The part of a forward pass that depends only on the resident `(tasks, edges,
+ * calendar)` — never on the gesture's per-move input. A drag keeps its subgraph
+ * resident because it is topologically invariant for the whole gesture, so
+ * everything here is computed once at DRAG_START and reused by every DRAG_MOVE
+ * (#2857). `template` is a pristine, milestone-resolved state per task; a run
+ * clones it because `relaxForward` mutates the states in place.
+ */
+export interface PreparedForwardPass {
+  predecessors: Map<string, CpmEdge[]>;
+  order: string[];
+  template: Map<string, TaskState>;
+}
 
-  // --- Topological sort ---
+function buildPrepared(tasks: CpmTask[], edges: CpmEdge[]): PreparedForwardPass {
+  const template = new Map<string, TaskState>();
+  for (const t of tasks) template.set(t.id, toTaskState(t));
+
   const { predecessors, inDegree } = buildGraph(tasks, edges);
 
   // --- Read each milestone's instant off the dates it arrived with (#4079) ---
-  for (const task of stateMap.values()) {
+  for (const task of template.values()) {
     if (task.instantMs === null) continue;
     const followsWork = task.atDayEndHint ?? (predecessors.get(task.id) ?? []).length > 0;
     task.startDisplay = !followsWork;
     task.instantMs = followsWork ? task.earlyFinishMs + MS_PER_DAY : task.earlyStartMs;
   }
 
+  return { predecessors, order: topologicalSort(tasks, edges, inDegree), template };
+}
+
+/**
+ * Build the invariant prologue of a forward pass once. The working-day
+ * predicate is scoped to this call (state construction snaps dates through it).
+ * Pair with {@link runCpmForwardPassPrepared} / {@link runCpmResizeForwardPassPrepared}.
+ */
+export function prepareCpmForwardPass(
+  tasks: CpmTask[],
+  edges: CpmEdge[],
+  calendar?: PreviewCalendar | null,
+): PreparedForwardPass {
+  const previous = activeWorkingDay;
+  activeWorkingDay = buildWorkingDayPredicate(calendar);
+  try {
+    return buildPrepared(tasks, edges);
+  } finally {
+    activeWorkingDay = previous;
+  }
+}
+
+function runPrepared(
+  prepared: PreparedForwardPass,
+  targetTaskId: string,
+  applyOverride: (target: TaskState | undefined) => void,
+): {
+  results: PreviewTaskResult[];
+  worstMilestone: PreviewMilestone | null;
+} {
+  const stateMap = new Map<string, TaskState>();
+  for (const [id, state] of prepared.template) stateMap.set(id, { ...state });
+
   // --- Override the gesture's target task ---
   applyOverride(stateMap.get(targetTaskId));
-  const order = topologicalSort(tasks, edges, inDegree);
 
   // --- Forward pass ---
-  relaxForward(order, stateMap, predecessors, targetTaskId);
+  relaxForward(prepared.order, stateMap, prepared.predecessors, targetTaskId);
 
   // --- Collect results ---
   return collectResults(stateMap);
+}
+
+function runPreparedWithCalendar(
+  prepared: PreparedForwardPass,
+  targetTaskId: string,
+  applyOverride: (target: TaskState | undefined) => void,
+  calendar: PreviewCalendar | null | undefined,
+) {
+  const previous = activeWorkingDay;
+  activeWorkingDay = buildWorkingDayPredicate(calendar);
+  try {
+    return runPrepared(prepared, targetTaskId, applyOverride);
+  } finally {
+    activeWorkingDay = previous;
+  }
+}
+
+/** Per-move drag pass over a {@link PreparedForwardPass}: no graph rebuild. */
+export function runCpmForwardPassPrepared(
+  prepared: PreparedForwardPass,
+  draggedTaskId: string,
+  newStartIso: string,
+  statusDate?: string | null,
+  calendar?: PreviewCalendar | null,
+) {
+  return runPreparedWithCalendar(
+    prepared,
+    draggedTaskId,
+    (dragged) => applyDrag(dragged, newStartIso, statusDate),
+    calendar,
+  );
+}
+
+/** Per-move resize pass over a {@link PreparedForwardPass}: no graph rebuild. */
+export function runCpmResizeForwardPassPrepared(
+  prepared: PreparedForwardPass,
+  resizedTaskId: string,
+  newDurationDays: number,
+  calendar?: PreviewCalendar | null,
+) {
+  return runPreparedWithCalendar(
+    prepared,
+    resizedTaskId,
+    (resized) => applyResize(resized, newDurationDays),
+    calendar,
+  );
 }
 
 /**
