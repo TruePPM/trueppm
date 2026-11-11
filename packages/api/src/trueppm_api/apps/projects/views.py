@@ -1492,6 +1492,7 @@ _BLOCKED_ROLLUP_QUERY_PARAMS = [
 # Story rows the grooming payload serializes per request (#2344); health/rollups stay whole-backlog.
 PRODUCT_BACKLOG_DEFAULT_LIMIT = 500
 PRODUCT_BACKLOG_MAX_LIMIT = 2000
+PRODUCT_BACKLOG_MAX_OFFSET = 2**31 - 1
 
 
 def _product_backlog_page(params: Any) -> tuple[int, int]:
@@ -1520,6 +1521,9 @@ def _product_backlog_page(params: Any) -> tuple[int, int]:
             raise DRFValidationError({"offset": "Must be an integer."}) from None
         if offset < 0:
             raise DRFValidationError({"offset": "Must be at least 0."})
+        # Python ints are unbounded; an OFFSET past bigint is a DataError (500) in Postgres.
+        if offset > PRODUCT_BACKLOG_MAX_OFFSET:
+            raise DRFValidationError({"offset": f"Must be at most {PRODUCT_BACKLOG_MAX_OFFSET}."})
     return limit, offset
 
 

@@ -1544,7 +1544,7 @@ def test_grooming_offset_returns_the_next_ranks(owner_client: APIClient, project
     assert past["truncated"] is False
 
 
-@pytest.mark.parametrize("bad", ["-1", "abc", "1.5"])
+@pytest.mark.parametrize("bad", ["-1", "abc", "1.5", str(10**30)])
 def test_grooming_rejects_bad_offset(owner_client: APIClient, project: Project, bad: str) -> None:
     resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?offset={bad}")
     assert resp.status_code == 400
