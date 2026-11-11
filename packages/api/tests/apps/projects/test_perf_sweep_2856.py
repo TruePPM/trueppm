@@ -127,6 +127,97 @@ class TestLtreeLookups:
         ]
         assert offenders == []
 
+    def test_no_pure_subtree_regex_left_on_wbs_path(self) -> None:
+        """A bare ``^<path>\\.`` regex on wbs_path is a subtree match the GiST index can't use."""
+        from pathlib import Path
+
+        import trueppm_api
+
+        root = Path(inspect.getfile(trueppm_api)).parent
+        pattern = re.compile(r'wbs_path__regex\s*=\s*rf?"\^\{[^}]+\}\\\."')
+        offenders = [
+            str(p.relative_to(root))
+            for p in root.rglob("*.py")
+            if "migrations" not in p.parts and pattern.search(p.read_text())
+        ]
+        assert offenders == []
+
+    def test_descendant_with_empty_path_matches_nothing(self, project: Project) -> None:
+        for p in ["1", "1.1", "2"]:
+            Task.objects.create(project=project, name=p, duration=1, wbs_path=p)
+        assert not Task.objects.filter(project=project, wbs_path__descendant="").exists()
+        assert not Task.objects.filter(project=project, wbs_path__descendant="  ").exists()
+        # In an OR the empty branch contributes nothing; the other branch still matches.
+        from django.db.models import Q
+
+        got = Task.objects.filter(
+            Q(wbs_path__descendant="") | Q(wbs_path__descendant="1"), project=project
+        )
+        assert {str(t.wbs_path) for t in got} == {"1.1"}
+
+
+class TestMigratedRegexSites:
+    def test_cascade_scope_excludes_label_prefix_siblings(self, project: Project) -> None:
+        from trueppm_api.apps.projects.task_classification import (
+            ClassificationSpec,
+            resolve_subtree,
+        )
+
+        by_path = {
+            p: Task.objects.create(project=project, name=p, duration=1, wbs_path=p)
+            for p in ["1", "1.1", "1.1.1", "10", "10.1", "2"]
+        }
+        spec = ClassificationSpec(
+            subtree_id=by_path["1"].pk,
+            cascade=True,
+            governance_class=None,
+            delivery_mode=None,
+            preserve_governance_overrides=False,
+            skip_milestones=False,
+        )
+        from django.db import transaction
+
+        with transaction.atomic():
+            rows = resolve_subtree(project, spec)
+        assert {str(t.wbs_path) for t in rows} == {"1", "1.1", "1.1.1"}
+
+    def test_summary_detection_ignores_label_prefix_paths(self, project: Project) -> None:
+        """Task "1" with only "10.x" around it has no children, so it is not a phase."""
+        from types import SimpleNamespace
+
+        from trueppm_api.apps.projects.serializers import TaskSerializer
+
+        lone = Task.objects.create(project=project, name="1", duration=1, wbs_path="1")
+        Task.objects.create(project=project, name="10", duration=1, wbs_path="10")
+        Task.objects.create(project=project, name="10.1", duration=1, wbs_path="10.1")
+        sprint = SimpleNamespace(start_date=None, finish_date=None)
+        assert "summary_in_sprint" not in TaskSerializer()._evaluate_task_guardrails(lone, sprint)
+
+        Task.objects.create(project=project, name="1.1", duration=1, wbs_path="1.1")
+        from rest_framework.exceptions import ValidationError
+
+        with pytest.raises(ValidationError):
+            TaskSerializer()._evaluate_task_guardrails(lone, sprint)
+
+    def test_parent_filter_excludes_label_prefix_subtasks(
+        self, client: APIClient, project: Project
+    ) -> None:
+        parent = Task.objects.create(project=project, name="P", duration=1, wbs_path="1")
+        mine = Task.objects.create(
+            project=project, name="mine", duration=1, wbs_path="1.1", is_subtask=True
+        )
+        Task.objects.create(project=project, name="P10", duration=1, wbs_path="10")
+        other = Task.objects.create(
+            project=project, name="other", duration=1, wbs_path="10.1", is_subtask=True
+        )
+        resp = client.get(f"/api/v1/tasks/?parent={parent.pk}&project={project.pk}")
+        assert resp.status_code == 200
+        rows = resp.data["results"] if isinstance(resp.data, dict) else resp.data
+        ids = {str(r["id"]) for r in rows}
+        assert str(mine.pk) in ids
+        assert str(other.pk) not in ids
+        assert str(parent.pk) not in ids
+
 
 # ---------------------------------------------------------------------------
 # A1 / C3 — phases
@@ -234,10 +325,15 @@ def test_task_link_create_refused_at_cap(client: APIClient, project: Project) ->
 
 
 def test_unpaginated_viewsets_are_capped_or_allowlisted() -> None:
-    """Every ``pagination_class = None`` viewset enforces a cap constant or is named here."""
-    from trueppm_api.apps.access import views as access_views
-    from trueppm_api.apps.integrations import views as integration_views
-    from trueppm_api.apps.projects import views as project_views
+    """Every ``pagination_class = None`` viewset enforces a cap constant or is named here.
+
+    The guard checks only the ``pagination_class = None`` shape; ``@suppress_list_pagination``
+    handlers are not covered.
+    """
+    import importlib
+    import pkgutil
+
+    import trueppm_api.apps as apps_pkg
 
     allowlist = {
         # Bounded by PROJECT_CUSTOM_FIELD_MAX on create.
@@ -250,7 +346,11 @@ def test_unpaginated_viewsets_are_capped_or_allowlisted() -> None:
         "TaskRelationViewSet",
     }
     found: set[str] = set()
-    for mod in (access_views, integration_views, project_views):
+    for info in pkgutil.walk_packages(apps_pkg.__path__, "trueppm_api.apps."):
+        leaf = info.name.rsplit(".", 1)[-1]
+        if info.ispkg or not (leaf == "views" or leaf.endswith("_views")):
+            continue
+        mod = importlib.import_module(info.name)
         for name, obj in vars(mod).items():
             if (
                 inspect.isclass(obj)
@@ -260,6 +360,7 @@ def test_unpaginated_viewsets_are_capped_or_allowlisted() -> None:
             ):
                 found.add(name)
     assert found <= allowlist, f"needs a cap or allow-list entry: {found - allowlist}"
+    assert allowlist <= found, f"stale allow-list entry (no longer matches): {allowlist - found}"
 
 
 # ---------------------------------------------------------------------------
@@ -368,3 +469,27 @@ def test_sort_and_filter_indexes_exist() -> None:
 
     assert any(i.fields == ["start_date", "name"] for i in Project._meta.indexes)
     assert any(i.fields == ["project", "task_name", "-created_at"] for i in TaskRun._meta.indexes)
+
+
+# ---------------------------------------------------------------------------
+# A4 — workspace export job order
+# ---------------------------------------------------------------------------
+
+
+def test_workspace_export_jobs_have_stable_order_with_equal_created_at(
+    project: Project,
+) -> None:
+    from django.utils import timezone
+
+    from trueppm_api.apps.workspace.models import WorkspaceExportJob
+
+    su = User.objects.create_superuser(username="ws-root", password="pw", email="r@example.com")
+    jobs = [WorkspaceExportJob.objects.create() for _ in range(12)]
+    # Force a single shared timestamp so only the ``-id`` tie-break decides the order.
+    WorkspaceExportJob.objects.filter(pk__in=[j.pk for j in jobs]).update(created_at=timezone.now())
+    c = APIClient()
+    c.force_authenticate(user=su)
+    resp = c.get("/api/v1/workspace/export/")
+    assert resp.status_code == 200, resp.data
+    got = [str(r["id"]) for r in resp.data["results"]]
+    assert got == sorted((str(j.pk) for j in jobs), reverse=True)

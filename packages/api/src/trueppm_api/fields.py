@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.core.exceptions import EmptyResultSet
 from django.db import models
 from django.db.models import Lookup
 
@@ -82,6 +83,11 @@ class Descendant(_LtreeContainmentLookup):
     def as_sql(  # type: ignore[override]
         self, compiler: Any, connection: Any
     ) -> tuple[str, list[Any]]:
+        # Fail closed: an empty path is the ltree root, which every non-root path is
+        # "below", so ``<@ '' AND <> ''`` would match the whole table. A caller that
+        # computed an empty path (missing parent, unset wbs_path) means "no subtree".
+        if isinstance(self.rhs, str) and not self.rhs.strip():
+            raise EmptyResultSet
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
         rhs = f"({rhs})::ltree"

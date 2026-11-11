@@ -226,6 +226,12 @@ The **Workflow & fields** block configures how the board behaves for this projec
 - **Custom fields** — define task custom fields (add, edit, remove) that appear on
   cards and task detail.
 
+:::note[Ships in 0.5]
+From 0.5 a project holds at most 200 phases: creating a 201st returns `400`, and
+`GET /projects/{id}/phases/` returns at most 200 root-level tasks as a plain array
+with no pagination envelope and no indication that the list was truncated.
+:::
+
 Each status row carries a **Lanes** expander. Adding a lane splits that one column into
 named tracks on the board — Review into *Peer review* and *QA*, say — up to six per
 column. Requires the **Resource Manager** role or above, the same gate as the rest of

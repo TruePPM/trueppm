@@ -28,7 +28,7 @@ from django.db.models import F
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -310,6 +310,14 @@ class IntegrationCredentialViewSet(
 
 
 @extend_schema(tags=["tasks"])
+@extend_schema_view(
+    create=extend_schema(
+        description=(
+            "Add a link to a task. Returns 400 when the task already has 100 links "
+            "(``TASK_LINK_MAX``)."
+        ),
+    ),
+)
 class TaskLinkViewSet(
     ProjectScopedViewSet,
     mixins.ListModelMixin,
@@ -333,6 +341,9 @@ class TaskLinkViewSet(
     list/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The
     queryset is the IDOR boundary — it scopes to the caller's project membership
     and the task in the URL, so a link id from another project is a 404.
+
+    Limit: a task holds at most ``TASK_LINK_MAX`` (100) live links; ``POST links/``
+    returns 400 beyond that. The list is a bare array, so the cap is what bounds it.
     """
 
     serializer_class = TaskLinkSerializer

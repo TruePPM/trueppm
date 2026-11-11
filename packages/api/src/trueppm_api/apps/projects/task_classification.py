@@ -37,7 +37,6 @@ agent principals are governed identically" claim holds on this path by construct
 from __future__ import annotations
 
 import dataclasses
-import re
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -161,11 +160,9 @@ def resolve_subtree(project: Project, spec: ClassificationSpec) -> list[Task]:
     scope = Q(pk=root.pk)
     if root.wbs_path:
         # A descendant is any live task one or more levels deeper, i.e. whose path
-        # starts with "<root path>.". ``__regex`` is the lookup the rest of the
-        # codebase uses for ltree paths (see ``serializers.py`` summary detection), so
-        # this needs no extra lookup registration. Segments are digits; the escape is
-        # a safety net, not a load-bearing guard.
-        scope |= Q(wbs_path__regex=rf"^{re.escape(str(root.wbs_path))}\.")
+        # starts with "<root path>.". ``descendant`` compiles to the ltree ``<@``
+        # operator, which the GiST index on ``wbs_path`` can serve (a regex cannot).
+        scope |= Q(wbs_path__descendant=str(root.wbs_path))
 
     matched = Task.objects.filter(scope, project=project, is_deleted=False).count()
     if matched > TASK_CLASSIFY_MAX_SUBTREE:

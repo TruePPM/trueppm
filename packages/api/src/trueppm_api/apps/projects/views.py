@@ -15969,6 +15969,12 @@ PHASE_MAX = 200
 
 
 @extend_schema_view(
+    create=extend_schema(
+        description=(
+            "Create a phase at the end of the root list. Returns 400 when the project "
+            "already has 200 phases (``PHASE_MAX``)."
+        ),
+    ),
     destroy=extend_schema(
         responses={
             204: None,
@@ -15979,7 +15985,7 @@ PHASE_MAX = 200
                 "(#3319)."
             ),
         }
-    )
+    ),
 )
 class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     """CRUD for project phases (root-level WBS tasks).
@@ -15996,6 +16002,11 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     Reordering uses the pre-existing ``PATCH /projects/<pk>/phases/reorder/``
     endpoint (ADR-0046); this viewset does not expose its own reorder action
     to avoid drift.
+
+    Limits: ``GET /phases/`` returns at most ``PHASE_MAX`` (200) root-level tasks, in
+    ``priority_rank`` order, as a bare array with no pagination envelope and no signal
+    that the list was truncated. ``POST /phases/`` returns 400 once the project already
+    has ``PHASE_MAX`` phases.
 
     Destroy refuses (400) when the phase has any descendant tasks — silently
     cascading 36 tasks would surprise a PM. The client should move or delete
