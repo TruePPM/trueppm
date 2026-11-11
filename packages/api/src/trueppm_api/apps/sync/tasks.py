@@ -347,8 +347,8 @@ def _delta_lookups(model: Any, project_id: Any) -> dict[str, Any] | None:
     return None
 
 
-def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int]:
-    """Delete ``qs`` like ``QuerySet.delete()`` and return ``(rows, max_sync_seq)``.
+def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int, bool]:
+    """Delete ``qs`` like ``QuerySet.delete()``; return ``(rows, max_sync_seq, live)``.
 
     The maximum covers every row the delete removes that ``project_id``'s pull
     would have delivered, **cascades included**. A reaped ``Task`` cascades to
@@ -358,6 +358,16 @@ def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int]:
     floor computed from the eligible rows alone would let a client whose
     ``since`` sits between the task's cursor and the cascaded row's keep the
     cascaded row forever.
+
+    The maximum alone covers only cascaded **tombstones**. ``live`` is ``True``
+    when the delete removes an in-scope row that is not itself a tombstone
+    (``is_deleted=False``, or a model with no ``is_deleted``). Every client whose
+    ``since`` is at or above that row's ``sync_seq`` was handed the live row and
+    is not below a floor equal to it (the comparison is strict), so it would keep
+    the row forever. The caller then draws a fresh value of the project sequence
+    and raises the floor to it, the same reasoning as
+    :func:`~.sequence.raise_program_tombstone_floor`: every client of the project
+    re-syncs once.
 
     A cascaded row this project's pull never delivers — a cross-project edge, or
     a row outside the sync union — is left out (:func:`_delta_lookups`): no
@@ -369,7 +379,7 @@ def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int]:
     Soft-deleting a parent while its children stay live is a separate gap
     (#4948): those children are not tombstones and the reap never sees them.
     """
-    from django.db.models import Max
+    from django.db.models import Count, Max, Q
     from django.db.models.deletion import Collector
 
     del_query = qs._chain()
@@ -380,22 +390,31 @@ def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int]:
     collector = Collector(using=del_query.db, origin=qs)
     collector.collect(del_query)
 
-    def _top(rows: Any, model: Any) -> int:
+    def _top(rows: Any, model: Any) -> tuple[int, bool]:
         lookups = _delta_lookups(model, project_id)
         if lookups is None or not _has_sync_seq(model):
-            return 0
-        value = rows.filter(**lookups).aggregate(top=Max("sync_seq"))["top"]
-        return int(value) if value is not None else 0
+            return 0, False
+        scoped = rows.filter(**lookups)
+        has_flag = any(f.attname == "is_deleted" for f in model._meta.concrete_fields)
+        agg = scoped.aggregate(
+            top=Max("sync_seq"),
+            live=Count("pk", filter=Q(is_deleted=False)) if has_flag else Count("pk"),
+        )
+        value = agg["top"]
+        return (int(value) if value is not None else 0), bool(agg["live"])
 
     top = 0
+    live = False
     for model, instances in collector.data.items():
         pks = [i.pk for i in instances]
         if pks:
-            top = max(top, _top(model._base_manager.filter(pk__in=pks), model))
+            t, lv = _top(model._base_manager.filter(pk__in=pks), model)
+            top, live = max(top, t), live or lv
     for fast in collector.fast_deletes:
-        top = max(top, _top(fast, fast.model))
+        t, lv = _top(fast, fast.model)
+        top, live = max(top, t), live or lv
     deleted, _ = collector.delete()
-    return int(deleted), top
+    return int(deleted), top, live
 
 
 def _has_sync_seq(model: Any) -> bool:
@@ -441,11 +460,24 @@ def _reap_project(
             # filters would exclude it, so reap nothing.
             return
         floor = 0
+        live_cascade = False
         for Model, owner, qs in eligible:
             scoped = qs.filter(**{owner: project_id})
-            deleted, top = _delete_tracking_sync_seq(scoped, project_id)
+            deleted, top, live = _delete_tracking_sync_seq(scoped, project_id)
             counts[Model._meta.label_lower] += deleted
             floor = max(floor, top)
+            live_cascade = live_cascade or live
+        if live_cascade:
+            # A live row was hard-deleted: every client that holds it — including
+            # one whose ``since`` is the current head — must re-sync. The floor
+            # comparison is strict, so a floor equal to the head would spare that
+            # client; draw a fresh value instead, as raise_program_tombstone_floor
+            # does. The new head equals the floor, so a full re-sync's timestamp
+            # is never below it and recovery terminates.
+            from trueppm_api.apps.sync.sequence import _next_seq
+
+            head = _next_seq(project_id) or head
+            floor = int(head)
         # Clamp to the project's own head (defense in depth: every row counted
         # above drew from this project's sequence, so it should already hold). A
         # floor above ``last_sync_version`` would make the full re-sync's own

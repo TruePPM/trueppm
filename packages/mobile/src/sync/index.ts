@@ -76,12 +76,23 @@ export interface SyncEngine {
    * drain loop is:
    *
    *   let cursor: string | null = null;
-   *   do { const p = await pull(id, since, cursor ?? undefined);
-   *        apply(p.changes); cursor = p.nextCursor; } while (cursor);
-   *   // only now adopt p.timestamp as the next `since`
+   *   for (;;) {
+   *     const p = await pull(id, since, cursor ?? undefined);
+   *     if (p.resyncRequired) {      // #2474: tombstones were reaped
+   *       discardLocalStore(id);     // drop pages already applied, too
+   *       since = 0; cursor = null;  // restart as a full pull
+   *       continue;
+   *     }
+   *     apply(p.changes); cursor = p.nextCursor;
+   *     if (!cursor) { since = p.timestamp; break; } // adopt only after the last page
+   *   }
    *
-   * `since` stays CONSTANT for the whole session; `timestamp` is pinned by the
-   * server on the first page and adopted only after the last one.
+   * `since` stays CONSTANT for the whole session — except on `resyncRequired`,
+   * which restarts it at 0 after the local store is discarded; never upsert the
+   * full pull over the old store, or reaped rows survive as phantoms. A pull at
+   * `since = 0` never answers `resyncRequired`, so the restart terminates.
+   * `timestamp` is pinned by the server on the first page and adopted only after
+   * the last one.
    */
   pull(projectId: string, since: number, cursor?: string): Promise<PullResult>;
   /** Push locally-queued changes (offline outbox). `tasks` only — see

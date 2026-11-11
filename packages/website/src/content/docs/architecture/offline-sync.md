@@ -239,9 +239,13 @@ The tombstone floor and `resync_required` described below ship in 0.5.
 phantom-row problem; it cannot close it. Once a tombstone is hard-deleted, no
 `sync_seq__gt=since` query can return that deletion, so a client offline for
 longer than the window would still keep the row. Each project therefore carries a
-`tombstone_floor`: the highest `sync_seq` of any row the reap removed, cascades
-included, counting only rows that project's own pull delivers. The reap raises it
-in the same transaction as the delete and never lowers it. A pull with
+`tombstone_floor`: the highest `sync_seq` of any tombstone the reap removed,
+cascaded tombstones included, counting only rows that project's own pull delivers.
+If the reap's delete also cascades to a **live** row, such as a live dependency of
+a reaped task, the floor goes further: the reap draws a fresh sequence value and
+raises the floor to it, because a client sitting exactly on that row's cursor
+already holds it and a floor equal to the cursor would not catch it. The reap
+raises the floor in the same transaction as the delete and never lowers it. A pull with
 `0 < since < floor` answers `resync_required: true` instead of a delta, and the
 client discards its store and pulls again from `since=0`. The program pull has the
 same guard against an installation-wide floor, raised whenever programs or program

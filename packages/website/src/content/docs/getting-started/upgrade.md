@@ -141,11 +141,38 @@ tell which clients missed one; the backfill therefore asks **every offline or
 sync client to re-sync once** after the upgrade. Expect one full pull per client
 and project, and a short spike in sync traffic.
 
-The backfill also covers the rolling update itself. A worker still running the
-0.4 image can run the nightly reap while the new pods start, and it does not
-raise the floor. The tombstones it can remove are older than the retention
-window, so their cursors predate the upgrade and sit below the backfilled floor,
-and a client that missed them is still asked to re-sync.
+The same migration moves every Monte Carlo run recorded at the old cursor
+along with it. The cursor doubles as the forecast's plan version, so without
+that a forecast that was current before the upgrade would read "project
+changed" after it. A forecast cached in the last 24 hours is moved too, on a
+best-effort basis: if the cache is unreachable during `migrate`, that forecast
+reads "project changed" until it expires or someone re-runs it.
+
+#### Stop the reaper before you migrate
+
+The backfill does **not** cover a reap that a 0.4 worker runs during the
+rolling update itself. Such a reap does not raise the floor, and two things can
+leave a client holding a deleted row afterward with no re-sync:
+
+- The 0.4 reap's delete cascades to live child rows of a reaped task, such as a
+  dependency or a task link. Those rows can carry cursors from after the
+  backfill.
+- A tombstone that was saved again after it was deleted keeps its old deletion
+  date, so it is still eligible, but its cursor was drawn at that later save.
+  If that save came after the backfill, its cursor sits above the floor.
+
+The reap runs on the beat schedule (`sync.reap_domain_tombstones`, daily at
+03:30 UTC). To close the window, stop the scheduler before the migration runs
+and let the upgrade start it again:
+
+- **Helm:** `kubectl scale deployment <release>-celery-beat --replicas=0`, then
+  `helm upgrade`. The upgrade restores the replica count.
+- **Docker Compose:** `docker compose stop celery-beat`, then pull and
+  `docker compose up -d`.
+
+Alternatively, schedule the upgrade away from 03:30 UTC, or roll the workers
+to the new image before the API pods run `migrate`. A 0.5 worker raises the
+floor itself.
 
 **Rollback notes:** the migration's reverse is a no-op. Rolling back leaves the
 raised floors in place, which 0.4 never reads.

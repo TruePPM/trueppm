@@ -311,9 +311,17 @@ silently kept the deleted row.
 
 **Decision.** Each project now has a `tombstone_floor` column on `Project`, next to
 the `last_sync_version` allocator. It holds the highest `sync_seq` of any row the
-reap has removed. That includes rows the delete cascaded to, such as a dependency
-tombstone that was still inside its window, or a live task link. The floor is
-clamped to `last_sync_version`.
+reap has removed. That includes tombstones the delete cascaded to, such as a
+dependency tombstone that was still inside its window. The floor is clamped to
+`last_sync_version`.
+
+A cascaded **live** row (`is_deleted=False`, or a model with no `is_deleted`,
+such as a live dependency or task link of a reaped task) needs more than its own
+cursor. A client whose `since` is at or above that cursor already holds the row,
+and the floor comparison is strict, so a floor equal to the cursor spares it and
+it keeps the row forever. When the reap removes any in-scope live row, it draws a
+fresh value of the project sequence and raises the floor to it, the same
+reasoning as the program floor below. Every client of that project re-syncs once.
 
 The floor counts only rows this project's own pull delivers. A cross-project
 `Dependency` or `TaskRelation` cascaded from a reaped task is in neither project's
@@ -367,8 +375,21 @@ raises the floor to it, so every client holding the deleted programs re-syncs.
 during a rolling update an old worker can still reap without raising it.
 `sync.0008_backfill_tombstone_floor` therefore draws one fresh value per project
 sequence and for the program sequence, and sets each floor to it. Every client re-syncs
-once after the upgrade. Rows an old worker reaps during the rollout are older than the
-retention window, so their cursors sit below the backfilled floor.
+once after the upgrade.
+
+`last_sync_version` is also the Monte Carlo plan version (#3140), compared with `!=`.
+The same transaction bumps every `MonteCarloRun.plan_version` that equals the old head,
+so a forecast that was current does not read `project_changed` because of the backfill.
+The cached `monte-carlo/latest/` entry, the only copy for a Member-triggered run, is
+bumped after commit on a best-effort basis.
+
+The backfill does **not** cover a reap run by an old worker during the rollout. That is
+a residual, not a guarantee, for two reasons. The old reap's `qs.delete()` cascades to
+live children with no floor at all, and their cursors can postdate the backfill. And
+`sync_seq` is drawn on every save, so a tombstone saved again after its deletion keeps an
+old `deleted_at`, stays eligible, and can carry a cursor above the backfilled floor. The
+operator mitigation is in the 0.5 upgrade notes: stop `celery-beat` before `migrate`, or
+roll the workers first.
 
 **Ordering with #2342.** #2342 widens the reap registry from 5 models to every
 collection the delta serves. The reap computes the floor from whatever it deletes,

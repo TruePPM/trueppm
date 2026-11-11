@@ -36,6 +36,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Dependency, Program, Project, Task
+from trueppm_api.apps.scheduling.models import MonteCarloRun
 from trueppm_api.apps.sync import tasks as reap_tasks
 from trueppm_api.apps.sync import views as sync_views
 from trueppm_api.apps.sync.models import ProgramSyncSequence
@@ -123,14 +124,20 @@ def test_reap_floor_counts_cascaded_rows(project: Project) -> None:
     succ = Task.objects.create(project=project, name="succ", duration=1)
     # Created after the task was tombstoned, so its sync_seq is above the task's.
     dep = Dependency.objects.create(predecessor=pred, successor=succ)
+    dep.is_deleted = True
+    dep.deleted_at = timezone.now() + timedelta(days=1)  # still inside its window
+    dep.save()
     dep.refresh_from_db()
     assert dep.sync_seq > pred.sync_seq
+    head = _head(project)
 
-    # Only Task is age-eligible for Dependency's deleted_at filter (dep is live).
+    # Only Task is age-eligible; the Dependency tombstone goes by cascade.
     _do_reap(override_days=0)
 
     assert not Dependency.objects.filter(pk=dep.pk).exists()
     assert _floor(project) == dep.sync_seq
+    # A cascaded tombstone does not draw a fresh head (only a live row does).
+    assert _head(project) == head
 
 
 @pytest.mark.django_db
@@ -149,7 +156,7 @@ def test_reap_delete_and_floor_are_one_transaction(project: Project) -> None:
     real = reap_tasks._delete_tracking_sync_seq
     calls = {"n": 0}
 
-    def flaky(qs: Any, project_id: Any) -> tuple[int, int]:
+    def flaky(qs: Any, project_id: Any) -> tuple[int, int, bool]:
         calls["n"] += 1
         result = real(qs, project_id)
         if calls["n"] == 1:
@@ -388,7 +395,7 @@ def test_reap_failure_in_one_project_does_not_abort_the_rest(project: Project) -
     doomed_there = _tombstone(other, "there")
     real = reap_tasks._delete_tracking_sync_seq
 
-    def _flaky(qs: Any, project_id: Any) -> tuple[int, int]:
+    def _flaky(qs: Any, project_id: Any) -> tuple[int, int, bool]:
         if project_id == project.pk:
             raise OperationalError("deadlock detected")
         return real(qs, project_id)
@@ -441,9 +448,9 @@ def test_reap_floor_is_clamped_to_head(project: Project) -> None:
     _tombstone(project)
     real = reap_tasks._delete_tracking_sync_seq
 
-    def _inflated(qs: Any, project_id: Any) -> tuple[int, int]:
-        deleted, top = real(qs, project_id)
-        return deleted, (top + 1_000_000 if deleted else top)
+    def _inflated(qs: Any, project_id: Any) -> tuple[int, int, bool]:
+        deleted, top, live = real(qs, project_id)
+        return deleted, (top + 1_000_000 if deleted else top), live
 
     with patch.object(reap_tasks, "_delete_tracking_sync_seq", side_effect=_inflated):
         _do_reap(override_days=0)
@@ -470,7 +477,7 @@ def test_upgrade_backfill_makes_every_held_cursor_resync_once(
     empty = _other_project("Empty")
     Project.objects.filter(pk=empty.pk).update(last_sync_version=0)
 
-    backfill_tombstone_floors(Project, ProgramSyncSequence)
+    backfill_tombstone_floors(Project, ProgramSyncSequence, MonteCarloRun)
 
     # A client sitting exactly on the old head is still asked to re-sync.
     assert client.get(_url(project), {"since": since}).json() == RESYNC_ENVELOPE
@@ -486,3 +493,94 @@ def test_upgrade_backfill_makes_every_held_cursor_resync_once(
 
     # A sequence that never handed out a cursor is left alone.
     assert _floor(empty) == 0 and _head(empty) == 0
+
+
+@pytest.mark.django_db
+def test_reap_cascading_a_live_row_raises_floor_to_head(
+    client: APIClient, project: Project
+) -> None:
+    """A live row cascaded by the reap was delivered to clients AT its own cursor.
+
+    A client whose ``since`` equals that row's ``sync_seq`` already holds it; a floor
+    set to the row's own cursor does not sit above that ``since`` (the comparison is
+    strict), so the client would keep the hard-deleted row forever. A live cascade
+    therefore raises the floor to the project head, like a program hard delete.
+    """
+    pred = _tombstone(project, "pred")
+    succ = Task.objects.create(project=project, name="succ", duration=1)
+    dep = Dependency.objects.create(predecessor=pred, successor=succ)
+    dep.refresh_from_db()
+    assert dep.is_deleted is False
+
+    body = client.get(_url(project), {"since": 0}).json()
+    since = body["timestamp"]
+    assert since == dep.sync_seq  # this client holds the live dependency
+
+    _do_reap(override_days=0)
+
+    assert not Dependency.objects.filter(pk=dep.pk).exists()
+    assert client.get(_url(project), {"since": since}).json() == RESYNC_ENVELOPE
+    assert _floor(project) == _head(project)
+
+
+@pytest.mark.django_db
+def test_upgrade_backfill_keeps_a_current_forecast_current(project: Project) -> None:
+    """The backfill's head bump is not a plan change (G3).
+
+    ``Project.last_sync_version`` doubles as the Monte Carlo plan version, so a run
+    recorded at the pre-upgrade head must move with the bump or every current
+    forecast reads ``project_changed`` after the upgrade.
+    """
+    from trueppm_api.apps.scheduling.forecast_staleness import forecast_staleness_from_run
+    from trueppm_api.apps.sync.sequence import backfill_tombstone_floors
+
+    Task.objects.create(project=project, name="t", duration=1)
+    head = _head(project)
+    current = MonteCarloRun.objects.create(project=project, n_simulations=10, plan_version=head)
+    older = MonteCarloRun.objects.create(project=project, n_simulations=10, plan_version=head - 1)
+    legacy = MonteCarloRun.objects.create(project=project, n_simulations=10, plan_version=None)
+
+    backfill_tombstone_floors(Project, ProgramSyncSequence, MonteCarloRun)
+
+    project.refresh_from_db()
+    assert project.last_sync_version == head + 1
+    current.refresh_from_db()
+    facts = forecast_staleness_from_run(
+        current,
+        plan_version_current=project.last_sync_version,
+        recalculated_at=project.recalculated_at,
+        today=timezone.now().date(),
+    )
+    assert facts["forecast_staleness"] == "current"
+    older.refresh_from_db()
+    legacy.refresh_from_db()
+    assert older.plan_version == head - 1  # it was already behind; it stays behind
+    assert legacy.plan_version is None
+
+
+@pytest.mark.django_db
+def test_upgrade_backfill_moves_a_cached_forecast_at_the_old_head(project: Project) -> None:
+    """A Member-triggered run lives only in the cache entry; it moves with the bump too."""
+    from django.core.cache import cache
+
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+    from trueppm_api.apps.sync.sequence import (
+        backfill_tombstone_floors,
+        bump_cached_forecast_plan_versions,
+    )
+
+    Task.objects.create(project=project, name="t", duration=1)
+    head = _head(project)
+    stale = _other_project("Stale")
+    Task.objects.create(project=stale, name="s", duration=1)
+    stale_head = _head(stale)
+    cache.set(mc_latest_cache_key(project.pk), {"plan_version": head, "p80": "x"}, 60)
+    cache.set(mc_latest_cache_key(stale.pk), {"plan_version": stale_head - 1}, 60)
+    try:
+        backfill_tombstone_floors(Project, ProgramSyncSequence, MonteCarloRun)
+        assert bump_cached_forecast_plan_versions(Project) == 1
+
+        assert cache.get(mc_latest_cache_key(project.pk)) == {"plan_version": head + 1, "p80": "x"}
+        assert cache.get(mc_latest_cache_key(stale.pk)) == {"plan_version": stale_head - 1}
+    finally:
+        cache.delete_many([mc_latest_cache_key(project.pk), mc_latest_cache_key(stale.pk)])
