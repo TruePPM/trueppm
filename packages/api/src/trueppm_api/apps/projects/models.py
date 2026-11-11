@@ -2064,16 +2064,24 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
     * ``server_version`` / ``deleted_version`` — ``F() + 1`` on both, so within one
       UPDATE ``deleted_version`` equals the new ``server_version`` as the per-row path
       records it;
-    * ``sync_seq`` — drawn explicitly, one value per owning project (tasks: their own
-      project; edges: the predecessor's, which is the resolver ``save()`` uses), or the
-      tombstones sit below every client checkpoint and never reach an offline client
-      (ADR-0686);
+    * ``sync_seq`` — drawn explicitly, or the tombstones sit below every client
+      checkpoint and never reach an offline client (ADR-0686). Two independent draws,
+      each per owning project: edges are keyed by the *predecessor's* project (the
+      resolver ``save()`` uses), tasks by their *own* project, so a cross-project edge
+      is stamped against the predecessor's project rather than the victim's. Keys are
+      sorted before drawing so concurrent undos take the project sequence locks in a
+      deterministic order;
     * ``deleted_at`` — the nightly reap's retention clock;
-    * ``edited_at`` is left alone: deleting is not editing (ADR-0786 §4).
+    * ``edited_at`` is left alone: deleting is not editing (ADR-0786 §4);
+    * the Task post_save soft-delete receivers' effects, which ``update()`` would
+      otherwise skip: ``RetroActionItem.promoted_task_id`` is cleared (ADR-0071) and a
+      ``BacklogItem`` still ``PULLED`` from a victim goes back to ``PROPOSED``
+      (ADR-0069). Both cost one query when nothing matches.
 
     Not preserved: ``django-simple-history`` rows (same trade-off as
     :func:`cascade_project_children_soft_delete`; sync and the reap key off
-    ``deleted_version``), and no ``task_status_changed`` fires — a delete never changes
+    ``deleted_version``), and so no Enterprise ``history_record_created`` audit events
+    are emitted for these rows; no ``task_status_changed`` fires — a delete never changes
     status, so ``Task.soft_delete`` does not fire it either.
 
     Rows already tombstoned are skipped, so unlike a per-row loop over stale instances a
@@ -2112,7 +2120,8 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
     edge_ids_by_project: dict[Any, list[Any]] = {}
     for edge_id, pred_project in edges:
         edge_ids_by_project.setdefault(pred_project, []).append(edge_id)
-    for pred_project, edge_ids in edge_ids_by_project.items():
+    for pred_project in sorted(edge_ids_by_project, key=str):
+        edge_ids = edge_ids_by_project[pred_project]
         Dependency.objects.filter(pk__in=edge_ids).update(
             is_deleted=True,
             server_version=F("server_version") + 1,
@@ -2124,7 +2133,8 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
     ids_by_project: dict[Any, list[Any]] = {}
     for pk, project_id in victims:
         ids_by_project.setdefault(project_id, []).append(pk)
-    for project_id, ids in ids_by_project.items():
+    for project_id in sorted(ids_by_project, key=str):
+        ids = ids_by_project[project_id]
         Task.objects.filter(pk__in=ids).update(
             is_deleted=True,
             server_version=F("server_version") + 1,
@@ -2132,6 +2142,24 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
             deleted_version=F("server_version") + 1,
             deleted_at=now,
         )
+
+    # The Task post_save soft-delete receivers never fire for ``update()``; run their
+    # effects set-wise. Retro action items are one UPDATE (the receiver sets only
+    # ``promoted_task_id``). Backlog items keep the service's own ``save()`` so
+    # ``server_version`` and the program's ``sync_seq`` are drawn exactly as before;
+    # only items actually still PULLED from a victim are visited.
+    from trueppm_api.apps.projects.backlog_services import reset_pulled_item_on_task_delete
+
+    RetroActionItem.objects.filter(promoted_task_id__in=victim_ids).update(promoted_task_id=None)
+    pulled_task_ids = list(
+        BacklogItem.objects.filter(
+            pulled_task_id__in=victim_ids,
+            is_deleted=False,
+            status=BacklogItemStatus.PULLED,
+        ).values_list("pulled_task_id", flat=True)
+    )
+    for task_id in pulled_task_ids:
+        reset_pulled_item_on_task_delete(str(task_id))
     return len(victim_ids)
 
 

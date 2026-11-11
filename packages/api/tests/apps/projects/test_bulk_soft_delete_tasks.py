@@ -17,14 +17,21 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from trueppm_api.apps.projects.models import (
+    BacklogItem,
+    BacklogItemStatus,
     Calendar,
     Dependency,
+    Program,
     Project,
     ProjectTemplate,
+    RetroActionItem,
+    Sprint,
+    SprintRetro,
     Task,
     TemplateApplication,
     TemplateApplicationStatus,
     bulk_soft_delete_tasks,
+    cascade_task_children_restore,
 )
 from trueppm_api.apps.projects.template_services import undo_template_application
 
@@ -143,3 +150,167 @@ def test_undo_query_count_is_independent_of_n(project: Project, other_project: A
     small = _undo_queries(project, 3)
     large = _undo_queries(other_project, 40)
     assert large == small
+
+
+def _summary_with_child(project: Project, tag: str) -> tuple[Task, Task]:
+    """Untouched (edited_at NULL) rows, as a template apply leaves them."""
+    root, child = Task.objects.bulk_create(
+        [
+            Task(
+                project=project,
+                name=f"{n}{tag}",
+                duration=1,
+                wbs_path=path,
+                short_id=sid,
+                server_version=1,
+            )
+            for n, path, sid in (("root", "1", "T-1"), ("kid", "1.1", "T-2"))
+        ]
+    )
+    return root, child
+
+
+def _undo_of(project: Project, root: Task) -> TemplateApplication:
+    template = ProjectTemplate.objects.create(name="T", structure={})
+    return TemplateApplication.objects.create(
+        template=template,
+        project=project,
+        status=TemplateApplicationStatus.SUCCESS,
+        created_task_ids=[root.pk],  # the child is swept as a WBS descendant
+    )
+
+
+@pytest.mark.django_db
+def test_undo_resets_a_backlog_item_pulled_into_a_swept_child(project: Project) -> None:
+    """ADR-0069: a descendant the cascade sweeps must free its pulled BacklogItem."""
+    root, child = _summary_with_child(project, "")
+    program = Program.objects.create(name="Prog")
+    item = BacklogItem.objects.create(
+        program=program,
+        title="pulled",
+        status=BacklogItemStatus.PULLED,
+        pulled_task=child,
+    )
+
+    undo_template_application(_undo_of(project, root))
+
+    assert Task.objects.get(pk=child.pk).is_deleted is True
+    item.refresh_from_db()
+    assert item.status == BacklogItemStatus.PROPOSED
+    assert item.pulled_task_id is None and item.pulled_at is None
+
+
+@pytest.mark.django_db
+def test_undo_clears_the_promoted_task_of_a_retro_action_item(project: Project) -> None:
+    """ADR-0071: a descendant the cascade sweeps must free its retro action item."""
+    root, child = _summary_with_child(project, "")
+    sprint = Sprint.objects.create(
+        project=project,
+        short_id="S1",
+        name="S1",
+        start_date=date(2026, 9, 1),
+        finish_date=date(2026, 9, 14),
+    )
+    retro = SprintRetro.objects.create(sprint=sprint)
+    action = RetroActionItem.objects.create(retro=retro, text="x", promoted_task_id=child.pk)
+
+    undo_template_application(_undo_of(project, root))
+
+    action.refresh_from_db()
+    assert action.promoted_task_id is None
+
+
+def _snapshot(tasks: dict[str, Task], edges: list[Dependency], item: BacklogItem) -> dict[str, Any]:
+    """Everything the two paths must agree on, keyed by stable names (not pks)."""
+    out: dict[str, Any] = {}
+    for name, t in tasks.items():
+        r = Task.objects.get(pk=t.pk)
+        out[f"task:{name}"] = (
+            r.is_deleted,
+            r.deleted_version,
+            r.server_version,
+            r.deleted_at is not None,
+        )
+    for i, e in enumerate(edges):
+        r2 = Dependency.objects.get(pk=e.pk)
+        out[f"edge:{i}"] = (
+            r2.is_deleted,
+            r2.deleted_version,
+            r2.server_version,
+            r2.deleted_at is not None,
+        )
+    item.refresh_from_db()
+    out["item"] = (item.status, item.pulled_task_id is None, item.server_version)
+    return out
+
+
+def _parity_fixture(
+    project: Project, other: Project, tag: str
+) -> tuple[Task, dict[str, Task], list[Dependency], BacklogItem]:
+    root, child = _summary_with_child(project, tag)
+    tail = Task.objects.create(project=project, name=f"tail{tag}", duration=1, wbs_path="2")
+    foreign = Task.objects.create(project=other, name=f"far{tag}", duration=1, wbs_path="1")
+    edges = [
+        Dependency.objects.create(predecessor=child, successor=tail, dep_type="FS"),
+        Dependency.objects.create(predecessor=foreign, successor=child, dep_type="FS"),
+    ]
+    program = Program.objects.create(name=f"Prog{tag}")
+    item = BacklogItem.objects.create(
+        program=program, title="p", status=BacklogItemStatus.PULLED, pulled_task=child
+    )
+    return root, {"root": root, "child": child, "tail": tail, "foreign": foreign}, edges, item
+
+
+@pytest.mark.django_db
+def test_bulk_matches_the_per_row_loop_row_for_row(
+    project: Project, other_project: Project
+) -> None:
+    """Run the old per-row path on one fixture and the bulk path on a twin."""
+    root_a, tasks_a, edges_a, item_a = _parity_fixture(project, other_project, "A")
+    # A twin in its own project pair, so the live-row wbs_path constraint cannot collide.
+    project_b = Project.objects.create(
+        name="PB", start_date=date(2026, 9, 1), calendar=project.calendar
+    )
+    other_b = Project.objects.create(
+        name="QB", start_date=date(2026, 9, 1), calendar=project.calendar
+    )
+    root_b, tasks_b, edges_b, item_b = _parity_fixture(project_b, other_b, "B")
+
+    Task.objects.get(pk=root_a.pk).soft_delete()  # the old loop, one root
+    bulk_soft_delete_tasks([Task.objects.get(pk=root_b.pk)])
+
+    assert _snapshot(tasks_a, edges_a, item_a) == _snapshot(tasks_b, edges_b, item_b)
+
+
+@pytest.mark.django_db
+def test_cross_project_edge_tombstone_is_deliverable_in_the_predecessors_project(
+    project: Project, other_project: Project
+) -> None:
+    root, child = _summary_with_child(project, "")
+    foreign = Task.objects.create(project=other_project, name="far", duration=1, wbs_path="1")
+    edge = Dependency.objects.create(predecessor=foreign, successor=child, dep_type="FS")
+    other_project.refresh_from_db()
+    prior = other_project.last_sync_version
+
+    bulk_soft_delete_tasks([root])
+
+    other_project.refresh_from_db()
+    edge.refresh_from_db()
+    assert edge.is_deleted is True
+    assert prior < edge.sync_seq <= other_project.last_sync_version
+
+
+@pytest.mark.django_db
+def test_restore_round_trip_after_bulk_delete(project: Project, other_project: Project) -> None:
+    root, child = _summary_with_child(project, "")
+    foreign = Task.objects.create(project=other_project, name="far", duration=1, wbs_path="1")
+    edge = Dependency.objects.create(predecessor=foreign, successor=child, dep_type="FS")
+
+    bulk_soft_delete_tasks([root])
+    root = Task.objects.get(pk=root.pk)
+    root.restore(on_conflict="repath")
+    cascade_task_children_restore(root)
+
+    assert Task.objects.get(pk=root.pk).is_deleted is False
+    assert Task.objects.get(pk=child.pk).is_deleted is False
+    assert Dependency.objects.get(pk=edge.pk).is_deleted is False
