@@ -11,6 +11,7 @@ from datetime import (
     datetime,
     timedelta,
 )
+from types import EllipsisType
 
 from trueppm_scheduler.engine.calendar_math import (
     _next_working_day,
@@ -120,7 +121,9 @@ def _velocity_mean(project: Project) -> float | None:
     return mean if mean > 0 else None
 
 
-def _velocity_worst_case_days(task: Task, project: Project) -> int:
+def _velocity_worst_case_days(
+    task: Task, project: Project, *, mean: float | EllipsisType | None = ...
+) -> int:
     """Upper bound (working days) on a scrum task's velocity-sampled duration.
 
     Mirrors the ``max_sprints`` clamp in :func:`_sample_velocity_durations` —
@@ -131,6 +134,11 @@ def _velocity_worst_case_days(task: Task, project: Project) -> int:
     :data:`MAX_PROJECT_SPAN_DAYS` (the sampler allocates ``runs * max_sprints``
     draws, so an unbounded ``story_points`` is a memory amplification, #1067).
     Returns 0 when the task would not take the velocity path.
+
+    ``mean`` is the project's :func:`_velocity_mean`, when the caller already holds
+    it: every caller walks all tasks, and the mean re-filters and re-averages
+    ``velocity_samples`` on each call, so a loop computes it once and passes it in
+    (#1532). Omitted, it is computed here.
     """
     if (
         task.delivery_mode != DeliveryMode.SCRUM
@@ -141,7 +149,8 @@ def _velocity_worst_case_days(task: Task, project: Project) -> int:
         or project.sprint_length_days <= 0
     ):
         return 0
-    mean = _velocity_mean(project)
+    if mean is ...:
+        mean = _velocity_mean(project)
     if mean is None:
         return 0
     # Deliberately the *uncapped* horizon — not clamped to MAX_VELOCITY_SPRINTS like
@@ -734,9 +743,10 @@ def _task_span_totals(project: Project) -> tuple[int, int, int, dict[str, int]]:
     max_snet_days = 0
     max_actual_days = 0
     velocity_days: dict[str, int] = {}
+    mean = _velocity_mean(project)
     for t in project.tasks:
         total_span += _task_worst_case_days(t)
-        velocity = _velocity_worst_case_days(t, project)
+        velocity = _velocity_worst_case_days(t, project, mean=mean)
         if velocity > 0:
             velocity_days[t.id] = velocity
         if t.planned_start is not None:

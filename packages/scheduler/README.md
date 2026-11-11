@@ -388,6 +388,7 @@ Smaller exported names that the sections above do not cover:
 - `expand_summary_dependencies(tasks, deps, children_map)` returns a `SummaryExpansion`: `.tasks` is the input with summary tasks removed (leaves only) and `.dependencies` is every dependency fanned out to leaf-level edges. It still unpacks as `leaf_tasks, deps = ...`. From 0.5, a link whose two endpoints share a leaf (a summary linked to itself, to one of its own descendants, or from one) will raise `CyclicDependencyError` naming that source link, so `.cycle` will be `[pred, succ, pred]` (or `[pred, pred]` for a link to itself): it is the same input `find_cycle` reports as a cycle. A Start-to-Start or Start-to-Finish link *from* a summary will still raise `InvalidScheduleInput` instead, because the ADR-0370 check runs first. 0.4 silently drops such a link or turns it into an invented sibling order ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538), [#4705](https://gitlab.com/trueppm/trueppm/-/issues/4705)). The MS Project, CSV and Jira importers do not yet refuse such a link at import time ([#4856](https://gitlab.com/trueppm/trueppm/-/issues/4856)).
 - `ScheduleResult.driving_edges` is a list of `DrivingEdge`: the links that bind their successor or have zero relationship free float. A link binds when the date it imposes, read in the successor's working time, is the successor's early date. The set is the union of the two, so at a merge it can name a zero-free-float link that does not bind. Free float stays a separate output: a seven-day-week predecessor finishing on a Friday into a Monday-to-Friday successor drives it onto Monday and still has two days of free float, its Saturday and Sunday ([#4704](https://gitlab.com/trueppm/trueppm/-/issues/4704)).
 - `MonteCarloResult.sensitivity` is a list of `TaskSensitivity` (`task_id`, `index`). `index` is the absolute Spearman rank correlation, from 0 to 1, between the task's sampled duration and the project finish. Tasks whose duration cannot vary the finish are omitted rather than reported as 0.
+- From 0.5, `MonteCarloResult.velocity_saturated_runs` will count the runs in which an open scrum task's velocity draw reached the sprint horizon (`min(ceil(points / mean) * 4 + 10, MAX_VELOCITY_SPRINTS)`) without burning down. Those runs will be clamped to the horizon, so when it is non-zero (`velocity_tail_truncated` is `True`) read P80/P95 as lower bounds, not estimates. It will be `0` for a project with no velocity path. ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469))
 - `perturb_task_duration(project, task_id, delta_days)` returns a copy of the project with one task's duration shifted, for what-if runs. It moves the fixed duration, the three-point estimate and the story points together, so the CPM finish and the Monte Carlo bands stay consistent. The input project is not mutated.
 
 ## Conventions
@@ -739,7 +740,9 @@ release it is scheduled for:
   sampled against
   ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); sprint-horizon
   clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
-  as a lower bound rather than a full forecast
+  as a lower bound rather than a full forecast. From 0.5 the result will report
+  how many runs were clamped (`velocity_saturated_runs`), but the bias itself
+  will not be removed
   ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); percentile
   estimation is imprecise at very low run counts (10–11 runs), where the
   reported P95 can have only 90% of runs on or before it
@@ -752,18 +755,20 @@ release it is scheduled for:
   ([#4910](https://gitlab.com/trueppm/trueppm/-/issues/4910)); a what-if pull-in can
   move a band later when a velocity task's points reach 0 and it falls to its PERT
   estimate
-  ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)); and the API's velocity sampler has drifted from the library
-  on the horizon cap (2000 versus 10,000)
-  ([#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)).
+  ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)).
 - **Scale / performance** — the engine bounds the longest dependency chain, not
   the task count, so a 100,000-task project of ordinary parallel work schedules;
   only the total work ceiling (`MAX_PROJECT_WORK_DAYS`, see Project work above)
   applies to it. Scale benchmarks at
   50,000 and 100,000 tasks are tracked with the benchmark suite
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); Monte Carlo
-  holds three `(runs × tasks)` float64 matrices live in memory, already 2.3 GB
-  at 50,000 tasks
-  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)).
+  runs its forward pass over chunks of runs, which brings the peak at 50,000
+  tasks × 1,000 runs to about 920 MB (about 2.1 GB unchunked). The floor that
+  remains is the whole float64 sampled-duration matrix, which has to stay whole
+  to keep seeded results byte-identical; the target is under 250 MB
+  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)), and the remaining
+  options are tracked in
+  [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953).
 - **API contract / errors** — the derivation vocabulary
   (`DerivationContribution.kind`, `Derivation.quantity`/`pass_`) is still an
   open string, not a published enum
@@ -803,10 +808,7 @@ they will ship with 0.5 or that release will slip:
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
   calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
-  and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
-  in-progress task's sampled duration no longer has its optimistic tail
-  truncated by subtracting deterministic elapsed time from the sampled total
-  ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).
+  and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a
   milestone: the

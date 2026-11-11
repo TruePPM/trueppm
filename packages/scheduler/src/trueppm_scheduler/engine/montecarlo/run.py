@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import (
+    Callable,
     Sequence,
 )
 from datetime import (
@@ -76,6 +77,41 @@ from trueppm_scheduler.models import (
 
 # Cells per row block when gathering a calendar's columns onto the reference ruler.
 _MC_REFERENCE_BLOCK_CELLS = 65_536
+
+# Cells (runs x tasks) per forward-pass chunk (#3824). The forward pass keeps five
+# runs x tasks matrices live (ES, EF and the instant deficit in float64, the instant
+# ordinal in int32, its display flag in bool: 29 bytes a cell) plus a working-time
+# copy, so running it over every run at once peaked at ~2.1 GB (2,088 MB) for 50k tasks x
+# 1,000 runs. Each run is an independent row of that pass, so it runs over row
+# chunks instead and keeps only each run's finish. The forward pass walks the tasks
+# in a Python loop that issues ~10 small numpy calls per task per chunk, so its cost
+# is (chunks x tasks) of fixed call overhead and shrinking a chunk buys memory at the
+# price of time (#4955; profiled at 50,000 x 1,000, 650,000 `_mc_edge_constraints`
+# calls at 4M cells). Measured on the mixed ~2 edges/task network at 50,000 tasks x
+# 1,000 runs: 4M cells 6.5 s / 790 MB RSS, 8M 5.9 s / 918 MB, 16M 5.3 s / 1,142 MB,
+# unchunked 4.9 s / 2,088 MB. 8M cells (~232 MB of forward matrices, 7 chunks at that
+# size) recovers about 0.6 s for ~130 MB; going further buys memory back faster than
+# it buys time. 10,000 tasks x 1,000 runs was never slower (2 chunks). A project of up
+# to 800 tasks still runs 10,000 runs in one chunk, so the common case pays no
+# per-chunk loop overhead at all.
+_MC_FORWARD_CHUNK_CELLS = 8_000_000
+
+
+def _mc_forward_chunk_rows(runs: int, n_tasks: int, *, whole: bool) -> int:
+    """Runs per forward-pass chunk: all of them when ``whole``, else a cell budget's worth.
+
+    Chunking is exact, not an approximation: every row of the forward pass is one run,
+    computed from that run's sampled durations alone, and the durations are sampled
+    for every run before the pass starts, so the seeded RNG stream is consumed in the
+    same order whatever the chunk size. The one place the pass reads *across* runs is
+    a milestone or zero-base task on a non-working ``actual_start``, which is shown on
+    that day only when every run shows it there (:func:`_mc_forward_pass`,
+    :func:`_mc_zero_base_column`). A chunk cannot see the other chunks' runs, so a
+    project with such a task (``whole``) runs in one chunk, as before.
+    """
+    if whole:
+        return runs
+    return max(1, min(runs, _MC_FORWARD_CHUNK_CELLS // max(1, n_tasks)))
 
 
 # Kept as the per-column reference oracle for _to_reference_columns_inplace; the parity
@@ -215,6 +251,71 @@ def _offset_to_date(
     if completed_finish_floor is not None and completed_finish_floor > resolved:
         return completed_finish_floor
     return resolved
+
+
+def _mc_chunked_finishes(
+    forward_chunk: Callable[
+        [int, int], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]
+    ],
+    runs: int,
+    chunk_rows: int,
+    task_idx: dict[str, int],
+    instants: tuple[list[int], dict[int, float]],
+    reference: tuple[np.ndarray | None, list[tuple[int, np.ndarray]], dict[int, np.ndarray]],
+) -> tuple[np.ndarray, np.ndarray, date | None]:
+    """Each run's shown finish offset and working-time finish, one row chunk at a time (#3824).
+
+    ``forward_chunk(lo, hi)`` is the forward pass over runs ``[lo, hi)``. Only each
+    run's two finishes survive a chunk: its ES/EF matrices are dropped once the
+    per-run maxima are taken, so peak memory is O(chunk x tasks) on top of the sampled
+    durations rather than O(runs x tasks) six times over. ``instants`` is the live
+    milestone columns and the closed start-of-day milestone positions; ``reference``
+    the union ruler, each calendar's column group and the calendars' ordinals, with a
+    ``None`` ruler for a single-calendar project.
+
+    Returns ``(shown_offsets, completion_offsets, milestone_finish_floor)``.
+    """
+    milestone_cols, closed_positions = instants
+    ref_ord, cal_col_groups, wd_ord_by_cal = reference
+    shown_offsets = np.empty(runs, dtype=np.float64)  # the day each run is shown on
+    completion_offsets = np.empty(runs, dtype=np.float64)  # its working-time position
+    milestone_finish_floor: date | None = None
+    for lo in range(0, runs, chunk_rows):
+        hi = min(runs, lo + chunk_rows)
+        es_mat, ef_mat, chunk_floor, instant_runs = forward_chunk(lo, hi)
+        if chunk_floor is not None:
+            milestone_finish_floor = (
+                chunk_floor
+                if milestone_finish_floor is None
+                else max(milestone_finish_floor, chunk_floor)
+            )
+        # Working-time finish of each column (#4204): a live milestone's is its ES, a
+        # closed start-of-day one's its instant, a zero-base column's its instant in
+        # the runs that placed it (#4698); work's is its EF.
+        wt_mat = ef_mat
+        has_instants = bool(milestone_cols or instant_runs or closed_positions)
+        if has_instants:
+            wt_mat = ef_mat.copy()
+            wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
+            for col, position in closed_positions.items():
+                wt_mat[:, col] = position
+            for tid, is_instant in instant_runs.items():
+                col = task_idx[tid]
+                wt_mat[is_instant, col] = es_mat[is_instant, col]
+        if ref_ord is not None:
+            # One lookup table per calendar, then one gather per calendar's column
+            # group, written back in place: no second runs x tasks matrix (#4710).
+            for cal_key, cal_cols_arr in cal_col_groups:
+                _to_reference_columns_inplace(
+                    (ef_mat, wt_mat if has_instants else None),
+                    cal_cols_arr,
+                    wd_ord_by_cal[cal_key],
+                    ref_ord,
+                )
+        shown_offsets[lo:hi] = ef_mat.max(axis=1)
+        completion_offsets[lo:hi] = wt_mat.max(axis=1)
+        del es_mat, ef_mat, wt_mat
+    return shown_offsets, completion_offsets, milestone_finish_floor
 
 
 def _mc_percentiles(
@@ -393,14 +494,27 @@ def monte_carlo(
        ``duration=20`` violated the binding just as hard.
 
     .. note::
+       An in-progress task's remaining work is **subtractive** (ADR-0132, #1495):
+       its elapsed portion is history — ``int(duration * percent_complete / 100)``
+       working days of the *planned* duration, as :func:`schedule` counts it — and
+       each run's sampled total less that fixed elapsed is the work still to do. A
+       run therefore equals :func:`schedule` of the task holding the same elapsed
+       days and the sampled total, not of a task whose percentage is applied to the
+       sampled total. Because sampled totals are floored at ``duration`` first,
+       remaining work is never below the deterministic remaining work, and a
+       nearly complete task keeps its estimate's whole spread on the work left.
+
+    .. note::
        The per-run sprint horizon of the velocity path is capped at
-       ``ceil(story_points / mean_velocity) * 4 + 10`` sprints; any run that has
-       not burned down by that horizon is clamped to it rather than sampled
-       further. This truncates the slow right tail, so for a team with extreme
-       throughput variance the velocity-driven P80/P95 is a (very loose) *lower*
-       bound on completion, not an unbiased estimate. The cap exists to keep a
-       pathological bootstrap path from spinning; it is far beyond any realistic
-       sprint count and does not affect typical teams.
+       ``min(ceil(story_points / mean_velocity) * 4 + 10, MAX_VELOCITY_SPRINTS)``
+       sprints; any run that has not burned down by that horizon is clamped to it
+       rather than sampled further. The cap exists to keep a pathological bootstrap
+       path from spinning and is far beyond any realistic sprint count, but a run it
+       clamps reports a lower bound, not an estimate. Such runs are **counted, not
+       hidden** (#2469): :attr:`MonteCarloResult.velocity_saturated_runs` is the
+       number of runs in which some open task's velocity draw hit the horizon, and
+       :attr:`MonteCarloResult.velocity_tail_truncated` is true when any did —
+       read the slow percentiles (P80/P95) as lower bounds then.
 
     The CPM network is evaluated `runs` times with sampled durations.
     All 4 dependency types are handled, ``planned_start`` is honored as the
@@ -466,8 +580,11 @@ def monte_carlo(
     — ``tests/test_bench.py`` holds it under a 2 s regression tripwire, not the
     laptop figure (#3859). So the library imposes no task cap and no run cap by
     default beyond an absolute ceiling of 100 000 000 runs (``InvalidScheduleInput``
-    above it) — ``monte_carlo(project, runs=10_000)`` simulates as written (the velocity
-    sampler draws in bounded chunks, so memory does not grow with ``runs``). The
+    above it) — ``monte_carlo(project, runs=10_000)`` simulates as written. The velocity
+    sampler and the forward pass both run in bounded chunks of runs (#3824), so the one
+    structure that grows with ``runs x tasks`` is the float64 sampled-duration matrix,
+    8 bytes a cell: it is sampled in full, column by column, because that is the order
+    the seeded stream is consumed in. The
     ``max_runs`` / ``max_tasks`` knobs exist for an *embedding* layer that needs
     to bound work on a synchronous request path (the TruePPM API passes its own caps and returns
     ``SimulationCapExceeded`` as a 402); a standalone caller leaves them ``None``.
@@ -570,7 +687,12 @@ def monte_carlo(
 
     # --- Sample durations: shape (runs, n_tasks) ---
     task_map = {t.id: t for t in project.tasks}
-    dur_matrix = _sample_duration_matrix(project, topo_order, task_map, runs, rng)
+    # Runs in which some velocity draw reached the sprint horizon un-burned-down
+    # (#2469): their duration is a lower bound, so the result reports the count.
+    velocity_saturated = np.zeros(runs, dtype=bool)
+    dur_matrix = _sample_duration_matrix(
+        project, topo_order, task_map, runs, rng, velocity_saturated
+    )
 
     # Pre-compute a working-day index covering the whole simulation so a lag can
     # be converted to working-day offsets against the predecessor's *actual* date
@@ -745,34 +867,18 @@ def monte_carlo(
     verbatim_actuals = _mc_verbatim_actuals(
         project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal, sf_linked_ids
     )
-    es_mat, ef_mat, milestone_finish_floor, instant_runs = _mc_forward_pass(
-        topo_order,
-        runs,
-        g,
-        task_idx,
-        edge_lag_delta,
-        dur_matrix,
-        es_floor,
-        completed_offsets,
-        completed_edge,
-        elapsed_days,
-        milestone_ids,
-        _McIndex(
-            [wd_ord_by_cal[cal_key_of[tid]] for tid in topo_order],
-            [cal_of[tid] for tid in topo_order],
-        ),
-        verbatim_actuals,
-        _mc_milestone_floors(
-            project, task_map, milestone_ids | zero_base_ids, cal_of, sf_linked_ids
-        ),
-        zero_base_ids,
+    mc_index = _McIndex(
+        [wd_ord_by_cal[cal_key_of[tid]] for tid in topo_order],
+        [cal_of[tid] for tid in topo_order],
+    )
+    milestone_floors = _mc_milestone_floors(
+        project, task_map, milestone_ids | zero_base_ids, cal_of, sf_linked_ids
     )
     # Working-time finish of each column (#4204). Work ends at its EF. A live
     # milestone's EF is the exclusive offset of the day it is *shown* on, one past its
     # instant for a start-of-day reading, so its working-time position is its ES —
     # the end of a Friday and the start of the next Monday are the same position.
     # A zero-base column is that instant in the runs that placed it (#4698).
-    wt_mat = ef_mat
     milestone_cols = [task_idx[tid] for tid in milestone_ids]
     # A closed start-of-day milestone sits at its instant, the start of its shown day
     # (#4601). Read off the instant itself, the position successors link from, rather
@@ -786,15 +892,56 @@ def monte_carlo(
         )
         for tid in completed_start_ids
     }
-    has_instants = bool(milestone_cols or instant_runs or closed_positions)
-    if has_instants:
-        wt_mat = ef_mat.copy()
-        wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
-        for col, position in closed_positions.items():
-            wt_mat[:, col] = position
-        for tid, is_instant in instant_runs.items():
-            col = task_idx[tid]
-            wt_mat[is_instant, col] = es_mat[is_instant, col]
+    # With one calendar every column is already on the same ruler and the maximum
+    # is taken exactly as it always was. With several, each column is re-expressed
+    # against the union-of-working-days reference index first — raw offsets from
+    # different working weeks are not comparable, and the larger offset is often
+    # the earlier date.
+    ref_ord: np.ndarray | None = None
+    cal_col_groups: list[tuple[int, np.ndarray]] = []
+    if len(wd_index_by_cal) > 1:
+        ref_ord, wd_index = _build_reference_index(wd_ord_by_cal)
+        cols_by_cal: dict[int, list[int]] = {}
+        for col, tid in enumerate(topo_order):
+            cols_by_cal.setdefault(cal_key_of[tid], []).append(col)
+        cal_col_groups = [
+            (cal_key, np.asarray(cal_cols, dtype=np.intp))
+            for cal_key, cal_cols in cols_by_cal.items()
+        ]
+
+    # --- Forward pass over row chunks (#3824) ---
+    # Only each run's finish survives a chunk: the ES/EF matrices are dropped once
+    # the chunk's per-run maxima are taken, so peak memory is O(chunk x tasks) on top
+    # of the sampled durations rather than O(runs x tasks) six times over.
+    chunk_rows = _mc_forward_chunk_rows(
+        runs,
+        n_tasks,
+        whole=any(tid in verbatim_actuals for tid in milestone_ids | zero_base_ids),
+    )
+    shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
+        lambda lo, hi: _mc_forward_pass(
+            topo_order,
+            hi - lo,
+            g,
+            task_idx,
+            edge_lag_delta,
+            dur_matrix[lo:hi],
+            es_floor,
+            completed_offsets,
+            completed_edge,
+            elapsed_days,
+            milestone_ids,
+            mc_index,
+            verbatim_actuals,
+            milestone_floors,
+            zero_base_ids,
+        ),
+        runs,
+        chunk_rows,
+        task_idx,
+        (milestone_cols, closed_positions),
+        (ref_ord, cal_col_groups, wd_ord_by_cal),
+    )
     # The floor wins over the index only when it is later; it is a start-of-day
     # reading exactly when every source reaching it is a milestone shown at the start
     # of its day: a live one on its non-working actual day, or a closed one (#4601).
@@ -815,31 +962,6 @@ def monte_carlo(
             else max(completed_finish_floor, milestone_finish_floor)
         )
 
-    # --- Project completion offset = max EF across all tasks per run ---
-    # With one calendar every column is already on the same ruler and the maximum
-    # is taken exactly as it always was. With several, each column is re-expressed
-    # against the union-of-working-days reference index first — raw offsets from
-    # different working weeks are not comparable, and the larger offset is often
-    # the earlier date.
-    if len(wd_index_by_cal) > 1:
-        ref_ord, wd_index = _build_reference_index(wd_ord_by_cal)
-
-        # One lookup table per calendar, then one gather per calendar's column group,
-        # written back in place: no second runs x tasks matrix (#4710).
-        cols_by_cal: dict[int, list[int]] = {}
-        for col, tid in enumerate(topo_order):
-            cols_by_cal.setdefault(cal_key_of[tid], []).append(col)
-        for cal_key, cal_cols in cols_by_cal.items():
-            _to_reference_columns_inplace(
-                (ef_mat, wt_mat if has_instants else None),
-                np.asarray(cal_cols, dtype=np.intp),
-                wd_ord_by_cal[cal_key],
-                ref_ord,
-            )
-        if not has_instants:
-            wt_mat = ef_mat
-    shown_offsets = ef_mat.max(axis=1)  # shape (runs,): the day each run is shown on
-    completion_offsets = wt_mat.max(axis=1)  # shape (runs,): its working-time position
     # Convert offsets back to dates via the working-day index (reused from above).
     all_dates = sorted(
         _offset_to_date(o, wd_index, completed_finish_floor) for o in shown_offsets.tolist()
@@ -882,4 +1004,5 @@ def monte_carlo(
         p50_at_day_start=p50_start,
         p80_at_day_start=p80_start,
         p95_at_day_start=p95_start,
+        velocity_saturated_runs=int(np.count_nonzero(velocity_saturated)),
     )

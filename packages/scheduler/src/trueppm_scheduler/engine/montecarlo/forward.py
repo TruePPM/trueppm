@@ -1436,7 +1436,12 @@ def _mc_effective_duration(
     pass's old convention, which gave every milestone a whole working day.
 
     The fixed elapsed portion of an in-progress task is subtracted first so only
-    its remaining work is sampled (ADR-0132); the floor then applies.
+    its remaining work is sampled (ADR-0132); the floor then applies. Elapsed is
+    history, counted on the planned duration, so it is the same in every run rather
+    than scaled by each run's sampled total (#1495). The sampled column arrives
+    already floored at the planned duration (#3765), so ``sampled - elapsed`` is
+    never below the deterministic remaining work and the one-day floor here binds
+    only a task with no remaining planned work.
     """
     if tid in elapsed_days:
         sampled = sampled - elapsed_days[tid]

@@ -204,6 +204,7 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "distribution",
         "sensitivity",
         "percentiles",
+        "velocity_saturated_runs",
     ],
     "Project": [
         "id",

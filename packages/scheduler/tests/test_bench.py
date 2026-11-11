@@ -329,6 +329,76 @@ def test_monte_carlo_lag_delta_table_peak_memory() -> None:
     )
 
 
+def test_monte_carlo_forward_pass_peak_memory() -> None:
+    """The forward pass runs over row chunks, and its peak is asserted, not just its time (#3824).
+
+    8,000 PERT tasks x 2,000 runs (16M cells: two chunks at the 8M-cell budget).
+    Unchunked, the pass holds five runs x tasks matrices (29 bytes a cell) for every
+    run at once and ``tracemalloc`` peaks at ~603 MB on this shape; chunked it peaks
+    at ~371 MB, much of which is the float64 sampled-duration matrix the seeded
+    stream requires in full. The 480 MB bound sits between the two, so an unchunked
+    pass fails it while allocator noise does not. (The shape was 4,000 tasks until
+    #4955 doubled the chunk budget: that shape now fits one chunk.)
+    """
+    import tracemalloc
+    from dataclasses import replace
+
+    base = _make_mixed_topology(8_000)
+    project = replace(
+        base,
+        tasks=[
+            replace(
+                t,
+                optimistic_duration=timedelta(days=1),
+                most_likely_duration=timedelta(days=2),
+                pessimistic_duration=timedelta(days=5),
+            )
+            for t in base.tasks
+        ],
+    )
+
+    tracemalloc.start()
+    try:
+        result = monte_carlo(project, runs=2_000, seed=3824)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert result.p50 <= result.p80 <= result.p95
+    assert peak < 480_000_000, (
+        f"peak {peak / 1e6:.1f} MB — the Monte Carlo forward pass is no longer chunked "
+        "over runs (unchunked it peaks at ~603 MB on this shape)."
+    )
+
+
+@pytest.mark.parametrize(
+    ("n_tasks", "runs", "max_chunks"),
+    [(10_000, 1_000, 2), (50_000, 1_000, 7)],
+)
+def test_monte_carlo_forward_chunk_count_stays_small(
+    n_tasks: int, runs: int, max_chunks: int
+) -> None:
+    """The forward pass runs in few chunks at the 10k and 50k envelope (#4955).
+
+    Each chunk re-walks every task in a Python loop, so the pass costs
+    ``chunks x tasks`` of fixed numpy-call overhead: at 50,000 tasks x 1,000 runs the
+    old 4M-cell budget made 13 chunks and ran ~6.5 s against ~4.9 s unchunked. Wall
+    time is too host-dependent to assert, so this pins the structural quantity that
+    drives it. The bounds are the 8M-cell rule's counts (2 and 7); the old rule
+    gives 3 and 13.
+    """
+    from trueppm_scheduler.engine.montecarlo.run import _mc_forward_chunk_rows
+
+    rows = _mc_forward_chunk_rows(runs, n_tasks, whole=False)
+    chunks = -(-runs // rows)
+    assert chunks <= max_chunks, (
+        f"{chunks} forward-pass chunks at {n_tasks} tasks x {runs} runs (bound {max_chunks}) — "
+        "per-chunk loop overhead regresses wall time (#4955); raise the cell budget or cut "
+        "the per-chunk cost."
+    )
+    assert _mc_forward_chunk_rows(runs, n_tasks, whole=True) == runs
+
+
 def test_monte_carlo_max_lag_delta_cells_rejects_before_allocating() -> None:
     """A request-scoped ``max_lag_delta_cells`` rejects an over-cap table (#4129)."""
     import tracemalloc

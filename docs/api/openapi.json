@@ -60605,6 +60605,11 @@
                         },
                         "description": "Full sorted per-run finish-date sample. Present on a live run or a cache hit; absent on the persisted-history fallback."
                     },
+                    "velocity_saturated_runs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Runs in which an open scrum task's velocity draw reached the sprint horizon without burning down and was clamped there (#2469). Non-zero means P80/P95 are lower bounds, not estimates. Present on a live run or a cache hit; absent on the persisted-history fallback."
+                    },
                     "cpm_finish": {
                         "type": "string",
                         "format": "date",
@@ -76629,11 +76634,16 @@
                     },
                     "velocity_suppressed": {
                         "type": "boolean"
+                    },
+                    "horizon_saturated": {
+                        "type": "boolean",
+                        "nullable": true
                     }
                 },
                 "required": [
                     "basis",
                     "forecast_basis",
+                    "horizon_saturated",
                     "p50_date",
                     "p50_sprints",
                     "p80_date",
