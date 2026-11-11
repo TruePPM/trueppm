@@ -1100,7 +1100,8 @@ class TruePPMAutoSchema(AutoSchema):
         Operations whose handler never calls ``filter_queryset()`` are a different
         failure and undeclare explicitly (``UNDECLARE_FILTER_PARAMS``).
         """
-        params = super()._get_filter_parameters()
+        # drf-spectacular ships this method untyped.
+        params: list[dict[str, Any]] = super()._get_filter_parameters()  # type: ignore[no-untyped-call]
         if getattr(self.view, "search_fields", None):
             return params
         return [
