@@ -85,6 +85,23 @@ def test_request_existing_email_returns_200_and_sends_link(user) -> None:
 
 @override_settings(EMAIL_BACKEND=_LOCMEM, FRONTEND_BASE_URL="https://ppm.example.com")
 @pytest.mark.django_db
+def test_reset_email_does_not_overpromise_immediate_signout(user) -> None:
+    """Access tokens are stateless and live up to 15 min, so the copy must hedge (#1732)."""
+    mail.outbox.clear()
+    APIClient().post(_REQUEST_URL, {"email": "reset@example.com"}, format="json")
+
+    body = mail.outbox[0].body
+    assert "every other device" not in body
+    assert "within a few minutes" in body
+
+
+def test_allauth_email_verification_is_mandatory() -> None:
+    """Fail closed if allauth routes are ever mounted (#1732)."""
+    assert settings.ACCOUNT_EMAIL_VERIFICATION == "mandatory"
+
+
+@override_settings(EMAIL_BACKEND=_LOCMEM, FRONTEND_BASE_URL="https://ppm.example.com")
+@pytest.mark.django_db
 def test_reset_link_carries_the_credential_only_in_the_fragment(user) -> None:
     """The uid/token pair must appear after the ``#`` and nowhere else (#3553).
 

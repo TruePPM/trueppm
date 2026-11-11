@@ -182,7 +182,7 @@ PASSWORD_RESET_ROUTE = "auth/password/reset/"
 def test_root_urlconf_exposes_no_registration_route() -> None:
     """A visitor must not be able to mint themselves an account.
 
-    ``ACCOUNT_EMAIL_VERIFICATION = "none"`` in settings is safe only for as long
+    ``ACCOUNT_EMAIL_VERIFICATION`` in settings is moot only for as long
     as this holds — the setting's own comment says so. Including ``allauth.urls``
     is a one-line change that would invert the demo's posture without failing
     anything else.

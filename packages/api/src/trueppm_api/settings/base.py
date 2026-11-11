@@ -1956,15 +1956,21 @@ SHARE_SCHEDULE_MAX_TASKS = env.int("TRUEPPM_SHARE_SCHEDULE_MAX_TASKS", default=1
 # ---------------------------------------------------------------------------
 
 SITE_ID = 1
-# "none" is safe *because allauth's self-service account flows are never reached*
-# (#2248): we do NOT mount `allauth.urls`, so there is no allauth signup/login/
-# email-confirmation surface. Account creation flows only through (a) the invite
-# path — the email is fixed to the invite, not user-chosen — and (b) SSO, which
-# enforces its own `email_verified is True` + admin domain allow-list gate in
-# `apps.sso.services.resolve_user`. Do NOT mount `allauth.urls` (which would open
-# self-service registration) without first flipping this to a real verification
-# policy — otherwise unverified self-service signup would be silently enabled.
-ACCOUNT_EMAIL_VERIFICATION = "none"
+# "mandatory" is a defensive default (#1732). allauth's self-service account flows
+# are never reached today (#2248): we do NOT mount `allauth.urls`, so there is no
+# allauth signup/login/email-confirmation surface, and the value is currently moot.
+# Account creation flows only through (a) the invite path — the email is fixed to
+# the invite, not user-chosen — and (b) SSO, which enforces its own
+# `email_verified is True` + admin domain allow-list gate in
+# `apps.sso.services.resolve_user` and never reads allauth's verification state.
+# If `allauth.urls` is ever mounted, unverified self-registered accounts must not be
+# usable: "mandatory" makes that fail closed instead of re-opening the
+# account-takeover-by-email-claim class the invite/OIDC flows close. Mounting
+# `allauth.urls` still opens self-service registration and needs its own review.
+ACCOUNT_EMAIL_VERIFICATION = "mandatory"
+# allauth's system check refuses "mandatory" unless signup collects a required email.
+# Moot while `allauth.urls` is unmounted; declared only so the check passes.
+ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 
 # ModelBackend FIRST so username/password login keeps working exactly as before
 # (ADR-0517 §1). The allauth backend is appended only so allauth's own account

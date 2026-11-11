@@ -212,7 +212,7 @@ def _render_password_reset_email(user: Any, reset_url: str) -> tuple[str, str, s
             link_line_text,
             "",
             "This link is valid for 30 minutes. For your security, using it will sign "
-            "you out of every other device.",
+            "you out of your other devices within a few minutes.",
             "",
             "If you did not request a password reset, you can safely ignore this email "
             "— your password will not change.",
@@ -226,7 +226,7 @@ def _render_password_reset_email(user: Any, reset_url: str) -> tuple[str, str, s
             f"{escape(cta_text)}</p>",
             f"<p>{link_line_html}</p>",
             "<p>This link is valid for <strong>30 minutes</strong>. For your security, "
-            "using it will sign you out of every other device.</p>",
+            "using it will sign you out of your other devices within a few minutes.</p>",
             "<p>If you did not request a password reset, you can safely ignore this "
             "email — your password will not change.</p>",
         ]
