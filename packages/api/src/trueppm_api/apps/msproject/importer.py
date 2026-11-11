@@ -322,8 +322,16 @@ def _build_people_index(project_id: str) -> _PeopleIndex:
     ).select_related("user"):
         resources[str(r.pk)] = r
 
+    # Resource.user is a plain FK, so one user can own several Resource rows. They are
+    # one person: keep the first seen (roster entries were inserted first), or a value
+    # naming that user would read as "ambiguous" between their own duplicates.
     index = _PeopleIndex()
+    seen_users: set[Any] = set()
     for r in resources.values():
+        if r.user_id is not None:
+            if r.user_id in seen_users:
+                continue
+            seen_users.add(r.user_id)
         index.add(str(r.pk), r)
     return index
 
@@ -393,6 +401,7 @@ def _import_resources(
 
     resource_uid_to_pk: dict[int, str] = {}
     summary["resources_created_names"] = []
+    summary["resources_refused_names"] = []
     if not data.resources:
         return resource_uid_to_pk
 
@@ -447,9 +456,11 @@ def _import_resources(
         shown = ", ".join(f"'{n}'" for n in cap_refused[:3])
         more = f" and {len(cap_refused) - 3} more" if len(cap_refused) > 3 else ""
         summary["warnings"].append(
-            f"{len(cap_refused)} more people were not created: the per-import cap of {cap} "
-            f"was reached ({shown}{more}); their assignments were skipped"
+            f"{len(cap_refused)} people were not created: the per-import cap of {cap} "
+            f"(IMPORT_MAX_RESOURCES_CREATED={cap}) was reached ({shown}{more}); "
+            "their assignments were skipped"
         )
+        summary["resources_refused_names"] = list(cap_refused)
 
     if new_resources:
         Resource.objects.bulk_create(new_resources, batch_size=batch_size)

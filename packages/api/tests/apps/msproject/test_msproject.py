@@ -785,12 +785,24 @@ class TestImporter:
         assert Resource.objects.count() == 2
         cap_warnings = [w for w in summary["warnings"] if "per-import cap of 2" in w]
         assert len(cap_warnings) == 1
-        assert cap_warnings[0].startswith("3 more people were not created")
+        assert cap_warnings[0].startswith("3 people were not created")
+        assert "IMPORT_MAX_RESOURCES_CREATED" in cap_warnings[0]
         assert "Person 3" in cap_warnings[0]
+        assert summary["resources_refused_names"] == ["Person 3", "Person 4", "Person 5"]
         # Assignments exist only for the resources actually created.
         assert summary["assignments_created"] == 2
         assigned = set(TaskResource.objects.values_list("resource__name", flat=True))
         assert assigned == set(summary["resources_created_names"])
+
+    def test_one_user_with_two_resources_is_one_person(self, project: Project, user: Any) -> None:
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        rostered = Resource.objects.create(name="Rostered", user=user)
+        Resource.objects.create(name="Duplicate", user=user)
+        ProjectResource.objects.create(project=project, resource=rostered, server_version=1)
+        summary = import_project(str(project.pk), self._one_assignee("msp_user"))
+        assert summary["resources_matched"] == 1
+        assert not any("ambiguous" in w for w in summary["warnings"])
+        assert TaskResource.objects.get().resource_id == rostered.pk
 
     def test_ambiguous_name_is_warned_and_left_unbound(self, project: Project) -> None:
         for _ in range(2):

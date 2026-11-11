@@ -360,14 +360,15 @@ export endpoint). Import is server-side.
   **Amended (#2485).** The shipped importer used to match people by display name against
   the workspace-global resource library, which conflicted with the paragraph above. The
   contract is now: people **bind only within the project** (its active roster plus members
-  reachable through `Resource.user`), tried as UUID, email, username, then exact
+  reachable through `Resource.user`), matched by id, email, username or exact
   case-insensitive name, from an index built once per import. Binding never falls back to
   the global library. An unmatched value is a row-level warning (spreadsheet: first source line, count of
   further lines, and column header; MS Project: the resource name and UID); because a spreadsheet
   migration into an empty project has no roster to match, the importer still **creates** a
   `Resource` for it, but creation is **bounded** by `IMPORT_MAX_RESOURCES_CREATED`
   (default 200) per import and **reported** (`resources_created`, `resources_created_names`).
-  Past the cap the value gets a warning, no row is created, and its assignments are skipped.
+  Past the cap no row is created and the assignments are skipped; one summary line names
+  the setting and up to three people, and `resources_refused_names` lists every refused value.
   A person nothing in the file assigns is never created, only warned about. A value that
   matches **more than one** person on the project (two people share a name, or it is one
   person's username and another's name) is **ambiguous**: it is warned ("ambiguous: matches N
