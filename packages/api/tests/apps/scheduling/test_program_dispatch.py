@@ -213,7 +213,7 @@ def test_program_delta_ships_only_moved_tasks_per_member(
     the write-back set meant a program of P projects sent every subscriber a
     full-project payload on every pass, and tripped the truncated full-refetch
     branch on any member above the cap. A second, no-op pass moves nothing, so
-    every member's delta must be empty while ``cpm_complete`` still fires.
+    no ``task_dates_updated`` frame is sent (#2599) while ``cpm_complete`` still fires.
     """
 
     def _deltas(bcast: object) -> dict[str, dict[str, object]]:
@@ -243,10 +243,8 @@ def test_program_delta_ships_only_moved_tasks_per_member(
         _run_program_schedule(str(program.pk))
     repeat = _deltas(second)
 
-    for pid in (str(proj_a.pk), str(proj_b.pk)):
-        assert repeat[pid]["count"] == 0, f"{pid} re-broadcast unmoved tasks"
-        assert repeat[pid]["tasks"] == []
-        assert "truncated" not in repeat[pid]
+    # #2599: a member whose delta is empty gets no frame at all.
+    assert repeat == {}, f"no-op pass broadcast task_dates_updated: {repeat}"
 
 
 @pytest.mark.django_db

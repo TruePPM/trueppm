@@ -244,3 +244,15 @@ consumed, a client's `since` cursor stays inside the buffer and no `resync_requi
 fires, so a DB failure *plus* a missed live frame can leave a client silently stale
 until its next refetch, reconnect, or CPM run. Accepted: it needs two independent
 failures, and every affected value is re-derivable from the API.
+
+## Amendment (2026-11-10, #2599) — no frame when nothing moved
+
+Decision §1 says the event is emitted once at the end of `_run_schedule`. Since
+#2573 the delta is the *moved* subset, so a pass that moves nothing produced
+`{"count": 0, "tasks": []}`, and in a program pass every untouched member project got
+one, each fanned out and persisted as an ADR-0236 replay row. The event is now
+suppressed when `count` is 0 (single-project and program pass alike). `cpm_complete`
+still fires unconditionally. No client depends on the empty frame:
+`useProjectWebSocket` already skipped the splice on an empty delta, and
+`ProgramScheduleLiveSync` only refetches on the event type, so a no-op pass no longer
+triggers that refetch.
