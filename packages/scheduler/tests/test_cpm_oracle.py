@@ -2135,7 +2135,23 @@ MILESTONE_STARTED_THE_DAY_AFTER_ITS_SHOWN_MONDAY = replace(
     },
 )
 
+#: Found by the deep fuzz after the #4436 fix: ``T3``, a Monday-to-Friday milestone
+#: at Saturday midnight, is shown at the start of Monday, past seven-day ``T4``
+#: ending Sunday. The reference marked ``T3`` at its raw Saturday instant, so work
+#: "decided" the finish and it stated ``T4``'s float as 0 — the very understatement
+#: #4436 fixed in the engines. A start-of-day milestone is marked where it is shown.
+START_OF_DAY_MILESTONE_PAST_WORK_ON_ITS_OWN_CALENDAR = RefProject(
+    start=date(2026, 1, 10),
+    durations={"T0": 0, "T1": 0, "T2": 0, "T3": 0, "T4": 2},
+    links=(RefLink("T0", "T2", "FS", 3), RefLink("T2", "T3", "FS", 3)),
+    calendar=RefCalendar(working_mask=_SEVEN_DAY),
+    planned_start={"T4": date(2026, 1, 16)},
+    calendars={"five": RefCalendar(working_mask=MON_TO_FRI)},
+    task_calendar={"T0": "five", "T3": "five"},
+)
+
 PROGRESS_EXAMPLES = (
+    START_OF_DAY_MILESTONE_PAST_WORK_ON_ITS_OWN_CALENDAR,
     SS_OUT_OF_A_RECORDED_START,
     SS_OUT_OF_A_DERIVED_START,
     START_FIXED_LINK_LEAVES_FLOAT,
