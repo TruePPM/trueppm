@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+from django.core.exceptions import FieldDoesNotExist
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import InvalidPage
 from django.core.paginator import Paginator as DjangoPaginator
@@ -5860,8 +5861,54 @@ def _snapshot_task_before_update(instance: Task | None) -> _TaskUpdateSnapshot:
     )
 
 
+_UNCOMPARABLE = object()
+
+
+def _snapshot_submitted_values(instance: Task | None, keys: Any) -> dict[str, Any]:
+    """Pre-save stored values for the submitted keys that map to a concrete column.
+
+    Keys with no comparable column (write-only inputs such as ``owners`` or
+    ``labels``, M2M, derived) are omitted: ``_actually_changed_fields`` treats an
+    omitted key as changed, so an unknowable comparison errs toward recalculating
+    and announcing (#2564).
+    """
+    snap: dict[str, Any] = {}
+    if instance is None:
+        return snap
+    for key in keys:
+        try:
+            field = Task._meta.get_field(key)
+        except FieldDoesNotExist:
+            continue
+        if getattr(field, "concrete", False) and not field.many_to_many:
+            snap[key] = getattr(instance, field.attname)
+    return snap
+
+
+def _actually_changed_fields(
+    instance: Task, submitted: set[str], before_values: dict[str, Any]
+) -> set[str]:
+    """The submitted keys whose stored value really differs after save (#2564).
+
+    ``validated_data`` is the set of submitted keys, so a PATCH that re-sends a
+    stored value (e.g. a Gantt resize whose serializer re-injects the existing
+    ``duration``) looks like a change. Comparing against the pre-save snapshot lets
+    the caller tell "nothing submitted" (unknown, recalc defensively) apart from
+    "submitted, nothing changed" (no recalc, no fanout).
+    """
+    changed: set[str] = set()
+    for key in submitted:
+        if key not in before_values:
+            changed.add(key)
+            continue
+        attname = Task._meta.get_field(key).attname
+        if getattr(instance, attname) != before_values[key]:
+            changed.add(key)
+    return changed
+
+
 def _defer_task_update_broadcasts(
-    instance: Task, changed_fields: set[str], actor_id: str | None
+    instance: Task, changed_fields: set[str], actor_id: str | None, *, noop: bool = False
 ) -> None:
     """Queue the CPM recalc and the three post-commit board broadcasts for an edit.
 
@@ -5880,7 +5927,10 @@ def _defer_task_update_broadcasts(
     project_id = str(instance.project_id)
     task_id = str(instance.pk)
 
-    if not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS:
+    # ``noop``: fields were submitted but every value equals the stored one (#2564).
+    # Distinct from an empty ``changed_fields`` with noop=False, which means "unknown"
+    # and still recalculates defensively.
+    if not noop and (not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS):
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
 
     # ADR-0152 (#327): carry the field-level delta (names only — never gated values),
@@ -5888,15 +5938,16 @@ def _defer_task_update_broadcasts(
     # suppress its own echo instead of re-fetching over its optimistic update.
     delta_fields = sorted(changed_fields)
     version = instance.server_version
-    transaction.on_commit(
-        lambda: broadcast_task_updated(
-            project_id,
-            task_id=task_id,
-            changed_fields=delta_fields,
-            version=version,
-            actor_id=actor_id,
+    if not noop:
+        transaction.on_commit(
+            lambda: broadcast_task_updated(
+                project_id,
+                task_id=task_id,
+                changed_fields=delta_fields,
+                version=version,
+                actor_id=actor_id,
+            )
         )
-    )
     # #867: this edit pulled the project start earlier (auto-shift in
     # TaskSerializer.update). Broadcast the project change in the same batch
     # so collaborators re-fetch the new boundary alongside the task update.
@@ -6760,6 +6811,9 @@ class TaskViewSet(
         self._merge_concurrent_fields = check_field_conflict(self.request, serializer)
 
         before = _snapshot_task_before_update(serializer.instance)
+        submitted_before = _snapshot_submitted_values(
+            serializer.instance, getattr(serializer, "validated_data", {}).keys()
+        )
 
         # Amend (#2964). `amend_reason` is a declared write-only field, so it is
         # already validated and is popped here rather than reaching Task.save().
@@ -6809,8 +6863,11 @@ class TaskViewSet(
         if amending:
             notify_amend(instance, actor=actor, reason=amend_reason)
 
-        changed_fields = set(getattr(serializer, "validated_data", {}).keys())
-        _defer_task_update_broadcasts(instance, changed_fields, actor_id)
+        submitted = set(getattr(serializer, "validated_data", {}).keys())
+        changed_fields = _actually_changed_fields(instance, submitted, submitted_before)
+        _defer_task_update_broadcasts(
+            instance, changed_fields, actor_id, noop=bool(submitted) and not changed_fields
+        )
 
         # Capture the calling surface from X-Source header so downstream consumers
         # (webhooks, future audit views) can distinguish a status flip from /me/work

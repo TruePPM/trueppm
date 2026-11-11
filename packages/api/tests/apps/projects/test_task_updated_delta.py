@@ -104,6 +104,47 @@ def test_non_schedule_field_patch_still_broadcasts_delta(
     assert payload["changed_fields"] == ["name"]
 
 
+@pytest.mark.django_db
+def test_noop_patch_skips_recalc_and_broadcast(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: re-sending a stored value is not a change — no CPM recalc, no fanout."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(f"/api/v1/tasks/{task.pk}/", {"duration": 5}, format="json")
+        assert r.status_code == 200
+
+    recalc.assert_not_called()
+    assert not _task_updated_calls(mock_bcast)
+
+
+@pytest.mark.django_db
+def test_mixed_patch_reports_only_the_real_change(
+    client: APIClient,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#2564: changed_fields is a diff — the unchanged key is dropped, recalc still runs."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            r = client.patch(
+                f"/api/v1/tasks/{task.pk}/", {"duration": 5, "status": "IN_PROGRESS"}, format="json"
+            )
+        assert r.status_code == 200
+
+    recalc.assert_called_once()
+    _pid, _event, payload = _task_updated_calls(mock_bcast)[-1]
+    assert payload["changed_fields"] == ["status"]
+
+
 def test_broadcast_task_updated_payload_shape() -> None:
     """Helper assembles a stable, sorted, names-only payload."""
     with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as m:
