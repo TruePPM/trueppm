@@ -630,7 +630,7 @@ def test_internal_smtp_host_rejected(operator_client: APIClient) -> None:
     # connect failure gets, which sends an operator with a fine credential
     # looking in the wrong place. It must point at the escape hatch.
     message = resp.data["non_field_errors"][0]
-    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP" in message
     assert "check the host, port, security, and credentials" not in message.lower()
 
 
@@ -651,7 +651,7 @@ def test_egress_blocked_host_error_is_distinct_from_generic_connect_failure(
         raise email_backend.EmailHostNotAllowedError(
             "The mail server host is not permitted — it resolves to a non-public "
             "address. If this is a trusted internal relay on a private network, "
-            "add its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, "
+            "add its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP on the API, "
             "Celery worker, and Celery beat processes, restart or redeploy them "
             "(the setting is read at startup), then save these settings again."
         )
@@ -671,7 +671,7 @@ def test_egress_blocked_host_error_is_distinct_from_generic_connect_failure(
     )
     assert resp.status_code == 400
     message = resp.data["non_field_errors"][0]
-    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP" in message
     assert "check the host, port, security, and credentials" not in message.lower()
     assert WorkspaceEmailSettings.load().transport_mode == EmailTransportMode.CLOUD
 
@@ -704,7 +704,7 @@ def test_smtp_egress_block_does_not_leak_resolved_ip(monkeypatch: pytest.MonkeyP
     """
     from trueppm_api.apps.integrations import http as egress_http
 
-    def _blocked(host: str, port: int) -> None:
+    def _blocked(host: str, port: int, **_kw: object) -> None:
         raise egress_http.EgressBlocked(f"host {host!r} resolves to non-public address 10.9.8.7")
 
     monkeypatch.setattr(egress_http, "assert_host_allowed", _blocked)
@@ -916,7 +916,7 @@ def test_send_test_blocked_by_egress_guard_gets_specific_error(
     assert resp.status_code == 502
     assert resp.data["sent"] is False
     message = resp.data["error"]
-    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP" in message
     assert "check the transport configuration" not in message.lower()
     # Must not echo the DNS-resolved internal address (#2082).
     assert "127.0.0.1" not in str(resp.data)

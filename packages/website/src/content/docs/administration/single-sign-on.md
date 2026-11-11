@@ -242,8 +242,8 @@ cannot reach.
 - **In-cluster identity provider** — if the IdP itself runs inside your
   cluster (e.g. Keycloak at a private service address), the SSRF guard blocks
   discovery to it until you allow-list it via
-  `env.TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, documented in `values.yaml` next to
-  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS`. The setting is read at startup, so it takes
+  `env.TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO`. The `values.yaml` entry next to
+  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` is `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS`, a different list. The setting is read at startup, so it takes
   effect only after the API and Celery worker pods restart. See [Running the identity provider
   inside your cluster](#running-the-identity-provider-inside-your-cluster)
   below.
@@ -475,12 +475,13 @@ fetches to that issuer fail with a "provider unreachable" error and the **Test
 connection** button reports the issuer as unreachable.
 
 To allow it, name the exact hostnames you trust in the
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` environment variable (comma-separated). Those
-hosts — and only those — bypass the private-address check:
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` environment variable (comma-separated). The
+original name, `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, still works and is merged with
+it. Those hosts — and only those — bypass the private-address check:
 
 ```bash
 # Permit an in-cluster Keycloak; every other private host stays blocked.
-TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc.cluster.local
+TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO=keycloak.sso.svc.cluster.local
 ```
 
 **The variable is read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes an `env:` value rolls them; a change to an `envFrom` ConfigMap or Secret does not, so restart them yourself).** Matching is an **exact, case-insensitive hostname** compare — no wildcards and no
@@ -489,17 +490,21 @@ lookalike host. Leave the variable unset (the default) unless you actually run a
 IdP on a private address; a public issuer needs no allow-list. This setting is
 operator configuration only and is never influenced by user input.
 
-:::caution[The allow-list applies to *all* outbound requests]
-An allow-listed host is exempt from the private-address check for **every** TruePPM
-outbound integration — not only SSO, but also personal-access-token verification,
-git-link status refresh, webhook delivery, and SMTP relay checks, some of which
-take user-supplied URLs. Only allow-list a host that is at least as trusted as your
-identity provider, and list the specific IdP host — never a broad internal name.
+The SSO allow-list applies to **single sign-on only**. A host on it is **not**
+exempt for personal-access-token verification, git-link status refresh, webhook
+delivery, or SMTP relay checks — each of those has its own list
+([Advanced configuration](/administration/configuration/advanced/)).
+
+:::note[Ships in 0.5]
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` is introduced by 0.5. In 0.4, use
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`; `_SSO` is not read. In 0.4 that variable
+exempts the host for **every** outbound integration, so list only the specific IdP
+host — never a broad internal name.
 :::
 
 ### If the allow-list does not fix it: check your own NetworkPolicy
 
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` only relaxes TruePPM's own application-level
+The SSO allow-list only relaxes TruePPM's own application-level
 check. It does not open a network path. The chart's NetworkPolicy does not
 restrict the API or worker pods' egress by default (see [Ports and
 firewall](/administration/networking/#ports-and-firewall)), but if your cluster
@@ -510,7 +515,7 @@ allow-list has done its part.
 The two failures look different in **Test connection**:
 
 - **Blocked by the application guard**: the result carries the egress-guard hint
-  that points at `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. Set the variable, then restart the API and Celery worker pods — it is read at startup.
+  that points at `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` (or `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO`). Set the variable, then restart the API and Celery worker pods — it is read at startup.
 - **Dropped by a NetworkPolicy**: the connection hangs and times out, so the
   result is a plain "provider unreachable" or `jwks_unreachable` with no
   allow-list hint. If you have set the variable and still see this, suspect the

@@ -310,7 +310,7 @@ def test_create_webhook_rejects_http_on_egress_allowlisted_host(
     deny-list, so before the https rule an operator could register ``http://``
     on an in-cluster host. The scheme check is independent of that exemption.
     """
-    settings.EGRESS_ALLOWLISTED_HOSTS = ("hooks.internal",)  # type: ignore[attr-defined]
+    settings.EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS = ("hooks.internal",)  # type: ignore[attr-defined]
     resp = admin_client.post(
         f"/api/v1/projects/{project.pk}/webhooks/",
         {"url": "http://hooks.internal/x", "secret": "s" * 32, "events": ["task.created"]},
@@ -319,3 +319,93 @@ def test_create_webhook_rejects_http_on_egress_allowlisted_host(
     assert resp.status_code == 400
     assert "url" in resp.data
     assert not Webhook.objects.filter(project=project).exists()
+
+
+def _resolves_private(*args: object, **kwargs: object) -> list[tuple[object, ...]]:
+    import socket
+
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 443))]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("setting", ["EGRESS_ALLOWLISTED_HOSTS", "EGRESS_ALLOWLISTED_HOSTS_SSO"])
+def test_create_webhook_rejects_an_sso_allowlisted_internal_host(
+    admin_client: APIClient, project: Project, settings: object, setting: str
+) -> None:
+    """#2851 / #3561: allow-listing an in-cluster IdP for SSO does not open it to webhooks.
+
+    The failure scenario: an operator sets ``TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc``
+    for in-cluster OIDC (the documented use), and a project Admin then registers a
+    webhook at ``https://keycloak.sso.svc/admin/...`` to read an internal service.
+    """
+    setattr(settings, setting, ["keycloak.sso.svc"])
+    with patch("socket.getaddrinfo", _resolves_private):
+        resp = admin_client.post(
+            f"/api/v1/projects/{project.pk}/webhooks/",
+            {
+                "url": "https://keycloak.sso.svc/admin/realms/x",
+                "secret": "s" * 32,
+                "events": ["task.created"],
+            },
+            format="json",
+        )
+    assert resp.status_code == 400
+    assert "url" in resp.data
+    # The egress guard rejected it, not DRF's URL-format validation.
+    assert "This URL is not allowed" in str(resp.data["url"])
+    assert not Webhook.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_create_webhook_admits_a_webhook_allowlisted_internal_host(
+    admin_client: APIClient, project: Project, settings: object
+) -> None:
+    """An operator CAN still trust an in-cluster receiver — on the webhook list only."""
+    settings.EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS = ["hooks.internal"]  # type: ignore[attr-defined]
+    with patch("socket.getaddrinfo", _resolves_private):
+        resp = admin_client.post(
+            f"/api/v1/projects/{project.pk}/webhooks/",
+            {"url": "https://hooks.internal/x", "secret": "s" * 32, "events": ["task.created"]},
+            format="json",
+        )
+    assert resp.status_code == 201
+
+
+@pytest.mark.django_db
+def test_deliver_webhook_refuses_an_sso_allowlisted_internal_host(
+    project: Project, settings: object
+) -> None:
+    """The delivery path diverges from SSO too: an SSO-trusted host is refused (#2851).
+
+    Covers a row that predates the split (or was written past the serializer):
+    delivery re-validates under the WEBHOOKS purpose, so the SSO exemption the
+    operator configured for the IdP does not reach this socket.
+    """
+    from trueppm_api.apps.integrations import http as egress
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    settings.EGRESS_ALLOWLISTED_HOSTS = ["keycloak"]  # type: ignore[attr-defined]
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = ["keycloak"]  # type: ignore[attr-defined]
+    user = User.objects.create_user(username="ssrf_owner_sso", password="pw")
+    webhook = Webhook.objects.create(
+        project=project,
+        url="https://keycloak/admin/realms/x",
+        secret="s3cret",
+        events=["task.created"],
+        created_by=user,
+    )
+    delivery = WebhookDelivery.objects.create(
+        webhook=webhook, event_type="task.created", payload={"id": "t1"}
+    )
+    # The SSO purpose still reaches it — the two callers now diverge.
+    with patch("socket.getaddrinfo", _resolves_private):
+        egress.assert_url_allowed(webhook.url, purpose=egress.EgressPurpose.SSO)
+        with (
+            patch.object(wh_tasks, "assert_url_allowed", egress.assert_url_allowed),
+            patch.object(wh_tasks._no_redirect_opener, "open") as mock_open,
+        ):
+            wh_tasks.deliver_webhook.run(str(delivery.pk))
+
+    mock_open.assert_not_called()
+    delivery.refresh_from_db()
+    assert delivery.status == DeliveryStatus.FAILED

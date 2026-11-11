@@ -53,6 +53,10 @@ from trueppm_api.apps.workspace.permissions import workspace_role_for_user
 
 logger = logging.getLogger("trueppm.sso")
 
+# Every SSO egress call declares the SSO purpose, so it honors the operator's SSO
+# allow-list (an in-cluster IdP, ADR-0590) — and only SSO calls do (#2851).
+_SSO = egress.EgressPurpose.SSO
+
 User = get_user_model()
 
 # The two allauth provider modules we enable (ADR-0517 §1). Every OIDC IdP maps to
@@ -390,7 +394,7 @@ def get_discovery_document(issuer_url: str) -> dict[str, Any]:
 
     url = _discovery_url(issuer_url)
     try:
-        resp = egress.get(url, headers={"Accept": _ACCEPT_JSON})
+        resp = egress.get(url, headers={"Accept": _ACCEPT_JSON}, purpose=_SSO)
     except egress.EgressBlocked as exc:
         raise OIDCProviderUnreachable(
             f"issuer URL blocked by SSRF guard: {exc}", reason="egress_blocked"
@@ -534,7 +538,7 @@ def exchange_code(
         "code_verifier": verifier,
     }
     try:
-        resp = egress.post_form(doc["token_endpoint"], data=data)
+        resp = egress.post_form(doc["token_endpoint"], data=data, purpose=_SSO)
     except egress.EgressBlocked as exc:
         raise OIDCProviderUnreachable(f"token endpoint blocked by SSRF guard: {exc}") from exc
     except (egress.EgressTimeout, egress.EgressError) as exc:
@@ -586,8 +590,8 @@ def _fetch_jwks(jwks_uri: str, *, force_refresh: bool = False) -> tuple[dict[str
             return cached, True
 
     try:
-        egress.assert_url_allowed(jwks_uri)
-        resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON})
+        egress.assert_url_allowed(jwks_uri, purpose=_SSO)
+        resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON}, purpose=_SSO)
     except egress.EgressBlocked as exc:
         raise OIDCProviderUnreachable(f"jwks URL blocked by SSRF guard: {exc}") from exc
     except (egress.EgressTimeout, egress.EgressError) as exc:
@@ -705,7 +709,7 @@ def exchange_github_code(ctx: ProviderContext, *, code: str, redirect_uri: str) 
         "client_secret": ctx.get_client_secret(),
     }
     try:
-        resp = egress.post_form(GITHUB_TOKEN_URL, data=data)
+        resp = egress.post_form(GITHUB_TOKEN_URL, data=data, purpose=_SSO)
     except egress.EgressBlocked as exc:
         raise OIDCProviderUnreachable(
             f"github token endpoint blocked by SSRF guard: {exc}"
@@ -735,7 +739,7 @@ def _github_get(url: str, access_token: str) -> egress.EgressResponse:
         "Accept": "application/vnd.github+json",
     }
     try:
-        return egress.get(url, headers=headers)
+        return egress.get(url, headers=headers, purpose=_SSO)
     except egress.EgressBlocked as exc:
         raise OIDCProviderUnreachable(f"github API blocked by SSRF guard: {exc}") from exc
     except (egress.EgressTimeout, egress.EgressError) as exc:
@@ -1466,7 +1470,7 @@ def _probe_client_authentication(
     if not ctx.is_github:
         data["code_verifier"] = _PROBE_BOGUS_VERIFIER
     try:
-        resp = egress.post_form(token_url, data=data)
+        resp = egress.post_form(token_url, data=data, purpose=_SSO)
     except egress.EgressBlocked as exc:
         return {
             "client_auth": "unreachable",
@@ -1518,8 +1522,8 @@ def _check_oidc_reachability(issuer_url: str) -> dict[str, Any]:
     # substring-matching the prose ``detail`` is brittle and the message is not a
     # stable contract.
     try:
-        egress.assert_url_allowed(jwks_uri)
-        jwks_resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON})
+        egress.assert_url_allowed(jwks_uri, purpose=_SSO)
+        jwks_resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON}, purpose=_SSO)
     except egress.EgressBlocked as exc:
         return {
             "ok": False,
@@ -1548,8 +1552,8 @@ def _check_oidc_reachability(issuer_url: str) -> dict[str, Any]:
 
 def _check_github_reachability() -> dict[str, Any]:
     try:
-        egress.assert_url_allowed(GITHUB_USER_URL)
-        resp = egress.get(GITHUB_USER_URL)
+        egress.assert_url_allowed(GITHUB_USER_URL, purpose=_SSO)
+        resp = egress.get(GITHUB_USER_URL, purpose=_SSO)
     except egress.EgressBlocked as exc:
         # GitHub SaaS is a public host, so this only fires when the operator's own
         # egress allow-list has been tightened past the default (e.g. an explicit

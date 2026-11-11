@@ -23,7 +23,8 @@ explicitly so the values match the baked realm export):
     INTEGRATION_USER_PASSWORD    password for the admin account (shared with the
                                  web:integration fixtures)
 
-The issuer host must be present in ``EGRESS_ALLOWLISTED_HOSTS`` (ADR-0590) or the
+The issuer host must be present in ``EGRESS_ALLOWLISTED_HOSTS_SSO`` or the legacy
+``EGRESS_ALLOWLISTED_HOSTS`` (ADR-0590; both apply to SSO only, #2851) or the
 SSRF egress guard blocks discovery/token/JWKS — the CI job sets both together.
 """
 

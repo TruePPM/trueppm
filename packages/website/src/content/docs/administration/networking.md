@@ -1,7 +1,7 @@
 ---
 title: Networking
 description: DNS, TLS termination, WebSockets through a proxy, load balancing, health checks, and the ports and firewall rules a TruePPM install needs.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 Everything between your users and the API: the DNS records to create, where TLS
@@ -111,17 +111,31 @@ resolve to a globally routable address, or the request is refused. That blocks
 an in-cluster identity provider (`keycloak.sso.svc`), an internal SMTP relay, or
 a MinIO or SeaweedFS endpoint on a private VIP.
 
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is the escape hatch — a comma-separated list
-of exact, case-insensitive hostnames exempted from that check:
+The escape hatch is a set of per-surface allow-lists. Each is a comma-separated
+list of exact, case-insensitive hostnames exempted from that check, and a host on
+one list is exempt **only for that surface**:
+
+| Variable | Surface |
+|---|---|
+| `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` | Single sign-on (the identity provider). The legacy `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is merged into it. |
+| `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` | The mail relay |
+| `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS` | A self-hosted GitLab or Jira for Connected Accounts |
+| `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS` | Webhook receivers |
 
 ```bash
-TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc.cluster.local,smtp.internal.example.com
+TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO=keycloak.sso.svc.cluster.local
+TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP=smtp.internal.example.com
 ```
 
-No wildcards. The variable is read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes an `env:` value rolls them; a change to an `envFrom` ConfigMap or Secret does not, so restart them yourself). The allow-list is consulted by **every** egress caller (SSO,
-webhooks, SMTP, integration credential verification), so only list a host you
-trust at least as much as your identity provider. See
+No wildcards. The variables are read once at process start, so a change takes effect only after the API and Celery worker and beat pods restart (a `helm upgrade` that changes an `env:` value rolls them; a change to an `envFrom` ConfigMap or Secret does not, so restart them yourself). A host is trusted only for the surface whose list names it, so list a host only where you need it. See
 [Outbound requests](/administration/security/#outbound-requests-ssrf-boundary).
+
+:::note[Ships in 0.5]
+In 0.4 there is a single list, `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, and it applies
+to **every** outbound caller (SSO, webhooks, SMTP, integration credential
+verification). Use it for all of the hosts above, and list only hosts you trust at
+least as much as your identity provider. The per-surface variables are not read.
+:::
 
 ### Internal (cluster) DNS
 
@@ -878,7 +892,7 @@ this deployment shape needs no other outbound access at all. See
 
 TruePPM's SSRF guard already refuses any destination that resolves to a
 non-globally-routable address unless it is in
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. That is an application control, not a
+the allow-list for that surface (see the [per-surface table](#split-horizon-and-internal-only-names)). That is an application control, not a
 network one — you still need the firewall rules below.
 
 | Source | Destination | Port / protocol | Required? | Why |
@@ -888,7 +902,7 @@ network one — you still need the firewall rules below.
 | Docker host (Compose) | GHCR (`ghcr.io`) | 443/tcp | **Yes**, at pull time (Compose) | `docker-compose.prod.yml` pulls the API and web images from `ghcr.io/trueppm/{api,web}`. Kubernetes nodes need this only if you override the chart's image repositories to GHCR. |
 | Whoever runs `helm install` / `helm upgrade` | GHCR (`ghcr.io`) | 443/tcp | If you install the chart from its OCI artifact | Pulling `oci://ghcr.io/trueppm/charts/trueppm`. This is the workstation or CI runner running Helm, not the cluster nodes. Not needed when you install from a local or mirrored chart. |
 | API, worker | SMTP relay | `EMAIL_PORT`, default 587/tcp (465 implicit TLS, 25 plain) | If email notifications are enabled | Notification and invitation email. `EMAIL_USE_TLS` defaults to `true`. |
-| API | OIDC / OAuth2 identity provider | 443/tcp | If SSO is configured | Discovery document, authorization, token exchange, JWKS. An in-cluster IdP needs `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`; if it still times out, see [your own NetworkPolicy](/administration/single-sign-on/#if-the-allow-list-does-not-fix-it-check-your-own-networkpolicy). |
+| API | OIDC / OAuth2 identity provider | 443/tcp | If SSO is configured | Discovery document, authorization, token exchange, JWKS. An in-cluster IdP needs `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO`; if it still times out, see [your own NetworkPolicy](/administration/single-sign-on/#if-the-allow-list-does-not-fix-it-check-your-own-networkpolicy). |
 | Browsers | OIDC identity provider | 443/tcp | If SSO is configured | The login redirect happens in the user's browser, not server-side — the *client* network needs this too. |
 | API, worker | S3 endpoint, MinIO, or SeaweedFS | 443/tcp (MinIO commonly 9000/tcp, SeaweedFS S3 gateway commonly 8333/tcp) | If object storage is enabled — required above one replica | Attachment upload, download, and presigned URLs (`TRUEPPM_S3_ENDPOINT_URL`). |
 | API, worker | OTLP collector | 4317/tcp (gRPC) or 4318/tcp (HTTP) | If `OTEL_EXPORTER_OTLP_ENDPOINT` is set | Traces and metrics. Off by default — no endpoint, no egress. |

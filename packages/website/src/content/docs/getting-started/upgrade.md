@@ -105,6 +105,30 @@ truth.
 
 ---
 
+## Upgrading to 0.5
+
+:::note[Ships in 0.5]
+This section describes the 0.5 upgrade. 0.5 has not shipped; on 0.4 the egress
+allow-list is the single `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` variable and needs no
+change.
+:::
+
+**Breaking config: the egress allow-list is now per surface.**
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` exempts **single sign-on only** from 0.5. Before
+you upgrade, move every non-SSO host out of it:
+
+- an internal SMTP relay to `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP`;
+- a self-hosted GitLab or Jira (Connected Accounts) to `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS`;
+- a webhook receiver on a private network to `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS`.
+
+A host left only on the legacy list is refused as a private address on its surface
+after the upgrade. Webhook deliveries to such a host fail and are parked, not
+retried, so a delivery attempted during the window is not replayed automatically
+once you fix the list. Set the new variables on the API, Celery worker, and Celery
+beat processes. See [Networking](/administration/networking/#split-horizon-and-internal-only-names).
+
+---
+
 ## Upgrading to 0.4
 
 **Migration behavior:** includes destructive ops (see below). Downtime: a

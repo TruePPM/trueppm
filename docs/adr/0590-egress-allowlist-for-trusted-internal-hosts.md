@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted (2026-07-22)
+Accepted (2026-07-22). Amended 2026-11-11 by #2851 / #3561: the allow-list is
+scoped per egress purpose (see "Amendment" below).
 
 > Narrows [ADR-0049](0049-external-integration-extension-points.md) §3 (the
 > outbound SSRF egress chokepoint) with a single, operator-controlled escape
@@ -79,3 +80,33 @@ Constraints that keep the escape hatch narrow:
   `administration/single-sign-on.md`.
 - **Not an Enterprise line.** This is table-stakes self-hosting ergonomics for the
   open-source core (the adoption-vs-governance split is unaffected).
+
+## Amendment (2026-11-11, #2851 / #3561): one list per egress purpose
+
+The "global to the chokepoint" consequence above was too wide. The intended use is
+an operator-configured destination (the IdP issuer). The same exemption applied to
+surfaces whose destination is chosen by a project Admin (webhook URLs) or by any
+user (a pasted git link, a Connected Account base URL). An operator who followed the
+SSO guidance and allow-listed `keycloak` thereby let a project Admin register
+`https://keycloak/admin/...` as a webhook and receive internal responses.
+
+Decision: every chokepoint entry point (`assert_url_allowed`, `assert_host_allowed`,
+`get`, `post_form`, `build_guarded_opener`) takes a `purpose` (`EgressPurpose`), and
+each purpose reads only its own list:
+
+| Purpose | Setting | Callers |
+|---|---|---|
+| `sso` | `EGRESS_ALLOWLISTED_HOSTS_SSO` ∪ legacy `EGRESS_ALLOWLISTED_HOSTS` | OIDC discovery / token / JWKS, GitHub login |
+| `smtp` | `EGRESS_ALLOWLISTED_HOSTS_SMTP` | workspace SMTP relay check |
+| `integrations` | `EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS` | PAT verification, git-link refresh, external task sources |
+| `webhooks` | `EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS` | webhook registration and delivery |
+| _(none)_ | — | the anonymous file-link unfurl, and any caller that declares nothing |
+
+The purpose is bound into the guarded connection as well as the pre-flight, so
+the connect-time check cannot honor a list that the pre-flight refused. A caller
+that declares no purpose honors no list (fail closed). The legacy name stays
+backward compatible for its documented SSO use and for the `sso:integration` CI
+job. An install that used it for SMTP, a self-hosted integration host, or a webhook
+receiver must move that host to the matching list. The 0.5 security changelog
+entry says so.
+

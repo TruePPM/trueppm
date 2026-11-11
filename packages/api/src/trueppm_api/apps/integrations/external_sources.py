@@ -538,6 +538,7 @@ class _JiraBackend(abc.ABC):
             response = http.get(
                 f"{base}/rest/api/{self.rest_version}/myself",
                 headers=self._headers(secret, config),
+                purpose=http.EgressPurpose.INTEGRATIONS,
             )
         except http.EgressTimeout:
             return VerifyResult(ok=False, reason="provider_timeout")
@@ -603,6 +604,7 @@ class _JiraBackend(abc.ABC):
             response = http.get(
                 f"{base}/rest/api/{self.rest_version}/search?{query}",
                 headers=self._headers(secret, cfg),
+                purpose=http.EgressPurpose.INTEGRATIONS,
             )
         except http.EgressBlocked as exc:
             raise ExternalSourceError(f"Jira host blocked by egress guard: {exc}") from exc

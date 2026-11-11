@@ -1,7 +1,7 @@
 ---
 title: Webhooks
 description: Outbound HTTP callbacks for project events — integrate TruePPM with CI systems, Slack, or custom tooling.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 
@@ -29,9 +29,20 @@ metadata) and each signed delivery to anyone on the network path, which defeats 
 replay protection the signature provides. URLs that resolve to a private, loopback,
 or link-local address are rejected as well, so there is no `http://localhost`
 exception. The `https://` requirement also applies to hosts on the operator egress
-allow-list (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`), which are exempt from the
+allow-list (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS`), which are exempt from the
 private-address check but not from this rule. A webhook registered with `http://` before this rule keeps delivering and
 stays editable as long as its URL is not changed; repointing it requires `https://`.
+
+Webhooks honor only the webhook allow-list,
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS`. A host your operator allow-listed for
+single sign-on, such as an in-cluster identity provider, is refused as a webhook
+target, both at registration and at delivery.
+
+:::note[Ships in 0.5]
+The per-purpose lists are introduced by 0.5. In 0.4, use `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` for webhook receivers on a
+private network; it applies to every outbound caller, and
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS` is not read.
+:::
 
 `events` is an array of **one or more** event type strings (see below). It is
 required and may not be empty — there is no "subscribe to everything" shorthand,

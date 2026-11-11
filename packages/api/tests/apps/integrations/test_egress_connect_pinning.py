@@ -208,26 +208,46 @@ def test_allowlisted_host_is_exempt_at_connect(
     internal_server: _LocalServer, settings: Any
 ) -> None:
     """ADR-0590 allow-list is honored identically at connect time, exact match."""
-    settings.EGRESS_ALLOWLISTED_HOSTS = [HOST]
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = [HOST]
     with patch.object(
         socket,
         "getaddrinfo",
         _rebinding_getaddrinfo(internal_server.port, first="127.0.0.1", then="127.0.0.1")[0],
     ):
-        resp = egress.get(f"http://{HOST}:{internal_server.port}/")
+        resp = egress.get(
+            f"http://{HOST}:{internal_server.port}/", purpose=egress.EgressPurpose.SSO
+        )
     assert resp.status == 200
+
+
+def test_sso_allowlist_is_not_honored_by_the_webhook_opener_at_connect(
+    internal_server: _LocalServer, settings: Any
+) -> None:
+    """#2851: the purpose is bound into the CONNECTION, not only the pre-flight.
+
+    The pre-flight is bypassed (as a rebinding answer would bypass it); the
+    webhook-purpose opener must still refuse an SSO-trusted host on a private
+    address before a byte is sent.
+    """
+    settings.EGRESS_ALLOWLISTED_HOSTS = [HOST]
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = [HOST]
+    opener = egress.build_guarded_opener(purpose=egress.EgressPurpose.WEBHOOKS)
+    fake, _ = _rebinding_getaddrinfo(internal_server.port, first="127.0.0.1", then="127.0.0.1")
+    with patch.object(socket, "getaddrinfo", fake), pytest.raises(egress.EgressBlocked):
+        opener.open(f"http://{HOST}:{internal_server.port}/", timeout=5)
+    assert bytes(internal_server.received) == b""
 
 
 def test_allowlist_is_not_widened_to_lookalike_at_connect(
     internal_server: _LocalServer, settings: Any
 ) -> None:
-    settings.EGRESS_ALLOWLISTED_HOSTS = [HOST]
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = [HOST]
     other = "x." + HOST
     fake, _ = _rebinding_getaddrinfo(
         internal_server.port, first=PUBLIC_IP, then="127.0.0.1", host=other
     )
     with patch.object(socket, "getaddrinfo", fake), pytest.raises(egress.EgressBlocked):
-        egress.get(f"http://{other}:{internal_server.port}/")
+        egress.get(f"http://{other}:{internal_server.port}/", purpose=egress.EgressPurpose.SSO)
     assert bytes(internal_server.received) == b""
 
 
@@ -449,7 +469,7 @@ def _https_get(port: int, ctx: ssl.SSLContext, host: str = HOST) -> egress.Egres
     )
     with (
         patch.object(egress, "_opener", opener),
-        patch.object(egress, "assert_url_allowed", lambda u: None),
+        patch.object(egress, "assert_url_allowed", lambda u, **_kw: None),
         patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address(PUBLIC_IP)),
         patch.object(egress, "_assert_addrinfos_public", lambda h, i: None),
         patch.object(
@@ -508,7 +528,7 @@ def test_production_opener_verifies_certificates_by_default(
     assert ctx.check_hostname is True
     with (
         patch.object(egress, "_opener", egress.build_guarded_opener()),
-        patch.object(egress, "assert_url_allowed", lambda u: None),
+        patch.object(egress, "assert_url_allowed", lambda u, **_kw: None),
         patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address(PUBLIC_IP)),
         patch.object(egress, "_assert_addrinfos_public", lambda h, i: None),
         patch.object(
@@ -600,3 +620,62 @@ def test_webhook_delivery_stable_public_answer_delivers(
     delivery.refresh_from_db()
     assert delivery.status == DeliveryStatus.SUCCESS
     assert delivery.response_status == 200
+
+
+def _https_open_with_purpose(
+    port: int, ctx: ssl.SSLContext, purpose: egress.EgressPurpose | None
+) -> Any:
+    """Open ``https://HOST`` through a purpose-bound opener with NO guard stubs.
+
+    Unlike ``_https_get`` this leaves the connect-time checks live, so the
+    allow-list the connection binds is what decides the outcome.
+    """
+    import urllib.request
+
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        egress.NoRedirectHandler,
+        egress._GuardedHTTPSHandler(context=ctx, purpose=purpose),
+    )
+    with patch.object(
+        socket,
+        "getaddrinfo",
+        lambda h, p, *a, **k: (
+            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+            if h == HOST
+            else _real_getaddrinfo(h, p, *a, **k)
+        ),
+    ):
+        return opener.open(f"https://{HOST}:{port}/", timeout=3)
+
+
+def test_sso_allowlist_is_not_honored_by_the_webhook_https_opener_at_connect(
+    tls_server: tuple[_TLSServer, Path], settings: Any
+) -> None:
+    """#2851: the HTTPS connection binds the purpose too (webhooks are https-only).
+
+    The host is SSO-trusted and resolves to loopback. The webhook-purpose opener
+    must refuse before any TLS handshake; the SSO-purpose opener, as the positive
+    control, reaches the same server.
+    """
+    srv, crt = tls_server
+    ctx = ssl.create_default_context(cafile=str(crt))
+    settings.EGRESS_ALLOWLISTED_HOSTS = []
+    settings.EGRESS_ALLOWLISTED_HOSTS_SSO = [HOST]
+    with pytest.raises(egress.EgressBlocked):
+        _https_open_with_purpose(srv.port, ctx, egress.EgressPurpose.WEBHOOKS)
+    assert not srv.sni
+    with _https_open_with_purpose(srv.port, ctx, egress.EgressPurpose.SSO) as resp:
+        assert resp.status == 200
+
+
+def test_webhook_delivery_opener_carries_the_webhooks_purpose() -> None:
+    from trueppm_api.apps.webhooks.tasks import _no_redirect_opener
+
+    guarded = [
+        h
+        for h in _no_redirect_opener.handlers
+        if isinstance(h, (egress._GuardedHTTPHandler, egress._GuardedHTTPSHandler))
+    ]
+    assert len(guarded) == 2
+    assert all(h._egress_purpose == egress.EgressPurpose.WEBHOOKS for h in guarded)

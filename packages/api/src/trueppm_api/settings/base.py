@@ -1263,20 +1263,38 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
     default="",
 )
 
-# Hostnames exempted from the SSRF egress deny-list (apps/integrations/http). An
-# operator escape hatch for a trusted internal host the operator runs themselves —
-# chiefly an in-cluster identity provider whose OIDC issuer resolves to a private
-# ClusterIP (e.g. Keycloak at ``keycloak.sso.svc``), which the deny-list would
-# otherwise block, making in-cluster SSO impossible. Empty by default keeps the
-# standard "every resolved address must be globally routable" posture. Exact,
-# case-insensitive hostname match — no wildcards. Config-only, never
-# request-derived. NOTE: the allow-list is consulted by *every* egress caller (PAT
-# verification, git-link refresh, webhooks, SMTP relay, SSO), so an allow-listed
-# host is reachable through the user-influenceable URL surfaces too — only list a
-# host at least as trusted as the SSO issuer. See ADR-0590 and the "Running the
-# identity provider inside your cluster" section of
-# packages/website/src/content/docs/administration/single-sign-on.md.
+# Hostnames exempted from the SSRF egress deny-list (apps/integrations/http), one
+# list per egress PURPOSE (ADR-0590, scoped by #2851). An operator escape hatch for a
+# trusted internal host the operator runs themselves — chiefly an in-cluster identity
+# provider whose OIDC issuer resolves to a private ClusterIP (e.g. Keycloak at
+# ``keycloak.sso.svc``), which the deny-list would otherwise block. Each list is
+# consulted ONLY by callers that declare its purpose, so a host trusted for SSO is not
+# reachable from a project Admin's webhook URL or a user's connected account. Empty by
+# default keeps the standard "every resolved address must be globally routable"
+# posture. Exact, case-insensitive hostname match — no wildcards. Config-only, never
+# request-derived. See ADR-0590 and administration/configuration/advanced.md.
+#
+# The legacy un-suffixed TRUEPPM_EGRESS_ALLOWLISTED_HOSTS is honored for SSO ONLY —
+# its documented, intended use. Before #2851 it applied to every caller.
 EGRESS_ALLOWLISTED_HOSTS: list[str] = env.list("TRUEPPM_EGRESS_ALLOWLISTED_HOSTS", default=[])
+# OIDC / OAuth discovery, token, JWKS (unioned with the legacy list above).
+EGRESS_ALLOWLISTED_HOSTS_SSO: list[str] = env.list(
+    "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO", default=[]
+)
+# The workspace SMTP relay host (ADR-0213 §4), set by a workspace Admin.
+EGRESS_ALLOWLISTED_HOSTS_SMTP: list[str] = env.list(
+    "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP", default=[]
+)
+# Connected accounts: PAT verification, git-link refresh and external task sources
+# (ADR-0097 / ADR-0589). User-supplied destinations — pair with
+# INTEGRATION_ALLOWED_HOSTS below for a self-hosted GitLab/Jira on a private address.
+EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS: list[str] = env.list(
+    "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS", default=[]
+)
+# Outbound webhook delivery. Project-Admin-supplied URLs; https is still required.
+EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS: list[str] = env.list(
+    "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS", default=[]
+)
 
 # Per-provider base-URL allow-list for user-connected external task sources
 # (ADR-0097 / ADR-0589). Read at ``apps/integrations/providers.py:85`` and named in
@@ -1290,8 +1308,8 @@ EGRESS_ALLOWLISTED_HOSTS: list[str] = env.list("TRUEPPM_EGRESS_ALLOWLISTED_HOSTS
 # places (configuration.md, connected-accounts.md, ADR-0589, changelog.d/2270)
 # throughout.
 #
-# Distinct from EGRESS_ALLOWLISTED_HOSTS above, which is the SSRF deny-list escape
-# hatch consulted by *every* egress caller. This one only widens which base URLs a
+# Distinct from EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS above, which is the SSRF
+# deny-list escape hatch for these same callers. This one only widens which base URLs a
 # user may attach a personal credential to; a host listed here still passes through
 # the SSRF-guarded http helper on every fetch.
 INTEGRATION_ALLOWED_HOSTS: list[str] = env.list("TRUEPPM_INTEGRATION_ALLOWED_HOSTS", default=[])

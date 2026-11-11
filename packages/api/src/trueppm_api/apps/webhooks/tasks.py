@@ -22,6 +22,7 @@ from trueppm_api.apps.integrations.encryption import CredentialEncryptionError
 from trueppm_api.apps.integrations.http import (
     EgressBlocked,
     EgressError,
+    EgressPurpose,
     assert_url_allowed,
     build_guarded_opener,
 )
@@ -51,7 +52,7 @@ _BACKOFF_BASE = 30
 # integrations chokepoint's guarded opener, which also re-checks the connected
 # peer address at connect time so a DNS-rebinding answer between the pre-flight
 # and the connection is refused (#3849); the guard is implemented once.
-_no_redirect_opener = build_guarded_opener()
+_no_redirect_opener = build_guarded_opener(purpose=EgressPurpose.WEBHOOKS)
 
 # 4xx statuses that are nonetheless worth retrying (#2884). Everything else in
 # the 4xx range is a *permanent* client error — the request itself is wrong, so
@@ -411,7 +412,7 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     # integrations PAT / git-link calls. Without this, an admin could point a
     # webhook at 169.254.169.254 (cloud metadata) or an RFC1918 cluster service.
     try:
-        assert_url_allowed(webhook.url)
+        assert_url_allowed(webhook.url, purpose=EgressPurpose.WEBHOOKS)
     except EgressBlocked as exc:
         _fail_ssrf_blocked(self, delivery, webhook, exc)
         return

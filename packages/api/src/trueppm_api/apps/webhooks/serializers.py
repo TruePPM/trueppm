@@ -232,6 +232,7 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         from trueppm_api.apps.integrations.http import (
             EgressBlocked,
             EgressError,
+            EgressPurpose,
             assert_url_allowed,
         )
 
@@ -241,8 +242,9 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         # use with http:// for on-cluster targets. An UNCHANGED url on an existing
         # row is exempt so a legacy http:// webhook stays editable (rename, change
         # events, rotate secret) and keeps delivering; only a new or changed target
-        # must be https. This also applies to hosts on the operator egress allow-list
-        # (EGRESS_ALLOWLISTED_HOSTS), which assert_url_allowed otherwise exempts.
+        # must be https. This also applies to hosts on the operator's webhook egress
+        # allow-list (EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS), which assert_url_allowed
+        # otherwise exempts. The SSO allow-list never applies here (#2851).
         unchanged = self.instance is not None and value == getattr(self.instance, "url", None)
         if not unchanged and urlsplit(value).scheme.lower() != "https":
             raise serializers.ValidationError(
@@ -251,7 +253,7 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
             )
 
         try:
-            assert_url_allowed(value)
+            assert_url_allowed(value, purpose=EgressPurpose.WEBHOOKS)
         except EgressBlocked as exc:
             # Return a curated message only. EgressBlocked can embed the
             # DNS-resolved address (e.g. "resolves to non-public address

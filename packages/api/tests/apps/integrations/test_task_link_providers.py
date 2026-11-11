@@ -118,6 +118,7 @@ def _stub_response(monkeypatch: pytest.MonkeyPatch) -> object:
             *,
             headers: dict[str, str] | None = None,
             timeout: float = http.DEFAULT_TIMEOUT,
+            purpose: http.EgressPurpose | None = None,
         ) -> http.EgressResponse:
             return http.EgressResponse(status=200, body=json.dumps(payload).encode(), headers={})
 

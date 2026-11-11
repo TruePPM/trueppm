@@ -60,7 +60,11 @@ def _stub_token_verification(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     def _fake_get(
-        url: str, *, headers: dict[str, str] | None = None, timeout: float = http.DEFAULT_TIMEOUT
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float = http.DEFAULT_TIMEOUT,
+        purpose: http.EgressPurpose | None = None,
     ) -> http.EgressResponse:
         return http.EgressResponse(
             status=200, body=b'{"username": "stub", "login": "stub"}', headers={}

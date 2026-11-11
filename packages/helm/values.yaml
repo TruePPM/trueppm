@@ -1256,21 +1256,24 @@ env:
   #     user's Connected Account credential is only ever put on the wire toward a
   #     host named here. Atlassian Cloud and github.com / gitlab.com are always
   #     allowed and need no entry, so this is only for self-hosted hosts.
-  #   TRUEPPM_EGRESS_ALLOWLISTED_HOSTS   the SSRF deny-list escape hatch
-  #     (ADR-0590). The outbound guard rejects any host resolving to a private /
-  #     loopback / link-local address; a host named here bypasses that check.
-  #     ALSO how an in-cluster identity provider is reached (see the SSO docs) —
-  #     the exemption is GLOBAL across every outbound caller (PAT verification,
-  #     git-link refresh, webhooks, SMTP relay, SSO), not scoped to integrations,
-  #     so name the specific host and nothing broader. Read once at process
-  #     start: a change applies only after the api and celery pods restart
-  #     (a `helm upgrade` that changes an `env:` value rolls them; a change to
-  #     an `envFrom` ConfigMap or Secret does not — restart them yourself).
+  #   TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS   the SSRF deny-list escape
+  #     hatch for Connected Accounts (ADR-0590, scoped per surface by #2851). The
+  #     outbound guard rejects any host resolving to a private / loopback /
+  #     link-local address; a host named here bypasses that check for PAT
+  #     verification, git-link refresh and external task sources ONLY. Each
+  #     surface has its own list: TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO (an
+  #     in-cluster identity provider; the legacy un-suffixed
+  #     TRUEPPM_EGRESS_ALLOWLISTED_HOSTS is merged into it and applies to SSO
+  #     only), _SMTP (the mail relay) and _WEBHOOKS (webhook receivers). A host
+  #     on one list is not exempt for any other. Read once at process start: a
+  #     change applies only after the api and celery pods restart (a `helm
+  #     upgrade` that changes an `env:` value rolls them; a change to an
+  #     `envFrom` ConfigMap or Secret does not — restart them yourself).
   # Both are comma-separated and match on an EXACT, case-insensitive hostname —
   # no wildcards, no suffix matching. A publicly-reachable self-hosted host needs
   # only the first. Both default to empty; uncomment and set to enable:
   #   TRUEPPM_INTEGRATION_ALLOWED_HOSTS: "jira.example.com,gitlab.example.com"
-  #   TRUEPPM_EGRESS_ALLOWLISTED_HOSTS: "jira.example.com,gitlab.example.com"
+  #   TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS: "jira.example.com,gitlab.example.com"
   # Outbound email / SMTP transport (#764). These bind Django's standard EMAIL_*
   # settings; they flow to the api AND celery worker/beat via `trueppm.envVars`,
   # so the Beat-driven notification drain has the same transport everywhere.

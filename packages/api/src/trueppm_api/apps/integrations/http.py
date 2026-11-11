@@ -33,24 +33,29 @@ peer is the proxy, which does the resolving and is the real egress control, so
 checking it would be meaningless (and would reject a private proxy address). A
 one-time WARNING is logged when a proxied request is first made.
 
-**Operator allow-list (ADR-0590).** A self-hoster who runs an identity provider
-*inside the same cluster* has an OIDC issuer that resolves to a private ClusterIP
-(e.g. ``keycloak.sso.svc``); the deny-list above would block discovery / token /
-JWKS and make in-cluster SSO impossible. ``EGRESS_ALLOWLISTED_HOSTS`` (default
-empty) names the exact hostnames the operator trusts, which then bypass the
-private-address check. It is **operator configuration only** — never derived from
-request or user input — and matches on an **exact, case-insensitive hostname**
-(no wildcard / suffix), so allow-listing ``keycloak`` cannot admit
-``keycloak.attacker.example``. Empty by default keeps every existing install on
-the original "every resolved address must be globally routable" posture. Note the
-allow-list is honored by **every** caller of this chokepoint (PAT verification,
-git-link refresh, webhooks, SMTP relay, SSO), so an allow-listed host is reachable
-through the user-influenceable URL surfaces too — an accepted, operator-declared
-trust, documented for operators alongside the setting.
+**Operator allow-lists (ADR-0590, scoped per purpose by #2851).** A self-hoster
+who runs an identity provider *inside the same cluster* has an OIDC issuer that
+resolves to a private ClusterIP (e.g. ``keycloak.sso.svc``); the deny-list above
+would block discovery / token / JWKS and make in-cluster SSO impossible. The
+operator can name exact hostnames that bypass the private-address check — but each
+list is bound to one :class:`EgressPurpose`, and a caller only consults the list for
+the purpose it declares. An IdP host trusted for SSO is therefore **not** reachable
+through a project Admin's webhook URL, a pasted git link, or a user's connected
+account, which take user-supplied destinations. The settings are
+``EGRESS_ALLOWLISTED_HOSTS_SSO`` (plus the legacy ``EGRESS_ALLOWLISTED_HOSTS``, which
+now applies to SSO only), ``EGRESS_ALLOWLISTED_HOSTS_SMTP``,
+``EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS`` and ``EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS``.
+Each is **operator configuration only** — never derived from request or user input
+— and matches on an **exact, case-insensitive hostname** (no wildcard / suffix), so
+allow-listing ``keycloak`` cannot admit ``keycloak.attacker.example``. A caller that
+passes no purpose gets no exemption at all (fail closed), so a new egress caller
+cannot inherit another surface's trust by omission.
 """
 
 from __future__ import annotations
 
+import enum
+import functools
 import http.client
 import ipaddress
 import json
@@ -176,24 +181,62 @@ def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return not ip.is_global
 
 
-def _allowlisted_hosts() -> frozenset[str]:
-    """Operator-trusted hostnames exempt from the private-address deny-list (ADR-0590).
+class EgressPurpose(enum.StrEnum):
+    """Which surface an egress call serves — selects the operator allow-list it honors.
 
-    Read from the ``EGRESS_ALLOWLISTED_HOSTS`` setting (default empty). This is an
-    operator escape hatch for a trusted internal host the operator runs
-    themselves — chiefly an in-cluster identity provider whose OIDC issuer resolves
-    to a private ClusterIP, which the deny-list would otherwise block.
+    The deny-list is identical for every purpose; only the operator's exemption
+    differs. Scoping it is the point (#2851, #3561): the allow-list exists so an
+    operator can reach a *specific* trusted internal service from the surface that
+    needs it, and a flat list let every user-supplied URL surface reach it too.
+    """
 
-    Safety: the value is **configuration only** — never request/user-derived — so
-    it cannot be widened by an attacker. Membership is an **exact, case-insensitive
+    #: OIDC / OAuth discovery, token exchange, JWKS, GitHub login (ADR-0187). The
+    #: destination is operator-configured (a workspace admin's IdP issuer).
+    SSO = "sso"
+    #: Workspace SMTP relay reachability (ADR-0213 §4).
+    SMTP = "smtp"
+    #: A user's connected account — PAT verification, git-link status refresh and
+    #: the external task sources (ADR-0097 / ADR-0589). User-supplied destinations.
+    INTEGRATIONS = "integrations"
+    #: Outbound webhook delivery and registration. Project-Admin-supplied URLs.
+    WEBHOOKS = "webhooks"
+
+
+#: Settings consulted for each purpose. The legacy un-suffixed
+#: ``EGRESS_ALLOWLISTED_HOSTS`` keeps working for its documented, intended use —
+#: an in-cluster IdP — and for nothing else; before #2851 it applied to every
+#: purpose, which is the amplification this mapping removes.
+_PURPOSE_SETTINGS: dict[EgressPurpose, tuple[str, ...]] = {
+    EgressPurpose.SSO: ("EGRESS_ALLOWLISTED_HOSTS_SSO", "EGRESS_ALLOWLISTED_HOSTS"),
+    EgressPurpose.SMTP: ("EGRESS_ALLOWLISTED_HOSTS_SMTP",),
+    EgressPurpose.INTEGRATIONS: ("EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS",),
+    EgressPurpose.WEBHOOKS: ("EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS",),
+}
+
+
+def _allowlisted_hosts(purpose: EgressPurpose | None) -> frozenset[str]:
+    """Operator-trusted hostnames exempt from the deny-list for ``purpose`` (ADR-0590).
+
+    ``None`` — a caller that declared no purpose — gets the empty set, so an
+    unclassified caller is held to the full deny-list rather than inheriting some
+    other surface's exemption.
+
+    Safety: the values are **configuration only** — never request/user-derived — so
+    they cannot be widened by an attacker. Membership is an **exact, case-insensitive
     hostname** compare, so an allow-listed ``keycloak`` never admits a lookalike
     like ``keycloak.attacker.example``. ``django.conf`` is imported lazily to keep
     this module importable without Django configured (it is otherwise pure stdlib).
     """
+    if purpose is None:
+        return frozenset()
     from django.conf import settings
 
-    hosts = getattr(settings, "EGRESS_ALLOWLISTED_HOSTS", ()) or ()
-    return frozenset(h.strip().lower() for h in hosts if h and h.strip())
+    hosts: set[str] = set()
+    for name in _PURPOSE_SETTINGS[EgressPurpose(purpose)]:
+        for h in getattr(settings, name, ()) or ():
+            if h and h.strip():
+                hosts.add(h.strip().lower())
+    return frozenset(hosts)
 
 
 def _blocked_if_literal(host: str) -> bool | None:
@@ -263,6 +306,8 @@ def _guarded_create_connection(
     address: tuple[str, int],
     timeout: Any = _DEFAULT_SOCKET_TIMEOUT,
     source_address: tuple[str, int] | None = None,
+    *,
+    purpose: EgressPurpose | None = None,
 ) -> socket.socket:
     """``socket.create_connection`` that only ever dials checked addresses (#3849).
 
@@ -274,11 +319,13 @@ def _guarded_create_connection(
     indistinguishable (both a permanent ``EgressBlocked``, no handshake). The
     ``getpeername()`` check after the handshake stays as defense in depth. Runs
     before the TLS wrap and any request byte; the hostname is untouched so SNI and
-    certificate verification are unchanged. An operator-allow-listed host
-    (ADR-0590, exact match) skips the deny-list, as in :func:`assert_url_allowed`.
+    certificate verification are unchanged. A host on the operator allow-list for
+    ``purpose`` (ADR-0590, exact match) skips the deny-list, as in
+    :func:`assert_url_allowed`; the purpose is bound into the connection by the
+    opener, so a webhook delivery socket never honors the SSO list.
     """
     host, port = address[0], address[1]
-    allowlisted = host.lower().strip("[]") in _allowlisted_hosts()
+    allowlisted = host.lower().strip("[]") in _allowlisted_hosts(purpose)
     infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
     if not infos:
         raise OSError("getaddrinfo returns an empty list")
@@ -312,9 +359,13 @@ def _guarded_create_connection(
 class _GuardedHTTPConnection(http.client.HTTPConnection):
     """HTTP connection whose connected peer is deny-list checked (#3849)."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, egress_purpose: EgressPurpose | None = None, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
-        self._create_connection = _guarded_create_connection
+        self._create_connection = functools.partial(
+            _guarded_create_connection, purpose=egress_purpose
+        )
 
 
 class _GuardedHTTPSConnection(http.client.HTTPSConnection):
@@ -325,9 +376,13 @@ class _GuardedHTTPSConnection(http.client.HTTPSConnection):
     SNI and certificate hostname verification keep using the original name.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, egress_purpose: EgressPurpose | None = None, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
-        self._create_connection = _guarded_create_connection
+        self._create_connection = functools.partial(
+            _guarded_create_connection, purpose=egress_purpose
+        )
 
 
 _proxy_warned = False
@@ -350,23 +405,33 @@ def _note_proxied() -> None:
 
 
 class _GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, *args: Any, purpose: EgressPurpose | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._egress_purpose = purpose
+
     def http_open(self, req: urllib.request.Request) -> Any:
         if _is_proxied(req):
             _note_proxied()
             return self.do_open(http.client.HTTPConnection, req)
-        return self.do_open(_GuardedHTTPConnection, req)
+        conn = functools.partial(_GuardedHTTPConnection, egress_purpose=self._egress_purpose)
+        return self.do_open(conn, req)
 
 
 class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, *args: Any, purpose: EgressPurpose | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._egress_purpose = purpose
+
     def https_open(self, req: urllib.request.Request) -> Any:
         ctx = self._context  # type: ignore[attr-defined]
         if _is_proxied(req):
             _note_proxied()
             return self.do_open(http.client.HTTPSConnection, req, context=ctx)
-        return self.do_open(_GuardedHTTPSConnection, req, context=ctx)
+        conn = functools.partial(_GuardedHTTPSConnection, egress_purpose=self._egress_purpose)
+        return self.do_open(conn, req, context=ctx)
 
 
-def build_guarded_opener() -> urllib.request.OpenerDirector:
+def build_guarded_opener(*, purpose: EgressPurpose | None = None) -> urllib.request.OpenerDirector:
     """Build the one opener every user-controlled-URL egress call must use.
 
     Redirects disabled; env proxies honored (see module docstring); direct
@@ -374,12 +439,15 @@ def build_guarded_opener() -> urllib.request.OpenerDirector:
     peer raises :class:`EgressBlocked` out of ``open`` *unwrapped* — it is not an
     ``OSError``, so urllib's ``do_open`` does not convert it to ``URLError``.
     Proxy settings are read from the environment when this is called.
+
+    ``purpose`` selects the operator allow-list the connect-time check honors
+    (:class:`EgressPurpose`); omitted, no host is exempt.
     """
     return urllib.request.build_opener(
         urllib.request.ProxyHandler(),
         NoRedirectHandler,
-        _GuardedHTTPHandler,
-        _GuardedHTTPSHandler,
+        _GuardedHTTPHandler(purpose=purpose),
+        _GuardedHTTPSHandler(purpose=purpose),
     )
 
 
@@ -396,15 +464,24 @@ def blocked_reason(exc: BaseException) -> EgressBlocked | None:
 
 
 _opener = build_guarded_opener()
+_purpose_openers: dict[EgressPurpose, urllib.request.OpenerDirector] = {
+    p: build_guarded_opener(purpose=p) for p in EgressPurpose
+}
 
 
-def assert_url_allowed(url: str) -> None:
+def _opener_for(purpose: EgressPurpose | None) -> urllib.request.OpenerDirector:
+    """The module opener for ``purpose`` (``None`` → the no-exemption opener)."""
+    return _opener if purpose is None else _purpose_openers[EgressPurpose(purpose)]
+
+
+def assert_url_allowed(url: str, *, purpose: EgressPurpose | None = None) -> None:
     """Raise :class:`EgressBlocked` / :class:`EgressError` if ``url`` is unsafe to fetch.
 
     Validates the scheme is ``http``/``https``, the host is present, and that
     **every** address the host resolves to is globally routable. Shared by
     #677 PAT verification and #637 git-link refresh so the SSRF policy has one
-    implementation and one test surface.
+    implementation and one test surface. ``purpose`` selects which operator
+    allow-list may exempt the host (:class:`EgressPurpose`); omitted, none does.
 
     Raises:
         EgressBlocked: Bad scheme, missing host, or a resolved address is
@@ -418,9 +495,9 @@ def assert_url_allowed(url: str) -> None:
     if not host:
         raise EgressBlocked("URL has no host")
     # Operator escape hatch (ADR-0590): a hostname the operator explicitly trusts
-    # (e.g. an in-cluster IdP on a private ClusterIP) bypasses the private-address
+    # FOR THIS PURPOSE (e.g. an in-cluster IdP for SSO) bypasses the private-address
     # deny-list. Config-only, exact-match — the scheme gate above still applies.
-    if host.lower() in _allowlisted_hosts():
+    if host.lower() in _allowlisted_hosts(purpose):
         return
     # A bracketed/parseable literal IP still has to clear the deny-list — a
     # user can paste http://169.254.169.254 directly — but needs no resolution.
@@ -444,7 +521,7 @@ def assert_url_allowed(url: str) -> None:
             raise EgressBlocked(f"host {host!r} resolves to non-public address {addr}")
 
 
-def assert_host_allowed(host: str, port: int) -> None:
+def assert_host_allowed(host: str, port: int, *, purpose: EgressPurpose | None = None) -> None:
     """Raise :class:`EgressBlocked` / :class:`EgressError` if ``host`` is unsafe.
 
     Scheme-free sibling of :func:`assert_url_allowed` for non-HTTP egress —
@@ -462,9 +539,9 @@ def assert_host_allowed(host: str, port: int) -> None:
     """
     if not host:
         raise EgressBlocked("SMTP host is empty")
-    # Operator escape hatch (ADR-0590), shared with assert_url_allowed: an
-    # explicitly trusted host (e.g. an in-cluster relay) bypasses the deny-list.
-    if host.lower() in _allowlisted_hosts():
+    # Operator escape hatch (ADR-0590), shared with assert_url_allowed: a host
+    # trusted for ``purpose`` (e.g. an in-cluster SMTP relay) bypasses the deny-list.
+    if host.lower() in _allowlisted_hosts(purpose):
         return
     # A literal IP SMTP relay needs no resolution — classify it directly (#1628).
     literal = _blocked_if_literal(host)
@@ -491,25 +568,27 @@ def get(
     *,
     headers: dict[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
+    purpose: EgressPurpose | None = None,
 ) -> EgressResponse:
     """Perform an SSRF-guarded, redirect-disabled, time-bounded GET.
 
     The URL is validated by :func:`assert_url_allowed` before any socket is
     opened. Non-2xx responses are returned (not raised) so callers can read the
-    status code; only transport failures raise.
+    status code; only transport failures raise. ``purpose`` selects the operator
+    allow-list honored by both the pre-flight and the connect-time check.
 
     Raises:
         EgressBlocked: The URL failed the SSRF guard.
         EgressTimeout: The request exceeded ``timeout``.
         EgressError: DNS / connection / socket failure.
     """
-    assert_url_allowed(url)
+    assert_url_allowed(url, purpose=purpose)
     request_headers = {"User-Agent": _USER_AGENT, **(headers or {})}
     req = urllib.request.Request(url, headers=request_headers, method="GET")
     try:
         # URL is SSRF-validated by assert_url_allowed above; redirects are
         # disabled via the _opener (NoRedirectHandler) so a 3xx can't escape the guard.
-        with _opener.open(req, timeout=timeout) as resp:  # nosec B310
+        with _opener_for(purpose).open(req, timeout=timeout) as resp:  # nosec B310
             body = resp.read(_MAX_BODY_BYTES)
             resp_headers = {k.lower(): v for k, v in resp.headers.items()}
             return EgressResponse(status=resp.status, body=body, headers=resp_headers)
@@ -544,6 +623,7 @@ def post_form(
     data: dict[str, str],
     headers: dict[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
+    purpose: EgressPurpose | None = None,
 ) -> EgressResponse:
     """Perform an SSRF-guarded, redirect-disabled, time-bounded form POST.
 
@@ -559,7 +639,7 @@ def post_form(
         EgressTimeout: The request exceeded ``timeout``.
         EgressError: DNS / connection / socket failure.
     """
-    assert_url_allowed(url)
+    assert_url_allowed(url, purpose=purpose)
     body = urllib.parse.urlencode(data).encode("ascii")
     request_headers = {
         "User-Agent": _USER_AGENT,
@@ -571,7 +651,7 @@ def post_form(
     try:
         # URL is SSRF-validated by assert_url_allowed above; redirects are
         # disabled via the _opener (NoRedirectHandler) so a 3xx can't escape the guard.
-        with _opener.open(req, timeout=timeout) as resp:  # nosec B310
+        with _opener_for(purpose).open(req, timeout=timeout) as resp:  # nosec B310
             resp_body = resp.read(_MAX_BODY_BYTES)
             resp_headers = {k.lower(): v for k, v in resp.headers.items()}
             return EgressResponse(status=resp.status, body=resp_body, headers=resp_headers)

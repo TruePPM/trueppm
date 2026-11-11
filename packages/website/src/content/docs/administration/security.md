@@ -9,7 +9,8 @@ The Helm web tier's `web.realIpFrom` trusted-proxy setting, and the chart's
 refusal to render an admin allowlist behind an Ingress without it, ship in 0.5
 (see [Reaching Django admin](#reaching-django-admin)). In 0.4 the web tier passes
 `X-Forwarded-Proto` through from any peer and matches `allowCIDRs` against the
-immediate peer's address. Everything else on this page is in 0.4.
+immediate peer's address. The per-surface scoping of the egress allow-lists also
+ships in 0.5 (see the SSRF section). Everything else on this page is in 0.4.
 :::
 
 This page is the security reference for operating a self-hosted install: how
@@ -262,8 +263,16 @@ Two behaviors to know:
   before the connected-IP guard existed, so there is no upgrade action. Using an
   egress proxy or NetworkPolicy that denies internal ranges remains the right
   layered defense.
-- **`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` applies identically at connect time**
-  (exact, case-insensitive hostname; no wildcards) and is not widened.
+- **The operator egress allow-lists apply identically at connect time**
+  (exact, case-insensitive hostname; no wildcards) and are not widened.
+- **Each allow-list is scoped to one surface (0.5).** `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO`
+  (and the legacy `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`) exempts a host for single
+  sign-on only; SMTP, Connected Accounts, and webhooks each read their own
+  `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` / `_INTEGRATIONS` / `_WEBHOOKS` list. The
+  purpose is bound into the connection itself, so an in-cluster IdP trusted for
+  SSO cannot be reached through a project Admin's webhook URL or a user's pasted
+  git link. A caller that declares no purpose honors no list. In 0.4 a single
+  list applied to every caller.
 
 The SMTP relay is checked with the same deny-list at save and send time but uses
 Django's SMTP backend, which re-resolves the host when it connects, so it keeps a

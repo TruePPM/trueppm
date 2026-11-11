@@ -152,7 +152,7 @@ def _verify_via_user_endpoint(
     the user can retry rather than assuming a dead token.
     """
     try:
-        response = http.get(url, headers=headers)
+        response = http.get(url, headers=headers, purpose=http.EgressPurpose.INTEGRATIONS)
     except http.EgressTimeout:
         return VerifyResult(ok=False, reason="provider_timeout")
     except http.EgressBlocked:
@@ -384,6 +384,9 @@ class FileLinkProvider(TaskLinkProvider):
 
     def fetch_metadata(self, url: str, credential: Any) -> LinkMetadata:
         try:
+            # An anonymous unfurl of a public file host never needs an
+            # operator-trusted internal host, so it honors no allow-list (#2851).
+            # egress-purpose: none — fixed public SaaS hosts only, no internal host
             response = http.get(url, headers={"Accept": "text/html,application/xhtml+xml"})
         except (http.EgressBlocked, http.EgressTimeout, http.EgressError):
             return LinkMetadata(status=LINK_STATUS_UNKNOWN)
@@ -515,7 +518,7 @@ def _fetch_json(url: str, headers: dict[str, str]) -> dict[str, Any] | None:
     leaves the link's cached status as "unknown" so the UI can prompt a retry.
     """
     try:
-        response = http.get(url, headers=headers)
+        response = http.get(url, headers=headers, purpose=http.EgressPurpose.INTEGRATIONS)
     except (http.EgressBlocked, http.EgressTimeout, http.EgressError):
         return None
     if response.status != 200:
