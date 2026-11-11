@@ -69,9 +69,9 @@ export type HitZoneType = 'bar' | 'resize' | 'link-dot';
 export interface HitZone {
   taskId: string;
   rowIndex: number;
-  barLeft: number;   // canvas-origin x
-  barRight: number;  // canvas-origin x
-  barTop: number;    // canvas-origin y (rowIndex * ROW_HEIGHT + BAR_TOP_OFFSET)
+  barLeft: number; // canvas-origin x
+  barRight: number; // canvas-origin x
+  barTop: number; // canvas-origin y (rowIndex * ROW_HEIGHT + BAR_TOP_OFFSET)
   barBottom: number;
   type: HitZoneType;
 }
@@ -118,43 +118,34 @@ interface RowEntry {
 // ---------------------------------------------------------------------------
 
 class HitIndexImpl implements HitIndex {
-  // Rows sorted by barTop — allows early exit on canvasY
-  private readonly _rows: RowEntry[];
+  // Dense by task row index (unscheduled rows are holes). Row layout is uniform
+  // (`rowTop = i * ROW_HEIGHT + CHART_HEADER_HEIGHT`), so a point's row is
+  // O(1)-computable instead of a scan of every row on each pointermove.
+  private readonly _byRow: (RowEntry | undefined)[] = [];
 
   constructor(rows: RowEntry[]) {
-    this._rows = rows;
+    for (const row of rows) this._byRow[row.rowIndex] = row;
   }
 
   query(canvasX: number, canvasY: number, isTouch: boolean): HitZone | null {
-    // Hoisted once per query rather than read per row: ROW_HEIGHT is a live
-    // binding (#2997) and this loop runs on every pointer event.
-    const rowH = ROW_HEIGHT;
-    for (const row of this._rows) {
-      // Fast vertical bounds check using full row height
-      if (canvasY < row.rowTop || canvasY >= row.rowTop + rowH) continue;
-      const zone = hitZoneInRow(row, canvasX, canvasY, isTouch);
-      if (zone) return zone;
-    }
-
-    return null;
+    // ROW_HEIGHT is a live binding (#2997); read it once per query.
+    const rowIndex = Math.floor((canvasY - CHART_HEADER_HEIGHT) / ROW_HEIGHT);
+    if (!(rowIndex >= 0)) return null; // also rejects NaN
+    const row = this._byRow[rowIndex];
+    return row ? hitZoneInRow(row, canvasX, canvasY, isTouch) : null;
   }
 
   rowGeometry(rowIndex: number): RowGeometry | null {
-    // Linear scan rather than an index: `_rows` skips unscheduled tasks, so its
-    // positions are not task positions, and this is called at most once per repaint.
-    for (const row of this._rows) {
-      if (row.rowIndex === rowIndex) {
-        return {
-          taskId: row.taskId,
-          barLeft: row.barLeft,
-          barRight: row.barRight,
-          barTop: row.barTop,
-          barBottom: row.barBottom,
-          isMilestone: row.isMilestone,
-        };
-      }
-    }
-    return null;
+    const row = this._byRow[rowIndex];
+    if (!row) return null;
+    return {
+      taskId: row.taskId,
+      barLeft: row.barLeft,
+      barRight: row.barRight,
+      barTop: row.barTop,
+      barBottom: row.barBottom,
+      isMilestone: row.isMilestone,
+    };
   }
 }
 

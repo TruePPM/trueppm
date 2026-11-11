@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { runCpmForwardPass, runCpmResizeForwardPass } from './cpmEngine';
+import {
+  prepareCpmForwardPass,
+  runCpmForwardPass,
+  runCpmForwardPassPrepared,
+  runCpmResizeForwardPass,
+  runCpmResizeForwardPassPrepared,
+} from './cpmEngine';
 import type { CpmTask, CpmEdge } from './cpmWorker.types';
 
 // Helper: build a task with sensible defaults
@@ -1479,5 +1485,45 @@ describe('project calendar in the preview (#4170)', () => {
     runCpmForwardPass(tasks, edges, 'A', '2025-01-13', null, holidays);
     const { results } = runCpmForwardPass(tasks, edges, 'A', '2025-01-13');
     expect(results.find((r) => r.taskId === 'A')?.earlyFinish).toBe('2025-01-17');
+  });
+});
+
+describe('prepared forward pass (#2857)', () => {
+  const t = (id: string, s: string, f: string, extra: Partial<CpmTask> = {}): CpmTask => ({
+    id,
+    earlyStart: s,
+    earlyFinish: f,
+    lateFinish: f,
+    durationDays: 3,
+    isMilestone: false,
+    name: id,
+    ...extra,
+  });
+  const tasks = [
+    t('A', '2025-01-06', '2025-01-08'),
+    t('B', '2025-01-09', '2025-01-13'),
+    t('M', '2025-01-14', '2025-01-14', { isMilestone: true, durationDays: 0 }),
+  ];
+  const edges: CpmEdge[] = [
+    { sourceId: 'A', targetId: 'B', type: 'FS', lag: 0 },
+    { sourceId: 'B', targetId: 'M', type: 'FS', lag: 0 },
+  ];
+
+  it('N prepared runs are identical to N one-shot runs, and do not mutate the template', () => {
+    const prepared = prepareCpmForwardPass(tasks, edges, null);
+    for (const iso of ['2025-01-13', '2025-01-08', '2025-01-20', '2025-01-06']) {
+      expect(runCpmForwardPassPrepared(prepared, 'A', iso, null, null)).toEqual(
+        runCpmForwardPass(tasks, edges, 'A', iso, null, null),
+      );
+    }
+  });
+
+  it('prepared resize matches the one-shot resize', () => {
+    const prepared = prepareCpmForwardPass(tasks, edges, null);
+    for (const d of [1, 6, 2]) {
+      expect(runCpmResizeForwardPassPrepared(prepared, 'A', d, null)).toEqual(
+        runCpmResizeForwardPass(tasks, edges, 'A', d, null),
+      );
+    }
   });
 });

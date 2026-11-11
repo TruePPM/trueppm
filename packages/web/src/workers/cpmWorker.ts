@@ -22,7 +22,13 @@
  * The worker is instantiated once per ScheduleView mount (via useDragCpm).
  */
 
-import { runCpmForwardPass, runCpmResizeForwardPass } from './cpmEngine';
+import {
+  prepareCpmForwardPass,
+  runCpmForwardPass,
+  runCpmForwardPassPrepared,
+  runCpmResizeForwardPassPrepared,
+  type PreparedForwardPass,
+} from './cpmEngine';
 import type {
   CpmEdge,
   CpmTask,
@@ -38,8 +44,6 @@ import type {
 // a single pointer drives either a bar body or a resize handle, never both).
 // Set on DRAG_START/RESIZE_START, reused by every *_MOVE, cleared on
 // DRAG_END/RESIZE_END. Null between gestures.
-let residentTasks: CpmTask[] | null = null;
-let residentEdges: CpmEdge[] | null = null;
 let residentTargetTaskId: string | null = null;
 // Which gesture the resident subgraph belongs to — a MOVE message for the
 // other gesture is dropped rather than misapplied (e.g. a stray RESIZE_MOVE
@@ -54,36 +58,37 @@ let residentStatusDate: string | null = null;
 // The project's composed calendar for the active gesture (#4170) — resident for
 // the same reason: a drag does not change which days are working.
 let residentCalendar: PreviewCalendar | null = null;
+// The invariant prologue (state template, predecessor map, topological order),
+// built once at *_START so each *_MOVE only relaxes (#2857). RECALC is
+// stateless and never touches it.
+let residentPrepared: PreparedForwardPass | null = null;
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
 
   switch (msg.type) {
     case 'DRAG_START':
-      residentTasks = msg.subgraph.tasks;
-      residentEdges = msg.subgraph.edges;
       residentTargetTaskId = msg.draggedTaskId;
       residentStatusDate = msg.statusDate ?? null;
       residentCalendar = msg.calendar ?? null;
+      residentPrepared = prepareCpmForwardPass(msg.subgraph.tasks, msg.subgraph.edges, residentCalendar);
       residentMode = 'drag';
       return;
 
     case 'RESIZE_START':
-      residentTasks = msg.subgraph.tasks;
-      residentEdges = msg.subgraph.edges;
       residentTargetTaskId = msg.resizedTaskId;
       residentStatusDate = null;
       residentCalendar = msg.calendar ?? null;
+      residentPrepared = prepareCpmForwardPass(msg.subgraph.tasks, msg.subgraph.edges, residentCalendar);
       residentMode = 'resize';
       return;
 
     case 'DRAG_END':
     case 'RESIZE_END':
-      residentTasks = null;
-      residentEdges = null;
       residentTargetTaskId = null;
       residentStatusDate = null;
       residentCalendar = null;
+      residentPrepared = null;
       residentMode = null;
       return;
 
@@ -91,40 +96,37 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       // Drop a move with no resident subgraph, or one belonging to the other
       // gesture (e.g. a DRAG_MOVE that raced ahead of DRAG_START across a
       // remount), rather than recomputing over stale or mismatched state.
-      if (!residentTasks || !residentEdges || !residentTargetTaskId || residentMode !== 'drag') {
+      if (!residentPrepared || !residentTargetTaskId || residentMode !== 'drag') {
         return;
       }
 
-      postResult(
-        residentTasks,
-        residentEdges,
-        residentTargetTaskId,
-        msg.newStartIso,
-        msg.seq,
-        residentStatusDate,
-        residentCalendar,
-      );
+      {
+        const { results, worstMilestone } = runCpmForwardPassPrepared(
+          residentPrepared,
+          residentTargetTaskId,
+          msg.newStartIso,
+          residentStatusDate,
+          residentCalendar,
+        );
+        emitResult(residentTargetTaskId, results, worstMilestone, msg.seq);
+      }
       return;
     }
 
     case 'RESIZE_MOVE': {
-      if (
-        !residentTasks ||
-        !residentEdges ||
-        !residentTargetTaskId ||
-        residentMode !== 'resize'
-      ) {
+      if (!residentPrepared || !residentTargetTaskId || residentMode !== 'resize') {
         return;
       }
 
-      postResizeResult(
-        residentTasks,
-        residentEdges,
-        residentTargetTaskId,
-        msg.newDurationDays,
-        msg.seq,
-        residentCalendar,
-      );
+      {
+        const { results, worstMilestone } = runCpmResizeForwardPassPrepared(
+          residentPrepared,
+          residentTargetTaskId,
+          msg.newDurationDays,
+          residentCalendar,
+        );
+        emitResult(residentTargetTaskId, results, worstMilestone, msg.seq);
+      }
       return;
     }
 
@@ -187,23 +189,4 @@ function postResult(
     calendar,
   );
   emitResult(draggedTaskId, results, worstMilestone, seq);
-}
-
-/** Run the resize forward pass and post the RESULT back (issue #4237). */
-function postResizeResult(
-  tasks: CpmTask[],
-  edges: CpmEdge[],
-  resizedTaskId: string,
-  newDurationDays: number,
-  seq: number,
-  calendar: PreviewCalendar | null,
-): void {
-  const { results, worstMilestone } = runCpmResizeForwardPass(
-    tasks,
-    edges,
-    resizedTaskId,
-    newDurationDays,
-    calendar,
-  );
-  emitResult(resizedTaskId, results, worstMilestone, seq);
 }

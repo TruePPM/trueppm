@@ -149,7 +149,12 @@ export class GanttEngineImpl implements GanttEngine {
   // Last hovered task id reported via `task-hover`. Used to debounce the
   // event to taskId transitions only (pointermove fires many times per row).
   private _lastHoveredTaskId: string | null = null;
-  private _hitIndex: HitIndex | null = null;
+  private _hitIndexCache: HitIndex | null = null;
+  // Set by every mutation that invalidates hit geometry; the rebuild itself is
+  // deferred to the first reader (a pointer query or the hover link handle), so
+  // a burst of zoom steps / task patches pays for ONE O(N) rebuild, not one per
+  // step, and a frame with no pointer activity pays for none (#1540).
+  private _hitIndexStale = false;
   private _dragFSM: GanttDragFSM = new GanttDragFSM();
 
   // Drag-to-link (#1666). A third FSM coexisting with the drag/pan FSMs,
@@ -242,6 +247,11 @@ export class GanttEngineImpl implements GanttEngine {
   // `_paintInteraction`/`_clearIxCanvas` entirely while genuinely idle instead
   // of clearRect-ing an already-blank canvas at 60fps.
   private _ixDirty = false;
+  // Ctrl-wheel zoom coalescing (#1540): accumulated factor + latest anchor,
+  // flushed once per animation frame.
+  private _wheelFactor = 1;
+  private _wheelClientX = 0;
+  private _wheelRafId = 0;
 
   // DPR
   private _dpr = 1;
@@ -859,6 +869,8 @@ export class GanttEngineImpl implements GanttEngine {
     this._ixCanvas.removeEventListener('pointerenter', this._onPointerEnter);
     this._ixCanvas.removeEventListener('dblclick', this._onDblClick);
     this._ixCanvas.removeEventListener('wheel', this._onWheel);
+    if (this._wheelRafId !== 0) cancelAnimationFrame(this._wheelRafId);
+    this._wheelRafId = 0;
     this._ixCanvas.removeEventListener('contextmenu', this._onContextMenu);
 
     if (typeof window !== 'undefined') {
@@ -931,7 +943,16 @@ export class GanttEngineImpl implements GanttEngine {
 
   private _rebuildHitIndex(): void {
     if (!this._scales) return;
-    this._hitIndex = buildHitIndex(this._tasks, this._scales);
+    this._hitIndexStale = true;
+  }
+
+  /** The hit index, rebuilt on demand if a mutation invalidated it. */
+  private get _hitIndex(): HitIndex | null {
+    if (this._hitIndexStale && this._scales) {
+      this._hitIndexCache = buildHitIndex(this._tasks, this._scales);
+      this._hitIndexStale = false;
+    }
+    return this._hitIndexCache;
   }
 
   private _applySelection(next: Set<string>): void {
@@ -1322,7 +1343,6 @@ export class GanttEngineImpl implements GanttEngine {
     // a gesture whose only other cue is a crosshair cursor over an invisible strip.
     // Painted after bars, arrows and labels so nothing overdraws it.
     this._paintHoverLinkHandle(ctx);
-
   }
 
   /**
@@ -1589,8 +1609,10 @@ export class GanttEngineImpl implements GanttEngine {
   // Private — Pointer events
   // ---------------------------------------------------------------------------
 
-  private _pointerToCanvas(e: PointerEvent): { x: number; y: number } {
-    const rect = this._ixCanvas.getBoundingClientRect();
+  private _pointerToCanvas(
+    e: PointerEvent,
+    rect: DOMRect = this._ixCanvas.getBoundingClientRect(),
+  ): { x: number; y: number } {
     return {
       x: e.clientX - rect.left + this._scrollLeft,
       y: e.clientY - rect.top + this._scrollTop,
@@ -1609,7 +1631,7 @@ export class GanttEngineImpl implements GanttEngine {
     const rect = this._ixCanvas.getBoundingClientRect();
     if (e.clientY - rect.top < CHART_HEADER_HEIGHT) return;
 
-    const { x, y } = this._pointerToCanvas(e);
+    const { x, y } = this._pointerToCanvas(e, rect);
     const isTouch = e.pointerType === 'touch';
     const zone = this._hitIndex.query(x, y, isTouch);
 
@@ -1809,8 +1831,7 @@ export class GanttEngineImpl implements GanttEngine {
       this._linkFSM.setTarget(null, null);
       // Over the source bar itself → not-allowed (self-link is rejected);
       // over empty space → keep the crosshair (still hunting for a target).
-      this._ixCanvas.style.cursor =
-        zone && zone.taskId === sourceId ? 'not-allowed' : 'crosshair';
+      this._ixCanvas.style.cursor = zone && zone.taskId === sourceId ? 'not-allowed' : 'crosshair';
     }
     this._requestRepaint();
     return true;
@@ -1818,6 +1839,7 @@ export class GanttEngineImpl implements GanttEngine {
 
   /** Bar drag/resize in flight, or plain hover when the drag FSM has not moved. */
   private _handleDragOrHoverMove(e: PointerEvent): void {
+    // One getBoundingClientRect per pointermove, shared with the hover query.
     const { x, y } = this._pointerToCanvas(e);
     const result = this._dragFSM.onPointerMove(x, y);
     if (result !== 'none') {
@@ -1828,22 +1850,16 @@ export class GanttEngineImpl implements GanttEngine {
     }
 
     if (result === 'none' || result === 'started') {
-      this._updateHoverZone(e);
+      this._updateHoverZone(e, x, y);
       return;
     }
     this._emitBarDragMove(x); // result === 'moved'
   }
 
   /** Hover cursor + coalesced `task-hover` emission while not dragging. */
-  private _updateHoverZone(e: PointerEvent): void {
+  private _updateHoverZone(e: PointerEvent, x: number, y: number): void {
     if (!this._hitIndex || !this._scales) return;
-    // One getBoundingClientRect for both axes — this runs on every pointermove.
-    const rect = this._ixCanvas.getBoundingClientRect();
-    this._hoverZone = this._hitIndex.query(
-      e.clientX - rect.left + this._scrollLeft,
-      e.clientY - rect.top + this._scrollTop,
-      e.pointerType === 'touch',
-    );
+    this._hoverZone = this._hitIndex.query(x, y, e.pointerType === 'touch');
     this._updateCursor(this._hoverZone);
 
     // Emit task-hover transitions so React-side useDependencyHover can
@@ -2056,7 +2072,23 @@ export class GanttEngineImpl implements GanttEngine {
     if (!this._scales) return;
     // deltaY < 0 (scroll up / pinch out) → zoom in → multiply px/day.
     const factor = e.deltaY < 0 ? ZOOM_WHEEL_FACTOR : 1 / ZOOM_WHEEL_FACTOR;
-    this.setPxPerDay(this._pxPerDay * factor, { clientX: e.clientX });
+    // Trackpad pinch delivers events faster than the frame rate. Accumulate the
+    // factor and apply it once per animation frame so a burst costs one scale
+    // rebuild + repaint, not one per event (#1540). The anchor is the latest
+    // cursor position, which is where the user is zooming at.
+    this._wheelFactor *= factor;
+    this._wheelClientX = e.clientX;
+    if (this._wheelRafId === 0) {
+      this._wheelRafId = requestAnimationFrame(this._flushWheelZoom);
+    }
+  };
+
+  private readonly _flushWheelZoom = (): void => {
+    this._wheelRafId = 0;
+    const factor = this._wheelFactor;
+    this._wheelFactor = 1;
+    if (this._isDestroyed || !this._scales || factor === 1) return;
+    this.setPxPerDay(this._pxPerDay * factor, { clientX: this._wheelClientX });
   };
 
   // ---------------------------------------------------------------------------

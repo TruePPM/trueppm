@@ -91,7 +91,11 @@ interface EngineFake {
 }
 
 /** Minimal engine fake: synchronous emitter + real selection, like the canvas impl. */
-function makeEngine({ scales = null, scrollLeft = 0, preselected = [] }: EngineOptions = {}): EngineFake {
+function makeEngine({
+  scales = null,
+  scrollLeft = 0,
+  preselected = [],
+}: EngineOptions = {}): EngineFake {
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   const selected = new Set<string>(preselected);
   const scrollToDate = vi.fn<(iso: string) => void>();
@@ -171,11 +175,7 @@ function mount({
   return { host };
 }
 
-const TASKS: Task[] = [
-  makeTask('t1', 'Design'),
-  makeTask('t2', 'Build'),
-  makeTask('t3', 'Test'),
-];
+const TASKS: Task[] = [makeTask('t1', 'Design'), makeTask('t2', 'Build'), makeTask('t3', 'Test')];
 
 function cellFor(name: string): HTMLElement {
   return screen.getByRole('option', { name: new RegExp(name) });
@@ -236,9 +236,9 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
   // #2727: delivery mode is announced since the visual encoding (gutter/chip/
   // texture, #2727 pt.7) is sighted-only.
   it('appends the delivery-mode suffix when the task carries one', () => {
-    expect(
-      buildTaskAriaLabel(makeTask('t1', 'Design', { deliveryMode: 'scrum' })),
-    ).toBe('Design, 5 days, starts Apr 6, finishes Apr 10, Scrum delivery');
+    expect(buildTaskAriaLabel(makeTask('t1', 'Design', { deliveryMode: 'scrum' }))).toBe(
+      'Design, 5 days, starts Apr 6, finishes Apr 10, Scrum delivery',
+    );
   });
 
   it('appends the delivery-mode suffix to an unscheduled task too', () => {
@@ -254,7 +254,9 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
   // mixed state was carried by a color band and a texture alone (WCAG 1.4.1).
   it('announces the ROLLED-UP mode over the row’s own field, and names the constituents', () => {
     const phase = makeTask('p1', 'Phase 4', { deliveryMode: 'scrum' });
-    expect(buildTaskAriaLabel(phase, undefined, { kind: 'mixed', parts: ['waterfall', 'scrum'] })).toBe(
+    expect(
+      buildTaskAriaLabel(phase, undefined, { kind: 'mixed', parts: ['waterfall', 'scrum'] }),
+    ).toBe(
       'Phase 4, 5 days, starts Apr 6, finishes Apr 10, Mixed delivery — this branch contains waterfall and scrum work',
     );
   });
@@ -293,9 +295,7 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
   });
 
   it('calls out a bar that finishes past the window — the reason to look', () => {
-    expect(
-      buildTaskAriaLabel(makeTask('t1', 'Design', { finish: '2026-04-24' }), BAND),
-    ).toBe(
+    expect(buildTaskAriaLabel(makeTask('t1', 'Design', { finish: '2026-04-24' }), BAND)).toBe(
       'Design, 5 days, starts Apr 6, finishes Apr 24, in Sprint 4 (Apr 6 – Apr 17), finishes after the sprint window',
     );
   });
@@ -307,9 +307,7 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
   });
 
   it('carries the sprint suffix after the delivery mode, and on unscheduled rows', () => {
-    expect(
-      buildTaskAriaLabel(makeTask('t1', 'Design', { deliveryMode: 'scrum' }), BAND),
-    ).toBe(
+    expect(buildTaskAriaLabel(makeTask('t1', 'Design', { deliveryMode: 'scrum' }), BAND)).toBe(
       'Design, 5 days, starts Apr 6, finishes Apr 10, Scrum delivery, in Sprint 4 (Apr 6 – Apr 17)',
     );
     expect(buildTaskAriaLabel(makeTask('t1', 'Design', { start: '' }), BAND)).toBe(
@@ -323,10 +321,10 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
 
   it('combines the critical-path and delivery-mode suffixes in order', () => {
     expect(
-      buildTaskAriaLabel(
-        makeTask('t1', 'Design', { isCritical: true, deliveryMode: 'waterfall' }),
-      ),
-    ).toBe('Design, 5 days, starts Apr 6, finishes Apr 10, on the critical path, Waterfall delivery');
+      buildTaskAriaLabel(makeTask('t1', 'Design', { isCritical: true, deliveryMode: 'waterfall' })),
+    ).toBe(
+      'Design, 5 days, starts Apr 6, finishes Apr 10, on the critical path, Waterfall delivery',
+    );
   });
 });
 
@@ -495,7 +493,7 @@ describe('ScheduleAriaOverlay row virtualization', () => {
     expect(last).toHaveAttribute('aria-posinset', '40');
   });
 
-  it('tracks scrollTop from the engine scroll event', () => {
+  it('ignores engine scroll events — the container scroll listener is the single source (#1540)', () => {
     const host = makeScrollHost(300);
     const containerRef: RefObject<HTMLDivElement | null> = { current: host };
     const { engine, emitScroll } = makeEngine();
@@ -504,8 +502,23 @@ describe('ScheduleAriaOverlay row virtualization', () => {
     );
     host.scrollTop = 1000;
     act(() => emitScroll(0));
+    expect(screen.getByRole('option', { name: /Task 0,/ })).toBeInTheDocument();
+    fireEvent.scroll(host);
     expect(screen.queryByRole('option', { name: /Task 0,/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Task 39,/ })).toBeInTheDocument();
+  });
+
+  it('applies the sub-row scroll offset imperatively and re-renders only on a row crossing (#1540)', () => {
+    const { host } = mount({ tasks: MANY, clientHeight: 300 });
+    const shift = () =>
+      screen.getAllByRole('option')[0].parentElement!.parentElement as HTMLElement;
+    expect(shift().style.transform).toBe('translateY(0px)');
+    const firstBefore = screen.getAllByRole('option')[0];
+    host.scrollTop = 10; // inside row 0
+    fireEvent.scroll(host);
+    expect(shift().style.transform).toBe('translateY(-10px)');
+    // Same DOM node: no remount, and the rendered window is unchanged.
+    expect(screen.getAllByRole('option')[0]).toBe(firstBefore);
+    expect(screen.getAllByRole('option')).toHaveLength(16);
   });
 
   it('survives a null scroll container — engine scroll events are ignored', () => {
@@ -579,7 +592,10 @@ describe('ScheduleAriaOverlay keyboard edges', () => {
 
   it('scrolls the bar into horizontal view via the engine on every move', () => {
     const { scrollToDate, engine } = makeEngine();
-    mount({ engine, tasks: [makeTask('t1', 'Design'), makeTask('t2', 'Build', { start: '2026-05-04' })] });
+    mount({
+      engine,
+      tasks: [makeTask('t1', 'Design'), makeTask('t2', 'Build', { start: '2026-05-04' })],
+    });
     fireEvent.keyDown(cellFor('Design'), { key: 'ArrowDown' });
     expect(scrollToDate).toHaveBeenCalledWith('2026-05-04');
   });
@@ -683,7 +699,6 @@ describe('ScheduleAriaOverlay far-jump scroll-into-view', () => {
   });
 });
 
-
 /**
  * #2997 — the overlay derives its own virtualization window and its own row
  * rects. Both must resolve to the same pitch the canvas beneath is painting, or
@@ -716,8 +731,7 @@ describe('ScheduleAriaOverlay at the coarse row height (#2997)', () => {
     stubCoarsePointer(true);
     mount({ tasks: MANY.slice(0, 3), clientHeight: 300 });
     const rowWrapper = (n: number) =>
-      screen.getByRole('option', { name: new RegExp(`Task ${n},`) })
-        .parentElement as HTMLElement;
+      screen.getByRole('option', { name: new RegExp(`Task ${n},`) }).parentElement as HTMLElement;
     expect(rowWrapper(0).style.top).toBe(`${28}px`);
     expect(rowWrapper(1).style.top).toBe(`${28 + ROW_HEIGHT_COARSE}px`);
     expect(rowWrapper(0).style.height).toBe(`${ROW_HEIGHT_COARSE}px`);
@@ -763,9 +777,7 @@ describe('emptySprintCadenceSentence (#3060)', () => {
 describe('the chart description carries the empty-sprint sentence (#3060)', () => {
   afterEach(cleanup);
 
-  const EMPTY = [
-    { id: 's5', name: 'Sprint 5', startDate: '2026-04-06', finishDate: '2026-04-17' },
-  ];
+  const EMPTY = [{ id: 's5', name: 'Sprint 5', startDate: '2026-04-06', finishDate: '2026-04-17' }];
 
   function mountWith(emptySprints?: typeof EMPTY) {
     const host = document.createElement('div');

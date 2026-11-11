@@ -412,8 +412,34 @@ export function parseUTCDate(isoDate: string): Date {
  * @param scales   Current GanttScaleData
  */
 export function dateToLeft(isoDate: string, scales: GanttScaleData): number {
-  const ms = parseUTCDate(isoDate).getTime() - scales.start.getTime();
+  const ms = isoToUtcMs(isoDate) - scales.start.getTime();
   return ms * scales.pxPerMs;
+}
+
+/**
+ * ISO date → UTC epoch ms, memoized by the date string (#1539).
+ *
+ * The result is a pure function of the string — independent of any scale — so
+ * it needs no invalidation on zoom or data change, and every paint pass that
+ * maps a task's start/finish to x stops allocating a fresh `Date` per bar per
+ * pass. Bounded: a project spans a few thousand distinct dates; the map is
+ * dropped wholesale past the cap rather than tracking recency.
+ */
+const _isoMsCache = new Map<string, number>();
+const ISO_MS_CACHE_MAX = 20_000;
+function isoToUtcMs(isoDate: string): number {
+  let ms = _isoMsCache.get(isoDate);
+  if (ms === undefined) {
+    if (_isoMsCache.size >= ISO_MS_CACHE_MAX) _isoMsCache.clear();
+    ms = parseUTCDate(isoDate).getTime();
+    _isoMsCache.set(isoDate, ms);
+  }
+  return ms;
+}
+
+/** Test seam: number of memoized ISO→ms entries. */
+export function _isoMsCacheSize(): number {
+  return _isoMsCache.size;
 }
 
 /** Milliseconds in one calendar day. */
@@ -598,10 +624,15 @@ export function buildScaleDataFromPxPerDay(
 function padMsForZoom(zoom: ZoomLevel): number {
   const DAY = 86_400_000;
   switch (zoom) {
-    case 'day':     return 3 * DAY;
-    case 'week':    return 7 * DAY;
-    case 'month':   return 30 * DAY;
-    case 'quarter': return 90 * DAY;
-    case 'year':    return 365 * DAY;
+    case 'day':
+      return 3 * DAY;
+    case 'week':
+      return 7 * DAY;
+    case 'month':
+      return 30 * DAY;
+    case 'quarter':
+      return 90 * DAY;
+    case 'year':
+      return 365 * DAY;
   }
 }

@@ -22,7 +22,7 @@
  * absolute-position layout.
  *
  * Virtualised to match the canvas render window (same overscan = 5 rows).
- * Tracks scrollTop from engine.on('scroll') and updates focus ring position.
+ * Tracks scrollTop from the container's scroll event and updates focus ring position.
  *
  * Design rules enforced:
  * - Rule 67: ScheduleAriaOverlay is mandatory; canvas aria-hidden="true"
@@ -406,7 +406,10 @@ export function ScheduleAriaOverlay({
   // tablet gains a keyboard — and an overlay row rect that disagrees with the
   // canvas beneath it is a focus ring framing the wrong bar.
   const { rowHeight, barTopOffset } = useRowMetrics();
-  const [scrollTop, setScrollTop] = useState(0);
+  // Row-granular scroll position: the ONLY scroll-derived React state. The
+  // sub-row pixel offset is applied imperatively to `rowShiftRef` below, so a
+  // scroll frame that stays inside one row re-renders nothing (rule 30).
+  const [scrollRow, setScrollRow] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [liveMessage, setLiveMessage] = useState('');
@@ -418,20 +421,9 @@ export function ScheduleAriaOverlay({
     () => engine?.selectedTaskIds ?? new Set<string>(),
   );
   const gridRef = useRef<HTMLDivElement>(null);
+  const rowShiftRef = useRef<HTMLDivElement>(null);
   // Task id whose option should receive DOM focus once it is rendered.
   const pendingFocusRef = useRef<string | null>(null);
-
-  // Track scroll from engine events (rule 55: always unsubscribe)
-  useEffect(() => {
-    if (!engine) return;
-    const off = engine.on('scroll', ({ scrollLeft: _sl }) => {
-      // scrollTop from container directly (engine only emits scrollLeft)
-      if (containerRef.current) {
-        setScrollTop(containerRef.current.scrollTop);
-      }
-    });
-    return off;
-  }, [engine, containerRef]);
 
   // Track selection from engine events so aria-selected stays in sync with
   // canvas-click and keyboard (Enter/Space) selection (rule 55: always
@@ -445,25 +437,33 @@ export function ScheduleAriaOverlay({
     return off;
   }, [engine]);
 
-  // Seed scrollTop and viewportHeight from container
+  // Seed and track scroll/viewport from the container. This is the single scroll
+  // listener (the engine's 'scroll' event fires from this same container, so a
+  // second subscription only doubled the work). The pixel offset is written
+  // straight to the row-shift element; React state changes only on a row crossing.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    const onScroll = () => {
+      const top = container.scrollTop;
+      if (rowShiftRef.current) rowShiftRef.current.style.transform = `translateY(${-top}px)`;
+      setScrollRow(Math.floor(top / rowHeight));
+    };
     const update = () => {
-      setScrollTop(container.scrollTop);
+      onScroll();
       setViewportHeight(container.clientHeight);
     };
     update();
 
     const ro = new ResizeObserver(update);
     ro.observe(container);
-    container.addEventListener('scroll', update, { passive: true });
+    container.addEventListener('scroll', onScroll, { passive: true });
     return () => {
       ro.disconnect();
-      container.removeEventListener('scroll', update);
+      container.removeEventListener('scroll', onScroll);
     };
-  }, [containerRef]);
+  }, [containerRef, rowHeight]);
 
   // Per-task dep description strings for aria-describedby (#1371).
   const depDescriptions = useMemo(
@@ -494,6 +494,7 @@ export function ScheduleAriaOverlay({
 
   // Virtualised row range — viewportHeight is reduced by fixed header band
   const overscan = OVERSCAN_ROWS * rowHeight;
+  const scrollTop = scrollRow * rowHeight;
   const minY = scrollTop - overscan;
   const maxY = scrollTop + viewportHeight - chartHeaderHeight + overscan;
   const firstRow = Math.max(0, Math.floor(minY / rowHeight));
@@ -657,84 +658,92 @@ export function ScheduleAriaOverlay({
           Escape cancels. Press Space to select a task without rescheduling.
           {emptyCadenceSentence ? ` ${emptyCadenceSentence}` : ''}
         </span>
-        {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
-          const rowIndex = firstRow + sliceIdx;
-          const rowTop = rowIndex * rowHeight + chartHeaderHeight - scrollTop;
-          // Roving tabindex: until the user has focused a row, the first task is the
-          // tab stop so the listbox is reachable by Tab on initial load. Without the
-          // `?? tasks[0]?.id` fallback every option was tabIndex=-1 and keyboard/AT
-          // users could not enter it at all (#779).
-          const isFocused = task.id === (focusedTaskId ?? tasks[0]?.id);
+        {/* Rows are laid out in content space; the container's scroll offset is
+            applied as a transform on this wrapper by the scroll listener. */}
+        <div
+          ref={rowShiftRef}
+          role="presentation"
+          style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+        >
+          {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
+            const rowIndex = firstRow + sliceIdx;
+            const rowTop = rowIndex * rowHeight + chartHeaderHeight;
+            // Roving tabindex: until the user has focused a row, the first task is the
+            // tab stop so the listbox is reachable by Tab on initial load. Without the
+            // `?? tasks[0]?.id` fallback every option was tabIndex=-1 and keyboard/AT
+            // users could not enter it at all (#779).
+            const isFocused = task.id === (focusedTaskId ?? tasks[0]?.id);
 
-          // Bar geometry for focus ring positioning (rule 68)
-          let barLeft = 0;
-          let barWidth = 0;
-          if (scales) {
-            // A milestone's ring sits on its diamond (#4079): the end of its day
-            // when it follows work, see `milestoneX`.
-            barLeft = task.isMilestone
-              ? milestoneX(task.start, task.milestoneAtDayEnd, scales) - (engine?.scrollLeft ?? 0)
-              : dateToLeft(task.start, scales) - (engine?.scrollLeft ?? 0);
-            // finish is inclusive — match the canvas bar's true (exclusive) right
-            // edge so the focus ring frames the whole bar (#950). Milestones
-            // (start == finish, drawn as a diamond) keep their narrow ring.
-            const barRight = task.isMilestone
-              ? barLeft
-              : dateToRight(task.finish, scales) - (engine?.scrollLeft ?? 0);
-            barWidth = Math.max(2, barRight - barLeft);
-          }
+            // Bar geometry for focus ring positioning (rule 68)
+            let barLeft = 0;
+            let barWidth = 0;
+            if (scales) {
+              // A milestone's ring sits on its diamond (#4079): the end of its day
+              // when it follows work, see `milestoneX`.
+              barLeft = task.isMilestone
+                ? milestoneX(task.start, task.milestoneAtDayEnd, scales) - (engine?.scrollLeft ?? 0)
+                : dateToLeft(task.start, scales) - (engine?.scrollLeft ?? 0);
+              // finish is inclusive — match the canvas bar's true (exclusive) right
+              // edge so the focus ring frames the whole bar (#950). Milestones
+              // (start == finish, drawn as a diamond) keep their narrow ring.
+              const barRight = task.isMilestone
+                ? barLeft
+                : dateToRight(task.finish, scales) - (engine?.scrollLeft ?? 0);
+              barWidth = Math.max(2, barRight - barLeft);
+            }
 
-          const depDesc = depDescriptions.get(task.id);
-          const depDescId = depDesc ? `schedule-deps-${task.id}` : undefined;
+            const depDesc = depDescriptions.get(task.id);
+            const depDescId = depDesc ? `schedule-deps-${task.id}` : undefined;
 
-          return (
-            <div
-              key={task.id}
-              role="presentation"
-              style={{
-                position: 'absolute',
-                top: rowTop,
-                left: 0,
-                right: 0,
-                height: rowHeight,
-                pointerEvents: isFocused ? 'auto' : 'none',
-              }}
-            >
+            return (
               <div
-                role="option"
-                data-task-id={task.id}
-                tabIndex={isFocused ? 0 : -1}
-                aria-label={buildTaskAriaLabel(
-                  task,
-                  sprintBandByTask.get(task.id),
-                  rowModes?.get(task.id),
-                )}
-                title={sprintBandByTask.get(task.id)?.name}
-                aria-describedby={depDescId}
-                aria-selected={selectedTaskIds.has(task.id)}
-                aria-setsize={tasks.length}
-                aria-posinset={rowIndex + 1}
-                className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface rounded-control outline-none"
+                key={task.id}
+                role="presentation"
                 style={{
                   position: 'absolute',
-                  left: barLeft,
-                  top: barTopOffset,
-                  width: barWidth,
-                  height: BAR_HEIGHT,
+                  top: rowTop,
+                  left: 0,
+                  right: 0,
+                  height: rowHeight,
                   pointerEvents: isFocused ? 'auto' : 'none',
                 }}
-                onFocus={() => setFocusedTaskId(task.id)}
-                onKeyDown={(e) => handleKeyDown(e, task.id)}
-              />
-              {/* Hidden dep description read by aria-describedby when the bar is focused. */}
-              {depDesc && (
-                <span id={depDescId} className="sr-only">
-                  {depDesc}
-                </span>
-              )}
-            </div>
-          );
-        })}
+              >
+                <div
+                  role="option"
+                  data-task-id={task.id}
+                  tabIndex={isFocused ? 0 : -1}
+                  aria-label={buildTaskAriaLabel(
+                    task,
+                    sprintBandByTask.get(task.id),
+                    rowModes?.get(task.id),
+                  )}
+                  title={sprintBandByTask.get(task.id)?.name}
+                  aria-describedby={depDescId}
+                  aria-selected={selectedTaskIds.has(task.id)}
+                  aria-setsize={tasks.length}
+                  aria-posinset={rowIndex + 1}
+                  className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface rounded-control outline-none"
+                  style={{
+                    position: 'absolute',
+                    left: barLeft,
+                    top: barTopOffset,
+                    width: barWidth,
+                    height: BAR_HEIGHT,
+                    pointerEvents: isFocused ? 'auto' : 'none',
+                  }}
+                  onFocus={() => setFocusedTaskId(task.id)}
+                  onKeyDown={(e) => handleKeyDown(e, task.id)}
+                />
+                {/* Hidden dep description read by aria-describedby when the bar is focused. */}
+                {depDesc && (
+                  <span id={depDescId} className="sr-only">
+                    {depDesc}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </>
   );

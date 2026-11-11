@@ -309,3 +309,24 @@ describe('link-dot touch zone at both row pitches (#2997)', () => {
     }
   });
 });
+
+describe('buildHitIndex — O(1) row lookup (#1540)', () => {
+  it('resolves the row from canvasY across a large plan, skipping unscheduled holes', () => {
+    const many = Array.from({ length: 5000 }, (_, i) =>
+      i === 2500
+        ? ({ ...makeTask(`t${i}`, '2026-04-07', '2026-04-14'), start: '', finish: '' } as unknown as Task)
+        : makeTask(`t${i}`, '2026-04-07', '2026-04-14'),
+    );
+    const index = buildHitIndex(many, scales);
+    const g = index.rowGeometry(4321)!;
+    expect(g.taskId).toBe('t4321');
+    const hit = index.query(g.barLeft + 2, g.barTop + 2, false);
+    expect(hit?.taskId).toBe('t4321');
+    expect(hit?.rowIndex).toBe(4321);
+    expect(index.rowGeometry(2500)).toBeNull();
+    expect(index.query(g.barLeft + 2, HEADER_HEIGHT + 2500 * ROW_HEIGHT + BAR_TOP_OFFSET + 2, false)).toBeNull();
+    // Header band and beyond the last row.
+    expect(index.query(g.barLeft, 5, false)).toBeNull();
+    expect(index.query(g.barLeft, HEADER_HEIGHT + 6000 * ROW_HEIGHT, false)).toBeNull();
+  });
+});
