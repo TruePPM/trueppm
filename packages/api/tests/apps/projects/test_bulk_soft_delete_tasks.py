@@ -314,3 +314,21 @@ def test_restore_round_trip_after_bulk_delete(project: Project, other_project: P
     assert Task.objects.get(pk=root.pk).is_deleted is False
     assert Task.objects.get(pk=child.pk).is_deleted is False
     assert Dependency.objects.get(pk=edge.pk).is_deleted is False
+
+
+def test_task_post_save_receiver_set_is_pinned() -> None:
+    """``bulk_soft_delete_tasks`` writes with ``update()``, which skips ``post_save``, so
+    it mirrors the soft-delete-relevant receivers by hand. Pin the set by qualified name
+    so a new receiver cannot land without someone deciding whether the bulk path needs it.
+    """
+    from django.db.models.signals import post_save
+
+    receivers = post_save._live_receivers(Task)[0]
+    names = {f"{r.__module__}.{r.__qualname__}" for r in receivers}
+    recv = "trueppm_api.apps.projects.receivers"
+    assert names == {
+        "simple_history.models.HistoricalRecords.post_save",
+        f"{recv}._register_task_soft_delete_receiver.<locals>._on_task_save_reset_promoted",
+        f"{recv}._register_milestone_rollup_receiver.<locals>._on_task_save_recompute_rollup",
+        f"{recv}._register_backlog_pull_rollback_receiver.<locals>._on_task_soft_delete_reset_backlog_item",
+    }, "a new Task post_save receiver was added; revisit bulk_soft_delete_tasks"

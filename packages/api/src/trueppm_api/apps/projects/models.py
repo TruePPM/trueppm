@@ -2068,9 +2068,11 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
       checkpoint and never reach an offline client (ADR-0686). Two independent draws,
       each per owning project: edges are keyed by the *predecessor's* project (the
       resolver ``save()`` uses), tasks by their *own* project, so a cross-project edge
-      is stamped against the predecessor's project rather than the victim's. Keys are
-      sorted before drawing so concurrent undos take the project sequence locks in a
-      deterministic order;
+      is stamped against the predecessor's project rather than the victim's. Each pass
+      draws in sorted project order, but the two passes can interleave across projects
+      (edges by predecessor project, then tasks by own project, with every lock held
+      until commit), exactly as the per-row path did, so this gives no global lock
+      order across concurrent undos;
     * ``deleted_at`` — the nightly reap's retention clock;
     * ``edited_at`` is left alone: deleting is not editing (ADR-0786 §4);
     * the Task post_save soft-delete receivers' effects, which ``update()`` would
@@ -4326,6 +4328,9 @@ class Task(VersionedModel):
         (which performs the actual save), so the nightly tombstone reap can apply
         the TRUEPPM_TOMBSTONE_RETENTION_DAYS grace window instead of treating every
         soft-deleted task as immediately eligible for hard deletion.
+
+        Any new side effect added here, or to a Task ``post_save`` receiver, must also
+        be mirrored in :func:`bulk_soft_delete_tasks`, its set-based twin.
         """
         # Soft-delete all edges where this task is predecessor or successor.
         edges = Dependency.objects.filter(predecessor=self) | Dependency.objects.filter(
