@@ -108,7 +108,11 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
     does not falsely protect every row and turn undo into a no-op.
     """
     from trueppm_api.apps.access.permissions import assert_project_not_archived
-    from trueppm_api.apps.projects.models import Task, TemplateApplicationStatus
+    from trueppm_api.apps.projects.models import (
+        Task,
+        TemplateApplicationStatus,
+        bulk_soft_delete_tasks,
+    )
 
     # Lifecycle floor, mirroring `enqueue_template_apply` above and the two
     # `task_batch_services` undos: an undo soft-deletes rows, which is a write, and
@@ -123,14 +127,15 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
         return {"deleted": 0, "kept": 0}
 
     rows = list(Task.objects.filter(pk__in=ids, is_deleted=False))
-    deleted = 0
-    kept = 0
-    for row in rows:
-        if _has_been_touched(row):
-            kept += 1
-            continue
-        row.soft_delete()
-        deleted += 1
+    to_delete = [row for row in rows if not _has_been_touched(row)]
+    kept = len(rows) - len(to_delete)
+    # One set-based cascade for the whole undo set rather than a `soft_delete()` per
+    # row (#2765): same edge + WBS-subtree reach, same version/cursor/tombstone
+    # stamping, but O(1) queries in the number of rows. `deleted` counts the undo
+    # set's own rows (the figure the summary has always reported), not descendants
+    # swept along with them.
+    bulk_soft_delete_tasks(to_delete)
+    deleted = len(to_delete)
 
     application.status = TemplateApplicationStatus.UNDONE
     application.undone_at = timezone.now()
