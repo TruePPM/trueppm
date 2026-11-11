@@ -574,7 +574,10 @@ mod tests {
         let mut d = NaiveDate::from_ymd_opt(2026, 1, 12).unwrap();
         while d < end {
             let week_end = (d + chrono::Duration::days(4)).min(end);
-            ranges.push(DateRange { start: d, end: week_end });
+            ranges.push(DateRange {
+                start: d,
+                end: week_end,
+            });
             d += chrono::Duration::days(7);
         }
         ranges
@@ -633,11 +636,85 @@ mod tests {
                 let result = schedule_impl(&project).unwrap();
                 let elapsed = t0.elapsed();
                 let (y, m, dd) = finish;
-                assert_eq!(result.project_finish, NaiveDate::from_ymd_opt(y, m, dd).unwrap());
+                assert_eq!(
+                    result.project_finish,
+                    NaiveDate::from_ymd_opt(y, m, dd).unwrap()
+                );
                 // Debug build; before the #4161/#4176 fixes this took seconds per
                 // dependency type (and, for weekly-ranges, scaled with edge count).
-                assert!(elapsed.as_millis() < 500, "{cal_name}/{dep_type:?}: {elapsed:?}");
+                assert!(
+                    elapsed.as_millis() < 500,
+                    "{cal_name}/{dep_type:?}: {elapsed:?}"
+                );
             }
+        }
+    }
+
+    /// The start-of-day cap on zero-lag milestone inheritors stays linear (#4526).
+    /// Listing every inheritor path was exponential in a lattice of milestones
+    /// (2^40 paths here) and cubic in a plain chain; the per-node summary
+    /// (`Inheritors`) is linear in both. Debug build, generous bound.
+    #[test]
+    fn test_zero_lag_milestone_inheritors_stay_linear() {
+        let four = Calendar {
+            working_days: 0b0001111,
+            ..Calendar::default()
+        };
+        let lattice = |depth: usize| {
+            let mut tasks = vec![make_task("W", 3)];
+            let mut dependencies = Vec::new();
+            let mut prev = vec!["W".to_string()];
+            for i in 0..depth {
+                let cur = vec![format!("A{i}"), format!("B{i}")];
+                tasks.push(make_task(&cur[0], 0));
+                tasks.push(Task {
+                    calendar_id: Some("four".to_string()),
+                    ..make_task(&cur[1], 0)
+                });
+                for p in &prev {
+                    for c in &cur {
+                        dependencies.push(dep(p, c));
+                    }
+                }
+                prev = cur;
+            }
+            (tasks, dependencies)
+        };
+        let chain = |length: usize| {
+            let mut tasks = vec![make_task("W", 3)];
+            let mut dependencies = Vec::new();
+            let mut prev = "W".to_string();
+            for i in 0..length {
+                let id = format!("M{i}");
+                let mut t = make_task(&id, 0);
+                if i % 2 == 1 {
+                    t.calendar_id = Some("four".to_string());
+                }
+                tasks.push(t);
+                dependencies.push(dep(&prev, &id));
+                prev = id;
+            }
+            (tasks, dependencies)
+        };
+        for (label, (tasks, dependencies)) in
+            [("lattice-40", lattice(40)), ("chain-3000", chain(3000))]
+        {
+            let project = Project {
+                id: "p".to_string(),
+                name: "p".to_string(),
+                start_date: NaiveDate::from_ymd_opt(2027, 3, 1).unwrap(),
+                tasks,
+                dependencies,
+                calendar: Calendar::default(),
+                status_date: None,
+                calendars: Some([("four".to_string(), four.clone())].into_iter().collect()),
+                velocity_samples: None,
+                sprint_length_days: None,
+            };
+            let t0 = std::time::Instant::now();
+            schedule_impl(&project).unwrap();
+            let elapsed = t0.elapsed();
+            assert!(elapsed.as_secs() < 10, "{label}: {elapsed:?}");
         }
     }
 

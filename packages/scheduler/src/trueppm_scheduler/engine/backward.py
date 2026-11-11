@@ -32,6 +32,7 @@ from trueppm_scheduler.engine.milestones import (
     _finish_instant,
     _free_start_ref,
     _inheriting_paths,
+    _Inheritors,
     _Instant,
     _late_display,
     _link_finish_ref,
@@ -67,7 +68,7 @@ def _backward_pass(
     task_calendars: dict[str, Calendar] | None = None,
     instants: dict[str, _Instant] | None = None,
     link_instants: dict[str, _Instant] | None = None,
-    inherited: dict[str, tuple[tuple[Calendar, ...], ...]] | None = None,
+    inherited: dict[str, _Inheritors] | None = None,
 ) -> dict[str, date]:
     """Compute late_start and late_finish for every task (in-place).
 
@@ -112,7 +113,7 @@ def _backward_pass(
     early_instants = instants or {}
     links = link_instants or {}
     late_instants: dict[str, date] = {}
-    inherits: dict[str, tuple[tuple[Calendar, ...], ...]] = {} if inherited is None else inherited
+    inherits: dict[str, _Inheritors] = {} if inherited is None else inherited
     # Every late date is seeded from the instant the project ends. Without
     # milestones that is the end of the finish day, exactly the old seed; a
     # milestone at the *start* of the finish day ends the project there, and
@@ -161,6 +162,7 @@ def _backward_pass(
                 late_instants.__contains__,
                 cal_for,
                 inherits,
+                project_finish,
             )
             continue
 
@@ -185,7 +187,7 @@ def _late_refs(
     late_instants: dict[str, date],
     cal_for: Callable[[str], Calendar],
     link: tuple[Dependency, bool, date],
-    inherited: dict[str, tuple[tuple[Calendar, ...], ...]] | None = None,
+    inherited: dict[str, _Inheritors] | None = None,
 ) -> tuple[date, date]:
     """``(start_ref, finish_ref)`` a live successor's late window offers its predecessor.
 
@@ -216,7 +218,7 @@ def _late_refs(
                 pred_is_milestone,
                 succ_cal,
                 project_finish,
-                (inherited or {}).get(succ_id, ()),
+                (inherited or {}).get(succ_id),
             ),
             _link_finish_ref(late, dep.dep_type, succ_cal, project_finish),
         )
@@ -238,7 +240,7 @@ def _apply_milestone_late_date(
     finish: tuple[date, date],
     late_instants: dict[str, date],
     cal_for: Callable[[str], Calendar],
-    inherited: dict[str, tuple[tuple[Calendar, ...], ...]] | None = None,
+    inherited: dict[str, _Inheritors] | None = None,
 ) -> date:
     """Set a milestone's late date (``late_start == late_finish``); return its instant.
 
@@ -280,7 +282,7 @@ def _collect_backward_constraints(
     finish: tuple[date, date],
     late_instants: dict[str, date],
     cal_for: Callable[[str], Calendar],
-    inherited: dict[str, tuple[tuple[Calendar, ...], ...]] | None = None,
+    inherited: dict[str, _Inheritors] | None = None,
 ) -> tuple[list[date], list[date]]:
     """Gather the LF and LS constraints this task's successors impose on it.
 

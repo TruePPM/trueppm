@@ -46,6 +46,7 @@ from trueppm_scheduler.engine import (
     _floor_above_start,
     _free_start_ref,
     _inheriting_paths,
+    _Inheritors,
     _Instant,
     _instant_day,
     _is_complete,
@@ -1300,22 +1301,23 @@ def _milestone_context(
 
     # The calendars a milestone's reading carries onto at zero lag, as the backward
     # pass caps it (engine._inheriting_paths, #4526). Only milestones have them.
-    inherited_memo: dict[str, tuple[tuple[Calendar, ...], ...]] = {}
+    inherited_memo: dict[str, _Inheritors] = {}
     milestone_succs: dict[str, list[tuple[str, Dependency]]] = {}
     if late_instants:
         for dep in project.dependencies:
             if dep.successor_id in late_instants:
                 milestone_succs.setdefault(dep.predecessor_id, []).append((dep.successor_id, dep))
 
-    def inherited(tid: str) -> tuple[tuple[Calendar, ...], ...]:
+    def inherited(tid: str) -> _Inheritors | None:
         if tid not in late_instants:
-            return ()
+            return None
         return _inheriting_paths(
             tid,
             lambda n: milestone_succs.get(n, []),
             late_instants.__contains__,
             cal_of,
             inherited_memo,
+            result.project_finish,
         )
 
     own = instants.get(task.id)
