@@ -197,7 +197,7 @@ def _subtree_snapshot(project_id: Any, roots: list[Task]) -> dict[str, list[Task
         return {}
     predicate = Q()
     for root in roots:
-        predicate |= Q(wbs_path__startswith=f"{root.wbs_path}.")
+        predicate |= Q(wbs_path__descendant=str(root.wbs_path))
     rows = list(
         TaskModel.objects.select_for_update()
         .filter(project_id=project_id, is_deleted=False)
@@ -689,7 +689,7 @@ def perform_ungroup(project: Project, request: Request, raw_id: Any) -> dict[str
         project_id=project_id,
         is_deleted=False,
         is_subtask=True,
-        wbs_path__startswith=f"{container_path}.",
+        wbs_path__descendant=container_path,
     ).exists():
         raise GroupingRejected(
             "container_has_subtasks",

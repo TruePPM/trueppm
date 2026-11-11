@@ -5564,7 +5564,9 @@ def _filter_tasks_by_parent(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
     parent_path = (
         Task.objects.filter(pk=parent_filter).values_list("wbs_path", flat=True).first() or ""
     )
-    return qs.filter(wbs_path__startswith=parent_path, is_subtask=True).exclude(pk=parent_filter)
+    return qs.filter(wbs_path__descendant_or_equal=parent_path, is_subtask=True).exclude(
+        pk=parent_filter
+    )
 
 
 def _filter_tasks_by_labels(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
@@ -8564,7 +8566,16 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
         project_pk = self.kwargs.get("project_pk")
         if project_pk:
             qs = qs.filter(project_id=project_pk)
-        return qs.annotate(task_count=Count("tasks"))  # type: ignore[no-any-return]
+        qs = qs.annotate(task_count=Count("tasks"))
+        if self.action == "retrieve":
+            # BaselineTask has no Meta.ordering, so the nested snapshot came back in
+            # heap order — unstable across identical requests. Order it explicitly.
+            qs = qs.prefetch_related(
+                db_models.Prefetch(
+                    "tasks", queryset=BaselineTask.objects.order_by("task_name", "task_id")
+                )
+            )
+        return qs  # type: ignore[no-any-return]
 
     def perform_create(self, serializer: BaseSerializer[Baseline]) -> None:
         """Snapshot all live task dates atomically and broadcast baseline_created.
@@ -9746,7 +9757,7 @@ class TaskReorderView(IdempotencyMixin, APIView):
             # Exact siblings: their path is "{parent_path}.{single_label}",
             # i.e. the path starts with the parent prefix and adds exactly one
             # label segment.  We filter by prefix match then exclude deeper paths.
-            siblings_qs = siblings_qs.filter(wbs_path__startswith=f"{parent_path}.").exclude(
+            siblings_qs = siblings_qs.filter(wbs_path__descendant=parent_path).exclude(
                 # Exclude tasks deeper than one level below parent_path.
                 # A descendant at depth+2 would have at least two dots after
                 # the parent prefix — filter those out.
@@ -9912,7 +9923,7 @@ def _get_siblings(project_id: str, parent_path: str, *, lock: bool = False) -> l
     if lock:
         qs = qs.select_for_update()
     if parent_path:
-        qs = qs.filter(wbs_path__startswith=f"{parent_path}.").exclude(
+        qs = qs.filter(wbs_path__descendant=parent_path).exclude(
             wbs_path__regex=rf"^{parent_path}\.\d+\."
         )
     else:
@@ -9931,7 +9942,7 @@ def _get_descendants(project_id: str, wbs_path: str, *, lock: bool = False) -> l
     qs = Task.objects.filter(
         project_id=project_id,
         is_deleted=False,
-        wbs_path__startswith=f"{wbs_path}.",
+        wbs_path__descendant=wbs_path,
     )
     if lock:
         qs = qs.select_for_update()
@@ -11608,7 +11619,8 @@ class RiskViewSet(
         # Capture the linked-task set before save so the RiskTask through-rows
         # (which carry no timestamp/actor) can be diffed into risk_linked /
         # risk_unlinked activity events (ADR-0207, #1604).
-        old_task_ids = set(old.tasks.values_list("id", flat=True))
+        # ``.all()`` reads the queryset's prefetch_related("tasks"); values_list would re-query.
+        old_task_ids = {t.pk for t in old.tasks.all()}
 
         instance = serializer.save()
         new_task_ids = set(instance.tasks.values_list("id", flat=True))
@@ -11649,7 +11661,7 @@ class RiskViewSet(
         _record_risk_link_events(
             instance,
             added=[],
-            removed=list(instance.tasks.values_list("id", flat=True)),
+            removed=[t.pk for t in instance.tasks.all()],
             actor=self.request.user,
         )
         instance.soft_delete()
@@ -12262,11 +12274,13 @@ class RiskCommentViewSet(
         user = getattr(self.request, "user", None)
         if not user or not user.is_authenticated:
             return RiskComment.objects.none()
+        from trueppm_api.apps.access.permissions import _membership_role
+
         project_pk = self.kwargs["project_pk"]
         # Scope to projects the user is a member of — prevents cross-project reads.
-        if not ProjectMembership.objects.filter(
-            user=user, project_id=project_pk, is_deleted=False
-        ).exists():
+        # _membership_role reuses the per-request cache the permission classes already
+        # filled, so this costs no query on the normal path.
+        if _membership_role(self.request, project_pk) is None:
             return RiskComment.objects.none()
         return RiskComment.objects.filter(
             risk__project_id=project_pk,
@@ -15842,7 +15856,10 @@ class PhaseReorderView(IdempotencyMixin, APIView):
     permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     def patch(self, request: Request, pk: str) -> Response:
+        from simple_history.utils import bulk_update_with_history
+
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.sequence import allocate_for_projects
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
@@ -15908,11 +15925,30 @@ class PhaseReorderView(IdempotencyMixin, APIView):
                     status=status.HTTP_409_CONFLICT,
                 )
 
+            # One bulk write instead of a save() per phase. bulk_update bypasses
+            # VersionedModel.save(), so the two counters it would advance are advanced
+            # by hand: server_version in Python (the rows are select_for_update-locked
+            # above, so +1 cannot race; bulk_update does not evaluate F() the way
+            # save() does), and ONE sync_seq draw shared by the batch (ADR-0686) —
+            # without it the reorder would sit below every client checkpoint and
+            # offline clients would keep the old order. edited_at is stamped because
+            # the per-row Task.save() this replaced counted as a human edit.
+            now = timezone.now()
+            seq = allocate_for_projects([project.pk])
+            reordered: list[Task] = []
             for position, (task_id, _) in enumerate(parsed, start=1):
                 task = root_by_id[task_id]
                 task.priority_rank = position * 10
-                task.server_version = F("server_version") + 1
-                task.save(update_fields=["priority_rank", "server_version"])
+                task.server_version += 1
+                task.sync_seq = seq
+                task.edited_at = now
+                reordered.append(task)
+            bulk_update_with_history(
+                reordered,
+                Task,
+                ["priority_rank", "server_version", "sync_seq", "edited_at"],
+                batch_size=500,
+            )
 
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id_str, "phases_reordered", {})
@@ -15925,6 +15961,11 @@ class PhaseReorderView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 # Workflow settings — Phase (root-task) and ProjectCustomField viewsets (#521)
 # ---------------------------------------------------------------------------
+
+
+#: Hard ceiling on root-level phases returned by ``GET /phases/`` and accepted by
+#: ``POST /phases/`` — a board with more swim-lanes than this is unreadable anyway.
+PHASE_MAX = 200
 
 
 @extend_schema_view(
@@ -16028,8 +16069,12 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     # schema matches the response.
     @suppress_list_pagination
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Bare array is the client contract, so bound it with an enforced cap rather
+        # than a paged envelope (same shape choice as ProjectCustomFieldViewSet).
+        # ``create`` refuses past the same cap, so the slice only ever bites rows
+        # that predate it or arrived through the Task endpoint.
         queryset = self.filter_queryset(self.get_queryset())
-        phases = list(queryset)
+        phases = list(queryset[:PHASE_MAX])
         self._attach_task_counts(phases)
         serializer = self.get_serializer(phases, many=True)
         return Response(serializer.data)
@@ -16074,6 +16119,12 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 .filter(project=project, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE)
                 .count()
             )
+            if root_count >= PHASE_MAX:
+                from rest_framework.exceptions import ValidationError as DRFValidationError
+
+                raise DRFValidationError(
+                    {"detail": f"A project can have at most {PHASE_MAX} phases."}
+                )
             wbs_path = str(root_count + 1)
             # priority_rank uses the existing 10-step convention from PhaseReorderView
             # so new phases sit at the bottom of the swim-lane order.
@@ -16118,7 +16169,7 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         descendant_count = Task.objects.filter(
             project_id=instance.project_id,
             is_deleted=False,
-            wbs_path__startswith=str(instance.wbs_path) + ".",
+            wbs_path__descendant=str(instance.wbs_path),
         ).count()
         if descendant_count > 0:
             raise DRFValidationError(

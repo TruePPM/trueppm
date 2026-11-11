@@ -21,7 +21,6 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
-from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -116,15 +115,14 @@ class TaskTimeEntryView(IdempotencyMixin, APIView):
         # Object-level read gate: any project member (Viewer+) may read their own
         # (possibly empty) entries; a non-member already 404'd above.
         self.check_object_permissions(request, task)
-        entries = TimeEntry.objects.filter(task=task, user=user, is_deleted=False).order_by(
-            "-entry_date", "-created_at"
+        # One query: the caller's own entries on one task are a small bounded set, so
+        # sum the fetched rows rather than issuing a second aggregate over the same filter.
+        entries = list(
+            TimeEntry.objects.filter(task=task, user=user, is_deleted=False).order_by(
+                "-entry_date", "-created_at"
+            )
         )
-        total = (
-            TimeEntry.objects.filter(task=task, user=user, is_deleted=False).aggregate(
-                total=Sum("minutes")
-            )["total"]
-            or 0
-        )
+        total = sum(e.minutes for e in entries)
         return Response(
             {
                 "results": TimeEntrySerializer(entries, many=True).data,

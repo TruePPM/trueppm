@@ -141,6 +141,11 @@ class IntegrationCredential(models.Model):
         return obj
 
 
+#: Per-task ceiling on live links. ``GET .../links/`` returns a bare array (client
+#: contract), so the bound is enforced at write time instead of by pagination.
+TASK_LINK_MAX = 100
+
+
 class TaskLink(VersionedModel):
     """A GitLab/GitHub/generic URL attached to a task (ADR-0049 §3, #637).
 

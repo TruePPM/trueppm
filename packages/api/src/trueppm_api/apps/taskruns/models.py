@@ -61,6 +61,11 @@ class TaskRun(models.Model):
                 fields=["project", "status", "created_at"],
                 name="taskrun_proj_status_idx",
             ),
+            # ProjectSchedulerRunViewSet filters (project, task_name) and orders by -created_at.
+            models.Index(
+                fields=["project", "task_name", "-created_at"],
+                name="taskrun_proj_name_idx",
+            ),
         ]
         ordering = ["-created_at"]
 
