@@ -131,7 +131,7 @@ The page is cacheable in the browser. Status taps queue while you're offline and
 
 Tasks appear in My Work when:
 
-- A **project manager assigns** you to a task in their project.
+- A **project manager assigns** you to a task in their project, either as its assignee or through a resource assignment (the board's Assignees editor, an importer, or an `@owner` token) on a resource linked to your account.
 - You **create a task** in a project you're a member of and put yourself on the assignee field.
 - **An external tool pushes** a task into the project via [Inbound task sync](/features/inbound-task-sync/) — Jira, Linear, GitHub Issues, or any custom source. The payload's assignee email is resolved to a TruePPM user, so a pushed task that's yours lands here automatically.
 

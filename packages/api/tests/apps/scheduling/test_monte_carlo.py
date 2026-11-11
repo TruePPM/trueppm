@@ -193,6 +193,40 @@ class TestMonteCarloEndpoint:
         assert r.status_code == 402
         assert r.data["error"] == "simulation_cap_exceeded"
 
+    def test_task_cap_is_checked_before_rows_are_materialized(
+        self,
+        member_client: APIClient,
+        project: Project,
+        settings: object,
+    ) -> None:
+        """Over-cap task/edge counts are refused from COUNTs, before build_sched_tasks (#1563)."""
+        from unittest import mock
+
+        from trueppm_api.apps.projects.models import Dependency
+
+        a, b, c = (Task.objects.create(project=project, name=f"T{i}", duration=1) for i in range(3))
+        settings.MC_TASK_CAP = 2  # type: ignore[attr-defined]
+        with mock.patch("trueppm_api.apps.scheduling.views.build_sched_tasks") as built:
+            r = member_client.post(
+                f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 10}, format="json"
+            )
+        assert r.status_code == 402
+        assert r.data["error"] == "simulation_cap_exceeded"
+        built.assert_not_called()
+
+        settings.MC_TASK_CAP = 5_000  # type: ignore[attr-defined]
+        Dependency.objects.create(predecessor=a, successor=b)
+        Dependency.objects.create(predecessor=b, successor=c)
+        with (
+            mock.patch("trueppm_scheduler.MAX_DEPENDENCIES", 1),
+            mock.patch("trueppm_api.apps.scheduling.views.build_sched_tasks") as built,
+        ):
+            r = member_client.post(
+                f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 10}, format="json"
+            )
+        assert r.status_code == 400
+        built.assert_not_called()
+
     def test_lag_delta_table_over_request_cap_returns_400(
         self,
         member_client: APIClient,

@@ -19039,6 +19039,24 @@ class MeWorkPagination(pagination.LimitOffsetPagination):
     max_limit = 200
 
 
+def _my_work_assigned_q(user_pk: int) -> Q:
+    """Rows "assigned to" ``user_pk`` for My Work: the user axis OR the resource axis.
+
+    ``Task.assignee`` is the user axis; ``TaskResource`` -> ``Resource.user`` is the
+    resource axis that the board Assignees editor, the importers and the ``owners``
+    token write (#2750). A correlated ``Exists`` (not a join) keeps a task matched by
+    both axes -- or by several resources linked to the same user -- to ONE row, so the
+    paginated list needs no ``.distinct()`` (which ``Meta.ordering`` would defeat).
+    ``.active()`` drops assignments whose resource was deactivated.
+    """
+    from trueppm_api.apps.resources.models import TaskResource
+
+    resource_owned = Exists(
+        TaskResource.objects.active().filter(task_id=OuterRef("pk"), resource__user_id=user_pk)
+    )
+    return Q(assignee_id=user_pk) | Q(resource_owned)
+
+
 class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
     """``GET /api/v1/me/work/`` — contributor's flat task list across all projects.
 
@@ -19050,7 +19068,8 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
     concepts (critical path, float, schedule variance) are intentionally absent.
 
     **RBAC contract (Morgan's sprint-sovereignty requirement)**: the queryset is
-    hard-scoped to ``assignee=request.user`` *and* re-checks project membership
+    hard-scoped to the requesting user (``assignee=request.user`` or a
+    ``TaskResource`` on a ``Resource`` linked to them, #2750) *and* re-checks project membership
     via ``project__memberships``. There is no ``?user=`` escape hatch — a PM-role
     or admin caller gets a 200 with their *own* assigned tasks (which may be
     empty). The endpoint cannot be used as a manager surveillance surface.
@@ -19132,7 +19151,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             excluded_statuses.append(TaskStatus.COMPLETE)
         return (
             Task.objects.filter(
-                assignee_id=user_pk,
+                _my_work_assigned_q(user_pk),
                 is_deleted=False,
                 project__is_deleted=False,
                 project__memberships__user_id=user_pk,
@@ -19500,7 +19519,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         # exactly what the UI shows.
         today = timezone.localdate()
         due_today_base = Task.objects.filter(
-            assignee_id=user_pk,
+            _my_work_assigned_q(user_pk),
             is_deleted=False,
             project__is_deleted=False,
             project__memberships__user_id=user_pk,

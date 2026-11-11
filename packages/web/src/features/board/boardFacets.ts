@@ -96,10 +96,14 @@ function startOfDayUtc(d: Date): number {
  * - `this_week`: finish is today through the end of the current week (Sunday).
  */
 export function dueWindowsOf(
-  task: Pick<Task, 'plannedStart' | 'sprintId' | 'finish'>,
+  task: Pick<Task, 'plannedStart' | 'sprintId' | 'finish'> & Partial<Pick<Task, 'status'>>,
   now: Date,
 ): Set<DueWindow> {
   const out = new Set<DueWindow>();
+  // A BACKLOG row is CPM-excluded, so whatever `finish` it carries is not a live
+  // schedule output (the server nulls it, ADR-1152, but a cached or legacy row may
+  // still hold one). Sprint membership alone must not commit it to a due window (#2985).
+  if (task.status === 'BACKLOG') return out;
   if (!isTaskScheduled(task)) return out;
   if (!task.finish) return out;
   const finish = new Date(task.finish).getTime();
