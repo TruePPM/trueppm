@@ -197,7 +197,9 @@ def mark_failed_task_retried(failed_task_id: str, resolved_by_id: int | None) ->
     error handling has run, so a dangling id would fail the whole step and
     re-dispatch the task again. The user row is therefore locked here: if it is
     gone the stamp records no operator, and if it exists the lock keeps it from
-    being deleted before this transaction commits.
+    being deleted before this transaction commits. ``FOR NO KEY UPDATE`` is
+    enough to block that delete and does not block other transactions' FK
+    checks (``FOR KEY SHARE``) against the same user row.
     """
     from django.contrib.auth import get_user_model
 
@@ -206,7 +208,7 @@ def mark_failed_task_retried(failed_task_id: str, resolved_by_id: int | None) ->
     if resolved_by_id is not None:
         resolved_by_id = (
             get_user_model()
-            .objects.select_for_update()
+            .objects.select_for_update(no_key=True)
             .filter(pk=resolved_by_id)
             .values_list("pk", flat=True)
             .first()

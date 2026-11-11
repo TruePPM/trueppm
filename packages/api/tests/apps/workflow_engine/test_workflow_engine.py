@@ -817,6 +817,30 @@ def test_service_does_not_pass_restart_failed_to_a_legacy_backend(
     assert calls[-1] == {"name": "x", "key": "k2"}
 
 
+def test_legacy_backend_restart_warning_is_logged_once_per_process(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from trueppm_api.workflows import services
+
+    class _Legacy:
+        def start_workflow(
+            self,
+            name: str,
+            input: dict[str, Any],
+            *,
+            idempotency_key: str | None = None,
+            wait_for_completion: bool = False,
+        ) -> str:
+            return "legacy-id"
+
+    monkeypatch.setattr(services, "get_backend", lambda: _Legacy())
+    with caplog.at_level("WARNING", logger="trueppm_api.workflows.services"):
+        for _ in range(3):
+            services.start_workflow("x", {}, restart_failed=True)
+    warnings = [r for r in caplog.records if "does not accept restart_failed" in r.message]
+    assert len(warnings) == 1
+
+
 def test_service_forwards_restart_failed_through_var_keyword(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -875,29 +899,91 @@ def _compensating_chain(runs: list[str]) -> None:
     )
 
 
-def test_compensation_clears_the_cache_so_a_restart_reruns_the_step(
+def test_restart_resumes_at_the_failed_step_from_cache(
     registry: None, backend: DefaultWorkflowBackend
 ) -> None:
+    """A completed step is served from the OAOO cache on restart, not re-run."""
+    runs: list[str] = []
+    fail = {"two": True}
+
+    def one(ctx: dict[str, Any]) -> dict[str, Any]:
+        runs.append("one")
+        return {"a": 1}
+
+    def two(ctx: dict[str, Any]) -> dict[str, Any]:
+        runs.append("two")
+        if fail["two"]:
+            raise NonRetryableError("x")
+        return {"b": ctx["prior"]["one"]["a"] + 1}
+
+    _register("resume", [WorkflowStep("one", one), WorkflowStep("two", two)])
+    wf_id = backend.start_workflow("resume", {"k": 1}, idempotency_key="rk")
+    _drive(wf_id)
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+
+    fail["two"] = False
+    backend.start_workflow("resume", {"k": 1}, idempotency_key="rk", restart_failed=True)
+    _drive(wf_id)
+    assert runs == ["one", "two", "two"]
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    assert instance.status == WorkflowStatus.COMPLETED
+    assert instance.result == {"one": {"a": 1}, "two": {"b": 2}}
+
+
+def test_step_input_hash_matches_the_first_run_formula(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    """Narrowing ``prior`` must not change a first-run hash, or every in-flight
+    instance redelivered across the deploy would re-execute its current step."""
+    from trueppm_api.workflows.backends.default import canonical_hash
+
+    _register(
+        "h3",
+        [
+            WorkflowStep("a", lambda ctx: {"a": 1}),
+            WorkflowStep("b", lambda ctx: None),
+            WorkflowStep("c", lambda ctx: {"c": 3}),
+        ],
+    )
+    inp = {"x": 1}
+    wf_id = backend.start_workflow("h3", inp)
+    _drive(wf_id)
+    hashes = {
+        e.activity_name: e.input_hash
+        for e in WorkflowActivityExecution.objects.filter(workflow_id=wf_id)
+    }
+    # The pre-change context: workflow input plus every non-None result so far.
+    assert hashes == {
+        "a": canonical_hash({"workflow_input": inp, "prior": {}}),
+        "b": canonical_hash({"workflow_input": inp, "prior": {"a": {"a": 1}}}),
+        "c": canonical_hash({"workflow_input": inp, "prior": {"a": {"a": 1}}}),
+    }
+
+
+def test_compensated_workflow_restart_is_refused(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    from trueppm_api.workflows import RestartRefusedError
+
     runs: list[str] = []
     _compensating_chain(runs)
     wf_id = backend.start_workflow("comp", {}, idempotency_key="ck")
     _drive(wf_id)
-    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
     assert runs == ["one", "undo"]
-    assert not WorkflowActivityExecution.objects.filter(
-        workflow_id=wf_id, activity_name="one"
-    ).exists()
-
-    backend.start_workflow("comp", {}, idempotency_key="ck", restart_failed=True)
-    _drive(wf_id)
-    # Step one ran again instead of returning a result for an undone side effect.
-    assert runs == ["one", "undo", "one", "undo"]
+    with pytest.raises(RestartRefusedError):
+        backend.start_workflow("comp", {}, idempotency_key="ck", restart_failed=True)
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+    # The compensated step's cached result is kept; the refusal does not rely on
+    # deleting it.
+    assert WorkflowActivityExecution.objects.filter(workflow_id=wf_id, activity_name="one").exists()
 
 
-def test_restart_stays_safe_after_history_is_purged(
+def test_compensated_restart_is_still_refused_after_history_is_purged(
     registry: None, backend: DefaultWorkflowBackend, settings: Any
 ) -> None:
-    """The guard must not depend on history, which retention deletes."""
+    """History is purged after the retention window; the refusal is not."""
+    from trueppm_api.workflows import RestartRefusedError
+
     runs: list[str] = []
     _compensating_chain(runs)
     wf_id = backend.start_workflow("comp", {}, idempotency_key="ck")
@@ -909,28 +995,67 @@ def test_restart_stays_safe_after_history_is_purged(
     _do_purge_workflow_records()
     assert not WorkflowHistoryEvent.objects.filter(workflow_id=wf_id).exists()
 
-    backend.start_workflow("comp", {}, idempotency_key="ck", restart_failed=True)
-    _drive(wf_id)
-    assert runs.count("one") == 2  # re-executed, not served from a stale cache
-
-
-def test_restart_failed_is_refused_when_a_compensated_step_is_still_cached(
-    registry: None, backend: DefaultWorkflowBackend
-) -> None:
-    """An instance rolled back before the cache cleanup existed is not resumed."""
-    from trueppm_api.workflows import RestartRefusedError
-
-    runs: list[str] = []
-    _compensating_chain(runs)
-    wf_id = backend.start_workflow("comp", {}, idempotency_key="ck")
-    _drive(wf_id)
-    # Recreate the stale cache entry that older code left behind.
-    WorkflowActivityExecution.objects.create(
-        workflow_id=wf_id, activity_name="one", input_hash="legacy", result={"a": 1}
-    )
     with pytest.raises(RestartRefusedError):
         backend.start_workflow("comp", {}, idempotency_key="ck", restart_failed=True)
+    assert runs == ["one", "undo"]
     assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+
+
+def test_uncompensated_failed_workflow_restarts(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    """Control: a failed chain with no compensation ran is not refused."""
+    runs: list[str] = []
+
+    def boom(ctx: dict[str, Any]) -> None:
+        raise NonRetryableError("x")
+
+    _register(
+        "nocomp",
+        [
+            WorkflowStep("one", lambda ctx: runs.append("one") or {"a": 1}),
+            WorkflowStep("two", boom),
+        ],
+    )
+    wf_id = backend.start_workflow("nocomp", {}, idempotency_key="nk")
+    _drive(wf_id)
+    backend.start_workflow("nocomp", {}, idempotency_key="nk", restart_failed=True)
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.RUNNING
+
+
+def test_compensation_db_error_does_not_abort_the_rollback(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    """A compensate that breaks the transaction is contained to its savepoint."""
+    from django.db import connection
+
+    runs: list[str] = []
+
+    def broken_compensate(ctx: dict[str, Any]) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1/0")
+
+    def boom(ctx: dict[str, Any]) -> None:
+        raise NonRetryableError("three failed")
+
+    _register(
+        "dbcomp",
+        [
+            WorkflowStep("one", lambda ctx: {"a": 1}, compensate=lambda ctx: runs.append("undo1")),
+            WorkflowStep("two", lambda ctx: {"b": 1}, compensate=broken_compensate),
+            WorkflowStep("three", boom),
+        ],
+    )
+    wf_id = backend.start_workflow("dbcomp", {})
+    _drive(wf_id)
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    assert instance.status == WorkflowStatus.FAILED
+    assert "three failed" in instance.error
+    assert runs == ["undo1"]
+    compensated = [
+        e.payload["step"] for e in instance.history.filter(event_type="step_compensated")
+    ]
+    assert compensated == ["one"]
 
 
 def _stalled_row(attempt_count: int) -> tuple[str, WorkflowOutboxRow]:

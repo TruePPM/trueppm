@@ -652,3 +652,20 @@ def test_stamp_naming_a_deleted_user_does_not_fail_the_commit() -> None:
     failed.refresh_from_db()
     assert failed.status == FailedTaskStatus.RETRIED
     assert failed.resolved_by_id is None
+
+
+@pytest.mark.django_db
+def test_stamp_locks_the_operator_row_without_blocking_fk_checks() -> None:
+    """``FOR NO KEY UPDATE``, not ``FOR UPDATE``: a plain update lock conflicts
+    with the ``FOR KEY SHARE`` every concurrent FK insert naming the user takes."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from trueppm_api.apps.scheduling.services import mark_failed_task_retried
+
+    failed = _failed()
+    operator = User.objects.create_user(username="dl_lock", password="pw")
+    with CaptureQueriesContext(connection) as ctx:
+        assert mark_failed_task_retried(str(failed.id), operator.pk) == 1
+    locks = [q["sql"] for q in ctx.captured_queries if " FOR " in q["sql"]]
+    assert locks and all("FOR NO KEY UPDATE" in sql for sql in locks)

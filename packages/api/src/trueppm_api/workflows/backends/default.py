@@ -117,6 +117,54 @@ def step_context(instance: WorkflowInstance) -> dict[str, Any]:
     return {"workflow_input": instance.input, "prior": prior}
 
 
+def activity_context(full_context: dict[str, Any], earlier_steps: list[str]) -> dict[str, Any]:
+    """Narrow a :func:`step_context` to the steps that precede the one about to run.
+
+    The activity input is hashed for once-and-only-once, so it must depend only
+    on what existed when the step first ran: the workflow input and the results
+    of the steps *before* it. A full scan of every execution would also pick up
+    later steps' results on a restart, change the hash, and re-execute steps
+    that already completed. On a first run the two are identical, so the hash of
+    an in-flight instance does not change.
+    """
+    names = set(earlier_steps)
+    return {
+        "workflow_input": full_context["workflow_input"],
+        "prior": {name: result for name, result in full_context["prior"].items() if name in names},
+    }
+
+
+# A compensated step leaves a marker row in the OAOO table. History is purged
+# after ``WORKFLOW_HISTORY_RETENTION_DAYS`` while instances and executions are
+# not, so the restart guard cannot rely on the ``step_compensated`` event alone.
+# The marker's ``result`` is NULL, which keeps it out of :func:`step_context`.
+COMPENSATED_MARKER_PREFIX = "__compensated__:"
+_COMPENSATED_MARKER_HASH = "compensated"
+
+
+def mark_compensated(instance: WorkflowInstance, step_name: str) -> None:
+    """Durably record that ``step_name``'s side effect was undone by compensation."""
+    WorkflowActivityExecution.objects.get_or_create(
+        workflow=instance,
+        activity_name=f"{COMPENSATED_MARKER_PREFIX}{step_name}",
+        input_hash=_COMPENSATED_MARKER_HASH,
+    )
+
+
+def was_compensated(instance: WorkflowInstance) -> bool:
+    """Whether any step of ``instance`` was compensated.
+
+    Reads the marker row, and the history event for an instance rolled back
+    before markers existed.
+    """
+    return (
+        WorkflowActivityExecution.objects.filter(
+            workflow=instance, activity_name__startswith=COMPENSATED_MARKER_PREFIX
+        ).exists()
+        or instance.history.filter(event_type="step_compensated").exists()
+    )
+
+
 def run_activity_oaoo(
     instance: WorkflowInstance,
     activity_name: str,
@@ -224,27 +272,17 @@ class DefaultWorkflowBackend(WorkflowBackend):
             elif restart_failed and instance.status == WorkflowStatus.FAILED:
                 # A FAILED instance is terminal for its key, so without this an
                 # operator's retry of the same request returns the corpse and
-                # does nothing (#2994). Steps that already completed return their
-                # cached result (once-and-only-once), so the rerun resumes at the
-                # failed step. A step the rollback compensated has no cached
-                # result any more (``_handle_failure`` deletes it), so the rerun
-                # executes it again. The refusal below covers only an instance
-                # whose compensated step still has a cached result — one rolled
-                # back before compensation cleared the cache — where resuming
-                # would stand a stale result in for a side effect that is gone.
-                compensated = {
-                    event.payload.get("step")
-                    for event in instance.history.filter(event_type="step_compensated")
-                }
-                if (
-                    compensated
-                    and WorkflowActivityExecution.objects.filter(
-                        workflow=instance, activity_name__in=compensated
-                    ).exists()
-                ):
+                # does nothing (#2994). Each step's activity input covers only
+                # the steps before it, so a completed step hashes as it did on
+                # its first run and is served from the once-and-only-once cache:
+                # the rerun resumes at the failed step. That is unsound once the
+                # rollback compensated a step — its cached result would stand in
+                # for a side effect that is gone — so such a restart is refused.
+                # The marker row the rollback leaves survives the history purge.
+                if was_compensated(instance):
                     raise RestartRefusedError(
                         f"workflow {instance.id} cannot be restarted: its rollback "
-                        "compensated completed steps whose cached results are "
+                        "compensated completed steps, so their cached results are "
                         "stale. Start a new workflow under a new idempotency key."
                     )
                 instance.status = WorkflowStatus.RUNNING

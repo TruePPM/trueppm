@@ -29,6 +29,11 @@ DEFAULT_BACKEND = "trueppm_api.workflows.backends.default.DefaultWorkflowBackend
 
 logger = logging.getLogger(__name__)
 
+# Backend classes already warned about ignoring ``restart_failed``. The warning
+# is a configuration fact, not a per-request event, so it is logged once per
+# process instead of on every requeue.
+_warned_legacy_backends: set[type[Any]] = set()
+
 
 @lru_cache(maxsize=1)
 def get_backend() -> WorkflowBackend:
@@ -59,8 +64,9 @@ def start_workflow(
     The flag is therefore forwarded only when it is true *and* the backend's
     ``start_workflow`` can take it. Against a legacy backend a restart request
     degrades to a plain start — the backend's own behavior for an existing key,
-    which is what every requeue got before #2994 — and a warning is logged, so
-    an operator's requeue still succeeds instead of raising ``TypeError``.
+    which is what every requeue got before #2994 — and a warning is logged once
+    per process per backend class, so an operator's requeue still succeeds
+    instead of raising ``TypeError``.
 
     The capability is read from the signature rather than by catching
     ``TypeError`` and retrying: a ``TypeError`` raised *inside* a backend would
@@ -71,10 +77,12 @@ def start_workflow(
     if restart_failed:
         if _accepts_kwarg(backend.start_workflow, "restart_failed"):
             extra["restart_failed"] = True
-        else:
+        elif type(backend) not in _warned_legacy_backends:
+            _warned_legacy_backends.add(type(backend))
             logger.warning(
                 "start_workflow: backend %s does not accept restart_failed; starting %r "
-                "without it, so a FAILED instance under this key is returned unchanged",
+                "without it, so a FAILED instance under this key is returned unchanged "
+                "(logged once per process)",
                 type(backend).__name__,
                 name,
             )

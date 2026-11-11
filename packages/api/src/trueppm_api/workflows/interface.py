@@ -50,11 +50,11 @@ class RestartRefusedError(RuntimeError):
     """Raised by ``start_workflow(restart_failed=True)`` when a re-run is unsafe.
 
     The restart replays from step 0, and completed steps return their cached
-    results. The default backend deletes a step's cached result when the saga
-    rollback compensates it, so a compensated step simply runs again. This is
-    raised only when a compensated step still has a cached result (an instance
-    rolled back before that cleanup existed): resuming would stand that stale
-    result in for a side effect that is gone. The caller must start a fresh
+    results, so it resumes at the failed step. Once the saga rollback has
+    compensated a step, its cached result stands in for a side effect that is
+    gone, so a workflow that ran compensation is refused a restart. The default
+    backend records that fact outside the purgeable history, so the refusal
+    survives ``WORKFLOW_HISTORY_RETENTION_DAYS``. The caller must start a fresh
     workflow under a new idempotency key instead.
     """
 
@@ -129,11 +129,11 @@ class WorkflowBackend(ABC):
         under the same ``idempotency_key`` instead of returning it untouched. Without
         it a failed workflow is terminal for its key, so an operator's retry of the
         same logical request would silently be a no-op. The re-run replays from
-        step 0 and steps that already completed return their cached result, so it
-        resumes at the failed step. A step the failed attempt's rollback
-        compensated must run again rather than return its cached result: the
-        default backend drops that cache when it compensates, and raises
-        :class:`RestartRefusedError` if it finds a compensated step still cached.
+        step 0 and steps that already completed are served from the
+        once-and-only-once cache, so it resumes at the failed step. A workflow
+        whose rollback ran compensation is refused with
+        :class:`RestartRefusedError` — even after its history has been purged —
+        because a cached result would stand in for an undone side effect.
 
         Backends that predate this flag need not accept it. The service layer
         (``workflows.services.start_workflow``) forwards it only when it is true

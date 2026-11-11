@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
 from trueppm_api.apps.workflow_engine.models import (
-    WorkflowActivityExecution,
     WorkflowHistoryEvent,
     WorkflowInstance,
     WorkflowOutboxFailureReason,
@@ -47,7 +46,9 @@ from trueppm_api.apps.workflow_engine.models import (
 from trueppm_api.core.idempotent import idempotent_task
 from trueppm_api.workflows.backends.default import (
     _TERMINAL_STATUSES,
+    activity_context,
     enqueue_step,
+    mark_compensated,
     record_history,
     run_activity_oaoo,
     step_context,
@@ -122,13 +123,13 @@ def _handle_failure(
     Only steps *before* the failed one are compensated; the failed step did not
     complete its side effect to a recorded result.
 
-    A successfully compensated step's cached execution is deleted with it. That
-    cache is what lets a restart (``restart_failed``) skip a completed step, and
-    once its side effect is undone the cached result describes nothing. Keeping
-    the fact in the cache itself, rather than only in the ``step_compensated``
-    history event, matters because history is purged after
-    ``WORKFLOW_HISTORY_RETENTION_DAYS`` while the instance and its executions are
-    not: a guard reading history alone would stop protecting the restart.
+    Each iteration runs in its own savepoint: ``compensate`` is consumer code
+    and may hit the database, and a DB error left un-rolled-back would abort the
+    caller's transaction and lose the FAILED status and every later compensation.
+
+    A successful compensation leaves a marker row (:func:`mark_compensated`) so
+    a later ``restart_failed`` is refused even after history retention purged
+    the ``step_compensated`` event.
     """
     context = step_context(instance)
     for index in range(failed_index - 1, -1, -1):
@@ -136,11 +137,10 @@ def _handle_failure(
         if step.compensate is None:
             continue
         try:
-            step.compensate(context)
-            WorkflowActivityExecution.objects.filter(
-                workflow=instance, activity_name=step.name
-            ).delete()
-            record_history(instance, "step_compensated", {"step": step.name, "index": index})
+            with transaction.atomic():
+                step.compensate(context)
+                mark_compensated(instance, step.name)
+                record_history(instance, "step_compensated", {"step": step.name, "index": index})
         except Exception:  # TODO(#4421): also swallows SoftTimeLimitExceeded
             logger.exception(
                 "compensation failed for step %s of workflow %s", step.name, instance.id
@@ -211,11 +211,12 @@ def _do_advance(outbox_row_id: str) -> None:
             instance.save(update_fields=["status", "updated_at"])
 
         context = step_context(instance)
+        step_input = activity_context(context, [s.name for s in steps[:step_index]])
         try:
             # Its own savepoint, so a failed attempt's partial writes roll back
             # before the retry runs; the instance lock and history survive.
             with workflow_context(str(instance.id)), transaction.atomic():
-                result = run_activity_oaoo(instance, step.name, context, step.activity)
+                result = run_activity_oaoo(instance, step.name, step_input, step.activity)
         except Exception as exc:
             unfixable = isinstance(exc, NonRetryableError)
             if unfixable or row.attempt_count >= _MAX_STEP_ATTEMPTS:
