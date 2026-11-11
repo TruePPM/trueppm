@@ -2066,7 +2066,7 @@ def _allocate_cascade_seq(project_id: uuid.UUID | str) -> int:
     return allocate_for_projects([project_id])
 
 
-def _task_synced_children() -> list[tuple[type[VersionedModel], tuple[str, ...], bool]]:
+def _task_synced_children() -> list[tuple[Any, tuple[str, ...], bool]]:
     """Synced rows that hang off a task and are NOT swept by its soft delete (#4948).
 
     ``(model, task FK fields, has deleted_at)``. Every one is a delta-pull source
