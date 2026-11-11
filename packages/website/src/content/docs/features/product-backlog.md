@@ -71,6 +71,11 @@ the keyboard-accessible **Parent epic** picker in the story drawer.
 
 ### Very large backlogs
 
+:::note[Ships in 0.5]
+The paging, **Load next** control, and truncation notice described in this section ship in
+0.5. In 0.4 the grooming endpoint returns the whole backlog in one unpaged response, and the
+`limit`, `offset`, and `truncated` fields are not present.
+
 The grooming endpoint (`GET /projects/{id}/product-backlog/`) returns at most 500 stories
 per request, in rank order, so opening the board on an imported backlog of thousands of
 stories stays fast. Pass `?limit=N` (maximum 2000) to change the page size and `?offset=N`
@@ -87,6 +92,7 @@ filters apply to the stories loaded so far; load more pages to search further do
 backlog. Dragging a story on a capped list loads the remaining pages before the new order
 saves, so a reorder works at any backlog size; the drag handle shows a brief loading state
 while that happens.
+:::
 
 ## Work-item types
 

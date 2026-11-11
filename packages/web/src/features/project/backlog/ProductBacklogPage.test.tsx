@@ -508,6 +508,37 @@ describe('ProductBacklogPage truncation notice (#2344)', () => {
     expect(h.loadMoreMutate).toHaveBeenCalledTimes(1);
   });
 
+  it('does not claim a loaded-empty epic is empty, nor undercount the Waterfall banner (#2344)', () => {
+    h.bp.value = 'lg';
+    h.effectiveMethodology = 'WATERFALL';
+    const b = makeBacklog();
+    setData(
+      makeBacklog({
+        truncated: true,
+        limit: 500,
+        epics: [
+          { epic: epicTask, stories: [], rollup: { storyCount: 7, pointsTotal: 0, pointsDone: 0 } },
+        ],
+        health: { ...b.health, storyCount: 3000 },
+      }),
+    );
+    renderPage();
+    expect(screen.queryByText(/No stories yet — drag a story here/)).not.toBeInTheDocument();
+    expect(screen.getByText(/7 stories rank below the loaded set/)).toBeInTheDocument();
+    expect(screen.getByText(/but 3000 stories already are groomed here/)).toBeInTheDocument();
+  });
+
+  it('qualifies the no-match copy as loaded-only on a truncated backlog (#2344)', () => {
+    h.bp.value = 'lg';
+    h.filterActive = true;
+    h.filters = { query: 'zzz', dorStates: [], unestimatedOnly: false, labelIds: [] };
+    setData(makeBacklog({ truncated: true, limit: 500 }));
+    renderPage();
+    expect(
+      screen.getByText('No stories match your filters among the 3 loaded stories.'),
+    ).toBeInTheDocument();
+  });
+
   it('shows no notice when the backlog is not truncated', () => {
     h.bp.value = 'lg';
     setData(makeBacklog({ truncated: false }));

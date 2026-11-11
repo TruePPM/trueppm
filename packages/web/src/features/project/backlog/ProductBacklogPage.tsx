@@ -1163,7 +1163,7 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
           <MethodologyMismatchBanner
             projectId={projectId}
             className="mx-6 mt-2"
-            message={waterfallMismatchMessage(totalCount)}
+            message={waterfallMismatchMessage(backlog.truncated ? health.storyCount : totalCount)}
           />
         )}
 
@@ -1256,7 +1256,9 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
             {!allEmpty && filterActive && filteredMatchCount === 0 && (
               <div className="flex flex-col items-center gap-3 p-8 text-center">
                 <p className="text-sm text-neutral-text-secondary">
-                  No stories match your filters.
+                  {backlog.truncated
+                    ? `No stories match your filters among the ${totalCount.toLocaleString()} loaded stories.`
+                    : 'No stories match your filters.'}
                 </p>
                 <Button variant="secondary" size="sm" onClick={filterCtl.reset}>
                   Clear filters
@@ -1373,7 +1375,14 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
                       >
                         {rowsWithReadyLine(group.stories)}
                       </SortableContext>
-                      {group.stories.length === 0 && (
+                      {group.stories.length === 0 && group.rollup.storyCount > 0 && (
+                        <p className="px-2 py-2 text-xs text-neutral-text-secondary">
+                          {group.rollup.storyCount.toLocaleString()}{' '}
+                          {group.rollup.storyCount === 1 ? 'story ranks' : 'stories rank'} below the
+                          loaded set.
+                        </p>
+                      )}
+                      {group.stories.length === 0 && group.rollup.storyCount === 0 && (
                         <p className="px-2 py-2 text-xs text-neutral-text-secondary">
                           {!canManageBacklog
                             ? 'No stories yet — set this epic from a story’s detail drawer.'

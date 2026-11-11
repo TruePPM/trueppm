@@ -1503,6 +1503,12 @@ def test_grooming_rejects_bad_limit(owner_client: APIClient, project: Project, b
     assert resp.status_code == 400
 
 
+def test_grooming_limit_clamped_to_max(owner_client: APIClient, project: Project) -> None:
+    _story(project, name="one")
+    body = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=5000").data
+    assert body["limit"] == 2000
+
+
 def test_grooming_query_count_independent_of_story_count(
     owner_client: APIClient, project: Project, django_assert_max_num_queries: Any
 ) -> None:

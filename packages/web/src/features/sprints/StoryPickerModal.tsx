@@ -101,6 +101,7 @@ function StoryPickerPickBody({
   commitError,
   searchRef,
   truncationNotice,
+  loadedCount,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
@@ -122,6 +123,8 @@ function StoryPickerPickBody({
   searchRef: RefObject<HTMLInputElement | null>;
   /** Rule 296: the cap's escape hatch, on the surface where stories are picked. */
   truncationNotice?: ReactNode;
+  /** Set only while the backlog is truncated: empty-search copy is qualified by it. */
+  loadedCount?: number;
 }) {
   return (
     <>
@@ -215,7 +218,9 @@ function StoryPickerPickBody({
                 ? 'The backlog is empty.'
                 : readyOnly
                   ? 'No Ready stories to pull.'
-                  : 'No backlog stories match your search.'}
+                  : loadedCount != null
+                    ? `No backlog stories match your search among the ${loadedCount.toLocaleString()} loaded stories.`
+                    : 'No backlog stories match your search.'}
             </p>
             <p className="text-xs text-neutral-text-secondary max-w-sm">
               {allRowsEmpty
@@ -750,6 +755,7 @@ export function StoryPickerModal({
               iterationLower={itl.lower}
               commitError={commitError}
               searchRef={searchRef}
+              loadedCount={backlog.data?.truncated ? allRows.length : undefined}
               truncationNotice={
                 backlog.data?.truncated ? (
                   <BacklogTruncatedNotice

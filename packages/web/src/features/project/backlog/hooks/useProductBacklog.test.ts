@@ -225,6 +225,38 @@ describe('product-backlog paging (#2344)', () => {
     expect(qc.getQueryData(productBacklogKeys.root('p1'))).toEqual(full);
   });
 
+  it('ensure-full merges each page into the CURRENT cache, keeping a concurrent optimistic write', async () => {
+    const qc = makeQC();
+    qc.setQueryData(productBacklogKeys.root('p1'), page1());
+    let release!: (b: ProductBacklog) => void;
+    fetchProductBacklogMock.mockReturnValueOnce(
+      new Promise<ProductBacklog>((r) => {
+        release = r;
+      }),
+    );
+    const { result } = renderHook(() => useEnsureFullProductBacklog('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+    let done!: Promise<ProductBacklog | null>;
+    act(() => {
+      done = result.current();
+    });
+    // An optimistic reparent/quick-add lands while page 2 is still in flight.
+    qc.setQueryData<ProductBacklog>(productBacklogKeys.root('p1'), (cur) => ({
+      ...cur!,
+      ungrouped: [...cur!.ungrouped, story('optimistic')],
+    }));
+    await act(async () => {
+      release(page2());
+      await done;
+    });
+    const ids = qc
+      .getQueryData<ProductBacklog>(productBacklogKeys.root('p1'))!
+      .ungrouped.map((s) => s.id);
+    expect(ids).toContain('optimistic');
+    expect(ids).toContain('u2');
+  });
+
   it('ensure-full fetches nothing on a complete backlog', async () => {
     const qc = makeQC();
     qc.setQueryData(productBacklogKeys.root('p1'), page2());

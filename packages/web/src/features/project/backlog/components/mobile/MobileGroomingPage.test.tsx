@@ -156,6 +156,25 @@ describe('MobileGroomingPage (issue 1044)', () => {
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
+  it('counts the whole backlog in the Waterfall banner when truncated (#2344)', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    const b = makeBacklog();
+    h.data = { ...b, truncated: true, limit: 500, health: { ...b.health, storyCount: 3000 } };
+    render(<MobileGroomingPage />);
+    expect(screen.getByText(/but 3000 stories already are groomed here/)).toBeInTheDocument();
+  });
+
+  it('qualifies the no-match copy as loaded-only when truncated (#2344)', async () => {
+    h.data = { ...makeBacklog(), truncated: true, limit: 500 };
+    render(<MobileGroomingPage />);
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search stories' }), {
+      target: { value: 'zzz-none' },
+    });
+    expect(
+      await screen.findByText('No stories match your filters among the 3 loaded stories.'),
+    ).toBeInTheDocument();
+  });
+
   // #2619 finding A — the mobile half of the populated-backlog signal. Without
   // it a phone user on a groomed backlog flipped to WATERFALL sees the ordinary
   // page with nothing saying the stories now sit outside the workflow.

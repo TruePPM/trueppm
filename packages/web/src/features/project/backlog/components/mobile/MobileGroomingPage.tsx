@@ -67,6 +67,7 @@ function MobileGroomingBody({
   filterCtl,
   matchCount,
   totalCount,
+  truncated,
   filterActive,
   filtered,
   onOpenStory,
@@ -81,6 +82,7 @@ function MobileGroomingBody({
   filterCtl: GroomingFilterControls;
   matchCount: number;
   totalCount: number;
+  truncated: boolean;
   filterActive: boolean;
   filtered: ReturnType<typeof filterBacklog>;
   onOpenStory: (id: string) => void;
@@ -161,7 +163,11 @@ function MobileGroomingBody({
       <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
         {filterActive && matchCount === 0 ? (
           <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-            <p className="text-sm text-neutral-text-secondary">No stories match your filters.</p>
+            <p className="text-sm text-neutral-text-secondary">
+              {truncated
+                ? `No stories match your filters among the ${totalCount.toLocaleString()} loaded stories.`
+                : 'No stories match your filters.'}
+            </p>
             <Button variant="secondary" size="sm" onClick={filterCtl.reset}>
               Clear filters
             </Button>
@@ -283,6 +289,8 @@ export function MobileGroomingPage() {
   const filtered = filterBacklog(backlog, filterCtl.filters);
   const filterActive = filterCtl.active;
   const totalCount = allStories.length;
+  // Whole-backlog fact: the loaded rows undercount a truncated backlog.
+  const mismatchCount = backlog.truncated ? health.storyCount : totalCount;
   const matchCount = filterActive ? filtered.matchCount : totalCount;
 
   function toggleDor(story: Task) {
@@ -348,10 +356,10 @@ export function MobileGroomingPage() {
         <MethodologyMismatchBanner
           projectId={projectId}
           className="mx-4 mt-2"
-          message={`This project is configured as Waterfall, but ${totalCount} ${
-            totalCount === 1 ? 'story' : 'stories'
+          message={`This project is configured as Waterfall, but ${mismatchCount} ${
+            mismatchCount === 1 ? 'story' : 'stories'
           } already ${
-            totalCount === 1 ? 'is' : 'are'
+            mismatchCount === 1 ? 'is' : 'are'
           } groomed here — they stay reachable even though they sit outside its workflow.`}
         />
       )}
@@ -366,6 +374,7 @@ export function MobileGroomingPage() {
         filterCtl={filterCtl}
         matchCount={matchCount}
         totalCount={totalCount}
+        truncated={backlog.truncated}
         filterActive={filterActive}
         filtered={filtered}
         onOpenStory={setSelectedId}

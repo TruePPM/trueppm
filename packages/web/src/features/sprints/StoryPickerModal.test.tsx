@@ -134,6 +134,21 @@ describe('StoryPickerModal', () => {
     expect(loadMoreMutate).toHaveBeenCalledTimes(1);
   });
 
+  it('qualifies the empty-search copy as loaded-only on a truncated backlog (#2344)', async () => {
+    const b = backlog();
+    useProductBacklogMock.mockReturnValue({
+      data: { ...b, truncated: true, limit: 3, health: { ...b.health, storyCount: 40 } },
+      isLoading: false,
+      isError: false,
+    });
+    const user = userEvent.setup();
+    renderModal({ readyOnlyDefault: false });
+    await user.type(screen.getByRole('textbox', { name: /search backlog stories/i }), 'zzzz');
+    expect(
+      screen.getByText('No backlog stories match your search among the 3 loaded stories.'),
+    ).toBeInTheDocument();
+  });
+
   it('renders as a dialog naming the target sprint', () => {
     renderModal();
     expect(screen.getByRole('dialog', { name: /Pull stories into SP-A1/i })).toBeInTheDocument();

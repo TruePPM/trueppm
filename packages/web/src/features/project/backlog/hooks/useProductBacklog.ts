@@ -113,10 +113,14 @@ export function useEnsureFullProductBacklog(
     const run = (async (): Promise<ProductBacklog | null> => {
       let backlog = qc.getQueryData<ProductBacklog>(key);
       if (!backlog || !projectId) return null;
+      // Merge each page into the CURRENT cache (never write a private accumulator): an
+      // optimistic reparent / quick-add / DoR write landing while a page is in flight
+      // would otherwise be clobbered. The next offset is also read from the cache.
       while (backlog.truncated) {
         const before = loadedStoryCount(backlog);
-        backlog = mergeBacklogPage(backlog, await fetchProductBacklog(projectId, before));
-        qc.setQueryData<ProductBacklog>(key, backlog);
+        const page = await fetchProductBacklog(projectId, before);
+        qc.setQueryData<ProductBacklog>(key, (cur) => (cur ? mergeBacklogPage(cur, page) : page));
+        backlog = qc.getQueryData<ProductBacklog>(key) ?? backlog;
         if (loadedStoryCount(backlog) === before) break;
       }
       return backlog;
