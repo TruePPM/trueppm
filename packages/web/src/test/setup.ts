@@ -22,6 +22,37 @@ console.error = (...args: unknown[]) => {
   originalConsoleError(...args);
 };
 
+// happy-dom (the default test environment) performs REAL network I/O for an
+// unmocked XHR/fetch, aimed at its default origin (localhost:3000) — unlike
+// jsdom, whose failures were a handful of console lines. A component that leaks
+// a request after unmount (TanStack Query polling) would otherwise emit an
+// ECONNREFUSED AggregateError per attempt (~1000 per shard), the same stderr
+// flood described above. Fail every outbound request locally, as a network
+// error, before a socket opens: the caller sees the same rejection it saw when
+// nothing was listening, and no test can depend on a real server. Tests that
+// need a response mock the client (vi.mock / msw-style stubs), not the network.
+// Under `// @vitest-environment jsdom` files `window.happyDOM` is undefined.
+const happyDom = (window as unknown as {
+  happyDOM?: {
+    settings: {
+      fetch: {
+        interceptor: {
+          beforeAsyncRequest?: () => Promise<never>;
+          beforeSyncRequest?: () => never;
+        } | null;
+      };
+    };
+  };
+}).happyDOM;
+if (happyDom) {
+  happyDom.settings.fetch.interceptor = {
+    beforeAsyncRequest: () => Promise.reject(new TypeError('Network request blocked in tests')),
+    beforeSyncRequest: () => {
+      throw new TypeError('Network request blocked in tests');
+    },
+  };
+}
+
 // Explicit cleanup after every test — @testing-library/react auto-registers
 // afterEach(cleanup) per module, but in singleFork mode (all files share one
 // Node process) the auto-registration can misfire between test files, leaving
@@ -41,7 +72,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// Stub Web Worker — jsdom does not implement the Worker API.
+// Stub Web Worker — neither jsdom nor happy-dom provides a usable Worker here.
 // useDragCpm spawns a Worker only when ganttApi is non-null; in tests ganttApi
 // is always null (SVAR is mocked), so the worker is never instantiated.
 // The stub prevents the "Worker is not defined" ReferenceError during module load.
@@ -52,7 +83,7 @@ class WorkerStub {
 }
 (globalThis as unknown as Record<string, unknown>).Worker = WorkerStub;
 
-// Stub WebSocket — jsdom does not implement WebSocket.
+// Stub WebSocket — replaces the DOM environment's implementation, which would try to open a real connection.
 // useProjectWebSocket only opens a socket when projectId and accessToken are
 // both present; in App-level tests neither is set, so the stub is never
 // instantiated, but module load still requires the global to exist.
@@ -69,7 +100,7 @@ class WebSocketStub {
 }
 (globalThis as unknown as Record<string, unknown>).WebSocket = WebSocketStub;
 
-// jsdom does not implement Element.scrollIntoView; the settings scroll-spy
+// jsdom does not implement Element.scrollIntoView (happy-dom does; the guard keeps both working); the settings scroll-spy
 // (ADR-0146) calls it on rail-item activation. No-op it so those tests don't throw.
 if (typeof Element.prototype.scrollIntoView !== 'function') {
   Element.prototype.scrollIntoView = function () {};

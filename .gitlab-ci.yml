@@ -5832,7 +5832,7 @@ web:test:
   extends: .web
   stage: test
   # Sharded across 4 runners (vitest splits by test file). The configured
-  # singleFork pool (fileParallelism: false) keeps each shard's jsdom heap bounded;
+  # singleFork pool (fileParallelism: false) keeps each shard's DOM-environment heap bounded;
   # since the runner is single-core per shard, intra-shard parallelism would not
   # help wall-clock and only reinflates the heap that forced singleFork — so the
   # lever is shard count, not pool concurrency. Each shard is a single core

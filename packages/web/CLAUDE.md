@@ -2,6 +2,8 @@
 
 These rules are enforced at review time. Violations block merge.
 
+**Test environment:** vitest's default DOM is happy-dom (`vitest.config.ts`); a file that needs jsdom's quirks, accessible-name computation, clipboard, storage/history, or style fidelity opts out with `// @vitest-environment jsdom` as line 1, and the jsdom-quirk rules below (e.g. 433, `:focus-visible`) apply to those files.
+
 > ## ⭐ Design System v2 — the golden standard (ADR-0126)
 >
 > The canonical UI is the **v2 redesign** (`docs/design/v2-golden-standard.md`,
