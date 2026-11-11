@@ -768,9 +768,10 @@ that work with PERT durations rather than reading it off a velocity forecast.
 Whether the horizon actually cut a run off is reported rather than left to the
 reader ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)). The backlog
 forecast response carries `horizon_saturated`, `true` when at least one simulated
-run hit the horizon. The scheduler library's `MonteCarloResult` carries
-`velocity_saturated_runs`, the number of runs in which an open scrum task's velocity
-draw hit it. When either is false or zero, nothing was truncated and the upper
+run hit the horizon. The project Monte Carlo forecast, and the scheduler library's
+`MonteCarloResult`, carry `velocity_saturated_runs`, the number of runs in which an
+open scrum task's velocity draw hit it. A forecast read back from history after its
+cache entry expires does not carry it. When either is false or zero, nothing was truncated and the upper
 percentiles are ordinary estimates. The horizon is
 `min(ceil(remaining / mean pace) × 4 + 10, 10,000)` sprints or weeks, and the API and
 the library share that one cap
