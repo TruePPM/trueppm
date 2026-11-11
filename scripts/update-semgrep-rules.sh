@@ -21,7 +21,7 @@
 #
 set -euo pipefail
 
-PACKS=(default react django)
+PACKS=(default react django typescript javascript)
 DEST=".semgrep"
 BASE="https://semgrep.dev/c/p"
 
@@ -35,7 +35,7 @@ for pack in "${PACKS[@]}"; do
   # --proto '=https' --tlsv1.2: refuse any non-HTTPS URL, including a redirect
   # that tries to downgrade to plaintext http, so the rules can't be swapped in
   # transit.
-  curl --proto '=https' --tlsv1.2 -fsSL "${BASE}/${pack}" -o "${DEST}/${pack}.yml"
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "${BASE}/${pack}" -o "${DEST}/${pack}.yml"
   # Sanity-check the download is a rules document, not an error page.
   if ! grep -q '^rules:' <<<"$(head -1 "${DEST}/${pack}.yml")"; then
     echo "error: ${DEST}/${pack}.yml does not start with 'rules:' — aborting" >&2

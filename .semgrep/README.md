@@ -17,6 +17,8 @@ cargo-deny `deny.toml`).
 | `default.yml` | `p/default` (all languages)  |
 | `react.yml`   | `p/react`                    |
 | `django.yml`  | `p/django`                   |
+| `typescript.yml` | `p/typescript`            |
+| `javascript.yml` | `p/javascript`            |
 
 ## Refreshing
 

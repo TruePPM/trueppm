@@ -6,7 +6,7 @@
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
-        release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-prune-dbs wt-doctor dropdown-scroll-check
+        release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-prune-dbs wt-doctor dropdown-scroll-check curl-hardening-check
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
 # must hit at least $(COVERAGE_DIFF_MIN)% line coverage.
@@ -300,6 +300,12 @@ sonar-exclusions-check: ## Fail if a sonar-project.properties exclusion has gone
 	@# renamed/deleted) and the `*.ts`-in-a-.tsx-directory shape that silently
 	@# under-matches, which is how #2517 dropped the reliability rating A → D.
 	@bash scripts/check-sonar-exclusions.sh
+
+curl-hardening-check: ## Fail on a redirect-following curl without --proto-redir '=https' (#2990)
+	@# Pure text matching over tracked *.sh files: sub-second, no network. Closes the
+	@# gap where the only detector was the scheduled sonar:scan (shell:S6506).
+	@bash scripts/check-curl-hardening.sh --self-test >/dev/null
+	@bash scripts/check-curl-hardening.sh
 
 dropdown-scroll-check: ## Fail if a role="menu"/role="listbox" panel has no scroll guard (web-rule 351, #3109)
 	@# A panel taller than the viewport with no overflow-y-auto + height guard
@@ -753,6 +759,7 @@ pre-push-checks: app-layering-check
 pre-push-checks: schema-check
 pre-push-checks: schema-breaking-check
 pre-push-checks: sonar-exclusions-check
+pre-push-checks: curl-hardening-check
 pre-push-checks: request-body-guards-check
 pre-push-checks: summary-duration-units-check
 pre-push-checks: extension-signals-check

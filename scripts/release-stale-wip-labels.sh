@@ -59,6 +59,7 @@ api_get() {
   if [ "$have_glab" -eq 1 ]; then
     glab api "$path"
   else
+    # curl-hardening-ok: base URL is ${CI_API_V4_URL:-...}; a self-hosted GitLab on plain http is legitimate (#2990)
     curl -fsSL -H "PRIVATE-TOKEN: ${TOKEN}" "${API}/projects/${PROJECT}/${path#projects/:id/}"
   fi
 }
@@ -68,6 +69,7 @@ api_put() {
   if [ "$have_glab" -eq 1 ]; then
     glab api --method PUT "$path"
   else
+    # curl-hardening-ok: base URL is ${CI_API_V4_URL:-...}; a self-hosted GitLab on plain http is legitimate (#2990)
     curl -fsSL -X PUT -H "PRIVATE-TOKEN: ${TOKEN}" "${API}/projects/${PROJECT}/${path#projects/:id/}"
   fi
 }
