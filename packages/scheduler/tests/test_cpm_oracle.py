@@ -2254,8 +2254,31 @@ def test_ff_successor_of_a_non_working_actual_finish() -> None:
     assert_matches_reference(python_engine(project), project)
 
 
+#: #4631's own table: ``A`` completed on a weekend day, ``A -FF-> B(2d)``. ``B`` finishes
+#: the lag's calendar days before Friday 03-06, the close of the last working day.
+_FF_LEAD_FROM_A_WEEKEND_FINISH = {
+    0: date(2026, 3, 6),
+    -1: date(2026, 3, 5),
+    -2: date(2026, 3, 4),
+    -3: date(2026, 3, 3),
+}
+
+
+@pytest.mark.parametrize("day", [date(2026, 3, 7), date(2026, 3, 8)], ids=["Sat", "Sun"])
+@pytest.mark.parametrize("lag", sorted(_FF_LEAD_FROM_A_WEEKEND_FINISH))
+def test_ff_lead_out_of_a_weekend_finish_matches_the_friday_finish(lag: int, day: date) -> None:
+    """#4631: FF 0/-1/-2/-3 out of a Saturday or Sunday finish lands as from Friday's."""
+    project = _non_working_actual_project("FF", lag, "completed", day, None)
+    want = _FF_LEAD_FROM_A_WEEKEND_FINISH[lag]
+    assert python_engine(project)["B"].early_finish == want
+    assert reference_schedule(project).tasks["B"].finish_at == want + timedelta(days=1)
+    assert_matches_reference(python_engine(project), project)
+
+
 #: Monday-to-Thursday: Friday is non-working too, so a Friday actual is in the sweep.
 _MON_TO_THU = RefCalendar(working_mask=0b0001111)
+#: Monday-to-Friday with Thursday 03-05 a holiday: a weekday exception day recorded as an actual.
+_MON_FRI_HOLIDAY = RefCalendar(exceptions=((date(2026, 3, 5), date(2026, 3, 5)),))
 _LAGS = (-3, -2, -1, 0, 1, 2, 3)
 
 
@@ -2273,7 +2296,9 @@ def _non_working_actual_project(
         start=date(2026, 3, 2),
         durations={"A": 5, "B": 2},
         links=(RefLink("A", "B", kind, lag),),
-        status_date=date(2026, 3, 11),
+        # No data date: one past the recorded days would floor B at it whatever the
+        # anchor says, and the sweep would stop discriminating the snap.
+        status_date=None,
         progress={"A": progress},
     )
     if cal is None:
@@ -2285,7 +2310,8 @@ def _non_working_actual_cases() -> list[tuple[str, RefProject, RefProject]]:
     """#4631/#4702's class: ``(name, recorded, twin)``, the twin recorded in working time.
 
     Finish side, FS and FF out of completed ``A(5d)`` finished on a non-working day
-    (Saturday or Sunday; Friday too on a Monday-to-Thursday week); start side, SS
+    (Saturday or Sunday; Friday too on a Monday-to-Thursday week; a holiday
+    exception day on the third calendar); start side, SS
     and SF out of ``A(5d)`` started on one, in progress and completed — each at
     every lag in ``-3..+3``, on the project calendar and on a per-task calendar
     ``A`` and ``B`` share. The twin records the same work at its working-time
@@ -2293,9 +2319,13 @@ def _non_working_actual_cases() -> list[tuple[str, RefProject, RefProject]]:
     the start. ``B(2d)`` must sit in the same place in both.
     """
     cases: list[tuple[str, RefProject, RefProject]] = []
-    for cal_name, cal in (("mon-fri", None), ("mon-thu", _MON_TO_THU)):
+    for cal_name, cal in (
+        ("mon-fri", None),
+        ("mon-thu", _MON_TO_THU),
+        ("mon-fri-holiday", _MON_FRI_HOLIDAY),
+    ):
         ref_cal = cal or RefCalendar()
-        recorded_days = [date(2026, 3, d) for d in (6, 7, 8)]  # Fri, Sat, Sun
+        recorded_days = [date(2026, 3, d) for d in (5, 6, 7, 8)]  # Thu, Fri, Sat, Sun
         for day in [d for d in recorded_days if not ref_cal.is_working(d)]:
             for kind in LINK_TYPES:
                 finish_side = kind in ("FS", "FF")

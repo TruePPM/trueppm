@@ -488,6 +488,36 @@ describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
       },
     );
 
+    it.each([
+      // #4702: a weekend actual_start reads as the opening of Monday 01-12, so a
+      // successor lands where a Monday start puts it, at every lag.
+      ['SS', 0, '2026-01-13'],
+      ['SS', 2, '2026-01-15'],
+      ['SF', 0, '2026-01-09'],
+      ['SF', 2, '2026-01-13'],
+    ] as const)(
+      'reads a Saturday actual_start in working time on a %s%s link',
+      (type, lag, finish) => {
+        const run = (actualStart: string) => {
+          const tasks: CpmTask[] = [
+            task('A', actualStart, '2026-01-16', { durationDays: 5, actualStart }),
+            task('B', '2026-01-12', '2026-01-13'),
+            task('X', '2026-01-05', '2026-01-05'),
+          ];
+          const { results } = runCpmForwardPass(
+            tasks,
+            [edge('A', 'B', type, lag)],
+            'X',
+            '2026-01-06',
+          );
+          return results.find((r) => r.taskId === 'B')!;
+        };
+        const saturday = run('2026-01-10');
+        expect(saturday.earlyFinish).toBe(finish);
+        expect(saturday.earlyFinish).toBe(run('2026-01-12').earlyFinish);
+      },
+    );
+
     it('keeps a milestone completed WITH actuals after work at the end of its day', () => {
       // #4433, "preserve the live edge": P -> M -> B with M closed on P's finish
       // day. The server keeps M at the END of that day, as it was live
