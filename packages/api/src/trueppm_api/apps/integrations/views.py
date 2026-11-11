@@ -49,7 +49,11 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project, Task
 from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
-from trueppm_api.core.openapi import state_refusal_400, suppress_list_pagination
+from trueppm_api.core.openapi import (
+    UNDECLARE_FILTER_PARAMS,
+    state_refusal_400,
+    suppress_list_pagination,
+)
 
 from . import git_webhook_auth, providers
 from .encryption import CredentialEncryptionError, decrypt_secret
@@ -174,6 +178,7 @@ class IntegrationCredentialViewSet(
 
     @extend_schema(responses={200: CredentialSummarySerializer(many=True)})
     @suppress_list_pagination
+    @extend_schema(parameters=UNDECLARE_FILTER_PARAMS)
     def list(self, request: Request) -> Response:
         """Return one summary row per registered provider.
 
@@ -193,6 +198,7 @@ class IntegrationCredentialViewSet(
         },
     )
     @suppress_list_pagination
+    @extend_schema(parameters=UNDECLARE_FILTER_PARAMS)
     def create(self, request: Request, provider: str | None = None) -> Response:
         """Connect or rotate the credential for ``provider``.
 

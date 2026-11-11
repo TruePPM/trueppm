@@ -75,6 +75,7 @@ from trueppm_api.apps.resources.services import (
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict, is_workspace_admin
 from trueppm_api.core.detail_lookup import DetailLookupIgnoresSearchMixin
+from trueppm_api.core.openapi import UNDECLARE_FILTER_PARAMS
 from trueppm_api.core.protect_conflict import protected_error_response
 
 # Shared 404 detail — matches DRF's default NotFound detail so a missing or
@@ -1413,6 +1414,7 @@ class ResourceViewSet(
         return Response(ResourceRateResponseSerializer(result).data)
 
     @extend_schema(
+        parameters=UNDECLARE_FILTER_PARAMS,
         responses=ResourceAssignmentSerializer(many=True),
         description=(
             "Cross-project task assignments for one resource — the org catalog's "

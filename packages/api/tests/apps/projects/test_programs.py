@@ -920,13 +920,9 @@ def test_program_detail_routes_survive_a_search_param(
 def test_program_action_filter_params_are_declared_only_where_they_are_honored() -> None:
     """ProgramViewSet's own sweep (#3420): declare the params, or honor them — never neither.
 
-    **Scope, stated honestly.** This sweeps ``ProgramViewSet`` only — the sweep #3420
-    asked for. It is NOT the whole class. ``SearchFilter`` and ``OrderingFilter`` are in
-    ``DEFAULT_FILTER_BACKENDS``, so every viewset that sets ``search_fields`` publishes
-    the same two parameters on its custom actions, and ~71 operations across the API
-    declare them; ``ProjectViewSet.export_jobs`` is a structural twin of the
-    ``export_jobs`` undeclared here and is untouched. That wider sweep is #3452 —
-    do not read a green run of this test as covering it.
+    **Scope.** ProgramViewSet only, and it additionally pins the *honoring* direction for
+    its two honoring routes. The whole-API sweep is
+    ``tests/test_filter_params_declared_only_where_honored.py`` (#3452).
 
     ProgramViewSet's filter backends make drf-spectacular publish ``search`` and
     ``ordering`` on every list-shaped operation, including custom ``@action``s that build

@@ -14,6 +14,7 @@ from typing import Any
 from django.db import transaction
 from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -30,6 +31,7 @@ from trueppm_api.apps.teams.serializers import (
     TeamSerializer,
 )
 from trueppm_api.apps.teams.services import FACET_FIELDS, live_project_membership_exists
+from trueppm_api.core.openapi import UNDECLARE_FILTER_PARAMS
 
 
 class TeamViewSet(viewsets.GenericViewSet[Team]):
@@ -67,6 +69,7 @@ class TeamViewSet(viewsets.GenericViewSet[Team]):
             qs = qs.filter(project_id=project_pk)
         return qs.order_by("-is_default", "name")
 
+    @extend_schema(parameters=UNDECLARE_FILTER_PARAMS)
     def list(self, request: Request, **kwargs: object) -> Response:
         # Paginate (#1317): a project's team list is small today, but the
         # endpoint had no bound at all — page it through the project default so
@@ -133,6 +136,7 @@ class TeamMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[TeamMember
             .order_by("user__username")
         )
 
+    @extend_schema(parameters=UNDECLARE_FILTER_PARAMS)
     def list(self, request: Request, **kwargs: object) -> Response:
         self._get_team_or_404()
         # Paginate (#1317) — the roster grows with the team; page it through the
