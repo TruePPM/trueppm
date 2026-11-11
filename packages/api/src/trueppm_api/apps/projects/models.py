@@ -2172,6 +2172,67 @@ def cascade_task_synced_children_restore(task_ids: list[Any], project_id: uuid.U
         model.objects.filter(pk__in=pks).update(**values)
 
 
+def live_task_synced_children(task_ids: list[Any]) -> dict[str, list[str]]:
+    """Live synced children of ``task_ids``, keyed ``"<app_label>.<Model>"`` (#4948).
+
+    Read BEFORE :meth:`Task.soft_delete` by a caller that must be able to reverse
+    exactly that tombstoning (structural ungroup), because the cascade leaves no
+    marker separating its rows from ones deleted earlier.
+    """
+    found: dict[str, list[str]] = {}
+    for model, fields, _ in _task_synced_children():
+        pks = [
+            str(pk)
+            for pk in model.objects.filter(
+                _task_child_filter(fields, task_ids), is_deleted=False
+            ).values_list("pk", flat=True)
+        ]
+        if pks:
+            found[model._meta.label] = pks
+    return found
+
+
+def restore_task_synced_children_by_id(
+    ids_by_model: dict[str, list[str]], project_id: uuid.UUID | str
+) -> None:
+    """Un-tombstone exactly the recorded synced children — id-scoped, never restore-all.
+
+    Same guards as :func:`cascade_task_synced_children_restore` (a relation returns only
+    when both endpoints are live and no live duplicate exists), but selected by the ids
+    an act recorded, so a child deleted earlier by someone else stays deleted.
+    """
+    seq: int | None = None
+    for model, _fields, has_deleted_at in _task_synced_children():
+        pks = ids_by_model.get(model._meta.label)
+        if not pks:
+            continue
+        qs = model.objects.filter(pk__in=pks, is_deleted=True)
+        if model is TaskRelation:
+            live_duplicate = TaskRelation.objects.filter(
+                is_deleted=False,
+                source=OuterRef("source"),
+                target=OuterRef("target"),
+                relation_type=OuterRef("relation_type"),
+            )
+            qs = qs.filter(source__is_deleted=False, target__is_deleted=False).exclude(
+                Exists(live_duplicate)
+            )
+        live_pks = list(qs.select_for_update().values_list("pk", flat=True))
+        if not live_pks:
+            continue
+        if seq is None:
+            seq = _allocate_cascade_seq(project_id)
+        values: dict[str, Any] = {
+            "is_deleted": False,
+            "server_version": F("server_version") + 1,
+            "sync_seq": seq,
+            "deleted_version": None,
+        }
+        if has_deleted_at:
+            values["deleted_at"] = None
+        model.objects.filter(pk__in=live_pks).update(**values)
+
+
 def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
     """Tombstone many tasks with the cascade :meth:`Task.soft_delete` performs, in O(1) queries.
 
@@ -9699,6 +9760,10 @@ class StructuralOperation(models.Model):
     # whether anyone has edited a minted row before deleting it again.
     created_task_versions = models.JSONField(default=dict, blank=True)
     removed_dependency_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # {"<app_label>.<Model>": [<id>, ...]} — synced task children (links, relations,
+    # recurrence rule, suggested assignees) this act tombstoned with its soft-deleted
+    # rows. Undo restores exactly these ids (#4948).
+    removed_synced_child_ids = models.JSONField(default=dict, blank=True)
     result_summary = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     undone_at = models.DateTimeField(null=True, blank=True)

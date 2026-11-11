@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0165_tombstone_floor"),
+        ("projects", "0166_project_proj_start_name_idx"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

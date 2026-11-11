@@ -181,6 +181,32 @@ floor itself.
 **Rollback notes:** the migration's reverse is a no-op. Rolling back leaves the
 raised floors in place, which 0.4 never reads.
 
+### Sync index rebuilds lock writes (`access.0021`, `projects.0167`, `integrations.0016`, `timetracking.0005`)
+
+0.5 will rebuild 14 delta-pull indexes so the keyset resume can seek on
+`(owner, sync_seq, id)` (#2510). Each migration drops the old index and recreates
+it with a plain, non-concurrent `CREATE INDEX`, which **blocks writes** (inserts,
+updates and deletes; reads continue) on that table until the build finishes. The
+migrations run on container start, so a rolling deploy's old pods also wait on
+the lock.
+
+| Migration | Tables |
+|---|---|
+| `access.0021` | `access_project_membership`, `access_program_membership` |
+| `projects.0167` | `projects_task`, `projects_dependency`, `projects_task_relation`, `projects_label`, `projects_risk`, `projects_sprint`, `projects_sprintretro`, `projects_retroactionitem`, `projects_taskrecurrencerule`, `projects_tasksuggestedassignee` |
+| `integrations.0016` | `integrations_tasklink` |
+| `timetracking.0005` | `timetracking_time_entry` |
+
+Five of these are on the tables that grow with project size: `task_proj_syncseq_idx`
+on `projects_task`, and the indexes on time entries, task links, dependencies and
+task relations. Build time grows with their row counts. We have not measured a
+per-million-rows figure; to size the window, time the upgrade on a restored copy
+of your database first, and schedule it away from peak edit traffic on a large
+install.
+
+**Rollback notes:** the migrations are reversible, but reversing them rebuilds
+the old indexes the same way and takes the same locks.
+
 ### Demo compose stack generates its own secrets
 
 `docker-compose.demo.yml` will stop baking a shared `SECRET_KEY` and
