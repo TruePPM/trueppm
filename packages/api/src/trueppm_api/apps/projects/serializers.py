@@ -5481,16 +5481,22 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
           capability, so it runs unconditionally rather than inside
           ``can_user_edit_task``.
 
-        The effective sprint is the post-write one, so a single write that both moves
-        an undated task into a live sprint and dates it is refused, while one that
-        removes the sprint and dates the task is allowed.
+        The guard keys on the task's *current* sprint, and a write that also takes the
+        task out of live sprints (``sprint: null``, or a move to a non-live sprint) is
+        allowed — that is the documented remedy. A write that pulls an undated backlog
+        row *into* a live sprint and dates it in one PATCH is also allowed: it is the
+        Board's shipped "Add to a sprint" promote (``ScheduleTaskDialog``), whose
+        ACTIVE-sprint case is already gated as pending scope by ADR-0102.
         """
         if self.instance is None or self.instance.planned_start is not None:
             return
         if attrs.get("planned_start") is None and attrs.get("planned_finish") is None:
             return
-        sprint = attrs.get("sprint", self.instance.sprint)
-        if sprint is not None and sprint.state in _SPRINT_STATES_LOCKING_DATES:
+        current = self.instance.sprint
+        if current is None or current.state not in _SPRINT_STATES_LOCKING_DATES:
+            return
+        after = attrs.get("sprint", current)
+        if after is not None and after.state in _SPRINT_STATES_LOCKING_DATES:
             raise SprintCommittedDatesLockedError()
 
     def _evaluate_sprint_guardrails(self, attrs: dict[str, Any]) -> None:

@@ -165,21 +165,38 @@ def test_patch_allows_non_date_edit_of_undated_sprint_task(
     assert r.status_code == 200, r.content
 
 
-@pytest.mark.django_db
-def test_patch_moving_undated_task_into_live_sprint_and_dating_it_is_refused(
-    admin_client: APIClient, project: Project
-) -> None:
-    """The guard reads the post-write sprint, so one write cannot do both."""
-    sprint = Sprint.objects.create(
+def _live_sprint(project: Project, name: str) -> Sprint:
+    return Sprint.objects.create(
         project=project,
-        name="Live",
+        name=name,
         goal="",
         start_date=date(2026, 1, 5),
         finish_date=date(2026, 1, 16),
         state=SprintState.PLANNED,
     )
+
+
+@pytest.mark.django_db
+def test_patch_pulling_backlog_row_into_live_sprint_with_a_date_is_allowed(
+    admin_client: APIClient, project: Project
+) -> None:
+    """The Board's shipped "Add to a sprint" promote sends sprint + planned_start.
+
+    The guard keys on the task's current sprint, so this flow keeps working.
+    """
+    sprint = _live_sprint(project, "Target")
     task = _task(project, None)
     r = _patch(admin_client, task, {"sprint": str(sprint.pk), "planned_start": NEW_DATE})
+    assert r.status_code == 200, r.content
+
+
+@pytest.mark.django_db
+def test_patch_moving_between_live_sprints_with_a_date_is_refused(
+    admin_client: APIClient, project: Project
+) -> None:
+    task = _task(project, SprintState.ACTIVE)
+    other = _live_sprint(project, "Next")
+    r = _patch(admin_client, task, {"sprint": str(other.pk), "planned_start": NEW_DATE})
     assert r.status_code == 400, r.content
     assert r.data["code"] == LOCKED_CODE
 
