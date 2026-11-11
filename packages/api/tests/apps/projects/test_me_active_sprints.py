@@ -591,3 +591,48 @@ def test_gate_is_resolved_per_project_not_per_request(calendar: Calendar) -> Non
     assert by_name["AsMember"]["rolling_avg_points"] is not None
     assert by_name["AsPM"]["velocity_suppressed"] is True
     assert by_name["AsPM"]["rolling_avg_points"] is None
+
+
+@pytest.mark.django_db
+def test_active_sprints_query_count_constant_in_project_count(
+    calendar: Calendar,
+) -> None:
+    """#1630: the endpoint now fires once per session from the shell TopBar, so a user
+    on many teams must cost the same number of queries as a user on one.
+
+    The sibling test above varies sprints inside ONE project; the velocity summary
+    and the ADR-0104 signal gate are resolved per project, so this one varies the
+    number of projects (one ACTIVE sprint each) — the axis a per-project query
+    would show up on.
+    """
+    res = Resource.objects.create(name="Dev2", max_units=1.0)
+
+    def _measure(n: int, uname: str) -> int:
+        user = User.objects.create_user(username=uname, password="pw")
+        for i in range(n):
+            project = _project(calendar, f"P-{uname}-{i}")
+            _membership(project, user)
+            sprint = _active_sprint(project, f"S{i}")
+            task = Task.objects.create(
+                project=project,
+                name=f"T{i}",
+                duration=1,
+                sprint=sprint,
+                assignee=user,
+                story_points=5,
+                status=TaskStatus.NOT_STARTED,
+                early_start=sprint.start_date,
+                early_finish=sprint.finish_date,
+            )
+            TaskResource.objects.create(task=task, resource=res, units=1.0)
+        client = _client(user)
+        with CaptureQueriesContext(connection) as ctx:
+            resp = client.get("/api/v1/me/active-sprints/")
+            assert resp.status_code == 200
+            assert len(resp.data) == n
+        return len(ctx.captured_queries)
+
+    _measure(1, "pwarm")
+    one = _measure(1, "psolo")
+    many = _measure(4, "pmulti")
+    assert many == one, f"N+1 over projects: {one} queries for 1 project, {many} for 4"

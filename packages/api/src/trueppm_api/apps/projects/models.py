@@ -309,7 +309,7 @@ class VersionedModel(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     server_version = models.BigIntegerField(default=0, editable=False)
     #: Per-project replication cursor (ADR-0686). No ``db_index`` here — the
-    #: synced models declare composite ``(owner, sync_seq)`` indexes in their own
+    #: synced models declare composite ``(owner, sync_seq, id)`` indexes in their own
     #: ``Meta``, and the ~30 non-synced VersionedModel tables need no index at all.
     sync_seq = models.BigIntegerField(default=0, editable=False)
     is_deleted = models.BooleanField(default=False, db_index=True)
@@ -2066,6 +2066,112 @@ def _allocate_cascade_seq(project_id: uuid.UUID | str) -> int:
     return allocate_for_projects([project_id])
 
 
+def _task_synced_children() -> list[tuple[type[VersionedModel], tuple[str, ...], bool]]:
+    """Synced rows that hang off a task and are NOT swept by its soft delete (#4948).
+
+    ``(model, task FK fields, has deleted_at)``. Every one is a delta-pull source
+    keyed on the task, so a client that is fully synced when the task is
+    tombstoned would keep them as orphans: the later hard delete removes them by
+    ``on_delete=CASCADE`` without ever publishing a tombstone. Resolved through
+    ``apps.get_model`` because ``TaskLink`` lives in the integrations app, a higher layer than
+    ``projects``; a lazy string lookup
+    adds no import edge. Two are deliberately absent. ``TaskCustomFieldValue`` is a
+    plain ``models.Model`` (no ``sync_seq``, not a delta source), so there is nothing
+    for a client to be left holding. ``TimeEntry`` is a ledger row, not a child of the
+    task's lifecycle: ``is_deleted`` on it means "the user deleted this entry" and cost
+    excludes such rows, while time on a soft-deleted task still counts as money spent
+    (ADR-1324 §2, ``test_time_on_a_soft_deleted_task_still_counts``). Tombstoning it
+    here would silently erase that cost; whether it needs its own delta signal is a
+    product call.
+    """
+    from django.apps import apps as django_apps
+
+    return [
+        (TaskSuggestedAssignee, ("task",), False),
+        (TaskRecurrenceRule, ("task",), False),
+        (TaskRelation, ("source", "target"), True),
+        (django_apps.get_model("integrations", "TaskLink"), ("task",), False),
+    ]
+
+
+def _task_child_filter(fields: tuple[str, ...], task_ids: Any) -> Q:
+    q = Q()
+    for field in fields:
+        q |= Q(**{f"{field}__in": task_ids})
+    return q
+
+
+def cascade_task_synced_children_soft_delete(
+    task_ids: list[Any], project_id: uuid.UUID | str, *, now: Any = None
+) -> None:
+    """Tombstone the synced children of ``task_ids`` in the caller's transaction (#4948).
+
+    Written with ``QuerySet.update()`` so one statement replaces a per-row sweep,
+    which means nothing allocates a ``sync_seq`` for these writes; the cursor is
+    drawn explicitly (once, lazily — only when some child actually exists) and
+    stamped on every row, exactly as the parent's own tombstone is. Rows already
+    tombstoned are skipped so a child is never bumped twice.
+    """
+    seq: int | None = None
+    for model, fields, has_deleted_at in _task_synced_children():
+        pks = list(
+            model.objects.filter(_task_child_filter(fields, task_ids), is_deleted=False)
+            .select_for_update()
+            .values_list("pk", flat=True)
+        )
+        if not pks:
+            continue
+        if seq is None:
+            seq = _allocate_cascade_seq(project_id)
+        values: dict[str, Any] = {
+            "is_deleted": True,
+            "server_version": F("server_version") + 1,
+            "sync_seq": seq,
+            "deleted_version": F("server_version") + 1,
+        }
+        if has_deleted_at:
+            values["deleted_at"] = now or timezone.now()
+        model.objects.filter(pk__in=pks).update(**values)
+
+
+def cascade_task_synced_children_restore(task_ids: list[Any], project_id: uuid.UUID | str) -> None:
+    """Un-tombstone the synced children of now-live ``task_ids`` — inverse of the above.
+
+    Same restore-all tradeoff as :func:`cascade_task_children_restore`: no marker
+    separates "tombstoned by the task's delete" from "deleted individually
+    earlier", so an earlier individually-deleted child may return with its parent.
+    A ``TaskRelation`` returns only when BOTH endpoints are live, and the live
+    ``(source, target, relation_type)`` unique constraint is respected.
+    """
+    seq: int | None = None
+    for model, fields, has_deleted_at in _task_synced_children():
+        qs = model.objects.filter(_task_child_filter(fields, task_ids), is_deleted=True)
+        if model is TaskRelation:
+            live_duplicate = TaskRelation.objects.filter(
+                is_deleted=False,
+                source=OuterRef("source"),
+                target=OuterRef("target"),
+                relation_type=OuterRef("relation_type"),
+            )
+            qs = qs.filter(source__is_deleted=False, target__is_deleted=False).exclude(
+                Exists(live_duplicate)
+            )
+        pks = list(qs.select_for_update().values_list("pk", flat=True))
+        if not pks:
+            continue
+        if seq is None:
+            seq = _allocate_cascade_seq(project_id)
+        values: dict[str, Any] = {
+            "is_deleted": False,
+            "server_version": F("server_version") + 1,
+            "sync_seq": seq,
+            "deleted_version": None,
+        }
+        if has_deleted_at:
+            values["deleted_at"] = None
+        model.objects.filter(pk__in=pks).update(**values)
+
+
 def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
     """Tombstone many tasks with the cascade :meth:`Task.soft_delete` performs, in O(1) queries.
 
@@ -2163,6 +2269,7 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
             deleted_version=F("server_version") + 1,
             deleted_at=now,
         )
+        cascade_task_synced_children_soft_delete(ids, project_id, now=now)
 
     # The Task post_save soft-delete receivers never fire for ``update()``; run their
     # effects set-wise. Retro action items are one UPDATE (the receiver sets only
@@ -2476,6 +2583,12 @@ def cascade_task_children_restore(task: Task) -> None:
     from trueppm_api.apps.projects.summary_link_guard import retire_revived_summary_start_links
 
     retire_revived_summary_start_links(subtree.filter(is_deleted=False))
+
+    # Synced children of the restored rows (#4948), after the tasks are live so a
+    # relation's endpoint check sees them.
+    cascade_task_synced_children_restore(
+        list(subtree.filter(is_deleted=False).values_list("pk", flat=True)), task.project_id
+    )
 
 
 def _repath_occupied_descendants(task: Task, seq: int) -> None:
@@ -4043,7 +4156,7 @@ class Task(VersionedModel):
             # Postgres visits every project row on a near-high-water-mark resync
             # (#810). The composite turns it into a single index range seek.
             models.Index(fields=["project", "server_version"], name="task_proj_serverver_idx"),
-            models.Index(fields=["project", "sync_seq"], name="task_proj_syncseq_idx"),
+            models.Index(fields=["project", "sync_seq", "id"], name="task_proj_syncseq_idx"),
             # Untouched-seed sweep (ADR-0786 §2). Partial on the two conditions that
             # never vary between callers, leaving only the seeded_at window as a
             # range seek — so the landing count, the 14-day retention measurement
@@ -4358,6 +4471,10 @@ class Task(VersionedModel):
         for dep in list(edges):
             if not dep.is_deleted:
                 dep.soft_delete()
+        # Synced children keyed on this task (links, suggested assignees, recurrence
+        # rule, relations) — tombstoned in this transaction so a client
+        # that pulls from before the delete does not keep them as orphans (#4948).
+        cascade_task_synced_children_soft_delete([self.pk], self.project_id)
         if self.wbs_path:
             path = str(self.wbs_path)
             children = (
@@ -4590,7 +4707,7 @@ class TaskRecurrenceRule(VersionedModel):
         indexes = [
             # Sync delta pull joins via task then filters server_version (#810).
             models.Index(fields=["task", "server_version"], name="trr_task_serverver_idx"),
-            models.Index(fields=["task", "sync_seq"], name="trr_task_syncseq_idx"),
+            models.Index(fields=["task", "sync_seq", "id"], name="trr_task_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -4733,7 +4850,7 @@ class Dependency(VersionedModel):
             # Dependency has no direct project FK; (predecessor, server_version) lets
             # the per-predecessor join seek the changed rows without a full scan.
             models.Index(fields=["predecessor", "server_version"], name="dep_pred_serverver_idx"),
-            models.Index(fields=["predecessor", "sync_seq"], name="dep_pred_syncseq_idx"),
+            models.Index(fields=["predecessor", "sync_seq", "id"], name="dep_pred_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -4822,7 +4939,7 @@ class TaskRelation(VersionedModel):
             # Sync delta pull: TaskRelation has no project FK, so the pull joins via
             # source. Mirrors dep_pred_serverver_idx.
             models.Index(fields=["source", "server_version"], name="taskrel_source_ver_idx"),
-            models.Index(fields=["source", "sync_seq"], name="taskrel_source_syncseq_idx"),
+            models.Index(fields=["source", "sync_seq", "id"], name="taskrel_source_syncseq_idx"),
             # Incoming-relations lookup for GET ?task=<id> (target side of the union).
             models.Index(fields=["target"], name="taskrel_target_idx"),
             # Tombstone reap seek — mirrors the Dependency deleted_at reap index.
@@ -5089,7 +5206,7 @@ class Risk(VersionedModel):
             models.Index(fields=["project", "status"], name="risk_project_status_idx"),
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="risk_proj_serverver_idx"),
-            models.Index(fields=["project", "sync_seq"], name="risk_proj_syncseq_idx"),
+            models.Index(fields=["project", "sync_seq", "id"], name="risk_proj_syncseq_idx"),
             # The register loads project-scoped in the model's default order
             # (-impact, -probability, title). This index covers that ORDER BY so
             # RiskViewSet stops sorting the register in memory past ~register size.
@@ -5269,7 +5386,7 @@ class Label(VersionedModel):
         indexes = [
             # Sync delta pull: WHERE project_id = X AND server_version > since.
             models.Index(fields=["project", "server_version"], name="label_proj_serverver_idx"),
-            models.Index(fields=["project", "sync_seq"], name="label_proj_syncseq_idx"),
+            models.Index(fields=["project", "sync_seq", "id"], name="label_proj_syncseq_idx"),
         ]
         constraints = [
             # Conditional on liveness: LabelViewSet.perform_destroy soft-deletes, so an
@@ -5796,7 +5913,7 @@ class Sprint(VersionedModel):
             models.Index(fields=["project", "finish_date"], name="sprint_project_finish_idx"),
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="sprint_proj_serverver_idx"),
-            models.Index(fields=["project", "sync_seq"], name="sprint_proj_syncseq_idx"),
+            models.Index(fields=["project", "sync_seq", "id"], name="sprint_proj_syncseq_idx"),
             # Velocity rollup scan (ADR-0113): velocity_eligible_sprints() filters
             # WHERE project_id = X AND exclude_from_velocity = false AND state = 'COMPLETED'
             # ORDER BY closed_at DESC. The leading equality columns (project,
@@ -6358,7 +6475,7 @@ class SprintRetro(VersionedModel):
         indexes = [
             # Sync delta pull joins via sprint then filters server_version (#810).
             models.Index(fields=["sprint", "server_version"], name="retro_sprint_serverver_idx"),
-            models.Index(fields=["sprint", "sync_seq"], name="retro_sprint_syncseq_idx"),
+            models.Index(fields=["sprint", "sync_seq", "id"], name="retro_sprint_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -6405,7 +6522,7 @@ class RetroActionItem(VersionedModel):
         indexes = [
             # Sync delta pull joins via retro then filters server_version (#810).
             models.Index(fields=["retro", "server_version"], name="rai_retro_serverver_idx"),
-            models.Index(fields=["retro", "sync_seq"], name="rai_retro_syncseq_idx"),
+            models.Index(fields=["retro", "sync_seq", "id"], name="rai_retro_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -6490,7 +6607,6 @@ class RetroBoardItem(VersionedModel):
             # server_version after joining via retro (#810 pattern).
             models.Index(fields=["retro", "column", "position"], name="rbi_retro_col_pos_idx"),
             models.Index(fields=["retro", "server_version"], name="rbi_retro_serverver_idx"),
-            models.Index(fields=["retro", "sync_seq"], name="rbi_retro_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -6551,7 +6667,6 @@ class PulseResponse(VersionedModel):
         ]
         indexes = [
             models.Index(fields=["retro", "server_version"], name="pulse_retro_serverver_idx"),
-            models.Index(fields=["retro", "sync_seq"], name="pulse_retro_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -6646,7 +6761,7 @@ class TaskSuggestedAssignee(VersionedModel):
             ),
             # Sync delta pull joins via task then filters server_version (#810).
             models.Index(fields=["task", "server_version"], name="tsa_task_serverver_idx"),
-            models.Index(fields=["task", "sync_seq"], name="tsa_task_syncseq_idx"),
+            models.Index(fields=["task", "sync_seq", "id"], name="tsa_task_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
