@@ -266,7 +266,9 @@ class ProgramSyncSequence(models.Model):
     #: it answers ``resync_required``: program-scoped rows at or below this cursor
     #: were hard-deleted without a deliverable tombstone. Raised only, in the same
     #: transaction as the hard delete (:func:`raise_program_tombstone_floor`).
-    tombstone_floor = models.BigIntegerField(default=0, editable=False)
+    #: ``db_default`` keeps an old pod's INSERT valid during a rolling update
+    #: (migration rule 8).
+    tombstone_floor = models.BigIntegerField(default=0, db_default=0, editable=False)
 
     objects: models.Manager[ProgramSyncSequence] = models.Manager()
 

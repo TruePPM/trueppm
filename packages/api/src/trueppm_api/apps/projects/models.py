@@ -1790,7 +1790,10 @@ class Project(VersionedModel):
     # what lets a pull that re-reads it after its delta queries detect a reap
     # that raced it. Server-internal like `last_sync_version`: in
     # _SERVER_OWNED_FIELDS, excluded from history and from every serializer.
-    tombstone_floor = models.BigIntegerField(default=0, editable=False)
+    # ``db_default`` as well as ``default`` (migration rule 8): with only a Python
+    # default, AddField DROPs the column default after backfilling, so an old pod
+    # inserting a row during a rolling update would hit NOT NULL.
+    tombstone_floor = models.BigIntegerField(default=0, db_default=0, editable=False)
 
     # Soft-delete timestamp, stamped in ``soft_delete()`` (mirrors Task/Dependency).
     # An ordinary save() never touches it, so it stays null while the row is live.

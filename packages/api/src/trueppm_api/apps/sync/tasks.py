@@ -316,7 +316,7 @@ def _delete_tracking_sync_seq(qs: Any) -> tuple[int, int]:
     top = 0
     for model, instances in collector.data.items():
         if _has_sync_seq(model):
-            top = max([top, *(int(i.sync_seq) for i in instances)])
+            top = max([top, *(int(getattr(i, "sync_seq", 0)) for i in instances)])
     for fast in collector.fast_deletes:
         if _has_sync_seq(fast.model):
             value = fast.aggregate(top=Max("sync_seq"))["top"]

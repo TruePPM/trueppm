@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="project",
             name="tombstone_floor",
-            field=models.BigIntegerField(default=0, editable=False),
+            field=models.BigIntegerField(db_default=0, default=0, editable=False),
         ),
     ]

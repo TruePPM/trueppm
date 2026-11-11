@@ -158,7 +158,7 @@ Deleting a resource sets `is_deleted = True`, increments `server_version`, draws
 ## Tombstone retention and `resync_required`
 
 :::note[Ships in 0.5]
-The current release has no guard here. A pull with a `since` older than the retention window gets an ordinary delta that is missing the deletions the reaper already removed, and nothing in the response says so. 0.5 adds the floor and the `resync_required` flag described below.
+The current release has no guard here. A pull with a `since` older than the retention window gets an ordinary delta that is missing the deletions the reaper already removed, and nothing in the response says so. The floor and the `resync_required` flag described below ship in 0.5.
 :::
 
 Once a tombstone is reaped, no delta can tell a client that the row was deleted. A client that was offline for longer than the retention window would keep that row and believe it was fully synced. To prevent this, the server keeps a **tombstone floor** for each project: the highest `sync_seq` of any tombstone the reaper has hard-deleted. The reaper raises the floor in the same transaction as the delete, and it never lowers it.
