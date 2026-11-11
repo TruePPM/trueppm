@@ -116,7 +116,7 @@ from trueppm_api.apps.scheduling.services import (
 )
 from trueppm_api.apps.scheduling.telemetry import monte_carlo_span
 from trueppm_api.workflows.consumers.requeue_failed_task import WORKFLOW_NAME as REQUEUE_WORKFLOW
-from trueppm_api.workflows.services import start_workflow
+from trueppm_api.workflows.services import in_flight_idempotency_keys, start_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +186,12 @@ FAILED_TASK_BULK_ACTION_MAX: int = settings.FAILED_TASK_BULK_ACTION_MAX
 # Statuses an operator can act on: a task that is already dismissed or retried is
 # terminal and is skipped by bulk actions / rejected by single actions.
 _ACTIONABLE_FAILED_STATUSES = (FailedTaskStatus.DEAD, FailedTaskStatus.PENDING_RETRY)
+
+
+def _requeue_key(failed: FailedTask) -> str:
+    """Idempotency key of the requeue workflow for one failure of ``failed``."""
+    return f"requeue:{failed.id}:{failed.failure_count}"
+
 
 # Shared user-facing response details.
 _NOT_FOUND_DETAIL = "Not found."
@@ -2109,7 +2115,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
                 "backoff_seconds": backoff_seconds,
                 "resolved_by_id": resolved_by_id,
             },
-            idempotency_key=f"requeue:{failed.id}:{failed.failure_count}",
+            idempotency_key=_requeue_key(failed),
             # An operator retrying a requeue whose workflow FAILED must get a real
             # re-run, not the failed instance back (#2994).
             restart_failed=True,
@@ -2218,9 +2224,27 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         payload.is_valid(raise_exception=True)
         backoff_seconds = payload.validated_data["backoff_seconds"]
 
-        qs = self.get_queryset().filter(status__in=_ACTIONABLE_FAILED_STATUSES)
+        qs = (
+            self.get_queryset()
+            .filter(status__in=_ACTIONABLE_FAILED_STATUSES)
+            .order_by("last_failed_at")
+        )
         matched = qs.count()
-        batch = list(qs.order_by("last_failed_at")[:FAILED_TASK_BULK_ACTION_MAX])
+        # A requeued row stays DEAD until its workflow's activity stamps it RETRIED
+        # (#2994), so a repeated "Requeue all" before the workers catch up would
+        # re-pick the same oldest batch and never reach the rest. Skip rows whose
+        # requeue workflow is still in flight; scanning is bounded by ``matched``.
+        batch: list[FailedTask] = []
+        offset = 0
+        while len(batch) < FAILED_TASK_BULK_ACTION_MAX and offset < matched:
+            chunk = list(qs[offset : offset + FAILED_TASK_BULK_ACTION_MAX])
+            if not chunk:
+                break
+            offset += len(chunk)
+            busy = in_flight_idempotency_keys([_requeue_key(f) for f in chunk])
+            batch.extend(f for f in chunk if _requeue_key(f) not in busy)
+        capped = len(batch) > FAILED_TASK_BULK_ACTION_MAX or offset < matched
+        batch = batch[:FAILED_TASK_BULK_ACTION_MAX]
         for failed in batch:
             self._start_requeue_workflow(failed, backoff_seconds, getattr(request.user, "pk", None))
         logger.info(
@@ -2234,7 +2258,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
             {
                 "processed": len(batch),
                 "matched": matched,
-                "capped": matched > FAILED_TASK_BULK_ACTION_MAX,
+                "capped": capped,
             }
         )
 

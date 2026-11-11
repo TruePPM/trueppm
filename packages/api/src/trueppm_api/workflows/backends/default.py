@@ -40,6 +40,7 @@ from trueppm_api.apps.workflow_engine.models import (
 )
 from trueppm_api.workflows.interface import (
     HistoryEvent,
+    RestartRefusedError,
     RetryPolicy,
     WorkflowBackend,
     WorkflowState,
@@ -225,8 +226,15 @@ class DefaultWorkflowBackend(WorkflowBackend):
                 # operator's retry of the same request returns the corpse and
                 # does nothing (#2994). Steps that already completed return their
                 # cached result (once-and-only-once), so the rerun resumes at the
-                # failed step — but compensation already ran and is not replayed,
-                # which is why only idempotent consumers opt in.
+                # failed step. That is unsound once compensation undid a step:
+                # its cached result would stand in for a side effect that is gone,
+                # so the restart is refused rather than silently corrupting state.
+                if instance.history.filter(event_type="step_compensated").exists():
+                    raise RestartRefusedError(
+                        f"workflow {instance.id} cannot be restarted: its rollback "
+                        "compensated completed steps, so their cached results are "
+                        "stale. Start a new workflow under a new idempotency key."
+                    )
                 instance.status = WorkflowStatus.RUNNING
                 instance.error = ""
                 instance.completed_at = None
@@ -296,6 +304,13 @@ class DefaultWorkflowBackend(WorkflowBackend):
         instance = WorkflowInstance.objects.get(id=workflow_id)
         activity = resolve_activity(WORKFLOWS.get(instance.name), instance, name)
         return run_activity_oaoo(instance, name, input, activity)
+
+    def in_flight_idempotency_keys(self, idempotency_keys: list[str]) -> set[str]:
+        return set(
+            WorkflowInstance.objects.filter(idempotency_key__in=idempotency_keys)
+            .exclude(status__in=_TERMINAL_STATUSES)
+            .values_list("idempotency_key", flat=True)
+        )
 
     def get_history(self, workflow_id: str) -> list[HistoryEvent]:
         return [

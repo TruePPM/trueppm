@@ -72,9 +72,9 @@ _OUTBOX_RETENTION = timedelta(days=7)
 # running the step, spending the budget for nothing.
 _MAX_STEP_ATTEMPTS = 3
 _STEP_RETRY_BACKOFF = timedelta(seconds=60)
-# Per-sweep caps. Fresh rows and retries draw from separate dispatch budgets so a
-# correlated failure cannot fill the budget with retries and strand fresh work.
-_RETRY_REQUEUE_BUDGET = 200
+# Per-sweep cap on retries. Fresh rows and retries draw from separate dispatch
+# budgets so a correlated failure cannot fill the budget with retries and strand
+# fresh work.
 _RETRY_DISPATCH_BUDGET = 10
 
 
@@ -150,23 +150,31 @@ def _do_advance(outbox_row_id: str) -> None:
     except WorkflowOutboxRow.DoesNotExist:
         logger.warning("advance_workflow_step: outbox row %s no longer exists", outbox_row_id)
         return
-    if _is_terminal_row(row):
+    # Any DEAD row is out of this delivery's hands: terminal without a clock, and
+    # with one it belongs to the drain, which flips it to PENDING before it
+    # dispatches a retry. A DEAD row reaching here is a stray redelivery
+    # (acks_late, reject_on_worker_lost, orphan re-dispatch) and must be a no-op —
+    # it once cleared the live clock and stranded the workflow RUNNING (#2994).
+    if _is_terminal_row(row) or row.status == WorkflowOutboxStatus.DEAD:
         return
 
     # Count this entry BEFORE the atomic block, and keep it out of it: the budget
     # is the only thing bounding the drain's re-queue loop and it compares
     # attempt_count. Inside the block a failing step rolls the increment back with
     # the work, the budget is never spent, and a permanent failure retries forever.
-    WorkflowOutboxRow.objects.filter(id=row.id).update(
-        attempt_count=F("attempt_count") + 1, next_attempt_at=None
-    )
+    # The clock is not touched here: ``_requeue_failed_rows`` already cleared it,
+    # and the status filter keeps a row that died meanwhile from being counted.
+    WorkflowOutboxRow.objects.filter(id=row.id).exclude(
+        status__in=[WorkflowOutboxStatus.DONE, WorkflowOutboxStatus.DEAD]
+    ).update(attempt_count=F("attempt_count") + 1)
 
     with transaction.atomic():
         instance = WorkflowInstance.objects.select_for_update().get(id=row.workflow_id)
         # Re-read the row under the instance lock: a concurrent delivery may have
-        # finished it between our first read and acquiring the lock.
+        # finished it between our first read and acquiring the lock. A DEAD row
+        # with a live clock is left exactly as it is, clock included.
         row.refresh_from_db()
-        if _is_terminal_row(row):
+        if _is_terminal_row(row) or row.status == WorkflowOutboxStatus.DEAD:
             return
         if instance.status in _TERMINAL_STATUSES:
             _mark_row(row, WorkflowOutboxStatus.DONE, next_attempt_at=None)
@@ -192,7 +200,9 @@ def _do_advance(outbox_row_id: str) -> None:
 
         context = step_context(instance)
         try:
-            with workflow_context(str(instance.id)):
+            # Its own savepoint, so a failed attempt's partial writes roll back
+            # before the retry runs; the instance lock and history survive.
+            with workflow_context(str(instance.id)), transaction.atomic():
                 result = run_activity_oaoo(instance, step.name, context, step.activity)
         except Exception as exc:
             unfixable = isinstance(exc, NonRetryableError)
@@ -386,7 +396,8 @@ def _requeue_failed_rows(now: Any) -> int:
     Before #2994 the drain recovered only orphaned ``DISPATCHED`` rows, so one
     transient failure stranded the workflow permanently. ``next_attempt_at`` not
     null is the whole guard: unfixable failures and exhausted budgets leave it
-    null and are never picked up. Retries get their own dispatch budget.
+    null and are never picked up. Retries get their own dispatch budget, and
+    only the rows dispatched this sweep leave ``DEAD``.
     """
     ids = list(
         WorkflowOutboxRow.objects.filter(
@@ -396,14 +407,17 @@ def _requeue_failed_rows(now: Any) -> int:
             attempt_count__lt=_MAX_STEP_ATTEMPTS,
         )
         .order_by("next_attempt_at")
-        .values_list("id", flat=True)[:_RETRY_REQUEUE_BUDGET]
+        .values_list("id", flat=True)[:_RETRY_DISPATCH_BUDGET]
     )
     if not ids:
         return 0
+    # Flip only what this sweep dispatches. Flipping a wider slice left the
+    # undispatched remainder PENDING with an old ``created_at``, where the
+    # fresh-row pass picked it up next sweep and bypassed the retry budget.
     WorkflowOutboxRow.objects.filter(id__in=ids, status=WorkflowOutboxStatus.DEAD).update(
         status=WorkflowOutboxStatus.PENDING, next_attempt_at=None, celery_task_id=""
     )
-    for row_id in ids[:_RETRY_DISPATCH_BUDGET]:
+    for row_id in ids:
         try:
             result = advance_workflow_step.delay(str(row_id))
         except SoftTimeLimitExceeded:

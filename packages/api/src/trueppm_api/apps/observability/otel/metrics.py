@@ -349,12 +349,19 @@ def record_task_duration(task_name: str, duration_seconds: float, outcome: str) 
 
 # --- Sampling queries (imported lazily so a disabled deployment stays light) ---
 # The outbox counts mirror observability.selectors' System Health reads: PENDING +
-# DISPATCHED are the live, not-yet-terminal backlog (DONE / DEAD are terminal —
-# DEAD is surfaced by the dead-letter signal, not counted as depth here).
+# DISPATCHED are the live, not-yet-terminal backlog. DONE is terminal. DEAD is
+# terminal only without a retry clock: a workflow step row that is DEAD with a
+# live ``next_attempt_at`` is a transient failure the drain will re-queue (#2994),
+# so it is live backlog and reported as the ``retrying`` state. A clock-less DEAD
+# row is surfaced by the dead-letter signal, not counted as depth here.
 
 
 def _outbox_depth_rows() -> list[tuple[str, str, int]]:
-    """Return (outbox, state, count) for each outbox × {pending, dispatched}."""
+    """Return (outbox, state, count) for each outbox × {pending, dispatched}.
+
+    The workflow outbox also reports ``retrying`` (DEAD with a live retry clock);
+    the schedule outbox has no retry clock and so no such state.
+    """
     from django.db.models import Count, Q
 
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
@@ -367,12 +374,17 @@ def _outbox_depth_rows() -> list[tuple[str, str, int]]:
     wf = WorkflowOutboxRow.objects.aggregate(
         pending=Count("id", filter=Q(status=WorkflowOutboxStatus.PENDING)),
         dispatched=Count("id", filter=Q(status=WorkflowOutboxStatus.DISPATCHED)),
+        retrying=Count(
+            "id",
+            filter=Q(status=WorkflowOutboxStatus.DEAD, next_attempt_at__isnull=False),
+        ),
     )
     return [
         ("schedule", "pending", sched["pending"] or 0),
         ("schedule", "dispatched", sched["dispatched"] or 0),
         ("workflow", "pending", wf["pending"] or 0),
         ("workflow", "dispatched", wf["dispatched"] or 0),
+        ("workflow", "retrying", wf["retrying"] or 0),
     ]
 
 
@@ -383,19 +395,22 @@ def _outbox_oldest_age_rows() -> list[tuple[str, float]]:
     uses ``requested_at``, ``WorkflowOutboxRow`` uses ``created_at`` — so the oldest
     row is found on the correct column for each.
     """
-    from django.db.models import Min
+    from django.db.models import Min, Q
 
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
     from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
 
     now = timezone.now()
     sched_non_terminal = [ScheduleRequestStatus.PENDING, ScheduleRequestStatus.DISPATCHED]
-    wf_non_terminal = [WorkflowOutboxStatus.PENDING, WorkflowOutboxStatus.DISPATCHED]
+    # A retrying row (DEAD with a live clock) is still backlog — see the module note.
+    wf_non_terminal = Q(
+        status__in=[WorkflowOutboxStatus.PENDING, WorkflowOutboxStatus.DISPATCHED]
+    ) | Q(status=WorkflowOutboxStatus.DEAD, next_attempt_at__isnull=False)
 
     oldest_sched = ScheduleRequest.objects.filter(status__in=sched_non_terminal).aggregate(
         oldest=Min("requested_at")
     )["oldest"]
-    oldest_wf = WorkflowOutboxRow.objects.filter(status__in=wf_non_terminal).aggregate(
+    oldest_wf = WorkflowOutboxRow.objects.filter(wf_non_terminal).aggregate(
         oldest=Min("created_at")
     )["oldest"]
     return [

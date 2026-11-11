@@ -170,6 +170,44 @@ class TestRequeue:
         failed.refresh_from_db()
         assert failed.status == FailedTaskStatus.RETRIED
 
+    def test_transient_broker_failure_keeps_row_dead_while_workflow_retries(self) -> None:
+        """A broker blip is retried by the engine; the dead letter must not move."""
+        from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow
+
+        failed = _failed()
+        _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+        _run_requeue_workflow(instance, redispatch_error=ConnectionError("broker down"))
+
+        instance.refresh_from_db()
+        assert instance.status == "running"  # retrying, not failed
+        row = WorkflowOutboxRow.objects.get(workflow=instance)
+        assert row.status == "dead" and row.next_attempt_at is not None
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD
+        assert failed.resolved_at is None
+
+    def test_requeue_skips_a_row_dropped_while_the_workflow_waited(self) -> None:
+        """The activity re-checks the row: a drop in the meantime is honored."""
+        from unittest.mock import patch
+
+        from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow
+        from trueppm_api.apps.workflow_engine.tasks import _do_advance
+
+        failed = _failed()
+        client = _admin_client()
+        client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        assert client.post(f"{BASE}/{failed.id}/drop/", {}, format="json").status_code == 200
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+        row = WorkflowOutboxRow.objects.get(workflow=instance)
+        with patch("trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task") as send:
+            _do_advance(str(row.id))
+        send.assert_not_called()
+        instance.refresh_from_db()
+        assert instance.status == "completed"
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DISMISSED  # not resurrected
+
     def test_requeue_honours_backoff(self) -> None:
         failed = _failed()
         res = _admin_client().post(
@@ -316,6 +354,29 @@ class TestBulkActions:
         assert res.data["capped"] is True
         # Exactly one row was dropped despite three matching.
         assert FailedTask.objects.filter(status=FailedTaskStatus.DISMISSED).count() == 1
+
+    def test_requeue_all_skips_rows_whose_requeue_is_in_flight(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A repeat "Requeue all" before workers stamp the batch moves on (#2994)."""
+        from trueppm_api.apps.scheduling import views
+
+        monkeypatch.setattr(views, "FAILED_TASK_BULK_ACTION_MAX", 1)
+        for i in range(2):
+            _failed(task_name="scheduling.relay", task_id=f"q-{i}")
+        client = _admin_client()
+
+        first = client.post(f"{BASE}/requeue-all/", {}, format="json")
+        assert first.data["processed"] == 1
+        assert first.data["capped"] is True
+        second = client.post(f"{BASE}/requeue-all/", {}, format="json")
+        assert second.data["processed"] == 1
+        # Two distinct rows got a workflow, not the same oldest row twice.
+        assert WorkflowInstance.objects.filter(name=WORKFLOW_NAME).count() == 2
+        assert second.data["capped"] is False
+        third = client.post(f"{BASE}/requeue-all/", {}, format="json")
+        assert third.data["processed"] == 0
+        assert WorkflowInstance.objects.filter(name=WORKFLOW_NAME).count() == 2
 
     def test_the_bound_is_actually_bound_to_a_setting(self) -> None:
         """The cap is documented as tunable, so a settings module has to bind it.

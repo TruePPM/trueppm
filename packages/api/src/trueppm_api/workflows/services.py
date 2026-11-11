@@ -47,13 +47,19 @@ def start_workflow(
     wait_for_completion: bool = False,
     restart_failed: bool = False,
 ) -> str:
-    """Start a workflow; see :meth:`WorkflowBackend.start_workflow`."""
+    """Start a workflow; see :meth:`WorkflowBackend.start_workflow`.
+
+    ``restart_failed`` is forwarded only when true. ``WORKFLOW_BACKEND`` is an
+    extension point, and a backend written against the signature that predates
+    the flag would raise ``TypeError`` on every start if it were always passed.
+    """
+    extra: dict[str, Any] = {"restart_failed": True} if restart_failed else {}
     return get_backend().start_workflow(
         name,
         input,
         idempotency_key=idempotency_key,
         wait_for_completion=wait_for_completion,
-        restart_failed=restart_failed,
+        **extra,
     )
 
 
@@ -90,3 +96,8 @@ def run_activity(name: str, input: dict[str, Any], retry_policy: RetryPolicy | N
 def get_history(workflow_id: str) -> list[HistoryEvent]:
     """Fetch history; see :meth:`WorkflowBackend.get_history`."""
     return get_backend().get_history(workflow_id)
+
+
+def in_flight_idempotency_keys(idempotency_keys: list[str]) -> set[str]:
+    """Keys whose workflow is still running; see the backend method."""
+    return get_backend().in_flight_idempotency_keys(idempotency_keys)

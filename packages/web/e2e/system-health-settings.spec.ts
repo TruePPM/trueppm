@@ -261,7 +261,9 @@ async function setup(
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: pj({ ...FIXTURE_TASK, status: 'retried', workflow_id: 'wf-abc' }),
+          // The server no longer stamps `retried` at request time (#2994): the row
+          // stays `dead` until the requeue workflow has re-dispatched the task.
+          body: pj({ ...FIXTURE_TASK, status: 'dead', workflow_id: 'wf-abc' }),
         });
       }
       if (path.endsWith('/drop/')) {

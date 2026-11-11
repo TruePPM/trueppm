@@ -178,10 +178,10 @@ The console is API-first; every surface is workspace-operator-only (`IsWorkspace
 - `GET /api/v1/admin/workflows/` and `GET /api/v1/admin/workflows/{id}/` — workflow
   instances (filter with `?status=` and `?name=`), with a `terminal` flag, a `retrying`
   flag, and the latest step's attempt count, `next_attempt_at`, `failure_reason`, and
-  error. This endpoint ships in 0.5.
+  error. These two endpoints ship in 0.5.
 
-The three read endpoints above are on the latest release. The four write endpoints
-below shipped in 0.4.
+The first three read endpoints above shipped in 0.4; the two workflow endpoints ship
+in 0.5. The four write endpoints below shipped in 0.4.
 
 - `POST /api/v1/admin/failed-tasks/{id}/requeue/` — re-enqueue the task through the
   durable workflow backend with an optional `{ "backoff_seconds": N }` (0–86400).

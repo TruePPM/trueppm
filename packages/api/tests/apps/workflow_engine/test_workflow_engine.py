@@ -731,3 +731,135 @@ def test_health_card_does_not_count_retrying_row_as_dead(
     assert row.status == WorkflowOutboxStatus.DEAD and row.next_attempt_at is not None
     assert _outbox_card()["status"] != "crit"
     assert "0 dead" in _outbox_card()["meta"]
+
+
+def test_redelivery_of_retrying_row_keeps_retry_clock(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    """A second delivery of a DEAD row with a live clock must not strand it.
+
+    acks_late / reject_on_worker_lost / orphan re-dispatch can deliver the same
+    row again after it failed transiently. That delivery used to clear the clock
+    before the locked re-check, which then read the row as terminal and left the
+    workflow RUNNING forever.
+    """
+    _register("redeliver", [WorkflowStep("only", _flaky(1))])
+    wf_id = backend.start_workflow("redeliver", {})
+    _drive(wf_id)
+    row = WorkflowOutboxRow.objects.get(workflow_id=wf_id)
+    assert row.status == WorkflowOutboxStatus.DEAD and row.next_attempt_at is not None
+
+    _do_advance(str(row.id))  # the stray second delivery
+    row.refresh_from_db()
+    assert row.status == WorkflowOutboxStatus.DEAD
+    assert row.next_attempt_at is not None
+    assert row.attempt_count == 1  # a no-op delivery spends no budget
+
+    _expire_retry_clock(str(row.id))
+    with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step.delay") as d:
+        d.return_value = MagicMock(id="t")
+        _do_outbox_drain()
+    d.assert_called_once_with(str(row.id))
+    _do_advance(str(row.id))
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.COMPLETED
+
+
+def test_failed_attempt_partial_writes_roll_back(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    """An activity that writes and then raises leaves nothing behind for the retry."""
+    marker = "partial-write-2994"
+
+    def writes_then_raises(ctx: dict[str, Any]) -> None:
+        WorkflowInstance.objects.create(
+            name="side", input={}, idempotency_key=marker, status=WorkflowStatus.RUNNING
+        )
+        raise RuntimeError("after the write")
+
+    _register("partial", [WorkflowStep("a", writes_then_raises)])
+    wf_id = backend.start_workflow("partial", {})
+    _drive(wf_id)
+    assert not WorkflowInstance.objects.filter(idempotency_key=marker).exists()
+    # The engine's own bookkeeping outside the savepoint survived.
+    assert WorkflowHistoryEvent.objects.filter(
+        workflow_id=wf_id, event_type="step_retry_scheduled"
+    ).exists()
+
+
+def test_service_does_not_pass_restart_failed_to_a_legacy_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backend written against the pre-#2994 signature keeps working."""
+    from trueppm_api.workflows import services
+
+    calls: list[dict[str, Any]] = []
+
+    class _Legacy:
+        def start_workflow(
+            self,
+            name: str,
+            input: dict[str, Any],
+            *,
+            idempotency_key: str | None = None,
+            wait_for_completion: bool = False,
+        ) -> str:
+            calls.append({"name": name, "key": idempotency_key})
+            return "legacy-id"
+
+    monkeypatch.setattr(services, "get_backend", lambda: _Legacy())
+    assert services.start_workflow("x", {}, idempotency_key="k") == "legacy-id"
+    assert calls == [{"name": "x", "key": "k"}]
+    # Opting in against a backend that cannot honor it fails loudly, not silently.
+    with pytest.raises(TypeError):
+        services.start_workflow("x", {}, restart_failed=True)
+
+
+def test_restart_failed_is_refused_after_compensation(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    from trueppm_api.workflows import RestartRefusedError
+
+    def boom(ctx: dict[str, Any]) -> None:
+        raise NonRetryableError("x")
+
+    _register(
+        "comp",
+        [
+            WorkflowStep("one", lambda ctx: {"a": 1}, compensate=lambda ctx: None),
+            WorkflowStep("two", boom),
+        ],
+    )
+    wf_id = backend.start_workflow("comp", {}, idempotency_key="ck")
+    _drive(wf_id)
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+    with pytest.raises(RestartRefusedError):
+        backend.start_workflow("comp", {}, idempotency_key="ck", restart_failed=True)
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+
+
+def test_retry_sweep_flips_only_the_rows_it_dispatches(
+    registry: None, backend: DefaultWorkflowBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.workflow_engine import tasks
+
+    monkeypatch.setattr(tasks, "_RETRY_DISPATCH_BUDGET", 2)
+    # One shared activity that always fails transiently (a fresh _flaky per row
+    # would be needed otherwise: its counter is shared across instances).
+    _register("many", [WorkflowStep("a", _flaky(10_000))])
+    ids = []
+    for i in range(5):
+        wf_id = backend.start_workflow("many", {"i": i})
+        _drive(wf_id)
+        row = WorkflowOutboxRow.objects.get(workflow_id=wf_id)
+        _expire_retry_clock(str(row.id))
+        ids.append(row.id)
+
+    with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step.delay") as d:
+        d.return_value = MagicMock(id="t")
+        _do_outbox_drain()
+    assert d.call_count == 2
+    rows = WorkflowOutboxRow.objects.filter(id__in=ids)
+    assert rows.filter(status=WorkflowOutboxStatus.DISPATCHED).count() == 2
+    assert rows.filter(status=WorkflowOutboxStatus.PENDING).count() == 0
+    # The other three are still DEAD with their clock, waiting for the next sweep.
+    assert rows.filter(status=WorkflowOutboxStatus.DEAD, next_attempt_at__isnull=False).count() == 3

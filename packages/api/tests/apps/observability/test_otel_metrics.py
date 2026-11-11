@@ -124,6 +124,21 @@ class TestOutboxGauges:
         WorkflowOutboxRow.objects.create(
             workflow=instance, step_name="s", step_input={}, status=WorkflowOutboxStatus.PENDING
         )
+        # A DEAD row with a live retry clock is retrying backlog (#2994); a DEAD row
+        # without one is terminal and excluded.
+        retrying = WorkflowOutboxRow.objects.create(
+            workflow=instance,
+            step_name="r",
+            step_input={},
+            status=WorkflowOutboxStatus.DEAD,
+            next_attempt_at=timezone.now() + timedelta(seconds=60),
+        )
+        WorkflowOutboxRow.objects.filter(pk=retrying.pk).update(
+            created_at=timezone.now() - timedelta(minutes=7)
+        )
+        WorkflowOutboxRow.objects.create(
+            workflow=instance, step_name="d", step_input={}, status=WorkflowOutboxStatus.DEAD
+        )
 
     def test_depth_counts_non_terminal_rows_by_state(self) -> None:
         self._seed()
@@ -137,6 +152,7 @@ class TestOutboxGauges:
         assert points[("schedule", "dispatched")] == 1
         assert points[("workflow", "pending")] == 1
         assert points[("workflow", "dispatched")] == 0
+        assert points[("workflow", "retrying")] == 1
 
     def test_oldest_age_reflects_oldest_non_terminal_row(self) -> None:
         self._seed()
@@ -148,8 +164,9 @@ class TestOutboxGauges:
         }
         # schedule's oldest pending row was aged 5 minutes back.
         assert ages["schedule"] >= 290  # ~300s, allow collection jitter
-        # workflow's only row is fresh → small but non-negative.
-        assert ages["workflow"] >= 0
+        # workflow's oldest live row is the retrying one, aged 7 minutes back; the
+        # terminal DEAD row does not count however old it is.
+        assert ages["workflow"] >= 410
 
     def test_oldest_age_is_zero_for_empty_outbox(self) -> None:
         """No rows at all → age 0, not a gap and not negative."""

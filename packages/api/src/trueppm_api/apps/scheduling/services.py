@@ -157,6 +157,21 @@ def enqueue_recalculate(
         )
 
 
+def failed_task_is_actionable(failed_task_id: str) -> bool:
+    """True while a dead letter may still be requeued (``DEAD``/``PENDING_RETRY``).
+
+    The requeue workflow checks this immediately before it re-dispatches: the
+    row is no longer stamped at request time (#2994), so an operator can drop it,
+    or another requeue can finish, while this workflow waits in the outbox.
+    """
+    from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+
+    return FailedTask.objects.filter(
+        pk=failed_task_id,
+        status__in=[FailedTaskStatus.DEAD, FailedTaskStatus.PENDING_RETRY],
+    ).exists()
+
+
 def mark_failed_task_retried(failed_task_id: str, resolved_by_id: int | None) -> int:
     """Stamp a dead letter ``RETRIED`` once its requeue has actually run (#2994).
 

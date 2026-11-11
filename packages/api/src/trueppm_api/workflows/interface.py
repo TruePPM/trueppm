@@ -46,6 +46,16 @@ class NonRetryableError(Exception):
     """
 
 
+class RestartRefusedError(RuntimeError):
+    """Raised by ``start_workflow(restart_failed=True)`` when a re-run is unsafe.
+
+    A failed instance whose saga rollback compensated any step cannot be resumed:
+    the restart replays from step 0 and the compensated steps would return their
+    cached results without their side effects being re-applied. The caller must
+    start a fresh workflow under a new idempotency key instead.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     """Retry behaviour for an activity run via :meth:`WorkflowBackend.run_activity`.
@@ -115,7 +125,13 @@ class WorkflowBackend(ABC):
         ``restart_failed=True`` re-runs an existing instance that ended ``FAILED``
         under the same ``idempotency_key`` instead of returning it untouched. Without
         it a failed workflow is terminal for its key, so an operator's retry of the
-        same logical request would silently be a no-op.
+        same logical request would silently be a no-op. The re-run replays from
+        step 0 and steps that already completed return their cached result, so it
+        resumes at the failed step. That is only sound when nothing was undone:
+        if the failed attempt's rollback compensated any step, the cached results
+        describe side effects that no longer exist, and the backend raises
+        :class:`RestartRefusedError` instead of restarting. Backends that predate
+        this flag need not accept it; the service layer passes it only when true.
 
         Fire-and-forget by default (``wait_for_completion=False``); blocking on
         completion defeats the durability guarantee and is reserved for
@@ -162,3 +178,13 @@ class WorkflowBackend(ABC):
     @abstractmethod
     def get_history(self, workflow_id: str) -> list[HistoryEvent]:
         """Return the workflow's ordered, append-only history."""
+
+    def in_flight_idempotency_keys(self, idempotency_keys: list[str]) -> set[str]:
+        """Return the subset of ``idempotency_keys`` whose workflow has not finished.
+
+        Lets a caller skip work it already started without a marker of its own.
+        Deliberately not abstract, so a backend written before it existed keeps
+        working: the default answers "none in flight", which costs that caller
+        only a wasted re-start that the idempotency key already de-duplicates.
+        """
+        return set()

@@ -166,9 +166,10 @@ class WorkflowOutboxRow(models.Model):
     (ADR-0080 §Implementation Notes 2). Written atomically with the workflow
     state transition; the ``workflows_outbox_drain`` Beat task re-dispatches
     ``PENDING`` rows older than the 5-minute orphan window so it never races
-    with an in-flight commit. Rows with ``attempt_count > 0`` are inside
-    Celery's own retry chain and are skipped by the drain (same rule as
-    ``WebhookDelivery``).
+    with an in-flight commit. ``attempt_count`` counts every entry into the
+    step and is the attempt budget: the drain re-queues a failed row only while
+    it is below the cap, and abandons an orphaned ``DISPATCHED`` row that has
+    spent it.
 
     ``next_attempt_at`` carries one invariant: **null means no further attempt
     will be made** (#2994, mirroring ``SprintCloseRequest``, #2894). A ``DEAD`` row
@@ -196,10 +197,17 @@ class WorkflowOutboxRow(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     dispatched_at = models.DateTimeField(null=True, blank=True)
     next_attempt_at = models.DateTimeField(null=True, blank=True)
+    # ``db_default`` as well as ``default``: during a rolling update an old pod
+    # inserts rows without naming these columns, and a NOT NULL column with only a
+    # Python-side default would reject every one of them.
     failure_reason = models.CharField(
-        max_length=16, choices=WorkflowOutboxFailureReason.choices, blank=True, default=""
+        max_length=16,
+        choices=WorkflowOutboxFailureReason.choices,
+        blank=True,
+        default="",
+        db_default="",
     )
-    error_message = models.TextField(blank=True, default="")
+    error_message = models.TextField(blank=True, default="", db_default="")
 
     class Meta:
         ordering = ["created_at"]
