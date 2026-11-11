@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { useProductBacklog } from '@/features/project/backlog/hooks/useProductBacklog';
+import {
+  useLoadMoreProductBacklog,
+  useProductBacklog,
+} from '@/features/project/backlog/hooks/useProductBacklog';
+import { BacklogTruncatedNotice } from '@/features/project/backlog/components/BacklogTruncatedNotice';
 import { useBulkUpdateTasks } from '@/hooks/useTaskMutations';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -96,6 +100,8 @@ function StoryPickerPickBody({
   iterationLower,
   commitError,
   searchRef,
+  truncationNotice,
+  loadedCount,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
@@ -115,6 +121,10 @@ function StoryPickerPickBody({
   iterationLower: string;
   commitError: string | null;
   searchRef: RefObject<HTMLInputElement | null>;
+  /** Rule 296: the cap's escape hatch, on the surface where stories are picked. */
+  truncationNotice?: ReactNode;
+  /** Set only while the backlog is truncated: empty-search copy is qualified by it. */
+  loadedCount?: number;
 }) {
   return (
     <>
@@ -181,6 +191,8 @@ function StoryPickerPickBody({
         </p>
       )}
 
+      {truncationNotice}
+
       <div className="flex-1 overflow-y-auto px-5 py-2">
         {isLoading ? (
           <div role="status" aria-label="Loading backlog stories…" className="flex flex-col gap-2">
@@ -205,8 +217,12 @@ function StoryPickerPickBody({
               {allRowsEmpty
                 ? 'The backlog is empty.'
                 : readyOnly
-                  ? 'No Ready stories to pull.'
-                  : 'No backlog stories match your search.'}
+                  ? loadedCount != null
+                    ? `No Ready stories among the ${loadedCount.toLocaleString()} loaded stories.`
+                    : 'No Ready stories to pull.'
+                  : loadedCount != null
+                    ? `No backlog stories match your search among the ${loadedCount.toLocaleString()} loaded stories.`
+                    : 'No backlog stories match your search.'}
             </p>
             <p className="text-xs text-neutral-text-secondary max-w-sm">
               {allRowsEmpty
@@ -508,6 +524,7 @@ export function StoryPickerModal({
 }: Props) {
   const itl = useIterationLabel(projectId);
   const backlog = useProductBacklog(projectId);
+  const loadMore = useLoadMoreProductBacklog(projectId);
   const commitStories = useBulkUpdateTasks(projectId);
   const queryClient = useQueryClient();
 
@@ -740,6 +757,19 @@ export function StoryPickerModal({
               iterationLower={itl.lower}
               commitError={commitError}
               searchRef={searchRef}
+              loadedCount={backlog.data?.truncated ? allRows.length : undefined}
+              truncationNotice={
+                backlog.data?.truncated ? (
+                  <BacklogTruncatedNotice
+                    className="px-5"
+                    shown={allRows.length}
+                    total={backlog.data.health.storyCount}
+                    limit={backlog.data.limit}
+                    onLoadMore={() => loadMore.mutate()}
+                    loading={loadMore.isPending}
+                  />
+                ) : null
+              }
             />
           )}
 

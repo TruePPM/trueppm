@@ -22356,6 +22356,22 @@
                         },
                         "description": "A UUID string identifying this project.",
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Maximum number of backlog stories to serialize, in rank order (default 500, max 2000). Health and epic rollups always cover the whole backlog; ``truncated`` is true when stories rank beyond this page."
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Number of rank-ordered stories to skip before the page starts (default 0). Pass the count of stories already loaded to fetch the next page; epics and health are returned whole on every page."
                     }
                 ],
                 "tags": [
@@ -66615,6 +66631,15 @@
                     "health": {
                         "$ref": "#/components/schemas/ProductBacklogHealth"
                     },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "limit": {
+                        "type": "integer"
+                    },
+                    "offset": {
+                        "type": "integer"
+                    },
                     "scoring": {
                         "$ref": "#/components/schemas/ProductBacklogScoring"
                     }
@@ -66622,7 +66647,10 @@
                 "required": [
                     "epics",
                     "health",
+                    "limit",
+                    "offset",
                     "scoring",
+                    "truncated",
                     "ungrouped"
                 ]
             },

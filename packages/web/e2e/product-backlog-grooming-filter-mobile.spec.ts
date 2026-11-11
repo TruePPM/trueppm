@@ -106,6 +106,48 @@ function groomingPayload() {
   };
 }
 
+/**
+ * Serve the grooming read as two rank pages (#2344): page one (offset 0) is capped at
+ * 3 stories with `truncated: true`; `?offset=3` returns the story ranked past the cap.
+ * Registered last so it wins over the setup's single-page route, and matched by URL
+ * predicate because the glob form does not match a query string.
+ */
+async function routePagedBacklog(page: Page) {
+  const offsets: number[] = [];
+  await page.route(/\/api\/v1\/projects\/[^/]+\/product-backlog\/(\?.*)?$/, (route) => {
+    const offset = Number(new URL(route.request().url()).searchParams.get('offset') ?? '0');
+    offsets.push(offset);
+    const base = groomingPayload();
+    const health = { ...base.health, story_count: 4 };
+    const body =
+      offset === 0
+        ? { ...base, health, truncated: true, limit: 3, offset: 0 }
+        : {
+            ...base,
+            health,
+            epics: base.epics.map((g) => ({ ...g, stories: [] })),
+            ungrouped: [
+              apiStory({
+                id: 'S501',
+                name: 'Ranked past the cap',
+                short_id: 'ST-501',
+                type: 'story',
+                dor: 'idea',
+              }),
+            ],
+            truncated: false,
+            limit: 3,
+            offset,
+          };
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+  });
+  return offsets;
+}
+
 async function setup(page: Page) {
   await setupAuth(page);
   await setupCatchAll(page);
@@ -164,14 +206,18 @@ test.describe('Grooming filter bar — desktop (issue 1044)', () => {
     // violation) once that strip has anything to show.
     await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Open story Loose investigation' }),
+    ).toBeVisible();
 
     await page.getByRole('searchbox', { name: 'Search stories' }).fill('signal');
 
     // Only the matching story survives; the "N of M" readout settles to 1 of 3.
     await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toHaveCount(
+      0,
+    );
     await expect(page.getByText('1 of 3').first()).toBeVisible();
   });
 
@@ -189,7 +235,9 @@ test.describe('Grooming filter bar — desktop (issue 1044)', () => {
     // of this toggle.
     await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Open story Loose investigation' }),
+    ).toBeVisible();
 
     // Clear restores the full list.
     await page.getByRole('button', { name: 'Clear' }).click();
@@ -212,7 +260,9 @@ test.describe('Grooming filter bar — desktop (issue 1044)', () => {
     // Row-button scoped per the note above.
     await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toBeVisible(); // dor=ready
     await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toHaveCount(0); // dor=refine
-    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toHaveCount(0); // dor=idea
+    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toHaveCount(
+      0,
+    ); // dor=idea
   });
 });
 
@@ -235,6 +285,26 @@ test.describe('Mobile grooming (issue 1044, 375px)', () => {
     // Epic section header + the "No epic" section.
     await expect(page.getByRole('heading', { name: 'Telemetry' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'No epic' })).toBeVisible();
+  });
+
+  test('the truncation notice loads the next rank page on the phone (#2344)', async ({ page }) => {
+    await setup(page);
+    const offsets = await routePagedBacklog(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+    const notice = page.getByRole('complementary', { name: 'Backlog truncated' });
+    await expect(notice).toContainText('Showing the top 3 of 4 stories by rank', {
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('button', { name: 'Open story Ranked past the cap' })).toHaveCount(
+      0,
+    );
+    await notice.getByRole('button', { name: 'Load next 1' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Open story Ranked past the cap' }),
+    ).toBeVisible();
+    // The whole backlog is loaded now, so the notice (and its control) goes away.
+    await expect(notice).toHaveCount(0);
+    expect(offsets).toContain(3);
   });
 
   test('the readiness chip scroller leaves room for the focus ring (#4775)', async ({ page }) => {

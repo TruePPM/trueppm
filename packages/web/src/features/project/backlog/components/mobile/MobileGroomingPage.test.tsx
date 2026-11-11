@@ -55,6 +55,7 @@ function makeBacklog(): ProductBacklog {
 }
 
 const h = vi.hoisted(() => ({
+  loadMoreMutate: vi.fn(),
   data: undefined as ProductBacklog | undefined,
   isLoading: false,
   isError: false,
@@ -97,6 +98,7 @@ vi.mock('../StoryDetailDrawer', () => ({
 vi.mock('../../hooks/useProductBacklog', () => ({
   useProductBacklog: () => ({ data: h.data, isLoading: h.isLoading, isError: h.isError }),
   useSetDor: () => ({ mutate: h.setDorMutate }),
+  useLoadMoreProductBacklog: () => ({ mutate: h.loadMoreMutate, isPending: false }),
   useQuickAddStory: () => ({
     mutate: h.quickAddMutate,
     isError: h.quickAddIsError,
@@ -154,6 +156,25 @@ describe('MobileGroomingPage (issue 1044)', () => {
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
+  it('counts the whole backlog in the Waterfall banner when truncated (#2344)', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    const b = makeBacklog();
+    h.data = { ...b, truncated: true, limit: 500, health: { ...b.health, storyCount: 3000 } };
+    render(<MobileGroomingPage />);
+    expect(screen.getByText(/but 3000 stories already are groomed here/)).toBeInTheDocument();
+  });
+
+  it('qualifies the no-match copy as loaded-only when truncated (#2344)', async () => {
+    h.data = { ...makeBacklog(), truncated: true, limit: 500 };
+    render(<MobileGroomingPage />);
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search stories' }), {
+      target: { value: 'zzz-none' },
+    });
+    expect(
+      await screen.findByText('No stories match your filters among the 3 loaded stories.'),
+    ).toBeInTheDocument();
+  });
+
   // #2619 finding A — the mobile half of the populated-backlog signal. Without
   // it a phone user on a groomed backlog flipped to WATERFALL sees the ordinary
   // page with nothing saying the stories now sit outside the workflow.
@@ -179,7 +200,7 @@ describe('MobileGroomingPage (issue 1044)', () => {
     expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
   });
 
-  it('shows no banner on an EMPTY backlog under WATERFALL — that is the empty state\'s job', () => {
+  it("shows no banner on an EMPTY backlog under WATERFALL — that is the empty state's job", () => {
     h.data = { ...makeBacklog(), epics: [], ungrouped: [] };
     h.effectiveMethodology = 'WATERFALL';
     render(<MobileGroomingPage />);
@@ -289,5 +310,24 @@ describe('MobileGroomingPage (issue 1044)', () => {
     render(<MobileGroomingPage />);
     fireEvent.click(screen.getByLabelText('Add story'));
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't add the story");
+  });
+
+  it('shows the truncation notice with load-more on the phone too (#2344, rule 296)', () => {
+    h.data = {
+      ...makeBacklog(),
+      truncated: true,
+      limit: 500,
+      health: { ...makeBacklog().health, storyCount: 1200 },
+    };
+    render(<MobileGroomingPage />);
+    const notice = screen.getByRole('complementary', { name: 'Backlog truncated' });
+    expect(notice).toHaveTextContent(/of 1,200 stories by rank/);
+    fireEvent.click(within(notice).getByRole('button', { name: 'Load next 500' }));
+    expect(h.loadMoreMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no truncation notice when the whole backlog is loaded', () => {
+    render(<MobileGroomingPage />);
+    expect(screen.queryByTestId('backlog-truncated-notice')).not.toBeInTheDocument();
   });
 });

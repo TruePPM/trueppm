@@ -10,7 +10,8 @@
  *   - the unified reparent surface (#1345): every epic group + the "No epic" bucket
  *     register as drop targets, and the live-region announcer is mounted
  *
- * The reorder + reparent write paths are covered by the api/hook vitest; the drag
+ * The reorder + reparent write paths are covered by the api/hook vitest (one keyboard
+ * drag reorder on a truncated backlog runs end to end here, #2344); the drag
  * disambiguation + optimistic move are exercised by the backlogDrag unit logic. The
  * keyboard-accessible reparent alternative is the drawer's "Parent epic" select (#1043).
  */
@@ -126,6 +127,48 @@ function groomingPayload(empty = false) {
   };
 }
 
+/**
+ * Serve the grooming read as two rank pages (#2344): page one (offset 0) is capped at
+ * 3 stories with `truncated: true`; `?offset=3` returns the story ranked past the cap.
+ * Registered last so it wins over the setup's single-page route, and matched by URL
+ * predicate because the glob form does not match a query string.
+ */
+async function routePagedBacklog(page: import('@playwright/test').Page) {
+  const offsets: number[] = [];
+  await page.route(/\/api\/v1\/projects\/[^/]+\/product-backlog\/(\?.*)?$/, (route) => {
+    const offset = Number(new URL(route.request().url()).searchParams.get('offset') ?? '0');
+    offsets.push(offset);
+    const base = groomingPayload();
+    const health = { ...base.health, story_count: 4 };
+    const body =
+      offset === 0
+        ? { ...base, health, truncated: true, limit: 3, offset: 0 }
+        : {
+            ...base,
+            health,
+            epics: base.epics.map((g) => ({ ...g, stories: [] })),
+            ungrouped: [
+              apiStory({
+                id: 'S501',
+                name: 'Ranked past the cap',
+                short_id: 'ST-501',
+                type: 'story',
+                dor: 'idea',
+              }),
+            ],
+            truncated: false,
+            limit: 3,
+            offset,
+          };
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+  });
+  return offsets;
+}
+
 async function setup(
   page: import('@playwright/test').Page,
   { empty = false }: { empty?: boolean } = {},
@@ -165,6 +208,78 @@ async function setup(
 }
 
 test.describe('Product backlog grooming (#494/#921/#922)', () => {
+  test('load-more past the story cap reaches a story ranked beyond page one (#2344)', async ({
+    page,
+  }) => {
+    await setup(page);
+    const offsets = await routePagedBacklog(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+    const notice = page.getByRole('complementary', { name: 'Backlog truncated' });
+    await expect(notice).toContainText('Showing the top 3 of 4 stories by rank', {
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('button', { name: 'Open story Ranked past the cap' })).toHaveCount(
+      0,
+    );
+    await notice.getByRole('button', { name: 'Load next 1' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Open story Ranked past the cap' }),
+    ).toBeVisible();
+    // The whole backlog is loaded now, so the notice (and its control) goes away.
+    await expect(notice).toHaveCount(0);
+    expect(offsets).toContain(3);
+  });
+
+  test('a drag on a truncated backlog loads the rest first and saves the complete order (#2344)', async ({
+    page,
+  }) => {
+    await setup(page);
+    const offsets = await routePagedBacklog(page);
+    const reorders: Array<{ stories: Array<{ id: string }> }> = [];
+    await page.route('**/api/v1/projects/*/product-backlog/reorder/', async (route) => {
+      reorders.push(route.request().postDataJSON() as { stories: Array<{ id: string }> });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ updated: 2 }),
+      });
+    });
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByRole('complementary', { name: 'Backlog truncated' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Keyboard drag (dnd-kit KeyboardSensor): lift Failover handling, move it below Signal
+    // smoothing, drop. Only page one is loaded when the drag starts.
+    const handle = page.getByRole('button', { name: 'Reorder Failover handling' });
+    await handle.focus();
+    await page.keyboard.press('Space');
+    // Lifting the row starts loading the pages past the cap while it is in flight.
+    await expect.poll(() => offsets).toContain(3);
+    await expect(
+      page.getByRole('button', { name: 'Open story Ranked past the cap' }),
+    ).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect(
+      page.getByText(/Draggable item S1 was moved over droppable area S2/),
+    ).toBeAttached();
+    await page.keyboard.press('Space');
+
+    await expect.poll(() => reorders.length).toBe(1);
+    // Every story is in the payload, including the one ranked past the cap.
+    expect(reorders[0].stories.map((e) => e.id)).toEqual(['S2', 'S1', 'S3', 'S501']);
+    await expect(page.getByText('Backlog changed — reloaded. Try your move again.')).toHaveCount(0);
+  });
+
+  test('shows no truncation notice for an uncapped backlog (#2344)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId('backlog-truncated-notice')).toHaveCount(0);
+  });
+
   test('renders epics, stories, and the active-model score column', async ({ page }) => {
     await setup(page);
     await page.goto(`${BASE_URL}/product-backlog`);
@@ -180,7 +295,9 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await expect(page.getByText('Telemetry')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Open story Loose investigation' }),
+    ).toBeVisible();
 
     // #922 score column: the model name appears (header badge + column header) and rows
     // show the computed score. "WSJF" renders in both the badge and the column header, so
@@ -318,7 +435,10 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, async (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       return route.fulfill(
-        json({ ...FIXTURE_PROJECTS[0], my_facets: { is_product_owner: true, is_scrum_master: false } }),
+        json({
+          ...FIXTURE_PROJECTS[0],
+          my_facets: { is_product_owner: true, is_scrum_master: false },
+        }),
       );
     });
     const planned = {
@@ -400,7 +520,10 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, async (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       return route.fulfill(
-        json({ ...FIXTURE_PROJECTS[0], my_facets: { is_product_owner: true, is_scrum_master: false } }),
+        json({
+          ...FIXTURE_PROJECTS[0],
+          my_facets: { is_product_owner: true, is_scrum_master: false },
+        }),
       );
     });
     const planned = {

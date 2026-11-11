@@ -69,6 +69,31 @@ immediately and rolls back if it can't be saved. Drag-to-reparent is limited to 
 who can manage the backlog (see [Who can do what](#who-can-do-what) below) — everyone keeps
 the keyboard-accessible **Parent epic** picker in the story drawer.
 
+### Very large backlogs
+
+:::note[Ships in 0.5]
+The paging, **Load next** control, and truncation notice described in this section ship in
+0.5. In 0.4 the grooming endpoint returns the whole backlog in one unpaged response, and the
+`limit`, `offset`, and `truncated` fields are not present.
+
+The grooming endpoint (`GET /projects/{id}/product-backlog/`) returns at most 500 stories
+per request, in rank order, so opening the board on an imported backlog of thousands of
+stories stays fast. Pass `?limit=N` (maximum 2000) to change the page size and `?offset=N`
+to skip the first N ranked stories and fetch the next page. Every page carries the full epic
+list, and the health strip and each epic's rollup always count the whole backlog. The
+response carries `truncated: true` while more stories rank beyond the page, plus the `limit`
+and `offset` it applied.
+
+On the grooming page (desktop and phone) a capped list shows a notice above the stories,
+for example "Showing the top 500 of 3,000 stories by rank", with a **Load next 500** button
+that appends the next page in rank order. The sprint story picker shows the same notice and
+button, so a story ranked past the first page can still be pulled into a sprint. Search and
+filters apply to the stories loaded so far; load more pages to search further down the
+backlog. Dragging a story on a capped list loads the remaining pages before the new order
+saves, so a reorder works at any backlog size; the drag handle shows a brief loading state
+while that happens.
+:::
+
 ## Work-item types
 
 Every task carries a **type**: Story, Task, Bug, Spike, or Epic. The type drives the

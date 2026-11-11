@@ -48,6 +48,9 @@ function makeBacklog(): ProductBacklog {
       storyCount: 4,
     },
     scoring: { model: 'none' },
+    truncated: false,
+    limit: 500,
+    offset: 0,
   };
 }
 

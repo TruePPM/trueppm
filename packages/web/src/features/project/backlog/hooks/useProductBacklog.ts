@@ -7,17 +7,15 @@
  * re-deriving them client-side and risking drift with the auto-rank result).
  */
 
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type UseQueryResult,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useCallback, useRef } from 'react';
 import {
   createBacklogStory,
   createEpic,
   deleteEpic,
   fetchProductBacklog,
+  loadedStoryCount,
+  mergeBacklogPage,
   patchEpic,
   patchTaskDor,
   postAutoRank,
@@ -34,14 +32,117 @@ export const productBacklogKeys = {
   root: (projectId: string | undefined) => ['product-backlog', projectId] as const,
 };
 
-export function useProductBacklog(
-  projectId: string | undefined,
-): UseQueryResult<ProductBacklog> {
+/**
+ * Fetch the first page, then keep paging until at least `minStories` stories are loaded
+ * (or the backlog ends). Used by refetches so a user who clicked "Load next" does not
+ * snap back to page one when a mutation or WS event invalidates the query.
+ */
+async function fetchProductBacklogPages(
+  projectId: string,
+  minStories: number,
+): Promise<ProductBacklog> {
+  let backlog = await fetchProductBacklog(projectId);
+  while (backlog.truncated && loadedStoryCount(backlog) < minStories) {
+    const before = loadedStoryCount(backlog);
+    backlog = mergeBacklogPage(backlog, await fetchProductBacklog(projectId, before));
+    if (loadedStoryCount(backlog) === before) break;
+  }
+  return backlog;
+}
+
+/**
+ * Cache invariant (#2344): `['product-backlog', projectId]` holds ONE merged
+ * {@link ProductBacklog} covering rank-ordered pages `[0, loaded)`, never a single page.
+ * "Load next" appends a page into that entry ({@link useLoadMoreProductBacklog}), and a
+ * refetch re-reads to the same depth ({@link fetchProductBacklogPages}), so every
+ * existing writer (optimistic reorder/reparent, WS invalidation) keeps working on the
+ * one shape it already knows.
+ */
+export function useProductBacklog(projectId: string | undefined): UseQueryResult<ProductBacklog> {
+  const qc = useQueryClient();
+  const key = productBacklogKeys.root(projectId);
   return useQuery({
-    queryKey: productBacklogKeys.root(projectId),
-    queryFn: () => fetchProductBacklog(projectId as string),
+    queryKey: key,
+    queryFn: () =>
+      fetchProductBacklogPages(
+        projectId as string,
+        loadedStoryCount(qc.getQueryData<ProductBacklog>(key)),
+      ),
     enabled: !!projectId,
   });
+}
+
+/**
+ * Fetch the next rank page past the server cap (offset = stories already loaded) and
+ * merge it into the cached backlog — the escape hatch behind the truncation notice
+ * (packages/web rule 296).
+ */
+export function useLoadMoreProductBacklog(projectId: string | undefined) {
+  const qc = useQueryClient();
+  const key = productBacklogKeys.root(projectId);
+  return useMutation({
+    mutationFn: async (): Promise<ProductBacklog | null> => {
+      const current = qc.getQueryData<ProductBacklog>(key);
+      if (!current) return null;
+      return fetchProductBacklog(projectId as string, loadedStoryCount(current));
+    },
+    onSuccess: (page) => {
+      if (!page) return;
+      qc.setQueryData<ProductBacklog>(key, (cur) => (cur ? mergeBacklogPage(cur, page) : page));
+    },
+  });
+}
+
+/**
+ * Load every remaining rank page into the cached backlog and resolve with the complete
+ * backlog (#2344). The reorder endpoint (ADR-0110) validates the payload against the
+ * WHOLE backlog and 409s on any missing story, so a drag on a truncated backlog must
+ * read the rest first or it can never save. Concurrent callers (drag start prefetches,
+ * the drop awaits) share one in-flight load. Resolves `null` when nothing is cached; a
+ * page that adds no new story stops the loop, so the result can still be `truncated`
+ * and the caller must check.
+ */
+export function useEnsureFullProductBacklog(
+  projectId: string | undefined,
+): () => Promise<ProductBacklog | null> {
+  const qc = useQueryClient();
+  const inflight = useRef<Promise<ProductBacklog | null> | null>(null);
+  return useCallback(() => {
+    if (inflight.current) return inflight.current;
+    const key = productBacklogKeys.root(projectId);
+    const run = (async (): Promise<ProductBacklog | null> => {
+      let backlog = qc.getQueryData<ProductBacklog>(key);
+      if (!backlog || !projectId) return null;
+      // Merge each page into the CURRENT cache (never write a private accumulator): a
+      // reparent or a refetch landing while a page is in flight would otherwise be
+      // clobbered. A page fetched at offset `before` is only contiguous with a cache that
+      // is still `before` stories deep; if a refetch replaced the cache at another depth
+      // meanwhile, merging would leave a hole and mark the backlog complete, so the page
+      // is discarded and the loop re-reads the new depth.
+      while (backlog.truncated) {
+        const before = loadedStoryCount(backlog);
+        const page = await fetchProductBacklog(projectId, before);
+        let applied = false;
+        qc.setQueryData<ProductBacklog>(key, (cur) => {
+          if (!cur) return page;
+          if (loadedStoryCount(cur) !== before) return cur;
+          applied = true;
+          return mergeBacklogPage(cur, page);
+        });
+        backlog = qc.getQueryData<ProductBacklog>(key) ?? backlog;
+        // Stop only when a contiguous page added nothing; a discarded page is retried
+        // from the cache's new depth.
+        if (applied && loadedStoryCount(backlog) === before) break;
+      }
+      return backlog;
+    })();
+    inflight.current = run;
+    const clear = () => {
+      inflight.current = null;
+    };
+    void run.then(clear, clear);
+    return run;
+  }, [qc, projectId]);
 }
 
 function useInvalidate(projectId: string | undefined): () => void {
@@ -81,7 +182,8 @@ export function useSplitStory(projectId: string | undefined) {
  * snapshot so the dragged row stays put, then persists it. On any failure — including a 409
  * stale-snapshot conflict — it rolls back to the pre-drag cache and refetches, so the view
  * snaps to the authoritative server order (the caller surfaces the "backlog changed" notice).
- * The `stories` payload is the COMPLETE backlog in target order.
+ * The `stories` payload is the COMPLETE backlog in target order — on a truncated backlog the
+ * caller loads the remaining pages first ({@link useEnsureFullProductBacklog}).
  */
 export function useReorderBacklog(projectId: string | undefined) {
   const qc = useQueryClient();

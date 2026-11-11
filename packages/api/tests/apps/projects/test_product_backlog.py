@@ -1458,3 +1458,111 @@ def test_split_query_count_is_bounded(
     with django_assert_max_num_queries(28):
         resp = owner_client.post(f"/api/v1/tasks/{parent.pk}/split/", {}, format="json")
     assert resp.status_code == 201
+
+
+# --------------------------------------------------------------------------- #
+# Grooming endpoint truncation (#2344)
+# --------------------------------------------------------------------------- #
+
+
+def test_grooming_limit_truncates_stories_but_not_health_or_rollups(
+    owner_client: APIClient, project: Project
+) -> None:
+    epic = _story(project, name="EP", type=TaskType.EPIC)
+    for i in range(3):
+        s = _story(project, name=f"c{i}", parent_epic=epic, story_points=2)
+        _criterion(s, met=(i == 0))
+    for i in range(2):
+        _story(project, name=f"loose{i}", story_points=None)
+    resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=2")
+    assert resp.status_code == 200
+    body = resp.data
+    shown = len(body["epics"][0]["stories"]) + len(body["ungrouped"])
+    assert shown == 2
+    assert body["truncated"] is True
+    assert body["limit"] == 2
+    assert body["epics"][0]["rollup"] == {"story_count": 3, "points_total": 6, "points_done": 0}
+    assert body["health"]["story_count"] == 5
+    assert body["health"]["unestimated"] == 2
+    assert body["health"]["ac_total"] == 3
+    assert body["health"]["ac_met"] == 1
+
+
+def test_grooming_default_not_truncated_for_small_backlog(
+    owner_client: APIClient, project: Project
+) -> None:
+    _story(project, name="one")
+    body = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/").data
+    assert body["truncated"] is False
+    assert len(body["ungrouped"]) == 1
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "abc"])
+def test_grooming_rejects_bad_limit(owner_client: APIClient, project: Project, bad: str) -> None:
+    resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit={bad}")
+    assert resp.status_code == 400
+
+
+def test_grooming_limit_clamped_to_max(owner_client: APIClient, project: Project) -> None:
+    _story(project, name="one")
+    body = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=5000").data
+    assert body["limit"] == 2000
+
+
+def test_grooming_query_count_independent_of_story_count(
+    owner_client: APIClient, project: Project, django_assert_max_num_queries: Any
+) -> None:
+    for i in range(15):
+        _criterion(_story(project, name=f"s{i}", story_points=1), met=True)
+    with django_assert_max_num_queries(40):
+        assert (
+            owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=5").status_code
+            == 200
+        )
+
+
+def _ranked_names(body: dict[str, Any]) -> list[str]:
+    rows = [s for g in body["epics"] for s in g["stories"]] + list(body["ungrouped"])
+    return [r["name"] for r in sorted(rows, key=lambda r: r["priority_rank"])]
+
+
+def test_grooming_offset_returns_the_next_ranks(owner_client: APIClient, project: Project) -> None:
+    epic = _story(project, name="EP", type=TaskType.EPIC, priority_rank=1)
+    for i in range(5):
+        _story(project, name=f"r{i + 1}", priority_rank=i + 1, parent_epic=epic if i % 2 else None)
+    url = f"/api/v1/projects/{project.pk}/product-backlog/"
+    first = owner_client.get(f"{url}?limit=2").data
+    assert first["offset"] == 0
+    assert _ranked_names(first) == ["r1", "r2"]
+    assert first["truncated"] is True
+    second = owner_client.get(f"{url}?limit=2&offset=2").data
+    assert second["offset"] == 2
+    assert _ranked_names(second) == ["r3", "r4"]
+    assert second["truncated"] is True
+    # Epics + whole-backlog health come back on every page.
+    assert [g["epic"]["name"] for g in second["epics"]] == ["EP"]
+    assert second["health"]["story_count"] == 5
+    last = owner_client.get(f"{url}?limit=2&offset=4").data
+    assert _ranked_names(last) == ["r5"]
+    assert last["truncated"] is False
+    past = owner_client.get(f"{url}?limit=2&offset=10").data
+    assert _ranked_names(past) == []
+    assert past["truncated"] is False
+
+
+@pytest.mark.parametrize("bad", ["-1", "abc", "1.5", str(10**30)])
+def test_grooming_rejects_bad_offset(owner_client: APIClient, project: Project, bad: str) -> None:
+    resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?offset={bad}")
+    assert resp.status_code == 400
+    assert "offset" in resp.data
+
+
+def test_grooming_offset_query_count_bounded(
+    owner_client: APIClient, project: Project, django_assert_max_num_queries: Any
+) -> None:
+    for i in range(15):
+        _criterion(_story(project, name=f"s{i}", story_points=1, priority_rank=i + 1), met=True)
+    with django_assert_max_num_queries(40):
+        resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=5&offset=5")
+    assert resp.status_code == 200
+    assert len(resp.data["ungrouped"]) == 5

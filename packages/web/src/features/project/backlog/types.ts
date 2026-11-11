@@ -41,4 +41,10 @@ export interface ProductBacklog {
   scoring: {
     model: PrioritizationModel;
   };
+  /** True when the server capped the story list; health still covers the whole backlog. */
+  truncated: boolean;
+  /** The story cap the server applied (page size). */
+  limit: number;
+  /** Rank offset of the first story in this payload's first page (0 unless paged). */
+  offset: number;
 }

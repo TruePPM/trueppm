@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, within } from '@testing-library/react';
+import { fireEvent, render, screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -14,6 +14,9 @@ import { ProductBacklogPage } from './ProductBacklogPage';
 // object so each test can drive the exact loading / error / empty / populated /
 // filtered / permission branch it exercises.
 const h = vi.hoisted(() => ({
+  loadMoreMutate: vi.fn(),
+  /** Loads every remaining page (#2344); resolves the complete backlog. */
+  ensureFull: vi.fn(),
   bp: { value: 'lg' as 'sm' | 'md' | 'lg' },
   backlog: { isLoading: true, isError: false, data: undefined as ProductBacklog | undefined },
   canManage: true,
@@ -235,6 +238,8 @@ vi.mock('./hooks/useProductBacklog', () => ({
     root: (projectId: string | undefined) => ['product-backlog', projectId] as const,
   },
   useProductBacklog: () => h.backlog,
+  useLoadMoreProductBacklog: () => ({ mutate: h.loadMoreMutate, isPending: false }),
+  useEnsureFullProductBacklog: () => h.ensureFull,
   useAutoRank: () => ({ mutate: h.autoRankMutate, isPending: h.autoRankPending }),
   useSetDor: () => ({ mutate: h.setDorMutate }),
   useReorderBacklog: () => ({ mutate: h.reorderMutate }),
@@ -395,6 +400,9 @@ function makeBacklog(over: Partial<ProductBacklog> = {}): ProductBacklog {
       storyCount: 3,
     },
     scoring: { model: 'wsjf' },
+    truncated: false,
+    limit: 500,
+    offset: 0,
     ...over,
   };
 }
@@ -481,6 +489,64 @@ describe('ProductBacklogPage layout swap (issue 1044)', () => {
   });
 });
 
+// ── Story-cap truncation notice (#2344) ─────────────────────────────────────
+describe('ProductBacklogPage truncation notice (#2344)', () => {
+  it('tells the user the list is capped while health still counts the whole backlog', () => {
+    h.bp.value = 'lg';
+    setData(
+      makeBacklog({
+        truncated: true,
+        limit: 500,
+        offset: 0,
+        health: { ...makeBacklog().health, storyCount: 3000 },
+      }),
+    );
+    renderPage();
+    const notice = screen.getByRole('complementary', { name: 'Backlog truncated' });
+    expect(notice).toHaveTextContent(/Showing the top \d+ of 3,000 stories by rank/);
+    fireEvent.click(within(notice).getByRole('button', { name: 'Load next 500' }));
+    expect(h.loadMoreMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not claim a loaded-empty epic is empty, nor undercount the Waterfall banner (#2344)', () => {
+    h.bp.value = 'lg';
+    h.effectiveMethodology = 'WATERFALL';
+    const b = makeBacklog();
+    setData(
+      makeBacklog({
+        truncated: true,
+        limit: 500,
+        epics: [
+          { epic: epicTask, stories: [], rollup: { storyCount: 7, pointsTotal: 0, pointsDone: 0 } },
+        ],
+        health: { ...b.health, storyCount: 3000 },
+      }),
+    );
+    renderPage();
+    expect(screen.queryByText(/No stories yet — drag a story here/)).not.toBeInTheDocument();
+    expect(screen.getByText(/7 stories rank below the loaded set/)).toBeInTheDocument();
+    expect(screen.getByText(/but 3000 stories already are groomed here/)).toBeInTheDocument();
+  });
+
+  it('qualifies the no-match copy as loaded-only on a truncated backlog (#2344)', () => {
+    h.bp.value = 'lg';
+    h.filterActive = true;
+    h.filters = { query: 'zzz', dorStates: [], unestimatedOnly: false, labelIds: [] };
+    setData(makeBacklog({ truncated: true, limit: 500 }));
+    renderPage();
+    expect(
+      screen.getByText('No stories match your filters among the 3 loaded stories.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no notice when the backlog is not truncated', () => {
+    h.bp.value = 'lg';
+    setData(makeBacklog({ truncated: false }));
+    renderPage();
+    expect(screen.queryByTestId('backlog-truncated-notice')).not.toBeInTheDocument();
+  });
+});
+
 // ── Loading / error / empty gates ───────────────────────────────────────────
 describe('DesktopGroomingView data gates', () => {
   it('shows a skeleton status region while loading', () => {
@@ -560,7 +626,7 @@ describe('DesktopGroomingView data gates', () => {
     expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
   });
 
-  it('shows no banner on an EMPTY backlog under WATERFALL — that is the empty state\'s job', () => {
+  it("shows no banner on an EMPTY backlog under WATERFALL — that is the empty state's job", () => {
     h.effectiveMethodology = 'WATERFALL';
     setData(makeBacklog({ epics: [], ungrouped: [] }));
     renderPage();
@@ -1381,6 +1447,79 @@ describe('Drag reorder', () => {
     expect(
       screen.queryByText('Backlog changed — reloaded. Try your move again.'),
     ).not.toBeInTheDocument();
+  });
+
+  it('loads the rest of a truncated backlog before saving, and sends the complete order (#2344)', async () => {
+    const s4 = makeStory('s4', { name: 'Past the cap' });
+    const u9 = makeStory('u9', { name: 'Loose past the cap' });
+    const full = makeBacklog({
+      epics: [
+        {
+          epic: epicTask,
+          stories: [s1, s2, s4],
+          rollup: { storyCount: 3, pointsTotal: 5, pointsDone: 0 },
+        },
+      ],
+      ungrouped: [s3, u9],
+      truncated: false,
+    });
+    let resolveFull: (b: ProductBacklog) => void = () => undefined;
+    h.ensureFull.mockReturnValue(
+      new Promise<ProductBacklog>((r) => {
+        resolveFull = r;
+      }),
+    );
+    setData(makeBacklog({ truncated: true, limit: 3 }));
+    renderPage();
+    dragStart('s1');
+    // Drag start prefetches the remaining pages while the row is in flight.
+    expect(h.ensureFull).toHaveBeenCalledTimes(1);
+    dragEnd('s1', 's2');
+    expect(h.ensureFull).toHaveBeenCalledTimes(2);
+    // The save waits for the full backlog; the handle shows the loading state meanwhile.
+    expect(h.reorderMutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('backlog-reorder-loading')).toHaveTextContent(
+      'Loading the rest of the backlog to save your move',
+    );
+    expect(screen.getByRole('button', { name: 'Reorder Login flow' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+    await act(async () => {
+      resolveFull(full);
+      await Promise.resolve();
+    });
+    expect(h.reorderMutate).toHaveBeenCalledTimes(1);
+    const payload = h.reorderMutate.mock.calls[0][0] as { stories: { id: string }[] };
+    // The dragged pair reorders; s4 (page two of the same epic) keeps its place after them.
+    expect(payload.stories.map((e) => e.id)).toEqual(['s2', 's1', 's4', 's3', 'u9']);
+    expect(screen.queryByTestId('backlog-reorder-loading')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Backlog changed — reloaded. Try your move again.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not load more pages before a reorder on a complete backlog', () => {
+    setData(makeBacklog());
+    renderPage();
+    dragStart('s1');
+    dragEnd('s1', 's2');
+    expect(h.ensureFull).not.toHaveBeenCalled();
+    expect(h.reorderMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the reload banner and sends nothing when loading the rest fails (#2344)', async () => {
+    h.ensureFull.mockRejectedValue(new Error('network down'));
+    setData(makeBacklog({ truncated: true, limit: 3 }));
+    renderPage();
+    await act(async () => {
+      dragEnd('s1', 's2');
+      await Promise.resolve();
+    });
+    expect(h.reorderMutate).not.toHaveBeenCalled();
+    expect(
+      screen.getByText('Backlog changed — reloaded. Try your move again.'),
+    ).toBeInTheDocument();
   });
 
   it('dismisses the reload banner', async () => {

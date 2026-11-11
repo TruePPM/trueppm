@@ -30,6 +30,8 @@ import {
   useCreateEpic,
   usePatchEpic,
   useDeleteEpic,
+  useEnsureFullProductBacklog,
+  useLoadMoreProductBacklog,
 } from './useProductBacklog';
 
 const {
@@ -56,7 +58,10 @@ const {
   deleteEpicMock: vi.fn(),
 }));
 
-vi.mock('../api', () => ({
+vi.mock('../api', async () => ({
+  // Pure page-merge helpers run for real so the hook's paging is exercised end to end.
+  loadedStoryCount: (await vi.importActual<typeof import('../api')>('../api')).loadedStoryCount,
+  mergeBacklogPage: (await vi.importActual<typeof import('../api')>('../api')).mergeBacklogPage,
   fetchProductBacklog: fetchProductBacklogMock,
   postAutoRank: postAutoRankMock,
   patchTaskDor: patchTaskDorMock,
@@ -84,6 +89,9 @@ function makeBacklog(overrides: Partial<ProductBacklog> = {}): ProductBacklog {
       storyCount: 0,
     },
     scoring: { model: 'wsjf' as ProductBacklog['scoring']['model'] },
+    truncated: false,
+    limit: 500,
+    offset: 0,
     ...overrides,
   };
 }
@@ -132,6 +140,196 @@ describe('useProductBacklog (read)', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(fetchProductBacklogMock).toHaveBeenCalledWith('p1');
     expect(result.current.data).toBe(backlog);
+  });
+});
+
+describe('product-backlog paging (#2344)', () => {
+  const epic = { id: 'e1', name: 'Epic' } as never;
+  const story = (id: string) => ({ id, name: id }) as never;
+  const page1 = () =>
+    makeBacklog({
+      epics: [
+        { epic, stories: [story('s1')], rollup: { storyCount: 3, pointsTotal: 0, pointsDone: 0 } },
+      ],
+      ungrouped: [story('u1')],
+      truncated: true,
+      limit: 2,
+    });
+  const page2 = () =>
+    makeBacklog({
+      epics: [
+        { epic, stories: [story('s2')], rollup: { storyCount: 3, pointsTotal: 0, pointsDone: 0 } },
+      ],
+      // u1 repeats across a shifted page boundary — must not duplicate.
+      ungrouped: [story('u1'), story('u2')],
+      truncated: false,
+      limit: 2,
+      offset: 2,
+    });
+
+  it('load more fetches offset = stories loaded and merges into epics + ungrouped', async () => {
+    fetchProductBacklogMock.mockResolvedValueOnce(page1()).mockResolvedValueOnce(page2());
+    const qc = makeQC();
+    const wrapper = makeWrapper(qc);
+    const read = renderHook(() => useProductBacklog('p1'), { wrapper });
+    await waitFor(() => expect(read.result.current.isSuccess).toBe(true));
+    const more = renderHook(() => useLoadMoreProductBacklog('p1'), { wrapper });
+    await act(async () => {
+      await more.result.current.mutateAsync();
+    });
+    expect(fetchProductBacklogMock).toHaveBeenLastCalledWith('p1', 2);
+    const merged = qc.getQueryData<ProductBacklog>(productBacklogKeys.root('p1'));
+    expect(merged?.epics[0].stories.map((s) => s.id)).toEqual(['s1', 's2']);
+    expect(merged?.ungrouped.map((s) => s.id)).toEqual(['u1', 'u2']);
+    expect(merged?.truncated).toBe(false);
+    expect(merged?.offset).toBe(0);
+  });
+
+  it('a refetch re-reads to the depth already loaded instead of snapping to page one', async () => {
+    const qc = makeQC();
+    qc.setQueryData(productBacklogKeys.root('p1'), {
+      ...page1(),
+      ungrouped: [story('u1'), story('u2'), story('u3')],
+    });
+    fetchProductBacklogMock.mockResolvedValueOnce(page1()).mockResolvedValueOnce(page2());
+    // Cached-but-stale data refetches on mount — the same path an invalidation takes.
+    renderHook(() => useProductBacklog('p1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(fetchProductBacklogMock).toHaveBeenCalledTimes(2));
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(1, 'p1');
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(2, 'p1', 2);
+  });
+
+  it('ensure-full loads every remaining page before a reorder and shares one in-flight load', async () => {
+    const qc = makeQC();
+    qc.setQueryData(productBacklogKeys.root('p1'), page1());
+    const page3 = () =>
+      makeBacklog({ epics: [], ungrouped: [story('u3')], truncated: false, offset: 4 });
+    fetchProductBacklogMock
+      .mockResolvedValueOnce({ ...page2(), truncated: true })
+      .mockResolvedValueOnce(page3());
+    const { result } = renderHook(() => useEnsureFullProductBacklog('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+    let full: ProductBacklog | null = null;
+    await act(async () => {
+      const a = result.current();
+      const b = result.current();
+      expect(b).toBe(a);
+      full = await a;
+    });
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(1, 'p1', 2);
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(2, 'p1', 4);
+    expect(fetchProductBacklogMock).toHaveBeenCalledTimes(2);
+    expect(full!.truncated).toBe(false);
+    expect(full!.ungrouped.map((s) => s.id)).toEqual(['u1', 'u2', 'u3']);
+    expect(qc.getQueryData(productBacklogKeys.root('p1'))).toEqual(full);
+  });
+
+  it('ensure-full merges each page into the CURRENT cache, keeping a concurrent depth-neutral write', async () => {
+    const qc = makeQC();
+    qc.setQueryData(productBacklogKeys.root('p1'), page1());
+    let release!: (b: ProductBacklog) => void;
+    fetchProductBacklogMock.mockReturnValueOnce(
+      new Promise<ProductBacklog>((r) => {
+        release = r;
+      }),
+    );
+    const { result } = renderHook(() => useEnsureFullProductBacklog('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+    let done!: Promise<ProductBacklog | null>;
+    act(() => {
+      done = result.current();
+    });
+    // An optimistic reparent lands while page 2 is still in flight: it renames/moves a
+    // loaded row but does not change how many stories are loaded.
+    qc.setQueryData<ProductBacklog>(productBacklogKeys.root('p1'), (cur) => ({
+      ...cur!,
+      ungrouped: cur!.ungrouped.map((s) =>
+        s.id === 'u1' ? ({ ...s, name: 'optimistic' } as never) : s,
+      ),
+    }));
+    await act(async () => {
+      release(page2());
+      await done;
+    });
+    const ids = qc
+      .getQueryData<ProductBacklog>(productBacklogKeys.root('p1'))!
+      .ungrouped.map((s) => s.id);
+    const rows = qc.getQueryData<ProductBacklog>(productBacklogKeys.root('p1'))!.ungrouped;
+    expect(rows.find((s) => s.id === 'u1')!.name).toBe('optimistic');
+    expect(ids).toContain('u2');
+  });
+
+  it('ensure-full leaves no hole when a refetch replaces the cache at a shallower depth mid-load', async () => {
+    const qc = makeQC();
+    const deep = makeBacklog({
+      epics: [
+        {
+          epic,
+          stories: [story('s1'), story('s1b')],
+          rollup: { storyCount: 5, pointsTotal: 0, pointsDone: 0 },
+        },
+      ],
+      ungrouped: [story('u1'), story('u1b')],
+      truncated: true,
+      limit: 2,
+    });
+    qc.setQueryData(productBacklogKeys.root('p1'), deep);
+    let release!: (b: ProductBacklog) => void;
+    fetchProductBacklogMock
+      .mockReturnValueOnce(
+        new Promise<ProductBacklog>((r) => {
+          release = r;
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeBacklog({
+          epics: [
+            {
+              epic,
+              stories: [story('s1b')],
+              rollup: { storyCount: 5, pointsTotal: 0, pointsDone: 0 },
+            },
+          ],
+          ungrouped: [story('u1b')],
+          truncated: false,
+          offset: 2,
+        }),
+      );
+    const { result } = renderHook(() => useEnsureFullProductBacklog('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+    let done!: Promise<ProductBacklog | null>;
+    act(() => {
+      done = result.current();
+    });
+    // A WS-invalidation refetch swaps in a shallower (page-one) cache while offset 4 is in flight.
+    qc.setQueryData(productBacklogKeys.root('p1'), page1());
+    let full: ProductBacklog | null = null;
+    await act(async () => {
+      release(makeBacklog({ ungrouped: [story('u3')], truncated: false, offset: 4 }));
+      full = await done;
+    });
+    const ids = [
+      ...full!.epics.flatMap((g) => g.stories.map((s) => s.id)),
+      ...full!.ungrouped.map((s) => s.id),
+    ];
+    expect(ids).toEqual(expect.arrayContaining(['s1', 's1b', 'u1', 'u1b']));
+    expect(ids).not.toContain('u3');
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(2, 'p1', 2);
+  });
+
+  it('ensure-full fetches nothing on a complete backlog', async () => {
+    const qc = makeQC();
+    qc.setQueryData(productBacklogKeys.root('p1'), page2());
+    const { result } = renderHook(() => useEnsureFullProductBacklog('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await act(async () => {
+      await result.current();
+    });
+    expect(fetchProductBacklogMock).not.toHaveBeenCalled();
   });
 
   it('does not fetch while the projectId is undefined (gated query)', () => {
@@ -232,7 +430,10 @@ describe('epic CRUD (#1339)', () => {
     result.current.mutate({ epicId: 'e1', patch: { name: 'Platform Core & SSO', notes: 'OIDC.' } });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(patchEpicMock).toHaveBeenCalledWith('e1', { name: 'Platform Core & SSO', notes: 'OIDC.' });
+    expect(patchEpicMock).toHaveBeenCalledWith('e1', {
+      name: 'Platform Core & SSO',
+      notes: 'OIDC.',
+    });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
   });
 

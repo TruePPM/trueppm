@@ -94,7 +94,11 @@ describe('fromApiProductBacklog', () => {
     expect(story.acMet).toBe(4);
     expect(story.acTotal).toBe(6);
     expect(story.score).toBe(3.5);
-    expect(story.acceptanceCriteria?.[0]).toMatchObject({ text: 'frame order', met: true, metByName: 'Sam R' });
+    expect(story.acceptanceCriteria?.[0]).toMatchObject({
+      text: 'frame order',
+      met: true,
+      metByName: 'Sam R',
+    });
     expect(result.epics[0].rollup).toEqual({ storyCount: 1, pointsTotal: 5, pointsDone: 0 });
     expect(result.ungrouped[0].dor).toBe('idea');
     expect(result.health).toEqual({
@@ -108,6 +112,29 @@ describe('fromApiProductBacklog', () => {
       storyCount: 2,
     });
     expect(result.scoring).toEqual({ model: 'wsjf' });
+    expect(result.truncated).toBe(false);
+  });
+
+  it('maps truncated and limit, and defaults truncated to false when absent', () => {
+    const base = {
+      epics: [],
+      ungrouped: [],
+      health: {
+        dor_pct: 0,
+        ready_count: 0,
+        ready_points: 0,
+        capacity_points: null,
+        unestimated: 0,
+        ac_met: 0,
+        ac_total: 0,
+        story_count: 3000,
+      },
+      scoring: { model: 'wsjf' },
+    };
+    const capped = fromApiProductBacklog({ ...base, truncated: true, limit: 500 } as never);
+    expect(capped.truncated).toBe(true);
+    expect(capped.limit).toBe(500);
+    expect(fromApiProductBacklog(base as never).truncated).toBe(false);
   });
 });
 
