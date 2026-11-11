@@ -49,10 +49,13 @@ class NonRetryableError(Exception):
 class RestartRefusedError(RuntimeError):
     """Raised by ``start_workflow(restart_failed=True)`` when a re-run is unsafe.
 
-    A failed instance whose saga rollback compensated any step cannot be resumed:
-    the restart replays from step 0 and the compensated steps would return their
-    cached results without their side effects being re-applied. The caller must
-    start a fresh workflow under a new idempotency key instead.
+    The restart replays from step 0, and completed steps return their cached
+    results. The default backend deletes a step's cached result when the saga
+    rollback compensates it, so a compensated step simply runs again. This is
+    raised only when a compensated step still has a cached result (an instance
+    rolled back before that cleanup existed): resuming would stand that stale
+    result in for a side effect that is gone. The caller must start a fresh
+    workflow under a new idempotency key instead.
     """
 
 
@@ -127,11 +130,17 @@ class WorkflowBackend(ABC):
         it a failed workflow is terminal for its key, so an operator's retry of the
         same logical request would silently be a no-op. The re-run replays from
         step 0 and steps that already completed return their cached result, so it
-        resumes at the failed step. That is only sound when nothing was undone:
-        if the failed attempt's rollback compensated any step, the cached results
-        describe side effects that no longer exist, and the backend raises
-        :class:`RestartRefusedError` instead of restarting. Backends that predate
-        this flag need not accept it; the service layer passes it only when true.
+        resumes at the failed step. A step the failed attempt's rollback
+        compensated must run again rather than return its cached result: the
+        default backend drops that cache when it compensates, and raises
+        :class:`RestartRefusedError` if it finds a compensated step still cached.
+
+        Backends that predate this flag need not accept it. The service layer
+        (``workflows.services.start_workflow``) forwards it only when it is true
+        and this method's signature accepts it (by name or ``**kwargs``); against
+        a backend that does not, it starts without the flag and logs a warning, so
+        a FAILED instance under the key comes back unchanged rather than the call
+        raising ``TypeError``. A backend that wants restarts must add the keyword.
 
         Fire-and-forget by default (``wait_for_completion=False``); blocking on
         completion defeats the durability guarantee and is reserved for

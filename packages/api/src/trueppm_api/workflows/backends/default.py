@@ -226,13 +226,25 @@ class DefaultWorkflowBackend(WorkflowBackend):
                 # operator's retry of the same request returns the corpse and
                 # does nothing (#2994). Steps that already completed return their
                 # cached result (once-and-only-once), so the rerun resumes at the
-                # failed step. That is unsound once compensation undid a step:
-                # its cached result would stand in for a side effect that is gone,
-                # so the restart is refused rather than silently corrupting state.
-                if instance.history.filter(event_type="step_compensated").exists():
+                # failed step. A step the rollback compensated has no cached
+                # result any more (``_handle_failure`` deletes it), so the rerun
+                # executes it again. The refusal below covers only an instance
+                # whose compensated step still has a cached result — one rolled
+                # back before compensation cleared the cache — where resuming
+                # would stand a stale result in for a side effect that is gone.
+                compensated = {
+                    event.payload.get("step")
+                    for event in instance.history.filter(event_type="step_compensated")
+                }
+                if (
+                    compensated
+                    and WorkflowActivityExecution.objects.filter(
+                        workflow=instance, activity_name__in=compensated
+                    ).exists()
+                ):
                     raise RestartRefusedError(
                         f"workflow {instance.id} cannot be restarted: its rollback "
-                        "compensated completed steps, so their cached results are "
+                        "compensated completed steps whose cached results are "
                         "stale. Start a new workflow under a new idempotency key."
                     )
                 instance.status = WorkflowStatus.RUNNING

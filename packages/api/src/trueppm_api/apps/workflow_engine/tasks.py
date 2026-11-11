@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
 from trueppm_api.apps.workflow_engine.models import (
+    WorkflowActivityExecution,
     WorkflowHistoryEvent,
     WorkflowInstance,
     WorkflowOutboxFailureReason,
@@ -120,6 +121,14 @@ def _handle_failure(
     the others, and never masks the original failure recorded on the instance.
     Only steps *before* the failed one are compensated; the failed step did not
     complete its side effect to a recorded result.
+
+    A successfully compensated step's cached execution is deleted with it. That
+    cache is what lets a restart (``restart_failed``) skip a completed step, and
+    once its side effect is undone the cached result describes nothing. Keeping
+    the fact in the cache itself, rather than only in the ``step_compensated``
+    history event, matters because history is purged after
+    ``WORKFLOW_HISTORY_RETENTION_DAYS`` while the instance and its executions are
+    not: a guard reading history alone would stop protecting the restart.
     """
     context = step_context(instance)
     for index in range(failed_index - 1, -1, -1):
@@ -128,6 +137,9 @@ def _handle_failure(
             continue
         try:
             step.compensate(context)
+            WorkflowActivityExecution.objects.filter(
+                workflow=instance, activity_name=step.name
+            ).delete()
             record_history(instance, "step_compensated", {"step": step.name, "index": index})
         except Exception:  # TODO(#4421): also swallows SoftTimeLimitExceeded
             logger.exception(

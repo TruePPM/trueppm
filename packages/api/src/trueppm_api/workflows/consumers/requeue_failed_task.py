@@ -25,6 +25,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from django.db import transaction
+
 from trueppm_api.workflows.registry import WorkflowDefinition, WorkflowStep
 
 logger = logging.getLogger(__name__)
@@ -48,9 +50,10 @@ def _redispatch_activity(ctx: dict[str, Any]) -> dict[str, Any] | None:
     )
 
     wf_input = ctx["workflow_input"]
-    # The row is only stamped once this runs, so it can have been dropped (or
-    # retried by another request) while the workflow waited. Re-dispatching it
-    # then would resurrect work the operator discarded.
+    # The row is only stamped once this runs, so it can have been dropped while
+    # the workflow waited. Re-dispatching it then would resurrect work the
+    # operator discarded. A RETRIED row is still re-dispatched: see
+    # ``failed_task_is_actionable`` for the mixed-version rollout that produces one.
     if not failed_task_is_actionable(wf_input["failed_task_id"]):
         logger.info(
             "requeue: failed task %s is no longer actionable — not re-dispatching",
@@ -64,10 +67,14 @@ def _redispatch_activity(ctx: dict[str, Any]) -> dict[str, Any] | None:
         countdown=int(wf_input.get("backoff_seconds", 0) or 0),
     )
     # Stamp RETRIED only now that the re-dispatch happened (#2994). A failure in the
-    # stamp must not raise: the engine would retry the step and re-dispatch the
-    # original task a second time, so it is logged and the row stays actionable.
+    # stamp must not fail the step: the engine would retry it and re-dispatch the
+    # original task a second time. The stamp runs in its own savepoint because a
+    # database error aborts the enclosing one, and catching the exception alone
+    # would leave the engine's own write of this activity's result to fail on the
+    # aborted transaction — which is a step failure, and a re-dispatch, after all.
     try:
-        mark_failed_task_retried(wf_input["failed_task_id"], wf_input.get("resolved_by_id"))
+        with transaction.atomic():
+            mark_failed_task_retried(wf_input["failed_task_id"], wf_input.get("resolved_by_id"))
     except Exception:
         logger.exception(
             "requeue: re-dispatched %s but could not stamp failed task %s RETRIED",

@@ -507,3 +507,148 @@ class TestPermissions:
         url = BASE + path_suffix.format(id=failed.id)
         res = _admin_client().post(url, body, format="json")
         assert res.status_code == 200
+
+
+def _advance_until_settled(instance: WorkflowInstance, max_attempts: int = 3) -> None:
+    """Run the requeue step and every engine retry, as the drain would.
+
+    A transiently failed row goes DEAD with a retry clock; the drain flips it back
+    to PENDING. This loop does the same, so a step that fails on every attempt
+    shows up as repeated activity runs rather than a single one.
+    """
+    from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
+    from trueppm_api.apps.workflow_engine.tasks import _do_advance
+
+    for _ in range(max_attempts):
+        row = WorkflowOutboxRow.objects.get(workflow=instance)
+        if row.status == WorkflowOutboxStatus.DEAD and row.next_attempt_at is not None:
+            WorkflowOutboxRow.objects.filter(id=row.id).update(
+                status=WorkflowOutboxStatus.PENDING, next_attempt_at=None
+            )
+        elif row.status != WorkflowOutboxStatus.PENDING:
+            return
+        _do_advance(str(row.id))
+
+
+@pytest.mark.django_db
+class TestRequeueStampIsolation:
+    """A failing RETRIED stamp must not re-dispatch the original task (#2994)."""
+
+    def test_db_error_in_the_stamp_does_not_redispatch_again(self) -> None:
+        from unittest.mock import patch
+
+        from django.db import connection
+
+        failed = _failed()
+        _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+
+        def _broken_stamp(*_args: Any, **_kwargs: Any) -> int:
+            # A real DB error aborts the enclosing savepoint, unlike a Python one.
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1/0")
+            return 0
+
+        with (
+            patch(
+                "trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task",
+                return_value="celery-new",
+            ) as send,
+            patch(
+                "trueppm_api.apps.scheduling.services.mark_failed_task_retried",
+                side_effect=_broken_stamp,
+            ),
+        ):
+            _advance_until_settled(instance)
+
+        instance.refresh_from_db()
+        assert instance.status == "completed"
+        assert send.call_count == 1
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD  # stamp failed; row stays actionable
+
+    def test_retried_row_from_an_old_pod_is_still_redispatched(self) -> None:
+        """Mixed-version rollout: an old pod stamped RETRIED at POST time."""
+        from unittest.mock import patch
+
+        failed = _failed()
+        _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        FailedTask.objects.filter(pk=failed.pk).update(status=FailedTaskStatus.RETRIED)
+        instance = WorkflowInstance.objects.get(name=WORKFLOW_NAME)
+        with patch(
+            "trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task",
+            return_value="celery-new",
+        ) as send:
+            _advance_until_settled(instance)
+        send.assert_called_once()
+        instance.refresh_from_db()
+        assert instance.status == "completed"
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.RETRIED
+        assert failed.resolved_by is not None and failed.resolved_at is not None
+
+    def test_requeue_works_against_a_legacy_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A WorkflowBackend that predates ``restart_failed`` must not 500 a requeue."""
+        from trueppm_api.workflows import services
+
+        calls: list[str | None] = []
+
+        class _Legacy:
+            def start_workflow(
+                self,
+                name: str,
+                input: dict[str, Any],
+                *,
+                idempotency_key: str | None = None,
+                wait_for_completion: bool = False,
+            ) -> str:
+                calls.append(idempotency_key)
+                return "legacy-id"
+
+        monkeypatch.setattr(services, "get_backend", lambda: _Legacy())
+        failed = _failed()
+        res = _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        assert res.status_code == 200
+        assert res.data["workflow_id"] == "legacy-id"
+        assert len(calls) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_stamp_naming_a_deleted_user_does_not_fail_the_commit() -> None:
+    """The deferred FK check fires at COMMIT, outside any try in the activity."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
+    from trueppm_api.apps.workflow_engine.tasks import advance_workflow_step
+    from trueppm_api.workflows.services import start_workflow
+
+    failed = _failed()
+    gone = User.objects.create_user(username="dl_gone", password="pw")
+    with patch.object(advance_workflow_step, "delay", side_effect=ConnectionError("no broker")):
+        wf_id = start_workflow(
+            WORKFLOW_NAME,
+            {
+                "failed_task_id": str(failed.id),
+                "task_name": failed.task_name,
+                "args": failed.args,
+                "kwargs": failed.kwargs,
+                "backoff_seconds": 0,
+                "resolved_by_id": gone.pk,
+            },
+            idempotency_key="requeue-gone-user",
+        )
+    gone.delete()
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    with patch(
+        "trueppm_api.apps.scheduling.services.redispatch_dead_lettered_task",
+        return_value="celery-new",
+    ) as send:
+        _advance_until_settled(instance)
+    send.assert_called_once()
+    instance.refresh_from_db()
+    assert instance.status == "completed"
+    row = WorkflowOutboxRow.objects.get(workflow=instance)
+    assert row.status == WorkflowOutboxStatus.DONE
+    failed.refresh_from_db()
+    assert failed.status == FailedTaskStatus.RETRIED
+    assert failed.resolved_by_id is None

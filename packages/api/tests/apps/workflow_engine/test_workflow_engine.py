@@ -809,15 +809,59 @@ def test_service_does_not_pass_restart_failed_to_a_legacy_backend(
     monkeypatch.setattr(services, "get_backend", lambda: _Legacy())
     assert services.start_workflow("x", {}, idempotency_key="k") == "legacy-id"
     assert calls == [{"name": "x", "key": "k"}]
-    # Opting in against a backend that cannot honor it fails loudly, not silently.
-    with pytest.raises(TypeError):
-        services.start_workflow("x", {}, restart_failed=True)
+    # Opting in against a backend that cannot honor it degrades to a plain start
+    # (logged), never a TypeError that would 500 every requeue.
+    assert services.start_workflow("x", {}, idempotency_key="k2", restart_failed=True) == (
+        "legacy-id"
+    )
+    assert calls[-1] == {"name": "x", "key": "k2"}
 
 
-def test_restart_failed_is_refused_after_compensation(
-    registry: None, backend: DefaultWorkflowBackend
+def test_service_forwards_restart_failed_through_var_keyword(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from trueppm_api.workflows import RestartRefusedError
+    """A backend taking ``**kwargs`` receives the flag."""
+    from trueppm_api.workflows import services
+
+    seen: list[dict[str, Any]] = []
+
+    class _Kw:
+        def start_workflow(self, name: str, input: dict[str, Any], **kwargs: Any) -> str:
+            seen.append(kwargs)
+            return "kw-id"
+
+    monkeypatch.setattr(services, "get_backend", lambda: _Kw())
+    services.start_workflow("x", {}, restart_failed=True)
+    assert seen[-1]["restart_failed"] is True
+
+
+def test_service_does_not_retry_a_typeerror_raised_inside_the_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backend bug is not mistaken for a legacy signature and run twice."""
+    from trueppm_api.workflows import services
+
+    attempts: list[int] = []
+
+    class _Buggy:
+        def start_workflow(
+            self, name: str, input: dict[str, Any], *, restart_failed: bool = False, **_: Any
+        ) -> str:
+            attempts.append(1)
+            raise TypeError("bug inside the backend")
+
+    monkeypatch.setattr(services, "get_backend", lambda: _Buggy())
+    with pytest.raises(TypeError, match="bug inside"):
+        services.start_workflow("x", {}, restart_failed=True)
+    assert len(attempts) == 1
+
+
+def _compensating_chain(runs: list[str]) -> None:
+    """Register ``comp``: step one (compensable) succeeds, step two fails for good."""
+
+    def one(ctx: dict[str, Any]) -> dict[str, Any]:
+        runs.append("one")
+        return {"a": len(runs)}
 
     def boom(ctx: dict[str, Any]) -> None:
         raise NonRetryableError("x")
@@ -825,16 +869,115 @@ def test_restart_failed_is_refused_after_compensation(
     _register(
         "comp",
         [
-            WorkflowStep("one", lambda ctx: {"a": 1}, compensate=lambda ctx: None),
+            WorkflowStep("one", one, compensate=lambda ctx: runs.append("undo")),
             WorkflowStep("two", boom),
         ],
     )
+
+
+def test_compensation_clears_the_cache_so_a_restart_reruns_the_step(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    runs: list[str] = []
+    _compensating_chain(runs)
     wf_id = backend.start_workflow("comp", {}, idempotency_key="ck")
     _drive(wf_id)
     assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+    assert runs == ["one", "undo"]
+    assert not WorkflowActivityExecution.objects.filter(
+        workflow_id=wf_id, activity_name="one"
+    ).exists()
+
+    backend.start_workflow("comp", {}, idempotency_key="ck", restart_failed=True)
+    _drive(wf_id)
+    # Step one ran again instead of returning a result for an undone side effect.
+    assert runs == ["one", "undo", "one", "undo"]
+
+
+def test_restart_stays_safe_after_history_is_purged(
+    registry: None, backend: DefaultWorkflowBackend, settings: Any
+) -> None:
+    """The guard must not depend on history, which retention deletes."""
+    runs: list[str] = []
+    _compensating_chain(runs)
+    wf_id = backend.start_workflow("comp", {}, idempotency_key="ck")
+    _drive(wf_id)
+    settings.WORKFLOW_HISTORY_RETENTION_DAYS = 1
+    WorkflowHistoryEvent.objects.filter(workflow_id=wf_id).update(
+        created_at=timezone.now() - timedelta(days=30)
+    )
+    _do_purge_workflow_records()
+    assert not WorkflowHistoryEvent.objects.filter(workflow_id=wf_id).exists()
+
+    backend.start_workflow("comp", {}, idempotency_key="ck", restart_failed=True)
+    _drive(wf_id)
+    assert runs.count("one") == 2  # re-executed, not served from a stale cache
+
+
+def test_restart_failed_is_refused_when_a_compensated_step_is_still_cached(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    """An instance rolled back before the cache cleanup existed is not resumed."""
+    from trueppm_api.workflows import RestartRefusedError
+
+    runs: list[str] = []
+    _compensating_chain(runs)
+    wf_id = backend.start_workflow("comp", {}, idempotency_key="ck")
+    _drive(wf_id)
+    # Recreate the stale cache entry that older code left behind.
+    WorkflowActivityExecution.objects.create(
+        workflow_id=wf_id, activity_name="one", input_hash="legacy", result={"a": 1}
+    )
     with pytest.raises(RestartRefusedError):
         backend.start_workflow("comp", {}, idempotency_key="ck", restart_failed=True)
     assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.FAILED
+
+
+def _stalled_row(attempt_count: int) -> tuple[str, WorkflowOutboxRow]:
+    instance = WorkflowInstance.objects.create(
+        name="noop", input={}, status=WorkflowStatus.RUNNING, idempotency_key=f"st{attempt_count}"
+    )
+    row = WorkflowOutboxRow.objects.create(
+        workflow=instance,
+        step_name="0",
+        step_input={"step_index": 0},
+        status=WorkflowOutboxStatus.DISPATCHED,
+        attempt_count=attempt_count,
+        celery_task_id="c-1",
+    )
+    WorkflowOutboxRow.objects.filter(id=row.id).update(
+        dispatched_at=timezone.now() - timedelta(minutes=11)
+    )
+    return str(instance.id), row
+
+
+def test_drain_abandons_a_stalled_row_past_the_attempt_budget(registry: None) -> None:
+    """A step whose worker died on every attempt is failed, not recovered forever."""
+    _register("noop", [WorkflowStep("a", lambda ctx: None)])
+    wf_id, row = _stalled_row(attempt_count=_MAX_STEP_ATTEMPTS)
+    with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step") as task:
+        _do_outbox_drain()
+    task.delay.assert_not_called()
+    row.refresh_from_db()
+    assert row.status == WorkflowOutboxStatus.DEAD
+    assert row.failure_reason == "stalled"
+    assert row.next_attempt_at is None
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    assert instance.status == WorkflowStatus.FAILED
+    assert instance.history.filter(event_type="workflow_failed").exists()
+
+
+def test_drain_recovers_a_stalled_row_with_budget_left(registry: None) -> None:
+    """Control: one attempt short of the budget is recovered, not abandoned."""
+    _register("noop", [WorkflowStep("a", lambda ctx: None)])
+    wf_id, row = _stalled_row(attempt_count=_MAX_STEP_ATTEMPTS - 1)
+    with patch("trueppm_api.apps.workflow_engine.tasks.advance_workflow_step") as task:
+        task.delay.side_effect = ConnectionError("broker down")
+        _do_outbox_drain()
+    row.refresh_from_db()
+    assert row.status == WorkflowOutboxStatus.PENDING
+    assert row.failure_reason != "stalled"
+    assert WorkflowInstance.objects.get(id=wf_id).status == WorkflowStatus.RUNNING
 
 
 def test_retry_sweep_flips_only_the_rows_it_dispatches(
