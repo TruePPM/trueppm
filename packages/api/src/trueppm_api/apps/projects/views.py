@@ -1489,6 +1489,11 @@ _BLOCKED_ROLLUP_QUERY_PARAMS = [
 ]
 
 
+# Story rows the grooming payload serializes per request (#2344); health/rollups stay whole-backlog.
+PRODUCT_BACKLOG_DEFAULT_LIMIT = 500
+PRODUCT_BACKLOG_MAX_LIMIT = 2000
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -2053,6 +2058,18 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Get the product backlog grooming view",
+        parameters=[
+            OpenApiParameter(
+                "limit",
+                int,
+                description=(
+                    "Maximum number of backlog stories to serialize, in rank order "
+                    f"(default {PRODUCT_BACKLOG_DEFAULT_LIMIT}, max {PRODUCT_BACKLOG_MAX_LIMIT}). "
+                    "Health and epic rollups always cover the whole backlog; "
+                    "``truncated`` is true when stories were omitted."
+                ),
+            )
+        ],
         responses={
             200: OpenApiResponse(
                 response=inline_serializer(
@@ -2088,6 +2105,8 @@ class ProjectViewSet(
                                 "story_count": serializers.IntegerField(),
                             },
                         ),
+                        "truncated": serializers.BooleanField(),
+                        "limit": serializers.IntegerField(),
                         "scoring": inline_serializer(
                             name="ProductBacklogScoring",
                             fields={
@@ -2122,11 +2141,25 @@ class ProjectViewSet(
             TaskStatus,
             TaskType,
         )
-        from trueppm_api.apps.projects.product_backlog_services import ac_counts
 
         project = self.get_object()
         model = project.prioritization_model
         ctx = {**self.get_serializer_context(), "prioritization_model": model}
+
+        # Bound the heavyweight TaskSerializer work (#2344). Health and epic rollups are
+        # computed over the WHOLE backlog from a light query below, so a truncated
+        # response never misreports the grooming strip; only the serialized story rows
+        # are capped (rank order, so the top of the backlog always survives).
+        raw_limit = request.query_params.get("limit")
+        limit = PRODUCT_BACKLOG_DEFAULT_LIMIT
+        if raw_limit is not None:
+            try:
+                limit = int(raw_limit)
+            except ValueError:
+                raise DRFValidationError({"limit": "Must be an integer."}) from None
+            if limit < 1:
+                raise DRFValidationError({"limit": "Must be at least 1."})
+            limit = min(limit, PRODUCT_BACKLOG_MAX_LIMIT)
 
         # Prefetch what TaskSerializer reads per row so the grooming view stays O(1) in
         # queries rather than O(stories): assignments (+resource), acceptance criteria
@@ -2181,11 +2214,26 @@ class ProjectViewSet(
             )
 
         epics = list(_backlog_qs().filter(type=TaskType.EPIC).order_by("priority_rank", "name"))
-        stories = list(
-            _backlog_qs()
-            .filter(status=TaskStatus.BACKLOG, sprint__isnull=True)
-            .exclude(type=TaskType.EPIC)
-            .order_by("priority_rank", "short_id")
+
+        def _story_filter(qs: Any) -> Any:
+            return qs.filter(status=TaskStatus.BACKLOG, sprint__isnull=True).exclude(
+                type=TaskType.EPIC
+            )
+
+        story_order = ("priority_rank", "short_id")
+        # Heavy path: only the first ``limit`` stories get prefetches + serialization.
+        stories = list(_story_filter(_backlog_qs()).order_by(*story_order)[:limit])
+        # Light path: whole-backlog facts for rollups + health, no prefetch/annotation.
+        stat_rows = list(
+            _story_filter(Task.objects.filter(project=project, is_deleted=False)).values_list(
+                "parent_epic_id", "story_points", "status", "dor"
+            )
+        )
+        ac_agg = AcceptanceCriterion.objects.filter(
+            task__in=_story_filter(Task.objects.filter(project=project, is_deleted=False))
+        ).aggregate(
+            total=db_models.Count("id"),
+            met=db_models.Count("id", filter=db_models.Q(met=True)),
         )
 
         def ser(task: Task) -> dict[str, Any]:
@@ -2199,17 +2247,24 @@ class ProjectViewSet(
             else:
                 ungrouped.append(s)
 
+        rollups: dict[Any, list[int]] = {}
+        for epic_id, points, status_, _dor in stat_rows:
+            if epic_id:
+                r = rollups.setdefault(epic_id, [0, 0, 0])
+                r[0] += 1
+                r[1] += points or 0
+                if status_ == TaskStatus.COMPLETE:
+                    r[2] += points or 0
+
         epic_payload = []
         for e in epics:
-            children = grouped.get(e.id, [])
-            pts = sum(c.story_points or 0 for c in children)
-            done = sum((c.story_points or 0) for c in children if c.status == TaskStatus.COMPLETE)
+            count, pts, done = rollups.get(e.id, [0, 0, 0])
             epic_payload.append(
                 {
                     "epic": ser(e),
-                    "stories": [ser(c) for c in children],
+                    "stories": [ser(c) for c in grouped.get(e.id, [])],
                     "rollup": {
-                        "story_count": len(children),
+                        "story_count": count,
                         "points_total": pts,
                         "points_done": done,
                     },
@@ -2218,17 +2273,17 @@ class ProjectViewSet(
 
         # Grooming health (DA-10 strip). ready-line capacity reads the active sprint
         # (ADR-0073) — advisory only (ADR-0105 §F).
-        total = len(stories)
-        ready = sum(1 for s in stories if s.dor == DorState.READY)
-        unestimated = sum(1 for s in stories if s.story_points is None)
-        ac_met_total = sum(ac_counts(s)[0] for s in stories)
-        ac_all = sum(ac_counts(s)[1] for s in stories)
+        total = len(stat_rows)
+        ready = sum(1 for r in stat_rows if r[3] == DorState.READY)
+        unestimated = sum(1 for r in stat_rows if r[1] is None)
+        ac_met_total = ac_agg["met"]
+        ac_all = ac_agg["total"]
         active_sprint = (
             Sprint.objects.filter(project=project, state="ACTIVE", is_deleted=False)
             .order_by("-start_date")
             .first()
         )
-        ready_points = sum((s.story_points or 0) for s in stories if s.dor == DorState.READY)
+        ready_points = sum((r[1] or 0) for r in stat_rows if r[3] == DorState.READY)
 
         return Response(
             {
@@ -2244,6 +2299,8 @@ class ProjectViewSet(
                     "ac_total": ac_all,
                     "story_count": total,
                 },
+                "truncated": total > len(stories),
+                "limit": limit,
                 "scoring": {"model": model},
             }
         )

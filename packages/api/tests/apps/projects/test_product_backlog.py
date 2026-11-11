@@ -1458,3 +1458,58 @@ def test_split_query_count_is_bounded(
     with django_assert_max_num_queries(28):
         resp = owner_client.post(f"/api/v1/tasks/{parent.pk}/split/", {}, format="json")
     assert resp.status_code == 201
+
+
+# --------------------------------------------------------------------------- #
+# Grooming endpoint truncation (#2344)
+# --------------------------------------------------------------------------- #
+
+
+def test_grooming_limit_truncates_stories_but_not_health_or_rollups(
+    owner_client: APIClient, project: Project
+) -> None:
+    epic = _story(project, name="EP", type=TaskType.EPIC)
+    for i in range(3):
+        s = _story(project, name=f"c{i}", parent_epic=epic, story_points=2)
+        _criterion(s, met=(i == 0))
+    for i in range(2):
+        _story(project, name=f"loose{i}", story_points=None)
+    resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=2")
+    assert resp.status_code == 200
+    body = resp.data
+    shown = len(body["epics"][0]["stories"]) + len(body["ungrouped"])
+    assert shown == 2
+    assert body["truncated"] is True
+    assert body["limit"] == 2
+    assert body["epics"][0]["rollup"] == {"story_count": 3, "points_total": 6, "points_done": 0}
+    assert body["health"]["story_count"] == 5
+    assert body["health"]["unestimated"] == 2
+    assert body["health"]["ac_total"] == 3
+    assert body["health"]["ac_met"] == 1
+
+
+def test_grooming_default_not_truncated_for_small_backlog(
+    owner_client: APIClient, project: Project
+) -> None:
+    _story(project, name="one")
+    body = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/").data
+    assert body["truncated"] is False
+    assert len(body["ungrouped"]) == 1
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "abc"])
+def test_grooming_rejects_bad_limit(owner_client: APIClient, project: Project, bad: str) -> None:
+    resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit={bad}")
+    assert resp.status_code == 400
+
+
+def test_grooming_query_count_independent_of_story_count(
+    owner_client: APIClient, project: Project, django_assert_max_num_queries: Any
+) -> None:
+    for i in range(15):
+        _criterion(_story(project, name=f"s{i}", story_points=1), met=True)
+    with django_assert_max_num_queries(40):
+        assert (
+            owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=5").status_code
+            == 200
+        )

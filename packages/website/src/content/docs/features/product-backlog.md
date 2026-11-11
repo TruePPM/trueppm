@@ -69,6 +69,14 @@ immediately and rolls back if it can't be saved. Drag-to-reparent is limited to 
 who can manage the backlog (see [Who can do what](#who-can-do-what) below) — everyone keeps
 the keyboard-accessible **Parent epic** picker in the story drawer.
 
+### Very large backlogs
+
+The grooming endpoint (`GET /projects/{id}/product-backlog/`) returns at most 500 stories
+per request, in rank order, so opening the board on an imported backlog of thousands of
+stories stays fast. Pass `?limit=N` (maximum 2000) to change the cap. The health strip and
+each epic's rollup always count the whole backlog; the response carries `truncated: true`
+when stories were left out.
+
 ## Work-item types
 
 Every task carries a **type**: Story, Task, Bug, Spike, or Epic. The type drives the

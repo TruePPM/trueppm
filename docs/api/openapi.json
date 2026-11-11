@@ -22356,6 +22356,14 @@
                         },
                         "description": "A UUID string identifying this project.",
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Maximum number of backlog stories to serialize, in rank order (default 500, max 2000). Health and epic rollups always cover the whole backlog; ``truncated`` is true when stories were omitted."
                     }
                 ],
                 "tags": [
@@ -66615,6 +66623,12 @@
                     "health": {
                         "$ref": "#/components/schemas/ProductBacklogHealth"
                     },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "limit": {
+                        "type": "integer"
+                    },
                     "scoring": {
                         "$ref": "#/components/schemas/ProductBacklogScoring"
                     }
@@ -66622,7 +66636,9 @@
                 "required": [
                     "epics",
                     "health",
+                    "limit",
                     "scoring",
+                    "truncated",
                     "ungrouped"
                 ]
             },
