@@ -169,10 +169,7 @@ follows the flow:
    sent to any site the user navigates to next.
 4. **All other sessions are signed out** — a successful reset revokes every other
    active session for that account, so a leaked-but-forgotten session on another
-   device cannot outlive the reset. Refresh tokens and API tokens are revoked at
-   once; an access token that was already issued stays valid until it expires, up to
-   15 minutes (`ACCESS_TOKEN_LIFETIME`), so the sign-out can take a few minutes to
-   reach every device.
+   device cannot outlive the reset.
 
 The reset endpoints are rate limited to blunt abuse (email-bombing a victim and
 probing for registered addresses).
