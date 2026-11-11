@@ -16656,6 +16656,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         carries the higher SCHEDULER+ field gate from ADR-0073, re-checked in the
         serializer so the bulk route is not a way around it.
         """
+        from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
         from trueppm_api.apps.projects.sprint_cadence import (
             CadenceError,
             annotate_edited_rows,
@@ -16663,6 +16664,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             capacity_hint,
             commit_cadence,
             existing_sprint_names,
+            suppress_capacity_hint,
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -16717,7 +16719,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # The hint is the team's velocity as one rounded number (ADR-0104 §2.1): gate it
+        # like every other velocity sink, or the PM band reads what it is suppressed from.
+        # velocity-unfiltered-ok: gated below by can_read_signal + suppress_capacity_hint.
         hint = capacity_hint(project)
+        if not can_read_signal(request, project.pk, "velocity"):
+            hint = suppress_capacity_hint(hint)
 
         if params["dry_run"]:
             payload = {
@@ -17256,7 +17263,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 status=status.HTTP_404_NOT_FOUND,
             )
         # ADR-0104 §2.1 at a ninth sink (#2982). ``velocity_low``/``velocity_high``
-        # here are ``velocity_summary``'s ``forecast_range_low``/``_high`` passed
+        # here are ``velocity_summary_unfiltered``'s ``forecast_range_low``/``_high`` passed
         # through verbatim — the same two fields ``suppress_velocity_summary``
         # nulls — so without this a reader suppressed on /velocity/, /forecast/,
         # /sprint-forecast/ and /me/active-sprints/ reads the identical band with
@@ -18834,14 +18841,9 @@ class MeActiveSprintsView(APIView):
     project through this lens long after every other endpoint denied them. The
     queryset below therefore joins live membership explicitly, and the velocity
     block runs the ADR-0104 gate per project — this is a sink for
-    ``velocity_summary`` exactly like ``/velocity/`` and ``/forecast/``, and the
+    ``velocity_summary_unfiltered`` exactly like ``/velocity/`` and ``/forecast/``, and the
     gate has to fire at *every* sink or the lens is a side-channel back to the
     band those two suppress.
-
-    That sink set is **not** closed as of this writing: ``reforecast-preview``
-    still returns ``forecast_range_low``/``_high`` ungated (#2982). Do not read
-    the paragraph above as a guarantee that every sibling is gated — it is the
-    rule, not a statement that the rule currently holds everywhere.
     """
 
     permission_classes = [IsAuthenticated]
@@ -19926,7 +19928,7 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
     never downward to the team. The ``velocity`` payload is byte-identical to the
     existing ``/velocity/`` read for the same VIEWER+ audience — the velocity
     privacy gate (ADR-0104 / #553, not yet merged) will, when it lands, suppress
-    the per-sprint series for below-tier readers at the shared ``velocity_summary``
+    the per-sprint series for below-tier readers at the shared ``velocity_summary_unfiltered``
     sink so both endpoints inherit it.
     """
 

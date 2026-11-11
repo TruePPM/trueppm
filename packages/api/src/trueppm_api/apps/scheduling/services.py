@@ -391,6 +391,8 @@ def compute_team_velocity_per_day(
     """
     from trueppm_api.apps.projects.services import velocity_eligible_sprints
 
+    # velocity-unfiltered-ok: server-side calibration of CPM duration suggestions;
+    # the rolling figure is not returned to a reader raw.
     qs = velocity_eligible_sprints(project_id)
     if exclude_sprint_id is not None:
         qs = qs.exclude(pk=exclude_sprint_id)

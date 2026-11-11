@@ -17,6 +17,16 @@ actually shipped were scalars copied out of the band into another payload shape
 (#2982's ``velocity_low``/``velocity_high``, #981's ``sprints_to_complete_*``). A
 function that returns velocity-derived values to a caller is in :data:`GUARDED`.
 
+Coverage is by NAME, and only what a name can see. ``SprintSerializer``'s
+``completed_points`` / ``completion_ratio_points`` / ``completed_task_count`` are
+plain ModelSerializer fields: they are per-sprint velocity series served by a field
+list, not a call to a named reader, so this guard cannot see them. That is a known
+blind spot, not a clean bill.
+
+A marker acknowledges only the first guarded reference after it, and is read from a
+real comment (a string containing the marker text does not count). ``getattr(x,
+"<name>")`` and ``x.__dict__["<name>"]`` with a constant guarded name are flagged.
+
 What this does not prove: that the acknowledged sink gates correctly. The comment
 is a declaration, not a check — it removes the silence, and the per-sink tests in
 ``test_signal_privacy.py`` and its siblings prove the behavior.
@@ -25,6 +35,8 @@ is a declaration, not a check — it removes the silence, and the per-sink tests
 from __future__ import annotations
 
 import ast
+import io
+import tokenize
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -56,38 +68,82 @@ GUARDED = frozenset(
         "sprint_forecast",
         "reforecast_preview",
         "reforecast_bound_milestone",
+        "velocity_eligible_sprints",
+        "capacity_hint",
     }
 )
 
 
-def _acknowledged(lines: list[str], lineno: int) -> bool:
-    """True when the reference line or one of the ``_WINDOW`` lines above declares it."""
-    for idx in range(max(0, lineno - 1 - _WINDOW), lineno):
-        text = lines[idx]
-        pos = text.find(MARKER)
-        if pos != -1 and "#" in text[:pos] and text[pos + len(MARKER) :].strip():
-            return True
-    return False
+def _markers(source: str) -> list[int]:
+    """Line numbers of real ``# velocity-unfiltered-ok: <reason>`` comments.
+
+    Read from tokenize COMMENT tokens, so marker text inside a string literal or
+    docstring does not count as a declaration.
+    """
+    found: list[int] = []
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if tok.type != tokenize.COMMENT:
+            continue
+        pos = tok.string.find(MARKER)
+        if pos != -1 and tok.string[pos + len(MARKER) :].strip():
+            found.append(tok.start[0])
+    return found
 
 
-def unacknowledged_references(source: str, filename: str = "<src>") -> list[str]:
-    """Every load of a :data:`GUARDED` name, or aliasing import of one, with no marker."""
-    tree = ast.parse(source, filename=filename)
-    lines = source.splitlines()
-    hits: set[int] = set()
+def _guarded_references(tree: ast.AST) -> list[tuple[int, int]]:
+    """``(line, col)`` of every load of a :data:`GUARDED` name, in source order."""
+    hits: set[tuple[int, int]] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
             if node.id in GUARDED:
-                hits.add(node.lineno)
+                hits.add((node.lineno, node.col_offset))
         elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
             if node.attr in GUARDED:
-                hits.add(node.lineno)
+                hits.add((node.lineno, node.col_offset))
         elif isinstance(node, ast.ImportFrom):
             # An alias hides the name from every later grep; refuse it outright.
             for alias in node.names:
                 if alias.name in GUARDED and alias.asname and alias.asname != alias.name:
-                    hits.add(node.lineno)
-    return [f"{filename}:{n}" for n in sorted(hits) if not _acknowledged(lines, n)]
+                    hits.add((node.lineno, node.col_offset))
+        elif isinstance(node, ast.Call):
+            # getattr(obj, "<GUARDED name>") reaches the reader with a constant name.
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value in GUARDED
+            ):
+                hits.add((node.lineno, node.col_offset))
+        elif (
+            # <obj>.__dict__["<GUARDED name>"] likewise.
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "__dict__"
+            and isinstance(node.slice, ast.Constant)
+            and node.slice.value in GUARDED
+        ):
+            hits.add((node.lineno, node.col_offset))
+    return sorted(hits)
+
+
+def unacknowledged_references(source: str, filename: str = "<src>") -> list[str]:
+    """Every guarded reference with no marker of its own.
+
+    A marker acknowledges exactly ONE reference: the first one at or after it,
+    within :data:`_WINDOW` lines. A second guarded reference under the same marker
+    is reported, so a declared site cannot silently shelter a neighbour.
+    """
+    tree = ast.parse(source, filename=filename)
+    unused = _markers(source)
+    offenders: list[str] = []
+    for lineno, _col in _guarded_references(tree):
+        match = next((m for m in reversed(unused) if 0 <= lineno - m <= _WINDOW), None)
+        if match is None:
+            offenders.append(f"{filename}:{lineno}")
+        else:
+            unused.remove(match)
+    return offenders
 
 
 def test_every_ungated_velocity_reader_is_acknowledged() -> None:
@@ -135,6 +191,49 @@ def test_guard_accepts_a_declared_site_and_rejects_an_empty_reason_or_far_marker
     assert unacknowledged_references(empty) == ["<src>:2"]
     far = "# velocity-unfiltered-ok: x\n" + "pass\n" * _WINDOW + "velocity_summary_unfiltered(pk)\n"
     assert unacknowledged_references(far) == [f"<src>:{_WINDOW + 2}"]
+
+
+def test_marker_acknowledges_only_the_first_reference_after_it() -> None:
+    """Negative control: a declared site must not shelter the unmarked calls below it."""
+    src = (
+        "# velocity-unfiltered-ok: snapshot write\n"
+        "a = velocity_summary_unfiltered(pk)\n"
+        "b = velocity_summary_unfiltered(pk)\n"
+        "c = project_forecast(pk)\n"
+        "d = sprint_forecast(pk)\n"
+    )
+    assert unacknowledged_references(src) == ["<src>:3", "<src>:4", "<src>:5"]
+
+
+def test_each_marker_pays_for_one_reference() -> None:
+    src = (
+        "# velocity-unfiltered-ok: one\n"
+        "# velocity-unfiltered-ok: two\n"
+        "a = project_forecast(pk)\n"
+        "b = sprint_forecast(pk)\n"
+        "c = reforecast_preview(pk)\n"
+    )
+    assert unacknowledged_references(src) == ["<src>:5"]
+
+
+def test_guard_flags_getattr_and_dunder_dict_with_a_constant_name() -> None:
+    src = (
+        "a = getattr(services, 'velocity_summary_unfiltered')\n"
+        "b = services.__dict__['project_forecast']\n"
+        "c = getattr(services, name)\n"
+    )
+    assert unacknowledged_references(src) == ["<src>:1", "<src>:2"]
+    declared = "# velocity-unfiltered-ok: x\nv = getattr(s, 'capacity_hint')\n"
+    assert unacknowledged_references(declared) == []
+
+
+def test_marker_text_inside_a_string_is_not_a_declaration() -> None:
+    src = (
+        "NOTE = '# velocity-unfiltered-ok: pretend'\n"
+        '"""# velocity-unfiltered-ok: also pretend"""\n'
+        "velocity_summary_unfiltered(pk)\n"
+    )
+    assert unacknowledged_references(src) == ["<src>:3"]
 
 
 def test_old_ungated_name_is_gone() -> None:

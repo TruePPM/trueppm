@@ -67,6 +67,14 @@ def client(owner: Any) -> APIClient:
     return c
 
 
+@pytest.fixture
+def member_client(project: Project) -> APIClient:
+    """A team-band reader: the capacity hint is velocity-gated (ADR-0104), PM band is not."""
+    c = APIClient()
+    c.force_authenticate(user=_member(project, "team-dev", Role.MEMBER))
+    return c
+
+
 def url(project: Project) -> str:
     return f"/api/v1/projects/{project.pk}/sprints/generate/"
 
@@ -516,9 +524,9 @@ def test_generation_never_stores_a_capacity_on_its_own(client: APIClient, projec
 
 @pytest.mark.django_db
 def test_capacity_hint_is_null_without_velocity_history(
-    client: APIClient, project: Project
+    member_client: APIClient, project: Project
 ) -> None:
-    res = client.post(url(project), body(dry_run=True), format="json")
+    res = member_client.post(url(project), body(dry_run=True), format="json")
 
     hint = res.data["capacity_hint"]
     assert hint["points"] is None
@@ -528,7 +536,9 @@ def test_capacity_hint_is_null_without_velocity_history(
 
 
 @pytest.mark.django_db
-def test_capacity_hint_averages_closed_iterations(client: APIClient, project: Project) -> None:
+def test_capacity_hint_averages_closed_iterations(
+    member_client: APIClient, project: Project
+) -> None:
     from django.utils import timezone
 
     for index, points in enumerate((20, 24, 28)):
@@ -542,7 +552,7 @@ def test_capacity_hint_averages_closed_iterations(client: APIClient, project: Pr
             closed_at=timezone.now(),
         )
 
-    res = client.post(url(project), body(dry_run=True), format="json")
+    res = member_client.post(url(project), body(dry_run=True), format="json")
 
     hint = res.data["capacity_hint"]
     assert hint["points"] == 24
@@ -554,7 +564,9 @@ def test_capacity_hint_averages_closed_iterations(client: APIClient, project: Pr
 
 
 @pytest.mark.django_db
-def test_capacity_hint_honors_exclude_from_velocity(client: APIClient, project: Project) -> None:
+def test_capacity_hint_honors_exclude_from_velocity(
+    member_client: APIClient, project: Project
+) -> None:
     from django.utils import timezone
 
     Sprint.objects.create(
@@ -577,7 +589,7 @@ def test_capacity_hint_honors_exclude_from_velocity(client: APIClient, project: 
         closed_at=timezone.now(),
     )
 
-    res = client.post(url(project), body(dry_run=True), format="json")
+    res = member_client.post(url(project), body(dry_run=True), format="json")
 
     assert res.data["capacity_hint"]["points"] == 30
     assert res.data["capacity_hint"]["sprints_sampled"] == 1
@@ -769,3 +781,37 @@ def test_dry_run_broadcasts_nothing(
         client.post(url(project), body(count=3, dry_run=True), format="json")
 
     assert mock_broadcast.call_count == 0
+
+
+@pytest.mark.django_db
+def test_capacity_hint_is_velocity_gated(project: Project) -> None:
+    """The hint is velocity as one number: the member reads it, the PM band does not."""
+    from django.utils import timezone
+
+    for index, points in enumerate((20, 24, 28)):
+        Sprint.objects.create(
+            project=project,
+            name=f"Gated {index}",
+            start_date=date(2026, 1, 5),
+            finish_date=date(2026, 1, 16),
+            state=SprintState.COMPLETED,
+            completed_points=points,
+            closed_at=timezone.now(),
+        )
+
+    def _hint(username: str, role: int) -> dict[str, Any]:
+        c = APIClient()
+        c.force_authenticate(user=_member(project, username, role))
+        res = c.post(url(project), body(dry_run=True), format="json")
+        assert res.status_code == 200, res.data
+        return dict(res.data["capacity_hint"])
+
+    member = _hint("dev", Role.MEMBER)
+    assert member["points"] == 24
+    assert member["basis"] == "velocity_average"
+
+    pm = _hint("pm", Role.ADMIN)
+    assert pm["points"] is None
+    assert pm["basis"] == "suppressed"
+    assert pm["sprints_sampled"] == 0
+    assert "team decides" in pm["note"]

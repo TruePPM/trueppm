@@ -10142,11 +10142,15 @@ class SprintCapacityHintSerializer(serializers.Serializer[dict[str, Any]]):
     ``note`` is not decoration: it travels with the number so no client can
     render the suggestion without the sentence that bounds it. ``points`` is
     ``null`` when the team has no closed iteration to draw from — a made-up
-    default would be a ceiling invented by the tool (ADR-0073 / ADR-0113).
+    default would be a ceiling invented by the tool (ADR-0073 / ADR-0113). The hint
+    is velocity-derived, so a reader outside the velocity audience (ADR-0104) gets
+    ``points=null`` with ``basis="suppressed"``.
     """
 
     points = serializers.IntegerField(read_only=True, allow_null=True)
-    basis = serializers.ChoiceField(choices=["velocity_average", "no_history"], read_only=True)
+    basis = serializers.ChoiceField(
+        choices=["velocity_average", "no_history", "suppressed"], read_only=True
+    )
     sprints_sampled = serializers.IntegerField(read_only=True)
     note = serializers.CharField(read_only=True)
 
@@ -10911,7 +10915,7 @@ class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any
 
 
 class ProjectVelocitySprintEntrySerializer(serializers.Serializer[dict[str, Any]]):
-    """One sprint row in :func:`services.velocity_summary` (#984, #3679)."""
+    """One sprint row in :func:`services.velocity_summary_unfiltered` (#984, #3679)."""
 
     id = serializers.CharField(read_only=True)
     name = serializers.CharField(read_only=True)
@@ -10929,7 +10933,8 @@ class ProjectVelocitySprintEntrySerializer(serializers.Serializer[dict[str, Any]
 class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
     """Response shape for ``GET /api/v1/projects/{id}/velocity/``.
 
-    See :func:`services.velocity_summary`.
+    See :func:`services.velocity_summary_unfiltered`, gated by
+    :func:`signal_privacy_services.velocity_summary_for`.
 
     ``velocity_suppressed`` is present only when
     :func:`signal_privacy_services.suppress_velocity_summary` redacted the
@@ -11125,7 +11130,7 @@ class ForecastSnapshotSerializer(serializers.ModelSerializer[ForecastSnapshot]):
 class ProjectForecastSerializer(serializers.Serializer[dict[str, Any]]):
     """Project forecast read response (ADR-0106 §5, #487/#860).
 
-    ``velocity`` is the full ``velocity_summary`` payload (avg ± 1σ + the
+    ``velocity`` is the full ``velocity_summary_unfiltered`` payload (avg ± 1σ + the
     per-sprint series). The ADR-0104 velocity privacy gate (#553/#981) suppresses
     the series — and nulls ``remaining_committed_points`` + ``sprints_to_complete_*``
     and the milestone velocity band — for readers below the velocity audience, so
