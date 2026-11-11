@@ -122,7 +122,7 @@ def _velocity_mean(project: Project) -> float | None:
 
 
 def _velocity_worst_case_days(
-    task: Task, project: Project, *, mean: float | None | EllipsisType = ...
+    task: Task, project: Project, *, mean: float | EllipsisType | None = ...
 ) -> int:
     """Upper bound (working days) on a scrum task's velocity-sampled duration.
 

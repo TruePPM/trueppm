@@ -755,9 +755,7 @@ release it is scheduled for:
   ([#4910](https://gitlab.com/trueppm/trueppm/-/issues/4910)); a what-if pull-in can
   move a band later when a velocity task's points reach 0 and it falls to its PERT
   estimate
-  ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)); and the API's velocity sampler has drifted from the library
-  on the horizon cap (2000 versus 10,000)
-  ([#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)).
+  ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)).
 - **Scale / performance** — the engine bounds the longest dependency chain, not
   the task count, so a 100,000-task project of ordinary parallel work schedules;
   only the total work ceiling (`MAX_PROJECT_WORK_DAYS`, see Project work above)
@@ -806,10 +804,7 @@ they will ship with 0.5 or that release will slip:
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
   calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
-  and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
-  in-progress task's sampled duration no longer has its optimistic tail
-  truncated by subtracting deterministic elapsed time from the sampled total
-  ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).
+  and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a
   milestone: the
