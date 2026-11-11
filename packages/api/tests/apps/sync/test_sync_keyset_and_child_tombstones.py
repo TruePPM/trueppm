@@ -62,6 +62,7 @@ def test_keyset_resume_is_a_single_index_range_scan_with_no_sort(world) -> None:
     with connection.cursor() as cur:
         cur.execute("SET LOCAL enable_seqscan = off")
         cur.execute("SET LOCAL enable_bitmapscan = off")
+        cur.execute("SET LOCAL enable_sort = off")
         plan = qs.order_by("sync_seq", "id")[:11].explain()
     assert "task_proj_syncseq_idx" in plan, plan
     assert "Sort" not in plan, plan

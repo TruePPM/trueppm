@@ -15,7 +15,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, router, transaction
-from django.db.models import Exists, F, OuterRef, Q, QuerySet
+from django.db.models import Exists, F, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import Lower, Upper
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
@@ -9763,7 +9763,11 @@ class StructuralOperation(models.Model):
     # {"<app_label>.<Model>": [<id>, ...]} — synced task children (links, relations,
     # recurrence rule, suggested assignees) this act tombstoned with its soft-deleted
     # rows. Undo restores exactly these ids (#4948).
-    removed_synced_child_ids = models.JSONField(default=dict, blank=True)
+    # `db_default` as well as `default` (migration rule 8): an old pod's INSERT omits
+    # this column during a rolling update and would otherwise hit NOT NULL.
+    removed_synced_child_ids = models.JSONField(
+        default=dict, db_default=Value({}, output_field=models.JSONField()), blank=True
+    )
     result_summary = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     undone_at = models.DateTimeField(null=True, blank=True)
