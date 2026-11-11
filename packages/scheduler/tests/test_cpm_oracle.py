@@ -1291,6 +1291,50 @@ FS_INTO_A_MILESTONE_STARTED_ON_A_SUNDAY = RefProject(
     task_calendar={"T2": "seven"},
 )
 
+#: #4526 — ``W -SS-> M1 -FS-> M2``, zero lag, ``M2`` on a Monday-to-Thursday week,
+#: beside a five-day pole ending Friday. ``M2`` takes ``M1``'s start-of-day reading
+#: and is shown on the next day *its* calendar works, but ``M1``'s cap read only
+#: ``M1``'s calendar: ``W`` reported 4 days of float where 4 moved the finish.
+ZERO_LAG_MILESTONE_CHAIN_INTO_A_FOUR_DAY_WEEK = RefProject(
+    start=date(2026, 1, 5),
+    durations={"L": 5, "W": 1, "M1": 0, "M2": 0},
+    links=(RefLink("W", "M1", "SS", 0), RefLink("M1", "M2", "FS", 0)),
+    calendars={"four": RefCalendar(working_mask=_FOUR_DAY)},
+    task_calendar={"M2": "four"},
+)
+#: #4526, the reading switched on the way down: ``W -FS-> M0 -FS-> M``, zero lag,
+#: ``M0`` on a Monday-to-Thursday week and ``M`` on a five-day week closed
+#: 01-12..01-16. From Saturday midnight ``M0`` reads as a day start (it follows
+#: ``M0``'s non-working Friday), ``M`` inherits that and is shown after the closure;
+#: ``W`` reported 4 days of float where 4 moved the finish.
+ZERO_LAG_CHAIN_READING_SWITCHED_BY_A_NARROWER_WEEK = RefProject(
+    start=date(2026, 1, 5),
+    durations={"L": 8, "W": 1, "M0": 0, "M": 0},
+    links=(RefLink("W", "M0", "FS", 0), RefLink("M0", "M", "FS", 0)),
+    calendars={
+        "four": RefCalendar(working_mask=_FOUR_DAY),
+        "closed": RefCalendar(
+            working_mask=MON_TO_FRI, exceptions=((date(2026, 1, 12), date(2026, 1, 16)),)
+        ),
+    },
+    task_calendar={"M0": "four", "M": "closed"},
+)
+#: #4526 as the class sweep drew it: ``T0 -SS+1d-> T1 -SS-> T4``, ``T4`` on a
+#: Monday-to-Thursday week with a closure, beside a Tuesday-to-Saturday pole.
+#: ``T0`` reported 3 days of float where 3 moved the finish.
+ZERO_LAG_SS_CHAIN_INTO_A_CLOSED_WEEK = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T0": 4, "T1": 0, "T4": 0, "L": 7},
+    links=(RefLink("T0", "T1", "SS", 1), RefLink("T1", "T4", "SS", 0)),
+    calendars={
+        "tuesat": RefCalendar(working_mask=0b0111110),
+        "fourx": RefCalendar(
+            working_mask=_FOUR_DAY, exceptions=((date(2026, 1, 12), date(2026, 1, 16)),)
+        ),
+    },
+    task_calendar={"T4": "fourx", "L": "tuesat"},
+)
+
 #: The fixed shapes the slip oracle separates from their pre-fix engines.
 FIXED_PROGRESS_SHAPES = (
     COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
@@ -1303,6 +1347,9 @@ FIXED_PROGRESS_SHAPES = (
     FS_INTO_A_MILESTONE_STARTED_ON_A_SUNDAY,
     START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK,
     START_OF_DAY_FINISH_ON_A_NARROWER_CALENDAR,
+    ZERO_LAG_MILESTONE_CHAIN_INTO_A_FOUR_DAY_WEEK,
+    ZERO_LAG_CHAIN_READING_SWITCHED_BY_A_NARROWER_WEEK,
+    ZERO_LAG_SS_CHAIN_INTO_A_CLOSED_WEEK,
 )
 
 

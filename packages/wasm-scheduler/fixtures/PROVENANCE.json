@@ -1285,6 +1285,26 @@
       "provenance": "hand-verified",
       "issue": "#4436",
       "evidence": "added with the #4436 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
+    },
+    "zero_lag_milestone_chain_into_a_four_day_week.json": {
+      "provenance": "hand-verified",
+      "issue": "#4526",
+      "evidence": "added with the #4526 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
+    },
+    "expected/zero_lag_milestone_chain_into_a_four_day_week.json": {
+      "provenance": "hand-verified",
+      "issue": "#4526",
+      "evidence": "REGEN_EXPECTED=1 with the #4526 fix, then checked against the slip oracle (float_perturbation_violations), which fails the same shape on the pre-fix engine"
+    },
+    "zero_lag_chain_reading_switched_by_a_narrower_week.json": {
+      "provenance": "hand-verified",
+      "issue": "#4526",
+      "evidence": "added with the #4526 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
+    },
+    "expected/zero_lag_chain_reading_switched_by_a_narrower_week.json": {
+      "provenance": "hand-verified",
+      "issue": "#4526",
+      "evidence": "REGEN_EXPECTED=1 with the #4526 fix, then checked against the slip oracle (float_perturbation_violations), which fails the same shape on the pre-fix engine"
     }
   }
 }

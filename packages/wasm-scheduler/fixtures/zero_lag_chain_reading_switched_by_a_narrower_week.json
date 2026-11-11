@@ -1,0 +1,62 @@
+{
+  "id": "p-zero-lag-chain-reading-switched-by-a-narrower-week",
+  "name": "Zero-lag milestone chain whose reading turns start-of-day on a Mon-Thu week, into a closed week (#4526)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {
+      "id": "L",
+      "name": "L",
+      "duration": 691200.0
+    },
+    {
+      "id": "W",
+      "name": "W",
+      "duration": 86400.0
+    },
+    {
+      "id": "M0",
+      "name": "M0",
+      "duration": 0.0,
+      "calendar_id": "four"
+    },
+    {
+      "id": "M",
+      "name": "M",
+      "duration": 0.0,
+      "calendar_id": "closed"
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "W",
+      "successor_id": "M0",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M0",
+      "successor_id": "M",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  },
+  "calendars": {
+    "four": {
+      "working_days": 15,
+      "exceptions": []
+    },
+    "closed": {
+      "working_days": 31,
+      "exceptions": [
+        {
+          "start": "2026-01-12",
+          "end": "2026-01-16"
+        }
+      ]
+    }
+  }
+}

@@ -812,7 +812,7 @@ they will ship with 0.5 or that release will slip:
   ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a
-  milestone: the zero-lag milestone calendar overstatement ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)), the
+  milestone: the
   completed-task-without-actuals
   non-monotonicity ([#4539](https://gitlab.com/trueppm/trueppm/-/issues/4539)), closing a milestone ahead of an open
   predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), the non-working-day actuals divergences

@@ -1,0 +1,52 @@
+{
+  "id": "p-zero-lag-milestone-chain-into-a-four-day-week",
+  "name": "Zero-lag milestone chain: SS-read M1 caps on M2's Mon-Thu week too (#4526)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {
+      "id": "L",
+      "name": "L",
+      "duration": 432000.0
+    },
+    {
+      "id": "W",
+      "name": "W",
+      "duration": 86400.0
+    },
+    {
+      "id": "M1",
+      "name": "M1",
+      "duration": 0.0
+    },
+    {
+      "id": "M2",
+      "name": "M2",
+      "duration": 0.0,
+      "calendar_id": "four"
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "W",
+      "successor_id": "M1",
+      "dep_type": "SS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M1",
+      "successor_id": "M2",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  },
+  "calendars": {
+    "four": {
+      "working_days": 15,
+      "exceptions": []
+    }
+  }
+}
