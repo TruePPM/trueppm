@@ -190,6 +190,34 @@ def _is_product_owner(request: Request, project_id: Any) -> bool:
     return result
 
 
+def is_task_assignee(user: Any, task: Any) -> bool:
+    """The one definition of "this task is mine" for task authorization (#2747).
+
+    A task has two independent assignment axes: the ``Task.assignee`` FK and the
+    ``TaskResource`` rows whose ``Resource.user`` is the caller. Which one is set
+    depends on the code path that wrote the task (the board's Assignees editor
+    writes ``TaskResource``; ``PATCH /tasks/``, retro promotion and the MSP/Jira
+    importers write a bare ``assignee``). Authorization must not depend on that
+    history, so *either* axis makes the caller the assignee, and edit and delete
+    both read it from here. Reading only one axis would silently lock out every
+    person assigned through the other.
+
+    Uses the prefetched ``assignments__resource`` cache when the list endpoint
+    loaded it, so the per-row ``can_edit``/``can_delete`` serializer fields stay
+    query-free; otherwise a single ``EXISTS``.
+    """
+    user_id = getattr(user, "pk", None)
+    if user_id is None:
+        return False
+    assignee_id = getattr(task, "assignee_id", None)
+    if assignee_id is not None and assignee_id == user_id:
+        return True
+    prefetched = getattr(task, "_prefetched_objects_cache", {}).get("assignments")
+    if prefetched is not None:
+        return any(getattr(a.resource, "user_id", None) == user_id for a in prefetched)
+    return bool(task.assignments.filter(resource__user_id=user_id).exists())
+
+
 def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") -> bool:
     """Authoritative "may this user write this task" predicate (ADR-0133).
 
@@ -240,8 +268,7 @@ def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") ->
 
     # Team Member (1): may only edit their own assigned tasks.
     if role == Role.MEMBER:
-        assignee_id = getattr(task, "assignee_id", None)
-        return assignee_id is not None and assignee_id == request.user.pk
+        return is_task_assignee(request.user, task)
 
     # Viewer (0): no writes.
     return False
@@ -910,7 +937,7 @@ class IsProjectMemberWriteOrOwn(BasePermission):
 
     Role matrix (issue #11; ordinals per ADR-0072, VIEWER moved to 1 in #2489):
       Viewer (1)             — read only
-      Team Member (100)      — edit tasks where task.assignee == request.user
+      Team Member (100)      — edit/delete tasks they are assigned (see is_task_assignee)
       Resource Manager (200) — read only (cannot edit task content, only assign)
       Project Manager (300+) — edit any task
 
