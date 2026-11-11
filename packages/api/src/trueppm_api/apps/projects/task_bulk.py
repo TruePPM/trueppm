@@ -48,7 +48,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.settings import api_settings
 
 from trueppm_api.apps.access.models import Role
-from trueppm_api.apps.access.permissions import can_user_edit_task, is_task_assignee
+from trueppm_api.apps.access.permissions import can_user_edit_task
 from trueppm_api.apps.projects.models import TaskSource
 from trueppm_api.apps.projects.refusal_codes import BulkRefusalCode
 from trueppm_api.apps.projects.row_identity import (
@@ -669,15 +669,12 @@ def _apply_update(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
 
 
 def _apply_delete(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOutcome) -> None:
-    """Soft-delete one row: Admin+ or an assignee, per ``is_task_assignee`` (#2747).
-
-    Same predicate as ``IsProjectMemberWriteOrOwn``, so edit and delete agree on
-    who "the assignee" is.
-    """
+    """Soft-delete one row, decided by the same ``can_user_edit_task`` predicate
+    ``IsProjectMemberWriteOrOwn`` enforces, so there is one rule (#2747)."""
     task = _resolve_target(index, op, ctx, out)
     if task is None:
         return
-    if ctx.caller_role < Role.ADMIN and not is_task_assignee(ctx.caller, task):
+    if not can_user_edit_task(ctx.request, task, method="DELETE"):
         out.reject(
             index,
             task.pk,

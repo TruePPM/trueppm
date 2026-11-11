@@ -236,6 +236,12 @@ sprint-sovereignty contract and whose partial covering index
 next to #2747. Pinned meanwhile by a passing test that asserts the current behavior, so
 the day either fix lands it fails loudly rather than drifting.
 
+**Amended 2026-11-10 (#2747).** `can_user_edit_task` now treats a live `TaskResource`
+row for the caller as ownership, the same as `Task.assignee`, and edit and delete share
+that one predicate. An `@owner` token or inline `owners` write therefore *does* grant the
+named person edit and delete rights on the task, so the "authorization change" worry above
+no longer applies to the `TaskResource` axis. Deactivated resources grant nothing.
+
 ### What this ADR does not decide
 
 - **The seeded-landing "give N tasks an owner" action.** The surface does not exist

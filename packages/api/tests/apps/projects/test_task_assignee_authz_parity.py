@@ -96,3 +96,49 @@ def test_other_users_assignment_does_not_grant(
     assert detail.data["can_edit"] is False
     assert detail.data["can_delete"] is False
     assert _bulk(client, project, {"op": "delete", "id": str(t.pk)}).data["rejected"]
+
+
+def test_deactivated_resource_grants_nothing(
+    client: APIClient, project: Project, member: object
+) -> None:
+    """Retained TaskResource history on a deactivated resource is not a right."""
+    t = _resource_only(project, member)
+    Resource.objects.filter(user=member).update(is_deleted=True)
+    detail = client.get(f"/api/v1/tasks/{t.pk}/")
+    assert detail.data["can_edit"] is False
+    assert detail.data["can_delete"] is False
+    upd = _bulk(client, project, {"op": "update", "id": str(t.pk), "data": {"name": "x"}})
+    assert upd.data["rejected"]
+    assert _bulk(client, project, {"op": "delete", "id": str(t.pk)}).data["rejected"]
+
+
+def test_active_prefetch_and_exists_paths_agree_on_deactivated(
+    project: Project, member: object
+) -> None:
+    from trueppm_api.apps.access.permissions import is_task_assignee
+    from trueppm_api.apps.projects.models import Task as T
+
+    t = _resource_only(project, member)
+    Resource.objects.filter(user=member).update(is_deleted=True)
+    assert is_task_assignee(member, T.objects.get(pk=t.pk)) is False
+    prefetched = T.objects.prefetch_related("assignments__resource").get(pk=t.pk)
+    assert is_task_assignee(member, prefetched) is False
+
+
+@pytest.mark.parametrize(("factory", "allowed"), [(_resource_only, True), (_unassigned, False)])
+def test_real_patch_and_delete_requests(
+    client: APIClient, project: Project, member: object, factory: object, allowed: bool
+) -> None:
+    task = factory(project, member)  # type: ignore[operator]
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        patched = client.patch(f"/api/v1/tasks/{task.pk}/", {"name": "n"}, format="json")
+        deleted = client.delete(f"/api/v1/tasks/{task.pk}/")
+    if allowed:
+        assert patched.status_code == 200, patched.data
+        assert deleted.status_code in (200, 204), deleted.data
+    else:
+        assert patched.status_code == 403
+        assert deleted.status_code == 403

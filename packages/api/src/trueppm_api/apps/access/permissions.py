@@ -196,11 +196,13 @@ def is_task_assignee(user: Any, task: Any) -> bool:
     A task has two independent assignment axes: the ``Task.assignee`` FK and the
     ``TaskResource`` rows whose ``Resource.user`` is the caller. Which one is set
     depends on the code path that wrote the task (the board's Assignees editor
-    writes ``TaskResource``; ``PATCH /tasks/``, retro promotion and the MSP/Jira
-    importers write a bare ``assignee``). Authorization must not depend on that
-    history, so *either* axis makes the caller the assignee, and edit and delete
+    and the MS Project importer write ``TaskResource``; ``PATCH /tasks/``, retro
+    promotion and the seed importer write a bare ``assignee``). Authorization must
+    not depend on that history, so *either* axis makes the caller the assignee, and edit and delete
     both read it from here. Reading only one axis would silently lock out every
-    person assigned through the other.
+    person assigned through the other. A ``TaskResource`` on a deactivated
+    resource (``is_deleted``) grants nothing: the rows are retained as history, not
+    as rights, so authorization fails closed on them.
 
     Uses the prefetched ``assignments__resource`` cache when the list endpoint
     loaded it, so the per-row ``can_edit``/``can_delete`` serializer fields stay
@@ -214,8 +216,12 @@ def is_task_assignee(user: Any, task: Any) -> bool:
         return True
     prefetched = getattr(task, "_prefetched_objects_cache", {}).get("assignments")
     if prefetched is not None:
-        return any(getattr(a.resource, "user_id", None) == user_id for a in prefetched)
-    return bool(task.assignments.filter(resource__user_id=user_id).exists())
+        # Re-check is_deleted here: a caller may have prefetched the unfiltered or
+        # the ``.active()`` set, and both paths must reach the same verdict.
+        return any(a.resource.user_id == user_id and not a.resource.is_deleted for a in prefetched)
+    return bool(
+        task.assignments.filter(resource__user_id=user_id, resource__is_deleted=False).exists()
+    )
 
 
 def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") -> bool:
@@ -943,8 +949,9 @@ class IsProjectMemberWriteOrOwn(BasePermission):
 
     Safe methods (GET/HEAD/OPTIONS) allow any project member (Viewer+).
 
-    Unassigned tasks (assignee=None) may only be edited by Project Manager+;
-    a Team Member cannot claim or edit a task that has no assignee yet.
+    Tasks with no assignee (neither ``Task.assignee`` nor a live resource assignment
+    for the caller) may only be edited by Project Manager+; a Team Member cannot
+    claim or edit a task that is not theirs.
     """
 
     message = "You do not have permission to edit this task."
