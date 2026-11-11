@@ -18849,10 +18849,10 @@ class MeActiveSprintsView(APIView):
         from trueppm_api.apps.projects.services import (
             capacity_summaries_for_sprints,
             sprint_trend_points,
-            velocity_summary,
+            velocity_bands_for_projects,
         )
         from trueppm_api.apps.projects.signal_privacy_services import (
-            can_read_signal,
+            can_read_signal_for_projects,
             suppress_velocity_summary,
         )
 
@@ -18919,7 +18919,13 @@ class MeActiveSprintsView(APIView):
 
         today = timezone.localdate()
         results: list[dict[str, Any]] = []
-        velocity_cache: dict[str, dict[str, Any]] = {}
+        # Velocity band + ADR-0104 gate are per PROJECT, so resolving them inside the
+        # loop cost ~5 queries per project the caller sits on (#1630). Both are now one
+        # batch each; the gate decision is the same ladder as `can_read_signal`, and a
+        # suppressed project's band is withheld exactly as before.
+        sprint_project_ids = {str(sp.project_id) for sp in sprints}
+        bands = velocity_bands_for_projects(sprint_project_ids)
+        readable = can_read_signal_for_projects(request, sprint_project_ids, "velocity")
         for sprint in sprints:
             window = (sprint.finish_date - sprint.start_date).days + 1
 
@@ -18932,17 +18938,9 @@ class MeActiveSprintsView(APIView):
 
             cap = capacities[sprint.pk]
             project_id = str(sprint.project_id)
-            if project_id not in velocity_cache:
-                summary = velocity_summary(sprint.project_id)
-                # ADR-0104 §2.1, per project: this lens spans teams, so the gate
-                # is resolved once per project rather than once per request — the
-                # caller can be an ordinary member of one team and the PM of the
-                # next, and each project's own audience decides. Cached alongside
-                # the summary so the membership read is not repeated per sprint.
-                if not can_read_signal(request, sprint.project_id, "velocity"):
-                    summary = suppress_velocity_summary(summary)
-                velocity_cache[project_id] = summary
-            vel = velocity_cache[project_id]
+            vel = bands[project_id]
+            if not readable[project_id]:
+                vel = suppress_velocity_summary(vel)
 
             results.append(
                 {

@@ -27,7 +27,7 @@ inverted statement and is corrected here and in the ADR.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -196,6 +196,66 @@ def can_read_signal(request: Request, project_id: Any, signal_key: str) -> bool:
         else SIGNAL_DEFAULTS.get(signal_key, {"audience": SignalAudience.TEAM})["audience"]
     )
     return signal_audience_rank(tier) <= signal_audience_rank(audience)
+
+
+def can_read_signal_for_projects(
+    request: Request, project_ids: Iterable[Any], signal_key: str
+) -> dict[str, bool]:
+    """Batch twin of :func:`can_read_signal` — same decision, two queries total (#1630).
+
+    A cross-project lens (``/me/active-sprints/``) called ``can_read_signal`` once per
+    project: a membership read plus a policy read each. Here one query loads the
+    caller's live memberships into the same per-request role cache
+    :func:`~trueppm_api.apps.access.permissions._membership_role` reads (same
+    ``is_deleted`` / ``project__is_deleted`` floors), one loads the policies, and the
+    ladder logic is still :func:`requester_signal_tier` and ``audience_of`` — nothing is
+    re-derived. Keyed by ``str(project_id)``; a project with no live membership is
+    ``False``.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.access.permissions import RBAC_ROLE_CACHE_ATTR, _cache_host
+
+    ids = [str(pid) for pid in project_ids]
+    if not ids or not request.user or not request.user.is_authenticated:
+        return dict.fromkeys(ids, False)
+
+    host = _cache_host(request)
+    cache: dict[str, int | None] | None = getattr(host, RBAC_ROLE_CACHE_ATTR, None)
+    if cache is None:
+        cache = {}
+        setattr(host, RBAC_ROLE_CACHE_ATTR, cache)
+    missing = [pid for pid in ids if pid not in cache]
+    if missing:
+        found = {
+            str(project_id): role
+            for project_id, role in ProjectMembership.objects.filter(
+                project_id__in=missing,
+                user=request.user,
+                is_deleted=False,
+                project__is_deleted=False,
+            ).values_list("project_id", "role")
+        }
+        for pid in missing:
+            cache[pid] = found.get(pid)
+
+    policies = {
+        str(policy.project_id): policy
+        for policy in ProjectSignalPrivacyPolicy.objects.filter(project_id__in=ids)
+    }
+    result: dict[str, bool] = {}
+    for pid in ids:
+        tier = requester_signal_tier(request, pid)
+        if tier is None:
+            result[pid] = False
+            continue
+        policy = policies.get(pid)
+        audience = (
+            policy.audience_of(signal_key)
+            if policy is not None
+            else SIGNAL_DEFAULTS.get(signal_key, {"audience": SignalAudience.TEAM})["audience"]
+        )
+        result[pid] = signal_audience_rank(tier) <= signal_audience_rank(audience)
+    return result
 
 
 # Velocity_summary fields that are team-private detail (the series + the

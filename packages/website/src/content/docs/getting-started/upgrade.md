@@ -139,9 +139,11 @@ program pull's floor, just above the current cursor. Tombstones the nightly
 reaper removed before the upgrade never recorded a floor, so the server cannot
 tell which clients missed one; the backfill therefore asks **every offline or
 sync client to re-sync once** after the upgrade. Expect one full pull per client
-and project at the upgrade, and a short spike in sync traffic. Until #4948 is
-fixed, a later reap of a deleted task that still had live child rows forces the
-same full re-sync again, recurring rather than one-time.
+and project at the upgrade, and a short spike in sync traffic. From 0.5, deleting a
+task tombstones its links, relations, recurrence rule and suggested assignees
+with it, so reaping it later no longer forces a re-sync. Two cases still do until
+#4951 is fixed: reaping a task deleted *before* the upgrade that still had live
+child rows, and reaping a deleted project's tasks.
 
 The same migration moves every Monte Carlo run recorded at the old cursor
 along with it. The cursor doubles as the forecast's plan version, so without
@@ -180,6 +182,33 @@ floor itself.
 
 **Rollback notes:** the migration's reverse is a no-op. Rolling back leaves the
 raised floors in place, which 0.4 never reads.
+
+### Sync index rebuilds lock tables (`access.0021`, `projects.0167`, `integrations.0016`, `timetracking.0005`)
+
+0.5 will rebuild 14 delta-pull indexes so the keyset resume can seek on
+`(owner, sync_seq, id)` (#2510). Each migration drops the old index and recreates
+it with a plain, non-concurrent `CREATE INDEX`. Each migration is atomic and drops
+all of its old indexes before it builds the new ones, so every table it touches
+is locked against **reads and writes** until that migration's last index is
+built, not just while its own index builds. The migrations run on container
+start, so a rolling deploy's old pods also wait on the lock.
+
+| Migration | Tables |
+|---|---|
+| `access.0021` | `access_project_membership`, `access_program_membership`, plus two drop-only tables: `access_user_defined_mention_group`, `access_program_user_defined_mention_group` |
+| `projects.0167` | `projects_task`, `projects_dependency`, `projects_task_relation`, `projects_label`, `projects_risk`, `projects_sprint`, `projects_sprintretro`, `projects_retroactionitem`, `projects_taskrecurrencerule`, `projects_tasksuggestedassignee`, plus two drop-only tables: `projects_pulseresponse`, `projects_retroboarditem` |
+| `integrations.0016` | `integrations_tasklink` |
+| `timetracking.0005` | `timetracking_time_entry` |
+
+Five of these are on the tables that grow with project size: `task_proj_syncseq_idx`
+on `projects_task`, and the indexes on time entries, task links, dependencies and
+task relations. Build time grows with their row counts. We have not measured a
+per-million-rows figure; to size the window, time the upgrade on a restored copy
+of your database first, and schedule it away from peak edit traffic on a large
+install.
+
+**Rollback notes:** the migrations are reversible, but reversing them rebuilds
+the old indexes the same way and takes the same locks.
 
 ### Demo compose stack generates its own secrets
 

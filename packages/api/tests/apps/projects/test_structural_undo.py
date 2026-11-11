@@ -26,6 +26,7 @@ from trueppm_api.apps.projects.models import (
     StructuralOperationKind,
     SyncBatchOperationStatus,
     Task,
+    TaskRelation,
 )
 from trueppm_api.apps.projects.structural_operation_services import (
     STRUCTURAL_OPERATION_MAX_REGION,
@@ -295,6 +296,51 @@ def test_ungroup_undo_restores_the_wrappers_own_dependency_edges(
     edge.refresh_from_db()
     assert edge.is_deleted is False
     assert body["undo"]["dependencies_restored"] == 1
+
+
+@pytest.mark.django_db
+def test_ungroup_undo_restores_the_wrappers_synced_children_and_syncs_them(
+    project: Project, owner_client: APIClient
+) -> None:
+    """#4948: ungroup tombstones the wrapper's links/relations; undo must bring them back.
+
+    Also pins that a child deleted *before* the ungroup is not resurrected, and that the
+    restored rows reach a client pulling from before the undo.
+    """
+    from trueppm_api.apps.integrations.models import TaskLink
+
+    container = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
+    make_tasks(project, ["1.1"])
+    other = Task.objects.create(project=project, name="After", duration=1, wbs_path="2")
+    link = TaskLink.objects.create(task=container, url="https://x.test/a", provider="gitlab")
+    old_link = TaskLink.objects.create(task=container, url="https://x.test/old", provider="gitlab")
+    old_link.soft_delete()
+    relation = TaskRelation.objects.create(source=other, target=container)
+
+    response = act(owner_client, UNGROUP_URL.format(pk=project.pk), {"task_id": str(container.pk)})
+    assert response.status_code == 200
+    link.refresh_from_db()
+    relation.refresh_from_db()
+    assert link.is_deleted is True
+    assert relation.is_deleted is True
+
+    pull = owner_client.get(f"/api/v1/projects/{project.pk}/sync/", {"since": "0"})
+    cursor = int(pull.data["timestamp"])
+
+    assert undo(owner_client, response.json()["operation_id"]).status_code == 200
+
+    link.refresh_from_db()
+    relation.refresh_from_db()
+    old_link.refresh_from_db()
+    assert link.is_deleted is False
+    assert relation.is_deleted is False
+    assert old_link.is_deleted is True
+
+    changes = owner_client.get(f"/api/v1/projects/{project.pk}/sync/", {"since": str(cursor)}).data[
+        "changes"
+    ]
+    assert str(link.pk) in {row["id"] for row in changes["task_links"]["updated"]}
+    assert str(relation.pk) in {row["id"] for row in changes["task_relations"]["updated"]}
 
 
 @pytest.mark.django_db

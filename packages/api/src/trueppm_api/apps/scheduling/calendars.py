@@ -64,7 +64,11 @@ def oss_project_layers(project: Project) -> list[Calendar]:
     from trueppm_api.apps.projects.calendar_settings import resolve_effective_base_calendar
 
     calendars: list[Calendar] = []
-    base = resolve_effective_base_calendar(project)
+    # A batch caller (``project_sched_calendars``) loads the workspace singleton once and
+    # parks it on each project; without it every project re-read the singleton (#1630).
+    base = resolve_effective_base_calendar(
+        project, workspace=getattr(project, "_batch_workspace", None)
+    )
     if base is not None:
         calendars.append(base)
     # Ordered by ProjectCalendarLayer.Meta.ordering = ["sort_order"].
@@ -180,4 +184,12 @@ def project_sched_calendars(project_ids: Iterable[Any]) -> dict[str, Any]:
             "program__calendar__exceptions",
         )
     )
-    return {str(p.pk): compose_project_calendar(p) for p in projects}
+    from trueppm_api.apps.workspace.models import Workspace
+
+    workspace = Workspace.load()
+    result: dict[str, Any] = {}
+    for p in projects:
+        # Read by ``oss_project_layers`` so N projects cost one singleton read, not N.
+        p._batch_workspace = workspace  # type: ignore[attr-defined]
+        result[str(p.pk)] = compose_project_calendar(p)
+    return result

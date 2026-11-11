@@ -55,11 +55,13 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import Q
+from django.db.models import F
+from django.db.models.fields.tuple_lookups import TupleGreaterThan
 from rest_framework.exceptions import ValidationError
 
 if TYPE_CHECKING:
@@ -151,6 +153,13 @@ class SyncCursor:
             or (row_id is not None and not isinstance(row_id, str))
         ):
             raise ValidationError({"cursor": "Malformed pagination cursor."})
+        if row_id is not None:
+            # The resume predicate compares against a typed UUID; a non-UUID
+            # string must be a 400 here, not a ValueError mid-query.
+            try:
+                uuid.UUID(row_id)
+            except ValueError as err:
+                raise ValidationError({"cursor": "Malformed pagination cursor."}) from err
         return cls(index=index, version=version, row_id=row_id, watermark=watermark)
 
 
@@ -199,9 +208,15 @@ def paginate_changes(
         # cursor (row_id is None) or the very first page applies only the
         # ``<version_field>__gt=since`` floor already baked into ``qs``.
         if cursor is not None and i == cursor.index and cursor.row_id is not None:
+            # Row comparison, not ``a > v OR (a = v AND id > x)``: Postgres turns
+            # a tuple comparison into one index range seek on the ``(owner,
+            # sync_seq, id)`` indexes with an early-stopping LIMIT, where the
+            # OR-form cannot be collapsed into a single range (#2510).
             qs = qs.filter(
-                Q(**{f"{version_field}__gt": cursor.version})
-                | Q(**{version_field: cursor.version, "id__gt": cursor.row_id})
+                TupleGreaterThan(
+                    (F(version_field), F("pk")),
+                    (cursor.version, uuid.UUID(cursor.row_id)),
+                )
             )
 
         rows = list(qs.order_by(version_field, "id")[: remaining + 1])

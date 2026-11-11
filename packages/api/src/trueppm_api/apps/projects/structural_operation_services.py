@@ -31,6 +31,10 @@ cascade on undo would silently un-delete them. Undo restores exactly the ids it 
 (Its missing project scope — an unscoped ``wbs_path__startswith`` that matched the same
 path in every other project — was fixed in #3010; the reuse is still wrong for the reason
 above.)
+
+The same reasoning covers the wrapper's synced children (#4948): ``Task.soft_delete`` now
+tombstones its links, relations, recurrence rule and suggested assignees, and undo restores
+only the ids the act recorded in ``removed_synced_child_ids``.
 """
 
 from __future__ import annotations
@@ -188,6 +192,7 @@ class StructuralCapture:
         created_task_ids: list[uuid.UUID] | None = None,
         deleted_task_ids: list[uuid.UUID] | None = None,
         removed_dependency_ids: list[uuid.UUID] | None = None,
+        removed_synced_child_ids: dict[str, list[str]] | None = None,
     ) -> StructuralOperation:
         """Write the ledger row. Returns it so the endpoint can echo ``operation_id``."""
         from trueppm_api.apps.projects.models import StructuralOperation, Task
@@ -235,6 +240,7 @@ class StructuralCapture:
             deleted_task_ids=deleted,
             created_task_versions=created_versions,
             removed_dependency_ids=list(removed_dependency_ids or []),
+            removed_synced_child_ids=dict(removed_synced_child_ids or {}),
             result_summary={
                 "region_size": region_size,
                 "moved": sum(
@@ -440,7 +446,10 @@ def _restore_deleted_rows(locked: Any, task_model: Any) -> int:
     """Undo step 1 — restore soft-deleted rows: exact ids, project-scoped, no cascade.
 
     This is what returns an ungrouped wrapper with its original id, name, notes and
-    labels: a soft delete retains them, so nothing needed snapshotting.
+    labels: a soft delete retains them, so nothing needed snapshotting. The wrapper's
+    synced children (links, relations, recurrence rule, suggested assignees) are
+    tombstoned with it since #4948, so the exact ids the act recorded are restored
+    too — by id, not by the restore-all cascade.
 
     ``on_conflict="repath"`` for the same reason step 2 skips a colliding edge rather
     than failing: an undo that abandons part-way leaves the caller with neither state
@@ -453,12 +462,17 @@ def _restore_deleted_rows(locked: Any, task_model: Any) -> int:
 
     Caller holds ``transaction.atomic()`` — ``select_for_update()`` below requires it.
     """
+    from trueppm_api.apps.projects.models import restore_task_synced_children_by_id
+
     restored = 0
     for row in task_model.objects.select_for_update().filter(
         pk__in=locked.deleted_task_ids, project_id=locked.project_id, is_deleted=True
     ):
         row.restore(on_conflict="repath")
         restored += 1
+    # Children come back after their tasks so a relation's endpoints are live.
+    if restored and locked.removed_synced_child_ids:
+        restore_task_synced_children_by_id(locked.removed_synced_child_ids, locked.project_id)
     return restored
 
 

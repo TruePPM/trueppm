@@ -89,7 +89,7 @@ class TimeEntry(VersionedModel):
             models.Index(fields=["user", "task", "entry_date"]),
             # Per-project sync delta pull (task → server_version).
             models.Index(fields=["task", "server_version"]),
-            models.Index(fields=["task", "sync_seq"]),
+            models.Index(fields=["task", "sync_seq", "id"]),
         ]
 
     def __str__(self) -> str:

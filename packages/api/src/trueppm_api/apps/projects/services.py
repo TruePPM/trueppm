@@ -945,6 +945,61 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     }
 
 
+def velocity_bands_for_projects(
+    project_ids: Iterable[str | uuid.UUID],
+) -> dict[str, dict[str, Any]]:
+    """Rolling-average and forecast band for many projects in ONE query (#1630).
+
+    The batch twin of the four band fields of :func:`velocity_summary` — the only
+    ones a cross-project card renders. Same window (the last 8 COMPLETED sprints per
+    project *including* excluded ones), same eligibility (``exclude_from_velocity``
+    leaves the statistic), same :func:`_velocity_stats`; only the fetch differs: a
+    ``ROW_NUMBER() OVER (PARTITION BY project ORDER BY closed_at DESC)`` window
+    replaces one query per project. Projects with no closed sprints get the
+    all-``None`` band, matching ``velocity_summary``. Keyed by ``str(project_id)``.
+    """
+    from django.db.models import F, Window
+    from django.db.models.functions import RowNumber
+
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
+    ids = [str(pid) for pid in project_ids]
+    bands: dict[str, dict[str, Any]] = {
+        pid: {
+            "rolling_avg_points": None,
+            "forecast_range_low": None,
+            "forecast_range_high": None,
+        }
+        for pid in ids
+    }
+    if not ids:
+        return bands
+    rows = (
+        Sprint.objects.filter(project_id__in=ids, state=SprintState.COMPLETED, is_deleted=False)
+        .annotate(
+            _rn=Window(
+                expression=RowNumber(),
+                partition_by=[F("project_id")],
+                order_by=F("closed_at").desc(),
+            )
+        )
+        .filter(_rn__lte=8)
+        .values_list("project_id", "exclude_from_velocity", "completed_points")
+    )
+    points_by_project: dict[str, list[int]] = {}
+    for project_id, excluded, completed_points in rows:
+        if not excluded and completed_points is not None:
+            points_by_project.setdefault(str(project_id), []).append(completed_points)
+    for pid, points in points_by_project.items():
+        avg_p, _sd, low_p, high_p = _velocity_stats(points)
+        bands[pid] = {
+            "rolling_avg_points": avg_p,
+            "forecast_range_low": low_p,
+            "forecast_range_high": high_p,
+        }
+    return bands
+
+
 def _velocity_stats(values: list[int]) -> tuple[float | None, float | None, int | None, int | None]:
     """Rolling average, stdev, and the avg ± 1σ forecast range.
 

@@ -645,6 +645,7 @@ def perform_ungroup(project: Project, request: Request, raw_id: Any) -> dict[str
     from trueppm_api.apps.access.permissions import can_user_edit_task
     from trueppm_api.apps.projects.models import (
         Dependency,
+        live_task_synced_children,
         resync_container_declarations,
     )
     from trueppm_api.apps.projects.models import (
@@ -725,6 +726,9 @@ def perform_ungroup(project: Project, request: Request, raw_id: Any) -> dict[str
     # renumbering pass below sees one flat level with no path collisions.
     _park_level(project_id, parent_path, children, staging_base(siblings))
 
+    # Read before the delete: `Task.soft_delete` tombstones these with the wrapper (#4948)
+    # and leaves no marker, so undo can only restore what was recorded here.
+    removed_synced_child_ids = live_task_synced_children([container.pk])
     container.soft_delete()
 
     new_level = siblings[:container_index] + children + siblings[container_index + 1 :]
@@ -758,6 +762,7 @@ def perform_ungroup(project: Project, request: Request, raw_id: Any) -> dict[str
         anchors=[container.pk, *[child.pk for child in children]],
         deleted_task_ids=[container.pk],
         removed_dependency_ids=[uuid.UUID(dep_id) for dep_id in removed_dependency_ids],
+        removed_synced_child_ids=removed_synced_child_ids,
     )
 
     return {
