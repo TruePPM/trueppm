@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { useProductBacklog } from '@/features/project/backlog/hooks/useProductBacklog';
+import {
+  useLoadMoreProductBacklog,
+  useProductBacklog,
+} from '@/features/project/backlog/hooks/useProductBacklog';
+import { BacklogTruncatedNotice } from '@/features/project/backlog/components/BacklogTruncatedNotice';
 import { useBulkUpdateTasks } from '@/hooks/useTaskMutations';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -96,6 +100,7 @@ function StoryPickerPickBody({
   iterationLower,
   commitError,
   searchRef,
+  truncationNotice,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
@@ -115,6 +120,8 @@ function StoryPickerPickBody({
   iterationLower: string;
   commitError: string | null;
   searchRef: RefObject<HTMLInputElement | null>;
+  /** Rule 296: the cap's escape hatch, on the surface where stories are picked. */
+  truncationNotice?: ReactNode;
 }) {
   return (
     <>
@@ -180,6 +187,8 @@ function StoryPickerPickBody({
           </button>
         </p>
       )}
+
+      {truncationNotice}
 
       <div className="flex-1 overflow-y-auto px-5 py-2">
         {isLoading ? (
@@ -508,6 +517,7 @@ export function StoryPickerModal({
 }: Props) {
   const itl = useIterationLabel(projectId);
   const backlog = useProductBacklog(projectId);
+  const loadMore = useLoadMoreProductBacklog(projectId);
   const commitStories = useBulkUpdateTasks(projectId);
   const queryClient = useQueryClient();
 
@@ -740,6 +750,18 @@ export function StoryPickerModal({
               iterationLower={itl.lower}
               commitError={commitError}
               searchRef={searchRef}
+              truncationNotice={
+                backlog.data?.truncated ? (
+                  <BacklogTruncatedNotice
+                    className="px-5"
+                    shown={allRows.length}
+                    total={backlog.data.health.storyCount}
+                    limit={backlog.data.limit}
+                    onLoadMore={() => loadMore.mutate()}
+                    loading={loadMore.isPending}
+                  />
+                ) : null
+              }
             />
           )}
 

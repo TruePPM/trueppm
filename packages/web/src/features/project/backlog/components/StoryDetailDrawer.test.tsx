@@ -80,6 +80,7 @@ const backlog: ProductBacklog = {
   scoring: { model: 'wsjf' },
   truncated: false,
   limit: 500,
+  offset: 0,
 };
 
 function renderDrawer(story: Task, canManageBacklog = true, onClose = vi.fn()) {

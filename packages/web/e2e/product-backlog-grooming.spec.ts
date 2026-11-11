@@ -126,9 +126,51 @@ function groomingPayload(empty = false) {
   };
 }
 
+/**
+ * Serve the grooming read as two rank pages (#2344): page one (offset 0) is capped at
+ * 3 stories with `truncated: true`; `?offset=3` returns the story ranked past the cap.
+ * Registered last so it wins over the setup's single-page route, and matched by URL
+ * predicate because the glob form does not match a query string.
+ */
+async function routePagedBacklog(page: import('@playwright/test').Page) {
+  const offsets: number[] = [];
+  await page.route(/\/api\/v1\/projects\/[^/]+\/product-backlog\/(\?.*)?$/, (route) => {
+    const offset = Number(new URL(route.request().url()).searchParams.get('offset') ?? '0');
+    offsets.push(offset);
+    const base = groomingPayload();
+    const health = { ...base.health, story_count: 4 };
+    const body =
+      offset === 0
+        ? { ...base, health, truncated: true, limit: 3, offset: 0 }
+        : {
+            ...base,
+            health,
+            epics: base.epics.map((g) => ({ ...g, stories: [] })),
+            ungrouped: [
+              apiStory({
+                id: 'S501',
+                name: 'Ranked past the cap',
+                short_id: 'ST-501',
+                type: 'story',
+                dor: 'idea',
+              }),
+            ],
+            truncated: false,
+            limit: 3,
+            offset,
+          };
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+  });
+  return offsets;
+}
+
 async function setup(
   page: import('@playwright/test').Page,
-  { empty = false, truncated = false }: { empty?: boolean; truncated?: boolean } = {},
+  { empty = false }: { empty?: boolean } = {},
 ) {
   await setupAuth(page);
   await setupCatchAll(page);
@@ -142,7 +184,7 @@ async function setup(
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ ...groomingPayload(empty), truncated, limit: 500 }),
+      body: JSON.stringify(groomingPayload(empty)),
     }),
   );
   await page.route('**/api/v1/tasks/', (route) => {
@@ -165,13 +207,26 @@ async function setup(
 }
 
 test.describe('Product backlog grooming (#494/#921/#922)', () => {
-  test('shows a truncation notice when the story list is capped (#2344)', async ({ page }) => {
-    await setup(page, { truncated: true });
+  test('load-more past the story cap reaches a story ranked beyond page one (#2344)', async ({
+    page,
+  }) => {
+    await setup(page);
+    const offsets = await routePagedBacklog(page);
     await page.goto(`${BASE_URL}/product-backlog`);
-    await expect(page.getByTestId('backlog-truncated-notice')).toHaveText(
-      'Showing the top 500 of 3 stories',
-      { timeout: 10_000 },
+    const notice = page.getByRole('complementary', { name: 'Backlog truncated' });
+    await expect(notice).toContainText('Showing the top 3 of 4 stories by rank', {
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('button', { name: 'Open story Ranked past the cap' })).toHaveCount(
+      0,
     );
+    await notice.getByRole('button', { name: 'Load next 1' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Open story Ranked past the cap' }),
+    ).toBeVisible();
+    // The whole backlog is loaded now, so the notice (and its control) goes away.
+    await expect(notice).toHaveCount(0);
+    expect(offsets).toContain(3);
   });
 
   test('shows no truncation notice for an uncapped backlog (#2344)', async ({ page }) => {

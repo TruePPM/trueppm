@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, within } from '@testing-library/react';
+import { fireEvent, render, screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -14,6 +14,7 @@ import { ProductBacklogPage } from './ProductBacklogPage';
 // object so each test can drive the exact loading / error / empty / populated /
 // filtered / permission branch it exercises.
 const h = vi.hoisted(() => ({
+  loadMoreMutate: vi.fn(),
   bp: { value: 'lg' as 'sm' | 'md' | 'lg' },
   backlog: { isLoading: true, isError: false, data: undefined as ProductBacklog | undefined },
   canManage: true,
@@ -235,6 +236,7 @@ vi.mock('./hooks/useProductBacklog', () => ({
     root: (projectId: string | undefined) => ['product-backlog', projectId] as const,
   },
   useProductBacklog: () => h.backlog,
+  useLoadMoreProductBacklog: () => ({ mutate: h.loadMoreMutate, isPending: false }),
   useAutoRank: () => ({ mutate: h.autoRankMutate, isPending: h.autoRankPending }),
   useSetDor: () => ({ mutate: h.setDorMutate }),
   useReorderBacklog: () => ({ mutate: h.reorderMutate }),
@@ -397,6 +399,7 @@ function makeBacklog(over: Partial<ProductBacklog> = {}): ProductBacklog {
     scoring: { model: 'wsjf' },
     truncated: false,
     limit: 500,
+    offset: 0,
     ...over,
   };
 }
@@ -491,13 +494,15 @@ describe('ProductBacklogPage truncation notice (#2344)', () => {
       makeBacklog({
         truncated: true,
         limit: 500,
+        offset: 0,
         health: { ...makeBacklog().health, storyCount: 3000 },
       }),
     );
     renderPage();
-    expect(screen.getByTestId('backlog-truncated-notice')).toHaveTextContent(
-      'Showing the top 500 of 3000 stories',
-    );
+    const notice = screen.getByRole('complementary', { name: 'Backlog truncated' });
+    expect(notice).toHaveTextContent(/Showing the top \d+ of 3,000 stories by rank/);
+    fireEvent.click(within(notice).getByRole('button', { name: 'Load next 500' }));
+    expect(h.loadMoreMutate).toHaveBeenCalledTimes(1);
   });
 
   it('shows no notice when the backlog is not truncated', () => {

@@ -1513,3 +1513,50 @@ def test_grooming_query_count_independent_of_story_count(
             owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=5").status_code
             == 200
         )
+
+
+def _ranked_names(body: dict[str, Any]) -> list[str]:
+    rows = [s for g in body["epics"] for s in g["stories"]] + list(body["ungrouped"])
+    return [r["name"] for r in sorted(rows, key=lambda r: r["priority_rank"])]
+
+
+def test_grooming_offset_returns_the_next_ranks(owner_client: APIClient, project: Project) -> None:
+    epic = _story(project, name="EP", type=TaskType.EPIC, priority_rank=1)
+    for i in range(5):
+        _story(project, name=f"r{i + 1}", priority_rank=i + 1, parent_epic=epic if i % 2 else None)
+    url = f"/api/v1/projects/{project.pk}/product-backlog/"
+    first = owner_client.get(f"{url}?limit=2").data
+    assert first["offset"] == 0
+    assert _ranked_names(first) == ["r1", "r2"]
+    assert first["truncated"] is True
+    second = owner_client.get(f"{url}?limit=2&offset=2").data
+    assert second["offset"] == 2
+    assert _ranked_names(second) == ["r3", "r4"]
+    assert second["truncated"] is True
+    # Epics + whole-backlog health come back on every page.
+    assert [g["epic"]["name"] for g in second["epics"]] == ["EP"]
+    assert second["health"]["story_count"] == 5
+    last = owner_client.get(f"{url}?limit=2&offset=4").data
+    assert _ranked_names(last) == ["r5"]
+    assert last["truncated"] is False
+    past = owner_client.get(f"{url}?limit=2&offset=10").data
+    assert _ranked_names(past) == []
+    assert past["truncated"] is False
+
+
+@pytest.mark.parametrize("bad", ["-1", "abc", "1.5"])
+def test_grooming_rejects_bad_offset(owner_client: APIClient, project: Project, bad: str) -> None:
+    resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?offset={bad}")
+    assert resp.status_code == 400
+    assert "offset" in resp.data
+
+
+def test_grooming_offset_query_count_bounded(
+    owner_client: APIClient, project: Project, django_assert_max_num_queries: Any
+) -> None:
+    for i in range(15):
+        _criterion(_story(project, name=f"s{i}", story_points=1, priority_rank=i + 1), met=True)
+    with django_assert_max_num_queries(40):
+        resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=5&offset=5")
+    assert resp.status_code == 200
+    assert len(resp.data["ungrouped"]) == 5

@@ -30,6 +30,7 @@ import {
   useCreateEpic,
   usePatchEpic,
   useDeleteEpic,
+  useLoadMoreProductBacklog,
 } from './useProductBacklog';
 
 const {
@@ -56,7 +57,10 @@ const {
   deleteEpicMock: vi.fn(),
 }));
 
-vi.mock('../api', () => ({
+vi.mock('../api', async () => ({
+  // Pure page-merge helpers run for real so the hook's paging is exercised end to end.
+  loadedStoryCount: (await vi.importActual<typeof import('../api')>('../api')).loadedStoryCount,
+  mergeBacklogPage: (await vi.importActual<typeof import('../api')>('../api')).mergeBacklogPage,
   fetchProductBacklog: fetchProductBacklogMock,
   postAutoRank: postAutoRankMock,
   patchTaskDor: patchTaskDorMock,
@@ -86,6 +90,7 @@ function makeBacklog(overrides: Partial<ProductBacklog> = {}): ProductBacklog {
     scoring: { model: 'wsjf' as ProductBacklog['scoring']['model'] },
     truncated: false,
     limit: 500,
+    offset: 0,
     ...overrides,
   };
 }
@@ -134,6 +139,63 @@ describe('useProductBacklog (read)', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(fetchProductBacklogMock).toHaveBeenCalledWith('p1');
     expect(result.current.data).toBe(backlog);
+  });
+});
+
+describe('product-backlog paging (#2344)', () => {
+  const epic = { id: 'e1', name: 'Epic' } as never;
+  const story = (id: string) => ({ id, name: id }) as never;
+  const page1 = () =>
+    makeBacklog({
+      epics: [
+        { epic, stories: [story('s1')], rollup: { storyCount: 3, pointsTotal: 0, pointsDone: 0 } },
+      ],
+      ungrouped: [story('u1')],
+      truncated: true,
+      limit: 2,
+    });
+  const page2 = () =>
+    makeBacklog({
+      epics: [
+        { epic, stories: [story('s2')], rollup: { storyCount: 3, pointsTotal: 0, pointsDone: 0 } },
+      ],
+      // u1 repeats across a shifted page boundary — must not duplicate.
+      ungrouped: [story('u1'), story('u2')],
+      truncated: false,
+      limit: 2,
+      offset: 2,
+    });
+
+  it('load more fetches offset = stories loaded and merges into epics + ungrouped', async () => {
+    fetchProductBacklogMock.mockResolvedValueOnce(page1()).mockResolvedValueOnce(page2());
+    const qc = makeQC();
+    const wrapper = makeWrapper(qc);
+    const read = renderHook(() => useProductBacklog('p1'), { wrapper });
+    await waitFor(() => expect(read.result.current.isSuccess).toBe(true));
+    const more = renderHook(() => useLoadMoreProductBacklog('p1'), { wrapper });
+    await act(async () => {
+      await more.result.current.mutateAsync();
+    });
+    expect(fetchProductBacklogMock).toHaveBeenLastCalledWith('p1', 2);
+    const merged = qc.getQueryData<ProductBacklog>(productBacklogKeys.root('p1'));
+    expect(merged?.epics[0].stories.map((s) => s.id)).toEqual(['s1', 's2']);
+    expect(merged?.ungrouped.map((s) => s.id)).toEqual(['u1', 'u2']);
+    expect(merged?.truncated).toBe(false);
+    expect(merged?.offset).toBe(0);
+  });
+
+  it('a refetch re-reads to the depth already loaded instead of snapping to page one', async () => {
+    const qc = makeQC();
+    qc.setQueryData(productBacklogKeys.root('p1'), {
+      ...page1(),
+      ungrouped: [story('u1'), story('u2'), story('u3')],
+    });
+    fetchProductBacklogMock.mockResolvedValueOnce(page1()).mockResolvedValueOnce(page2());
+    // Cached-but-stale data refetches on mount — the same path an invalidation takes.
+    renderHook(() => useProductBacklog('p1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(fetchProductBacklogMock).toHaveBeenCalledTimes(2));
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(1, 'p1');
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(2, 'p1', 2);
   });
 
   it('does not fetch while the projectId is undefined (gated query)', () => {
@@ -234,7 +296,10 @@ describe('epic CRUD (#1339)', () => {
     result.current.mutate({ epicId: 'e1', patch: { name: 'Platform Core & SSO', notes: 'OIDC.' } });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(patchEpicMock).toHaveBeenCalledWith('e1', { name: 'Platform Core & SSO', notes: 'OIDC.' });
+    expect(patchEpicMock).toHaveBeenCalledWith('e1', {
+      name: 'Platform Core & SSO',
+      notes: 'OIDC.',
+    });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
   });
 

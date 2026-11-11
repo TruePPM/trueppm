@@ -23,7 +23,13 @@ import type { Methodology, Task } from '@/types';
 import type { ProductBacklog } from '../../types';
 import { filterBacklog } from '../../filter';
 import { useGroomingFilters, type GroomingFilterControls } from '../../hooks/useGroomingFilters';
-import { useProductBacklog, useQuickAddStory, useSetDor } from '../../hooks/useProductBacklog';
+import {
+  useLoadMoreProductBacklog,
+  useProductBacklog,
+  useQuickAddStory,
+  useSetDor,
+} from '../../hooks/useProductBacklog';
+import { BacklogTruncatedNotice } from '../BacklogTruncatedNotice';
 import { DOR_FILTER_ORDER, DorFilterChip, ToggleChip } from '../GroomingFilterChips';
 import { GroomingSearchInput } from '../GroomingSearchInput';
 import { StoryDetailDrawer } from '../StoryDetailDrawer';
@@ -220,6 +226,7 @@ export function MobileGroomingPage() {
   const { data: projectDetail } = useProject(projectId);
   const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
   const { data, isLoading, isError } = useProductBacklog(projectId);
+  const loadMore = useLoadMoreProductBacklog(projectId);
   const setDor = useSetDor(projectId);
   const quickAdd = useQuickAddStory(projectId);
   const canManageBacklog = useCanManageBacklog(projectId);
@@ -319,6 +326,17 @@ export function MobileGroomingPage() {
           </button>
         )}
       </header>
+
+      {backlog.truncated && (
+        <BacklogTruncatedNotice
+          className="px-4"
+          shown={totalCount}
+          total={health.storyCount}
+          limit={backlog.limit}
+          onLoadMore={() => loadMore.mutate()}
+          loading={loadMore.isPending}
+        />
+      )}
 
       {/* The phone half of the populated-backlog signal (#2619). Mobile already
           ships the EMPTY half below, so omitting this would recreate on mobile

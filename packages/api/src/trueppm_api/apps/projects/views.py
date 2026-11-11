@@ -1494,6 +1494,35 @@ PRODUCT_BACKLOG_DEFAULT_LIMIT = 500
 PRODUCT_BACKLOG_MAX_LIMIT = 2000
 
 
+def _product_backlog_page(params: Any) -> tuple[int, int]:
+    """Parse the grooming view's ``limit`` / ``offset`` page params (#2344).
+
+    ``limit`` is clamped to the max rather than rejected so an over-ask still answers;
+    ``offset`` pages past the cap in the same rank order, so a client can reach every
+    story (packages/web rule 296: a truncation notice ships with a way past it).
+    """
+    limit = PRODUCT_BACKLOG_DEFAULT_LIMIT
+    raw_limit = params.get("limit")
+    if raw_limit is not None:
+        try:
+            limit = int(raw_limit)
+        except ValueError:
+            raise DRFValidationError({"limit": "Must be an integer."}) from None
+        if limit < 1:
+            raise DRFValidationError({"limit": "Must be at least 1."})
+        limit = min(limit, PRODUCT_BACKLOG_MAX_LIMIT)
+    offset = 0
+    raw_offset = params.get("offset")
+    if raw_offset is not None:
+        try:
+            offset = int(raw_offset)
+        except ValueError:
+            raise DRFValidationError({"offset": "Must be an integer."}) from None
+        if offset < 0:
+            raise DRFValidationError({"offset": "Must be at least 0."})
+    return limit, offset
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -2066,9 +2095,18 @@ class ProjectViewSet(
                     "Maximum number of backlog stories to serialize, in rank order "
                     f"(default {PRODUCT_BACKLOG_DEFAULT_LIMIT}, max {PRODUCT_BACKLOG_MAX_LIMIT}). "
                     "Health and epic rollups always cover the whole backlog; "
-                    "``truncated`` is true when stories were omitted."
+                    "``truncated`` is true when stories rank beyond this page."
                 ),
-            )
+            ),
+            OpenApiParameter(
+                "offset",
+                int,
+                description=(
+                    "Number of rank-ordered stories to skip before the page starts "
+                    "(default 0). Pass the count of stories already loaded to fetch the "
+                    "next page; epics and health are returned whole on every page."
+                ),
+            ),
         ],
         responses={
             200: OpenApiResponse(
@@ -2107,6 +2145,7 @@ class ProjectViewSet(
                         ),
                         "truncated": serializers.BooleanField(),
                         "limit": serializers.IntegerField(),
+                        "offset": serializers.IntegerField(),
                         "scoring": inline_serializer(
                             name="ProductBacklogScoring",
                             fields={
@@ -2150,16 +2189,7 @@ class ProjectViewSet(
         # computed over the WHOLE backlog from a light query below, so a truncated
         # response never misreports the grooming strip; only the serialized story rows
         # are capped (rank order, so the top of the backlog always survives).
-        raw_limit = request.query_params.get("limit")
-        limit = PRODUCT_BACKLOG_DEFAULT_LIMIT
-        if raw_limit is not None:
-            try:
-                limit = int(raw_limit)
-            except ValueError:
-                raise DRFValidationError({"limit": "Must be an integer."}) from None
-            if limit < 1:
-                raise DRFValidationError({"limit": "Must be at least 1."})
-            limit = min(limit, PRODUCT_BACKLOG_MAX_LIMIT)
+        limit, offset = _product_backlog_page(request.query_params)
 
         # Prefetch what TaskSerializer reads per row so the grooming view stays O(1) in
         # queries rather than O(stories): assignments (+resource), acceptance criteria
@@ -2222,7 +2252,7 @@ class ProjectViewSet(
 
         story_order = ("priority_rank", "short_id")
         # Heavy path: only the first ``limit`` stories get prefetches + serialization.
-        stories = list(_story_filter(_backlog_qs()).order_by(*story_order)[:limit])
+        stories = list(_story_filter(_backlog_qs()).order_by(*story_order)[offset : offset + limit])
         # Light path: whole-backlog facts for rollups + health, no prefetch/annotation.
         stat_rows = list(
             _story_filter(Task.objects.filter(project=project, is_deleted=False)).values_list(
@@ -2299,8 +2329,10 @@ class ProjectViewSet(
                     "ac_total": ac_all,
                     "story_count": total,
                 },
-                "truncated": total > len(stories),
+                # True when stories rank beyond this page, i.e. a next page exists.
+                "truncated": total > offset + len(stories),
                 "limit": limit,
+                "offset": offset,
                 "scoring": {"model": model},
             }
         )

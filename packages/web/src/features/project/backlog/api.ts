@@ -7,6 +7,7 @@
 import { apiClient } from '@/api/client';
 import { mapTask, type ApiTask } from '@/hooks/useScheduleTasks';
 import type { AcceptanceCriterion, DorState, PrioritizationModel, TaskType } from '@/types';
+import type { Task } from '@/types';
 import type { EpicGroup, GroomingHealth, ProductBacklog } from './types';
 
 interface ApiEpicGroup {
@@ -31,6 +32,7 @@ interface ApiProductBacklog {
   scoring: { model: PrioritizationModel };
   truncated?: boolean;
   limit?: number;
+  offset?: number;
 }
 
 function mapHealth(h: ApiProductBacklog['health']): GroomingHealth {
@@ -66,12 +68,52 @@ export function fromApiProductBacklog(raw: ApiProductBacklog): ProductBacklog {
     scoring: { model: raw.scoring.model },
     truncated: raw.truncated ?? false,
     limit: raw.limit ?? 0,
+    offset: raw.offset ?? 0,
   };
 }
 
-export async function fetchProductBacklog(projectId: string): Promise<ProductBacklog> {
-  const res = await apiClient.get<ApiProductBacklog>(`/projects/${projectId}/product-backlog/`);
+/** Fetch one rank-ordered page of the grooming view; `offset` 0 is today's first page. */
+export async function fetchProductBacklog(projectId: string, offset = 0): Promise<ProductBacklog> {
+  const qs = offset > 0 ? `?offset=${offset}` : '';
+  const res = await apiClient.get<ApiProductBacklog>(
+    `/projects/${projectId}/product-backlog/${qs}`,
+  );
   return fromApiProductBacklog(res.data);
+}
+
+/** Stories (not epics) present in a possibly multi-page backlog. */
+export function loadedStoryCount(backlog: ProductBacklog | undefined): number {
+  if (!backlog) return 0;
+  return backlog.epics.reduce((n, g) => n + g.stories.length, 0) + backlog.ungrouped.length;
+}
+
+/**
+ * Append a later page (#2344) onto an already-loaded backlog. Every page carries the
+ * whole epic list, whole-backlog health and rollups, so those come from the newer
+ * page; only the story rows accumulate. Stories already present (a page boundary that
+ * shifted under a concurrent rerank) are dropped rather than duplicated.
+ */
+export function mergeBacklogPage(base: ProductBacklog, page: ProductBacklog): ProductBacklog {
+  const seen = new Set<string>([
+    ...base.epics.flatMap((g) => g.stories.map((s) => s.id)),
+    ...base.ungrouped.map((s) => s.id),
+  ]);
+  const fresh = (rows: Task[]) => rows.filter((s) => !seen.has(s.id));
+  const pageByEpic = new Map(page.epics.map((g) => [g.epic.id, g]));
+  const baseEpicIds = new Set(base.epics.map((g) => g.epic.id));
+  const epics: EpicGroup[] = base.epics.map((g) => {
+    const p = pageByEpic.get(g.epic.id);
+    return p ? { ...p, stories: [...g.stories, ...fresh(p.stories)] } : g;
+  });
+  for (const g of page.epics) {
+    if (!baseEpicIds.has(g.epic.id)) epics.push({ ...g, stories: fresh(g.stories) });
+  }
+  return {
+    ...page,
+    offset: base.offset,
+    epics,
+    ungrouped: [...base.ungrouped, ...fresh(page.ungrouped)],
+  };
 }
 
 export async function postAutoRank(projectId: string): Promise<{ reranked: number }> {

@@ -73,11 +73,19 @@ the keyboard-accessible **Parent epic** picker in the story drawer.
 
 The grooming endpoint (`GET /projects/{id}/product-backlog/`) returns at most 500 stories
 per request, in rank order, so opening the board on an imported backlog of thousands of
-stories stays fast. Pass `?limit=N` (maximum 2000) to change the cap. The health strip and
-each epic's rollup always count the whole backlog; the response carries `truncated: true`
-when stories were left out. The grooming page surfaces this as a notice above the table,
-for example "Showing the top 500 of 3000 stories", so a capped list is never mistaken for the
-whole backlog.
+stories stays fast. Pass `?limit=N` (maximum 2000) to change the page size and `?offset=N`
+to skip the first N ranked stories and fetch the next page. Every page carries the full epic
+list, and the health strip and each epic's rollup always count the whole backlog. The
+response carries `truncated: true` while more stories rank beyond the page, plus the `limit`
+and `offset` it applied.
+
+On the grooming page (desktop and phone) a capped list shows a notice above the stories,
+for example "Showing the top 500 of 3,000 stories by rank", with a **Load next 500** button
+that appends the next page in rank order. The sprint story picker shows the same notice and
+button, so a story ranked past the first page can still be pulled into a sprint. Search and
+filters apply to the stories loaded so far; load more pages to search further down the
+backlog. Drag reorder saves the complete backlog order, so load every page before
+reordering a backlog larger than one page.
 
 ## Work-item types
 

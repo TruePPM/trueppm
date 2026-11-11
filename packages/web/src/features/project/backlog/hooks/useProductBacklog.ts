@@ -7,17 +7,14 @@
  * re-deriving them client-side and risking drift with the auto-rank result).
  */
 
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type UseQueryResult,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import {
   createBacklogStory,
   createEpic,
   deleteEpic,
   fetchProductBacklog,
+  loadedStoryCount,
+  mergeBacklogPage,
   patchEpic,
   patchTaskDor,
   postAutoRank,
@@ -34,13 +31,64 @@ export const productBacklogKeys = {
   root: (projectId: string | undefined) => ['product-backlog', projectId] as const,
 };
 
-export function useProductBacklog(
-  projectId: string | undefined,
-): UseQueryResult<ProductBacklog> {
+/**
+ * Fetch the first page, then keep paging until at least `minStories` stories are loaded
+ * (or the backlog ends). Used by refetches so a user who clicked "Load next" does not
+ * snap back to page one when a mutation or WS event invalidates the query.
+ */
+async function fetchProductBacklogPages(
+  projectId: string,
+  minStories: number,
+): Promise<ProductBacklog> {
+  let backlog = await fetchProductBacklog(projectId);
+  while (backlog.truncated && loadedStoryCount(backlog) < minStories) {
+    const before = loadedStoryCount(backlog);
+    backlog = mergeBacklogPage(backlog, await fetchProductBacklog(projectId, before));
+    if (loadedStoryCount(backlog) === before) break;
+  }
+  return backlog;
+}
+
+/**
+ * Cache invariant (#2344): `['product-backlog', projectId]` holds ONE merged
+ * {@link ProductBacklog} covering rank-ordered pages `[0, loaded)`, never a single page.
+ * "Load next" appends a page into that entry ({@link useLoadMoreProductBacklog}), and a
+ * refetch re-reads to the same depth ({@link fetchProductBacklogPages}), so every
+ * existing writer (optimistic reorder/reparent, WS invalidation) keeps working on the
+ * one shape it already knows.
+ */
+export function useProductBacklog(projectId: string | undefined): UseQueryResult<ProductBacklog> {
+  const qc = useQueryClient();
+  const key = productBacklogKeys.root(projectId);
   return useQuery({
-    queryKey: productBacklogKeys.root(projectId),
-    queryFn: () => fetchProductBacklog(projectId as string),
+    queryKey: key,
+    queryFn: () =>
+      fetchProductBacklogPages(
+        projectId as string,
+        loadedStoryCount(qc.getQueryData<ProductBacklog>(key)),
+      ),
     enabled: !!projectId,
+  });
+}
+
+/**
+ * Fetch the next rank page past the server cap (offset = stories already loaded) and
+ * merge it into the cached backlog — the escape hatch behind the truncation notice
+ * (packages/web rule 296).
+ */
+export function useLoadMoreProductBacklog(projectId: string | undefined) {
+  const qc = useQueryClient();
+  const key = productBacklogKeys.root(projectId);
+  return useMutation({
+    mutationFn: async (): Promise<ProductBacklog | null> => {
+      const current = qc.getQueryData<ProductBacklog>(key);
+      if (!current) return null;
+      return fetchProductBacklog(projectId as string, loadedStoryCount(current));
+    },
+    onSuccess: (page) => {
+      if (!page) return;
+      qc.setQueryData<ProductBacklog>(key, (cur) => (cur ? mergeBacklogPage(cur, page) : page));
+    },
   });
 }
 

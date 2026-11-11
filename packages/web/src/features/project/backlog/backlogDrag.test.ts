@@ -50,6 +50,7 @@ function makeBacklog(): ProductBacklog {
     scoring: { model: 'none' },
     truncated: false,
     limit: 500,
+    offset: 0,
   };
 }
 

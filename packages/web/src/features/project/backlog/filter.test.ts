@@ -158,6 +158,7 @@ describe('filterBacklog / countStories', () => {
     scoring: { model: 'none' },
     truncated: false,
     limit: 500,
+    offset: 0,
   };
 
   it('counts every story across epics + ungrouped', () => {

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProvidersAndRouter } from '@/test/utils';
@@ -35,8 +35,10 @@ vi.mock('@/components/Toast/toast', () => ({
 }));
 
 const useProductBacklogMock = vi.fn();
+const loadMoreMutate = vi.fn();
 vi.mock('@/features/project/backlog/hooks/useProductBacklog', () => ({
   useProductBacklog: () => useProductBacklogMock() as unknown,
+  useLoadMoreProductBacklog: () => ({ mutate: loadMoreMutate, isPending: false }),
 }));
 
 function story(overrides: Partial<Task>): Task {
@@ -80,6 +82,7 @@ function backlog(overrides: Partial<ProductBacklog> = {}): ProductBacklog {
     scoring: { model: 'none' },
     truncated: false,
     limit: 500,
+    offset: 0,
     ...overrides,
   };
 }
@@ -116,6 +119,21 @@ function renderModal(props: Partial<Parameters<typeof StoryPickerModal>[0]> = {}
 }
 
 describe('StoryPickerModal', () => {
+  it('shows the truncation notice with load-more so stories past the cap can be picked (#2344)', async () => {
+    const b = backlog();
+    useProductBacklogMock.mockReturnValue({
+      data: { ...b, truncated: true, limit: 2, health: { ...b.health, storyCount: 40 } },
+      isLoading: false,
+      isError: false,
+    });
+    const user = userEvent.setup();
+    renderModal();
+    const notice = screen.getByRole('complementary', { name: 'Backlog truncated' });
+    expect(notice).toHaveTextContent(/of 40 stories by rank/);
+    await user.click(within(notice).getByRole('button', { name: 'Load next 2' }));
+    expect(loadMoreMutate).toHaveBeenCalledTimes(1);
+  });
+
   it('renders as a dialog naming the target sprint', () => {
     renderModal();
     expect(screen.getByRole('dialog', { name: /Pull stories into SP-A1/i })).toBeInTheDocument();
