@@ -912,6 +912,8 @@ describe('GanttEngineImpl — idle rAF loop parks itself (#1569)', () => {
 // ---------------------------------------------------------------------------
 
 interface EngineInternals {
+  _hitIndex: object | null;
+  _hitIndexStale: boolean;
   _ixCanvas: HTMLCanvasElement;
   _pointerFine: boolean;
   _reducedMotion: boolean;
@@ -1226,7 +1228,7 @@ describe('GanttEngineImpl — double-click opens a task (#task-open)', () => {
 
 describe('GanttEngineImpl — ctrl/cmd-wheel cursor-anchored zoom (#351)', () => {
   it('zooms in on ctrl+wheel-up and preventDefaults the browser page-zoom', () => {
-    const { engine } = setup({ initialZoom: 'week' });
+    const { engine, flushFrame } = setup({ initialZoom: 'week' });
     engine.setTasks([makeTask('a', '2026-04-01', '2026-04-30')]);
     const internals = internalsOf(engine);
     const before = engine.pxPerDay!;
@@ -1241,11 +1243,57 @@ describe('GanttEngineImpl — ctrl/cmd-wheel cursor-anchored zoom (#351)', () =>
     } as unknown as WheelEvent);
 
     expect(preventDefault).toHaveBeenCalled();
+    // Coalesced to the next animation frame (#1540): nothing applied yet.
+    expect(engine.pxPerDay!).toBe(before);
+    flushFrame();
     expect(engine.pxPerDay!).toBeGreaterThan(before); // zoom IN → more px/day
   });
 
-  it('zooms out on cmd+wheel-down', () => {
+  it('coalesces a burst of wheel events into ONE setPxPerDay per frame (#1540)', () => {
+    const { engine, flushFrame } = setup({ initialZoom: 'week' });
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-30')]);
+    const internals = internalsOf(engine);
+    const before = engine.pxPerDay!;
+    const spy = vi.spyOn(engine, 'setPxPerDay');
+    const wheel = (clientX: number) =>
+      internals._onWheel({
+        ctrlKey: true,
+        metaKey: false,
+        deltaY: -100,
+        clientX,
+        preventDefault: vi.fn(),
+      } as unknown as WheelEvent);
+
+    wheel(100);
+    wheel(150);
+    wheel(200);
+    expect(spy).not.toHaveBeenCalled();
+    flushFrame();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][1]).toEqual({ clientX: 200 }); // latest anchor
+    const f = engine.pxPerDay! / before;
+    expect(f).toBeGreaterThan(1);
+    // A second frame with no new wheel events applies nothing.
+    flushFrame();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers the hit-index rebuild until a pointer query needs it (#1540)', () => {
     const { engine } = setup({ initialZoom: 'week' });
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-30')]);
+    const internals = internalsOf(engine);
+    const first = internals._hitIndex;
+    engine.setPxPerDay(engine.pxPerDay! * 2);
+    expect(internals._hitIndexStale).toBe(true);
+    engine.setPxPerDay(engine.pxPerDay! * 2);
+    const rebuilt = internals._hitIndex;
+    expect(internals._hitIndexStale).toBe(false);
+    expect(rebuilt).not.toBe(first);
+    expect(internals._hitIndex).toBe(rebuilt); // cached until next invalidation
+  });
+
+  it('zooms out on cmd+wheel-down', () => {
+    const { engine, flushFrame } = setup({ initialZoom: 'week' });
     engine.setTasks([makeTask('a', '2026-04-01', '2026-04-30')]);
     const internals = internalsOf(engine);
     const before = engine.pxPerDay!;
@@ -1257,6 +1305,7 @@ describe('GanttEngineImpl — ctrl/cmd-wheel cursor-anchored zoom (#351)', () =>
       clientX: 200,
       preventDefault: vi.fn(),
     } as unknown as WheelEvent);
+    flushFrame();
 
     expect(engine.pxPerDay!).toBeLessThan(before);
   });
