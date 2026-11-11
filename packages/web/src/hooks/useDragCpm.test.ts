@@ -128,10 +128,7 @@ function makeAriaRef(): MutableRefObject<HTMLDivElement | null> {
   return ref;
 }
 
-function renderCpm(
-  engine: ControllableEngine | null,
-  keyboardModeRef?: MutableRefObject<boolean>,
-) {
+function renderCpm(engine: ControllableEngine | null, keyboardModeRef?: MutableRefObject<boolean>) {
   const ariaLiveRef = makeAriaRef();
   return {
     ...renderHook(() =>
@@ -203,9 +200,7 @@ describe('useDragCpm', () => {
       void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
       // Per-frame payload is just {seq, newStartIso} — the worker already holds
       // the resident subgraph, so no subgraph is re-sent (issue 1524).
-      const call = workerMock.postMessage.mock.calls[0]?.[0] as
-        | Record<string, unknown>
-        | undefined;
+      const call = workerMock.postMessage.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
       expect(call).toMatchObject({ type: 'DRAG_MOVE', seq: 1 });
       expect(call).toHaveProperty('newStartIso');
       expect(call).not.toHaveProperty('subgraph');
@@ -235,7 +230,13 @@ describe('useDragCpm', () => {
           seq: 1,
           draggedTaskId: 't1',
           results: [
-            { taskId: 't1', earlyStart: '2025-01-07', earlyFinish: '2025-01-11', isCritical: false, deltaDays: 1 },
+            {
+              taskId: 't1',
+              earlyStart: '2025-01-07',
+              earlyFinish: '2025-01-11',
+              isCritical: false,
+              deltaDays: 1,
+            },
           ],
           worstMilestone: null,
           overflowCount: 0,
@@ -258,7 +259,13 @@ describe('useDragCpm', () => {
           seq: 1,
           draggedTaskId: 't1',
           results: [
-            { taskId: 't1', earlyStart: '2025-01-07', earlyFinish: '2025-01-11', isCritical: false, deltaDays: 1 },
+            {
+              taskId: 't1',
+              earlyStart: '2025-01-07',
+              earlyFinish: '2025-01-11',
+              isCritical: false,
+              deltaDays: 1,
+            },
           ],
           worstMilestone: null,
           overflowCount: 0,
@@ -285,6 +292,7 @@ describe('useDragCpm', () => {
             baselineFinish: '2025-03-01',
             newFinish: '2025-03-04',
             deltaDays: 3,
+            milestoneAtDayEnd: false,
           },
           overflowCount: 0,
         });
@@ -309,6 +317,7 @@ describe('useDragCpm', () => {
             baselineFinish: '2025-03-01',
             newFinish: '2025-03-02',
             deltaDays: 1,
+            milestoneAtDayEnd: false,
           },
           overflowCount: 0,
         });
@@ -514,13 +523,7 @@ describe('useDragCpm', () => {
         durationDays: 5,
         isMilestone: false,
       };
-      const { results } = runCpmResizeForwardPass(
-        [wire],
-        [],
-        't1',
-        move.newDurationDays,
-        calendar,
-      );
+      const { results } = runCpmResizeForwardPass([wire], [], 't1', move.newDurationDays, calendar);
       expect(results.find((r) => r.taskId === 't1')?.earlyFinish).toBe('2025-01-16');
     });
   });
@@ -609,9 +612,7 @@ describe('useDragCpm', () => {
       const engine = new ControllableEngine();
       // renderCpm without a keyboardModeRef — exercises the keyboardModeRef?.current optional chain
       const ariaLiveRef = makeAriaRef();
-      renderHook(() =>
-        useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }),
-      );
+      renderHook(() => useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }));
       void act(() => engine.emit('drag-task', { id: 't1' }));
       void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
       expect(useDragStore.getState().phase).toBe('idle');
@@ -648,9 +649,7 @@ describe('useDragCpm', () => {
     it('does not throw when ariaLiveRef.current is null on cancelled drag-task-end', () => {
       const engine = new ControllableEngine();
       const ariaLiveRef: MutableRefObject<HTMLDivElement | null> = { current: null };
-      renderHook(() =>
-        useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }),
-      );
+      renderHook(() => useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }));
       void act(() => engine.emit('drag-task', { id: 't1' }));
       expect(() => {
         act(() => engine.emit('drag-task-end', { id: 't1', left: 0, cancelled: true }));
@@ -660,9 +659,7 @@ describe('useDragCpm', () => {
     it('does not throw when ariaLiveRef.current is null on Escape cancel', () => {
       const engine = new ControllableEngine();
       const ariaLiveRef: MutableRefObject<HTMLDivElement | null> = { current: null };
-      renderHook(() =>
-        useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }),
-      );
+      renderHook(() => useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }));
       void act(() => engine.emit('drag-task', { id: 't1' }));
       expect(() => {
         void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));

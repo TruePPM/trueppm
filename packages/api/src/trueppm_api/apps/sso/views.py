@@ -592,6 +592,8 @@ def _record_test_connection_audit(
             "result": "ok" if ok else "failed",
             "error": None if ok else _probe_code(result.get("error")),
             "reason": None if ok else _probe_code(result.get("reason")),
+            # Recorded even on ok: an "unverified" pass is not the same as a verified one.
+            "client_auth": _probe_code(result.get("client_auth")),
         },
     )
 
@@ -955,7 +957,7 @@ class SsoTestConnectionView(IdempotencyMixin, APIView):
     idempotency_exempt = True
 
     @extend_schema(
-        summary="Test a provider's discovery/JWKS (OIDC) or API (GitHub) reachability",
+        summary="Test a provider's reachability and client secret (token-endpoint probe)",
         request=None,
         responses={200: SsoTestConnectionResponseSerializer},
         tags=["workspace"],
@@ -975,6 +977,8 @@ class SsoTestConnectionView(IdempotencyMixin, APIView):
                 request, policy, slug, {"ok": False, "error": "no_issuer"}
             )
             return Response({"ok": False, "error": "no_issuer"})
-        result = services.check_provider_reachability(ctx)
+        result = services.check_provider_reachability(
+            ctx, redirect_uri=_derive_redirect_uri(request)
+        )
         _record_test_connection_audit(request, policy, slug, result)
         return Response(SsoTestConnectionResponseSerializer(result).data)

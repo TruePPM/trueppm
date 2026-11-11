@@ -17,6 +17,13 @@ import { MilestoneIcon } from '@/components/Icons';
 interface CalendarChipProps {
   chip: CalendarChipData;
   onClick: (taskId: string) => void;
+  /**
+   * A task continuing in from before the window has no labelled fragment above its
+   * first visible one: week mode draws one row, and in month mode the first row of
+   * the grid has no earlier row. When true, that first visible fragment prints the
+   * name behind a "◂" continuation marker (#3243).
+   */
+  labelContinuation?: boolean;
 }
 
 function chipColorClass(chip: CalendarChipData): string {
@@ -39,7 +46,7 @@ function roundedClass(chip: CalendarChipData): string {
   return 'rounded-none';
 }
 
-export function CalendarChip({ chip, onClick }: CalendarChipProps) {
+export function CalendarChip({ chip, onClick, labelContinuation = false }: CalendarChipProps) {
   // The finish fragment carries the "due" marker (issue 1230) — the day the task
   // is due. Milestones already read as a single dated diamond, so they opt out.
   const showDue = chip.isEnd && !chip.isMilestone;
@@ -52,6 +59,8 @@ export function CalendarChip({ chip, onClick }: CalendarChipProps) {
   ]
     .filter(Boolean)
     .join('');
+
+  const continuesFromBefore = labelContinuation && !chip.isStart;
 
   return (
     <button
@@ -70,7 +79,12 @@ export function CalendarChip({ chip, onClick }: CalendarChipProps) {
       {chip.isMilestone && (
         <MilestoneIcon aria-hidden="true" className="mr-0.5 h-2.5 w-2.5 flex-shrink-0" />
       )}
-      {chip.isStart && <span className="truncate">{chip.taskName}</span>}
+      {continuesFromBefore && (
+        <span aria-hidden="true" className="mr-0.5 flex-shrink-0">
+          ◂
+        </span>
+      )}
+      {(chip.isStart || continuesFromBefore) && <span className="truncate">{chip.taskName}</span>}
       {showDue && (
         <span
           aria-hidden="true"

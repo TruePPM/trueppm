@@ -1314,15 +1314,143 @@ def test_auto_create_username_collision_gets_suffix(
 # ---------------------------------------------------------------------------
 
 
+def _stub_token_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    status: int = 400,
+    payload: Any = None,
+    raises: Exception | None = None,
+) -> list[dict[str, Any]]:
+    """Stub the token-endpoint POST the client-secret probe makes; return the sent forms."""
+    sent: list[dict[str, Any]] = []
+
+    def _post(url: str, *, data: dict[str, str], **kwargs: Any) -> Any:
+        sent.append({"url": url, **data})
+        if raises is not None:
+            raise raises
+        return _egress_response(status=status, payload=payload if payload is not None else {})
+
+    monkeypatch.setattr(services.egress, "post_form", _post)
+    return sent
+
+
 @pytest.mark.django_db
 def test_check_reachability_oidc_ok(
-    provider_ctx: services.ProviderContext, patch_jwks: None
+    provider_ctx: services.ProviderContext, patch_jwks: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _stub_token_probe(monkeypatch, payload={"error": "invalid_grant"})
     result = services.check_provider_reachability(provider_ctx)
     assert result["ok"] is True
+    assert result["client_auth"] == "verified"
     assert result["issuer"] == ISSUER
     assert result["endpoints"]["token_endpoint"] == f"{ISSUER}/token"
     assert result["endpoints"]["jwks_uri"] == f"{ISSUER}/jwks"
+
+
+@pytest.mark.django_db
+def test_probe_sends_bogus_code_with_the_real_secret_to_the_token_endpoint(
+    provider_ctx: services.ProviderContext, patch_jwks: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent = _stub_token_probe(monkeypatch, payload={"error": "invalid_grant"})
+    services.check_provider_reachability(provider_ctx, redirect_uri="https://app/cb")
+    assert len(sent) == 1
+    form = sent[0]
+    assert form["url"] == f"{ISSUER}/token"
+    assert form["grant_type"] == "authorization_code"
+    assert form["client_secret"] == provider_ctx.get_client_secret()
+    assert form["redirect_uri"] == "https://app/cb"
+    assert form["code"] != ""
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "payload"),
+    [
+        (401, {"error": "invalid_client"}),
+        (400, {"error": "invalid_client"}),
+        # Keycloak answers a wrong secret with 401 + unauthorized_client.
+        (401, {"error": "unauthorized_client", "error_description": "Invalid client secret"}),
+    ],
+)
+def test_check_reachability_oidc_rejected_secret_fails(
+    provider_ctx: services.ProviderContext,
+    patch_jwks: None,
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    payload: dict[str, Any],
+) -> None:
+    _stub_token_probe(monkeypatch, status=status, payload=payload)
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "client_secret_rejected"
+    assert result["client_auth"] == "rejected"
+    # The IdP's free-text description is never echoed.
+    assert "Invalid client secret" not in str(result)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"error": "unauthorized_client"},
+        {"error": "unsupported_grant_type"},
+        {"error": "invalid_request"},
+        {"error": "something_vendor_specific"},
+        {},
+    ],
+)
+def test_check_reachability_oidc_ambiguous_answer_is_unverified_not_green(
+    provider_ctx: services.ProviderContext,
+    patch_jwks: None,
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, Any],
+) -> None:
+    _stub_token_probe(monkeypatch, status=400, payload=payload)
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is True
+    assert result["client_auth"] == "unverified"
+    assert "error" not in result
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_token_endpoint_egress_blocked(
+    provider_ctx: services.ProviderContext, patch_jwks: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    _stub_token_probe(monkeypatch, raises=egress.EgressBlocked("private host"))
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "token_endpoint_unreachable"
+    assert result["client_auth"] == "unreachable"
+    assert result["reason"] == "egress_blocked"
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_token_endpoint_timeout(
+    provider_ctx: services.ProviderContext, patch_jwks: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    _stub_token_probe(monkeypatch, raises=egress.EgressTimeout("timed out"))
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "token_endpoint_unreachable"
+    assert "reason" not in result
+
+
+@pytest.mark.django_db
+def test_probe_is_skipped_when_discovery_already_failed(
+    provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressTimeout("down")))
+    sent = _stub_token_probe(monkeypatch)
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert "client_auth" not in result
+    assert sent == []
 
 
 @pytest.mark.django_db
@@ -1454,6 +1582,7 @@ def test_check_reachability_oidc_bypasses_the_discovery_cache(
 
     monkeypatch.setattr(services.egress, "get", _get)
     monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    _stub_token_probe(monkeypatch, payload={"error": "invalid_grant"})
     result = services.check_provider_reachability(provider_ctx)
     assert result["ok"] is True
     assert calls["n"] == 2  # discovery re-fetched despite the pre-seeded cache, then jwks
@@ -1467,11 +1596,43 @@ def test_check_reachability_github_ok(
     """An unauthenticated 401 still proves the GitHub API host is reachable."""
     monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(status))
     monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    _stub_token_probe(monkeypatch, status=200, payload={"error": "bad_verification_code"})
     result = services.check_provider_reachability(github_ctx)
     assert result["ok"] is True
+    assert result["client_auth"] == "verified"
     assert result["issuer"] == services.GITHUB_ISSUER
     assert result["endpoints"]["token_endpoint"] == services.GITHUB_TOKEN_URL
     assert result["endpoints"]["jwks_uri"] == ""
+
+
+@pytest.mark.django_db
+def test_check_reachability_github_incorrect_credentials_fail(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GitHub answers 200 + ``incorrect_client_credentials`` for a wrong client secret."""
+    monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(200))
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    sent = _stub_token_probe(
+        monkeypatch, status=200, payload={"error": "incorrect_client_credentials"}
+    )
+    result = services.check_provider_reachability(github_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "client_secret_rejected"
+    assert result["client_auth"] == "rejected"
+    assert sent[0]["url"] == services.GITHUB_TOKEN_URL
+    assert "code_verifier" not in sent[0]
+
+
+@pytest.mark.django_db
+def test_check_reachability_github_unrecognized_probe_answer_is_unverified(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(200))
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    _stub_token_probe(monkeypatch, status=200, payload={"error": "redirect_uri_mismatch"})
+    result = services.check_provider_reachability(github_ctx)
+    assert result["ok"] is True
+    assert result["client_auth"] == "unverified"
 
 
 @pytest.mark.django_db

@@ -75,6 +75,63 @@ describe('CalendarGrid today tint (#3242)', () => {
   });
 });
 
+describe('CalendarGrid week-mode continuation label (#3243)', () => {
+  const spanning = baseTask({
+    id: 'long',
+    name: 'Long Phase',
+    start: '2026-04-13',
+    finish: '2026-05-06',
+  });
+
+  it('week mode names a task that began before the window, behind a continuation marker', () => {
+    render(
+      <CalendarGrid
+        anchorIso="2026-05-04"
+        calView="week"
+        tasks={[spanning]}
+        onTaskClick={vi.fn()}
+      />,
+    );
+    const chip = screen.getByRole('button', { name: /^Long Phase,/ });
+    expect(chip).toHaveTextContent('Long Phase');
+    expect(chip).toHaveTextContent('◂');
+  });
+
+  it('month mode names a task that began before the grid, in the first row only', () => {
+    render(
+      <CalendarGrid
+        anchorIso="2026-05-04"
+        calView="month"
+        tasks={[spanning]}
+        onTaskClick={vi.fn()}
+      />,
+    );
+    const labelled = screen
+      .getAllByRole('button', { name: /^Long Phase/ })
+      .filter((b) => b.textContent?.includes('Long Phase'));
+    // Row 0 carries the name (task starts before the grid's first day); later rows do not.
+    expect(labelled).toHaveLength(1);
+    expect(labelled[0]).toHaveTextContent('◂');
+  });
+
+  it('month mode does not repeat the name on continuation fragments', () => {
+    const multiWeek = { ...spanning, start: '2026-05-05', finish: '2026-05-20' };
+    render(
+      <CalendarGrid
+        anchorIso="2026-05-04"
+        calView="month"
+        tasks={[multiWeek]}
+        onTaskClick={vi.fn()}
+      />,
+    );
+    const labelled = screen
+      .getAllByRole('button', { name: /^Long Phase/ })
+      .filter((b) => b.textContent?.includes('Long Phase'));
+    expect(labelled).toHaveLength(1);
+    expect(screen.queryByText('◂')).not.toBeInTheDocument();
+  });
+});
+
 describe('CalendarGrid', () => {
   it('renders day-of-week headers', () => {
     render(<CalendarGrid anchorIso={ANCHOR} tasks={[]} onTaskClick={vi.fn()} />);

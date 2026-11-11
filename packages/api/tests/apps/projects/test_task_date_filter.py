@@ -172,3 +172,24 @@ class TestTaskDateRangeFilter:
         assert resp.status_code == 200
         names = _names(resp)
         assert "Unscheduled" not in names
+
+
+@pytest.mark.django_db
+def test_finish_lte_windows_on_span_start_not_remaining_work_start(
+    auth_client: APIClient, project: Project, _membership: ProjectMembership
+) -> None:
+    """An in-progress task's early_start (remaining work) can sit after the window end
+    while its span (scheduled_start) began inside it; it must still be returned."""
+    Task.objects.create(
+        project=project,
+        name="In progress",
+        scheduled_start=date(2026, 1, 5),
+        early_start=date(2026, 1, 20),
+        early_finish=date(2026, 1, 25),
+    )
+    resp = auth_client.get(
+        "/api/v1/tasks/",
+        {"project": str(project.pk), "start__gte": "2026-01-01", "finish__lte": "2026-01-10"},
+    )
+    assert resp.status_code == 200
+    assert _names(resp) == ["In progress"]

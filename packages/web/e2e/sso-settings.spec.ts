@@ -207,6 +207,31 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
     await expect(page.getByText('Reachable.', { exact: true })).toBeVisible();
   });
 
+  test('test connection: a rejected client secret is reported with re-enter guidance (#2698)', async ({
+    page,
+  }) => {
+    await setup(page, [KEYCLOAK]);
+    await page.route('**/api/v1/workspace/sso/providers/keycloak/test-connection/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          ok: false,
+          error: 'client_secret_rejected',
+          client_auth: 'rejected',
+          client_auth_code: 'invalid_client',
+        }),
+      }),
+    );
+    await page.goto('/settings#sso');
+
+    await expect(page.getByText('SSO sign-in is live')).toBeVisible();
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await page.getByRole('button', { name: 'Test connection', exact: true }).click();
+    await expect(page.getByText(/Client secret rejected by the identity provider/)).toBeVisible();
+    await expect(page.getByText('Reachable.', { exact: true })).toHaveCount(0);
+  });
+
   test('save: editing the display name persists via PUT to the slug item', async ({ page }) => {
     await setup(page, [KEYCLOAK]);
     let putBody: Record<string, unknown> | null = null;

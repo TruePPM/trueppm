@@ -714,7 +714,10 @@ vi.mock('./ScheduleLegend', () => ({ ScheduleLegend: () => null }));
 vi.mock('./ScheduleLegendToggle', () => ({ ScheduleLegendToggle: () => null }));
 vi.mock('./MonteCarloGanttMarkers', () => ({ MonteCarloGanttMarkers: () => null }));
 vi.mock('./MilestonePulseOverlay', () => ({ MilestonePulseOverlay: () => null }));
-vi.mock('./MilestoneDeltaTooltip', () => ({ MilestoneDeltaTooltip: () => null }));
+vi.mock('./MilestoneDeltaTooltip', () => ({
+  MilestoneDeltaTooltip: () => null,
+  MilestoneDeltaAnchor: () => null,
+}));
 vi.mock('./DateInputPopover', () => ({ DateInputPopover: () => null }));
 vi.mock('./UnscheduledGutter', () => ({ UnscheduledGutter: () => null }));
 vi.mock('./PendingCrossProjectReview', () => ({ PendingCrossProjectReview: () => null }));

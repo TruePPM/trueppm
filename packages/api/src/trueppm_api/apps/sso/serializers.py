@@ -431,6 +431,23 @@ class SsoTestConnectionResponseSerializer(serializers.Serializer[Any]):
     error = serializers.CharField(required=False, allow_blank=True)
     reason = serializers.CharField(required=False, allow_blank=True)
     detail = serializers.CharField(required=False, allow_blank=True)
+    client_auth = serializers.ChoiceField(
+        choices=["verified", "rejected", "unverified", "unreachable"],
+        required=False,
+        help_text=(
+            "Outcome of exercising the client secret against the token endpoint with a "
+            "bogus authorization code (#2698). ``verified``: the IdP rejected only the "
+            "code. ``rejected``: the IdP rejected the client credentials (also sets "
+            "``ok=false``, ``error=client_secret_rejected``). ``unverified``: the IdP's "
+            "answer cannot distinguish a good secret from a bad one, so the result is "
+            "not a pass. ``unreachable``: the token endpoint could not be reached."
+        ),
+    )
+    client_auth_code = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The IdP's OAuth ``error`` code from the probe, or ``unknown``.",
+    )
 
 
 class SsoRedirectUriResponseSerializer(serializers.Serializer[Any]):

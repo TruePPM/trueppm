@@ -1072,7 +1072,7 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
       milestone('M', '2026-01-12'),
       task('C', '2026-01-12', '2026-01-12'),
     ];
-    const { results } = runCpmForwardPass(
+    const { results, worstMilestone } = runCpmForwardPass(
       tasks,
       [edge('S', 'M', 'SF', 1), edge('M', 'C')],
       'S',
@@ -1081,6 +1081,7 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     const m = results.find((r) => r.taskId === 'M')!;
     expect(m.earlyStart).toBe('2026-01-12');
     expect(m.milestoneAtDayEnd).toBe(true);
+    if (worstMilestone) expect(worstMilestone.milestoneAtDayEnd).toBe(true);
     expect(results.find((r) => r.taskId === 'C')!.earlyStart).toBe('2026-01-13');
   });
 

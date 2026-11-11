@@ -1224,6 +1224,8 @@ export interface WorstMilestone {
   baselineFinish: string;
   newFinish: string;
   deltaDays: number;
+  /** The milestone sits at the END of its day (#4079); survives the preview-result cap. */
+  milestoneAtDayEnd?: boolean;
 }
 
 /** Drag state machine phases */

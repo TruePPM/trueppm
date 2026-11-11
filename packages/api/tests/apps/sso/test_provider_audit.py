@@ -678,7 +678,7 @@ TEST_CONN = DETAIL + "test-connection/"
 
 
 def _probe_returning(monkeypatch: pytest.MonkeyPatch, result: dict[str, Any]) -> None:
-    monkeypatch.setattr(services, "check_provider_reachability", lambda ctx: result)
+    monkeypatch.setattr(services, "check_provider_reachability", lambda ctx, **kw: result)
 
 
 @pytest.mark.django_db
@@ -686,7 +686,10 @@ def test_a_successful_probe_writes_a_row_naming_the_admin(
     admin: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = _create(admin)
-    _probe_returning(monkeypatch, {"ok": True, "issuer": ISSUER, "endpoints": {}})
+    _probe_returning(
+        monkeypatch,
+        {"ok": True, "issuer": ISSUER, "endpoints": {}, "client_auth": "unverified"},
+    )
 
     assert client.post(TEST_CONN, {}, format="json").status_code == 200
 
@@ -694,6 +697,7 @@ def test_a_successful_probe_writes_a_row_naming_the_admin(
     assert row.actor_id == admin.pk
     assert row.target_label == "generic"
     assert row.metadata["result"] == "ok"
+    assert row.metadata["client_auth"] == "unverified"
     assert row.metadata["error"] is None
     assert row.metadata["actor_kind"] == "session"
 

@@ -158,4 +158,28 @@ describe('useCalendarTasks', () => {
     await waitFor(() => expect(result.current.error).not.toBeNull());
     expect(result.current.tasks).toEqual([]);
   });
+
+  it('renders the task span (scheduled_start), not the remaining-work early_start (#2713)', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        count: 2,
+        previous: null,
+        next: null,
+        results: [
+          {
+            ...apiTask('inprog', 'In progress'),
+            scheduled_start: '2026-02-23',
+            early_start: '2026-03-02',
+          },
+          apiTask('fresh', 'No scheduled_start'),
+        ],
+      },
+    });
+    const { result } = renderHook(() => useCalendarTasks(), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.tasks).toHaveLength(2));
+    expect(result.current.tasks[0].start).toBe('2026-02-23');
+    expect(result.current.tasks[0].finish).toBe('2026-03-04');
+    // Falls back to early_start when the server omits the span.
+    expect(result.current.tasks[1].start).toBe('2026-03-02');
+  });
 });

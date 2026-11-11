@@ -262,6 +262,12 @@ export interface PreviewMilestone {
   baselineFinish: string;
   newFinish: string;
   deltaDays: number;
+  /**
+   * The milestone sits at the END of its day (#4079). Carried here because the
+   * worker caps `results` at the preview limit, so the worst milestone may not be
+   * in the list the tooltip could otherwise search (#2189).
+   */
+  milestoneAtDayEnd: boolean;
 }
 
 /** Message posted from worker to main thread after recalculation. */

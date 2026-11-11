@@ -327,10 +327,12 @@ function DayChips({
   chips,
   weekStartIso,
   onTaskClick,
+  labelContinuation,
 }: {
   chips: PlacedChip[];
   weekStartIso: string;
   onTaskClick: (taskId: string) => void;
+  labelContinuation: boolean;
 }) {
   return (
     <>
@@ -345,7 +347,7 @@ function DayChips({
             width: `calc(${chip.chipDays * 100}% - 4px)`,
           }}
         >
-          <CalendarChip chip={chip} onClick={onTaskClick} />
+          <CalendarChip chip={chip} onClick={onTaskClick} labelContinuation={labelContinuation} />
         </div>
       ))}
     </>
@@ -767,6 +769,8 @@ export function CalendarGrid({
                           chips={chipsByDay.get(dayOffset) ?? []}
                           weekStartIso={wsIso}
                           onTaskClick={onTaskClick}
+                          // Row 0 in month mode: a task that began before the grid would otherwise be nameless.
+                          labelContinuation={isWeek || weekIdx === 0}
                         />
                       </div>
                     );

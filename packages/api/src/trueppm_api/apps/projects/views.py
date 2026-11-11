@@ -5497,20 +5497,36 @@ def _filter_tasks_by_date_range(qs: QuerySet[Task], params: Any) -> QuerySet[Tas
     """Date-range filter for the calendar / resource views.
 
     ``?start__gte`` keeps tasks whose ``early_finish`` is on or after the date (still
-    active); ``?finish__lte`` keeps tasks whose ``early_start`` is on or before it
-    (already started). Combined, they return tasks overlapping the window.
+    active); ``?finish__lte`` keeps tasks whose span start —
+    ``Coalesce(scheduled_start, early_start)``, ADR-0752 — is on or before it
+    (already started). Windowing on ``early_start`` alone would drop an in-progress
+    task whose remaining-work window starts after the window end while its span
+    started inside it (ADR-0132). Combined, they return tasks overlapping the window.
 
     Both are parsed before filtering: ``early_start``/``early_finish`` are DateFields,
     so an unvalidated string reaching ``.filter()`` lets Django raise at query time
     into the UUID-only exception handler and surface as a 500 (#2213). Coerce here
     and 400 on a malformed date.
     """
-    for param, lookup in (("start__gte", "early_finish__gte"), ("finish__lte", "early_start__lte")):
+    from django.db.models import DateField
+    from django.db.models.functions import Coalesce
+
+    for param, lookup in (
+        ("start__gte", "early_finish__gte"),
+        ("finish__lte", "_window_span_start__lte"),
+    ):
         raw = params.get(param)
         if not raw:
             continue
         try:
-            qs = qs.filter(**{lookup: datetime.date.fromisoformat(raw)})
+            bound = datetime.date.fromisoformat(raw)
+            if lookup.startswith("_window_span_start"):
+                qs = qs.alias(
+                    _window_span_start=Coalesce(
+                        "scheduled_start", "early_start", output_field=DateField()
+                    )
+                )
+            qs = qs.filter(**{lookup: bound})
         except ValueError:
             raise DRFValidationError(
                 {param: "Must be a valid ISO 8601 date (YYYY-MM-DD)."}
@@ -6372,7 +6388,8 @@ class TaskListPagination(ScheduleFetchPagination):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "ISO 8601 YYYY-MM-DD; keep tasks whose early_start is at or "
+                    "ISO 8601 YYYY-MM-DD; keep tasks whose span start "
+                    "(scheduled_start, falling back to early_start) is at or "
                     "before this date (already started by the window)."
                 ),
             ),

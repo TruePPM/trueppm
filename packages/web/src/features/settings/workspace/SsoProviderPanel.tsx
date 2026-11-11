@@ -389,14 +389,14 @@ function TestConnectionSection({
         <h4 className="text-[13px] font-semibold text-neutral-text-primary">Test connection</h4>
         <FieldHelp
           label="Test connection"
-          body="Probes the identity provider from the server: for OIDC, the issuer's discovery document and signing-key endpoint; for GitHub, the API host. The provider must be reachable from inside the cluster, not just from your browser — an in-cluster identity provider needs an egress allow-list entry (see below), which takes effect only after the API and Celery worker pods restart."
+          body="Probes the identity provider from the server: for OIDC, the issuer's discovery document and signing-key endpoint; for GitHub, the API host. It then sends the token endpoint a deliberately invalid authorization code with your client secret, which tells a wrong secret apart from a right one without signing anyone in. Some providers answer in a way that cannot make that distinction; the result says so instead of passing. The provider must be reachable from inside the cluster, not just from your browser — an in-cluster identity provider needs an egress allow-list entry (see below), which takes effect only after the API and Celery worker pods restart."
           docHref="administration/single-sign-on"
         />
       </div>
       <p className="mt-0.5 text-[12px] text-neutral-text-secondary">
         {def.type === 'OAuth'
-          ? "Checks that GitHub's API is reachable."
-          : "Checks that the issuer's discovery document and signing keys are reachable."}
+          ? "Checks that GitHub's API is reachable and that it accepts the client secret."
+          : "Checks that the issuer's discovery document and signing keys are reachable and that the identity provider accepts the client secret."}
       </p>
       <div className="mt-2 flex items-center gap-3">
         <button
@@ -414,7 +414,15 @@ function TestConnectionSection({
                 aria-hidden="true"
                 className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]"
               />
-              Reachable.
+              <span>Reachable.</span>
+              {testResult.client_auth === 'verified' && <span> Client secret accepted.</span>}
+              {testResult.client_auth === 'unverified' && (
+                <span className="text-neutral-text-secondary">
+                  {' '}
+                  Client secret not verified: this provider&apos;s answer to the check cannot tell a
+                  wrong secret from a right one, so the first sign-in is the real test.
+                </span>
+              )}
             </span>
           )}
           {testResult?.ok === false && (
@@ -423,7 +431,9 @@ function TestConnectionSection({
                 aria-hidden="true"
                 className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]"
               />
-              {testResult.detail || testResult.error || 'Not reachable.'}
+              {testResult.error === 'client_secret_rejected'
+                ? 'Client secret rejected by the identity provider. Re-enter the client secret from its application settings and save before testing again.'
+                : testResult.detail || testResult.error || 'Not reachable.'}
             </span>
           )}
         </p>
