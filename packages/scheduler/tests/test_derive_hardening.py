@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
+
 from trueppm_scheduler import Calendar, Dependency, Project, Task
 from trueppm_scheduler.derive import (
     Derivation,
@@ -433,8 +435,13 @@ def test_completed_with_actual_finish_is_finish_first() -> None:
     assert _contribs(p, "A", Quantity.EARLY_START) == [af, {**as_, "is_binding": True}]
 
 
-def test_split_actuals_milestone_cites_actual_finish_as_binding() -> None:
-    """A closed milestone is pinned at actual_finish, so that is what must be cited (#4458)."""
+@pytest.mark.parametrize(
+    "actual_start",
+    [date(2026, 1, 5), date(2026, 1, 7), None],
+    ids=["split", "same-day", "finish-only"],
+)
+def test_split_actuals_milestone_cites_actual_finish_as_binding(actual_start: date | None) -> None:
+    """Every closed milestone is pinned at actual_finish, so that is what is cited (#4458)."""
     p = Project(
         id="m",
         name="M",
@@ -445,7 +452,7 @@ def test_split_actuals_milestone_cites_actual_finish_as_binding() -> None:
                 name="Milestone",
                 duration=timedelta(days=0),
                 percent_complete=100,
-                actual_start=date(2026, 1, 5),
+                actual_start=actual_start,
                 actual_finish=date(2026, 1, 7),
             )
         ],
@@ -457,10 +464,12 @@ def test_split_actuals_milestone_cites_actual_finish_as_binding() -> None:
         assert d.binding is not None
         assert d.binding.kind == "actual_finish"
         assert d.binding.imposed_date == date(2026, 1, 7)
-        for c in d.contributions:
-            if c.kind == "actual_start":
-                assert not c.is_binding
-                assert c.imposed_date == date(2026, 1, 5)
+        starts = [c for c in d.contributions if c.kind == "actual_start"]
+        if actual_start is None:
+            assert starts == []
+        for c in starts:
+            assert not c.is_binding
+            assert c.imposed_date == actual_start
 
 
 def test_completed_with_actual_start_only_is_start_first() -> None:
