@@ -791,7 +791,7 @@ describe('drawTaskBar — skipLabel parameter (z-order regression)', () => {
   it('memoizes text widths per (font, text) until reset (#1539)', () => {
     const { ctx } = makeCtxSpy();
     const task = makeBarTask({ name: 'My Task' });
-    const measure = ctx.measureText as ReturnType<typeof vi.fn>;
+    const measure = (ctx as unknown as { measureText: ReturnType<typeof vi.fn> }).measureText;
     drawTaskBarLabel(ctx, task, 0, scales, 0, VIEWPORT_W);
     const first = measure.mock.calls.length;
     expect(first).toBeGreaterThan(0);
