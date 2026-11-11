@@ -1081,6 +1081,27 @@ The tool is pinned to a release version with a SHA-256 checksum verified in the
 job (`SCORECARD_VERSION` and `SCORECARD_SHA256` in `.gitlab-ci.yml`); bump both
 together.
 
+### CI security gates
+
+Beyond semgrep and bandit, the repository's CI runs these gates:
+
+- **Semgrep packs.** The vendored rules under `.semgrep/` cover Python, Django,
+  React, TypeScript, and JavaScript. The job fails if semgrep abandons a file
+  after repeated rule timeouts, so partial coverage is never silent.
+- **checkov on the Helm chart.** `security:checkov:helm` renders the chart with
+  default values and hard-gates the Kubernetes hardening checks for non-root
+  containers, no privilege escalation, dropped capabilities, and no `NET_RAW`.
+  A second, informational pass lists the remaining findings.
+- **gitleaks history scan.** `security:gitleaks` scans the full git history
+  with `.gitleaks.toml`, not only the current tree.
+- **curl redirect hardening.** `scripts/check-curl-hardening.sh`
+  (`make curl-hardening-check`) fails any tracked `*.sh` file whose `curl`
+  follows redirects (`-L`, `--location`, or a bundle such as `-fsSL`) without
+  `--proto-redir '=https'`, which stops a redirect from downgrading to
+  plaintext `http://`. A site that must allow `http` carries a comment on the
+  line above the call: `# curl-hardening-ok: <reason>`. The reason is required.
+  The gate scans shell scripts only, not CI YAML or Dockerfiles.
+
 ## Reporting vulnerabilities
 
 If you discover a security vulnerability in TruePPM, please report it privately —

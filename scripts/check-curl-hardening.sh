@@ -19,8 +19,9 @@
 #   `--proto-redir '=https'` (quoted or not). Comment lines are ignored.
 #
 # SCOPE LIMITS (honest about them)
-#   - scripts/tests/pre-bash-deny.test.sh is excluded: its curl lines are command
-#     STRINGS fed to the deny hook as fixtures, never executed.
+#   - scripts/tests/pre-bash-deny.test.sh and this script are excluded: their curl
+#     lines are command STRINGS (deny-hook fixtures; this gate's own self-test
+#     fixtures), never executed.
 #   - Only *.sh files. curl lines inside .gitlab-ci.yml / .gitlab/ci/*.yml (dozens of
 #     pinned-checksum tool downloads) and Dockerfiles are NOT scanned; widening this
 #     needs its own triage and is not claimed here.
@@ -114,7 +115,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     expect not-curl-word accepted 'my_curl -L https://example.com/x'
 
     clean=()
-    while IFS= read -r f; do clean+=("$f"); done < <(git ls-files '*.sh' ':!:scripts/tests/pre-bash-deny.test.sh')
+    while IFS= read -r f; do clean+=("$f"); done < <(git ls-files '*.sh' ':!:scripts/tests/pre-bash-deny.test.sh' ':!:scripts/check-curl-hardening.sh')
     if scan "${clean[@]}" >/dev/null 2>&1; then
         echo "✓ self-test 'clean-tree': correctly accepted"
     else
@@ -132,7 +133,7 @@ if [[ $# -gt 0 ]]; then
 fi
 
 FILES=()
-while IFS= read -r f; do FILES+=("$f"); done < <(git ls-files '*.sh' ':!:scripts/tests/pre-bash-deny.test.sh')
+while IFS= read -r f; do FILES+=("$f"); done < <(git ls-files '*.sh' ':!:scripts/tests/pre-bash-deny.test.sh' ':!:scripts/check-curl-hardening.sh')
 if [[ ${#FILES[@]} -eq 0 ]]; then
     echo "check-curl-hardening: no tracked *.sh files found" >&2
     exit 1

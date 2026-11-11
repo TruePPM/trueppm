@@ -6891,7 +6891,8 @@ security:checkov:helm:
   #
   # Two passes over the chart rendered with default values:
   #   1. HARD GATE on the checks the issue names that the chart already satisfies:
-  #      CKV_K8S_6/23 (no root containers), CKV_K8S_20 (no privilege escalation),
+  #      CKV_K8S_23 (no root containers; CKV_K8S_6 is a PodSecurityPolicy check that
+  #      never applies to Deployments, so it is not gated), CKV_K8S_20 (no privilege escalation),
   #      CKV_K8S_37 (capabilities dropped), CKV_K8S_28 (no NET_RAW). A regression in
   #      any of these fails the job.
   #   2. INFORMATIONAL full scan (--soft-fail) so the remaining findings stay
@@ -6938,7 +6939,7 @@ security:checkov:helm:
   script:
     - |
       checkov -d packages/helm --framework helm --quiet --compact \
-        --check CKV_K8S_6,CKV_K8S_20,CKV_K8S_23,CKV_K8S_28,CKV_K8S_37
+        --check CKV_K8S_20,CKV_K8S_23,CKV_K8S_28,CKV_K8S_37
     - checkov -d packages/helm --framework helm --quiet --compact --soft-fail
 
 security:trivy:config:
