@@ -815,3 +815,49 @@ def test_capacity_hint_is_velocity_gated(project: Project) -> None:
     assert pm["basis"] == "suppressed"
     assert pm["sprints_sampled"] == 0
     assert "team decides" in pm["note"]
+
+
+@pytest.mark.django_db
+def test_capacity_hint_is_gated_on_the_commit_path_too(project: Project) -> None:
+    """``dry_run=false`` (201) returns the same hint, so the gate cannot live only in the preview.
+
+    A hint computed solely inside the ``dry_run`` branch would leave the commit response
+    carrying the team's velocity to the PM band.
+    """
+    from django.utils import timezone
+
+    for index, points in enumerate((20, 24, 28)):
+        Sprint.objects.create(
+            project=project,
+            name=f"Gated {index}",
+            start_date=date(2026, 1, 5),
+            finish_date=date(2026, 1, 16),
+            state=SprintState.COMPLETED,
+            completed_points=points,
+            closed_at=timezone.now(),
+        )
+
+    def _commit_hint(username: str, role: int, pattern: str) -> dict[str, Any]:
+        c = APIClient()
+        c.force_authenticate(user=_member(project, username, role))
+        res = c.post(
+            url(project),
+            body(dry_run=False, name_pattern=pattern),
+            format="json",
+        )
+        assert res.status_code == 201, res.data
+        return dict(res.data["capacity_hint"])
+
+    for username, role, pattern in (
+        ("commit-admin", Role.ADMIN, "Admin {n}"),
+        ("commit-owner", Role.OWNER, "Owner {n}"),
+    ):
+        hint = _commit_hint(username, role, pattern)
+        assert hint["points"] is None
+        assert hint["basis"] == "suppressed"
+        assert hint["sprints_sampled"] == 0
+
+    # The team band still reads the figure on commit.
+    member = _commit_hint("commit-dev", Role.MEMBER, "Dev {n}")
+    assert member["points"] == 24
+    assert member["basis"] == "velocity_average"
