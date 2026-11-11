@@ -433,6 +433,36 @@ def test_completed_with_actual_finish_is_finish_first() -> None:
     assert _contribs(p, "A", Quantity.EARLY_START) == [af, {**as_, "is_binding": True}]
 
 
+def test_split_actuals_milestone_cites_actual_finish_as_binding() -> None:
+    """A closed milestone is pinned at actual_finish, so that is what must be cited (#4458)."""
+    p = Project(
+        id="m",
+        name="M",
+        start_date=date(2026, 1, 5),
+        tasks=[
+            Task(
+                id="M",
+                name="Milestone",
+                duration=timedelta(days=0),
+                percent_complete=100,
+                actual_start=date(2026, 1, 5),
+                actual_finish=date(2026, 1, 7),
+            )
+        ],
+        dependencies=[],
+        calendar=Calendar(),
+    )
+    for q in (Quantity.EARLY_START, Quantity.EARLY_FINISH):
+        d = derive_value(p, "M", q)
+        assert d.binding is not None
+        assert d.binding.kind == "actual_finish"
+        assert d.binding.imposed_date == date(2026, 1, 7)
+        for c in d.contributions:
+            if c.kind == "actual_start":
+                assert not c.is_binding
+                assert c.imposed_date == date(2026, 1, 5)
+
+
 def test_completed_with_actual_start_only_is_start_first() -> None:
     p = _completed(actual_start=date(2026, 3, 2))
     as_ = _c("actual_start", imposed_date="2026-03-02")

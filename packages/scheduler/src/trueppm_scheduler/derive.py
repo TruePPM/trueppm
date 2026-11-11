@@ -265,7 +265,21 @@ def _completed_forward_contribs(
     engine treated as authoritative.
     """
     contribs: list[DerivationContribution] = []
-    if task.actual_finish is not None:
+    if task.actual_finish is not None and task.duration.days == 0:
+        # A closed milestone is pinned at (actual_finish, actual_finish) by the engine
+        # (#4458), so actual_finish binds both quantities; actual_start is context only.
+        contribs.append(
+            DerivationContribution(
+                kind="actual_finish", imposed_date=task.actual_finish, is_binding=True
+            )
+        )
+        if task.actual_start is not None:
+            contribs.append(
+                DerivationContribution(
+                    kind="actual_start", imposed_date=task.actual_start, is_binding=False
+                )
+            )
+    elif task.actual_finish is not None:
         contribs.append(
             DerivationContribution(
                 kind="actual_finish", imposed_date=task.early_finish, is_binding=want_finish
