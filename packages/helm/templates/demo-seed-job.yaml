@@ -144,9 +144,9 @@ spec:
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           # load_sample_project runs WITHOUT --with-personas: no persona logins, no
-          # password path. The zero-accounts / no-auth-write-path posture is what
-          # makes the baked demo secrets acceptable (ADR-0658 Context), so this flag
-          # must not be added here. With no superuser in a demo cluster the command
+          # password path. The compose demo now generates per-install secrets;
+          # omitting this flag is defense in depth behind DemoReadOnlyMiddleware
+          # (ADR-0658 Context), so it must not be added here. With no superuser in a demo cluster the command
           # owns the program with the sample's own persona account, which carries an
           # unusable password — so this stays a zero-login-capable deployment.
           command:

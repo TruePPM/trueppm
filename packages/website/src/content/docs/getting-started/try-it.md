@@ -54,8 +54,8 @@ docker compose -f docker-compose.demo.yml logs demo-seed | grep 'URL:'
 :::note[Read-only by construction]
 The demo seed runs **without** persona logins, and the stack enforces read-only
 at the API: `DemoReadOnlyMiddleware` refuses every write request under `/api/`
-whatever the caller's authentication, and nginx only proxies the share and health
-routes. This is deliberately **not** the local development stack
+whatever the caller's authentication, and nginx only proxies the share, health and
+static-asset routes. This is deliberately **not** the local development stack
 (`docker compose up`, which creates the six `demo`-password persona logins). Use
 the demo compose file to *show* TruePPM; use the [dev stack](/getting-started/quickstart/)
 to *build* with it.

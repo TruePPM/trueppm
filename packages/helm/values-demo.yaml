@@ -195,9 +195,8 @@ env:
 # SECRETS
 #
 # This file deliberately bakes NO secrets, unlike docker-compose.demo.yml. That
-# file's baked SECRET_KEY / INTEGRATION_ENCRYPTION_KEY are safe under its
-# no-accounts premise, but a values file is copied and adapted far more often than
-# a demo compose file, and a known SECRET_KEY reaching a real deployment is a much
+# file now generates per-install secrets on first start, but a values file is
+# copied and adapted far more often than a demo compose file, and a known SECRET_KEY reaching a real deployment is a much
 # worse outcome than one extra setup step here.
 #
 # So demo mode uses the chart's normal secret path. Create the Secret first:

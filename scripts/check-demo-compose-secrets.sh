@@ -23,6 +23,14 @@ check() {
     echo "VIOLATION: api.command in $compose ('${got}') does not equal the Dockerfile CMD ('${want}')" >&2
     rc=1
   fi
+  # The expected API-image services must each be found AND inspected; an image
+  # rename would otherwise leave the awk below matching nothing and passing.
+  for svc in api-init demo-seed api; do
+    if ! awk -v n="$svc" '$0 ~ "^  " n ":[[:space:]]*$" {s=1;next} /^  [A-Za-z0-9_-]+:[[:space:]]*$/{s=0} s&&/image:.*trueppm\/api/{f=1} END{exit !f}' "$compose"; then
+      echo "VIOLATION: expected API-image service '$svc' not found (or no trueppm/api image) in $compose" >&2
+      rc=1
+    fi
+  done
   # One line per API-image service: name, has-entrypoint, has-mount.
   awk '
     function flush() { if (name != "" && api && name != "secrets-init") print name, ep, mnt }
@@ -30,7 +38,7 @@ check() {
     /^[a-z]/ && !/^services:/ { flush(); name=""; ins=0 }
     ins && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { flush(); name=$1; sub(":","",name); api=0; ep=0; mnt=0; next }
     ins && /image:.*trueppm\/api/ { api=1 }
-    ins && /\*secrets-entrypoint/ { ep=1 }
+    ins && /^    <<:.*\*secrets-entrypoint/ { ep=1 }
     ins && /- demo_secrets:\/secrets:ro/ { mnt=1 }
     END { flush() }
   ' "$compose" | while read -r svc ep mnt; do
@@ -58,6 +66,11 @@ services:
     image: ghcr.io/trueppm/api:latest
     volumes:
       - demo_secrets:/secrets:ro
+  demo-seed:
+    <<: [*logging, *secrets-entrypoint]
+    image: ghcr.io/trueppm/api:latest
+    volumes:
+      - demo_secrets:/secrets:ro
   api:
     <<: [*logging, *secrets-entrypoint]
     image: ghcr.io/trueppm/api:latest
@@ -78,7 +91,11 @@ Y
   ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: missing mount not caught" >&2; return 1; }
   good | awk '/^  api-init:/{s=1} s&&/secrets-entrypoint/{s=0;next} {print}' > "$tmp/c.yml"
   ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: missing entrypoint not caught" >&2; return 1; }
-  echo "SELF-TEST OK: compliant fixture passes; drifted CMD, missing mount and missing entrypoint are each caught."
+  good | sed 's#trueppm/api#trueppm/server#' > "$tmp/c.yml"
+  ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: renamed API image not caught" >&2; return 1; }
+  good | awk '/^  api-init:/{s=1} s&&/<<:/{print "    <<: *logging"; print "    # was <<: [*logging, *secrets-entrypoint]"; s=0; next} {print}' > "$tmp/c.yml"
+  ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: entrypoint present only in a comment not caught" >&2; return 1; }
+  echo "SELF-TEST OK: compliant fixture passes; drifted CMD, missing mount, missing entrypoint, renamed image and comment-only entrypoint are each caught."
 }
 
 if [ "${1:-}" = "--self-test" ]; then self_test; exit $?; fi

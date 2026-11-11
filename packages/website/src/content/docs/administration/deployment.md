@@ -91,14 +91,17 @@ single-server production stack below or the Helm chart.
 `docker-compose.demo.yml` is a **separate, hardened** stack for a public hosted
 demo (the mechanism behind `try.trueppm.com`, which went live with 0.4, the
 first beta) —
-not the dev stack above. It seeds the sample **without** persona logins, so the
-instance has **zero user accounts and no authenticated write path**; the only way
-in is the product's own anonymous, tokenized, read-only
-[schedule share link](/administration/sharing-and-access/).
+not the dev stack above. It seeds the sample **without** persona logins. The
+seeded accounts carry unusable passwords, so nobody can sign in, and
+`DemoReadOnlyMiddleware` refuses every write request under `/api/` whatever the
+caller's authentication. The only way in is the product's own anonymous,
+tokenized, read-only [schedule share link](/administration/sharing-and-access/).
 
-That no-accounts invariant is what makes the stack's baked demo `SECRET_KEY` safe,
-so the demo's reverse proxy (`nginx/demo.conf.template`) treats the API surface as
-an **explicit allowlist**, not a blanket proxy. Only these routes reach the API
+In 0.4 the stack bakes a demo `SECRET_KEY`. The read-only middleware plus the
+reverse-proxy allowlist below are what keep that safe, so the demo's reverse proxy
+(`nginx/demo.conf.template`) treats the API surface as an **explicit allowlist**,
+not a blanket proxy. From 0.5 the stack will generate per-install secrets on first
+start instead of shipping a shared key. Only these routes reach the API
 container from the public internet:
 
 | Public route | Why it is open |
