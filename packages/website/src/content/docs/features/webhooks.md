@@ -28,7 +28,9 @@ The URL must be **`https://`**. A plaintext `http://` receiver is rejected with
 metadata) and each signed delivery to anyone on the network path, which defeats the
 replay protection the signature provides. URLs that resolve to a private, loopback,
 or link-local address are rejected as well, so there is no `http://localhost`
-exception. A webhook registered with `http://` before this rule keeps delivering and
+exception. The `https://` requirement also applies to hosts on the operator egress
+allow-list (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`), which are exempt from the
+private-address check but not from this rule. A webhook registered with `http://` before this rule keeps delivering and
 stays editable as long as its URL is not changed; repointing it requires `https://`.
 
 `events` is an array of **one or more** event type strings (see below). It is

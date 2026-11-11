@@ -298,3 +298,24 @@ def test_test_ping_is_throttled(admin_client: APIClient, project: Project) -> No
         codes = [admin_client.post(url).status_code for _ in range(11)]
     assert codes[:10] == [202] * 10
     assert codes[10] == 429
+
+
+@pytest.mark.django_db
+def test_create_webhook_rejects_http_on_egress_allowlisted_host(
+    admin_client: APIClient, project: Project, settings: object
+) -> None:
+    """https is mandatory even for an operator-allowlisted host (#2936).
+
+    ``assert_url_allowed`` exempts allowlisted hosts from the private-address
+    deny-list, so before the https rule an operator could register ``http://``
+    on an in-cluster host. The scheme check is independent of that exemption.
+    """
+    settings.EGRESS_ALLOWLISTED_HOSTS = ("hooks.internal",)  # type: ignore[attr-defined]
+    resp = admin_client.post(
+        f"/api/v1/projects/{project.pk}/webhooks/",
+        {"url": "http://hooks.internal/x", "secret": "s" * 32, "events": ["task.created"]},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "url" in resp.data
+    assert not Webhook.objects.filter(project=project).exists()

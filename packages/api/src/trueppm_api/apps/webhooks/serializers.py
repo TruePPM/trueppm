@@ -241,7 +241,8 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         # use with http:// for on-cluster targets. An UNCHANGED url on an existing
         # row is exempt so a legacy http:// webhook stays editable (rename, change
         # events, rotate secret) and keeps delivering; only a new or changed target
-        # must be https. Loopback http:// is rejected by the SSRF guard anyway.
+        # must be https. This also applies to hosts on the operator egress allow-list
+        # (EGRESS_ALLOWLISTED_HOSTS), which assert_url_allowed otherwise exempts.
         unchanged = self.instance is not None and value == getattr(self.instance, "url", None)
         if not unchanged and urlsplit(value).scheme.lower() != "https":
             raise serializers.ValidationError(
