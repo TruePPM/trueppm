@@ -9,7 +9,7 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 import { useProject } from '@/hooks/useProject';
-import { useBulkDeleteTasks, useBulkRestoreTasks } from '@/hooks/useTaskMutations';
+import { BulkRestoreError, useBulkDeleteTasks, useBulkRestoreTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { exportTasksToCsv } from '@/utils/exportCsv';
@@ -525,8 +525,14 @@ export function GridView() {
             text: `${count} task${count !== 1 ? 's' : ''} restored.`,
             isError: false,
           }),
-        onError: () =>
-          setToast({ text: "Couldn't restore tasks — try again.", isError: true }),
+        onError: (err) =>
+          setToast({
+            text:
+              err instanceof BulkRestoreError && err.restored.length > 0
+                ? `Restored ${err.restored.length} of ${count} tasks — ${err.failed.length} couldn't be restored.`
+                : "Couldn't restore tasks — try again.",
+            isError: true,
+          }),
       });
     },
     [bulkRestore],

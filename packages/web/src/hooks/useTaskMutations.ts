@@ -9,6 +9,7 @@ import {
   scheduleDatesFromUpdatePayload,
 } from '@/features/schedule/reconcile/fromMutation';
 import { captureDemoOverlayEntry, type DemoOverlayEntry } from '@/stores/demoOverlayStore';
+import { mapWithConcurrency } from '@/utils/mapWithConcurrency';
 import type { Task, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -1082,27 +1083,73 @@ export function useRestoreTask(projectId: string | null) {
 // useBulkRestoreTasks — fan out POST /api/v1/tasks/{id}/restore/ per id
 // ---------------------------------------------------------------------------
 
+/** Max restore POSTs in flight at once — bounds the undo burst of a select-all delete (#3121). */
+const BULK_RESTORE_CONCURRENCY = 4;
+
+/**
+ * Thrown by `useBulkRestoreTasks` when at least one restore failed. Carries which
+ * ids were restored and which were not, because the restores are independent
+ * writes (no shared transaction) and a bare rejection would leave the caller
+ * unable to say what state the project is in.
+ */
+export class BulkRestoreError extends Error {
+  readonly restored: string[];
+  readonly failed: string[];
+
+  constructor(restored: string[], failed: string[]) {
+    super(`Restored ${restored.length} of ${restored.length + failed.length} tasks`);
+    this.name = 'BulkRestoreError';
+    this.restored = restored;
+    this.failed = failed;
+  }
+}
+
 /**
  * Restore several soft-deleted tasks by calling the single restore endpoint per id
  * (ADR-0494 §3 — the bulk-delete undo is "backed by the same endpoint"). Recalc is
- * coalesced server-side, so N calls collapse to one recompute. Rejects if any restore
- * fails so the caller can surface an error toast.
+ * coalesced server-side, so N calls collapse to one recompute.
+ *
+ * Requests run through `mapWithConcurrency` so a select-all undo never dispatches N
+ * simultaneous writes (#3121). Every id is attempted even if an earlier one fails
+ * (each restore is independent), and a partial failure rejects with a
+ * `BulkRestoreError` naming the restored and failed ids.
  */
 export function useBulkRestoreTasks(projectId: string | null) {
   const queryClient = useQueryClient();
 
+  const invalidate = (taskIds: string[]) => {
+    void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+    void queryClient.invalidateQueries({ queryKey: ['tasks-trash', projectId] });
+    for (const taskId of taskIds) {
+      void queryClient.invalidateQueries({
+        queryKey: ['task-history', projectId ?? undefined, taskId],
+      });
+    }
+  };
+
   return useMutation({
     mutationFn: async (taskIds: string[]) => {
-      await Promise.all(taskIds.map((id) => apiClient.post(`/tasks/${id}/restore/`)));
-    },
-    onSuccess: (_data, taskIds) => {
-      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
-      void queryClient.invalidateQueries({ queryKey: ['tasks-trash', projectId] });
-      for (const taskId of taskIds) {
-        void queryClient.invalidateQueries({
-          queryKey: ['task-history', projectId ?? undefined, taskId],
-        });
+      const outcomes = await mapWithConcurrency(taskIds, BULK_RESTORE_CONCURRENCY, async (id) => {
+        try {
+          await apiClient.post(`/tasks/${id}/restore/`);
+          return { id, ok: true };
+        } catch {
+          return { id, ok: false };
+        }
+      });
+      const failed = outcomes.filter((o) => !o.ok).map((o) => o.id);
+      if (failed.length > 0) {
+        throw new BulkRestoreError(
+          outcomes.filter((o) => o.ok).map((o) => o.id),
+          failed,
+        );
       }
+    },
+    onSuccess: (_data, taskIds) => invalidate(taskIds),
+    // A partial failure still restored some rows — refresh so the grid shows them.
+    onError: (err, taskIds) => {
+      if (err instanceof BulkRestoreError) invalidate(err.restored);
+      else invalidate(taskIds);
     },
   });
 }
