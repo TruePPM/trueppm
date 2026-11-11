@@ -1265,6 +1265,26 @@
       "provenance": "unknown",
       "issue": "#4635",
       "evidence": "0658fe06d: added; no regeneration or hand-derivation statement in history"
+    },
+    "expected/start_of_day_finish_beside_seven_day_work.json": {
+      "provenance": "hand-verified",
+      "issue": "#4436",
+      "evidence": "REGEN_EXPECTED=1 with the #4436 fix, then checked against the slip oracle (float_perturbation_violations): TF slips move nothing, TF+1 moves the shown finish"
+    },
+    "expected/start_of_day_finish_on_a_narrower_calendar.json": {
+      "provenance": "hand-verified",
+      "issue": "#4436",
+      "evidence": "REGEN_EXPECTED=1 with the #4436 fix, then checked against the slip oracle (float_perturbation_violations): TF slips move nothing, TF+1 moves the shown finish"
+    },
+    "start_of_day_finish_beside_seven_day_work.json": {
+      "provenance": "hand-verified",
+      "issue": "#4436",
+      "evidence": "added with the #4436 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
+    },
+    "start_of_day_finish_on_a_narrower_calendar.json": {
+      "provenance": "hand-verified",
+      "issue": "#4436",
+      "evidence": "added with the #4436 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
     }
   }
 }

@@ -706,10 +706,7 @@ release it is scheduled for:
   out-of-sequence work can still move a signed-off milestone's successors when
   several predecessors are late, or when a faithful hand-back is re-read from
   the completed work
-  ([#4915](https://gitlab.com/trueppm/trueppm/-/issues/4915)); a work-task
-  late-finish seed can ignore a
-  start-of-day project finish on wider calendars
-  ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
+  ([#4915](https://gitlab.com/trueppm/trueppm/-/issues/4915)); FF/SF links
   *into* a summary fan out to every leaf, so every leaf (not only the
   latest-finishing one) must finish no earlier than the link requires — short
   leaves lose float
@@ -820,8 +817,7 @@ they will ship with 0.5 or that release will slip:
   non-monotonicity ([#4539](https://gitlab.com/trueppm/trueppm/-/issues/4539)), closing a milestone ahead of an open
   predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), the non-working-day actuals divergences
   ([#4631](https://gitlab.com/trueppm/trueppm/-/issues/4631), [#4702](https://gitlab.com/trueppm/trueppm/-/issues/4702)), start-of-day milestone total float ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)),
-  the late-finish seed
-  on wider calendars ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)), and the `free_float` oracle disagreement
+  and the `free_float` oracle disagreement
   ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)).
 - **Scheduling semantics** — the calendar-day-vs-working-day lag question will be
   decided ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535));

@@ -1,0 +1,41 @@
+{
+  "id": "p-start-of-day-finish-beside-seven-day-work",
+  "name": "Seven-day work beside a start-of-day milestone finish shown Monday: T2 may finish Sunday (#4436)",
+  "start_date": "2027-03-01",
+  "tasks": [
+    {
+      "id": "T0",
+      "name": "T0",
+      "duration": 432000.0
+    },
+    {
+      "id": "T1",
+      "name": "T1",
+      "duration": 0.0
+    },
+    {
+      "id": "T2",
+      "name": "T2",
+      "duration": 86400.0,
+      "calendar_id": "seven"
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "T0",
+      "successor_id": "T1",
+      "dep_type": "FS",
+      "lag": 86400.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  },
+  "calendars": {
+    "seven": {
+      "working_days": 127,
+      "exceptions": []
+    }
+  }
+}

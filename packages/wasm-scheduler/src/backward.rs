@@ -93,25 +93,25 @@ pub(crate) fn finish_instant(
     Ok(latest.expect("a project has at least one task"))
 }
 
-/// Latest instant the project-finish seed admits for a milestone (#4174).
+/// Latest instant anything may end at without moving the project finish (#4174,
+/// #4436).
 ///
 /// When `end` already reads as start of day (`project_finish >= end`, e.g.
 /// `A(4d) -FS+2d-> M` placing `M` at Sunday midnight, shown Monday), every
-/// midnight up to the one opening the next working day shows the same finish, so
-/// the bound widens to it. When `end` reads as end of day (`A -FS+1d-> M` at
-/// Saturday midnight, shown Friday), the raw `end` is the bound: Sunday midnight
-/// is shown Monday under #4173's display rule, so landing there moves the finish.
-/// The shown day stays capped by `late_display`. Mirrors the Python
-/// `_milestone_finish_bound`.
-pub(crate) fn milestone_finish_bound(
-    end: NaiveDate,
-    project_finish: NaiveDate,
-    node_cal: &Calendar,
-) -> Result<NaiveDate, String> {
+/// midnight up to the one *opening* `project_finish` shows the same finish, so the
+/// bound widens to it — for a milestone's own late instant and for the work seed
+/// alike. It is `project_finish` itself, independent of the bounded task's
+/// calendar: widening on that calendar (the #4174 form) stopped a wider-week task
+/// short of the shown finish day and let a narrower-week one reach past it (#4436).
+/// When `end` reads as end of day (`A -FS+1d-> M` at Saturday midnight, shown
+/// Friday), the raw `end` is the bound: Sunday midnight is shown Monday under
+/// #4173's display rule, so landing there moves the finish. The shown day stays
+/// capped by `late_display`. Mirrors the Python `_milestone_finish_bound`.
+pub(crate) fn milestone_finish_bound(end: NaiveDate, project_finish: NaiveDate) -> NaiveDate {
     if project_finish >= end {
-        next_working_day(end, node_cal)
+        project_finish
     } else {
-        Ok(end)
+        end
     }
 }
 
@@ -278,7 +278,10 @@ pub fn backward_pass(
     milestones: &MilestoneInstants,
 ) -> Result<Vec<Option<NaiveDate>>, String> {
     let instants = &milestones.shown;
-    let end = finish_instant(tasks, instants, project_finish)?;
+    let end = milestone_finish_bound(
+        finish_instant(tasks, instants, project_finish)?,
+        project_finish,
+    );
     let mut late_instants: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
     let mut float_lates: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
     for &idx in topo_order.iter().rev() {
@@ -305,7 +308,7 @@ pub fn backward_pass(
         }
 
         if let Some(early) = instants[i] {
-            let mut bound = milestone_finish_bound(end, project_finish, node_cal)?;
+            let mut bound = end;
             for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
                 let s = edge.target().index();
                 if tasks[s].is_complete() {
@@ -365,7 +368,8 @@ pub fn backward_pass(
         // last workable day: project_finish is max(early_finish) and can land on
         // a day this node cannot work (a completed task's weekend actual_finish),
         // overstating float and propagating upstream (#1820). A no-op when
-        // project_finish is already a working day.
+        // project_finish is already a working day. `end` is already widened to
+        // the midnight opening a start-of-day finish (#4436).
         //
         // Every bound below is likewise working-day snapped, so none of them can
         // express an early window that sits on a non-working day. That mismatch is

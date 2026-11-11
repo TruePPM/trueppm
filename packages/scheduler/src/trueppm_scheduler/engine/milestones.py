@@ -483,25 +483,38 @@ def _sf_latest_start(succ_finish: date, lag: timedelta, node_cal: Calendar) -> d
     return _scan_for_working_day(last, node_cal, forward=True)
 
 
-def _milestone_finish_bound(finish_instant: date, project_finish: date, node_cal: Calendar) -> date:
-    """Latest instant the project-finish seed admits for a milestone (#4174).
+def _milestone_finish_bound(finish_instant: date, project_finish: date) -> date:
+    """Latest instant anything may end at without moving the project finish (#4174, #4436).
 
     When the finish instant already reads as start of day — ``project_finish`` is
     on or after it, e.g. ``A(4d) -FS+2d-> M`` placing ``M`` at Sunday midnight,
-    shown Monday — every midnight up to the one that opens the next working day
-    shows the same finish, so a milestone at any of them does not move it. Seeding
-    at the raw instant told that milestone Monday midnight was a slip, which gave
-    ``A`` zero float and put it on the critical path.
+    shown Monday — every midnight up to the one that *opens* ``project_finish``
+    shows the same finish, so a milestone at any of them, or work closing at any
+    of them, does not move it. Seeding at the raw instant told that milestone
+    Monday midnight was a slip, which gave ``A`` zero float and put it on the
+    critical path.
+
+    The bound is ``project_finish`` itself, the day the finishing milestone is
+    shown on, and is therefore independent of the calendar of the task it bounds.
+    Widening on the *bounded* task's own calendar (``next_wd(finish_instant)``,
+    the #4174 form) was wrong both ways when calendars differ (#4436): a task on a
+    wider week stopped short of the shown finish day — a seven-day milestone at
+    Saturday midnight beside a Monday-to-Friday finisher shown Monday — and one on
+    a narrower week reached past it, to a midnight shown after ``project_finish``.
+
+    Work reads the same bound: its late finish is the last working day, on its own
+    calendar, that closes at or before it (:func:`_collect_backward_constraints`).
 
     When the instant reads as end of day instead (``project_finish`` before it —
     ``A -FS+1d-> M`` at Saturday midnight, shown Friday), the raw instant is the
     bound: under #4173's display rule Sunday midnight is shown Monday, so landing
     there *does* move the finish and the predecessor has no float to give.
 
-    The shown day stays capped at ``project_finish`` by :func:`_late_display`.
+    The shown day stays capped at ``project_finish`` by :func:`_late_display`, and
+    a start-of-day reading by :func:`_start_read_cap`.
     """
     if project_finish >= finish_instant:
-        return _next_working_day(finish_instant, node_cal)
+        return project_finish
     return finish_instant
 
 

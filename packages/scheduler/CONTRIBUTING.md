@@ -105,17 +105,14 @@ recorded actuals — #4433's shape, which the reference refuses and which stays
 pinned by a metamorphic closed-versus-live test — and the excluded #4631 shape. It runs on Rust only where `cargo` (or
 `TRUEPPM_ORACLE_RUST_RUNNER`) is available.
 
-There are exactly two tracked exceptions to "do not carve the shape out", each
+There is exactly one tracked exception to "do not carve the shape out",
 excused by a named filter and pinned by a strict xfail on its unfiltered repro
 that turns red when the issue is resolved, so the filter must be deleted then:
 
 - the open #4631 (an FF successor of completed work whose `actual_finish` is a
   non-working day: the reference reads it in working time, the engines as the
   verbatim day; the semantics are undecided) — `_ff_out_of_a_non_working_actual_finish`,
-  in the reference properties and the corpus generator;
-- the open #4436 (understated float beside a start-of-day milestone finish) —
-  `_ends_in_a_start_of_day_finish_gap`, in the perturbation properties only,
-  narrowed to the slipped task and the work its slip carried.
+  in the reference properties and the corpus generator.
 
 One further open defect is pinned without a filter, because the generator does
 not reach it: the open #4883 (a floor that only ties a milestone's link, #4690,

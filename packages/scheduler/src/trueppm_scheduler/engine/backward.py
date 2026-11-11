@@ -223,7 +223,7 @@ def _apply_milestone_late_date(
     """
     early, link = early_pair
     project_finish, finish_instant = finish
-    bounds: list[date] = [_milestone_finish_bound(finish_instant, project_finish, node_cal)]
+    bounds: list[date] = [_milestone_finish_bound(finish_instant, project_finish)]
     for succ_id in g.successors(node_id):
         succ = task_map[succ_id]
         if _is_complete(succ):
@@ -266,6 +266,12 @@ def _collect_backward_constraints(
     out-of-sequence weekend actuals, ``project_finish`` is itself a working day and
     this is a no-op.
 
+    When a start-of-day milestone ends the project, the seed is the close of the
+    last working day before the day that milestone is *shown* on, not before its
+    raw instant (:func:`_milestone_finish_bound`, #4436): ``W(5d) -FS+1d-> M`` puts
+    ``M`` at Sunday midnight, shown Monday, and a seven-day task can finish on that
+    Sunday without moving the finish.
+
     A completed successor is out of network logic (ADR-0136): the forward pass lays
     it at its actuals, possibly out of sequence, and it carries zero float, so it
     imposes no backward constraint on a still-live predecessor. Including it would
@@ -278,9 +284,8 @@ def _collect_backward_constraints(
     rather than by special-casing each constraint.
     """
     project_finish, finish_instant = finish
-    lf_constraints: list[date] = [
-        _prev_working_day(_safe_offset(finish_instant, -_ONE_DAY), node_cal)
-    ]
+    end = _milestone_finish_bound(finish_instant, project_finish)
+    lf_constraints: list[date] = [_prev_working_day(_safe_offset(end, -_ONE_DAY), node_cal)]
     ls_constraints: list[date] = []
     task = task_map[node_id]
 
