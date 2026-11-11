@@ -64,6 +64,11 @@ export interface CreateTaskPayload {
    * lane. Omit on a board that configures no lanes.
    */
   board_lane?: string;
+  /** Three-point (PERT) estimate in working days (#2918). All-or-none, and the
+   *  server enforces optimistic ≤ most_likely ≤ pessimistic — send all three or none. */
+  optimistic_duration?: number | null;
+  most_likely_duration?: number | null;
+  pessimistic_duration?: number | null;
 }
 
 /** POST /api/v1/tasks/ — create a new task in the given project. */
@@ -94,6 +99,15 @@ export function useCreateTask(projectId: string | null) {
           ? { governance_class: payload.governance_class }
           : {}),
         ...(payload.delivery_mode !== undefined ? { delivery_mode: payload.delivery_mode } : {}),
+        ...(payload.optimistic_duration != null &&
+        payload.most_likely_duration != null &&
+        payload.pessimistic_duration != null
+          ? {
+              optimistic_duration: payload.optimistic_duration,
+              most_likely_duration: payload.most_likely_duration,
+              pessimistic_duration: payload.pessimistic_duration,
+            }
+          : {}),
       });
       return res.data;
     },

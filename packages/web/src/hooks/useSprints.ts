@@ -942,6 +942,13 @@ export interface SprintForecast {
   /** ADR-0130 D3 discriminator — branch on THIS. */
   forecast_basis: 'velocity' | 'throughput';
   velocity_suppressed: boolean;
+  /**
+   * Whether any simulated run hit the sampler's horizon clamp (#2469), so the upper
+   * percentiles are lower bounds. `null` = unknown: no forecast yet, or the reader is
+   * below the velocity audience (ADR-0104). Null is NOT "not saturated" — never
+   * render it as the all-clear.
+   */
+  horizon_saturated: boolean | null;
 }
 
 export function useSprintForecast(

@@ -35,6 +35,8 @@ interface MonteCarloLatestResponse {
   p80: string;
   p95: string;
   histogram_buckets: { date: string; count: number }[];
+  // Runs clamped at the velocity sprint horizon (#2469); absent on the from-history fallback.
+  velocity_saturated_runs?: number;
   // Captured at cache-write time on the backend (#335). Optional for
   // resilience against older cached payloads written before the field existed.
   last_run_at?: string;
@@ -168,6 +170,7 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
     p50: api.p50,
     p80: api.p80,
     p95: api.p95,
+    velocitySaturatedRuns: api.velocity_saturated_runs,
     buckets,
     lastRunAt: api.last_run_at,
     cpmFinish: api.cpm_finish ?? null,

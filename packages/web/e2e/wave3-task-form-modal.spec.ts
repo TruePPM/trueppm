@@ -283,6 +283,38 @@ test.describe('Task create/edit modal (#305)', () => {
     expect(request.postDataJSON()).toMatchObject({ story_points: 8 });
   });
 
+  test('a three-point estimate typed on create is sent as a complete triple (#2918)', async ({
+    page,
+  }) => {
+    await setup(page);
+    const dialog = await openCreateModal(page);
+    await dialog.getByLabel('Task name *').fill('Three-point task');
+    await dialog.getByText('Three-point estimate (optional)').click();
+    await dialog.getByLabel(/Optimistic/).fill('2');
+    await dialog.getByLabel(/Most likely/).fill('4');
+    await dialog.getByLabel(/Pessimistic/).fill('9');
+
+    const [request] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/v1/tasks/') && r.method() === 'POST'),
+      dialog.getByRole('button', { name: 'Create task' }).click(),
+    ]);
+    expect(request.postDataJSON()).toMatchObject({
+      optimistic_duration: 2,
+      most_likely_duration: 4,
+      pessimistic_duration: 9,
+    });
+  });
+
+  test('a partial three-point estimate blocks Save and says why (#2918)', async ({ page }) => {
+    await setup(page);
+    const dialog = await openCreateModal(page);
+    await dialog.getByLabel('Task name *').fill('Half-estimated task');
+    await dialog.getByText('Three-point estimate (optional)').click();
+    await dialog.getByLabel(/Optimistic/).fill('2');
+    await expect(dialog.getByRole('alert')).toContainText(/all three estimates/i);
+    await expect(dialog.getByRole('button', { name: 'Create task' })).toBeDisabled();
+  });
+
   test('the create modal closes on Cancel', async ({ page }) => {
     await setup(page);
     const dialog = await openCreateModal(page);

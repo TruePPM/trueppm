@@ -63,12 +63,12 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
             {forecast.p80_date ? (
               <>
                 {' (P80 '}
-                <span className="tppm-mono">{formatShortDate(forecast.p80_date)}</span> at the
-                earliest)
+                <span className="tppm-mono">{formatShortDate(forecast.p80_date)}</span>
+                {forecast.horizon_saturated === true ? ' at the earliest' : ''})
               </>
             ) : null}
           </Chip>
-          <ForecastHorizonHelp basis="throughput" />
+          <ForecastHorizonHelp basis="throughput" saturated={forecast.horizon_saturated} />
         </span>
       )}
       {showHorizon && forecast && forecast.forecast_basis === 'velocity' && (
@@ -77,9 +77,10 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
             <span aria-hidden="true">→</span> At this pace, the backlog clears in ~
             <span className="tppm-mono">{forecast.p50_sprints}</span>{' '}
             {forecast.p50_sprints === 1 ? itl.lower : itl.lowerPlural} (P80{' '}
-            <span className="tppm-mono">{forecast.p80_sprints}</span> at the earliest)
+            <span className="tppm-mono">{forecast.p80_sprints}</span>
+            {forecast.horizon_saturated === true ? ' at the earliest' : ''})
           </Chip>
-          <ForecastHorizonHelp basis="velocity" />
+          <ForecastHorizonHelp basis="velocity" saturated={forecast.horizon_saturated} />
         </span>
       )}
     </div>

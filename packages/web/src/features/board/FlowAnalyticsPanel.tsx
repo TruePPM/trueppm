@@ -20,7 +20,7 @@
 import { LockIcon } from '@/components/Icons';
 import { type ReactNode, Suspense, lazy, useCallback, useState } from 'react';
 
-import { ForecastHorizonHelp } from '@/features/sprints/ForecastHorizonHelp';
+import { ForecastHorizonHelp, HorizonCaveat } from '@/features/sprints/ForecastHorizonHelp';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import {
   type FlowMetrics,
@@ -217,7 +217,10 @@ function ThroughputForecastCard({
           ~<span className="tppm-mono">{weeks}</span> week{weeks === 1 ? '' : 's'}
         </span>{' '}
         — by <span className="tppm-mono font-semibold">{formatShortDate(data.p80_date)}</span>{' '}
-        <span className="text-neutral-text-secondary">(P80) at the earliest</span>.
+        <span className="text-neutral-text-secondary">
+          (P80){data.horizon_saturated === true ? ' at the earliest' : ''}
+        </span>
+        .
       </p>
       {/* #2495: this card headlines P80 more confidently than any other forecast
           surface, and the weekly-throughput sampler clamps each run's horizon — so
@@ -233,10 +236,10 @@ function ThroughputForecastCard({
               <span className="tppm-mono">{formatShortDate(data.p95_date)}</span>
             </>
           ) : null}{' '}
-          · Monte&nbsp;Carlo over weekly throughput —{' '}
-          <strong className="font-medium">a floor, not a percentile</strong>
+          · Monte&nbsp;Carlo over weekly throughput
+          <HorizonCaveat saturated={data.horizon_saturated} basis="throughput" />
         </span>
-        <ForecastHorizonHelp basis="throughput" />
+        <ForecastHorizonHelp basis="throughput" saturated={data.horizon_saturated} />
       </p>
     </ForecastFrame>
   );

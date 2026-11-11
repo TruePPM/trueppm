@@ -529,6 +529,64 @@ describe('TaskFormModal (issue #305)', () => {
     expect(createMutate).toHaveBeenCalledWith(expect.objectContaining({ duration: 7 }));
   });
 
+  describe('create-mode three-point estimate (#2918)', () => {
+    function fillName() {
+      fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Estimated' } });
+    }
+    const field = (label: RegExp) => screen.getByLabelText<HTMLInputElement>(label);
+
+    it('sends a complete ordered triple in the create payload', async () => {
+      renderModal();
+      fillName();
+      fireEvent.change(field(/Optimistic/), { target: { value: '2' } });
+      fireEvent.change(field(/Most likely/), { target: { value: '4' } });
+      fireEvent.change(field(/Pessimistic/), { target: { value: '9' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+      await Promise.resolve();
+      expect(createMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          optimistic_duration: 2,
+          most_likely_duration: 4,
+          pessimistic_duration: 9,
+        }),
+      );
+    });
+
+    it('sends no estimate keys when the disclosure is left empty', async () => {
+      renderModal();
+      fillName();
+      fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+      await Promise.resolve();
+      expect(createMutate.mock.calls[0][0]).not.toHaveProperty('optimistic_duration');
+    });
+
+    it('blocks Save on a partial triple, naming the reason', () => {
+      renderModal();
+      fillName();
+      fireEvent.change(field(/Optimistic/), { target: { value: '2' } });
+      expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled();
+      expect(screen.getByRole('alert')).toHaveTextContent(/all three estimates/i);
+    });
+
+    it('blocks Save on an unordered triple', () => {
+      renderModal();
+      fillName();
+      fireEvent.change(field(/Optimistic/), { target: { value: '9' } });
+      fireEvent.change(field(/Most likely/), { target: { value: '4' } });
+      fireEvent.change(field(/Pessimistic/), { target: { value: '2' } });
+      expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled();
+      expect(screen.getByRole('alert')).toHaveTextContent(/optimistic . most likely . pessimistic/i);
+    });
+
+    it('is absent in edit mode and in milestone-create mode', () => {
+      const { unmount } = renderModal({ task: baseTask({ name: 'Existing' }) });
+      expect(screen.queryByTestId('task-pert-create')).not.toBeInTheDocument();
+      unmount();
+      renderModal({ isMilestone: true } as never);
+      expect(screen.queryByTestId('task-pert-create')).not.toBeInTheDocument();
+    });
+  });
+
   it('suppresses the Classification group in milestone-create mode', () => {
     renderModal({ isMilestone: true });
     expect(screen.queryByLabelText('Type')).not.toBeInTheDocument();

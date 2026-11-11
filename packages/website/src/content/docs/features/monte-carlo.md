@@ -758,8 +758,13 @@ The consequence is one-directional: **the upper percentiles on those two forecas
 are a floor, not an unbiased P80/P95.** The true figure is the date shown or later,
 never earlier, and the gap widens the more the team's sprint-to-sprint velocity (or
 week-to-week throughput) varies. The product says so next to every affected number —
-look for the "a floor, not a percentile" qualifier and its help icon on the backlog
-forecast, the sprint release-horizon chips, and the board's flow analytics card.
+look for the "a lower bound" qualifier and its help icon on the backlog
+forecast, the sprint release-horizon chips, and the board's flow analytics card. The
+qualifier appears only when the server reports that runs were truncated
+(`horizon_saturated`); when none were, the number is shown without it, and when the
+server cannot say (no forecast yet, or a reader below the velocity audience) nothing
+is claimed either way. The finish-date forecast on the Schedule view adds a note with
+the share of runs that reached the horizon when `velocity_saturated_runs` is non-zero.
 
 This does **not** affect the schedule forecast built from three-point (PERT) task
 estimates, which is unclamped. For a date you must commit to externally, estimate

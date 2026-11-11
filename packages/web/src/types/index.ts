@@ -1038,6 +1038,12 @@ export interface MonteCarloResult {
   p80: string;
   /** P95 completion date, ISO string */
   p95: string;
+  /**
+   * Runs whose velocity draw hit the sprint-horizon clamp (#2469, shown by #4954). Non-zero
+   * means P80/P95 are lower bounds. `undefined` = the server did not state it (the
+   * persisted-history fallback): that is unknown, NOT zero — render no claim either way.
+   */
+  velocitySaturatedRuns?: number;
   /** Weekly bucket histogram of the full distribution */
   buckets: McBucket[];
   /** ISO timestamp of when the simulation was run, captured at cache-write time. This is the forecast's `as_of` (ADR-1314). */

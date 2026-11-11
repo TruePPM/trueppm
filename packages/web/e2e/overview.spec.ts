@@ -194,6 +194,7 @@ async function setupRoutes(page: import('@playwright/test').Page) {
         basis: 'monte_carlo',
         forecast_basis: 'velocity',
         velocity_suppressed: false,
+        horizon_saturated: true,
       }),
     }),
   );
@@ -267,14 +268,14 @@ test.describe('Project overview page', () => {
     await expect(region.getByText(/P80/)).toBeVisible();
   });
 
-  test('the velocity forecast is labeled a floor, and says why on demand (#2495)', async ({
+  test('the velocity forecast says it is a lower bound only when runs were clamped (#4954)', async ({
     page,
   }) => {
     const region = page.getByRole('region', { name: /backlog forecast/i });
     await expect(region).toBeVisible();
     // The qualifier is on-screen next to the number, not only in the docs — a reader
     // screenshotting this for a steering deck must capture the caveat with it.
-    await expect(region.getByText(/a floor, not a percentile/i)).toBeVisible();
+    await expect(region.getByTestId('horizon-caveat')).toContainText(/a lower bound/i);
 
     // FieldHelp is a non-modal role="dialog" (it holds a link, so it cannot be a
     // tooltip — web-rule 121/287b) and is portaled to <body>, so scope the assertion
@@ -289,6 +290,39 @@ test.describe('Project overview page', () => {
     await page.keyboard.press('Escape');
     await expect(help).toBeHidden();
     await expect(region).toBeVisible();
+  });
+
+  test('no lower-bound caveat when no run hit the horizon, nor when saturation is unknown (#4954)', async ({
+    page,
+  }) => {
+    const region = page.getByRole('region', { name: /backlog forecast/i });
+    for (const horizon_saturated of [false, null]) {
+      await page.route(`**/api/v1/projects/${PROJECT_ID}/sprint-forecast/`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            status: 'ready',
+            remaining_points: 60,
+            remaining_count: null,
+            sample_count: 3,
+            p50_sprints: 3,
+            p80_sprints: 4,
+            p50_date: '2026-08-01',
+            p80_date: '2026-08-15',
+            p95_date: '2026-08-29',
+            basis: 'monte_carlo',
+            forecast_basis: 'velocity',
+            velocity_suppressed: false,
+            horizon_saturated,
+          }),
+        }),
+      );
+      await page.reload();
+      await expect(region.getByText(/forecast to clear by/i)).toBeVisible();
+      await expect(region.getByText(/P80/)).toBeVisible();
+      await expect(region.getByTestId('horizon-caveat')).toHaveCount(0);
+    }
   });
 
   test('golden path — KPI cards, attention panel, and my-tasks all render', async ({ page }) => {

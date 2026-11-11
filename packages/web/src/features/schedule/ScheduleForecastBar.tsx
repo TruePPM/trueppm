@@ -7,6 +7,7 @@ import { formatRelative } from '@/lib/formatRelative';
 import { useForecastPresentation } from './useForecastPresentation';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { SensitivityList } from './SensitivityList';
+import { VelocitySaturationNote } from './VelocitySaturationNote';
 import { MonteCarloDetailPanel } from './MonteCarloDetailPanel';
 import { ForecastHistorySection } from './ForecastHistorySection';
 
@@ -436,6 +437,10 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, variant = 'do
                 <p className="mb-3 text-xs text-neutral-text-secondary">
                   Monte Carlo · {result.runs.toLocaleString()} runs · P50–P80 band
                 </p>
+                <VelocitySaturationNote
+                  saturatedRuns={result.velocitySaturatedRuns}
+                  runs={result.runs}
+                />
                 <MonteCarloHistogram result={result} />
               </div>
 

@@ -203,6 +203,10 @@ interface FormState {
   sprintId: string | null;
   storyPoints: number | null;
   notes: string;
+  /** Create-mode three-point estimate as typed text (#2918); '' = unset. */
+  pertOptimistic: string;
+  pertMostLikely: string;
+  pertPessimistic: string;
   assignees: AssigneeWorkingRow[];
   predecessors: PredecessorWorkingRow[];
 }
@@ -228,6 +232,9 @@ function initialState(task: Task | null, defaultStatus: TaskStatus): FormState {
       sprintId: null,
       storyPoints: null,
       notes: '',
+      pertOptimistic: '',
+      pertMostLikely: '',
+      pertPessimistic: '',
       assignees: [],
       predecessors: [],
     };
@@ -245,6 +252,9 @@ function initialState(task: Task | null, defaultStatus: TaskStatus): FormState {
     sprintId: task.sprintId ?? null,
     storyPoints: task.storyPoints ?? null,
     notes: task.notes ?? '',
+    pertOptimistic: '',
+    pertMostLikely: '',
+    pertPessimistic: '',
     assignees: task.assignees.map((a) => ({
       // Existing assignees from Task.assignees lack the task-resource row id;
       // the form will reconcile against the freshest list pulled by
@@ -326,6 +336,36 @@ interface SubmitContext {
   agileFeatures: boolean;
 }
 
+/** Outcome of reading the create-mode three-point inputs (#2918). */
+type PertCreateState =
+  | { kind: 'none' }
+  | { kind: 'incomplete' }
+  | { kind: 'out_of_order' }
+  | { kind: 'ok'; o: number; m: number; p: number };
+
+/**
+ * All-or-none, mirroring the server: an empty triple is simply no estimate, a partial
+ * triple or an unordered one is a state the form must refuse rather than send.
+ */
+function readPertCreate(form: {
+  pertOptimistic: string;
+  pertMostLikely: string;
+  pertPessimistic: string;
+}): PertCreateState {
+  const parse = (s: string): number | null => {
+    const t = s.trim();
+    if (t === '') return null;
+    const n = Number(t);
+    return Number.isFinite(n) && n >= 0 ? n : Number.NaN;
+  };
+  const [o, m, p] = [form.pertOptimistic, form.pertMostLikely, form.pertPessimistic].map(parse);
+  if (o === null && m === null && p === null) return { kind: 'none' };
+  if (o === null || m === null || p === null || Number.isNaN(o + m + p)) {
+    return { kind: 'incomplete' };
+  }
+  return o <= m && m <= p ? { kind: 'ok', o, m, p } : { kind: 'out_of_order' };
+}
+
 /**
  * Build the POST body for create mode.
  *
@@ -344,10 +384,18 @@ function buildCreatePayload(
         governance_class: form.governanceClass,
         delivery_mode: form.deliveryMode,
       };
+  const pert = ctx.isMilestoneCreate ? ({ kind: 'none' } as const) : readPertCreate(form);
   return {
     name: form.name.trim(),
     duration: ctx.isMilestoneCreate ? 0 : ctx.committedDuration,
     parent_id: ctx.parentId,
+    ...(pert.kind === 'ok'
+      ? {
+          optimistic_duration: pert.o,
+          most_likely_duration: pert.m,
+          pessimistic_duration: pert.p,
+        }
+      : {}),
     status: form.status,
     planned_start: form.plannedStart || null,
     notes: form.notes,
@@ -737,7 +785,9 @@ export function TaskFormModal({
   // Edit mode: only the name is required — duration was already validated at creation.
   // Create mode: duration >= 1, except milestones which are always zero-duration.
   const formIsValid =
-    form.name.trim().length > 0 && (isEdit || isMilestoneCreate || form.duration >= 1);
+    form.name.trim().length > 0 &&
+    (isEdit || isMilestoneCreate || form.duration >= 1) &&
+    (isEdit || isMilestoneCreate || ['none', 'ok'].includes(readPertCreate(form).kind));
 
   const isPending = createTask.isPending || updateTask.isPending;
 
@@ -1358,6 +1408,18 @@ export function TaskFormModal({
           );
         })()}
 
+        {/* Three-point (PERT) estimate — create mode only (#2918). The drawer's
+            Estimates tab owns editing; this lets a WBS be built out with its
+            forecast inputs in one pass. All-or-none, so a partial or unordered
+            triple blocks Save with the reason beside the fields. */}
+        {!isEdit && !isMilestoneCreate && projectDetail?.effective_methodology !== 'AGILE' && (
+          <PertCreateFields
+            form={form}
+            disabled={isReadOnly}
+            onChange={(patch) => setForm((s) => ({ ...s, ...patch }))}
+          />
+        )}
+
         {/* Assignees — hidden (not disabled) on a phase, mirroring the
             backend's `assignee_on_phase` rejection (ADR-0293, #1753). A
             phase-in-waiting (no structural child yet) is not a phase yet, so
@@ -1648,5 +1710,65 @@ export function TaskFormModal({
         />
       )}
     </>
+  );
+}
+
+const PERT_INPUT_CLASS =
+  'w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60';
+
+/** Collapsed-by-default disclosure for the create-mode three-point estimate (#2918). */
+function PertCreateFields({
+  form,
+  disabled,
+  onChange,
+}: {
+  form: FormState;
+  disabled: boolean;
+  onChange: (patch: Partial<FormState>) => void;
+}) {
+  const state = readPertCreate(form);
+  const error =
+    state.kind === 'incomplete'
+      ? 'Enter all three estimates, or clear them.'
+      : state.kind === 'out_of_order'
+        ? 'Estimates must satisfy optimistic \u2264 most likely \u2264 pessimistic.'
+        : null;
+  const fields: { id: string; label: string; key: 'pertOptimistic' | 'pertMostLikely' | 'pertPessimistic' }[] = [
+    { id: 'task-pert-optimistic', label: 'Optimistic', key: 'pertOptimistic' },
+    { id: 'task-pert-most-likely', label: 'Most likely', key: 'pertMostLikely' },
+    { id: 'task-pert-pessimistic', label: 'Pessimistic', key: 'pertPessimistic' },
+  ];
+  return (
+    <details className="group" data-testid="task-pert-create" open={error !== null}>
+      <summary className="cursor-pointer text-xs font-medium text-neutral-text-secondary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control min-h-[44px] flex items-center">
+        Three-point estimate (optional)
+      </summary>
+      <div className="mt-2 grid grid-cols-3 gap-3">
+        {fields.map((f) => (
+          <div key={f.id}>
+            <label htmlFor={f.id} className="block text-xs font-medium text-neutral-text-secondary mb-1">
+              {f.label} <span className="text-neutral-text-secondary">(days)</span>
+            </label>
+            <input
+              id={f.id}
+              type="number"
+              min={0}
+              step={1}
+              disabled={disabled}
+              value={form[f.key]}
+              aria-invalid={error !== null}
+              aria-describedby={error ? 'task-pert-error' : undefined}
+              onChange={(e) => onChange({ [f.key]: e.target.value })}
+              className={PERT_INPUT_CLASS}
+            />
+          </div>
+        ))}
+      </div>
+      {error && (
+        <p id="task-pert-error" role="alert" className="mt-1 text-xs text-semantic-critical">
+          {error}
+        </p>
+      )}
+    </details>
   );
 }
