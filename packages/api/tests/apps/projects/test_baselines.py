@@ -546,6 +546,27 @@ class TestTaskListBaselineOverlay:
         tasks = r.data.get("results", r.data)
         assert any(t["baseline_start"] is not None for t in tasks)
 
+    def test_detail_route_resolves_active_baseline_only_with_project_param(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+        tasks_with_cpm: list[Task],
+    ) -> None:
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            create_r = client.post(f"/api/v1/projects/{project.pk}/baselines/")
+            baseline_id = create_r.data["id"]
+            client.post(f"/api/v1/projects/{project.pk}/baselines/{baseline_id}/activate/")
+        task_id = tasks_with_cpm[0].pk
+        with_project = client.get(f"/api/v1/tasks/{task_id}/?project={project.pk}")
+        assert with_project.status_code == 200
+        assert with_project.data["baseline_start"] is not None
+        assert with_project.data["baseline_finish"] is not None
+        without_project = client.get(f"/api/v1/tasks/{task_id}/")
+        assert without_project.status_code == 200
+        assert without_project.data["baseline_start"] is None
+        assert without_project.data["baseline_finish"] is None
+
     def test_explicit_baseline_param_overrides_active(
         self,
         client: APIClient,
