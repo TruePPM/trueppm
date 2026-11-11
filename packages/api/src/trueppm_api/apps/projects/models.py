@@ -1854,6 +1854,8 @@ class Project(VersionedModel):
             # Powers the background purge scan (#1114): soft-deleted projects past
             # the retention cutoff — ``WHERE is_deleted AND deleted_at <= cutoff``.
             models.Index(fields=["is_deleted", "deleted_at"], name="proj_isdel_deletedat_idx"),
+            # Backs the default project-list ordering (Meta.ordering / ProjectViewSet).
+            models.Index(fields=["start_date", "name"], name="proj_start_name_idx"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -2331,7 +2333,7 @@ def next_free_wbs_path(project_id: Any, wbs_path: Any) -> str:
 
     level = Task.objects.filter(project_id=project_id, wbs_path__isnull=False)
     if prefix:
-        level = level.filter(wbs_path__startswith=f"{prefix}.").exclude(
+        level = level.filter(wbs_path__descendant=prefix).exclude(
             wbs_path__regex=rf"^{re.escape(prefix)}\.\d+\."
         )
     else:
@@ -2347,7 +2349,7 @@ def next_free_wbs_path(project_id: Any, wbs_path: Any) -> str:
 def task_subtree(task: Task) -> QuerySet[Task]:
     """The task plus its WBS descendants, scoped to its own project (#3010)."""
     return Task.objects.filter(
-        Q(pk=task.pk) | Q(wbs_path__startswith=str(task.wbs_path) + "."),
+        Q(pk=task.pk) | Q(wbs_path__descendant=str(task.wbs_path)),
         project_id=task.project_id,
     )
 
@@ -2357,7 +2359,7 @@ def task_subtrees(tasks: Iterable[Task]) -> QuerySet[Task]:
     cond = Q(pk__in=[t.pk for t in tasks])
     for t in tasks:
         if t.wbs_path:
-            cond |= Q(project_id=t.project_id, wbs_path__startswith=str(t.wbs_path) + ".")
+            cond |= Q(project_id=t.project_id, wbs_path__descendant=str(t.wbs_path))
     return Task.objects.filter(cond)
 
 
@@ -2401,7 +2403,7 @@ def cascade_task_children_restore(task: Task) -> None:
     un-tombstoned task is a live endpoint the edge pass relies on):
 
     1. **Descendants** — ``is_deleted=True`` tasks under
-       ``wbs_path__startswith=task.wbs_path + "."``.
+       ``wbs_path__descendant=task.wbs_path``.
     2. **Dependency edges** — tombstoned edges touching the restored subtree, restored
        only when BOTH endpoints are now live and no already-live duplicate exists on the
        non-partial ``unique_dependency (predecessor, successor, dep_type)`` constraint
@@ -2434,7 +2436,7 @@ def cascade_task_children_restore(task: Task) -> None:
             # project, corrupting their delta cursor as well.
             project_id=task.project_id,
             is_deleted=True,
-            wbs_path__startswith=str(task.wbs_path) + ".",
+            wbs_path__descendant=str(task.wbs_path),
         ).update(
             is_deleted=False,
             server_version=F("server_version") + 1,
@@ -2448,7 +2450,7 @@ def cascade_task_children_restore(task: Task) -> None:
     # Same scoping bug, same fix: an unscoped prefix pulls other projects' rows into the
     # subtree and restores dependency edges that belong to them (#3010).
     subtree = Task.objects.filter(
-        Q(pk=task.pk) | Q(wbs_path__startswith=str(task.wbs_path) + "."),
+        Q(pk=task.pk) | Q(wbs_path__descendant=str(task.wbs_path)),
         project_id=task.project_id,
     )
     live_duplicate = Dependency.objects.filter(
@@ -2502,7 +2504,7 @@ def _repath_occupied_descendants(task: Task, seq: int) -> None:
         Task.objects.filter(
             project_id=task.project_id,
             is_deleted=True,
-            wbs_path__startswith=str(task.wbs_path) + ".",
+            wbs_path__descendant=str(task.wbs_path),
         )
         .filter(
             Exists(
@@ -4366,7 +4368,7 @@ class Task(VersionedModel):
                     # here tombstoned live rows under the same path in every project.
                     project_id=self.project_id,
                     is_deleted=False,
-                    wbs_path__startswith=path + ".",
+                    wbs_path__descendant=path,
                 )
                 .exclude(wbs_path__regex=rf"^{re.escape(path)}\.\d+\.")
                 .select_for_update()

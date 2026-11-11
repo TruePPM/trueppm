@@ -28,9 +28,10 @@ from django.db.models import F
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
@@ -53,7 +54,7 @@ from trueppm_api.core.openapi import state_refusal_400, suppress_list_pagination
 from . import git_webhook_auth, providers
 from .encryption import CredentialEncryptionError, decrypt_secret
 from .git_automation_services import apply_git_event_to_card
-from .models import BoardAutomation, IntegrationCredential, TaskLink
+from .models import TASK_LINK_MAX, BoardAutomation, IntegrationCredential, TaskLink
 from .registry import LINK_STATUS_UNKNOWN, TASK_LINK_PROVIDERS
 from .serializers import (
     GIT_WEBHOOK_PAYLOAD_SCHEMA,
@@ -309,6 +310,14 @@ class IntegrationCredentialViewSet(
 
 
 @extend_schema(tags=["tasks"])
+@extend_schema_view(
+    create=extend_schema(
+        description=(
+            "Add a link to a task. Returns 400 when the task already has 100 links "
+            "(``TASK_LINK_MAX``)."
+        ),
+    ),
+)
 class TaskLinkViewSet(
     ProjectScopedViewSet,
     mixins.ListModelMixin,
@@ -332,6 +341,9 @@ class TaskLinkViewSet(
     list/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The
     queryset is the IDOR boundary — it scopes to the caller's project membership
     and the task in the URL, so a link id from another project is a 404.
+
+    Limit: a task holds at most ``TASK_LINK_MAX`` (100) live links; ``POST links/``
+    returns 400 beyond that. The list is a bare array, so the cap is what bounds it.
     """
 
     serializer_class = TaskLinkSerializer
@@ -403,6 +415,11 @@ class TaskLinkViewSet(
 
         task = self._get_task()
         self.check_object_permissions(self.request, task)
+        # The list endpoint is unpaginated by contract, so cap what can accumulate.
+        # Lock the task row so two concurrent creates cannot both pass the count.
+        Task.objects.select_for_update().filter(pk=task.pk).first()
+        if TaskLink.objects.filter(task=task, is_deleted=False).count() >= TASK_LINK_MAX:
+            raise ValidationError({"detail": f"A task can have at most {TASK_LINK_MAX} links."})
         url = serializer.validated_data["url"]
         provider = providers.resolve_provider_key(url, user=self.request.user)
         # created_by records whose authority may later persist provider-fetched

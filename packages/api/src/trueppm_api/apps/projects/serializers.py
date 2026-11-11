@@ -6075,15 +6075,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         has_structural_child = False
         if wbs_path:
             # A task is a summary if any non-deleted task has a wbs_path one or more
-            # levels deeper, i.e. starting with "<this path>.". Uses `__regex` (the
-            # lookup the codebase already relies on for ltree paths) rather than an
-            # ltree-specific descendant operator, so it works without extra lookup
-            # registration. The path segments are digits, so escaping is a safety net.
-            child_prefix = re.escape(str(wbs_path))
+            # levels deeper, i.e. starting with "<this path>.". Uses the ltree
+            # ``descendant`` lookup (``<@``) so the GiST index on ``wbs_path`` applies.
             descendants = TaskModel.objects.filter(
                 project_id=task.project_id,
                 is_deleted=False,
-                wbs_path__regex=rf"^{child_prefix}\.",
+                wbs_path__descendant=str(wbs_path),
             ).exclude(pk=task.pk)
             has_children = descendants.exists()
             # A *structural* child is a real WBS task, not a drawer-created subtask

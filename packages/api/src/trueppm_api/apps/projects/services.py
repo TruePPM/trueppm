@@ -2699,8 +2699,7 @@ def reorder_queue_priority(project: Any, ordered: list[tuple[str, int]], actor: 
     ``queue_reordered`` on commit so other board clients refetch. Returns the count of
     rows whose rank changed; re-applying the same order is a no-op (returns 0).
     """
-    from django.db.models import Exists, OuterRef, Value
-    from django.db.models.functions import Concat
+    from django.db.models import Exists, OuterRef
 
     from trueppm_api.apps.projects.models import Task, TaskStatus
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -2715,7 +2714,7 @@ def reorder_queue_priority(project: Any, ordered: list[tuple[str, int]], actor: 
     has_descendant = Task.objects.filter(
         project=project,
         is_deleted=False,
-        wbs_path__startswith=Concat(OuterRef("wbs_path"), Value(".")),
+        wbs_path__descendant=OuterRef("wbs_path"),
     )
 
     changed = 0

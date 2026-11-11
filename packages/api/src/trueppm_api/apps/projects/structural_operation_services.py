@@ -131,7 +131,7 @@ def capture_shape(
     if region_roots != [""]:
         clause = Q()
         for root in region_roots:
-            clause |= Q(wbs_path=root) | Q(wbs_path__startswith=f"{root}.")
+            clause |= Q(wbs_path__descendant_or_equal=root)
         rows = rows.filter(clause)
     pairs = rows.values_list("pk", "wbs_path")
     if limit is not None:

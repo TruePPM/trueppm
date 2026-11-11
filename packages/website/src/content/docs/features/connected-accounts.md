@@ -145,6 +145,8 @@ field limits (custom fields are excluded there too).
 
 ### What the section does
 
+A task holds at most 100 links; adding a 101st returns `400` (ships in 0.5).
+
 - Lists each available source (Jira today) with a short description of what it
   brings into My Work.
 - **Connect a source** — an available source shows a **Connect** button that opens

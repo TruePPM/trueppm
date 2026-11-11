@@ -129,7 +129,7 @@ def _parent_refusal(project: Project, parent_wbs: str) -> str | None:
     if parent is None:
         return None
     has_child = Task.objects.filter(
-        project=project, is_deleted=False, wbs_path__startswith=f"{parent_wbs}."
+        project=project, is_deleted=False, wbs_path__descendant=parent_wbs
     ).exists()
     if has_child:
         return None

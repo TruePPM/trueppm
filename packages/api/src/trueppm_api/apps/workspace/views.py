@@ -1427,7 +1427,8 @@ class WorkspaceExportView(IdempotencyMixin, APIView):
 
     @extend_schema(responses={200: WorkspaceExportJobSerializer(many=True)})
     def get(self, request: Request) -> Response:
-        jobs = WorkspaceExportJob.objects.all()
+        # Explicit order: pagination over an unordered queryset can repeat/skip rows across pages.
+        jobs = WorkspaceExportJob.objects.order_by("-created_at", "-id")
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(jobs, request, view=self)
         data = WorkspaceExportJobSerializer(page if page is not None else jobs, many=True).data
