@@ -30,6 +30,7 @@ import {
   useCreateEpic,
   usePatchEpic,
   useDeleteEpic,
+  useEnsureFullProductBacklog,
   useLoadMoreProductBacklog,
 } from './useProductBacklog';
 
@@ -196,6 +197,44 @@ describe('product-backlog paging (#2344)', () => {
     await waitFor(() => expect(fetchProductBacklogMock).toHaveBeenCalledTimes(2));
     expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(1, 'p1');
     expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(2, 'p1', 2);
+  });
+
+  it('ensure-full loads every remaining page before a reorder and shares one in-flight load', async () => {
+    const qc = makeQC();
+    qc.setQueryData(productBacklogKeys.root('p1'), page1());
+    const page3 = () =>
+      makeBacklog({ epics: [], ungrouped: [story('u3')], truncated: false, offset: 4 });
+    fetchProductBacklogMock
+      .mockResolvedValueOnce({ ...page2(), truncated: true })
+      .mockResolvedValueOnce(page3());
+    const { result } = renderHook(() => useEnsureFullProductBacklog('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+    let full: ProductBacklog | null = null;
+    await act(async () => {
+      const a = result.current();
+      const b = result.current();
+      expect(b).toBe(a);
+      full = await a;
+    });
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(1, 'p1', 2);
+    expect(fetchProductBacklogMock).toHaveBeenNthCalledWith(2, 'p1', 4);
+    expect(fetchProductBacklogMock).toHaveBeenCalledTimes(2);
+    expect(full!.truncated).toBe(false);
+    expect(full!.ungrouped.map((s) => s.id)).toEqual(['u1', 'u2', 'u3']);
+    expect(qc.getQueryData(productBacklogKeys.root('p1'))).toEqual(full);
+  });
+
+  it('ensure-full fetches nothing on a complete backlog', async () => {
+    const qc = makeQC();
+    qc.setQueryData(productBacklogKeys.root('p1'), page2());
+    const { result } = renderHook(() => useEnsureFullProductBacklog('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await act(async () => {
+      await result.current();
+    });
+    expect(fetchProductBacklogMock).not.toHaveBeenCalled();
   });
 
   it('does not fetch while the projectId is undefined (gated query)', () => {

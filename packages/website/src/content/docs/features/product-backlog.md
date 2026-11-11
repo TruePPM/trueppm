@@ -84,8 +84,9 @@ for example "Showing the top 500 of 3,000 stories by rank", with a **Load next 5
 that appends the next page in rank order. The sprint story picker shows the same notice and
 button, so a story ranked past the first page can still be pulled into a sprint. Search and
 filters apply to the stories loaded so far; load more pages to search further down the
-backlog. Drag reorder saves the complete backlog order, so load every page before
-reordering a backlog larger than one page.
+backlog. Dragging a story on a capped list loads the remaining pages before the new order
+saves, so a reorder works at any backlog size; the drag handle shows a brief loading state
+while that happens.
 
 ## Work-item types
 

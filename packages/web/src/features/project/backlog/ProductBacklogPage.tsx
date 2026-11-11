@@ -105,6 +105,7 @@ import {
 import {
   useAutoRank,
   useCreateEpic,
+  useEnsureFullProductBacklog,
   useLoadMoreProductBacklog,
   useProductBacklog,
   useQuickAddStory,
@@ -211,6 +212,7 @@ function StoryRow({
   projectId,
   plannedSprint,
   canManage,
+  reorderBusy = false,
 }: {
   story: Task;
   hasScore: boolean;
@@ -235,6 +237,8 @@ function StoryRow({
   /** The sprint in PLANNED state (issue 1291) — turns the Sprint cell into a commit toggle. */
   plannedSprint: PlannedSprintRef | null;
   canManage: boolean;
+  /** A drop is loading the rest of a truncated backlog before it saves (#2344). */
+  reorderBusy?: boolean;
 }) {
   const draggable = view === 'epic' && sortable;
   // useSortable is called unconditionally (rules of hooks); its node ref + listeners are
@@ -282,7 +286,8 @@ function StoryRow({
         <button
           type="button"
           aria-label={`Reorder ${story.name}`}
-          className="flex min-h-[44px] min-w-[44px] cursor-grab touch-none items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary active:cursor-grabbing"
+          aria-busy={reorderBusy || undefined}
+          className={`flex min-h-[44px] min-w-[44px] ${reorderBusy ? 'cursor-wait opacity-60' : 'cursor-grab'} touch-none items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary active:cursor-grabbing`}
           onClick={(e) => e.stopPropagation()}
           {...attributes}
           {...listeners}
@@ -517,7 +522,12 @@ function ReadyLine() {
  */
 function reorderBy(stories: Task[], orderedIds: string[]): Task[] {
   const byId = new Map(stories.map((s) => [s.id, s]));
-  return orderedIds.map((id) => byId.get(id)).filter((s): s is Task => Boolean(s));
+  const ordered = orderedIds.map((id) => byId.get(id)).filter((s): s is Task => Boolean(s));
+  // On a truncated backlog the drag only saw the loaded rows; the group's stories from
+  // the pages loaded at drop time (#2344) rank below every loaded one (pages are global
+  // rank order), so they keep their place after the reordered head.
+  const moved = new Set(orderedIds);
+  return [...ordered, ...stories.filter((s) => !moved.has(s.id))];
 }
 
 function toEntries(d: ProductBacklog): ReorderEntry[] {
@@ -624,6 +634,7 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
   const autoRank = useAutoRank(projectId);
   const setDor = useSetDor(projectId);
   const reorder = useReorderBacklog(projectId);
+  const ensureFullBacklog = useEnsureFullProductBacklog(projectId);
   const reparent = useReparentStory(projectId);
   const quickAdd = useQuickAddStory(projectId);
   const createEpic = useCreateEpic(projectId);
@@ -666,6 +677,8 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
     }
   }, [createIntent, projectId, closeCreateIntent]);
   const [conflict, setConflict] = useState(false);
+  // True while a drop on a truncated backlog loads the remaining pages before it can save.
+  const [loadingFullBacklog, setLoadingFullBacklog] = useState(false);
   const [draft, setDraft] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -878,21 +891,41 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
     );
   }
 
-  function reorderEpic(epicId: string, orderedIds: string[]) {
-    const optimistic: ProductBacklog = {
-      ...backlog,
-      epics: backlog.epics.map((g) =>
-        g.epic.id === epicId ? { ...g, stories: reorderBy(g.stories, orderedIds) } : g,
-      ),
-    };
-    commitReorder(optimistic);
-  }
-
-  function reorderUngrouped(orderedIds: string[]) {
-    const optimistic: ProductBacklog = {
-      ...backlog,
-      ungrouped: reorderBy(backlog.ungrouped, orderedIds),
-    };
+  /**
+   * Reorder one group and save. The reorder endpoint takes the COMPLETE backlog (ADR-0110)
+   * and 409s on a partial one, so on a truncated backlog the remaining pages are loaded
+   * first (#2344) — otherwise a drag past the first page could never save.
+   */
+  async function reorderGroup(groupKey: string, orderedIds: string[]) {
+    let base = backlog;
+    if (base.truncated) {
+      setConflict(false);
+      setLoadingFullBacklog(true);
+      try {
+        const full = await ensureFullBacklog();
+        if (!full || full.truncated) {
+          setConflict(true);
+          return;
+        }
+        base = full;
+      } catch {
+        setConflict(true);
+        return;
+      } finally {
+        setLoadingFullBacklog(false);
+      }
+    }
+    const epicId = groupKey === UNGROUPED_KEY ? null : epicIdFromDroppableId(groupKey);
+    if (groupKey !== UNGROUPED_KEY && !epicId) return;
+    const optimistic: ProductBacklog =
+      epicId == null
+        ? { ...base, ungrouped: reorderBy(base.ungrouped, orderedIds) }
+        : {
+            ...base,
+            epics: base.epics.map((g) =>
+              g.epic.id === epicId ? { ...g, stories: reorderBy(g.stories, orderedIds) } : g,
+            ),
+          };
     commitReorder(optimistic);
   }
 
@@ -940,6 +973,9 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(String(event.active.id));
+    // Start loading the rest of a truncated backlog while the row is in flight, so the
+    // drop usually finds it complete; the drop awaits the same in-flight load (#2344).
+    if (backlog.truncated) ensureFullBacklog().catch(() => undefined);
   }
 
   // Light the single armed reparent target as the cursor crosses regions: only a group
@@ -971,11 +1007,7 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
       event.over ? String(event.over.id) : null,
     );
     if (drop.kind === 'reorder') {
-      if (drop.groupKey === UNGROUPED_KEY) reorderUngrouped(drop.orderedIds);
-      else {
-        const epicId = epicIdFromDroppableId(drop.groupKey);
-        if (epicId) reorderEpic(epicId, drop.orderedIds);
-      }
+      void reorderGroup(drop.groupKey, drop.orderedIds);
     } else if (drop.kind === 'reparent') {
       const story = allStories.find((s) => s.id === drop.storyId);
       if (story) doReparent(story, drop.parentEpicId);
@@ -1012,6 +1044,7 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
           projectId={projectId as string}
           plannedSprint={plannedSprint}
           canManage={canManageBacklog}
+          reorderBusy={loadingFullBacklog}
         />
         {s.id === readyLineAfterId && <ReadyLine />}
       </div>
@@ -1142,6 +1175,17 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
             onLoadMore={() => loadMore.mutate()}
             loading={loadMore.isPending}
           />
+        )}
+
+        {loadingFullBacklog && (
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="backlog-reorder-loading"
+            className="flex items-center gap-2 border-b border-neutral-border bg-neutral-surface px-6 py-2 text-xs text-neutral-text-secondary"
+          >
+            <span>Loading the rest of the backlog to save your move…</span>
+          </div>
         )}
 
         {conflict && (

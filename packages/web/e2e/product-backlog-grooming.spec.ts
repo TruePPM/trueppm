@@ -10,7 +10,8 @@
  *   - the unified reparent surface (#1345): every epic group + the "No epic" bucket
  *     register as drop targets, and the live-region announcer is mounted
  *
- * The reorder + reparent write paths are covered by the api/hook vitest; the drag
+ * The reorder + reparent write paths are covered by the api/hook vitest (one keyboard
+ * drag reorder on a truncated backlog runs end to end here, #2344); the drag
  * disambiguation + optimistic move are exercised by the backlogDrag unit logic. The
  * keyboard-accessible reparent alternative is the drawer's "Parent epic" select (#1043).
  */
@@ -227,6 +228,47 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     // The whole backlog is loaded now, so the notice (and its control) goes away.
     await expect(notice).toHaveCount(0);
     expect(offsets).toContain(3);
+  });
+
+  test('a drag on a truncated backlog loads the rest first and saves the complete order (#2344)', async ({
+    page,
+  }) => {
+    await setup(page);
+    const offsets = await routePagedBacklog(page);
+    const reorders: Array<{ stories: Array<{ id: string }> }> = [];
+    await page.route('**/api/v1/projects/*/product-backlog/reorder/', async (route) => {
+      reorders.push(route.request().postDataJSON() as { stories: Array<{ id: string }> });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ updated: 2 }),
+      });
+    });
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByRole('complementary', { name: 'Backlog truncated' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Keyboard drag (dnd-kit KeyboardSensor): lift Failover handling, move it below Signal
+    // smoothing, drop. Only page one is loaded when the drag starts.
+    const handle = page.getByRole('button', { name: 'Reorder Failover handling' });
+    await handle.focus();
+    await page.keyboard.press('Space');
+    // Lifting the row starts loading the pages past the cap while it is in flight.
+    await expect.poll(() => offsets).toContain(3);
+    await expect(
+      page.getByRole('button', { name: 'Open story Ranked past the cap' }),
+    ).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect(
+      page.getByText(/Draggable item S1 was moved over droppable area S2/),
+    ).toBeAttached();
+    await page.keyboard.press('Space');
+
+    await expect.poll(() => reorders.length).toBe(1);
+    // Every story is in the payload, including the one ranked past the cap.
+    expect(reorders[0].stories.map((e) => e.id)).toEqual(['S2', 'S1', 'S3', 'S501']);
+    await expect(page.getByText('Backlog changed — reloaded. Try your move again.')).toHaveCount(0);
   });
 
   test('shows no truncation notice for an uncapped backlog (#2344)', async ({ page }) => {

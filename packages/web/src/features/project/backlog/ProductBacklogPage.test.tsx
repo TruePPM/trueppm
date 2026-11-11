@@ -15,6 +15,8 @@ import { ProductBacklogPage } from './ProductBacklogPage';
 // filtered / permission branch it exercises.
 const h = vi.hoisted(() => ({
   loadMoreMutate: vi.fn(),
+  /** Loads every remaining page (#2344); resolves the complete backlog. */
+  ensureFull: vi.fn(),
   bp: { value: 'lg' as 'sm' | 'md' | 'lg' },
   backlog: { isLoading: true, isError: false, data: undefined as ProductBacklog | undefined },
   canManage: true,
@@ -237,6 +239,7 @@ vi.mock('./hooks/useProductBacklog', () => ({
   },
   useProductBacklog: () => h.backlog,
   useLoadMoreProductBacklog: () => ({ mutate: h.loadMoreMutate, isPending: false }),
+  useEnsureFullProductBacklog: () => h.ensureFull,
   useAutoRank: () => ({ mutate: h.autoRankMutate, isPending: h.autoRankPending }),
   useSetDor: () => ({ mutate: h.setDorMutate }),
   useReorderBacklog: () => ({ mutate: h.reorderMutate }),
@@ -1413,6 +1416,79 @@ describe('Drag reorder', () => {
     expect(
       screen.queryByText('Backlog changed — reloaded. Try your move again.'),
     ).not.toBeInTheDocument();
+  });
+
+  it('loads the rest of a truncated backlog before saving, and sends the complete order (#2344)', async () => {
+    const s4 = makeStory('s4', { name: 'Past the cap' });
+    const u9 = makeStory('u9', { name: 'Loose past the cap' });
+    const full = makeBacklog({
+      epics: [
+        {
+          epic: epicTask,
+          stories: [s1, s2, s4],
+          rollup: { storyCount: 3, pointsTotal: 5, pointsDone: 0 },
+        },
+      ],
+      ungrouped: [s3, u9],
+      truncated: false,
+    });
+    let resolveFull: (b: ProductBacklog) => void = () => undefined;
+    h.ensureFull.mockReturnValue(
+      new Promise<ProductBacklog>((r) => {
+        resolveFull = r;
+      }),
+    );
+    setData(makeBacklog({ truncated: true, limit: 3 }));
+    renderPage();
+    dragStart('s1');
+    // Drag start prefetches the remaining pages while the row is in flight.
+    expect(h.ensureFull).toHaveBeenCalledTimes(1);
+    dragEnd('s1', 's2');
+    expect(h.ensureFull).toHaveBeenCalledTimes(2);
+    // The save waits for the full backlog; the handle shows the loading state meanwhile.
+    expect(h.reorderMutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('backlog-reorder-loading')).toHaveTextContent(
+      'Loading the rest of the backlog to save your move',
+    );
+    expect(screen.getByRole('button', { name: 'Reorder Login flow' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+    await act(async () => {
+      resolveFull(full);
+      await Promise.resolve();
+    });
+    expect(h.reorderMutate).toHaveBeenCalledTimes(1);
+    const payload = h.reorderMutate.mock.calls[0][0] as { stories: { id: string }[] };
+    // The dragged pair reorders; s4 (page two of the same epic) keeps its place after them.
+    expect(payload.stories.map((e) => e.id)).toEqual(['s2', 's1', 's4', 's3', 'u9']);
+    expect(screen.queryByTestId('backlog-reorder-loading')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Backlog changed — reloaded. Try your move again.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not load more pages before a reorder on a complete backlog', () => {
+    setData(makeBacklog());
+    renderPage();
+    dragStart('s1');
+    dragEnd('s1', 's2');
+    expect(h.ensureFull).not.toHaveBeenCalled();
+    expect(h.reorderMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the reload banner and sends nothing when loading the rest fails (#2344)', async () => {
+    h.ensureFull.mockRejectedValue(new Error('network down'));
+    setData(makeBacklog({ truncated: true, limit: 3 }));
+    renderPage();
+    await act(async () => {
+      dragEnd('s1', 's2');
+      await Promise.resolve();
+    });
+    expect(h.reorderMutate).not.toHaveBeenCalled();
+    expect(
+      screen.getByText('Backlog changed — reloaded. Try your move again.'),
+    ).toBeInTheDocument();
   });
 
   it('dismisses the reload banner', async () => {
