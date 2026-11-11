@@ -296,6 +296,12 @@ class MonteCarloResult:
             deterministic project.
         percentiles: The confidence levels that were computed, keyed by integer
             level.
+        velocity_saturated_runs: How many runs had an open scrum task whose
+            velocity draw reached the sprint horizon without burning down (#2469).
+            Those runs' durations are clamped to the horizon, so when this is
+            non-zero the slow percentiles are lower bounds, not estimates; see
+            :attr:`velocity_tail_truncated`. ``0`` for a project with no velocity
+            path.
     """
 
     project_id: str
@@ -303,6 +309,7 @@ class MonteCarloResult:
     distribution: list[date]
     sensitivity: list[TaskSensitivity]
     percentiles: dict[int, Percentile]
+    velocity_saturated_runs: int
 
     def __init__(
         self,
@@ -318,6 +325,7 @@ class MonteCarloResult:
         p95_at_day_start: bool = False,
         *,
         percentiles: dict[int, Percentile] | None = None,
+        velocity_saturated_runs: int = 0,
     ) -> None:
         """Build a Monte Carlo result from legacy keywords or ``percentiles=``.
 
@@ -343,6 +351,8 @@ class MonteCarloResult:
             percentiles: Confidence levels keyed by integer level; must include
                 50, 80 and 95. Keyword-only, and mutually exclusive with the
                 ``p50``/``p80``/``p95`` and ``*_at_day_start`` arguments.
+            velocity_saturated_runs: Runs whose velocity draw hit the sprint
+                horizon (#2469). Keyword-only; defaults to ``0``.
 
         Raises:
             TypeError: If both forms are given, if neither is complete, or if
@@ -377,6 +387,17 @@ class MonteCarloResult:
         self.distribution = [] if distribution is None else distribution
         self.sensitivity = [] if sensitivity is None else sensitivity
         self.percentiles = levels
+        self.velocity_saturated_runs = velocity_saturated_runs
+
+    @property
+    def velocity_tail_truncated(self) -> bool:
+        """Whether any run's velocity draw was clamped at the sprint horizon (#2469).
+
+        ``True`` means the slow tail was cut off: P80/P95 are lower bounds on
+        completion, and a caller should say so rather than present them as point
+        estimates.
+        """
+        return self.velocity_saturated_runs > 0
 
     @property
     def p50(self) -> date:
@@ -416,7 +437,8 @@ class MonteCarloResult:
             (one date per run — this is the large field, and callers that only
             need the percentiles should read those attributes instead of
             serializing), the duration-sensitivity tornado, and each percentile's
-            edge-of-day reading (``p50_at_day_start`` etc., #4204).
+            edge-of-day reading (``p50_at_day_start`` etc., #4204), and
+            ``velocity_saturated_runs`` (#2469).
         """
         return {
             "project_id": self.project_id,
@@ -429,6 +451,7 @@ class MonteCarloResult:
             "p95_at_day_start": self.p95_at_day_start,
             "distribution": [d.isoformat() for d in self.distribution],
             "sensitivity": [s.to_dict() for s in self.sensitivity],
+            "velocity_saturated_runs": self.velocity_saturated_runs,
         }
 
 

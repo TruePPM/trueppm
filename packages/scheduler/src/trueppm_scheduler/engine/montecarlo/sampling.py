@@ -126,6 +126,7 @@ def _sample_velocity_durations(
     sprint_length_days: int,
     n: int,
     rng: np.random.Generator,
+    saturated: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Sample n durations (in working days) for a scrum task from team velocity (#411).
 
@@ -148,6 +149,11 @@ def _sample_velocity_durations(
     to it, so the draw stays bounded whatever the zero share. The draw is chunked by run, so
     peak memory is about 20 MB regardless of ``n`` and the sprint horizon, and the
     seeded stream is consumed in the same order as one full matrix.
+
+    ``saturated``, when given, is a boolean vector of length ``n``: every run that
+    reached the horizon without burning down is set in it (#2469). Such a run's
+    duration is the horizon, a lower bound on the time it would have taken, so a
+    caller reports the result's slow tail as truncated rather than as an estimate.
     """
     observations = np.asarray(_velocity_observations(velocity_samples), dtype=float)
     if story_points <= 0 or observations.size == 0 or sprint_length_days <= 0:
@@ -180,11 +186,14 @@ def _sample_velocity_durations(
         # target that is exactly k*v on paper (0.1 ten times is 0.9999999999999999),
         # which would count a whole extra sprint (#4699).
         reached = np.cumsum(draws, axis=1) >= story_points * _VELOCITY_REACH_RTOL
+        burned_down = reached.any(axis=1)
         sprints_needed[lo : lo + rows] = np.where(
-            reached.any(axis=1),
+            burned_down,
             reached.argmax(axis=1) + 1,  # first sprint index that meets the target (+1 = count)
             max_sprints,
         )
+        if saturated is not None:
+            saturated[lo : lo + rows] |= ~burned_down
     return sprints_needed.astype(np.float64) * float(sprint_length_days)
 
 
@@ -549,6 +558,7 @@ def _sample_duration_matrix(
     task_map: dict[str, Task],
     runs: int,
     rng: np.random.Generator,
+    velocity_saturated: np.ndarray | None = None,
 ) -> np.ndarray:
     """Sample each task's per-run duration column into a ``(runs, n_tasks)`` matrix.
 
@@ -566,6 +576,10 @@ def _sample_duration_matrix(
     branch that claims it will read. :func:`perturb_task_duration` is the one place
     that encodes it — add a fourth branch here and teach it there, or a what-if on a
     task taking the new branch silently reports a zero risk delta (#3533).
+
+    ``velocity_saturated`` (length ``runs``), when given, collects every run in which
+    an open task's velocity draw hit the sprint horizon (#2469); a completed task's
+    column is collapsed to its base duration below, so its draws do not count.
     """
     dur_matrix = np.empty((runs, len(topo_order)), dtype=np.float64)
     for col, tid in enumerate(topo_order):
@@ -589,6 +603,7 @@ def _sample_duration_matrix(
                 project.sprint_length_days,
                 runs,
                 rng,
+                None if _is_complete(t) else velocity_saturated,
             )
         if velocity_durations is not None:
             dur_matrix[:, col] = velocity_durations

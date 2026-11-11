@@ -498,13 +498,15 @@ def monte_carlo(
 
     .. note::
        The per-run sprint horizon of the velocity path is capped at
-       ``ceil(story_points / mean_velocity) * 4 + 10`` sprints; any run that has
-       not burned down by that horizon is clamped to it rather than sampled
-       further. This truncates the slow right tail, so for a team with extreme
-       throughput variance the velocity-driven P80/P95 is a (very loose) *lower*
-       bound on completion, not an unbiased estimate. The cap exists to keep a
-       pathological bootstrap path from spinning; it is far beyond any realistic
-       sprint count and does not affect typical teams.
+       ``min(ceil(story_points / mean_velocity) * 4 + 10, MAX_VELOCITY_SPRINTS)``
+       sprints; any run that has not burned down by that horizon is clamped to it
+       rather than sampled further. The cap exists to keep a pathological bootstrap
+       path from spinning and is far beyond any realistic sprint count, but a run it
+       clamps reports a lower bound, not an estimate. Such runs are **counted, not
+       hidden** (#2469): :attr:`MonteCarloResult.velocity_saturated_runs` is the
+       number of runs in which some open task's velocity draw hit the horizon, and
+       :attr:`MonteCarloResult.velocity_tail_truncated` is true when any did —
+       read the slow percentiles (P80/P95) as lower bounds then.
 
     The CPM network is evaluated `runs` times with sampled durations.
     All 4 dependency types are handled, ``planned_start`` is honored as the
@@ -677,7 +679,12 @@ def monte_carlo(
 
     # --- Sample durations: shape (runs, n_tasks) ---
     task_map = {t.id: t for t in project.tasks}
-    dur_matrix = _sample_duration_matrix(project, topo_order, task_map, runs, rng)
+    # Runs in which some velocity draw reached the sprint horizon un-burned-down
+    # (#2469): their duration is a lower bound, so the result reports the count.
+    velocity_saturated = np.zeros(runs, dtype=bool)
+    dur_matrix = _sample_duration_matrix(
+        project, topo_order, task_map, runs, rng, velocity_saturated
+    )
 
     # Pre-compute a working-day index covering the whole simulation so a lag can
     # be converted to working-day offsets against the predecessor's *actual* date
@@ -989,4 +996,5 @@ def monte_carlo(
         p50_at_day_start=p50_start,
         p80_at_day_start=p80_start,
         p95_at_day_start=p95_start,
+        velocity_saturated_runs=int(np.count_nonzero(velocity_saturated)),
     )

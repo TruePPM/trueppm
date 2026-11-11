@@ -388,6 +388,7 @@ Smaller exported names that the sections above do not cover:
 - `expand_summary_dependencies(tasks, deps, children_map)` returns a `SummaryExpansion`: `.tasks` is the input with summary tasks removed (leaves only) and `.dependencies` is every dependency fanned out to leaf-level edges. It still unpacks as `leaf_tasks, deps = ...`. From 0.5, a link whose two endpoints share a leaf (a summary linked to itself, to one of its own descendants, or from one) will raise `CyclicDependencyError` naming that source link, so `.cycle` will be `[pred, succ, pred]` (or `[pred, pred]` for a link to itself): it is the same input `find_cycle` reports as a cycle. A Start-to-Start or Start-to-Finish link *from* a summary will still raise `InvalidScheduleInput` instead, because the ADR-0370 check runs first. 0.4 silently drops such a link or turns it into an invented sibling order ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538), [#4705](https://gitlab.com/trueppm/trueppm/-/issues/4705)). The MS Project, CSV and Jira importers do not yet refuse such a link at import time ([#4856](https://gitlab.com/trueppm/trueppm/-/issues/4856)).
 - `ScheduleResult.driving_edges` is a list of `DrivingEdge`: the links that bind their successor or have zero relationship free float. A link binds when the date it imposes, read in the successor's working time, is the successor's early date. The set is the union of the two, so at a merge it can name a zero-free-float link that does not bind. Free float stays a separate output: a seven-day-week predecessor finishing on a Friday into a Monday-to-Friday successor drives it onto Monday and still has two days of free float, its Saturday and Sunday ([#4704](https://gitlab.com/trueppm/trueppm/-/issues/4704)).
 - `MonteCarloResult.sensitivity` is a list of `TaskSensitivity` (`task_id`, `index`). `index` is the absolute Spearman rank correlation, from 0 to 1, between the task's sampled duration and the project finish. Tasks whose duration cannot vary the finish are omitted rather than reported as 0.
+- `MonteCarloResult.velocity_saturated_runs` counts the runs in which an open scrum task's velocity draw reached the sprint horizon (`min(ceil(points / mean) * 4 + 10, MAX_VELOCITY_SPRINTS)`) without burning down. Those runs are clamped to the horizon, so when it is non-zero (`velocity_tail_truncated` is `True`) read P80/P95 as lower bounds, not estimates. It is `0` for a project with no velocity path. ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469))
 - `perturb_task_duration(project, task_id, delta_days)` returns a copy of the project with one task's duration shifted, for what-if runs. It moves the fixed duration, the three-point estimate and the story points together, so the CPM finish and the Monte Carlo bands stay consistent. The input project is not mutated.
 
 ## Conventions
@@ -737,10 +738,7 @@ release it is scheduled for:
 - **Monte Carlo** — a velocity-sampled duration is re-expanded
   against the task's own calendar rather than the sprint calendar it was
   sampled against
-  ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); sprint-horizon
-  clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
-  as a lower bound rather than a full forecast
-  ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); percentile
+  ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); percentile
   estimation is imprecise at very low run counts (10–11 runs), where the
   reported P95 can have only 90% of runs on or before it
   ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)); a zero-duration task drawing real work back-solves through
