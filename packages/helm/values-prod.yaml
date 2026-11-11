@@ -227,8 +227,21 @@ imagePullSecrets: []
 # out under backlog and can scale IN while tasks are queued (#3188). Enable the
 # API tier once metrics-server is installed; leave the worker on fixed replicas
 # with a pinned concurrency until queue-depth scaling exists.
+#
+# THIS FILE SHIPS A STATIC `replicaCount: 2` — the API does not scale under load
+# until you turn the HPA on (#2278). To enable it:
+#   1. Install metrics-server (`kubectl top pods` must work); the HPA reads CPU from
+#      it and reports `<unknown>` / never scales without it.
+#   2. Uncomment the `enabled: true` line below, or pass `--set autoscaling.enabled=true`.
+#      `autoscaling.api.minReplicas` / `maxReplicas` / `targetCPUUtilizationPercentage`
+#      default to 2 / 6 / 75 (values.yaml); the HPA then overrides `replicaCount`.
+#   3. Re-check the connection math at the top of this file at `maxReplicas`, not at
+#      `replicaCount`: 6 replicas x processes.api.workers is the peak PostgreSQL
+#      connection demand, and it must fit under the database's `max_connections`.
+# Leave `autoscaling.worker.enabled` false (see above).
 autoscaling:
   enabled: false
+  # enabled: true
   worker:
     enabled: false
 
