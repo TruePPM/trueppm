@@ -15,6 +15,7 @@
  */
 import { test, expect, type WebSocketRoute } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupTaskStore } from './fixtures/task-store';
 
 const FIXTURE_PROJECT_ID = 'e2e-ws-00000000-0000-0000-0000-000000000321';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -35,7 +36,7 @@ const FIXTURE_TASKS = [
     early_start: '2026-01-05', early_finish: '2026-02-14',
     duration: 30, percent_complete: 50, is_critical: false,
     is_milestone: false, is_summary: true, parent_id: null,
-    status: 'IN_PROGRESS', assignees: [], total_float: null,
+    status: 'IN_PROGRESS', total_float: null,
     predecessor_count: 0, is_blocked: false,
     linked_risks_count: 0, linked_risks_max_severity: null,
   },
@@ -50,6 +51,10 @@ async function setup(page: import('@playwright/test').Page) {
     tasks: FIXTURE_TASKS,
     statusSummary: { task_count: 1 },
   });
+  // The persisted task_updated this spec pushes makes the client read that one row
+  // back (GET /tasks/w1/, #2341); the default stateless route would answer it with
+  // a list shape the schema guard rightly rejects.
+  await setupTaskStore(page, { tasks: FIXTURE_TASKS });
 }
 
 test.describe('WebSocket event replay (#321)', () => {

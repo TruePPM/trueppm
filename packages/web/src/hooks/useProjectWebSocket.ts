@@ -13,8 +13,10 @@
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
  *   project_calendar_changed → invalidate project (scheduling_calendar) + calendars
  *   task_created / task_deleted / task_restored → invalidate tasks
- *   task_updated → invalidate tasks, unless self-echo (actor_id === current user) or a
- *                  duplicate/replayed version (ADR-0152, #327)
+ *   task_updated → unless self-echo (actor_id === current user) or a duplicate/replayed
+ *                  version (ADR-0152, #327): a plain field edit on a cached row reads that one
+ *                  task back (GET /tasks/{id}/, coalesced) and splices it in (#2341); structural
+ *                  fields / no changed_fields / uncached row / failed read → invalidate tasks
  *   tasks_reordered / tasks_bulk_mutated → invalidate tasks
  *   tasks_restructured → invalidate tasks + dependencies (ungroup drops edges, undo restores them)
  *   dependency_created / dependency_updated / dependency_deleted / dependencies_bulk_created
@@ -96,6 +98,11 @@ import {
 import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
 import { needsBaselineVarianceRefetch } from '@/lib/baselineFinishVariance';
 import { fetchWsTicket } from '@/api/wsTicket';
+import {
+  createTaskRowSplicer,
+  isSpliceableChange,
+  type TaskRowSplicer,
+} from '@/hooks/taskRowSplice';
 import { fullJitterDelay } from '@/lib/reconnectBackoff';
 import { SeqGate } from '@/hooks/wsSeqGate';
 import { toast } from '@/components/Toast/toast';
@@ -211,6 +218,8 @@ interface WsHandlerDeps {
   seenTaskVersionsRef: MutableRefObject<Map<string, number>>;
   lastSeqRef: MutableRefObject<number>;
   scheduleInvalidate: ScheduleInvalidateFn;
+  /** Single-row read-back for a remote task_updated (#2341). */
+  taskRowSplicer: TaskRowSplicer;
   setRecalculating: SchedulerStoreState['setRecalculating'];
   setCpmError: SchedulerStoreState['setCpmError'];
   setCpmComplete: SchedulerStoreState['setCpmComplete'];
@@ -484,7 +493,8 @@ function taskHistoryKey(projectId: string | null | undefined, taskId: string | n
 
 // --- Task mutation + dependency + baseline events ---
 function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
-  const { queryClient, projectIdRef, seenTaskVersionsRef, scheduleInvalidate } = deps;
+  const { queryClient, projectIdRef, seenTaskVersionsRef, scheduleInvalidate, taskRowSplicer } =
+    deps;
 
   on('task_updated', (payload) => {
     // ADR-0152 (#327): the enriched task_updated delta lets us avoid two
@@ -505,7 +515,21 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     const isDuplicate = recordTaskVersion(seenTaskVersionsRef.current, taskId, version);
 
     if (!isSelfEcho && !isDuplicate) {
-      scheduleInvalidate('tasks');
+      // #2341: a plain field edit on a cached row is read back as ONE row and
+      // spliced in, instead of re-downloading every page. Structural fields, a
+      // frame with no changed_fields (legacy emitters), or an uncached row keep
+      // the full coalesced refetch; the splicer itself falls back on a failed
+      // read or a stale version.
+      const rows = queryClient.getQueryData<Task[]>(['tasks', projectIdRef.current]);
+      if (
+        taskId !== null &&
+        isSpliceableChange(payload.changed_fields) &&
+        rows?.some((t) => t.id === taskId)
+      ) {
+        taskRowSplicer.request(taskId, version);
+      } else {
+        scheduleInvalidate('tasks');
+      }
     }
     // The Overview rollups refresh even on a SELF-echo, unlike the tasks cache above
     // (#2912). The self-echo skip exists because the originating client already applied
@@ -1569,12 +1593,19 @@ export function useProjectWebSocket(
     const eventHandlers: WsHandlerTable = {};
     const on: OnFn = (types, handler) => addHandler(eventHandlers, types, handler);
 
+    const taskRowSplicer = createTaskRowSplicer({
+      queryClient,
+      getProjectId: () => projectIdRef.current,
+      fallback: () => scheduleInvalidate('tasks'),
+    });
+
     registerEventHandlers(on, {
       queryClient,
       projectIdRef,
       seenTaskVersionsRef,
       lastSeqRef,
       scheduleInvalidate,
+      taskRowSplicer,
       setRecalculating,
       setCpmError,
       setCpmComplete,
@@ -1605,6 +1636,7 @@ export function useProjectWebSocket(
     return () => {
       mountedRef.current = false;
       controller.stop();
+      taskRowSplicer.dispose();
       // Drop any pending coalesced invalidation — the project/token changed, so
       // the new effect run will refetch the correct project's caches on its own.
       if (invalidateTimerRef.current !== null) {

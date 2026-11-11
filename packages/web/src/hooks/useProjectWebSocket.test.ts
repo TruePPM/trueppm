@@ -60,6 +60,9 @@ vi.mock('@/api/wsTicket', () => ({
 
 // Membership events toast the current user when their own role changes (#2039).
 // Hoisted so the vi.mock factory (itself hoisted) can close over it.
+const apiGetMock = vi.hoisted(() => vi.fn());
+vi.mock('@/api/client', () => ({ apiClient: { get: apiGetMock } }));
+
 const toastMock = vi.hoisted(() => ({
   info: vi.fn(),
   success: vi.fn(),
@@ -701,6 +704,102 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
 
     // First event invalidates; the replay at the same version is a no-op.
     expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+  });
+
+  // --- #2341: remote task_updated splices one row instead of refetching the list ---
+
+  describe('task_updated single-row splice (#2341)', () => {
+    const cached = (): Task[] =>
+      [
+        { id: 't1', name: 'Old', serverVersion: 1, wbs: '1' },
+        { id: 't2', name: 'Other', serverVersion: 1, wbs: '2' },
+      ] as unknown as Task[];
+
+    beforeEach(() => {
+      apiGetMock.mockReset();
+      qc.setQueryData(['current-user'], { id: 'me' });
+      qc.setQueryData(['tasks', 'proj-1'], cached());
+    });
+
+    async function settle() {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+    }
+
+    it('reads the row back once and splices it, with no list refetch', async () => {
+      apiGetMock.mockResolvedValue({
+        data: { id: 't1', name: 'New', server_version: 3, is_summary: false },
+      });
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatchTaskUpdated({ id: 't1', actor_id: 'x', version: 2, changed_fields: ['name'] });
+      dispatchTaskUpdated({ id: 't1', actor_id: 'x', version: 3, changed_fields: ['name'] });
+      await settle();
+
+      expect(apiGetMock).toHaveBeenCalledTimes(1);
+      expect(apiGetMock).toHaveBeenCalledWith('/tasks/t1/');
+      const rows = qc.getQueryData<Task[]>(['tasks', 'proj-1'])!;
+      expect(rows[0]).toMatchObject({ name: 'New', wbs: '1' });
+      expect(rows[1].name).toBe('Other');
+      expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
+    });
+
+    it.each([
+      ['structural field', { changed_fields: ['parent'] }],
+      ['missing changed_fields', {}],
+      ['empty changed_fields', { changed_fields: [] }],
+    ])('falls back to the list refetch for %s', async (_label, extra) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatchTaskUpdated({ id: 't1', actor_id: 'x', version: 2, ...extra });
+      await settle();
+
+      expect(apiGetMock).not.toHaveBeenCalled();
+      expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+    });
+
+    it('falls back when the task is not in the cache', async () => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatchTaskUpdated({ id: 'nope', actor_id: 'x', version: 2, changed_fields: ['name'] });
+      await settle();
+
+      expect(apiGetMock).not.toHaveBeenCalled();
+      expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+    });
+
+    it('falls back when the single GET fails', async () => {
+      apiGetMock.mockRejectedValue(new Error('404'));
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatchTaskUpdated({ id: 't1', actor_id: 'x', version: 2, changed_fields: ['name'] });
+      await settle();
+
+      expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+    });
+
+    it('drops a read older than the cached version', async () => {
+      qc.setQueryData(
+        ['tasks', 'proj-1'],
+        [{ id: 't1', name: 'Newer', serverVersion: 9, wbs: '1' }],
+      );
+      apiGetMock.mockResolvedValue({
+        data: { id: 't1', name: 'Stale', server_version: 4, is_summary: false },
+      });
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatchTaskUpdated({ id: 't1', actor_id: 'x', version: 4, changed_fields: ['name'] });
+      await settle();
+
+      expect(qc.getQueryData<Task[]>(['tasks', 'proj-1'])![0].name).toBe('Newer');
+      expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
+    });
   });
 
   // --- Drawer Activity feed freshness (#1867) ----------------------------
