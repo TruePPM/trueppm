@@ -1150,3 +1150,44 @@ def test_rotate_secret_response_uses_the_same_webhook_url_rule(
     webhook_url = _auth(admin).post(url, HTTP_HOST="internal-service").json()["webhook_url"]
 
     assert webhook_url.startswith("https://trueppm.example.com/")
+
+
+# --- _find_linked_task query shape (#2930) -----------------------------------
+
+
+def test_find_linked_task_selects_two_columns_not_the_task_row(
+    project: Project, task: Task
+) -> None:
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from trueppm_api.apps.integrations.git_automation_services import _find_linked_task
+
+    _github_link(task)
+    for i in range(5):
+        other = Task.objects.create(project=project, name=f"T{i}", duration=1)
+        TaskLink.objects.create(
+            task=other, url=f"https://github.com/acme/widgets/pull/{100 + i}", provider="github"
+        )
+
+    with CaptureQueriesContext(connection) as ctx:
+        found = _find_linked_task(project.pk, "github", GITHUB_PR_URL)
+
+    assert found is not None and found.pk == task.pk
+    # One candidate scan + one pk fetch, regardless of link count.
+    assert len(ctx.captured_queries) == 2
+    scan = ctx.captured_queries[0]["sql"]
+    select_list = scan.split(" FROM ")[0]
+    assert '"integrations_tasklink"."url"' in select_list
+    assert '"integrations_tasklink"."task_id"' in select_list
+    assert "projects_task" not in select_list
+    assert select_list.count(",") == 1  # exactly two columns
+    assert '"integrations_tasklink"."provider" = \'github\'' in scan
+
+
+def test_find_linked_task_ignores_other_providers_links(project: Project, task: Task) -> None:
+    from trueppm_api.apps.integrations.git_automation_services import _find_linked_task
+
+    # Same URL stored under a non-git provider must not be a candidate.
+    TaskLink.objects.create(task=task, url=GITHUB_PR_URL, provider="generic")
+    assert _find_linked_task(project.pk, "github", GITHUB_PR_URL) is None

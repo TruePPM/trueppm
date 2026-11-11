@@ -255,6 +255,14 @@ class TaskLink(VersionedModel):
             # a small LIMIT before the Python keyset merge — index the sort key so
             # the per-source page is an index range scan, not a filesort.
             models.Index(fields=("-created_at", "-id"), name="tasklink_created_idx"),
+            # Git-webhook receiver (#2930): candidate links are selected by
+            # provider among live rows; index them so the scan skips Drive/Figma/
+            # generic links instead of reading every link in the project.
+            models.Index(
+                fields=("provider", "task"),
+                condition=models.Q(is_deleted=False),
+                name="tasklink_provider_live_idx",
+            ),
         ]
         verbose_name = "Task link"
         verbose_name_plural = "Task links"
