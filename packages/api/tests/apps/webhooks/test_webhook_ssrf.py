@@ -334,16 +334,16 @@ def test_create_webhook_rejects_an_sso_allowlisted_internal_host(
 ) -> None:
     """#2851 / #3561: allow-listing an in-cluster IdP for SSO does not open it to webhooks.
 
-    The failure scenario: an operator sets ``TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak``
+    The failure scenario: an operator sets ``TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc``
     for in-cluster OIDC (the documented use), and a project Admin then registers a
-    webhook at ``https://keycloak/admin/...`` to read an internal service.
+    webhook at ``https://keycloak.sso.svc/admin/...`` to read an internal service.
     """
-    setattr(settings, setting, ["keycloak"])
+    setattr(settings, setting, ["keycloak.sso.svc"])
     with patch("socket.getaddrinfo", _resolves_private):
         resp = admin_client.post(
             f"/api/v1/projects/{project.pk}/webhooks/",
             {
-                "url": "https://keycloak/admin/realms/x",
+                "url": "https://keycloak.sso.svc/admin/realms/x",
                 "secret": "s" * 32,
                 "events": ["task.created"],
             },
@@ -351,6 +351,8 @@ def test_create_webhook_rejects_an_sso_allowlisted_internal_host(
         )
     assert resp.status_code == 400
     assert "url" in resp.data
+    # The egress guard rejected it, not DRF's URL-format validation.
+    assert "This URL is not allowed" in str(resp.data["url"])
     assert not Webhook.objects.filter(project=project).exists()
 
 

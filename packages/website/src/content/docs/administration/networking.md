@@ -892,7 +892,7 @@ this deployment shape needs no other outbound access at all. See
 
 TruePPM's SSRF guard already refuses any destination that resolves to a
 non-globally-routable address unless it is in
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. That is an application control, not a
+the allow-list for that surface (see the [per-surface table](#split-horizon-and-internal-only-names)). That is an application control, not a
 network one — you still need the firewall rules below.
 
 | Source | Destination | Port / protocol | Required? | Why |
@@ -902,7 +902,7 @@ network one — you still need the firewall rules below.
 | Docker host (Compose) | GHCR (`ghcr.io`) | 443/tcp | **Yes**, at pull time (Compose) | `docker-compose.prod.yml` pulls the API and web images from `ghcr.io/trueppm/{api,web}`. Kubernetes nodes need this only if you override the chart's image repositories to GHCR. |
 | Whoever runs `helm install` / `helm upgrade` | GHCR (`ghcr.io`) | 443/tcp | If you install the chart from its OCI artifact | Pulling `oci://ghcr.io/trueppm/charts/trueppm`. This is the workstation or CI runner running Helm, not the cluster nodes. Not needed when you install from a local or mirrored chart. |
 | API, worker | SMTP relay | `EMAIL_PORT`, default 587/tcp (465 implicit TLS, 25 plain) | If email notifications are enabled | Notification and invitation email. `EMAIL_USE_TLS` defaults to `true`. |
-| API | OIDC / OAuth2 identity provider | 443/tcp | If SSO is configured | Discovery document, authorization, token exchange, JWKS. An in-cluster IdP needs `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`; if it still times out, see [your own NetworkPolicy](/administration/single-sign-on/#if-the-allow-list-does-not-fix-it-check-your-own-networkpolicy). |
+| API | OIDC / OAuth2 identity provider | 443/tcp | If SSO is configured | Discovery document, authorization, token exchange, JWKS. An in-cluster IdP needs `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO`; if it still times out, see [your own NetworkPolicy](/administration/single-sign-on/#if-the-allow-list-does-not-fix-it-check-your-own-networkpolicy). |
 | Browsers | OIDC identity provider | 443/tcp | If SSO is configured | The login redirect happens in the user's browser, not server-side — the *client* network needs this too. |
 | API, worker | S3 endpoint, MinIO, or SeaweedFS | 443/tcp (MinIO commonly 9000/tcp, SeaweedFS S3 gateway commonly 8333/tcp) | If object storage is enabled — required above one replica | Attachment upload, download, and presigned URLs (`TRUEPPM_S3_ENDPOINT_URL`). |
 | API, worker | OTLP collector | 4317/tcp (gRPC) or 4318/tcp (HTTP) | If `OTEL_EXPORTER_OTLP_ENDPOINT` is set | Traces and metrics. Off by default — no endpoint, no egress. |

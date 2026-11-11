@@ -30,6 +30,14 @@ def _resolve(module: ast.ImportFrom, path: Path) -> str:
     return ".".join([*pkg, *([module.module] if module.module else [])])
 
 
+def _display(path: Path) -> str:
+    """Repo-relative path, or the bare name for a file outside the tree (tests)."""
+    try:
+        return str(path.relative_to(SRC.parent))
+    except ValueError:
+        return path.name
+
+
 def _find_unmarked(path: Path) -> list[str]:
     source = path.read_text()
     lines = source.splitlines()
@@ -71,7 +79,7 @@ def _find_unmarked(path: Path) -> list[str]:
         window = lines[max(node.lineno - 2, 0) : end]
         if any(MARKER in ln for ln in window):
             continue
-        bad.append(f"{path.relative_to(SRC.parent)}:{node.lineno} {name}()")
+        bad.append(f"{_display(path)}:{node.lineno} {name}()")
     return bad
 
 
@@ -94,7 +102,7 @@ def test_every_egress_call_states_its_purpose() -> None:
 
 def test_guard_detects_a_dropped_purpose(tmp_path: Path) -> None:
     """The walker itself is not vacuous: it flags an unmarked call and honors the marker."""
-    f = SRC / "apps" / "sso" / "_tmp_probe.py"
+    f = tmp_path / "_tmp_probe.py"
     f.write_text(
         "from trueppm_api.apps.integrations import http as egress\n"
         "egress.get('x')\n"
@@ -102,10 +110,7 @@ def test_guard_detects_a_dropped_purpose(tmp_path: Path) -> None:
         "egress.get('y')\n"
         "egress.get('z', purpose=1)\n"
     )
-    try:
-        found = _find_unmarked(f)
-    finally:
-        f.unlink()
+    found = _find_unmarked(f)
     assert len(found) == 1 and ":2 get()" in found[0]
 
 

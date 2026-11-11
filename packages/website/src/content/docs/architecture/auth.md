@@ -1,6 +1,7 @@
 ---
 title: Auth architecture
 description: How TruePPM's password login, OIDC/OAuth single sign-on, and the WebSocket handshake fit together — the cookie-JWT bridge, why allauth is a library and not the flow, and the short-lived ticket that keeps a raw JWT out of access logs.
+documentedFor: "0.5"
 ---
 
 [Single sign-on](/administration/single-sign-on/) is the setup guide for
@@ -290,10 +291,15 @@ request somewhere unvalidated afterward.
 
 The one case this guard has to make room for is an identity provider an
 operator runs *inside* their own cluster, which by definition resolves to a
-private address. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is the escape hatch (read at
-startup, so a change needs a restart) — see [Single sign-on](/administration/single-sign-on/#running-the-identity-provider-inside-your-cluster)
-for how to configure it and which outbound integrations it applies to, so it
-names only a host at least as trusted as the identity provider itself.
+private address. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` is the escape hatch (read at
+startup, so a change needs a restart). It exempts a host for single sign-on only;
+SMTP, integrations and webhooks each have their own list — see [Single sign-on](/administration/single-sign-on/#running-the-identity-provider-inside-your-cluster).
+
+:::note[Ships in 0.5]
+The per-purpose lists are introduced by 0.5. In 0.4 the escape hatch is
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, which exempts a host for every outbound
+caller, so it must name only a host at least as trusted as the identity provider.
+:::
 
 ## OSS and Enterprise
 

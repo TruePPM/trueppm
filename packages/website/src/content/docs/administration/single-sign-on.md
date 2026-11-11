@@ -242,8 +242,8 @@ cannot reach.
 - **In-cluster identity provider** — if the IdP itself runs inside your
   cluster (e.g. Keycloak at a private service address), the SSRF guard blocks
   discovery to it until you allow-list it via
-  `env.TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, documented in `values.yaml` next to
-  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS`. The setting is read at startup, so it takes
+  `env.TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO`. The `values.yaml` entry next to
+  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` is `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_INTEGRATIONS`, a different list. The setting is read at startup, so it takes
   effect only after the API and Celery worker pods restart. See [Running the identity provider
   inside your cluster](#running-the-identity-provider-inside-your-cluster)
   below.
@@ -490,12 +490,13 @@ lookalike host. Leave the variable unset (the default) unless you actually run a
 IdP on a private address; a public issuer needs no allow-list. This setting is
 operator configuration only and is never influenced by user input.
 
-:::note[Ships in 0.5]
-The SSO allow-list applies to **single sign-on only**, and
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` is introduced by 0.5. A host on it is **not**
+The SSO allow-list applies to **single sign-on only**. A host on it is **not**
 exempt for personal-access-token verification, git-link status refresh, webhook
 delivery, or SMTP relay checks — each of those has its own list
-([Advanced configuration](/administration/configuration/advanced/)). In 0.4, use
+([Advanced configuration](/administration/configuration/advanced/)).
+
+:::note[Ships in 0.5]
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO` is introduced by 0.5. In 0.4, use
 `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`; `_SSO` is not read. In 0.4 that variable
 exempts the host for **every** outbound integration, so list only the specific IdP
 host — never a broad internal name.

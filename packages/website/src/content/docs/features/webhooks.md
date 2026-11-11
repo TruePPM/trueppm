@@ -33,12 +33,13 @@ allow-list (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS`), which are exempt from 
 private-address check but not from this rule. A webhook registered with `http://` before this rule keeps delivering and
 stays editable as long as its URL is not changed; repointing it requires `https://`.
 
-:::note[Ships in 0.5]
 Webhooks honor only the webhook allow-list,
 `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS`. A host your operator allow-listed for
-single sign-on (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`), such as an in-cluster
-identity provider, is refused as a webhook target, both at registration and at
-delivery. In 0.4, use `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` for webhook receivers on a
+single sign-on, such as an in-cluster identity provider, is refused as a webhook
+target, both at registration and at delivery.
+
+:::note[Ships in 0.5]
+The per-purpose lists are introduced by 0.5. In 0.4, use `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` for webhook receivers on a
 private network; it applies to every outbound caller, and
 `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_WEBHOOKS` is not read.
 :::
