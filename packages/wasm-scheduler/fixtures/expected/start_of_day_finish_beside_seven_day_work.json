@@ -1,0 +1,51 @@
+{
+  "project_id": "p-start-of-day-finish-beside-seven-day-work",
+  "project_start": "2027-03-01",
+  "project_finish": "2027-03-08",
+  "tasks": [
+    {
+      "id": "T0",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-05",
+      "late_start": "2027-03-01",
+      "late_finish": "2027-03-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "T1",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-08",
+      "late_start": "2027-03-08",
+      "late_finish": "2027-03-08",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "T2",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-01",
+      "late_start": "2027-03-07",
+      "late_finish": "2027-03-07",
+      "total_float": 518400.0,
+      "free_float": 518400.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    }
+  ],
+  "critical_path": [
+    "T0",
+    "T1"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "T0",
+      "successor_id": "T1",
+      "dep_type": "FS"
+    }
+  ]
+}

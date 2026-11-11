@@ -1265,6 +1265,76 @@
       "provenance": "unknown",
       "issue": "#4635",
       "evidence": "0658fe06d: added; no regeneration or hand-derivation statement in history"
+    },
+    "expected/start_of_day_finish_beside_seven_day_work.json": {
+      "provenance": "hand-verified",
+      "issue": "#4436",
+      "evidence": "REGEN_EXPECTED=1 with the #4436 fix, then checked against the slip oracle (float_perturbation_violations): TF slips move nothing, TF+1 moves the shown finish"
+    },
+    "expected/start_of_day_finish_on_a_narrower_calendar.json": {
+      "provenance": "hand-verified",
+      "issue": "#4436",
+      "evidence": "REGEN_EXPECTED=1 with the #4436 fix, then checked against the slip oracle (float_perturbation_violations): TF slips move nothing, TF+1 moves the shown finish"
+    },
+    "start_of_day_finish_beside_seven_day_work.json": {
+      "provenance": "hand-verified",
+      "issue": "#4436",
+      "evidence": "added with the #4436 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
+    },
+    "start_of_day_finish_on_a_narrower_calendar.json": {
+      "provenance": "hand-verified",
+      "issue": "#4436",
+      "evidence": "added with the #4436 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
+    },
+    "zero_lag_milestone_chain_into_a_four_day_week.json": {
+      "provenance": "hand-verified",
+      "issue": "#4526",
+      "evidence": "added with the #4526 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
+    },
+    "expected/zero_lag_milestone_chain_into_a_four_day_week.json": {
+      "provenance": "hand-verified",
+      "issue": "#4526",
+      "evidence": "REGEN_EXPECTED=1 with the #4526 fix, then checked against the slip oracle (float_perturbation_violations), which fails the same shape on the pre-fix engine"
+    },
+    "zero_lag_chain_reading_switched_by_a_narrower_week.json": {
+      "provenance": "hand-verified",
+      "issue": "#4526",
+      "evidence": "added with the #4526 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
+    },
+    "expected/zero_lag_chain_reading_switched_by_a_narrower_week.json": {
+      "provenance": "hand-verified",
+      "issue": "#4526",
+      "evidence": "REGEN_EXPECTED=1 with the #4526 fix, then checked against the slip oracle (float_perturbation_violations), which fails the same shape on the pre-fix engine"
+    },
+    "zero_lag_ss_chain_into_a_closed_week.json": {
+      "provenance": "unknown",
+      "issue": "#4526",
+      "evidence": "bcdf6eb2b adds it; it pins 199a85cb0 (#4526), which caps a milestone's start-of-day float on every zero-lag inheritor and states this chain into a closed week overstated the float ahead of it. The input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES, serialized by project_document"
+    },
+    "expected/zero_lag_ss_chain_into_a_closed_week.json": {
+      "provenance": "regenerated",
+      "issue": "#4526",
+      "evidence": "bcdf6eb2b: REGEN_EXPECTED=1 from the Python engine with the 199a85cb0/2f84f8d66 (#4526) cap; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines, and bcdf6eb2b states it fails on both merge-base engines"
+    },
+    "start_of_day_milestone_past_work_on_its_own_calendar.json": {
+      "provenance": "unknown",
+      "issue": "#4436",
+      "evidence": "bcdf6eb2b adds it; it pins 638e273a6 (#4436), which seeds work late finish from the shown start-of-day project finish, and 049a73354, which states the reference CPM now marks a start-of-day milestone at the next day its own calendar works. The input is the shape pinned in tests/test_cpm_oracle.py PROGRESS_EXAMPLES, serialized by project_document"
+    },
+    "expected/start_of_day_milestone_past_work_on_its_own_calendar.json": {
+      "provenance": "regenerated",
+      "issue": "#4436",
+      "evidence": "bcdf6eb2b: REGEN_EXPECTED=1 from the Python engine with the 638e273a6 (#4436) seed; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines"
+    },
+    "lagged_fs_into_a_milestone_on_a_closed_week.json": {
+      "provenance": "unknown",
+      "issue": "#4436",
+      "evidence": "bcdf6eb2b adds it and states it reproduces on the merge-base engines (W reports 2 days of float where a slip of 3 moves nothing) and passes on this branch, whose #4436 fix is 638e273a6 (late finish seeded from the shown start-of-day project finish). The input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES, serialized by project_document"
+    },
+    "expected/lagged_fs_into_a_milestone_on_a_closed_week.json": {
+      "provenance": "regenerated",
+      "issue": "#4436",
+      "evidence": "bcdf6eb2b: REGEN_EXPECTED=1 from the Python engine with the 638e273a6 (#4436) seed; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines"
     }
   }
 }

@@ -54,9 +54,7 @@ the engine's own floats against what the slip actually does — by its total flo
 ``FF + 1`` something does. The networks carry percent complete, actual starts and
 finishes (on non-working days and before the project start), a data date, SNETs,
 and four-, five- and seven-day per-task calendars with exceptions. Not generated
-there: summary tasks, ``live_day_end_on``, Monte Carlo. One shape is excluded by
-name, the open #4436 (``_ends_in_a_start_of_day_finish_gap``), and pinned by a
-strict xfail so the exclusion cannot outlive the fix. The close-or-start-at-forecast
+there: summary tasks, ``live_day_end_on``, Monte Carlo. The close-or-start-at-forecast
 property (#4690) excludes two regions by name the same way, each owned by its own
 open issue, when a predecessor of a milestone already closed with actuals closes:
 if that milestone itself moves, it and its descendants, whose day edge depends on
@@ -1079,57 +1077,6 @@ def _held_at(task: EngineTask, is_milestone: bool, cal: RefCalendar) -> tuple[da
     return (held, task.milestone_at_day_end) if is_milestone else (held, task.early_finish)
 
 
-def _ends_in_a_start_of_day_finish_gap(
-    project: RefProject, tid: str, base: EngineRun, slipped: EngineRun
-) -> bool:
-    """TODO(#4436): the known understated-float shape, excluded by name until fixed.
-
-    A start-of-day milestone that decides the finish sits at the start of day ``D``,
-    and every midnight between the close of the working day before ``D`` (on the
-    milestone's calendar) and ``D`` is the same shown finish. A task on a wider
-    calendar can finish on a day in that gap without moving it, but the engines seed
-    its late finish at the last working day before the gap, so its float is short by
-    the gap's working days. This is true when the slipped task ``tid``, or live work
-    downstream of it that the slip carried, finishes inside such a gap — exactly the
-    case a TF+1 slip that does not move the finish hits.
-
-    A carried live *milestone* that ends inside the gap counts too (#4641): its own
-    bound, :func:`~trueppm_scheduler.engine._milestone_finish_bound`, widens the
-    finish to the next working day on the milestone's *own* calendar, not on the
-    calendar of the milestone that ends the project. So a seven-day milestone behind
-    ``tid`` stops at the start of a Saturday the five-day finisher shows as Monday,
-    and ``tid``'s float stops short of the gap with it. This is #4436's narrower-
-    finisher direction, the case its 2026-10-18 comment names. Nothing else is
-    excused: work and milestones that are not ``tid`` or behind it did not move.
-    Delete this filter when #4436 closes.
-    """
-    if shown_finish(base, project)[1]:
-        return False
-    finish_day = base.project_finish
-    gap: set[date] = set()
-    for mid, t in base.tasks.items():
-        start_of_day = not t.milestone_at_day_end
-        if project.durations[mid] == 0 and t.early_start == finish_day and start_of_day:
-            day_before = finish_day - timedelta(days=1)
-            prior = last_working_on_or_before(day_before, project.calendar_of(mid))
-            gap |= {prior + timedelta(days=i) for i in range(1, (finish_day - prior).days)}
-    carried = [tid, *_live_descendants(project, tid)]
-    return any(_day_it_closes(project, slipped, t) in gap for t in carried)
-
-
-def _day_it_closes(project: RefProject, run: EngineRun, tid: str) -> date:
-    """The day whose end is ``tid``'s end instant.
-
-    Work ends at the end of its early finish, and so does a milestone shown at the
-    end of its day. A milestone at the start of day ``d`` sits on the midnight that
-    closes ``d - 1``.
-    """
-    task = run.tasks[tid]
-    if project.durations[tid] > 0 or task.milestone_at_day_end:
-        return task.early_finish
-    return task.early_start - timedelta(days=1)
-
-
 def _live_descendants(project: RefProject, tid: str) -> list[str]:
     """Every live task downstream of ``tid``.
 
@@ -1151,7 +1098,7 @@ def _live_descendants(project: RefProject, tid: str) -> list[str]:
 
 
 def float_perturbation_violations(
-    project: RefProject, run: Callable[[RefProject], EngineRun], *, exclude_4436: bool = True
+    project: RefProject, run: Callable[[RefProject], EngineRun]
 ) -> list[str]:
     """Slip each live task with work through ``planned_start`` and check its floats.
 
@@ -1182,12 +1129,6 @@ def float_perturbation_violations(
                 continue
             moved = shown_finish(after, project) > shown_finish(base, project)
             if moved == should_move:
-                continue
-            if (
-                exclude_4436
-                and should_move
-                and _ends_in_a_start_of_day_finish_gap(project, tid, base, after)
-            ):
                 continue
             out.append(
                 f"{tid}: TF {got.total_float}, slipped {slip} wd to {day}: shown finish "
@@ -1278,9 +1219,9 @@ SF_INTO_A_FOUR_DAY_MILESTONE = RefProject(
     task_calendar={"T2": "four"},
 )
 
-#: #4436 (open) — ``W(5d) -FS+1d-> M`` puts ``M`` at Sunday midnight, shown at the
+#: #4436 — ``W(5d) -FS+1d-> M`` puts ``M`` at Sunday midnight, shown at the
 #: start of Monday; a seven-day-calendar ``X`` can finish on Sunday without moving
-#: that, but its late finish is seeded on Saturday, so its float is a day short.
+#: that, but its late finish was seeded on Saturday, so its float was a day short.
 START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK = RefProject(
     start=date(2027, 3, 1),
     durations={"T0": 5, "T1": 0, "T2": 1},
@@ -1289,12 +1230,12 @@ START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK = RefProject(
     task_calendar={"T2": "seven"},
 )
 
-#: #4436 (open), narrower-finisher direction, found by the nightly fuzz (#4641).
+#: #4436, narrower-finisher direction, found by the nightly fuzz (#4641).
 #: ``T0`` (SNET Sat 01-17) ``-FS->`` ``T3`` on a Monday-to-Friday week, so the
 #: finish shows at the start of Monday 01-19; ``T1 -FS+1d-> T5``, all else on a
 #: seven-day week. ``T5`` may sit anywhere up to that Monday, but its late bound is
-#: the next working day on its *own* calendar, Saturday, so ``T1`` reports 9 days of
-#: float where 11 spend nothing.
+#: was the next working day on its *own* calendar, Saturday, so ``T1`` reported 9
+#: days of float where 11 spend nothing.
 START_OF_DAY_FINISH_ON_A_NARROWER_CALENDAR = RefProject(
     start=date(2026, 1, 6),
     durations={"T0": 0, "T1": 1, "T3": 0, "T5": 0},
@@ -1350,6 +1291,68 @@ FS_INTO_A_MILESTONE_STARTED_ON_A_SUNDAY = RefProject(
     task_calendar={"T2": "seven"},
 )
 
+#: #4526 — ``W -SS-> M1 -FS-> M2``, zero lag, ``M2`` on a Monday-to-Thursday week,
+#: beside a five-day pole ending Friday. ``M2`` takes ``M1``'s start-of-day reading
+#: and is shown on the next day *its* calendar works, but ``M1``'s cap read only
+#: ``M1``'s calendar: ``W`` reported 4 days of float where 4 moved the finish.
+ZERO_LAG_MILESTONE_CHAIN_INTO_A_FOUR_DAY_WEEK = RefProject(
+    start=date(2026, 1, 5),
+    durations={"L": 5, "W": 1, "M1": 0, "M2": 0},
+    links=(RefLink("W", "M1", "SS", 0), RefLink("M1", "M2", "FS", 0)),
+    calendars={"four": RefCalendar(working_mask=_FOUR_DAY)},
+    task_calendar={"M2": "four"},
+)
+#: #4526, the reading switched on the way down: ``W -FS-> M0 -FS-> M``, zero lag,
+#: ``M0`` on a Monday-to-Thursday week and ``M`` on a five-day week closed
+#: 01-12..01-16. From Saturday midnight ``M0`` reads as a day start (it follows
+#: ``M0``'s non-working Friday), ``M`` inherits that and is shown after the closure;
+#: ``W`` reported 4 days of float where 4 moved the finish.
+ZERO_LAG_CHAIN_READING_SWITCHED_BY_A_NARROWER_WEEK = RefProject(
+    start=date(2026, 1, 5),
+    durations={"L": 8, "W": 1, "M0": 0, "M": 0},
+    links=(RefLink("W", "M0", "FS", 0), RefLink("M0", "M", "FS", 0)),
+    calendars={
+        "four": RefCalendar(working_mask=_FOUR_DAY),
+        "closed": RefCalendar(
+            working_mask=MON_TO_FRI, exceptions=((date(2026, 1, 12), date(2026, 1, 16)),)
+        ),
+    },
+    task_calendar={"M0": "four", "M": "closed"},
+)
+#: #4526 as the class sweep drew it: ``T0 -SS+1d-> T1 -SS-> T4``, ``T4`` on a
+#: Monday-to-Thursday week with a closure, beside a Tuesday-to-Saturday pole.
+#: ``T0`` reported 3 days of float where 3 moved the finish.
+ZERO_LAG_SS_CHAIN_INTO_A_CLOSED_WEEK = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T0": 4, "T1": 0, "T4": 0, "L": 7},
+    links=(RefLink("T0", "T1", "SS", 1), RefLink("T1", "T4", "SS", 0)),
+    calendars={
+        "tuesat": RefCalendar(working_mask=0b0111110),
+        "fourx": RefCalendar(
+            working_mask=_FOUR_DAY, exceptions=((date(2026, 1, 12), date(2026, 1, 16)),)
+        ),
+    },
+    task_calendar={"T4": "fourx", "L": "tuesat"},
+)
+
+#: #4436, the lagged sibling the audit of the fix drew: ``W(4d) -FS+2d-> M1``, ``M1``
+#: on a Monday-to-Friday week closed 01-14..01-16. ``M1`` lands at Wednesday
+#: 01-14 midnight, inside the closure, and is shown at the start of Monday 01-19:
+#: the project ends at the start of a day. Seeding ``W``'s late finish on its own
+#: calendar stopped short of that shown day, so ``W`` reported 2 days of float
+#: where a slip of 3 moved nothing.
+LAGGED_FS_INTO_A_MILESTONE_ON_A_CLOSED_WEEK = RefProject(
+    start=date(2026, 1, 7),
+    durations={"W": 4, "M1": 0},
+    links=(RefLink("W", "M1", "FS", 2),),
+    calendars={
+        "fivex": RefCalendar(
+            working_mask=MON_TO_FRI, exceptions=((date(2026, 1, 14), date(2026, 1, 16)),)
+        ),
+    },
+    task_calendar={"M1": "fivex"},
+)
+
 #: The fixed shapes the slip oracle separates from their pre-fix engines.
 FIXED_PROGRESS_SHAPES = (
     COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
@@ -1360,12 +1363,12 @@ FIXED_PROGRESS_SHAPES = (
     CLOSED_AFTER_WORK_ON_A_NON_WORKING_DAY,
     SS_INTO_A_MILESTONE_STARTED_ON_A_SATURDAY,
     FS_INTO_A_MILESTONE_STARTED_ON_A_SUNDAY,
-)
-
-#: The open #4436 shapes :func:`_ends_in_a_start_of_day_finish_gap` excludes.
-KNOWN_4436_SHAPES = (
     START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK,
     START_OF_DAY_FINISH_ON_A_NARROWER_CALENDAR,
+    ZERO_LAG_MILESTONE_CHAIN_INTO_A_FOUR_DAY_WEEK,
+    ZERO_LAG_CHAIN_READING_SWITCHED_BY_A_NARROWER_WEEK,
+    ZERO_LAG_SS_CHAIN_INTO_A_CLOSED_WEEK,
+    LAGGED_FS_INTO_A_MILESTONE_ON_A_CLOSED_WEEK,
 )
 
 
@@ -1397,25 +1400,6 @@ def test_closing_a_milestone_on_the_data_date_moves_nothing() -> None:
     _closed_moves_nothing(MILESTONE_CLOSED_ON_THE_DATA_DATE, python_run)
     # The closed milestone is also float-consistent; the slip oracle checks that much.
     assert_floats_survive_perturbation(MILESTONE_CLOSED_ON_THE_DATA_DATE, python_run)
-
-
-@pytest.mark.parametrize("project", KNOWN_4436_SHAPES)
-def test_the_4436_exclusion_is_what_hides_the_known_shape(project: RefProject) -> None:
-    """The filter excludes #4436's repros and nothing about them passes on its own merits."""
-    assert float_perturbation_violations(project, python_run) == []
-    assert float_perturbation_violations(project, python_run, exclude_4436=False) != []
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="TODO(#4436): the work-task late-finish seed ignores a start-of-day project "
-    "finish, and the milestone bound widens it on the milestone's own calendar rather "
-    "than the finisher's; when both XPASS, delete _ends_in_a_start_of_day_finish_gap",
-)
-@pytest.mark.parametrize("project", KNOWN_4436_SHAPES)
-def test_float_beside_a_start_of_day_milestone_finish(project: RefProject) -> None:
-    problems = float_perturbation_violations(project, python_run, exclude_4436=False)
-    assert not problems, "\n".join(problems)
 
 
 #: #4882, found by the nightly fuzz: ``T1(1d) -SS+1d-> T2``, a milestone with an
@@ -2170,7 +2154,23 @@ MILESTONE_STARTED_THE_DAY_AFTER_ITS_SHOWN_MONDAY = replace(
     },
 )
 
+#: Found by the deep fuzz after the #4436 fix: ``T3``, a Monday-to-Friday milestone
+#: at Saturday midnight, is shown at the start of Monday, past seven-day ``T4``
+#: ending Sunday. The reference marked ``T3`` at its raw Saturday instant, so work
+#: "decided" the finish and it stated ``T4``'s float as 0 — the very understatement
+#: #4436 fixed in the engines. A start-of-day milestone is marked where it is shown.
+START_OF_DAY_MILESTONE_PAST_WORK_ON_ITS_OWN_CALENDAR = RefProject(
+    start=date(2026, 1, 10),
+    durations={"T0": 0, "T1": 0, "T2": 0, "T3": 0, "T4": 2},
+    links=(RefLink("T0", "T2", "FS", 3), RefLink("T2", "T3", "FS", 3)),
+    calendar=RefCalendar(working_mask=_SEVEN_DAY),
+    planned_start={"T4": date(2026, 1, 16)},
+    calendars={"five": RefCalendar(working_mask=MON_TO_FRI)},
+    task_calendar={"T0": "five", "T3": "five"},
+)
+
 PROGRESS_EXAMPLES = (
+    START_OF_DAY_MILESTONE_PAST_WORK_ON_ITS_OWN_CALENDAR,
     SS_OUT_OF_A_RECORDED_START,
     SS_OUT_OF_A_DERIVED_START,
     START_FIXED_LINK_LEAVES_FLOAT,

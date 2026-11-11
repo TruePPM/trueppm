@@ -572,7 +572,11 @@ fn validate_span(project: &Project, status_offset: i64) -> Result<(), String> {
         ));
     }
 
-    let lag_total: i64 = project.dependencies.iter().map(|d| d.lag_days().abs()).sum();
+    let lag_total: i64 = project
+        .dependencies
+        .iter()
+        .map(|d| d.lag_days().abs())
+        .sum();
     let total_work = terms.task_days + lag_total;
     if total_work > MAX_PROJECT_WORK_DAYS {
         return Err(format!(
@@ -936,7 +940,14 @@ mod tests {
 
     fn chain_deps(n: usize) -> Vec<Dependency> {
         (1..n)
-            .map(|i| dep(&format!("t{}", i - 1), &format!("t{i}"), DependencyType::FS, 0.0))
+            .map(|i| {
+                dep(
+                    &format!("t{}", i - 1),
+                    &format!("t{i}"),
+                    DependencyType::FS,
+                    0.0,
+                )
+            })
             .collect()
     }
 

@@ -136,6 +136,16 @@ const OUT_OF_SCOPE: Record<string, string> = {
   driving_edge_cross_calendar_fs: 'engine gap: per-task calendars not modeled',
   driving_edge_cross_calendar_ff: 'engine gap: per-task calendars not modeled',
   driving_edge_cross_calendar_sf: 'engine gap: per-task calendars not modeled',
+  // #4436, #4526: each of these fixtures schedules against a named calendar
+  // registry, which the single-calendar harness below cannot express (the
+  // `describes a fixture cpmEngine.ts can actually schedule` predicate rejects them).
+  lagged_fs_into_a_milestone_on_a_closed_week: 'engine gap: per-task calendars not modeled',
+  start_of_day_finish_beside_seven_day_work: 'engine gap: per-task calendars not modeled',
+  start_of_day_finish_on_a_narrower_calendar: 'engine gap: per-task calendars not modeled',
+  start_of_day_milestone_past_work_on_its_own_calendar: 'engine gap: per-task calendars not modeled',
+  zero_lag_chain_reading_switched_by_a_narrower_week: 'engine gap: per-task calendars not modeled',
+  zero_lag_milestone_chain_into_a_four_day_week: 'engine gap: per-task calendars not modeled',
+  zero_lag_ss_chain_into_a_closed_week: 'engine gap: per-task calendars not modeled',
   per_task_calendar_id_no_registry:
     'adapter: harness precondition requires no calendar_id/calendars (engine ignores the id, which matches)',
   per_task_calendar_id_empty_registry:

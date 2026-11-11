@@ -1,0 +1,59 @@
+{
+  "id": "p-start-of-day-milestone-past-work-on-its-own-calendar",
+  "name": "Start-of-day milestone shown past seven-day work on its own Mon-Fri week (#4436)",
+  "start_date": "2026-01-10",
+  "tasks": [
+    {
+      "id": "T0",
+      "name": "T0",
+      "duration": 0.0,
+      "calendar_id": "five"
+    },
+    {
+      "id": "T1",
+      "name": "T1",
+      "duration": 0.0
+    },
+    {
+      "id": "T2",
+      "name": "T2",
+      "duration": 0.0
+    },
+    {
+      "id": "T3",
+      "name": "T3",
+      "duration": 0.0,
+      "calendar_id": "five"
+    },
+    {
+      "id": "T4",
+      "name": "T4",
+      "duration": 172800.0,
+      "planned_start": "2026-01-16"
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "T0",
+      "successor_id": "T2",
+      "dep_type": "FS",
+      "lag": 259200.0
+    },
+    {
+      "predecessor_id": "T2",
+      "successor_id": "T3",
+      "dep_type": "FS",
+      "lag": 259200.0
+    }
+  ],
+  "calendar": {
+    "working_days": 127,
+    "exceptions": []
+  },
+  "calendars": {
+    "five": {
+      "working_days": 31,
+      "exceptions": []
+    }
+  }
+}

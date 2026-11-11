@@ -31,6 +31,7 @@ from trueppm_scheduler.engine.graph import (
 from trueppm_scheduler.engine.milestones import (
     _finish_instant,
     _float_late_instant,
+    _Inheritors,
     _Instant,
 )
 from trueppm_scheduler.engine.replay import (
@@ -162,6 +163,7 @@ def schedule(project: Project) -> ScheduleResult:
     # Forward pass guarantees every task has early_finish set.
     project_finish: date = max(t.early_finish for t in tasks if t.early_finish is not None)
 
+    inherited: dict[str, _Inheritors] = {}
     late_instants = _backward_pass(
         task_map,
         topo_order,
@@ -171,9 +173,11 @@ def schedule(project: Project) -> ScheduleResult:
         task_calendars,
         instants,
         link_instants,
+        inherited,
     )
     # A milestone's own float stops where its reading would show it past the
-    # finish (#4183); its predecessors already read the uncapped instant.
+    # finish (#4183) — on its own calendar and on every milestone that takes its
+    # reading at zero lag (#4526); its predecessors already read the uncapped instant.
     float_lates = {
         tid: _float_late_instant(
             late,
@@ -182,6 +186,7 @@ def schedule(project: Project) -> ScheduleResult:
             if task_calendars is None
             else task_calendars.get(tid, project.calendar),
             project_finish,
+            inherited.get(tid),
         )
         for tid, late in late_instants.items()
     }

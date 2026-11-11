@@ -45,6 +45,8 @@ from trueppm_scheduler.engine import (
     _float_late_instant,
     _floor_above_start,
     _free_start_ref,
+    _inheriting_paths,
+    _Inheritors,
     _Instant,
     _instant_day,
     _is_complete,
@@ -870,11 +872,11 @@ def _backward_successor_terms(
     FS, the type ``engine._milestone_link`` gives it (#4272), and keeps its FF label.
     """
     end = finish_instant or _safe_offset(project_finish, timedelta(days=1))
-    seed = _prev_working_day(_safe_offset(end, -timedelta(days=1)), cal)
-    # A milestone may sit as late as the finish instant (#4079), widened to the
-    # next working day's midnight when that instant reads as start of day (#4174)
-    # — ``engine._milestone_finish_bound``, not the raw instant.
-    milestone_seed = _milestone_finish_bound(end, project_finish, cal)
+    # Anything may end as late as the finish instant (#4079), widened to the
+    # midnight opening ``project_finish`` when that instant reads as start of day
+    # (#4174, #4436) — ``engine._milestone_finish_bound``, not the raw instant.
+    milestone_seed = _milestone_finish_bound(end, project_finish)
+    seed = _prev_working_day(_safe_offset(milestone_seed, -timedelta(days=1)), cal)
     lf_terms: list[DerivationContribution] = [
         DerivationContribution(
             kind="project_finish",
@@ -1297,6 +1299,27 @@ def _milestone_context(
     def cal_of(tid: str) -> Calendar:
         return _cal_for(tid, default_cal, task_calendars)
 
+    # The calendars a milestone's reading carries onto at zero lag, as the backward
+    # pass caps it (engine._inheriting_paths, #4526). Only milestones have them.
+    inherited_memo: dict[str, _Inheritors] = {}
+    milestone_succs: dict[str, list[tuple[str, Dependency]]] = {}
+    if late_instants:
+        for dep in project.dependencies:
+            if dep.successor_id in late_instants:
+                milestone_succs.setdefault(dep.predecessor_id, []).append((dep.successor_id, dep))
+
+    def inherited(tid: str) -> _Inheritors | None:
+        if tid not in late_instants:
+            return None
+        return _inheriting_paths(
+            tid,
+            lambda n: milestone_succs.get(n, []),
+            late_instants.__contains__,
+            cal_of,
+            inherited_memo,
+            result.project_finish,
+        )
+
     own = instants.get(task.id)
     # A link out of this milestone, or out of a milestone predecessor, is measured
     # from its link instant: shown at the project-start floor, measured from below
@@ -1313,7 +1336,9 @@ def _milestone_context(
         pf = result.project_finish
         is_milestone = own is not None
         return (
-            _link_start_ref(start_ref, dep_type, lag, is_milestone, succ_cal, pf),
+            _link_start_ref(
+                start_ref, dep_type, lag, is_milestone, succ_cal, pf, inherited(succ.id)
+            ),
             _link_finish_ref(late, dep_type, succ_cal, pf),
         )
 
@@ -1352,7 +1377,9 @@ def _milestone_context(
         milestone = (own[0], day_of)
         own_instants = (
             own[0],
-            _float_late_instant(late_instants[task.id], own, cal, result.project_finish),
+            _float_late_instant(
+                late_instants[task.id], own, cal, result.project_finish, inherited(task.id)
+            ),
         )
     links = [
         _LinkContext(link_instants.get(p.id, instants.get(p.id)), cal_of(p.id), own is not None)

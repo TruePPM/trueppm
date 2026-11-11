@@ -2,6 +2,8 @@
 //!
 //! Mirrors the Python `_backward_pass` function from `trueppm_scheduler.engine.backward`.
 
+use std::collections::BTreeMap;
+
 use chrono::NaiveDate;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -93,25 +95,25 @@ pub(crate) fn finish_instant(
     Ok(latest.expect("a project has at least one task"))
 }
 
-/// Latest instant the project-finish seed admits for a milestone (#4174).
+/// Latest instant anything may end at without moving the project finish (#4174,
+/// #4436).
 ///
 /// When `end` already reads as start of day (`project_finish >= end`, e.g.
 /// `A(4d) -FS+2d-> M` placing `M` at Sunday midnight, shown Monday), every
-/// midnight up to the one opening the next working day shows the same finish, so
-/// the bound widens to it. When `end` reads as end of day (`A -FS+1d-> M` at
-/// Saturday midnight, shown Friday), the raw `end` is the bound: Sunday midnight
-/// is shown Monday under #4173's display rule, so landing there moves the finish.
-/// The shown day stays capped by `late_display`. Mirrors the Python
-/// `_milestone_finish_bound`.
-pub(crate) fn milestone_finish_bound(
-    end: NaiveDate,
-    project_finish: NaiveDate,
-    node_cal: &Calendar,
-) -> Result<NaiveDate, String> {
+/// midnight up to the one *opening* `project_finish` shows the same finish, so the
+/// bound widens to it — for a milestone's own late instant and for the work seed
+/// alike. It is `project_finish` itself, independent of the bounded task's
+/// calendar: widening on that calendar (the #4174 form) stopped a wider-week task
+/// short of the shown finish day and let a narrower-week one reach past it (#4436).
+/// When `end` reads as end of day (`A -FS+1d-> M` at Saturday midnight, shown
+/// Friday), the raw `end` is the bound: Sunday midnight is shown Monday under
+/// #4173's display rule, so landing there moves the finish. The shown day stays
+/// capped by `late_display`. Mirrors the Python `_milestone_finish_bound`.
+pub(crate) fn milestone_finish_bound(end: NaiveDate, project_finish: NaiveDate) -> NaiveDate {
     if project_finish >= end {
-        next_working_day(end, node_cal)
+        project_finish
     } else {
-        Ok(end)
+        end
     }
 }
 
@@ -146,6 +148,88 @@ fn start_read_cap(
     checked_offset_days(last_day, 1)
 }
 
+/// One milestone's zero-lag inheritors, summarized for [`start_read_cap_on`]
+/// (#4526): the milestones that take its reading at zero lag, transitively.
+/// `floor` is the least `L(c)` over every inheritor, `L(c)` the last working day
+/// of `c` on or before `project_finish` (`None` when there is no inheritor), and
+/// `switches` keeps, per distinct inheritor calendar (by identity), the least
+/// `m(u)` over the inheritors `u` on it, `m(u)` the least `L` over `u` and every
+/// inheritor reached through it. The reading only ever turns on along a chain,
+/// and an inheritor read as start of day is past the finish exactly when the
+/// midnight is after its `L`, so these decide the very condition the per-path
+/// walk they replaced tested. Mirrors the Python `_Inheritors`, whose docstring
+/// carries the argument in full.
+#[derive(Clone, Default)]
+struct Inheritors<'a> {
+    floor: Option<NaiveDate>,
+    switches: BTreeMap<usize, (&'a Calendar, NaiveDate)>,
+}
+
+/// Keep the least `m(u)` seen for calendar `c`. Mirrors the Python `_offer_switch`.
+fn offer_switch<'a>(
+    switches: &mut BTreeMap<usize, (&'a Calendar, NaiveDate)>,
+    c: &'a Calendar,
+    m: NaiveDate,
+) {
+    let held = switches
+        .entry(std::ptr::from_ref(c) as usize)
+        .or_insert((c, m));
+    held.1 = held.1.min(m);
+}
+
+/// [`start_read_cap`] on `cal`, held on every inheriting milestone too (#4526).
+///
+/// `inheritors` summarizes the zero-lag milestone successors and those reached
+/// through them ([`Inheritors`]). Every one sits on the same midnight, shown with
+/// the reading the one before it is shown with, overridden to start of day when
+/// that midnight follows non-working time on its own calendar (`start_reading`).
+/// The midnights that keep all of them shown by `project_finish` are an initial
+/// run of the line, so the cap steps back from `start_read_cap`'s answer; it
+/// cannot pass the last working day on or before `project_finish` on any
+/// inheritor's calendar. Each step costs `O(C)`, `C` the distinct inheritor
+/// calendars. Mirrors the Python `_start_read_cap_on`.
+fn start_read_cap_on(
+    instant: NaiveDate,
+    start_display: bool,
+    (cal, inheritors): (&Calendar, &Inheritors<'_>),
+    project_finish: NaiveDate,
+) -> Result<NaiveDate, String> {
+    let mut capped = start_read_cap(instant, start_display, cal, project_finish)?;
+    let Some(floor) = inheritors.floor else {
+        return Ok(capped);
+    };
+    'step: while capped > floor {
+        if start_reading(capped, start_display, cal)? {
+            capped = checked_offset_days(capped, -1)?;
+            continue;
+        }
+        // The switch clause is retained for safety; no test can distinguish it.
+        // Every inheritor `u` it names is itself capped on the link into it
+        // (`link_start_ref` with the end-of-day reading and `u`'s own summary),
+        // which already refuses each midnight after non-working time on `u`'s
+        // calendar past `m(u)`; a zero-lag link carries that bound up to this
+        // milestone's late instant, and the safe midnights are an initial run.
+        // Kept so this function is exact on its own rather than only while every
+        // inheritor is capped on its own link (#4526 review).
+        for &(c, m) in inheritors.switches.values() {
+            if capped > m && start_reading(capped, false, c)? {
+                capped = checked_offset_days(capped, -1)?;
+                continue 'step;
+            }
+        }
+        break;
+    }
+    Ok(capped)
+}
+
+/// Does a milestone successor take its predecessor milestone's reading over a link
+/// of `dep_type` and `lag_days`? At zero lag a start-anchored link proposes the
+/// very midnight the predecessor occupies, shown the way the predecessor is; FF
+/// into a milestone is FS. Mirrors the Python `_inherits_reading`.
+fn inherits_reading(dep_type: DependencyType, lag_days: i64) -> bool {
+    start_anchored(milestone_link(dep_type)) && lag_days == 0
+}
+
 /// The milestone `start_ref` one FS/SS link into it may use (#4183): capped by
 /// [`start_read_cap`] when the link gives the milestone a start-of-day reading
 /// (SS from work). A zero-lag link from a milestone carries that milestone's
@@ -153,13 +237,15 @@ fn start_read_cap(
 /// not capped here; the start-of-day bound follows from the same cap where it is
 /// read (the cap is a `min`, so it commutes with the `min` over links). The cap is
 /// per link rather than on the shared late instant, because an FS predecessor of
-/// the same milestone really can slip it to the finish instant. Mirrors the
-/// Python `_link_start_ref`.
+/// the same milestone really can slip it to the finish instant. The cap holds on
+/// the calendar of every milestone that takes the successor's reading at zero
+/// lag too (`inheritors`, #4526): each sits on the same midnight with the same
+/// reading and is shown on its own calendar. Mirrors the Python `_link_start_ref`.
 fn link_start_ref(
     start_ref: NaiveDate,
     (dep_type, lag_days): (DependencyType, i64),
     pred_is_milestone: bool,
-    succ_cal: &Calendar,
+    succ: (&Calendar, &Inheritors<'_>),
     project_finish: NaiveDate,
 ) -> Result<NaiveDate, String> {
     if !start_anchored(dep_type) {
@@ -167,7 +253,7 @@ fn link_start_ref(
     }
     let inherits = pred_is_milestone && lag_days == 0;
     let base_display = dep_type == DependencyType::SS && !inherits;
-    start_read_cap(start_ref, base_display, succ_cal, project_finish)
+    start_read_cap_on(start_ref, base_display, succ, project_finish)
 }
 
 /// The day a milestone's late instant is shown on. Mirrors the Python
@@ -201,7 +287,7 @@ fn late_display(
 fn late_refs(
     succ_idx: usize,
     succ: &Task,
-    late_instants: &[Option<NaiveDate>],
+    (late_instants, inherit): (&[Option<NaiveDate>], &[Inheritors<'_>]),
     cals: &PassCalendars,
     link: (&Dependency, bool, NaiveDate),
 ) -> Result<(NaiveDate, NaiveDate, DependencyType), String> {
@@ -219,7 +305,7 @@ fn late_refs(
                 start_ref,
                 (seen, dep.lag_days()),
                 pred_is_milestone,
-                succ_cal,
+                (succ_cal, &inherit[succ_idx]),
                 project_finish,
             )?;
             // Neither cap goes below a live milestone's recorded `actual_start`:
@@ -278,9 +364,17 @@ pub fn backward_pass(
     milestones: &MilestoneInstants,
 ) -> Result<Vec<Option<NaiveDate>>, String> {
     let instants = &milestones.shown;
-    let end = finish_instant(tasks, instants, project_finish)?;
+    let end = milestone_finish_bound(
+        finish_instant(tasks, instants, project_finish)?,
+        project_finish,
+    );
     let mut late_instants: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
     let mut float_lates: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
+    // Per live milestone: the summary of the live milestones that take its reading
+    // at zero lag (#4526). Filled in reverse topological order, so a successor's
+    // entry is complete before its predecessor reads it. Mirrors the Python
+    // `_inheriting_paths`.
+    let mut inherit: Vec<Inheritors> = vec![Inheritors::default(); tasks.len()];
     for &idx in topo_order.iter().rev() {
         let i = idx.index();
         // This node is the predecessor of its outgoing edges; its own calendar lays
@@ -305,7 +399,7 @@ pub fn backward_pass(
         }
 
         if let Some(early) = instants[i] {
-            let mut bound = milestone_finish_bound(end, project_finish, node_cal)?;
+            let mut bound = end;
             for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
                 let s = edge.target().index();
                 if tasks[s].is_complete() {
@@ -315,7 +409,7 @@ pub fn backward_pass(
                 let (start_ref, finish_ref, seen) = late_refs(
                     s,
                     &tasks[s],
-                    &late_instants,
+                    (&late_instants, &inherit),
                     cals,
                     (dep, true, project_finish),
                 )?;
@@ -350,8 +444,31 @@ pub fn backward_pass(
             // milestone whose late instant is a weekend midnight before the finish
             // is still shown late on the Friday while its float runs through it.
             // Mirrors the Python `_float_late_instant`.
-            float_lates[i] =
-                Some(start_read_cap(late, early.1, node_cal, project_finish)?.max(early.0));
+            // Summarized from the direct inheritors' summaries, never by listing
+            // paths (#4526): O(C) per link, C the distinct inheritor calendars.
+            let mut summary = Inheritors::default();
+            for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+                let s = edge.target().index();
+                let dep = &deps[*edge.weight()];
+                if late_instants[s].is_some() && inherits_reading(dep.dep_type, dep.lag_days()) {
+                    let kid_cal = cals.for_node(s);
+                    let mut m = prev_working_day(project_finish, kid_cal)?;
+                    if let Some(f) = inherit[s].floor {
+                        m = m.min(f);
+                    }
+                    summary.floor = Some(summary.floor.map_or(m, |f| f.min(m)));
+                    for &(c, held) in inherit[s].switches.values() {
+                        offer_switch(&mut summary.switches, c, held);
+                    }
+                    offer_switch(&mut summary.switches, kid_cal, m);
+                }
+            }
+            // The cap holds on every milestone that takes this one's reading (#4526).
+            float_lates[i] = Some(
+                start_read_cap_on(late, early.1, (node_cal, &summary), project_finish)?
+                    .max(early.0),
+            );
+            inherit[i] = summary;
             let t = &mut tasks[i];
             t.late_start = Some(day);
             t.late_finish = Some(day);
@@ -365,7 +482,8 @@ pub fn backward_pass(
         // last workable day: project_finish is max(early_finish) and can land on
         // a day this node cannot work (a completed task's weekend actual_finish),
         // overstating float and propagating upstream (#1820). A no-op when
-        // project_finish is already a working day.
+        // project_finish is already a working day. `end` is already widened to
+        // the midnight opening a start-of-day finish (#4436).
         //
         // Every bound below is likewise working-day snapped, so none of them can
         // express an early window that sits on a non-working day. That mismatch is
@@ -379,7 +497,7 @@ pub fn backward_pass(
             deps,
             node_cal,
             cals,
-            (&late_instants, project_finish),
+            (&late_instants, &inherit, project_finish),
         )?;
         lf_constraints.extend(succ_lf_constraints);
 
@@ -471,7 +589,7 @@ fn successor_constraints(
     deps: &[Dependency],
     node_cal: &Calendar,
     cals: &PassCalendars,
-    (late_instants, project_finish): (&[Option<NaiveDate>], NaiveDate),
+    (late_instants, inherit, project_finish): (&[Option<NaiveDate>], &[Inheritors<'_>], NaiveDate),
 ) -> Result<(Vec<NaiveDate>, Vec<NaiveDate>), String> {
     let mut lf_constraints: Vec<NaiveDate> = Vec::new();
     let mut ls_constraints: Vec<NaiveDate> = Vec::new();
@@ -498,7 +616,7 @@ fn successor_constraints(
         let (succ_ls, succ_lf, seen) = late_refs(
             edge.target().index(),
             succ,
-            late_instants,
+            (late_instants, inherit),
             cals,
             (dep, false, project_finish),
         )?;

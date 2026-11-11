@@ -31,6 +31,8 @@ from trueppm_scheduler.engine.milestones import (
     _edge_anchor,
     _finish_instant,
     _free_start_ref,
+    _inheriting_paths,
+    _Inheritors,
     _Instant,
     _late_display,
     _link_finish_ref,
@@ -66,6 +68,7 @@ def _backward_pass(
     task_calendars: dict[str, Calendar] | None = None,
     instants: dict[str, _Instant] | None = None,
     link_instants: dict[str, _Instant] | None = None,
+    inherited: dict[str, _Inheritors] | None = None,
 ) -> dict[str, date]:
     """Compute late_start and late_finish for every task (in-place).
 
@@ -97,7 +100,8 @@ def _backward_pass(
     shown on does not determine it (the end of Tuesday is the start of
     Wednesday). These are the *uncapped* instants predecessors read; a milestone's
     own total float is measured to :func:`_float_late_instant` of them, which the
-    caller computes (#4183).
+    caller computes (#4183). ``inherited``, when given, is filled with each live
+    milestone's :func:`_inheriting_paths` for that call (#4526).
 
     ``link_instants`` is :func:`_forward_pass`'s link map (#4225). A milestone held
     up by the project-start floor alone is shown later than the instant its
@@ -109,6 +113,7 @@ def _backward_pass(
     early_instants = instants or {}
     links = link_instants or {}
     late_instants: dict[str, date] = {}
+    inherits: dict[str, _Inheritors] = {} if inherited is None else inherited
     # Every late date is seeded from the instant the project ends. Without
     # milestones that is the end of the finish day, exactly the old seed; a
     # milestone at the *start* of the finish day ends the project there, and
@@ -149,11 +154,27 @@ def _backward_pass(
                 (project_finish, finish_instant),
                 late_instants,
                 cal_for,
+                inherits,
+            )
+            _inheriting_paths(
+                node_id,
+                lambda n: ((s, g[n][s]["dep"]) for s in g.successors(n)),
+                late_instants.__contains__,
+                cal_for,
+                inherits,
+                project_finish,
             )
             continue
 
         lf_constraints, ls_constraints = _collect_backward_constraints(
-            node_id, g, task_map, node_cal, (project_finish, finish_instant), late_instants, cal_for
+            node_id,
+            g,
+            task_map,
+            node_cal,
+            (project_finish, finish_instant),
+            late_instants,
+            cal_for,
+            inherits,
         )
         _apply_late_dates(task, lf_constraints, ls_constraints, node_cal)
 
@@ -166,6 +187,7 @@ def _late_refs(
     late_instants: dict[str, date],
     cal_for: Callable[[str], Calendar],
     link: tuple[Dependency, bool, date],
+    inherited: dict[str, _Inheritors] | None = None,
 ) -> tuple[date, date]:
     """``(start_ref, finish_ref)`` a live successor's late window offers its predecessor.
 
@@ -179,6 +201,9 @@ def _late_refs(
     would give it, so a proposal at or before it moves nothing. Capping past it
     (a Saturday ``actual_start``, ``X -SS+1d-> M``) understated ``X``'s float by
     a working day.
+
+    ``inherited`` maps a milestone successor to the calendars its reading carries
+    onto at zero lag (:func:`_inheriting_paths`, #4526).
     """
     late = late_instants.get(succ_id)
     if late is not None:
@@ -187,7 +212,13 @@ def _late_refs(
         dep, pred_is_milestone, project_finish = link
         capped = (
             _link_start_ref(
-                start_ref, dep.dep_type, dep.lag, pred_is_milestone, succ_cal, project_finish
+                start_ref,
+                dep.dep_type,
+                dep.lag,
+                pred_is_milestone,
+                succ_cal,
+                project_finish,
+                (inherited or {}).get(succ_id),
             ),
             _link_finish_ref(late, dep.dep_type, succ_cal, project_finish),
         )
@@ -209,6 +240,7 @@ def _apply_milestone_late_date(
     finish: tuple[date, date],
     late_instants: dict[str, date],
     cal_for: Callable[[str], Calendar],
+    inherited: dict[str, _Inheritors] | None = None,
 ) -> date:
     """Set a milestone's late date (``late_start == late_finish``); return its instant.
 
@@ -223,7 +255,7 @@ def _apply_milestone_late_date(
     """
     early, link = early_pair
     project_finish, finish_instant = finish
-    bounds: list[date] = [_milestone_finish_bound(finish_instant, project_finish, node_cal)]
+    bounds: list[date] = [_milestone_finish_bound(finish_instant, project_finish)]
     for succ_id in g.successors(node_id):
         succ = task_map[succ_id]
         if _is_complete(succ):
@@ -232,7 +264,7 @@ def _apply_milestone_late_date(
         if succ_id in late_instants:
             dep = _milestone_link(dep)
         start_ref, finish_ref = _late_refs(
-            succ_id, succ, late_instants, cal_for, (dep, True, project_finish)
+            succ_id, succ, late_instants, cal_for, (dep, True, project_finish), inherited
         )
         bounds.append(_milestone_latest(dep.dep_type, dep.lag, start_ref, finish_ref, node_cal))
     late = max(min(bounds), link[0])
@@ -250,6 +282,7 @@ def _collect_backward_constraints(
     finish: tuple[date, date],
     late_instants: dict[str, date],
     cal_for: Callable[[str], Calendar],
+    inherited: dict[str, _Inheritors] | None = None,
 ) -> tuple[list[date], list[date]]:
     """Gather the LF and LS constraints this task's successors impose on it.
 
@@ -266,6 +299,12 @@ def _collect_backward_constraints(
     out-of-sequence weekend actuals, ``project_finish`` is itself a working day and
     this is a no-op.
 
+    When a start-of-day milestone ends the project, the seed is the close of the
+    last working day before the day that milestone is *shown* on, not before its
+    raw instant (:func:`_milestone_finish_bound`, #4436): ``W(5d) -FS+1d-> M`` puts
+    ``M`` at Sunday midnight, shown Monday, and a seven-day task can finish on that
+    Sunday without moving the finish.
+
     A completed successor is out of network logic (ADR-0136): the forward pass lays
     it at its actuals, possibly out of sequence, and it carries zero float, so it
     imposes no backward constraint on a still-live predecessor. Including it would
@@ -278,9 +317,8 @@ def _collect_backward_constraints(
     rather than by special-casing each constraint.
     """
     project_finish, finish_instant = finish
-    lf_constraints: list[date] = [
-        _prev_working_day(_safe_offset(finish_instant, -_ONE_DAY), node_cal)
-    ]
+    end = _milestone_finish_bound(finish_instant, project_finish)
+    lf_constraints: list[date] = [_prev_working_day(_safe_offset(end, -_ONE_DAY), node_cal)]
     ls_constraints: list[date] = []
     task = task_map[node_id]
 
@@ -296,7 +334,7 @@ def _collect_backward_constraints(
         if succ_id in late_instants:
             dep = _milestone_link(dep)
         start_ref, finish_ref = _late_refs(
-            succ_id, succ, late_instants, cal_for, (dep, False, project_finish)
+            succ_id, succ, late_instants, cal_for, (dep, False, project_finish), inherited
         )
         _append_successor_constraint(
             dep, start_ref, finish_ref, node_cal, lf_constraints, ls_constraints, task

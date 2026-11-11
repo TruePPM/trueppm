@@ -799,7 +799,11 @@ def _free_float(project: RefProject, tid: str, early: dict[str, Span], total_flo
 
 
 def _project_finish(
-    project: RefProject, early: dict[str, Span], shown: dict[str, date], project_start: date
+    project: RefProject,
+    early: dict[str, Span],
+    shown: dict[str, date],
+    project_start: date,
+    reads_start: dict[str, bool],
 ) -> tuple[date, bool]:
     """The project finish instant, and whether work alone decides it.
 
@@ -810,10 +814,21 @@ def _project_finish(
     day — how far anything may slip depends on the edge of the day the milestone
     is *shown* on (#4174, #4183), which this oracle does not model, so the caller
     states no late dates in that case.
+
+    A milestone read at the start of a day is shown at the start of the next day
+    *its own* calendar works, and that is where it sits against the finish: a
+    Monday-to-Friday milestone at Saturday midnight is shown at the start of
+    Monday, past seven-day work ending on the Sunday. Marking it at the raw
+    Saturday instant let work "decide" a finish the milestone decides, and stated
+    late dates for a start-of-day finish this oracle does not model (#4436).
     """
     cal = project.calendar
     work = [early[t][1] for t, n in project.durations.items() if n > 0]
-    marks = [shown[t] for t, n in project.durations.items() if n == 0]
+    marks = [
+        start_at_or_after(shown[t], project.calendar_of(t)) if reads_start[t] else shown[t]
+        for t, n in project.durations.items()
+        if n == 0
+    ]
     finish = max(work + marks)
     furthest = position_of(finish, project_start, cal)
     by_work = [i for i in work if position_of(i, project_start, cal) == furthest]
@@ -891,7 +906,9 @@ def reference_schedule(project: RefProject) -> RefResult:
         early[tid] = _forward_task(project, tid, early, links_from)
         links_from[tid] = (link_start(project, tid, early[tid]), early[tid][1])
 
-    project_finish, finish_by_work = _project_finish(project, early, shown, project_start)
+    project_finish, finish_by_work = _project_finish(
+        project, early, shown, project_start, reads_start
+    )
 
     late: dict[str, Span] = {}
     for tid in reversed(order):

@@ -460,6 +460,12 @@ from trueppm_scheduler.engine.milestones import (
     _free_start_ref as _free_start_ref,
 )
 from trueppm_scheduler.engine.milestones import (
+    _inheriting_paths as _inheriting_paths,
+)
+from trueppm_scheduler.engine.milestones import (
+    _Inheritors as _Inheritors,
+)
+from trueppm_scheduler.engine.milestones import (
     _Instant as _Instant,
 )
 from trueppm_scheduler.engine.milestones import (

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from collections.abc import (
     Callable,
+    Iterable,
+    Mapping,
 )
 from dataclasses import (
+    dataclass,
     replace,
 )
 from datetime import (
@@ -483,25 +486,38 @@ def _sf_latest_start(succ_finish: date, lag: timedelta, node_cal: Calendar) -> d
     return _scan_for_working_day(last, node_cal, forward=True)
 
 
-def _milestone_finish_bound(finish_instant: date, project_finish: date, node_cal: Calendar) -> date:
-    """Latest instant the project-finish seed admits for a milestone (#4174).
+def _milestone_finish_bound(finish_instant: date, project_finish: date) -> date:
+    """Latest instant anything may end at without moving the project finish (#4174, #4436).
 
     When the finish instant already reads as start of day — ``project_finish`` is
     on or after it, e.g. ``A(4d) -FS+2d-> M`` placing ``M`` at Sunday midnight,
-    shown Monday — every midnight up to the one that opens the next working day
-    shows the same finish, so a milestone at any of them does not move it. Seeding
-    at the raw instant told that milestone Monday midnight was a slip, which gave
-    ``A`` zero float and put it on the critical path.
+    shown Monday — every midnight up to the one that *opens* ``project_finish``
+    shows the same finish, so a milestone at any of them, or work closing at any
+    of them, does not move it. Seeding at the raw instant told that milestone
+    Monday midnight was a slip, which gave ``A`` zero float and put it on the
+    critical path.
+
+    The bound is ``project_finish`` itself, the day the finishing milestone is
+    shown on, and is therefore independent of the calendar of the task it bounds.
+    Widening on the *bounded* task's own calendar (``next_wd(finish_instant)``,
+    the #4174 form) was wrong both ways when calendars differ (#4436): a task on a
+    wider week stopped short of the shown finish day — a seven-day milestone at
+    Saturday midnight beside a Monday-to-Friday finisher shown Monday — and one on
+    a narrower week reached past it, to a midnight shown after ``project_finish``.
+
+    Work reads the same bound: its late finish is the last working day, on its own
+    calendar, that closes at or before it (:func:`_collect_backward_constraints`).
 
     When the instant reads as end of day instead (``project_finish`` before it —
     ``A -FS+1d-> M`` at Saturday midnight, shown Friday), the raw instant is the
     bound: under #4173's display rule Sunday midnight is shown Monday, so landing
     there *does* move the finish and the predecessor has no float to give.
 
-    The shown day stays capped at ``project_finish`` by :func:`_late_display`.
+    The shown day stays capped at ``project_finish`` by :func:`_late_display`, and
+    a start-of-day reading by :func:`_start_read_cap`.
     """
     if project_finish >= finish_instant:
-        return _next_working_day(finish_instant, node_cal)
+        return project_finish
     return finish_instant
 
 
@@ -543,6 +559,183 @@ def _start_read_cap(
     return _safe_offset(last_day, _ONE_DAY)
 
 
+@dataclass(frozen=True)
+class _Inheritors:
+    """What a milestone's zero-lag inheritors need of a start-of-day cap (#4526).
+
+    The milestones that take a milestone's reading at zero lag
+    (:func:`_inherits_reading`), transitively, summarized by what
+    :func:`_start_read_cap_on` tests rather than listed path by path. Built by
+    :func:`_inheriting_paths` against one ``project_finish``.
+
+    Why two numbers per calendar are enough. Every inheritor sits on the same
+    midnight ``x``. Along a chain the reading only ever turns *on*:
+    :func:`_start_reading` keeps a start-of-day reading and adds one where ``x``
+    follows non-working time on that inheritor's own calendar. An inheritor ``v``
+    on calendar ``c`` read as start of day is shown on ``next_wd(x, c)``, which is
+    after ``project_finish`` exactly when ``x > L(c)``, ``L(c)`` the last working
+    day of ``c`` on or before ``project_finish``. So ``x`` moves the finish exactly
+    when some inheritor ``v`` with ``x > L(v)`` is reached with a start-of-day
+    reading, i.e. when
+
+    * the capped milestone's own reading at ``x`` is start of day and ``x > floor``
+      (``floor`` the least ``L`` over every inheritor), or
+    * some inheritor ``u`` has ``x`` after non-working time on its calendar and
+      ``x > m(u)``, ``m(u)`` the least ``L`` over ``u`` and every inheritor
+      reached through it.
+
+    The first test is ``floor``; the second only depends on ``u`` through its
+    calendar and ``m(u)``, so ``switches`` keeps, per distinct calendar, the least
+    ``m(u)`` over the inheritors on it. That is the very condition the path
+    enumeration this replaced tested, path by path, so the cap is unchanged.
+    """
+
+    project_finish: date
+    floor: date | None
+    """Least ``L(c)`` over every inheritor; ``None`` when there are none."""
+    switches: Mapping[int, tuple[Calendar, date]]
+    """Per inheritor calendar (by identity): that calendar and its least ``m(u)``."""
+
+
+def _start_read_cap_on(
+    instant: date,
+    start_display: bool,
+    cal: Calendar,
+    inheritors: _Inheritors | None,
+    project_finish: date,
+) -> date:
+    """:func:`_start_read_cap` on ``cal``, held on every inheriting milestone too (#4526).
+
+    ``inheritors`` summarizes the zero-lag milestone successors of the capped
+    milestone and those reached through them (:class:`_Inheritors`). Every one
+    sits on the same midnight, shown with the reading the one before it is shown
+    with, overridden to start of day when that midnight follows non-working time
+    on its *own* calendar (:func:`_start_reading`) — so ``W -FS-> M0 -FS-> M``
+    with ``M0`` on a Monday-to-Thursday week puts both at the start of a day from
+    Saturday midnight on, and ``M`` is then shown on the next day *its* calendar
+    works.
+
+    The midnights that keep every one of them shown by ``project_finish`` are an
+    initial run of the line (each shown day is monotone in the instant), so the
+    cap is found by stepping back from :func:`_start_read_cap`'s answer. The step
+    cannot pass the last working day on or before ``project_finish`` on any
+    inheritor's calendar: at or before it every reading is shown by the finish.
+    Each step costs ``O(C)``, ``C`` the distinct calendars among the inheritors.
+    """
+    capped = _start_read_cap(instant, start_display, cal, project_finish)
+    if inheritors is None or inheritors.floor is None:
+        return capped
+    if inheritors.project_finish != project_finish:
+        raise ValueError("inheritors were summarized against another project_finish")
+    floor = inheritors.floor
+    switches = tuple(inheritors.switches.values())
+
+    def shown_by_finish(x: date) -> bool:
+        if x > floor and _start_reading(x, start_display, cal):
+            return False
+        # The switch clause is retained for safety; no test can distinguish it.
+        # Every inheritor ``u`` it names is itself capped on the link into it
+        # (:func:`_link_start_ref` with the end-of-day reading and ``u``'s own
+        # summary), and that cap already refuses each ``x`` with ``x`` after
+        # non-working time on ``u``'s calendar and ``x > m(u)``. A zero-lag link
+        # carries that bound up to this milestone's late instant, and the safe
+        # midnights are an initial run, so ``instant`` is already at or before
+        # every midnight this clause would refuse. It is kept because that holds
+        # only while every inheritor is capped on its own link; the clause makes
+        # this function exact on its own. Disabling it, or summarizing a switch by
+        # ``L(u)`` in place of ``m(u)``, changed no result over 400,000 fuzzed
+        # networks (#4526 review).
+        return not any(x > m and _start_reading(x, False, c) for c, m in switches)
+
+    while capped > floor and not shown_by_finish(capped):
+        capped = _safe_offset(capped, -_ONE_DAY)
+    return capped
+
+
+def _inherits_reading(dep: Dependency) -> bool:
+    """Does a milestone successor take its predecessor milestone's reading over ``dep``?
+
+    At zero lag a start-anchored link proposes the very midnight the predecessor
+    occupies, shown the way the predecessor is (:func:`_place_milestone`); FF into a
+    milestone is FS (:func:`_milestone_link`).
+    """
+    link = _milestone_link(dep)
+    return link.dep_type in _START_ANCHORED and link.lag == timedelta(0)
+
+
+def _offer_switch(switches: dict[int, tuple[Calendar, date]], c: Calendar, m: date) -> None:
+    """Keep the least ``m(u)`` seen for calendar ``c`` (:class:`_Inheritors`)."""
+    held = switches.get(id(c))
+    if held is None or m < held[1]:
+        switches[id(c)] = (c, m)
+
+
+def _inheriting_paths(
+    node_id: str,
+    successors: Callable[[str], Iterable[tuple[str, Dependency]]],
+    live_milestones: Callable[[str], bool],
+    cal_for: Callable[[str], Calendar],
+    memo: dict[str, _Inheritors],
+    project_finish: date,
+) -> _Inheritors:
+    """The :class:`_Inheritors` of ``node_id`` against ``project_finish``.
+
+    A milestone at instant ``X`` puts each zero-lag milestone successor on ``X``
+    with the reading it is shown with (:func:`_inherits_reading`), and so on down
+    the chain, so a start-of-day cap on ``node_id`` must hold on each of them too
+    (#4526, :func:`_start_read_cap_on`).
+
+    Each node's summary is built from its direct inheritors' summaries, never by
+    listing paths: a kid ``k`` contributes ``L(k)`` and its own ``floor`` to the
+    ``floor``, and its own ``switches`` plus ``(cal(k), m(k))`` to the
+    ``switches``, ``m(k) = min(L(k), k.floor)``. ``memo`` is shared across calls,
+    so over a pass every live milestone is summarized once, for ``O((V + E) * C)``
+    in all, ``C`` the distinct calendars among the milestones. Enumerating the
+    paths instead was exponential in a layered lattice of milestones and cubic in
+    a plain chain. Iterative, so a long milestone chain cannot exhaust the
+    recursion limit.
+    """
+    last_day: dict[int, date] = {}
+
+    def last_working(c: Calendar) -> date:
+        key = id(c)
+        if key not in last_day:
+            last_day[key] = _prev_working_day(project_finish, c)
+        return last_day[key]
+
+    stack: list[tuple[str, bool]] = [(node_id, False)]
+    while stack:
+        current, expanded = stack.pop()
+        if current in memo:
+            continue
+        kids = [
+            succ_id
+            for succ_id, dep in successors(current)
+            if live_milestones(succ_id) and _inherits_reading(dep)
+        ]
+        if not expanded:
+            stack.append((current, True))
+            stack.extend((k, False) for k in kids if k not in memo)
+            continue
+        floor: date | None = None
+        switches: dict[int, tuple[Calendar, date]] = {}
+        for kid in kids:
+            summary = memo[kid]
+            kid_cal = cal_for(kid)
+            m = last_working(kid_cal)
+            if summary.floor is not None:
+                m = min(m, summary.floor)
+            floor = m if floor is None else min(floor, m)
+            for c, held in summary.switches.values():
+                _offer_switch(switches, c, held)
+            _offer_switch(switches, kid_cal, m)
+        memo[current] = _Inheritors(project_finish, floor, switches)
+    result = memo[node_id]
+    if result.project_finish != project_finish:
+        raise ValueError("inheritors were summarized against another project_finish")
+    return result
+
+
 def _link_start_ref(
     start_ref: date,
     dep_type: DependencyType,
@@ -550,6 +743,7 @@ def _link_start_ref(
     pred_is_milestone: bool,
     succ_cal: Calendar,
     project_finish: date,
+    inheritors: _Inheritors | None = None,
 ) -> date:
     """The milestone ``start_ref`` one FS/SS link into it may use (#4183).
 
@@ -569,12 +763,20 @@ def _link_start_ref(
     the cap is a ``min``, so it commutes with the ``min`` over successor links — and
     is applied where it is read: :func:`_float_late_instant` for the milestone's own
     float, and this function for an SS or work predecessor reaching it.
+
+    ``inheritors`` are the milestones that take the successor's reading over a
+    zero-lag link, transitively (:func:`_inheriting_paths`). They sit on the same
+    midnight with that reading, and each is shown on its *own* calendar, so the
+    cap holds on every one of them, not only on ``succ_cal`` (#4526):
+    ``W -SS-> M1 -FS-> M2`` with ``M2`` on a Monday-to-Thursday week lets ``M1``
+    reach the start of Friday on its own calendar, but ``M2`` there is shown
+    Monday and moves the finish.
     """
     if dep_type not in _START_ANCHORED:
         return start_ref
     inherits = pred_is_milestone and lag == timedelta(0)
     base_display = dep_type == DependencyType.SS and not inherits
-    return _start_read_cap(start_ref, base_display, succ_cal, project_finish)
+    return _start_read_cap_on(start_ref, base_display, succ_cal, inheritors, project_finish)
 
 
 def _link_finish_ref(
@@ -596,7 +798,13 @@ def _link_finish_ref(
     return _milestone_refs(_start_read_cap(late, False, succ_cal, project_finish))[1]
 
 
-def _float_late_instant(late: date, early: _Instant, cal: Calendar, project_finish: date) -> date:
+def _float_late_instant(
+    late: date,
+    early: _Instant,
+    cal: Calendar,
+    project_finish: date,
+    inheritors: _Inheritors | None = None,
+) -> date:
     """The late instant a milestone's *own* total float is measured to (#4183).
 
     This *defines* a milestone's own total float: slipping the milestone keeps the
@@ -628,8 +836,12 @@ def _float_late_instant(late: date, early: _Instant, cal: Calendar, project_fini
     midnight before the finish, shown late on the Friday before it while its float
     runs through that Friday. A derandomized sample of 1,500 fuzzed networks during
     review found 43 such milestones left, down from 643 before this change.
+
+    ``inheritors`` carry the cap onto every milestone that takes this one's
+    reading at zero lag, as :func:`_link_start_ref` does (#4526).
     """
-    return max(_start_read_cap(late, early[1], cal, project_finish), early[0])
+    capped = _start_read_cap_on(late, early[1], cal, inheritors, project_finish)
+    return max(capped, early[0])
 
 
 def _free_start_ref(

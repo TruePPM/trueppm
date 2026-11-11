@@ -1,0 +1,62 @@
+{
+  "id": "p-zero-lag-ss-chain-into-a-closed-week",
+  "name": "Zero-lag SS chain: T1's cap holds on T4's closed Mon-Thu week (#4526)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {
+      "id": "T0",
+      "name": "T0",
+      "duration": 345600.0
+    },
+    {
+      "id": "T1",
+      "name": "T1",
+      "duration": 0.0
+    },
+    {
+      "id": "T4",
+      "name": "T4",
+      "duration": 0.0,
+      "calendar_id": "fourx"
+    },
+    {
+      "id": "L",
+      "name": "L",
+      "duration": 604800.0,
+      "calendar_id": "tuesat"
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "T0",
+      "successor_id": "T1",
+      "dep_type": "SS",
+      "lag": 86400.0
+    },
+    {
+      "predecessor_id": "T1",
+      "successor_id": "T4",
+      "dep_type": "SS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  },
+  "calendars": {
+    "tuesat": {
+      "working_days": 62,
+      "exceptions": []
+    },
+    "fourx": {
+      "working_days": 15,
+      "exceptions": [
+        {
+          "start": "2026-01-12",
+          "end": "2026-01-16"
+        }
+      ]
+    }
+  }
+}

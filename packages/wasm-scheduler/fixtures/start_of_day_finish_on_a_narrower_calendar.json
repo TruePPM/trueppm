@@ -1,0 +1,59 @@
+{
+  "id": "p-start-of-day-finish-on-a-narrower-calendar",
+  "name": "Start-of-day finish shown Monday by a Mon-Fri milestone: a seven-day milestone and its predecessor may reach Monday (#4436)",
+  "start_date": "2026-01-06",
+  "tasks": [
+    {
+      "id": "T0",
+      "name": "T0",
+      "duration": 0.0,
+      "planned_start": "2026-01-17"
+    },
+    {
+      "id": "T1",
+      "name": "T1",
+      "duration": 86400.0
+    },
+    {
+      "id": "T3",
+      "name": "T3",
+      "duration": 0.0,
+      "calendar_id": "five"
+    },
+    {
+      "id": "T5",
+      "name": "T5",
+      "duration": 0.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "T0",
+      "successor_id": "T3",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "T1",
+      "successor_id": "T3",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "T1",
+      "successor_id": "T5",
+      "dep_type": "FS",
+      "lag": 86400.0
+    }
+  ],
+  "calendar": {
+    "working_days": 127,
+    "exceptions": []
+  },
+  "calendars": {
+    "five": {
+      "working_days": 31,
+      "exceptions": []
+    }
+  }
+}

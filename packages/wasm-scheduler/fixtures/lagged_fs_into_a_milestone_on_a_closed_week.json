@@ -1,0 +1,41 @@
+{
+  "id": "p-lagged-fs-into-a-milestone-on-a-closed-week",
+  "name": "Lagged FS into a milestone inside a closure: W's late finish reaches the shown Monday (#4436)",
+  "start_date": "2026-01-07",
+  "tasks": [
+    {
+      "id": "W",
+      "name": "W",
+      "duration": 345600.0
+    },
+    {
+      "id": "M1",
+      "name": "M1",
+      "duration": 0.0,
+      "calendar_id": "fivex"
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "W",
+      "successor_id": "M1",
+      "dep_type": "FS",
+      "lag": 172800.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  },
+  "calendars": {
+    "fivex": {
+      "working_days": 31,
+      "exceptions": [
+        {
+          "start": "2026-01-14",
+          "end": "2026-01-16"
+        }
+      ]
+    }
+  }
+}
