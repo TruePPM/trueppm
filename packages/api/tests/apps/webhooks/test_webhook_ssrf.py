@@ -233,3 +233,68 @@ def test_deliver_webhook_does_not_follow_redirects(project: Project) -> None:
     # 302 is non-2xx → retries / fails per normal backoff; the key invariant
     # is that no second open() happened to follow the redirect.
     assert delivery.response_status == 302
+
+
+# --- https-only receivers (#2936) -------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_webhook_rejects_public_http_url(admin_client: APIClient, project: Project) -> None:
+    """A plaintext receiver is refused even when the host is public."""
+    resp = admin_client.post(
+        f"/api/v1/projects/{project.pk}/webhooks/",
+        {"url": "http://hooks.example.com/x", "secret": "s" * 32, "events": ["task.created"]},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "https://" in json.dumps(resp.data["url"])
+    assert not Webhook.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_legacy_http_webhook_stays_editable_when_url_unchanged(
+    admin_client: APIClient, project: Project
+) -> None:
+    """An existing http:// row can still be renamed/re-evented; delivery is untouched."""
+    hook = Webhook.objects.create(
+        project=project, url="http://legacy.example.com/x", secret="s" * 32, events=["task.created"]
+    )
+    url = f"/api/v1/projects/{project.pk}/webhooks/{hook.pk}/"
+    ok = admin_client.patch(url, {"events": ["task.updated"]}, format="json")
+    assert ok.status_code == 200, ok.data
+    same = admin_client.patch(
+        url, {"url": "http://legacy.example.com/x", "events": ["task.created"]}, format="json"
+    )
+    assert same.status_code == 200, same.data
+
+
+@pytest.mark.django_db
+def test_legacy_http_webhook_cannot_be_repointed_to_http(
+    admin_client: APIClient, project: Project
+) -> None:
+    hook = Webhook.objects.create(
+        project=project, url="http://legacy.example.com/x", secret="s" * 32, events=["task.created"]
+    )
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{hook.pk}/",
+        {"url": "http://other.example.com/x"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    hook.refresh_from_db()
+    assert hook.url == "http://legacy.example.com/x"
+
+
+@pytest.mark.django_db
+def test_test_ping_is_throttled(admin_client: APIClient, project: Project) -> None:
+    """The 11th ping inside a minute is 429 (scope ``webhook_test``, 10/min) (#2936)."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    hook = Webhook.objects.create(
+        project=project, url="https://hooks.example.com/x", secret="s" * 32, events=["task.created"]
+    )
+    url = f"/api/v1/projects/{project.pk}/webhooks/{hook.pk}/test/"
+    with patch.object(wh_tasks.deliver_webhook, "delay"):
+        codes = [admin_client.post(url).status_code for _ in range(11)]
+    assert codes[:10] == [202] * 10
+    assert codes[10] == 429
