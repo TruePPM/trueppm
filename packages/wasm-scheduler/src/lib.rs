@@ -650,12 +650,21 @@ mod tests {
         }
     }
 
-    /// The start-of-day cap on zero-lag milestone inheritors stays linear (#4526).
-    /// Listing every inheritor path was exponential in a lattice of milestones
-    /// (2^40 paths here) and cubic in a plain chain; the per-node summary
-    /// (`Inheritors`) is linear in both. Debug build, generous bound.
+    /// The start-of-day cap on zero-lag milestone inheritors does not enumerate
+    /// paths (#4526). Listing every inheritor path was exponential in a lattice of
+    /// milestones (2^40 paths here) and cubic in a plain chain. The per-node
+    /// summary (`Inheritors`) costs `O((V + E) * C)` to build, `C` the distinct
+    /// calendars among the inheritors, and `O(C)` per step of a cap: linear in
+    /// both shapes here (two calendars), but quadratic in a chain that gives every
+    /// milestone its own calendar.
+    ///
+    /// This is a wall-clock bound on a debug build, kept generous so it is not
+    /// flaky, and it guards only against the exponential or cubic blow-up of path
+    /// enumeration, not against a quadratic regression. The operation-count tests
+    /// in `packages/scheduler/tests/test_milestone_inheritor_cost.py` pin the
+    /// tighter bound on the Python engine; the two engines build the same summary.
     #[test]
-    fn test_zero_lag_milestone_inheritors_stay_linear() {
+    fn test_zero_lag_milestone_inheritors_do_not_enumerate_paths() {
         let four = Calendar {
             working_days: 0b0001111,
             ..Calendar::default()
