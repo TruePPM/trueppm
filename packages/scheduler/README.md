@@ -755,9 +755,6 @@ release it is scheduled for:
   ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)); and the API's velocity sampler has drifted from the library
   on the horizon cap (2000 versus 10,000)
   ([#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)).
-- **Calendars** — a zero-lag milestone-to-milestone link into a narrower
-  per-task calendar can overstate float
-  ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)).
 - **Scale / performance** — the engine bounds the longest dependency chain, not
   the task count, so a 100,000-task project of ordinary parallel work schedules;
   only the total work ceiling (`MAX_PROJECT_WORK_DAYS`, see Project work above)
