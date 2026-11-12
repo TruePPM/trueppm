@@ -52,8 +52,7 @@ const CRITICAL_BORDER = 'rgb(var(--semantic-critical))';
 // Kept above the preview's 0.85 so the anchor still reads as "more solid"; theme-aware (#2207).
 const ORIGIN_BORDER = 'rgb(var(--ghost-border) / 0.95)';
 // Build ghost bar: dashed brand-accent (amber) border during inline name editing (#344)
-// brand-accent is a static hex in tailwind.config.ts; there is no CSS variable to reference.
-const BUILD_BORDER = '#E8A020';
+const BUILD_BORDER = 'rgb(var(--brand-accent))';
 
 /**
  * Vertical placement of a ghost bar inside the clipped bars band.
