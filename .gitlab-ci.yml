@@ -6131,6 +6131,17 @@ sonar:scan:
     GIT_DEPTH: "0"
     # Keep the analysis cache inside the workspace so it can be cached below.
     SONAR_USER_HOME: "$CI_PROJECT_DIR/.sonar"
+    # Pin the scanner JVM heap instead of inheriting the JDK default (25% of the
+    # container's memory), which made the scan depend on which runner picked it
+    # up (#4956). The dell runners cap the container at 8 GB, so the default
+    # heap is 2 GB. The python security sensor alone peaks around 2.0-2.3 GB, and
+    # the 2026-11-11 nightly hit `OutOfMemoryError: Java heap space` in the later
+    # JS/TS pass. Because this job is allow_failure, that left the SonarCloud
+    # dashboard on the previous analysis with nothing going red. The uncapped
+    # runners defaulted to about 6-7 GB. 4 GB clears the observed peak with
+    # margin and still fits the 8 GB cap next to the scanner's Node.js process,
+    # which takes about 2.2 GB there.
+    SONAR_SCANNER_OPTS: "-Xmx4g"
   cache:
     key: sonar-scanner
     paths:
