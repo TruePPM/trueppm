@@ -283,7 +283,8 @@ Two things this does **not** cover:
   webhook delivery. Treat a parked delivery as evidence for the operator, and
   reconcile missed events through the API.
 
-Alongside this, a webhook that fails terminally five times in a row is
+Alongside this, a webhook that fails terminally five times in a row (from 0.5, over
+at least five minutes; 0.4 applies no time floor) is
 [deactivated automatically](/features/webhooks/#automatic-deactivation), which is
 the project-admin-facing half of the same signal.
 

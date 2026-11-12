@@ -338,6 +338,12 @@ damage from a receiver that has been decommissioned or has had its URL revoked â
 before it, a revoked endpoint answering `410` was retried for every matching event
 indefinitely.
 
+:::note[Ships in 0.5]
+The 5-minute floor is introduced by 0.5. In 0.4, a webhook is deactivated after 5
+consecutive terminal failures over any span of time, so a short receiver outage on
+a busy project can deactivate it within seconds.
+:::
+
 Two kinds of terminal failure are recorded but deliberately **not** counted toward
 that threshold, because neither is evidence about the receiver's health under
 production traffic:

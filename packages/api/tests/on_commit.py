@@ -57,17 +57,23 @@ def capture_on_commit_callbacks(
     callbacks: list[Callable[[], None]] = []
     # Strong refs, not just ids: a dropped tuple's id() could otherwise be recycled
     # onto a callback registered later in the same block and be mistaken for old.
+    #
+    # Keyed on the *callback* (entry[1]), not the entry tuple: ``savepoint_rollback``
+    # rebuilds ``run_on_commit`` as brand-new tuples around the same callables, so a
+    # tuple-identity key sees every survivor as new and re-runs it. A callback that
+    # itself rolls back a savepoint (a raising receiver under an in-atomic dispatch)
+    # then loops forever.
     seen_entries: list[Any] = list(connection.run_on_commit)
-    seen_ids: set[int] = {id(entry) for entry in seen_entries}
+    seen_ids: set[int] = {id(entry[1]) for entry in seen_entries}
     try:
         yield callbacks
     finally:
         while True:
-            new_entries = [e for e in connection.run_on_commit if id(e) not in seen_ids]
+            new_entries = [e for e in connection.run_on_commit if id(e[1]) not in seen_ids]
             if not new_entries:
                 break
             seen_entries.extend(new_entries)
-            seen_ids.update(id(entry) for entry in new_entries)
+            seen_ids.update(id(entry[1]) for entry in new_entries)
             for entry in new_entries:
                 # Django 5.2 entries are (savepoint_ids, callback, robust).
                 callback, robust = entry[1], entry[2]
