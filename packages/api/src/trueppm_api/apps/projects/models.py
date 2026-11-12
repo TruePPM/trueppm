@@ -3936,7 +3936,6 @@ class Task(VersionedModel):
         max_length=12,
         choices=EstimateStatus.choices,
         null=True,
-        blank=True,
         db_index=True,
         help_text="Approval state for three-point estimates (suggest_approve mode only).",
     )

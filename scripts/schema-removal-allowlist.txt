@@ -241,3 +241,6 @@ schema:PaginatedMeWorkTaskList
 # RoleOrdinal. Wire values are unchanged. Recorded in stability.md under
 # "Current deprecations" as a pre-GA break.
 schema:RoleEnum
+
+# Only consumer was POST /me/notifications/mark-all-read/, which reads no body.
+schema:NotificationRequest

@@ -410,6 +410,25 @@ NO_BODY_PATHS = [
     "/api/v1/projects/{project_pk}/mention-groups/{id}/unmute/",
     "/api/v1/programs/{program_pk}/mention-groups/{id}/mute/",
     "/api/v1/programs/{program_pk}/mention-groups/{id}/unmute/",
+    # Annotated actions that carried a responses= but no request=, so the viewset's
+    # write serializer was published as a required body.
+    "/api/v1/me/notifications/mark-all-read/",
+    "/api/v1/programs/{id}/close/",
+    "/api/v1/programs/{id}/reopen/",
+    "/api/v1/programs/{id}/remove-sample/",
+    "/api/v1/projects/{id}/archive/",
+    "/api/v1/projects/{id}/unarchive/",
+    "/api/v1/projects/{id}/product-backlog/auto-rank/",
+    "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/acknowledge/",
+    "/api/v1/sprints/{id}/activate/",
+    "/api/v1/sprints/{id}/cancel/",
+    "/api/v1/sprints/{id}/unbind-milestone/",
+    "/api/v1/scope-changes/{id}/accept/",
+    "/api/v1/scope-changes/{id}/reject/",
+    "/api/v1/tasks/{id}/approve-estimates/",
+    "/api/v1/projects/{project_pk}/task-runs/{id}/cancel/",
+    "/api/v1/projects/{project_pk}/webhooks/{id}/test/",
+    "/api/v1/programs/{program_pk}/webhooks/{id}/test/",
 ]
 
 
@@ -558,3 +577,80 @@ def test_documented_roster_body_example_matches_the_declared_type(schema: dict[s
     declared = _request_schema(schema, _operation(schema, PROJECT_ADD))["properties"]["user"]
     assert declared["type"] == "integer"
     assert isinstance(example["user"], int), example
+
+
+# ---------------------------------------------------------------------------
+# Actions that DO read a body: the declared shape must be the one they validate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_properties"),
+    [
+        ("/api/v1/sprints/{id}/close/", {"carry_over_to", "pending_disposition"}),
+        ("/api/v1/sprints/{id}/scope-changes/accept/", {"ids"}),
+        ("/api/v1/sprints/{id}/scope-changes/reject/", {"ids"}),
+        ("/api/v1/tasks/{id}/split/", {"name"}),
+    ],
+)
+def test_body_reading_actions_declare_the_body_they_validate(
+    schema: dict[str, Any], path: str, expected_properties: set[str]
+) -> None:
+    """These fell back to a whole-object write serializer (``SprintRequest`` etc.)."""
+    declared = _request_schema(schema, _operation(schema, path))
+    assert set(declared["properties"]) == expected_properties
+    # Every field has a default or is optional, so none of the old whole-object
+    # required fields (name, start_date, ...) may leak back in.
+    assert not set(declared.get("required", [])) - expected_properties
+
+
+@pytest.mark.django_db
+def test_archive_and_unarchive_succeed_with_an_empty_body(
+    project: Project, admin_user: Any
+) -> None:
+    client = _client(admin_user)
+
+    archived = client.post(f"/api/v1/projects/{project.id}/archive/")
+    assert archived.status_code == 200, archived.data
+    unarchived = client.post(f"/api/v1/projects/{project.id}/unarchive/")
+    assert unarchived.status_code == 200, unarchived.data
+
+
+@pytest.mark.django_db
+def test_mark_all_read_succeeds_with_an_empty_body(admin_user: Any) -> None:
+    response = _client(admin_user).post("/api/v1/me/notifications/mark-all-read/")
+
+    assert response.status_code == 200, response.data
+    assert response.data == {"updated": 0}
+
+
+# ---------------------------------------------------------------------------
+# estimate_status: '' is not a value the published contract admits
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_blank_estimate_status_is_rejected_by_the_model(project: Project) -> None:
+    """The model no longer allows ``''``; the read-only field has no path that writes it."""
+    from django.core.exceptions import ValidationError
+
+    task = Task.objects.create(project=project, name="T", duration=1)
+    task.estimate_status = ""
+    with pytest.raises(ValidationError) as excinfo:
+        task.full_clean(exclude=["project", "wbs_path"])
+    assert "estimate_status" in excinfo.value.message_dict
+
+
+@pytest.mark.django_db
+def test_patching_a_blank_estimate_status_does_not_store_it(
+    project: Project, admin_user: Any
+) -> None:
+    task = Task.objects.create(project=project, name="T", duration=1)
+
+    response = _client(admin_user).patch(
+        f"/api/v1/tasks/{task.id}/", {"estimate_status": ""}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    task.refresh_from_db()
+    assert task.estimate_status is None

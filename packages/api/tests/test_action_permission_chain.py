@@ -137,16 +137,30 @@ def test_every_inline_action_permission_actually_applies() -> None:
 
 
 @pytest.mark.django_db
-def test_the_known_inline_declarations_are_still_discovered() -> None:
-    """Pin the two known instances by name.
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [
+        ("approve_estimates", {"IsAuthenticated", "IsProjectScheduler", "IsProjectNotArchived"}),
+        ("split", {"IsAuthenticated", "IsProjectBacklogManager", "IsProjectNotArchived"}),
+    ],
+)
+def test_task_actions_keep_their_effective_gate(action: str, expected: set[str]) -> None:
+    """The gate comes from ``get_permissions()`` alone, now that the dead kwargs are gone.
 
-    Without this, deleting the inline kwargs would make the test above pass over an
-    empty list — technically true, and no longer guarding anything. `withdraw_approval`
-    was a third instance until #3371 removed the action (no client consumer, never
-    shipped); approval is one-way until a UI asks for undo.
+    ``approve_estimates`` and ``split`` once also carried an inert
+    ``@action(permission_classes=)``. Pinning the exact effective set proves that
+    deleting the kwargs changed nothing about who may call them, and that the chain
+    branch is the single source of the gate.
     """
-    discovered = {(name, action) for name, _cls, action, _declared in _inline_permission_actions()}
-    assert {
-        ("TaskViewSet", "approve_estimates"),
-        ("TaskViewSet", "split"),
-    } <= discovered
+    from trueppm_api.apps.projects.views import TaskViewSet
+
+    # The MCP token guards are appended to every action by mcp_token_guards(); the
+    # role gate is what is pinned here.
+    effective = {
+        name
+        for name in _effective_permission_names(TaskViewSet, action)
+        if name.startswith("IsAuthenticated") or name.startswith("IsProject")
+    }
+    assert effective == expected
+    kwargs = getattr(getattr(TaskViewSet, action), "kwargs", {})
+    assert "permission_classes" not in kwargs

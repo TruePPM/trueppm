@@ -2326,6 +2326,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Tear down a sample program",
+        request=None,
         responses={204: OpenApiResponse(description="Sample program purged; empty body.")},
     )
     @action(detail=True, methods=["post"], url_path="remove-sample")
@@ -2389,6 +2390,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Close the program",
+        request=None,
         responses={200: ProgramSerializer},
     )
     @action(detail=True, methods=["post"], url_path="close")
@@ -2416,6 +2418,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Reopen a closed program",
+        request=None,
         responses={200: ProgramSerializer},
     )
     @action(detail=True, methods=["post"], url_path="reopen")

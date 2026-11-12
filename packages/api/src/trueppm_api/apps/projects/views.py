@@ -262,6 +262,7 @@ from trueppm_api.apps.projects.serializers import (
     RiskCommentSerializer,
     RiskImportResultSerializer,
     RiskSerializer,
+    ScopeChangeBulkSerializer,
     SignedDownloadUrlSerializer,
     SprintBlockedRollupSerializer,
     SprintBurndownSerializer,
@@ -2344,6 +2345,7 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Auto-rank the product backlog from the active scoring model",
+        request=None,
         responses={
             200: OpenApiResponse(
                 response=inline_serializer(
@@ -2539,6 +2541,7 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Archive a project",
+        request=None,
         responses={200: ProjectSerializer},
     )
     @action(detail=True, methods=["post"], url_path="archive")
@@ -2567,6 +2570,7 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Unarchive a project",
+        request=None,
         responses={200: ProjectSerializer},
     )
     @action(detail=True, methods=["post"], url_path="unarchive")
@@ -6716,19 +6720,19 @@ class TaskViewSet(
                 IsProjectNotArchived(),
             ]
         # ADR-0766 (#2597): approve_estimates is gated to whoever can grant a
-        # SUGGEST_APPROVE approval. Named here because this override replaces the
-        # @action's inline permission_classes entirely (see the ADR-0217 note on
-        # `split` below); an action absent from this if-chain falls through to the
-        # generic IsProjectMember branch, which would let a Viewer call it.
+        # SUGGEST_APPROVE approval. Named here because this override never reads
+        # `permission_classes` (see the note on `split` below); an action absent from
+        # this if-chain falls through to the generic IsProjectMember branch, which
+        # would let a Viewer call it.
         # `withdraw_approval` shared this same branch until #3371 removed the
         # action (no client consumer, never shipped) — approval revocation is
         # one-way until a UI asks for undo; see ADR-0766's amended note.
         if self.action == "approve_estimates":
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         # ADR-0105: splitting a story restructures the backlog → can_manage_backlog
-        # (Admin+), the same gate as auto-rank / epic management. The custom
-        # get_permissions here overrides the @action's inline permission_classes, so
-        # the gate must be declared in this branch to take effect.
+        # (Admin+), the same gate as auto-rank / epic management. This custom
+        # get_permissions never reads `permission_classes`, so the gate is declared
+        # here and nowhere else — do not add an @action(permission_classes=) beside it.
         #
         # That trap is now enforced, not just described: tests/test_action_permission_chain.py
         # resolves what get_permissions() really returns for every inline-declared
@@ -7757,13 +7761,16 @@ class TaskViewSet(
 
     @extend_schema(
         summary="Split a story into a sibling task",
+        request=inline_serializer(
+            name="TaskSplitRequest",
+            fields={"name": serializers.CharField(required=False)},
+        ),
         responses={201: TaskSerializer},
     )
     @action(
         detail=True,
         methods=["post"],
         url_path="split",
-        permission_classes=[IsAuthenticated, IsProjectBacklogManager, IsProjectNotArchived],
     )
     def split(self, request: Request, **kwargs: Any) -> Response:
         """Split a story into a sibling under the same epic (ADR-0105 DA-13).
@@ -7790,16 +7797,16 @@ class TaskViewSet(
 
     @extend_schema(
         summary="Approve pending three-point estimates on a task",
+        request=None,
         responses={
             200: TaskSerializer,
-            400: OpenApiResponse(description="Project estimation_mode is not suggest_approve."),
+            400: state_refusal_400("Project estimation_mode is not suggest_approve."),
         },
     )
     @action(
         detail=True,
         methods=["post"],
         url_path="approve-estimates",
-        permission_classes=[IsAuthenticated, IsProjectScheduler, IsProjectNotArchived],
     )
     def approve_estimates(self, request: Request, **kwargs: Any) -> Response:
         """Accept pending three-point estimates on a task.
@@ -16822,9 +16829,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Activate a sprint",
+        request=None,
         responses={
             200: SprintSerializer,
-            400: OpenApiResponse(description="Sprint is not in PLANNED state."),
+            400: state_refusal_400("Sprint is not in PLANNED state."),
             409: OpenApiResponse(
                 description="Another sprint is already active; body includes conflicting_sprint_id."
             ),
@@ -16928,6 +16936,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Close a sprint",
+        request=SprintCloseRequestSerializer,
         responses={
             202: OpenApiResponse(
                 description=(
@@ -17089,9 +17098,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Cancel a planned sprint",
+        request=None,
         responses={
             200: SprintSerializer,
-            400: OpenApiResponse(description="Sprint is not in PLANNED state."),
+            400: state_refusal_400("Sprint is not in PLANNED state."),
         },
     )
     @action(detail=True, methods=["post"])
@@ -17216,6 +17226,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Unbind a sprint from its milestone",
+        request=None,
         responses={200: SprintSerializer},
     )
     @action(detail=True, methods=["post"], url_path="unbind-milestone")
@@ -17416,6 +17427,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Bulk-accept pending sprint scope changes",
+        request=ScopeChangeBulkSerializer,
         responses={
             200: OpenApiResponse(
                 response=SprintScopeChangeBulkResultSerializer,
@@ -17443,6 +17455,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Bulk-reject pending sprint scope changes",
+        request=ScopeChangeBulkSerializer,
         responses={
             200: OpenApiResponse(
                 response=SprintScopeChangeBulkResultSerializer,
@@ -18394,6 +18407,7 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
 
     @extend_schema(
         summary="Accept a single pending scope change",
+        request=None,
         responses={
             200: OpenApiResponse(
                 response=SprintScopeChangeSingleActionResultSerializer,
@@ -18411,6 +18425,7 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
 
     @extend_schema(
         summary="Reject a single pending scope change",
+        request=None,
         responses={
             200: OpenApiResponse(
                 response=SprintScopeChangeSingleActionResultSerializer,
@@ -22091,6 +22106,7 @@ class TaskCommentViewSet(
     @extend_schema(
         methods=["POST"],
         summary="Acknowledge a comment",
+        request=None,
         responses={
             # POST returns the acknowledgement row — idempotent, so the "already
             # acknowledged" case also 200s with the existing row, not a fresh one.

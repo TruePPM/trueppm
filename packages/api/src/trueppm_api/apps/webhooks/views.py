@@ -300,6 +300,7 @@ class WebhookViewSet(
 
     @extend_schema(
         summary="Send a test webhook ping",
+        request=None,
         responses={
             202: inline_serializer(
                 name="WebhookTestPingResponse",
