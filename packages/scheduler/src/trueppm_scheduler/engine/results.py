@@ -77,6 +77,12 @@ class DrivingEdge:
     start that is not a recorded actual, the identity holds. The scheduler's
     ``test_cpm_invariants.py`` checks exactly that scope and pins all four
     exceptions.
+
+    Attributes:
+        predecessor_id: Id of the predecessor task.
+        successor_id: Id of the successor task whose early date the link drives.
+        dep_type: Link type as its string value: ``"FS"``, ``"SS"``, ``"FF"`` or
+            ``"SF"``.
     """
 
     predecessor_id: str
@@ -150,6 +156,18 @@ class ScheduleResult:
     ('Mon 10', False)
     >>> finish(3)  # Tuesday midnight, after Monday's work: one working day later
     ('Mon 10', True)
+
+    Attributes:
+        project_id: Id of the scheduled project.
+        project_start: The date the schedule is anchored to.
+        project_finish: The latest ``early_finish`` across all tasks; a day, not
+            an instant (see the display rule above).
+        tasks: Copies of the input tasks with every CPM field populated. Order
+            is unspecified; look tasks up by ``id``.
+        critical_path: Ids of every critical task, in topological order (not a
+            single chain).
+        driving_edges: Dependencies that bind their successor or have zero
+            relationship free float, sorted deterministically.
     """
 
     project_id: str
@@ -215,6 +233,11 @@ class TaskSensitivity:
     [0, 1] — the @RISK-style "sensitivity tornado" measure of *which tasks move
     the finish most*. Tasks whose duration cannot vary the finish (deterministic,
     completed, or zero-duration milestones) are omitted rather than reported as 0.
+
+    Attributes:
+        task_id: Id of the task whose duration is measured.
+        index: Absolute Spearman rank correlation in [0, 1] between the task's
+            sampled duration and the project's completion offset.
     """
 
     task_id: str
