@@ -1919,3 +1919,45 @@ def test_clean_push_carries_no_warnings_key(project: Project, admin_user: Any) -
     )
     assert resp.status_code == 201
     assert "warnings" not in resp.data
+
+
+@pytest.mark.django_db
+def test_resolve_assignee_unique_email_resolves(project: Project, member_user: Any) -> None:
+    """A single case-insensitive match resolves to that member (#4919)."""
+    from trueppm_api.apps.projects.inbound_sync import _resolve_assignee
+
+    user, pending = _resolve_assignee(member_user.email.upper(), project)
+    assert user == member_user
+    assert pending is None
+
+
+@pytest.mark.django_db
+def test_resolve_assignee_ambiguous_email_is_unresolved(project: Project, member_user: Any) -> None:
+    """Two members whose emails differ only by case are ambiguous: keep the raw email (#4919)."""
+    from trueppm_api.apps.projects.inbound_sync import _resolve_assignee
+
+    twin = User.objects.create_user(
+        username="twinuser", email=member_user.email.upper(), password="pw"
+    )
+    ProjectMembership.objects.create(project=project, user=twin, role=Role.MEMBER)
+    user, pending = _resolve_assignee(member_user.email, project)
+    assert user is None
+    assert pending == member_user.email
+
+
+@pytest.mark.django_db
+def test_resolve_assignee_ignores_non_member_and_deleted_twin(
+    project: Project, member_user: Any
+) -> None:
+    """A same-email non-member or soft-deleted member does not create ambiguity (#4919)."""
+    from trueppm_api.apps.projects.inbound_sync import _resolve_assignee
+
+    outsider = User.objects.create_user(
+        username="outsider", email=member_user.email.upper(), password="pw"
+    )
+    gone = User.objects.create_user(username="gone", email=member_user.email.title(), password="pw")
+    ProjectMembership.objects.create(project=project, user=gone, role=Role.MEMBER, is_deleted=True)
+    assert outsider.pk != gone.pk
+    user, pending = _resolve_assignee(member_user.email, project)
+    assert user == member_user
+    assert pending is None

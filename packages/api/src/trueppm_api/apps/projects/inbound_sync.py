@@ -467,16 +467,23 @@ def _resolve_assignee(
     # only matches if the email belongs to a current member.  ``is_active=True``
     # keeps a deactivated account (still a member row until it is cleaned up) from
     # being bound as the task's assignee; its email stays pending instead.
-    user = (
+    # ``auth.User.email`` is not unique, so two members can share an address.
+    # Fetch at most two distinct ids to detect that collision: picking one with
+    # ``.first()`` would assign the task to an arbitrary member.  An ambiguous
+    # email is treated as unresolved and kept raw for later resolution.
+    # ``order_by()`` clears Meta.ordering so ``distinct()`` dedupes by id.
+    matched_ids = list(
         User.objects.filter(email__iexact=assignee_email, is_active=True)
         .filter(
             memberships__project=project,
             memberships__is_deleted=False,
         )
-        .first()
+        .order_by()
+        .values_list("pk", flat=True)
+        .distinct()[:2]
     )
-    if user is not None:
-        return (user, None)
+    if len(matched_ids) == 1:
+        return (User.objects.get(pk=matched_ids[0]), None)
     return (None, assignee_email)
 
 
