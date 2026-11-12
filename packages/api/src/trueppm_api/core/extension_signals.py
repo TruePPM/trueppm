@@ -26,6 +26,15 @@ operation proceed past a hold that failed to register, inverting the safety
 property. Those sites are annotated in place; see
 ``scripts/check-extension-signals.sh``, which enforces this helper everywhere else.
 
+Receivers and the database
+--------------------------
+
+A receiver may read and write the database inline. When the dispatch happens
+inside a transaction, each receiver runs in its own savepoint, so a receiver's
+``DatabaseError`` rolls back only that receiver's work and leaves the OSS
+transaction usable. The helper skips the savepoint when no receiver is
+connected.
+
 The ``sender`` convention
 -------------------------
 
@@ -87,6 +96,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from django.db import connection, transaction
 from django.dispatch import Signal
 
 logger = logging.getLogger(__name__)
@@ -134,11 +144,39 @@ def dispatch_extension_signal(signal: Signal, *, sender: type[Any] | None, **kwa
             sender,
             type(sender).__name__,
         )
-    for receiver, response in signal.send_robust(sender=sender, **kwargs):
+    if not signal.receivers:
+        return
+    if not connection.in_atomic_block:
+        _log_failures(signal, sender, signal.send_robust(sender=sender, **kwargs))
+        return
+    # Inside a transaction (ATOMIC_REQUESTS, or an inline model save) a receiver
+    # that hits a DatabaseError leaves PostgreSQL in the aborted state while
+    # send_robust only contains the Python exception: the next OSS query would
+    # raise InFailedSqlTransaction, or COMMIT would silently become ROLLBACK.
+    # A savepoint per receiver rolls back just that receiver's database work.
+    sync_receivers, async_receivers = signal._live_receivers(sender)
+    results: list[tuple[Any, Any]] = []
+    for receiver in sync_receivers:
+        try:
+            with transaction.atomic(savepoint=True):
+                response = receiver(signal=signal, sender=sender, **kwargs)
+        except Exception as err:
+            results.append((receiver, err))
+        else:
+            results.append((receiver, response))
+    for receiver in async_receivers:
+        # Extension receivers are synchronous by contract; an async one would
+        # run on another connection and be unable to poison this transaction,
+        # but we do not re-implement Django's event-loop bridge for it.
+        logger.error("Extension-signal receiver is async and was skipped: %r", receiver)
+    _log_failures(signal, sender, results)
+
+
+def _log_failures(signal: Signal, sender: type[Any] | None, results: Any) -> None:
+    for receiver, response in results:
         if isinstance(response, Exception):
-            # exc_info explicitly: send_robust hands back the exception object
-            # rather than re-raising, so there is no active exception for
-            # logger.exception() to pick up from context.
+            # exc_info explicitly: the exception object is handed back rather
+            # than re-raised, so there is no active exception to pick up.
             logger.error(
                 "Extension-signal receiver failed: receiver=%s sender=%s",
                 getattr(receiver, "__qualname__", repr(receiver)),

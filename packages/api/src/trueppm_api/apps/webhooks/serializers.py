@@ -185,12 +185,14 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         reset_fields: list[str] = []
         if validated_data.get("is_active") is True and not instance.is_active:
             instance.consecutive_failures = 0
+            instance.first_failure_at = None
             instance.last_failure_at = None
             instance.last_failure_reason = ""
             instance.disabled_at = None
             instance.disabled_reason = ""
             reset_fields = [
                 "consecutive_failures",
+                "first_failure_at",
                 "last_failure_at",
                 "last_failure_reason",
                 "disabled_at",

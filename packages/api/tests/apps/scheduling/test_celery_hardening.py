@@ -81,6 +81,22 @@ class TestDeadLetterRecording:
         assert ft.args == ["arg1"]
         assert ft.kwargs == {"key": "val"}
 
+    def test_unregistered_task_name_warns_but_still_records(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A name outside the Celery registry would make requeue a silent no-op."""
+        with caplog.at_level(logging.WARNING, logger="trueppm_api.apps.scheduling.deadletter"):
+            record_failed_task("not.a.registered.task", "unreg-1", [], {}, RuntimeError("x"))
+        assert FailedTask.objects.filter(task_id="unreg-1").exists()
+        assert any("not in the Celery registry" in r.getMessage() for r in caplog.records)
+
+    def test_registered_task_name_does_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
+        from trueppm_api.apps.webhooks.tasks import deliver_webhook
+
+        with caplog.at_level(logging.WARNING, logger="trueppm_api.apps.scheduling.deadletter"):
+            record_failed_task(deliver_webhook.name, "reg-1", [], {}, RuntimeError("x"))
+        assert not any("not in the Celery registry" in r.getMessage() for r in caplog.records)
+
     def test_record_updates_on_duplicate_task_id(self) -> None:
         """Second failure with same task_id updates the existing record."""
         exc1 = RuntimeError("first")

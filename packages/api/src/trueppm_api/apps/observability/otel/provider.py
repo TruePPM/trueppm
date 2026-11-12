@@ -107,12 +107,16 @@ def register_provider_hook(hook: ProviderHook) -> None:
 
     Order-independent: if :func:`bootstrap` has already run, ``hook`` is invoked
     immediately with the stored context; otherwise it is invoked when
-    :func:`bootstrap` runs. Either way the hook fires exactly once. A hook that
+    :func:`bootstrap` runs. Registering the same callable again is a no-op, so
+    an ``AppConfig.ready()`` that runs more than once cannot attach a span
+    processor twice; a distinct callable still fires once. A hook that
     raises is logged and swallowed so it can never crash app startup.
 
     Args:
         hook: A callable taking the :class:`OTelBootstrapContext`.
     """
+    if hook in _hooks:
+        return
     _hooks.append(hook)
     if _context is not None:
         _invoke_hook(hook, _context)

@@ -383,3 +383,56 @@ def test_risk_changed_reaches_a_sender_filtered_receiver(project: Project) -> No
 
     assert seen == ["saved", "deleted"]
     assert captured_senders == [Risk, Risk]
+
+
+# ---------------------------------------------------------------------------
+# DatabaseError containment: a receiver's failed query must not poison the
+# surrounding transaction (savepoint per receiver).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_receiver_database_error_does_not_abort_the_transaction() -> None:
+    from django.db import IntegrityError, connection, transaction
+
+    sig = django.dispatch.Signal()
+
+    def _db_boom(sender: object, **kwargs: object) -> None:
+        with connection.cursor() as cur:
+            cur.execute("SELECT 1/0")
+
+    sig.connect(_db_boom, weak=False)
+    try:
+        with transaction.atomic():
+            dispatch_extension_signal(sig, sender=object)
+            # Without a savepoint this raises InFailedSqlTransaction.
+            with connection.cursor() as cur:
+                cur.execute("SELECT 1")
+                assert cur.fetchone() == (1,)
+    finally:
+        sig.disconnect(_db_boom)
+    assert IntegrityError  # imported for clarity of the failure class under test
+
+
+@pytest.mark.django_db(transaction=True)
+def test_receiver_database_error_on_task_status_change_keeps_the_save() -> None:
+    from django.db import connection
+
+    def _db_boom(sender: object, **kwargs: object) -> None:
+        with connection.cursor() as cur:
+            cur.execute("SELECT 1/0")
+
+    task_status_changed.connect(_db_boom, weak=False)
+    try:
+        project = Project.objects.create(
+            name="P", calendar=Calendar.objects.create(name="C"), start_date=date(2026, 1, 5)
+        )
+        task = Task.objects.create(
+            project=project, name="T", duration=1, status=TaskStatus.NOT_STARTED
+        )
+        task.status = TaskStatus.IN_PROGRESS
+        task.save()
+    finally:
+        task_status_changed.disconnect(_db_boom)
+    task.refresh_from_db()
+    assert task.status == TaskStatus.IN_PROGRESS

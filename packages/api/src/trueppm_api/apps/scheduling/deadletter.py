@@ -28,9 +28,21 @@ def record_failed_task(
     the signal means "newly dead-lettered", not "failed again". ``project_id``
     is threaded through from the caller when known (it is not derivable here).
     """
+    # The row is a replay record: requeue feeds task_name to send_task. An
+    # unregistered name makes a requeue a silent no-op, so say so at record time.
+    # Log-and-continue: dead-letter recording must never break the failure path.
+    from celery import current_app
+
     from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
     from trueppm_api.apps.scheduling.signals import celery_task_permanently_failed
     from trueppm_api.core.extension_signals import dispatch_extension_signal
+
+    if task_name not in current_app.tasks:
+        logger.warning(
+            "Dead-lettering task %r which is not in the Celery registry; "
+            "requeue will not be able to replay it",
+            task_name,
+        )
 
     exc_type = type(exception).__qualname__
     exc_msg = str(exception)
