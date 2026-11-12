@@ -1154,6 +1154,26 @@ class TestRiskOwnerMembership:
         assert r.status_code == 201
         assert r.data["owner"] is None
 
+    def test_update_owner_to_deactivated_member_rejected(
+        self,
+        client: APIClient,
+        project: Project,
+        risk: Risk,
+        owner_membership: ProjectMembership,
+        member_user: object,
+        member_membership: ProjectMembership,
+    ) -> None:
+        """A deactivated user keeps a live membership row; still not a valid owner (#4596)."""
+        member_user.is_active = False
+        member_user.save(update_fields=["is_active"])
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/risks/{risk.pk}/",
+            {"owner": str(member_user.pk)},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "owner" in r.data
+
     def test_update_owner_to_non_member_rejected(
         self,
         client: APIClient,

@@ -47,7 +47,7 @@ A schedule recompute broadcasts two events when the CPM run commits:
 | Event | Payload |
 |-------|---------|
 | `task_created` | `{"id": "..."}` |
-| `task_updated` | `{"id": "..."}` |
+| `task_updated` | `{"id": "...", "changed_fields": [...], "version": N \| null, "actor_id": "..." \| null, "ts": "..."}` — a field-level delta naming which fields changed, never their values; see [WebSocket API](/api/websockets/) for when `version` and `actor_id` are `null` |
 | `task_deleted` | `{"id": "..."}` |
 
 ### Dependencies

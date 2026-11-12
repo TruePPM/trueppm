@@ -47,7 +47,10 @@ _BROADCAST_HELPERS = frozenset({"broadcast_board_event", "abroadcast_board_event
 # into a single scannable one. Ratcheted down rather than left at 15 so a
 # future refactor that reintroduces a dict-variable payload has to raise this
 # number deliberately instead of coasting under unused headroom.
-_MAX_UNSCANNABLE_SITES = 11
+# Raised 11 -> 12 for the ``extra`` branch of ``broadcast_task_updated``, which
+# spreads caller context keys under the standard ``task_updated`` keys; the
+# helper's literal branch stays scannable and always carries ``id``.
+_MAX_UNSCANNABLE_SITES = 12
 
 # Events that are pure signals — "something in this collection changed, re-read
 # it" — and correctly carry no payload at all. Listed rather than inferred so

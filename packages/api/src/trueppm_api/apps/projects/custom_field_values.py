@@ -226,7 +226,9 @@ def _write_user(field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]) -> 
     # row against an unconditional (project, user) constraint, so an unfloored ``exists``
     # accepts someone who has already left the project as a valid value for the field.
     is_member = (
-        ProjectMembership.live().filter(project_id=field.project_id, user_id=user.pk).exists()
+        ProjectMembership.live()
+        .filter(project_id=field.project_id, user_id=user.pk, user__is_active=True)
+        .exists()
     )
     if not is_member:
         raise not_member
