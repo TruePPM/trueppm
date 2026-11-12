@@ -100,7 +100,7 @@ function DecisionsPlaceholder({
   }
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading decisions">
+      <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading decisions">
         {[0, 1, 2].map((i) => (
           <div
             key={i}

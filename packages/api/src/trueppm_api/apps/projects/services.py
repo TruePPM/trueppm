@@ -4846,7 +4846,10 @@ def reforecast_bound_milestone(
         Task,
     )
     from trueppm_api.apps.projects.signals import milestone_forecast_recomputed
-    from trueppm_api.apps.scheduling.finish_reading import task_finish_at_day_start
+    from trueppm_api.apps.scheduling.finish_reading import (
+        FINISH_READING_FIELDS,
+        task_finish_at_day_start,
+    )
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
     from trueppm_api.core.extension_signals import dispatch_extension_signal
 
@@ -4856,11 +4859,7 @@ def reforecast_bound_milestone(
             "pk",
             "project_id",
             "early_finish",
-            "is_milestone",
-            "milestone_at_day_end",
-            "actual_start",
-            "actual_finish",
-            "percent_complete",
+            *FINISH_READING_FIELDS,
         )
         .first()
     )

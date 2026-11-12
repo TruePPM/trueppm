@@ -605,6 +605,8 @@ function RecentDeliveries({ scope, webhookId }: { scope: IntegrationScope; webho
       {isLoading ? (
         <div
           className="h-16 bg-neutral-surface-sunken rounded motion-safe:animate-pulse"
+          role="status"
+          aria-label="Loading deliveries"
           aria-busy="true"
         />
       ) : forbidden ? (

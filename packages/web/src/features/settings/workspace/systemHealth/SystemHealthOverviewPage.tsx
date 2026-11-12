@@ -334,7 +334,7 @@ function ComponentCard({ component }: { component: SystemHealthComponent }) {
 
 function OverviewSkeleton() {
   return (
-    <div className="px-6 py-5 space-y-5" aria-label="Loading system health" aria-busy="true">
+    <div role="status" className="px-6 py-5 space-y-5" aria-label="Loading system health" aria-busy="true">
       {/* Component cards */}
       <div
         className="grid gap-3"

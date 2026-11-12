@@ -47,6 +47,57 @@ if [ ! -s "$RESULTS" ]; then
   exit 1
 fi
 
+# Suppression-expiry warning (#4391). NON-BLOCKING: it prints to stderr and never
+# changes the exit code. A suppression that has ALREADY expired is not listed as a
+# pass here: OSV-Scanner stops honoring it, so its advisory reappears in the results
+# and this gate fails it on severity below, exactly as before. This only tells
+# people ahead of the date, instead of every pipeline going red on the same morning.
+#
+# Reads every `effectiveUntil` (PackageOverrides) and `ignoreUntil` (IgnoredVulns)
+# date in packages/*/osv-scanner.toml, which covers web, website, mobile, api and
+# scheduler. Knobs, mainly for the self-test: OSV_SUPPRESSION_ROOT (default ".")
+# is the repo root, OSV_TODAY (YYYY-MM-DD) overrides the clock, and
+# OSV_EXPIRY_WARN_DAYS (default 30) is the warning window.
+warn_expiring_suppressions() {
+  root="${OSV_SUPPRESSION_ROOT:-.}"
+  today="${OSV_TODAY:-$(date -u +%Y-%m-%d)}"
+  window="${OSV_EXPIRY_WARN_DAYS:-30}"
+  found=""
+  for toml in "$root"/packages/*/osv-scanner.toml; do
+    [ -f "$toml" ] || continue
+    # One "<line>\t<key>\t<date>\t<package or id>" record per dated entry; the
+    # label is the nearest preceding name/id inside the same [[table]] block.
+    entries="$(awk '
+      /^\[\[/ { label = "" }
+      /^(name|id)[ \t]*=/ { split($0, a, "\""); label = a[2] }
+      /^(effectiveUntil|ignoreUntil)[ \t]*=[ \t]*[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ {
+        key = $1; d = $0; sub(/^[^=]*=[ \t]*/, "", d); sub(/[^0-9-].*$/, "", d)
+        printf "%d\t%s\t%s\t%s\n", NR, key, d, label
+      }' "$toml")"
+    [ -n "$entries" ] || continue
+    rel="${toml#"$root"/}"
+    report="$(printf '%s\n' "$entries" | jq -Rr --arg today "$today" --argjson window "$window" --arg file "$rel" '
+      split("\t") as $f
+      | (($f[2] + "T00:00:00Z" | fromdate) - ($today + "T00:00:00Z" | fromdate)) / 86400 | floor as $days
+      | select($days <= $window)
+      | (if $days < 0 then "EXPIRED \(-$days)d ago" else "expires in \($days)d" end) as $when
+      | "  \($file):\($f[0])  \($f[3])  \($f[1]) = \($f[2])  (\($when))"' 2>/dev/null)" || report=""
+    [ -z "$report" ] || found="${found}${report}
+"
+  done
+  if [ -n "$found" ]; then
+    {
+      echo "osv-severity-gate: WARNING — OSV suppressions expiring within ${window} days (or already expired):"
+      printf '%s' "$found"
+      echo "  Re-triage each: drop it if the lockfile now resolves a patched version, else extend it"
+      echo "  with a fresh date tied to its tracking issue. Expired entries stop suppressing and fail"
+      echo "  this gate when the advisory is HIGH/CRITICAL."
+      echo ""
+    } >&2
+  fi
+}
+warn_expiring_suppressions
+
 # jq filter: flatten OSV JSON to one record per advisory group. The numeric
 # severity is group.max_severity (a CVSS base score string, "" when unscored).
 # The fallback label is the max database_specific.severity across the group's

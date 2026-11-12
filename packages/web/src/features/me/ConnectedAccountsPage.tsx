@@ -74,7 +74,7 @@ export function ConnectedAccountsPage() {
 
   if (isLoading) {
     return (
-      <section
+      <section role="status"
         aria-busy="true"
         aria-label="Loading connected accounts"
         className="p-6 max-w-3xl mx-auto"

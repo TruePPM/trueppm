@@ -218,3 +218,28 @@ def test_soft_deleted_membership_is_not_a_valid_assignee(
     )
     assert r.status_code == 400, r.data
     assert "assignee" in r.data
+
+
+@pytest.mark.django_db
+def test_create_with_deactivated_member_assignee_rejected(
+    pm_client: APIClient,
+    project: Project,
+    member_user: object,
+    member_membership: ProjectMembership,
+) -> None:
+    """A deactivated account keeps its membership row but must not take work (#4596)."""
+    member_user.is_active = False  # type: ignore[attr-defined]
+    member_user.save(update_fields=["is_active"])  # type: ignore[attr-defined]
+    r = pm_client.post(
+        "/api/v1/tasks/",
+        {
+            "name": "Departed",
+            "duration": 1,
+            "project": str(project.pk),
+            "assignee": member_user.pk,  # type: ignore[attr-defined]
+        },
+        format="json",
+    )
+    assert r.status_code == 400, r.data
+    assert "assignee" in r.data
+    assert not Task.objects.filter(name="Departed").exists()

@@ -430,7 +430,7 @@ export function RetentionPurgePage() {
           title="Retention & purge"
           subtitle="Operational data is deleted permanently once older than its window. Times are UTC, no DST."
         />
-        <div className="px-6 py-5 space-y-5" aria-busy="true" aria-label="Loading retention settings">
+        <div role="status" className="px-6 py-5 space-y-5" aria-busy="true" aria-label="Loading retention settings">
           <div className="h-[260px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
           <div className="h-[150px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
           <div className="h-[180px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />

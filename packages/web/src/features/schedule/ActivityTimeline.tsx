@@ -628,7 +628,7 @@ function ActivityRow({
 
 function ActivitySkeleton() {
   return (
-    <div className="flex flex-col" aria-busy="true" aria-label="Loading activity">
+    <div role="status" className="flex flex-col" aria-busy="true" aria-label="Loading activity">
       {[0, 1, 2].map((i) => (
         <div key={i} className="flex gap-3">
           <div className="flex w-7 shrink-0 flex-col items-center">

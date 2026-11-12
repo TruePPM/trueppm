@@ -33,7 +33,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     TaskType,
 )
-from trueppm_api.apps.sync.broadcast import broadcast_board_event
+from trueppm_api.apps.sync.broadcast import broadcast_board_event, defer_task_updated
 
 # ── Scoring ─────────────────────────────────────────────────────────────────
 
@@ -156,8 +156,9 @@ def send_to_refine(task: Task, actor: Any) -> Task:
 
 
 def _broadcast_task(task: Task) -> None:
-    pid, tid = str(task.project_id), str(task.id)
-    transaction.on_commit(lambda: broadcast_board_event(pid, "task_updated", {"id": tid}))
+    # actor=None: the DoR hooks invalidate only the backlog keys, so the actor's own
+    # tasks cache relies on this frame to refresh — it must not read as a self-echo.
+    defer_task_updated(task, changed_fields=["dor"], actor=None)
 
 
 # ── Auto-rank ────────────────────────────────────────────────────────────────

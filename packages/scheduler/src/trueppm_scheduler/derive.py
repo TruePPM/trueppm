@@ -126,6 +126,25 @@ class DerivationContribution:
     of days the working-day snap pushed the raw offset (lag/duration arithmetic is
     calendar-agnostic; the calendar's own contribution is this snap), computed as
     ``(snapped_working_day - raw_offset).days`` — never estimated.
+
+    Attributes:
+        kind: Constraint category, for example ``project_start``,
+            ``predecessor_fs`` or ``total_float``; the full set is listed in the
+            comments on the field below.
+        source_task_id: Driving predecessor or successor task id for a link term;
+            ``None`` for an anchor.
+        source_task_name: The driving task's name, for citation; ``None`` for
+            anchors.
+        dep_type: Dependency type of the link (``FS``/``SS``/``FF``/``SF``);
+            ``None`` for anchors.
+        lag_days: Signed lag in calendar days on the link; ``None`` for anchors.
+        imposed_date: The date this constraint forced onto the target; ``None``
+            for a float slack term.
+        calendar_days_added: Days the working-day snap added to the raw offset;
+            ``None`` when not applicable.
+        slack_days: Working-day slack this term allows; ``None`` when not
+            applicable.
+        is_binding: ``True`` on the single contribution the engine selected.
     """
 
     #: Constraint category: ``project_start`` | ``data_date`` |
@@ -190,6 +209,19 @@ class Derivation:
     contribution the engine selected; ``contributions`` is every candidate it
     weighed (with the binding one flagged), so a consumer can show not just the
     winner but what it beat.
+
+    Attributes:
+        task_id: Id of the task the value belongs to.
+        task_name: The task's name.
+        quantity: Which value is explained, a :class:`Quantity` value such as
+            ``early_start`` or ``total_float``.
+        value: The derived value: an ISO-8601 date string, or an integer count
+            of working days for the float quantities; ``None`` when absent.
+        pass_: Which pass produced it (``forward`` or ``backward``). Serialized
+            as ``"pass"``; the underscore avoids the Python keyword.
+        is_critical: Whether the task is on the critical path.
+        binding: The contribution the engine selected, or ``None``.
+        contributions: Every candidate weighed, with the binding one flagged.
     """
 
     task_id: str

@@ -161,6 +161,11 @@ class CycleCheck:
     callers — the pip wheel ships this API, so its shape is a forward-compatibility
     contract (#1325). Truthy iff a cycle was found, so ``if find_cycle(...):`` still
     reads naturally.
+
+    Attributes:
+        cycle: The cycle as an ordered list of task IDs with the first repeated
+            at the end (for example ``["A", "B", "C", "A"]``), or ``None`` when
+            the graph is acyclic.
     """
 
     #: The cycle as an ordered list of task IDs with the first repeated at the end

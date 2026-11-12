@@ -1643,3 +1643,39 @@ map $http_x_forwarded_proto $forwarded_proto {
 }
 {{- end }}
 {{- end -}}
+
+{{/*
+trueppm.durationSeconds — convert a Prometheus-style duration string ("48h",
+"1h30m", "2d") into whole seconds (#4487). PromQL has no duration literal inside an
+`expr` comparison on the Prometheus 2.x line, and the alert thresholds that compare
+a `time() - metric` age need a number, so the operator-facing duration string is
+resolved here. Units: y w d h m s (y = 365d, matching Prometheus). values.schema.json
+restricts the input to that grammar; a string it would have refused is not parsed.
+*/}}
+{{- define "trueppm.durationSeconds" -}}
+{{- $total := 0 -}}
+{{- $mult := dict "y" 31536000 "w" 604800 "d" 86400 "h" 3600 "m" 60 "s" 1 -}}
+{{- range regexFindAll "[0-9]+[ywdhms]" . -1 -}}
+{{- $n := regexFind "[0-9]+" . | int64 -}}
+{{- $total = add $total (mul $n (index $mult (regexFind "[ywdhms]$" .))) -}}
+{{- end -}}
+{{- $total -}}
+{{- end -}}
+
+{{/*
+trueppm.alertSeconds — resolve one age threshold that was an integer-seconds key
+and is now a duration-string key (#4487). Precedence: the new duration key, then the
+deprecated integer-seconds key (kept for one minor so an existing override file
+keeps working), then the chart default. Takes a dict: new, old, default (seconds).
+The deprecated key is read with a nil guard rather than `default`, so an explicit
+zero-tolerance 0 is not clobbered (#4351).
+*/}}
+{{- define "trueppm.alertSeconds" -}}
+{{- $s := int64 .default -}}
+{{- if .new -}}
+{{- $s = include "trueppm.durationSeconds" .new | int64 -}}
+{{- else if not (kindIs "invalid" .old) -}}
+{{- $s = int64 .old -}}
+{{- end -}}
+{{- $s -}}
+{{- end -}}

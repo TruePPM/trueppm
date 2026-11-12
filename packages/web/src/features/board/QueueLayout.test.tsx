@@ -107,16 +107,17 @@ describe('groupTasksForQueue', () => {
     expect(nextUp?.tasks.map((t) => t.id)).toEqual(['high', 'low']);
   });
 
-  it('sorts backlog by statusEnteredAt descending (newest first)', () => {
+  it('sorts backlog by priorityRank ascending, unranked last, regardless of recency', () => {
     const groups = groupTasksForQueue(
       [
-        makeTask({ id: 'older', status: 'BACKLOG', statusEnteredAt: '2026-01-01T00:00:00Z' }),
-        makeTask({ id: 'newer', status: 'BACKLOG', statusEnteredAt: '2026-04-01T00:00:00Z' }),
+        makeTask({ id: 'unranked', status: 'BACKLOG', statusEnteredAt: '2026-05-01T00:00:00Z' }),
+        makeTask({ id: 'low', status: 'BACKLOG', priorityRank: 5, statusEnteredAt: '2026-04-01T00:00:00Z' }),
+        makeTask({ id: 'high', status: 'BACKLOG', priorityRank: 1, statusEnteredAt: '2026-01-01T00:00:00Z' }),
       ],
       NOW,
     );
     const backlog = groups.find((g) => g.key === 'backlog');
-    expect(backlog?.tasks.map((t) => t.id)).toEqual(['newer', 'older']);
+    expect(backlog?.tasks.map((t) => t.id)).toEqual(['high', 'low', 'unranked']);
   });
 
   it('omits ON_HOLD tasks from every group (legacy status, intentionally inert)', () => {
@@ -353,7 +354,7 @@ describe('QueueRow overflow menu (issue 1610)', () => {
     expect(screen.getByRole('menuitem', { name: /Open details/ })).toBeInTheDocument();
   });
 
-  it('does not offer Promote / Demote on the Backlog group (sorted by recency, not priority)', async () => {
+  it('does not offer Promote / Demote on the Backlog group (priority-sorted but not reorderable)', async () => {
     const user = userEvent.setup();
     render(
       <QueueLayout

@@ -32,6 +32,13 @@
 # names to be served by the NEW image. Set but empty (the resolver found no
 # prior release) logs the pass as SKIPPED. Unset, no prior pass runs.
 #
+# Negative control (#4392). After the asset check passes, a SECOND container of
+# the same image has its asset-manifest.json deleted (its own writable layer —
+# the image and the first container are untouched) and the baked nginx.conf
+# must answer /asset-manifest.json with 404. Without the `= /asset-manifest.json`
+# location it falls through the SPA fallback to index.html with 200, which is
+# the shape that defeats the readiness-probe invariant of #4359.
+#
 # Usage: scripts/web-image-asset-smoke.sh <image-ref>
 # Exit:  0 image served every asset · non-zero otherwise (container logs printed)
 
@@ -64,9 +71,10 @@ else
 fi
 
 PRIOR_NAME="web-asset-smoke-prior-$$"
+NC_NAME="web-asset-smoke-nc-$$"
 PRIOR_DIR=""
 cleanup() {
-    docker rm -f "$NAME" "$PRIOR_NAME" > /dev/null 2>&1 || true
+    docker rm -f "$NAME" "$PRIOR_NAME" "$NC_NAME" > /dev/null 2>&1 || true
     [ -z "$PRIOR_DIR" ] || rm -rf "$PRIOR_DIR"
 }
 trap cleanup EXIT INT TERM
@@ -113,3 +121,28 @@ if ! sh "$HERE/check-served-assets.sh" "$BASE"; then
     docker logs "$NAME" 2>&1 | tail -n 40 >&2 || true
     exit 1
 fi
+
+# Negative control: a build missing its manifest must 404, never SPA-fall-back.
+docker run -d --name "$NC_NAME" --add-host api:127.0.0.1 -p "$PUBLISH" "$IMAGE" > /dev/null
+NC_PORT="$(docker port "$NC_NAME" 8080/tcp | sed -n 1p | sed 's/.*://')"
+NC_BASE="http://${HOST}:${NC_PORT}"
+i=0
+until curl -fsS --max-time 5 -o /dev/null "${NC_BASE}/" 2> /dev/null; do
+    i=$((i + 1))
+    if [ "$i" -ge 30 ]; then
+        echo "web-image-asset-smoke: FAIL  negative-control container never answered on ${NC_BASE}/" >&2
+        docker logs "$NC_NAME" >&2 2>&1 || true
+        exit 1
+    fi
+    sleep 1
+done
+if ! docker exec -u 0 "$NC_NAME" rm -f /usr/share/nginx/html/asset-manifest.json; then
+    echo "web-image-asset-smoke: FAIL  could not delete asset-manifest.json in the scratch container" >&2
+    exit 1
+fi
+NC_CODE="$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "${NC_BASE}/asset-manifest.json" || true)"
+if [ "$NC_CODE" != "404" ]; then
+    echo "web-image-asset-smoke: FAIL  ${IMAGE} answered ${NC_CODE} (want 404) for /asset-manifest.json with the manifest deleted — the baked nginx.conf lacks \`location = /asset-manifest.json { try_files \$uri =404; }\` and SPA-falls-back (#4392)." >&2
+    exit 1
+fi
+echo "web-image-asset-smoke: negative control ok  /asset-manifest.json -> 404 with the manifest deleted"

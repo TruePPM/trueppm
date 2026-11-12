@@ -1318,6 +1318,21 @@ lint:aria-modal-focus-trap:
     - bash scripts/check-aria-modal-focus-trap.sh --self-test
     - bash scripts/check-aria-modal-focus-trap.sh
 
+lint:loading-skeleton-role:
+  extends: .fast-job
+  # A loading placeholder with aria-label on a role-less div gives screen readers
+  # no name and no announcement (#4618). See scripts/check-loading-skeleton-role.py.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache python3
+  script:
+    - python3 scripts/check-loading-skeleton-role.py --self-test
+    - python3 scripts/check-loading-skeleton-role.py
+
 lint:hover-reveal-focus:
   extends: .fast-job
   # Hover-only reveal keyboard-reachability gate (web-rule 417, #3619). A
@@ -2659,6 +2674,22 @@ web:playwright-pins:
     # "it passed" is not evidence that it can still fail.
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
+
+lint:nginx-location-parity:
+  extends: .fast-job
+  # Every SPA-serving nginx surface (baked nginx.conf, three Compose templates,
+  # three Helm server blocks) must carry the same top-level locations (#4392).
+  # #4359 added the /asset-manifest.json 404 sentinel to Helm only. Static parse.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash python3
+  script:
+    - bash scripts/check-nginx-location-parity.sh --self-test
+    - bash scripts/check-nginx-location-parity.sh
 
 lint:image-digest-parity:
   extends: .fast-job
@@ -4539,6 +4570,49 @@ scheduler:test:compat:
     - cd packages/scheduler
     - pytest
 
+# Dependency-floor leg (#4473). The wheel's Requires-Dist floors (networkx>=3.0,
+# numpy>=1.26) are immutable once published, yet every other scheduler:* job runs on
+# the locked set and api:wheel-install-probe's `lowest` leg tests the API, where
+# networkx/numpy are transitive and resolve to their newest versions. This leg
+# resolves the scheduler's OWN direct dependencies at their declared floors
+# (`--resolution lowest-direct`) on the 3.11 floor interpreter, then runs the
+# non-fuzz suite, so lowering a floor below what the code needs goes red here and
+# not in a user's install. The runtime install is done on its own first so only the
+# published dependencies are lowered; the dev extras (pytest, hypothesis, ...) are
+# then added without disturbing them, because the suite's tooling is not part of
+# what the wheel promises. Same rules and needs as scheduler:test:compat, so it
+# exists in every MR pipeline that its needs: targets do.
+scheduler:test-lowest:
+  stage: test
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
+  needs:
+    - scheduler:lint
+    - scheduler:type-check
+  <<: *rules-scheduler
+  before_script:
+    # git: the stock slim image does not bake it in, and
+    # tests/test_public_surface.py shells out to it.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - bash scripts/ci/pip-floor.sh
+    - pip install uv==0.9.5 --quiet
+  script:
+    - uv venv /tmp/lowest-venv
+    - uv pip install --python /tmp/lowest-venv/bin/python --resolution lowest-direct -e packages/scheduler
+    - uv pip install --python /tmp/lowest-venv/bin/python -e "packages/scheduler[dev]"
+    # Assert the floors were really used: a silently-ignored flag would make
+    # this a second scheduler:test. Floors mirror the lower bounds of
+    # networkx/numpy in packages/scheduler/pyproject.toml (keep in sync).
+    - |
+      /tmp/lowest-venv/bin/python - <<'PY'
+      from importlib.metadata import version
+      nx, np = version("networkx"), version("numpy")
+      print("networkx", nx, "numpy", np)
+      assert nx == "3.0", f"networkx resolved to {nx}, expected floor 3.0"
+      assert np.startswith("1.26.0"), f"numpy resolved to {np}, expected floor 1.26.0"
+      PY
+    - cd packages/scheduler
+    - /tmp/lowest-venv/bin/python -m pytest
+
 # Forward-looking 3.14 leg (#4542). Nightly only, so it never gates an MR, and
 # allow_failure because 3.14 is deliberately NOT in the classifiers: a red here
 # is a finding to triage, not a regression. Drop allow_failure and add the
@@ -6131,6 +6205,17 @@ sonar:scan:
     GIT_DEPTH: "0"
     # Keep the analysis cache inside the workspace so it can be cached below.
     SONAR_USER_HOME: "$CI_PROJECT_DIR/.sonar"
+    # Pin the scanner JVM heap instead of inheriting the JDK default (25% of the
+    # container's memory), which made the scan depend on which runner picked it
+    # up (#4956). The dell runners cap the container at 8 GB, so the default
+    # heap is 2 GB. The python security sensor alone peaks around 2.0-2.3 GB, and
+    # the 2026-11-11 nightly hit `OutOfMemoryError: Java heap space` in the later
+    # JS/TS pass. Because this job is allow_failure, that left the SonarCloud
+    # dashboard on the previous analysis with nothing going red. The uncapped
+    # runners defaulted to about 6-7 GB. 4 GB clears the observed peak with
+    # margin and still fits the 8 GB cap next to the scanner's Node.js process,
+    # which takes about 2.2 GB there.
+    SONAR_SCANNER_OPTS: "-Xmx4g"
   cache:
     key: sonar-scanner
     paths:

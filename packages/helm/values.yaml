@@ -1545,7 +1545,13 @@ alerts:
     beatStaleFor: "2m"
     outboxDepth: 500
     outboxDepthFor: "10m"
-    outboxOldestAgeSeconds: 900
+    # Age of the oldest pending outbox row that starts the outboxOldestAgeFor
+    # clock, as a Prometheus duration ("15m"; units y w d h m s). Default 15m. The
+    # integer-seconds key `outboxOldestAgeSeconds` it replaces (#4487) is still
+    # honored for one minor and is deprecated; set one, not both (this key wins).
+    # No default is set here on purpose, so the chart can tell an old override file
+    # from a default. 0s is a legitimate zero-tolerance value for this rule.
+    # outboxOldestAge: "15m"
     outboxOldestAgeFor: "10m"
     deadLetter: 0
     deadLetterFor: "5m"
@@ -1563,11 +1569,15 @@ alerts:
     # backup rules render only when backup.enabled.
     backup:
       jobFailedFor: "5m"
-      # No successful backup within this many seconds fires TruePPMBackupStale.
-      # 172800 = 48h = 2x the default daily schedule, so one missed run is
-      # tolerated and two are not. RAISE THIS if you lengthen backup.schedule —
-      # a weekly schedule under a 48h window alerts every week by construction.
-      staleAfterSeconds: 172800
+      # No successful backup within this long fires TruePPMBackupStale, as a
+      # Prometheus duration (units y w d h m s). Default 48h = 2x the default
+      # daily schedule, so one missed run is tolerated and two are not. RAISE THIS
+      # if you lengthen backup.schedule — a weekly schedule under a 48h window
+      # alerts every week by construction. Must be greater than zero. Replaces the
+      # integer-seconds `staleAfterSeconds` (#4487), still honored for one minor and
+      # deprecated; set one, not both (this key wins). Unset here on purpose so the
+      # chart can tell an old override file from a default.
+      # staleAfter: "48h"
       staleFor: "30m"
       # TruePPMBackupNeverSucceeded is the separate "enabled but nothing has
       # ever been produced" rule. It must exceed one full schedule period plus
@@ -1581,12 +1591,15 @@ alerts:
       # TruePPMDemoResetFailed fires. A run in progress counts as unsuccessful until it
       # finishes, so keep this above demo.reset.activeDeadlineSeconds (900s = 15m).
       jobFailedFor: "20m"
-      # No successful reset within this many seconds fires TruePPMDemoResetStale.
-      # 93600 = 26h = one full day plus two hours of slack over the default daily
-      # (#4151) schedule, so one missed run is tolerated and TruePPMDemoResetStale
-      # does not fire every day against its own cadence. RAISE THIS if you lengthen
-      # demo.reset.schedule.
-      staleAfterSeconds: 93600
+      # No successful reset within this long fires TruePPMDemoResetStale, as a
+      # Prometheus duration (units y w d h m s). Default 26h = one full day plus two
+      # hours of slack over the default daily (#4151) schedule, so one missed run is
+      # tolerated and TruePPMDemoResetStale does not fire every day against its own
+      # cadence. RAISE THIS if you lengthen demo.reset.schedule. Must be greater than
+      # zero. Replaces the integer-seconds `staleAfterSeconds` (#4487), still honored
+      # for one minor and deprecated; set one, not both (this key wins). Unset here on
+      # purpose so the chart can tell an old override file from a default.
+      # staleAfter: "26h"
       staleFor: "30m"
       # Must exceed one full schedule period plus slack, or a fresh install alerts
       # before its first scheduled run can happen. 26h suits the daily default.
