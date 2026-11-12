@@ -80,6 +80,16 @@ def _edge_anchor(
     link measures from (:func:`_link_start`): a started task's recorded
     ``actual_start``, never its data-date-floored remaining window (#4523).
 
+    Work dates are read in working time on ``pred_cal`` before anchoring (#4631,
+    #4702): a non-working ``finish`` (a weekend ``actual_finish``) is the end of
+    the last working day before it, and a non-working ``start`` (a weekend
+    ``actual_start``) the start of the next working day. The end of Sunday and
+    the end of Friday are one working-time position, so recording the same work
+    finished on either day gives every link type the same successor at every lag
+    -- the reading #4332 already gives float and #4273 a start-of-Monday
+    milestone. Anchoring on the verbatim day put an FF successor of a Saturday
+    finish on Monday and let an FS or SS lag count from the weekend.
+
     A milestone is one instant, so its start and its finish are the same point:
     FS and SS measure from the instant itself, SF from the last working day
     before it (from ``instant - 1`` with a positive lag). This is what lets a
@@ -122,6 +132,13 @@ def _edge_anchor(
     last working day before the start, so the finish stays monotone in the lag.
     """
     if instant is None:
+        # A recorded day the predecessor's calendar does not work is read at its
+        # working-time position (#4631, #4702): a finish on Saturday or Sunday is
+        # the close of Friday, a start on one is the opening of Monday. Every
+        # other input already sits on a working day, so this only touches
+        # verbatim non-working actuals.
+        finish = _prev_working_day(finish, pred_cal)
+        start = _next_working_day(start, pred_cal)
         if dep_type == DependencyType.FS:
             return _safe_offset(finish, _ONE_DAY)
         if dep_type == DependencyType.FF:

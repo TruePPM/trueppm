@@ -74,6 +74,11 @@ pub(crate) fn start_anchored(dep_type: DependencyType) -> bool {
 /// monotone in the lag: from `x - 1` a one-day lead out of a start-of-Monday
 /// milestone named Saturday and snapped forward to Monday, later than zero lag's
 /// Friday. Links *into* a milestone go through [`milestone_proposal`].
+///
+/// Work dates are read in working time before anchoring (#4631, #4702): a
+/// weekend `actual_finish` is the end of Friday and a weekend `actual_start` the
+/// start of Monday, for every link type at every lag. Mirrors the Python
+/// `_edge_anchor`.
 pub(crate) fn edge_anchor(
     dep_type: DependencyType,
     start: NaiveDate,
@@ -83,13 +88,21 @@ pub(crate) fn edge_anchor(
     lag_days: i64,
 ) -> Result<NaiveDate, String> {
     match instant {
-        None => match dep_type {
-            DependencyType::FS => checked_offset_days(finish, 1),
-            DependencyType::FF => Ok(finish),
-            DependencyType::SS => Ok(start),
-            DependencyType::SF if lag_days > 0 => checked_offset_days(start, -1),
-            DependencyType::SF => prev_working_day(checked_offset_days(start, -1)?, pred_cal),
-        },
+        // Work dates are read in working time on the predecessor's calendar
+        // (#4631, #4702): a non-working finish is the close of the last working
+        // day before it, a non-working start the opening of the next one. Only a
+        // verbatim weekend actual is ever off a working day here.
+        None => {
+            let finish = prev_working_day(finish, pred_cal)?;
+            let start = next_working_day(start, pred_cal)?;
+            match dep_type {
+                DependencyType::FS => checked_offset_days(finish, 1),
+                DependencyType::FF => Ok(finish),
+                DependencyType::SS => Ok(start),
+                DependencyType::SF if lag_days > 0 => checked_offset_days(start, -1),
+                DependencyType::SF => prev_working_day(checked_offset_days(start, -1)?, pred_cal),
+            }
+        }
         Some(x) if start_anchored(dep_type) => Ok(x),
         // FF or SF with a positive lag (#4273, #4333).
         Some(x) if lag_days > 0 => checked_offset_days(x, -1),
@@ -1416,15 +1429,16 @@ mod tests {
                 }
             }
         }
-        // Known answers, measured from the Sunday actual: SS+10 = Wed 01-14; SF+10
-        // finishes on 01-03 + 10 = Tue 01-13.
+        // Known answers, measured from the Sunday actual read in working time as the
+        // start of Monday 01-05 (#4702): SS+10 = Thu 01-15; SF+10 finishes on
+        // 01-04 + 10 = Wed 01-14.
         assert_eq!(
             started_link("SS", 10, 20.0, "2026-01-08").0.early_start,
-            d(14)
+            d(15)
         );
         assert_eq!(
             started_link("SF", 10, 20.0, "2026-01-08").0.early_finish,
-            d(13)
+            d(14)
         );
     }
 

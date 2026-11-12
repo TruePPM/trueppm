@@ -324,7 +324,8 @@ function linkStartMs(source: TaskState): number {
  * anchors FS/SS on its instant, and FF/SF on the day its instant closes for a
  * positive lag (#4273) — the last working day before it with no lag or a lead, so a lead
  * counts back from the zero-lag finish and never lands later than it. Mirrors the server
- * engines' `_edge_anchor` / `edge_anchor` (#4079, #4145).
+ * engines' `_edge_anchor` / `edge_anchor` (#4079, #4145), including their
+ * working-time reading of a non-working actual finish or start (#4631, #4702).
  *
  * SF (#4145) is the finish-anchored instant rule applied to the predecessor's
  * start instant: MS Project and P6 finish an SF successor at the start of its
@@ -342,17 +343,22 @@ function edgeAnchor(edge: CpmEdge, source: TaskState): number {
     if (edge.lag > 0) return source.instantMs - MS_PER_DAY;
     return prevWorkingDay(source.instantMs - MS_PER_DAY);
   }
+  // A recorded non-working day reads at its working-time position (#4631,
+  // #4702): a weekend finish is the close of Friday, a weekend start the opening
+  // of Monday. Every other date here already sits on a working day.
+  const finish = prevWorkingDay(source.earlyFinishMs);
+  const start = nextWorkingDay(linkStartMs(source));
   switch (edge.type) {
     case 'FS':
-      return source.earlyFinishMs + MS_PER_DAY;
+      return finish + MS_PER_DAY;
     case 'FF':
-      return source.earlyFinishMs;
+      return finish;
     case 'SS':
-      return linkStartMs(source);
+      return start;
     case 'SF':
       // A positive lag counts from the day the start instant closes (#4333).
-      if (edge.lag > 0) return linkStartMs(source) - MS_PER_DAY;
-      return prevWorkingDay(linkStartMs(source) - MS_PER_DAY);
+      if (edge.lag > 0) return start - MS_PER_DAY;
+      return prevWorkingDay(start - MS_PER_DAY);
   }
 }
 

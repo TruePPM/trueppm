@@ -127,6 +127,16 @@ retried, so a delivery attempted during the window is not replayed automatically
 once you fix the list. Set the new variables on the API, Celery worker, and Celery
 beat processes. See [Networking](/administration/networking/#split-horizon-and-internal-only-names).
 
+### Successors of weekend actuals move on recalculation
+
+A non-working `actual_start` or `actual_finish` (a Saturday, Sunday, or calendar
+holiday) will be read in working time in 0.5: a finish as the end of the last working
+day before it, a start as the opening of the next working day, on every link type
+at every lag. A zero-lag finish-to-start milestone after a weekend `actual_finish`
+will show at the end of Friday instead of the start of Monday. Recalculating an
+existing project after the upgrade will move successors of such tasks to where the
+equivalent weekday actual puts them.
+
 ### Offline and sync clients re-sync once (`sync.0008`)
 
 0.5 will add a tombstone-retention floor to the delta pull (#2474). A pull whose
