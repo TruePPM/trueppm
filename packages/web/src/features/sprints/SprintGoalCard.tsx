@@ -104,8 +104,10 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: 
   const itl = useIterationLabel(projectId);
   const showDayOf = sprint.state === 'ACTIVE';
   const { day, total } = sprintDayOf(sprint.start_date, sprint.finish_date);
-  const taskCount = sprint.committed_task_count ?? 0;
-  const points = sprint.committed_points ?? 0;
+  // null = no commitment snapshot yet; render a dash, not a "0" that contradicts
+  // the points chip beside it.
+  const taskCount = sprint.committed_task_count;
+  const points = sprint.committed_points;
 
   const { updateSprint } = useSprintMutations(projectId);
   const [editing, setEditing] = useState(false);
@@ -256,7 +258,7 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: 
                 <dt className="font-medium uppercase tracking-wide text-neutral-text-secondary">
                   Tasks
                 </dt>
-                <dd className="tppm-mono text-neutral-text-primary">{taskCount}</dd>
+                <dd className="tppm-mono text-neutral-text-primary">{taskCount ?? '—'}</dd>
               </div>
             </dl>
 
@@ -268,9 +270,11 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: 
                 className="tppm-mono text-xs px-2 py-0.5 rounded border border-neutral-border text-neutral-text-primary"
                 aria-hidden="true"
               >
-                {points} pts committed
+                {points ?? '—'} pts committed
               </span>
-              <span className="sr-only">{points} story points committed</span>
+              <span className="sr-only">
+                {points === null ? 'No committed points' : `${points} story points committed`}
+              </span>
             </div>
           </div>
         </>

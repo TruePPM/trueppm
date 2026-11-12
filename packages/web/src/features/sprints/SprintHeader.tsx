@@ -66,12 +66,19 @@ export function SprintHeader({
 }: Props) {
   const itl = useIterationLabel();
   const isActive = sprint?.state === 'ACTIVE';
+  // A sprint named "Sprint 5" would otherwise read "Sprint 5 — Sprint 5".
+  const prefix = `${itl.singular} ${sprintNumber}`;
+  const title = sprint
+    ? sprint.name.trim().toLowerCase() === prefix.toLowerCase()
+      ? prefix
+      : `${prefix} — ${sprint.name}`
+    : `No ${itl.lower} yet`;
 
   return (
     <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 shrink-0">
       <div className="min-w-0 flex flex-col gap-1">
         <h1 className="text-2xl font-semibold text-neutral-text-primary leading-tight truncate">
-          {sprint ? `${itl.singular} ${sprintNumber} — ${sprint.name}` : `No ${itl.lower} yet`}
+          {title}
           {sprint && (
             <span
               className={`ml-3 inline-flex items-center align-middle bg-transparent border ${STATE_PILL_STYLE[sprint.state]} rounded px-2 py-0.5 text-xs font-medium`}

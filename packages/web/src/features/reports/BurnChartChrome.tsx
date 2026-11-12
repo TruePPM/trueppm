@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiSprint } from '@/types';
 import type { BurnVariant, BurnMetric } from './hooks/useBurnChart';
+import { BURN_MAX_SPAN_DAYS, burnMaxUntil, shiftIsoDate, utcTodayIso } from './burnWindow';
 import { CHART_COLORS, type ScopeChange } from './burnChartData';
 
 /**
@@ -106,6 +107,7 @@ export function BurnChartControls({
   onSinceChange,
   until,
   onUntilChange,
+  windowClamped = false,
 }: {
   variant: BurnVariant;
   onVariantChange: (v: BurnVariant) => void;
@@ -115,7 +117,12 @@ export function BurnChartControls({
   onSinceChange: (v: string | undefined) => void;
   until: string | undefined;
   onUntilChange: (v: string | undefined) => void;
+  /** The server shortened the window; say so rather than let the chart look complete. */
+  windowClamped?: boolean;
 }) {
+  const utcToday = utcTodayIso();
+  const maxUntil = burnMaxUntil(utcToday, since);
+  const minSince = shiftIsoDate(until ?? utcToday, -BURN_MAX_SPAN_DAYS);
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-neutral-surface-raised">
       <div
@@ -149,6 +156,8 @@ export function BurnChartControls({
             onChange={(e) => onSinceChange(e.target.value || undefined)}
             className="h-8 rounded border border-neutral-border bg-neutral-surface text-xs px-2 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
             aria-label="From date"
+            min={minSince}
+            max={until}
           />
           <span aria-hidden="true">→</span>
           <input
@@ -157,7 +166,14 @@ export function BurnChartControls({
             onChange={(e) => onUntilChange(e.target.value || undefined)}
             className="h-8 rounded border border-neutral-border bg-neutral-surface text-xs px-2 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
             aria-label="To date"
+            min={since}
+            max={maxUntil}
           />
+          {windowClamped && (
+            <span role="status" className="ml-1 text-semantic-at-risk">
+              Showing the most recent {BURN_MAX_SPAN_DAYS} days
+            </span>
+          )}
         </div>
       ) : sprint ? (
         <p className="text-xs text-neutral-text-secondary tppm-mono">

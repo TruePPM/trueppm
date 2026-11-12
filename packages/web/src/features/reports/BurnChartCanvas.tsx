@@ -11,6 +11,7 @@ import {
   ReferenceDot,
   ResponsiveContainer,
 } from 'recharts';
+import { CHART_INITIAL_DIMENSION } from '@/lib/chartInitialDimension';
 import type { BurnVariant, BurnMetric } from './hooks/useBurnChart';
 import {
   CHART_COLORS,
@@ -105,7 +106,7 @@ export function BurnChartCanvas({
     // (#3482). `accessibilityLayer={false}` on every chart root below removes
     // the overlay entirely rather than trying to neutralize it after the fact.
     <div aria-hidden="true">
-      <ResponsiveContainer width="100%" height={320}>
+      <ResponsiveContainer width="100%" height={320} initialDimension={CHART_INITIAL_DIMENSION}>
         {variant === 'burndown' ? (
           <AreaChart data={points} margin={chartMargin} accessibilityLayer={false}>
             {sharedGrid}

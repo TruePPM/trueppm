@@ -15,6 +15,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { CHART_INITIAL_DIMENSION } from '@/lib/chartInitialDimension';
 
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import type { CfdCounts, FlowMetrics } from '@/hooks/useSprints';
@@ -92,7 +93,7 @@ export function CumulativeFlowChart({ cfd }: { cfd: FlowMetrics['cfd'] }) {
     : 'Cumulative flow diagram. No data in the window.';
   return (
     <ChartFrame title="Cumulative flow" summary={summary} footer={<CfdLegend />}>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
         <AreaChart
           data={points}
           margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
@@ -127,7 +128,7 @@ export function ThroughputChart({ throughput }: { throughput: FlowMetrics['throu
   const summary = `Weekly throughput over ${throughput.length} weeks. ${total} items completed in total.`;
   return (
     <ChartFrame title="Throughput / week" summary={summary}>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
         <BarChart
           data={throughput}
           margin={{ top: 4, right: 4, left: 0, bottom: 0 }}

@@ -1,4 +1,5 @@
 import { AreaChart, Area, Line, ResponsiveContainer } from 'recharts';
+import { CHART_INITIAL_DIMENSION } from '@/lib/chartInitialDimension';
 import type { ApiSprint } from '@/types';
 import type { BurnMetric } from './hooks/useBurnChart';
 import { CHART_COLORS, type NormPoint } from './burnChartData';
@@ -93,7 +94,7 @@ export function CompactBurnChart({
           // keyboard overlay would otherwise sit inside this `aria-hidden`
           // wrapper — see BurnChartCanvas's docstring for the full rationale.
           <div aria-hidden="true" className="h-full w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
               <AreaChart
                 data={points}
                 margin={{ top: 4, right: 4, left: 4, bottom: 0 }}

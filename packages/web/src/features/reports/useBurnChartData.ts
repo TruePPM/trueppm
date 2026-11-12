@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useSprintBurndown } from '@/hooks/useSprints';
+import { isAxiosError } from 'axios';
 import { forecastScopeCaption } from '@/features/sprints/sprintMath';
 import { useBurnChart, type BurnVariant, type BurnMetric } from './hooks/useBurnChart';
+import { isWindowClamped } from './burnWindow';
+import { localTodayIso } from '@/lib/localDate';
 import {
   describeBurnSeries,
   deriveProjectSeries,
@@ -115,7 +118,7 @@ export function useBurnChartData(opts: {
   const [until, setUntil] = useState<string | undefined>();
 
   const isSprintCtx = !!sprintId;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localTodayIso();
 
   const sprintQuery = useSprintBurndown(sprintId ?? null);
   const sprintMetric = resolveSprintMetric(
@@ -159,12 +162,26 @@ export function useBurnChartData(opts: {
       variant,
     ],
   );
+  // A 400 carries the server's own explanation of the window limit; surface it
+  // instead of a generic retryable failure.
+  const burnErr = isSprintCtx ? null : burnQuery.error;
+  const errorDetail =
+    isAxiosError(burnErr) && burnErr.response?.status === 400
+      ? ((burnErr.response.data as { detail?: unknown } | undefined)?.detail ?? null)
+      : null;
+  const windowEcho = isSprintCtx ? undefined : burnQuery.data;
+  const windowClamped = isWindowClamped(since, windowEcho);
   const sprintHasNoRealData = hasNoSprintData(isSprintCtx, sprintQuery.data, today);
 
   return {
     isSprintCtx,
     today,
     sprint: sprintQuery.data?.sprint,
+    errorDetail: typeof errorDetail === 'string' ? errorDetail : null,
+    windowClamped,
+    // Pickers show the window the server actually used when none was chosen.
+    shownSince: since ?? windowEcho?.since,
+    shownUntil: until ?? windowEcho?.until,
     since,
     setSince,
     until,

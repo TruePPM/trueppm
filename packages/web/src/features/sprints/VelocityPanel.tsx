@@ -33,7 +33,7 @@ const CHART_VIEW_H = CHART_H + LABEL_H;
 /**
  * Velocity panel — last-N closed sprints as bars, rolling avg ± stdev, and a
  * forecast range chip. Bar colour is a coarse signal: green on completion ≥ 0.85,
- * amber on 0.6–0.85, red below. ADR-0036 footer note references the CPM feed.
+ * amber on 0.6–0.85, red below. The footer note references the CPM feed.
  */
 export function VelocityPanel({ velocity, currentSprint }: Props) {
   const itl = useIterationLabel();
@@ -202,7 +202,10 @@ function VelocityBody({ itl, sprints, avg, stdev, countedCount, max, chartW, avg
           {sprints.map((s, i) => {
             const completed = s.completed_points ?? 0;
             const committed = s.committed_points ?? 0;
-            const ratio = committed > 0 ? completed / committed : 0;
+            // null (never committed) and a real 0 (nobody pointed any stories)
+            // both leave the ratio undefined — never paint that as a failure.
+            const notComputable = committed <= 0;
+            const ratio = notComputable ? 0 : completed / committed;
             const excluded = s.exclude_from_velocity;
             // Health band: same thresholds drive the bar fill colour and the
             // non-color <title> signal so screen-reader users get the same
@@ -211,7 +214,9 @@ function VelocityBody({ itl, sprints, avg, stdev, countedCount, max, chartW, avg
             // muted + hatched so they cannot be mistaken for a counted bar.
             const { cls, band } = excluded
               ? { cls: '', band: 'excluded from velocity' }
-              : ratio >= 0.85
+              : notComputable
+                ? { cls: 'fill-neutral-text-disabled', band: 'no committed points' }
+                : ratio >= 0.85
                 ? { cls: 'fill-semantic-on-track', band: 'on track' }
                 : ratio >= 0.6
                   ? { cls: 'fill-semantic-at-risk', band: 'at risk' }
@@ -239,7 +244,9 @@ function VelocityBody({ itl, sprints, avg, stdev, countedCount, max, chartW, avg
                   <title>
                     {excluded
                       ? `${s.name}: ${completed} pts — excluded from velocity`
-                      : `${s.name}: ${completed}/${committed} pts (${band})`}
+                      : notComputable
+                        ? `${s.name}: ${completed} pts completed — no committed points to compare`
+                        : `${s.name}: ${completed}/${committed} pts (${band})`}
                   </title>
                 </rect>
                 {!excluded && completedH > 0 && (
@@ -310,22 +317,14 @@ function VelocityBody({ itl, sprints, avg, stdev, countedCount, max, chartW, avg
         Each bar stacks completed points inside the committed-points envelope. Bar
         colour indicates {itl.lower} health: on track is 85 percent or more of
         committed points completed, at risk is 60 to 85 percent, below target is
-        under 60 percent. {itl.plural} marked excluded are held out of the velocity
+        under 60 percent. A {itl.lower} with no committed points has no health
+        band. {itl.plural} marked excluded are held out of the velocity
         average and forecast.
         {avgY !== null && ' A dashed horizontal line marks the rolling average.'}
       </p>
 
       <p className="text-xs text-neutral-text-secondary italic">
-        Velocity feeds CPM duration estimates ·{' '}
-        <a
-          href="https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0036-hybrid-pm-philosophy-and-sprint-model.md"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline hover:text-neutral-text-secondary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-        >
-          ADR-0036
-        </a>
+        Velocity feeds CPM duration estimates.
       </p>
     </>
   );

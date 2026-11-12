@@ -70,11 +70,30 @@ describe('VelocityPanel', () => {
     expect(screen.queryByLabelText(/Forecast range/)).not.toBeInTheDocument();
   });
 
-  it('links to ADR-0036 in the footer', () => {
+  it('does not print an internal ADR id as product copy', () => {
     render(<VelocityPanel velocity={makeVelocity({ sprints: [makeSprint({})] })} />);
-    const link = screen.getByRole('link', { name: 'ADR-0036' });
-    expect(link).toHaveAttribute('href', expect.stringContaining('0036-hybrid-pm-philosophy'));
+    expect(screen.queryByText(/ADR-\d+/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Velocity feeds CPM duration estimates/)).toBeInTheDocument();
   });
+
+  it.each([0, null])(
+    'treats committed_points=%s as not computable, never "below target"',
+    (committed) => {
+      const { container } = render(
+        <VelocityPanel
+          velocity={makeVelocity({
+            sprints: [
+              makeSprint({ id: 'z', name: 'Z', committed_points: committed, completed_points: 5 }),
+            ],
+          })}
+        />,
+      );
+      const title = container.querySelector('svg title')?.textContent ?? '';
+      expect(title).toContain('no committed points');
+      expect(title).not.toContain('below target');
+      expect(container.querySelector('.fill-semantic-critical')).toBeNull();
+    },
+  );
 
   // Bar colour is the only sighted health signal; the <title> must carry the
   // same classification as a non-color cue for screen-reader users (#1028).

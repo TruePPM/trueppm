@@ -20395,7 +20395,7 @@ class ProjectBurnView(APIView):
         # we will not do); a *defaulted* one is clamped instead, because a project
         # that started three years ago must not 400 on a no-parameter request. The
         # response echoes the `since` actually used, so the clamp is discoverable in
-        # the payload — the Reports UI does not read it back yet (#3580).
+        # the payload — the Reports UI reads it back to disclose a shortened window.
         #
         # `if since_param:` and not `is not None`: `?since=` (empty value) resolves
         # to the default above, so it must take the clamp branch too, or a caller

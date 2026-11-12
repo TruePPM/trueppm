@@ -145,6 +145,21 @@ test.describe('Flow analytics on the board', () => {
     await expect(page.getByTestId('cycle-lead-strip')).toBeVisible();
   });
 
+  test('flow charts mount at a measured size: no zero-size Recharts warning (#3620)', async ({ page }) => {
+    // FlowCharts uses ResponsiveContainer height="100%", the case Recharts warns on
+    // when it first renders at a non-positive size.
+    const warnings: string[] = [];
+    page.on('console', (m) => {
+      if (/should be greater than 0/.test(m.text())) warnings.push(m.text());
+    });
+    await setup(page);
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId('flow-analytics-toggle').click();
+    await expect(page.getByTestId('flow-analytics-charts').locator('svg.recharts-surface').first()).toBeVisible();
+    expect(warnings).toEqual([]);
+  });
+
   test('renders the content-free wall when flow metrics are suppressed', async ({ page }) => {
     await setup(page, { ...POPULATED_FLOW, flow_metrics_suppressed: true });
     await page.goto(`${BASE_URL}/board`);

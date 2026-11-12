@@ -37,6 +37,13 @@ describe('SprintHeader', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not repeat the sprint label when the name equals it', () => {
+    renderHeader({ sprintNumber: 5, sprint: makeSprint({ state: 'ACTIVE', name: 'Sprint 5' }) });
+    const h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1.textContent).not.toMatch(/Sprint 5\s*—\s*Sprint 5/);
+    expect(h1).toHaveTextContent(/^Sprint 5/);
+  });
+
   it('shows "Active" pill in semantic-on-track when sprint is active', () => {
     renderHeader();
     const pill = screen.getByLabelText(/Sprint state: Active/i);

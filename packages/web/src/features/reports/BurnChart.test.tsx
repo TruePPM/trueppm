@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { AxiosError, type AxiosResponse } from 'axios';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1261,5 +1262,78 @@ describe('BurnChart — combined variant scope change', () => {
     // Combined shows the Completed and Total scope legend entries too.
     expect(screen.getByText(/^Completed$/)).toBeInTheDocument();
     expect(screen.getByText(/total scope/i)).toBeInTheDocument();
+  });
+});
+
+describe('BurnChart — date window bounds', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-04-20T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function badRequest(detail: string) {
+    const err = new AxiosError('Bad Request', '400');
+    err.response = { status: 400, data: { detail } } as unknown as AxiosResponse;
+    mockUseBurnChart.mockReturnValue(
+      asBC({ data: undefined, isLoading: false, isError: true, error: err, refetch: vi.fn() }),
+    );
+    mockUseSprintBurndown.mockReturnValue(
+      asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
+    );
+  }
+
+  it('constrains the pickers to the span and future limits the server enforces', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    // To date: at most today + 31 days.
+    expect(screen.getByLabelText('To date')).toHaveAttribute('max', '2026-05-21');
+    // From date: at most 366 days before the shown To date (the echoed 2026-04-14).
+    expect(screen.getByLabelText('From date')).toHaveAttribute('min', '2025-04-13');
+  });
+
+  it('seeds the pickers from the window the server actually used', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByLabelText('From date')).toHaveValue('2026-04-01');
+    expect(screen.getByLabelText('To date')).toHaveValue('2026-04-14');
+  });
+
+  it('shows the server explanation for a 400 and offers no futile Retry', () => {
+    badRequest('The date window may span at most 366 days.');
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/at most 366 days/);
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the generic retry state for a non-400 failure', () => {
+    projectError();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('says so when the server clamped a defaulted window to 366 days', () => {
+    mockUseBurnChart.mockReturnValue(
+      asBC({
+        data: { ...BURN_RESPONSE, since: '2025-04-14', until: '2026-04-15' },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      }),
+    );
+    mockUseSprintBurndown.mockReturnValue(
+      asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
+    );
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByText(/most recent 366 days/i)).toBeInTheDocument();
+  });
+
+  it('does not claim a clamp for a normal short window', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.queryByText(/most recent 366 days/i)).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { BurnVariant, BurnMetric } from './hooks/useBurnChart';
 import { useBurnChartData } from './useBurnChartData';
@@ -48,6 +48,9 @@ export function BurnChart({
   const [variant, setVariant] = useState<BurnVariant>(defaultVariant);
   const [metric, setMetric] = useState<BurnMetric>('tasks');
   const chartRef = useRef<HTMLDivElement>(null);
+  // Two charts share the Reports page; a fixed id would make the second region
+  // take the first one's name.
+  const headingId = useId();
   const itl = useIterationLabel(projectId);
   const d = useBurnChartData({ projectId, sprintId, variant, metric });
   const { exportPng, exportPdf } = useBurnChartExport(chartRef, variant, d.today);
@@ -70,12 +73,12 @@ export function BurnChart({
 
   return (
     <section
-      aria-labelledby="burn-chart-heading"
+      aria-labelledby={headingId}
       className="rounded-card border border-neutral-border bg-neutral-surface flex flex-col"
     >
       {/* Card header */}
       <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3 border-b border-neutral-border">
-        <h2 id="burn-chart-heading" className="text-sm font-semibold text-neutral-text-primary">
+        <h2 id={headingId} className="text-sm font-semibold text-neutral-text-primary">
           {d.isSprintCtx ? `${itl.singular} Burndown` : 'Burn Chart'}
         </h2>
         <div className="flex items-center gap-2">
@@ -104,10 +107,11 @@ export function BurnChart({
         onVariantChange={setVariant}
         isSprintCtx={d.isSprintCtx}
         sprint={d.sprint}
-        since={d.since}
+        since={d.shownSince}
         onSinceChange={d.setSince}
-        until={d.until}
+        until={d.shownUntil}
         onUntilChange={d.setUntil}
+        windowClamped={d.windowClamped}
       />
 
       {/* Null story-points banner */}
@@ -119,6 +123,7 @@ export function BurnChart({
         isError={d.isError}
         showEmpty={d.showEmpty}
         onRetry={d.refetch}
+        errorDetail={d.errorDetail}
         isSprintCtx={d.isSprintCtx}
         sprint={d.sprint}
         iterationLabel={itl.singular}
