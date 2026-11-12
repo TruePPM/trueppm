@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 from unittest.mock import patch
 
@@ -134,26 +135,49 @@ def test_session_that_read_before_a_reset_commits_is_refused(
     assert not _has_session_cookie(resp)
 
 
-def test_login_that_verified_the_password_before_a_reset_is_refused(user: Any) -> None:
+@pytest.mark.parametrize(
+    "skew_margin_s",
+    [None, -3600],
+    ids=["cutoff-covers-pair", "hash-only"],
+)
+def test_login_that_verified_the_password_before_a_reset_is_refused(
+    skew_margin_s: int | None, user: Any, caplog: pytest.LogCaptureFixture
+) -> None:
     """The password check ran (and a pair was minted) before the reset committed.
 
     The login is parked between credential validation and the lock; the reset runs to
     completion in this thread; the login then locks, sees the changed password hash and
     refuses, so the pre-reset password cannot yield a session after the reset.
+
+    The default variant is refused by *either* check (the reset commits within ms, so
+    the pair's ``iat`` is at or before the cutoff). The ``hash-only`` variant shifts
+    the stored cutoff an hour into the past, so the pair's ``iat`` postdates it and the
+    password-hash comparison is the only branch that can refuse. The refusal also
+    emits the ``auth.login_failed`` audit event like every other 401 on this view.
     """
+    from datetime import timedelta
+
     from trueppm_api.core.auth_views import _refuse_login_raced_by_reset as real
 
     authed, go = threading.Event(), threading.Event()
 
-    def _park(u: Any, token: Any) -> None:
+    def _park(request: Any, u: Any, token: Any) -> None:
         authed.set()
         assert go.wait(_TIMEOUT)
-        real(u, token)
+        real(request, u, token)
 
     reset = _Reset(user, "view")
     reset.hold.set()
     out: dict[str, Any] = {}
-    with patch(f"{_AV}._refuse_login_raced_by_reset", _park):
+    margin = (
+        patch(
+            "trueppm_api.core.credential_cutoff.CLOCK_SKEW_MARGIN",
+            timedelta(seconds=skew_margin_s),
+        )
+        if skew_margin_s is not None
+        else nullcontext()
+    )
+    with caplog.at_level("WARNING"), patch(f"{_AV}._refuse_login_raced_by_reset", _park), margin:
         worker = threading.Thread(target=_run, args=(_login_call(user), out))
         worker.start()
         assert authed.wait(_TIMEOUT), "the login never passed credential validation"
@@ -165,8 +189,15 @@ def test_login_that_verified_the_password_before_a_reset_is_refused(user: Any) -
         assert resp.status_code == 200, resp.data
         go.set()
         _join(worker)
+    if skew_margin_s is not None:
+        cutoff = UserProfile.objects.get(user=user).credentials_revoked_at
+        assert cutoff is not None
+        assert cutoff.timestamp() < RefreshToken.for_user(user).payload["iat"] - 60, (
+            "the cutoff must predate the pair's iat so only the hash check can refuse"
+        )
     assert out["resp"].status_code == 401
     assert not _has_session_cookie(out["resp"])
+    assert "auth.login_failed" in caplog.text
 
 
 @pytest.mark.parametrize("kind", ["refresh", "login"])
@@ -202,6 +233,45 @@ def test_reset_waits_for_an_in_flight_session_mint(kind: str, user: Any) -> None
     access = out["resp"].data["access"]
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+    assert client.get("/api/v1/auth/me/").status_code == 401
+
+
+def test_refresh_and_revoke_api_tokens_do_not_deadlock(user: Any) -> None:
+    """``revoke_api_tokens`` (the realistic off-boarding lock-taker) vs an in-flight refresh.
+
+    Both take the profile row lock and both touch the same ``OutstandingToken`` row
+    (the refresh rotates the token the command blacklists), so a lock-order inversion
+    would deadlock. The refresh parks holding the profile lock; the command must wait
+    on it (``pg_stat_activity`` probe) and, once released, both finish inside the
+    bounded joins, with the command having seen the refresh's new pair.
+    """
+    UserProfile.objects.create(user=user)
+    call = _refresh_call(user)
+    real = _import_lock()
+    locked, proceed = threading.Event(), threading.Event()
+
+    def _pause_after_lock(u: Any) -> Any:
+        cutoff = real(u)
+        locked.set()
+        assert proceed.wait(_TIMEOUT)
+        return cutoff
+
+    revoke = _Reset(user, "command")
+    revoke.hold.set()
+    out: dict[str, Any] = {}
+    with patch(_PATHS["refresh"][1], _pause_after_lock), patch(_EVICT, revoke.hook()):
+        worker = threading.Thread(target=_run, args=(call, out))
+        worker.start()
+        assert locked.wait(_TIMEOUT), "the refresh never reached its lock"
+        revoker = revoke.start()
+        blocked = _wait_until_blocked_or_done(revoker)
+        assert blocked and revoker.is_alive(), "the revoke did not wait for the refresh"
+        proceed.set()
+        _join(worker, revoker)
+    assert out["resp"].status_code == 200, getattr(out["resp"], "data", None)
+    assert revoke.status == 0
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {out['resp'].data['access']}")
     assert client.get("/api/v1/auth/me/").status_code == 401
 
 
