@@ -594,7 +594,7 @@ function UnscheduledTray({ tasks, onOpen }: TrayProps) {
 
 function LoadingSkeleton() {
   return (
-    <ul aria-label="Loading schedule" className="flex flex-col gap-1 px-4 py-3">
+    <ul role="status" aria-label="Loading schedule" className="flex flex-col gap-1 px-4 py-3">
       {[0, 1, 2, 3, 4, 5].map((i) => (
         <li
           key={i}

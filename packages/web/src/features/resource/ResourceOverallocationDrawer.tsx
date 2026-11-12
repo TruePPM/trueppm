@@ -171,7 +171,7 @@ function DrawerBody({
                   Contributing tasks ({taskIds.length})
                 </h3>
                 {tasksLoading ? (
-                  <ul className="space-y-1.5" aria-busy="true" aria-label="Loading contributing tasks">
+                  <ul role="status" className="space-y-1.5" aria-busy="true" aria-label="Loading contributing tasks">
                     {taskIds.map((taskId) => (
                       <li
                         key={taskId}

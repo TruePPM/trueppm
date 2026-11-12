@@ -582,7 +582,7 @@ export function ExternalLinksSection({
   return (
     <div className="flex flex-col gap-2">
       {isLoading && (
-        <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading links">
+        <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading links">
           {[0, 1].map((i) => (
             <div
               key={i}

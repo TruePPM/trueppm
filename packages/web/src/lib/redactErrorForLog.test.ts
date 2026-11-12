@@ -1,6 +1,6 @@
 import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios';
-import { describe, expect, it } from 'vitest';
-import { redactErrorForLog } from './redactErrorForLog';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { logRouterError, redactedRootErrorOptions, redactErrorForLog } from './redactErrorForLog';
 
 const TOKEN = 'Bearer secret-access-token-123';
 
@@ -58,5 +58,53 @@ describe('redactErrorForLog', () => {
     expect(redactErrorForLog(bare)).toMatchObject({ name: 'AxiosError', code: 'ERR_NETWORK' });
     expect(redactErrorForLog(null)).toEqual({ name: 'object', message: '' });
     expect(redactErrorForLog(undefined)).toEqual({ name: 'undefined', message: '' });
+  });
+});
+
+describe('thrown Response / route errors', () => {
+  it('keeps numeric status and statusText, nothing else', () => {
+    const routeError = { status: 404, statusText: 'Not Found', data: 'secret body', headers: { a: 'b' } };
+    expect(redactErrorForLog(routeError)).toEqual({
+      name: 'object',
+      message: '',
+      status: 404,
+      statusText: 'Not Found',
+    });
+    expect(redactErrorForLog({ status: 500 })).toEqual({ name: 'object', message: '', status: 500 });
+  });
+
+  it('ignores a non-numeric status', () => {
+    expect(redactErrorForLog({ status: '404' })).toEqual({ name: 'object', message: '' });
+  });
+
+  it('logRouterError logs the status', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    logRouterError({ status: 403, statusText: 'Forbidden' });
+    expect(spy).toHaveBeenCalledWith(
+      '[Router] caught an error:',
+      expect.objectContaining({ status: 403, statusText: 'Forbidden' }),
+    );
+    spy.mockRestore();
+  });
+});
+
+describe('redactedRootErrorOptions.onUncaughtError', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('re-dispatches a redacted ErrorEvent on window', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const seen: ErrorEvent[] = [];
+    const listener = (e: Event) => seen.push(e as ErrorEvent);
+    window.addEventListener('error', listener);
+    try {
+      const err = makeAxiosError('/api/v1/tasks/?token=abc', 500);
+      redactedRootErrorOptions.onUncaughtError(err, { componentStack: '' });
+    } finally {
+      window.removeEventListener('error', listener);
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0].message).toBe('Request failed');
+    expect(JSON.stringify(seen[0].error.stack)).not.toContain('secret-access-token');
+    expect(seen[0].error).not.toBeInstanceOf(AxiosError);
   });
 });

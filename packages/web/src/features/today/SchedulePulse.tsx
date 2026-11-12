@@ -142,7 +142,7 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
         aria-busy="true"
         className="border-b border-neutral-border bg-neutral-surface-raised px-4 py-3"
       >
-        <div aria-label="Loading schedule status" className="flex gap-6">
+        <div role="status" aria-label="Loading schedule status" className="flex gap-6">
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}

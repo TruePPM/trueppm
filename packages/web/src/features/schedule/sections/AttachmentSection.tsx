@@ -426,7 +426,7 @@ export function AttachmentSection({
       )}
 
       {isLoading && (
-        <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading attachments">
+        <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading attachments">
           {[0, 1].map((i) => (
             <div
               key={i}

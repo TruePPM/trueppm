@@ -95,7 +95,7 @@ function ResourceRow({ resource, isSelected, onSelect }: RowProps) {
 
 export function ResourceListSkeleton() {
   return (
-    <ul aria-label="Loading resources" className="divide-y divide-neutral-border">
+    <ul role="status" aria-label="Loading resources" className="divide-y divide-neutral-border">
       {Array.from({ length: 8 }).map((_, i) => (
         <li key={i} className="px-3 py-2.5 flex items-start gap-3">
           <div className="w-7 h-7 rounded-full bg-neutral-border motion-safe:animate-pulse shrink-0" aria-hidden="true" />

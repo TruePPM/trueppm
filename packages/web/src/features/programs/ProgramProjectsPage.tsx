@@ -158,7 +158,7 @@ export function ProgramProjectsPage() {
       )}
 
       {isLoading && (
-        <div aria-label="Loading projects" className="space-y-2">
+        <div role="status" aria-label="Loading projects" className="space-y-2">
           {[1, 2, 3].map((i) => (
             <div
               key={i}

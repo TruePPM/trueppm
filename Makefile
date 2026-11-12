@@ -314,6 +314,10 @@ dropdown-scroll-check: ## Fail if a role="menu"/role="listbox" panel has no scro
 	@# that are genuinely safe by construction — see the script header.
 	@bash scripts/check-dropdown-scroll.sh
 
+loading-skeleton-role-check: ## Fail if aria-label="Loading…" sits on a role-less element (#4618)
+	@python3 scripts/check-loading-skeleton-role.py --self-test
+	@python3 scripts/check-loading-skeleton-role.py
+
 hover-reveal-focus-check: ## Fail if opacity-0 + hover:opacity-100 has no focus counterpart (web-rule 417, #3619)
 	@# A control revealed only on :hover, with no focus:/focus-within:/
 	@# focus-visible:/group-focus-within: counterpart, is unreachable by keyboard
@@ -592,7 +596,7 @@ e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
 
-.PHONY: negated-closing-keywords-check
+.PHONY: negated-closing-keywords-check loading-skeleton-role-check
 negated-closing-keywords-check: ## Run the lint:negated-closing-keywords CI job locally (#4926; commit messages only, no MR description before the MR exists)
 	@bash scripts/check-negated-closing-keywords.sh --self-test
 	@bash scripts/check-negated-closing-keywords.sh --commits
@@ -798,6 +802,7 @@ pre-push-checks: web-row-vocabulary-check
 pre-push-checks: design-system-check
 pre-push-checks: dropdown-scroll-check
 pre-push-checks: hover-reveal-focus-check
+pre-push-checks: loading-skeleton-role-check
 pre-push-checks: anchored-popover-check
 pre-push-checks: focus-trap-focuskey-check
 pre-push-checks: aria-modal-focus-trap-check

@@ -285,6 +285,13 @@ describe('MobileGroomingPage (issue 1044)', () => {
     expect(screen.queryByTestId('story-drawer')).not.toBeInTheDocument();
   });
 
+  it('Add story button meets the 44px touch floor (h-11 w-11)', () => {
+    render(<MobileGroomingPage />);
+    const btn = screen.getByLabelText('Add story');
+    expect(btn).toHaveClass('h-11', 'w-11');
+    expect(btn).not.toHaveClass('h-9');
+  });
+
   it('commits a quick-add and closes the sheet on success', () => {
     render(<MobileGroomingPage />);
     fireEvent.click(screen.getByLabelText('Add story'));
