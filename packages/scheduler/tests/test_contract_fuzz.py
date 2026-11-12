@@ -693,7 +693,15 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
     actual_dates = st.dates(
         min_value=start - timedelta(days=120), max_value=start + timedelta(days=400)
     )
-    n = draw(st.integers(min_value=1, max_value=6))
+    # The #4429 shape, drawn for half the zero-variance projects (#4459): a chain of
+    # sparse-calendar tasks with long durations feeding denser-calendar tasks. D
+    # working days on a sparse calendar span far more than D of a dense one, which is
+    # exactly what undersized the index. Uniform draws over calendars, links and
+    # actuals rarely line that up (~1% of examples against the unfixed engine), and
+    # an actual or pin removes the work the bug needs, so this shape draws none.
+    chain_shape = not estimates and draw(st.booleans())
+    n = draw(st.integers(min_value=4 if chain_shape else 1, max_value=8 if chain_shape else 6))
+    n_sparse = draw(st.integers(min_value=1, max_value=n - 1)) if chain_shape else 0
     ids = [f"t{i}" for i in range(n)]
     # The #4691 shape, drawn for half the projects with estimates: every task on a
     # sparse calendar, and no actuals or date pins. The ruler always holds the
@@ -706,10 +714,18 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
         if gap_shape
         else st.none() | st.sampled_from(_ZERO_VAR_CAL_IDS)
     )
+    plain = gap_shape or chain_shape  # no actuals, pins, progress or data date
     tasks = []
-    for tid in ids:
-        calendar_id = draw(cal_choice)
-        actual_start = None if gap_shape else draw(st.none() | actual_dates)
+    for position, tid in enumerate(ids):
+        if chain_shape:
+            calendar_id = draw(
+                st.sampled_from(["fourday", "mondays", "plant"])
+                if position < n_sparse
+                else st.none() | st.just("seven")
+            )
+        else:
+            calendar_id = draw(cal_choice)
+        actual_start = None if plain else draw(st.none() | actual_dates)
         actual_finish = None
         if actual_start is not None:
             actual_finish = draw(
@@ -720,7 +736,9 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
         # almost never lands on a reference day no run occupies — the #4691 input.
         # Short tasks on the sparse calendars spread runs across those gap days.
         duration_days = draw(
-            st.one_of(st.just(0), st.integers(min_value=0, max_value=10))
+            st.integers(min_value=40, max_value=300)
+            if chain_shape and position < n_sparse
+            else st.one_of(st.just(0), st.integers(min_value=0, max_value=10))
             | st.integers(min_value=0, max_value=300)
             if estimates
             else st.integers(min_value=0, max_value=300)
@@ -744,21 +762,28 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
                 calendar_id=calendar_id,
                 actual_start=actual_start,
                 actual_finish=actual_finish,
-                planned_start=None if gap_shape else draw(st.none() | _plausible_date),
+                planned_start=None if plain else draw(st.none() | _plausible_date),
                 # Percent-only progress, including a completion with no recorded
                 # actuals (#4696's class sweep).
-                percent_complete=0.0 if gap_shape else draw(st.sampled_from([0.0, 50.0, 100.0])),
+                percent_complete=0.0 if plain else draw(st.sampled_from([0.0, 50.0, 100.0])),
                 **triple,  # type: ignore[arg-type]
             )
         )
     pairs = [(ids[i], ids[j]) for i in range(n) for j in range(i + 1, n)]
-    chosen = draw(st.lists(st.sampled_from(pairs), max_size=6, unique=True)) if pairs else []
+    if chain_shape:
+        # Consecutive FS links, so every sparse task's span is on the path to a dense one.
+        chosen = [(ids[i], ids[i + 1]) for i in range(n - 1)]
+    else:
+        chosen = draw(st.lists(st.sampled_from(pairs), max_size=6, unique=True)) if pairs else []
+    lag_range = (0, 5) if chain_shape else (-5, 30)
     deps = [
         Dependency(
             predecessor_id=u,
             successor_id=v,
-            dep_type=draw(st.sampled_from(list(DependencyType))),
-            lag=timedelta(days=draw(st.integers(min_value=-5, max_value=30))),
+            dep_type=(
+                DependencyType.FS if chain_shape else draw(st.sampled_from(list(DependencyType)))
+            ),
+            lag=timedelta(days=draw(st.integers(min_value=lag_range[0], max_value=lag_range[1]))),
         )
         for u, v in chosen
     ]
@@ -790,7 +815,7 @@ def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Pro
         dependencies=deps,
         calendar=project_cal,
         calendars=calendars,
-        status_date=None if gap_shape else draw(_opt_plausible_date),
+        status_date=None if plain else draw(_opt_plausible_date),
     )
 
 
