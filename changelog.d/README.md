@@ -50,7 +50,7 @@ a wrong value right without changing what the field means can omit the marker.
 ## CI enforcement
 
 The `changelog:check` CI job verifies that every MR targeting `main` contains at
-least one fragment file (unless the branch is exempt — `chore/*`, `ci/*`, `docs/*`).
+least one fragment file (unless the branch is exempt — `chore/*`, `ci/*`, `docs/*`, `test/*`).
 
 ## Assembly
 
