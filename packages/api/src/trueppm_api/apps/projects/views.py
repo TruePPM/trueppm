@@ -5531,20 +5531,20 @@ def _filter_tasks_mine(qs: QuerySet[Task], params: Any, user: Any) -> QuerySet[T
 
     Falls back to an email match for legacy resources whose ``user`` FK has not been
     backfilled, which keeps pre-#198 fixtures working without a data migration.
-    ``.distinct()`` collapses the M2M-through join into one row per task.
+    An ``Exists`` subquery (not a join + ``.distinct()``) keeps one row per task
+    without de-duplicating the fully annotated Task row before LIMIT (#4608).
     """
+    from trueppm_api.apps.resources.models import TaskResource
+
     mine = params.get("mine")
     if not mine or not _is_truthy(mine):
         return qs
 
     user_email = (getattr(user, "email", "") or "").strip().lower()
-    mine_q = Q(assignments__resource__user=user)
+    mine_q = Q(resource__user=user)
     if user_email:
-        mine_q |= Q(
-            assignments__resource__user__isnull=True,
-            assignments__resource__email__iexact=user_email,
-        )
-    return qs.filter(mine_q).distinct()
+        mine_q |= Q(resource__user__isnull=True, resource__email__iexact=user_email)
+    return qs.filter(Exists(TaskResource.objects.filter(mine_q, task=OuterRef("pk"))))
 
 
 def _filter_tasks_by_sprint(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
@@ -5579,8 +5579,9 @@ def _filter_tasks_by_labels(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
 
     OR semantics, mirroring the Board's ``?fl=`` facet. Labels are project-scoped,
     so a caller only ever matches labels on projects they can already see — no
-    extra scoping needed. ``.distinct()`` collapses the M2M join so a task with two
-    matching labels isn't returned twice.
+    extra scoping needed. An ``Exists`` subquery (not a join + ``.distinct()``) keeps a
+    task with two matching labels to one row without de-duplicating the annotated
+    Task row (#4608).
 
     Each id is validated as a UUID first: an unvalidated string passed into a UUID
     ``__in`` lookup raises at query time and surfaces as a 500 the UUID-only
@@ -5602,7 +5603,7 @@ def _filter_tasks_by_labels(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
             raise DRFValidationError({"labels": "Each label must be a valid UUID."}) from None
     if not label_ids:
         return qs
-    return qs.filter(labels__id__in=label_ids).distinct()
+    return qs.filter(Exists(TaskLabel.objects.filter(task=OuterRef("pk"), label_id__in=label_ids)))
 
 
 def _filter_tasks_by_ids(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
@@ -5907,7 +5908,9 @@ def _next_root_wbs_path(project: Any) -> str:
     return str(highest + 1)
 
 
-def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
+def _record_subtask_spawn(
+    parent: Task, instance: Task, by: Any, *, refresh_version: bool = False
+) -> None:
     """Bump the parent's ``server_version`` and log the sprint scope change, if any.
 
     The version bump is what makes sync clients notice the parent's new
@@ -5915,6 +5918,13 @@ def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
     already-committed parent for the drawer chip with ``flag_pending=False`` — the
     parent stays in the commitment; flagging it pending would wrongly drop the whole
     parent from the burndown.
+
+    ``refresh_version=True`` re-reads the bumped ``server_version`` / ``sync_seq`` into
+    ``parent``. Only the single-create path passes it, because only that path emits a
+    per-task ``task_updated`` frame carrying the parent's version. The bulk endpoint
+    broadcasts one ``tasks_bulk_mutated`` frame of ids and never reads the version, so
+    refreshing there would cost one SELECT per subtask (up to
+    ``TASK_BULK_MAX_OPERATIONS``) for a value nothing uses.
     """
     # The cursor is what actually carries the change to an offline client: this is
     # a bulk .update() (deliberately — it must not re-run the parent's save side
@@ -5926,6 +5936,11 @@ def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
         server_version=db_models.F("server_version") + 1,
         sync_seq=allocate_for_projects([parent.project_id]),
     )
+    # ``.update()`` leaves the in-memory row at the pre-bump version; the parent's
+    # ``task_updated`` frame must carry the version the row now holds, or a client
+    # that already saw N drops the N+1 change as a replay (ADR-0152).
+    if refresh_version:
+        parent.refresh_from_db(fields=["server_version", "sync_seq"])
     if parent.sprint_id is None:
         return
 
@@ -5944,13 +5959,16 @@ def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
     )
 
 
-def _defer_task_create_events(instance: Task, bumped_parent: Task | None) -> None:
+def _defer_task_create_events(
+    instance: Task, bumped_parent: Task | None, actor: Any = None
+) -> None:
     """Queue the post-commit recalc, board broadcasts, and webhook for a new task.
 
     ``bumped_parent`` is the parent whose ``is_summary`` state just changed (subtask
-    creates only) — ``None`` when no parent row needs a re-fetch.
+    creates only) — ``None`` when no parent row needs a re-fetch. ``actor`` is the
+    writing user, carried on the parent's ``task_updated`` delta (ADR-0152).
     """
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event, defer_task_updated
 
     project_id = str(instance.project_id)
     task_id = str(instance.pk)
@@ -5966,10 +5984,7 @@ def _defer_task_create_events(instance: Task, bumped_parent: Task | None) -> Non
             lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
         )
     if bumped_parent is not None:
-        parent_id_str = str(bumped_parent.pk)
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "task_updated", {"id": parent_id_str})
-        )
+        defer_task_updated(bumped_parent, changed_fields=["is_summary"], actor=actor)
     payload = _task_webhook_payload(instance)
     transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.created", payload))
 
@@ -6931,7 +6946,7 @@ class TaskViewSet(
                 instance = serializer.save(is_subtask=is_subtask)
 
             if is_subtask and parent is not None:
-                _record_subtask_spawn(parent, instance, self.request.user)
+                _record_subtask_spawn(parent, instance, self.request.user, refresh_version=True)
 
             # A structural create can push its parent over the container line
             # (#2950): the parent has just gained its first child, so its own
@@ -6960,7 +6975,7 @@ class TaskViewSet(
 
             maybe_record_scope_injection(instance, None, self.request.user)
 
-        _defer_task_create_events(instance, parent if is_subtask else None)
+        _defer_task_create_events(instance, parent if is_subtask else None, self.request.user)
 
     def perform_update(self, serializer: BaseSerializer[Task]) -> None:
         # Stash the bound serializer so _handle_task_write can read the guardrail
@@ -7795,7 +7810,7 @@ class TaskViewSet(
 
         Permission: IsProjectScheduler+ (Resource Manager and above).
         """
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.broadcast import defer_task_updated
 
         task: Task = self.get_object()
         project: Project = task.project
@@ -7812,11 +7827,7 @@ class TaskViewSet(
         task.estimate_status = EstimateStatus.ACCEPTED
         task.save(update_fields=["estimate_status"])
 
-        project_id = str(task.project_id)
-        task_id = str(task.pk)
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
-        )
+        defer_task_updated(task, changed_fields=["estimate_status"], actor=request.user)
 
         serializer = self.get_serializer(task)
         return Response(serializer.data)
@@ -7872,7 +7883,7 @@ class TaskViewSet(
             SuggestionState,
             TaskSuggestedAssignee,
         )
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.broadcast import defer_task_updated
 
         if pk is None or suggestion_pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
@@ -7925,11 +7936,15 @@ class TaskViewSet(
             suggestion.save(update_fields=["state", "accepted_at", "server_version"])
 
             project_id = str(task.project_id)
-            task_id = str(task.pk)
-            transaction.on_commit(
-                lambda: broadcast_board_event(
-                    project_id, "task_updated", {"id": task_id, "source": "suggestion_accept"}
-                )
+            # Empty ``changed_fields`` = "unknown, refetch" when only the suggestion
+            # (not the task) changed. actor=None: no web client accepts a suggestion
+            # with an optimistic tasks-cache edit, so the acceptor's own tabs must
+            # refetch rather than treat the frame as a self-echo (ADR-0152).
+            defer_task_updated(
+                task,
+                changed_fields=["assignee"] if assigned_now else [],
+                actor=None,
+                task_row_bumped=assigned_now,
             )
             # Fire task.assigned (#638) when this accept actually bound the
             # assignee (None → suggested_user). Mirrors the perform_update path
@@ -8271,10 +8286,16 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
         self._broadcast(instance)
 
     def _broadcast(self, criterion: AcceptanceCriterion) -> None:
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.broadcast import defer_task_updated
 
-        pid, tid = str(criterion.task.project_id), str(criterion.task_id)
-        transaction.on_commit(lambda: broadcast_board_event(pid, "task_updated", {"id": tid}))
+        # actor=None: the backlog AC hooks invalidate only the backlog keys, so the
+        # editor's own tasks cache relies on this frame to refresh (ADR-0152).
+        defer_task_updated(
+            criterion.task,
+            changed_fields=["acceptance_criteria"],
+            actor=None,
+            task_row_bumped=False,
+        )
 
 
 class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintTaskOutcome]):
@@ -9648,7 +9669,7 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
         # DRF does not call has_object_permission on create — verify the caller has
         # Scheduler+ on the template task's project before saving (same guard as
         # DependencyViewSet).
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.broadcast import defer_task_updated
 
         task = serializer.validated_data.get("task")
         if task is not None:
@@ -9658,19 +9679,24 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
         project_id = str(template.project_id)
         # The template just left the CPM graph — flag it and recompute the schedule
         # without it (ADR-0090). is_recurring is the single load-bearing exclusion key.
-        if not template.is_recurring:
+        flag_flipped = not template.is_recurring
+        if flag_flipped:
             template.is_recurring = True
             template.save(update_fields=["is_recurring"])
-        task_id = str(template.pk)
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         # The template's is_recurring badge changed — notify live boards (ADR-0060
         # parent-update pattern); the save() above already bumped its server_version.
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
+        # actor=None: useRecurrenceRule invalidates only the rule key, so the
+        # editor's tasks cache needs this frame to pick up is_recurring (ADR-0152).
+        defer_task_updated(
+            template,
+            changed_fields=["is_recurring"],
+            actor=None,
+            task_row_bumped=flag_flipped,
         )
 
     def perform_destroy(self, instance: TaskRecurrenceRule) -> None:
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.broadcast import defer_task_updated
 
         # Soft-delete the rule (stops further generation; the hourly sweep skips
         # is_deleted rules). Existing occurrences are real tasks and are retained.
@@ -9678,13 +9704,18 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
         project_id = str(template.project_id)
         instance.soft_delete()
         # The template rejoins the CPM graph — clear the flag and recompute.
-        if template.is_recurring:
+        flag_flipped = template.is_recurring
+        if flag_flipped:
             template.is_recurring = False
             template.save(update_fields=["is_recurring"])
-        task_id = str(template.pk)
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
+        # actor=None: useRecurrenceRule invalidates only the rule key, so the
+        # editor's tasks cache needs this frame to pick up is_recurring (ADR-0152).
+        defer_task_updated(
+            template,
+            changed_fields=["is_recurring"],
+            actor=None,
+            task_row_bumped=flag_flipped,
         )
 
 
@@ -12761,7 +12792,10 @@ def _validate_retro_assignees(items_in: list[dict[str, Any]], project_id: Any) -
         return None
     member_ids = set(
         ProjectMembership.objects.filter(
-            project_id=project_id, user_id__in=requested, is_deleted=False
+            project_id=project_id,
+            user_id__in=requested,
+            is_deleted=False,
+            user__is_active=True,
         ).values_list("user_id", flat=True)
     )
     if requested - member_ids:
@@ -16163,17 +16197,19 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             )
 
     def perform_update(self, serializer: BaseSerializer[Task]) -> None:
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.broadcast import defer_task_updated
 
         instance = serializer.save()
         # VersionedModel.save() already bumps server_version atomically via F() on
         # every UPDATE — no second bump needed here.
         # Attach the task count so the response body includes it (mirrors list).
         self._attach_task_counts([instance])
-        project_id_str = str(instance.project_id)
-        task_id_str = str(instance.pk)
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id_str, "task_updated", {"id": task_id_str})
+        # actor=None: useProjectPhases patches only the phases cache, so the
+        # editor's tasks cache (phase rows are Tasks) needs this frame (ADR-0152).
+        defer_task_updated(
+            instance,
+            changed_fields=list(serializer.validated_data),
+            actor=None,
         )
 
     def perform_destroy(self, instance: Task) -> None:
@@ -20672,7 +20708,7 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
             apply_acceptance_met_change,
             dor_blockers,
         )
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.broadcast import defer_task_updated
 
         token = request.auth
         if not isinstance(token, ApiToken):
@@ -20728,18 +20764,15 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
 
             # Broadcast one task_updated per affected task so connected clients
             # refresh the DoR meter without a manual refetch (deferred to commit).
-            # functools.partial freezes the per-iteration task id (avoiding the
-            # late-binding closure trap) and lets the type checker infer the
-            # argument types from broadcast_board_event's signature.
-            project_id_str = str(target_project.pk)
-            for task_id in list(affected_tasks):
-                transaction.on_commit(
-                    functools.partial(
-                        broadcast_board_event,
-                        project_id_str,
-                        "task_updated",
-                        {"id": str(task_id)},
-                    )
+            for affected_task in affected_tasks.values():
+                # actor=None: a CI write is not interactive — attributing it to the
+                # token's creator would make that user's browser skip the refetch
+                # as a self-echo of an edit it never made (ADR-0152).
+                defer_task_updated(
+                    affected_task,
+                    changed_fields=["acceptance_criteria"],
+                    actor=None,
+                    task_row_bumped=False,
                 )
 
         # Report the post-flip DoR state per affected task so CI knows whether the

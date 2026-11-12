@@ -475,3 +475,18 @@ class TestBuildOwnerIndex:
     ) -> None:
         index = build_owner_index(str(project.pk))
         assert "outsider" not in index
+
+    def test_excludes_deactivated_members(
+        self,
+        member_user: Any,
+        project: Project,
+        member_membership: ProjectMembership,
+    ) -> None:
+        """A deactivated account keeps its membership row; the risk owner validator
+        refuses it, so the import must not resolve it either (#4596)."""
+        member_user.is_active = False
+        member_user.save(update_fields=["is_active"])
+        index = build_owner_index(str(project.pk))
+        assert str(member_user.pk).lower() not in index
+        assert "member@example.com" not in index
+        assert "member" not in index

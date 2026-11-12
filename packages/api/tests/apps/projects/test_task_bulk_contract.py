@@ -1486,6 +1486,46 @@ def test_subtask_spawn_bumps_the_parents_server_version_and_reports_it_mutated(
     assert str(phase.pk) in payload["task_ids"]
 
 
+def test_bulk_subtask_spawn_does_not_reread_the_parents_version(
+    owner_client: APIClient, project: Project, django_capture_on_commit_callbacks: object
+) -> None:
+    """The bulk path broadcasts ids only (`tasks_bulk_mutated`), so the parent's bumped
+    `server_version` is never read back: re-reading it would be one SELECT per subtask,
+    up to `TASK_BULK_MAX_OPERATIONS`. Only the single-create path refreshes it."""
+    phase = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
+    real_refresh = Task.refresh_from_db
+    parent_refreshes: list[object] = []
+
+    def _spy(self: Task, *args: object, **kwargs: object) -> None:
+        if self.pk == phase.pk:
+            parent_refreshes.append(kwargs.get("fields"))
+        real_refresh(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    ops = [
+        {
+            "op": "create",
+            "data": {
+                "name": f"Subtask {i}",
+                "duration": 1,
+                "parent_id": str(phase.pk),
+                "is_subtask": True,
+            },
+        }
+        for i in range(3)
+    ]
+    with (
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch.object(Task, "refresh_from_db", _spy),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = owner_client.post(url(project), {"operations": ops}, format="json")
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 3
+    assert ["server_version", "sync_seq"] not in parent_refreshes
+
+
 def _program_with_hidden_cycle_path(
     calendar: Calendar,
 ) -> tuple[APIClient, Project, Task, Task, Task]:

@@ -247,6 +247,20 @@ def test_validate_user_unknown_id_is_not_an_oracle(project):
 
 
 @pytest.mark.django_db
+def test_validate_user_deactivated_member_rejected(project, member_user):
+    """A deactivated user keeps a live membership row but is refused with the same
+    generic 400 as a non-member (#4596)."""
+    field = _field(project, "Reviewer", CustomFieldType.USER)
+    ProjectMembership.objects.create(project=project, user=member_user, role=Role.MEMBER)
+    validate_custom_field_write(field, str(member_user.pk))  # active member passes
+    member_user.is_active = False
+    member_user.save(update_fields=["is_active"])
+    with pytest.raises(serializers.ValidationError) as exc:
+        validate_custom_field_write(field, str(member_user.pk))
+    assert "not a valid member" in str(exc.value)
+
+
+@pytest.mark.django_db
 def test_validate_unsupported_field_type_rejected(project):
     """An unknown field_type has no writer and is rejected rather than silently no-op."""
     field = _field(project, "F", CustomFieldType.TEXT)

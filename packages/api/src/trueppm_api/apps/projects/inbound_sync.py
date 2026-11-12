@@ -392,6 +392,11 @@ def _defer_side_effects(
     def _recalc(pid: str = project_id) -> None:
         _enqueue_recalculate(pid)
 
+    # Intentionally bare (not ``defer_task_updated``) for both event types: this is a
+    # token-authenticated system write with no actor to attribute, and the
+    # unversioned, unattributed frame makes every client refetch the task. The
+    # ADR-0152 routing gate in ``test_task_updated_helper_routing.py`` names this
+    # site as its one exception.
     def _broadcast(
         pid: str = project_id, et: str = event_type, tid: str = task_id, src: str = resolved.source
     ) -> None:
@@ -457,11 +462,13 @@ def _resolve_assignee(
     if not assignee_email:
         return (None, None)
     User = get_user_model()
-    # Lookup by email (case-insensitive) and confirm the user is a non-soft-deleted
-    # member.  Avoids leaking project membership across emails — only matches if
-    # the email belongs to a current member.
+    # Lookup by email (case-insensitive) and confirm the user is an active,
+    # non-soft-deleted member.  Avoids leaking project membership across emails —
+    # only matches if the email belongs to a current member.  ``is_active=True``
+    # keeps a deactivated account (still a member row until it is cleaned up) from
+    # being bound as the task's assignee; its email stays pending instead.
     user = (
-        User.objects.filter(email__iexact=assignee_email)
+        User.objects.filter(email__iexact=assignee_email, is_active=True)
         .filter(
             memberships__project=project,
             memberships__is_deleted=False,
