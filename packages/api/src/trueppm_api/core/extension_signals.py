@@ -30,10 +30,27 @@ Receivers and the database
 --------------------------
 
 A receiver may read and write the database inline. When the dispatch happens
-inside a transaction, each receiver runs in its own savepoint, so a receiver's
-``DatabaseError`` rolls back only that receiver's work and leaves the OSS
-transaction usable. The helper skips the savepoint when no receiver is
+inside a transaction, each **external** receiver — one whose code lives outside
+the ``trueppm_api`` package: Enterprise (``trueppm_enterprise``), a third-party
+plugin, or a test module — runs in its own savepoint, so its ``DatabaseError``
+rolls back only that receiver's work and leaves the OSS transaction usable.
+That is the threat #4084 contains: code OSS does not review aborting an OSS
+write. The cost is two statements per external receiver per dispatch
+(``SAVEPOINT`` + ``RELEASE SAVEPOINT``), paid only when such a receiver is
 connected.
+
+**First-party receivers get no savepoint.** A receiver defined in
+``trueppm_api.*`` (classified by the module of the underlying callable —
+``functools.partial`` and ``__wrapped__`` are unwrapped, and a bound method is
+first-party only if both its function and its instance's class are) is our own
+reviewed code, and several are connected unconditionally to signals fired on
+every task write. Giving each a savepoint added two queries per receiver per
+row, which scaled with bulk writes and broke the bounded-query guards. Its
+Python exception is still contained and logged exactly as ``send_robust``
+would, but a ``DatabaseError`` it raises inside an atomic block **can still
+poison the caller's transaction**, as it always could before #4084 — a
+first-party receiver must not issue a query that can fail, or must open its
+own savepoint. The helper skips all of this when no receiver is connected.
 
 Extension receivers are **synchronous by contract**. The two paths are
 deliberately not symmetric for an ``async def`` receiver: outside a transaction
@@ -99,7 +116,9 @@ copy them.
 
 from __future__ import annotations
 
+import functools
 import logging
+import types
 from typing import Any
 
 from django.db import connection, transaction
@@ -159,13 +178,19 @@ def dispatch_extension_signal(signal: Signal, *, sender: type[Any] | None, **kwa
     # that hits a DatabaseError leaves PostgreSQL in the aborted state while
     # send_robust only contains the Python exception: the next OSS query would
     # raise InFailedSqlTransaction, or COMMIT would silently become ROLLBACK.
-    # A savepoint per receiver rolls back just that receiver's database work.
+    # A savepoint per *external* receiver rolls back just that receiver's
+    # database work. First-party receivers skip it: they are reviewed OSS code
+    # on the hot task-write path, and two extra statements per receiver per row
+    # is what the bounded-query guards exist to catch (see module docstring).
     sync_receivers, async_receivers = signal._live_receivers(sender)
     results: list[tuple[Any, Any]] = []
     for receiver in sync_receivers:
         try:
-            with transaction.atomic(savepoint=True):
+            if _is_first_party(receiver):
                 response = receiver(signal=signal, sender=sender, **kwargs)
+            else:
+                with transaction.atomic(savepoint=True):
+                    response = receiver(signal=signal, sender=sender, **kwargs)
         except Exception as err:
             results.append((receiver, err))
         else:
@@ -176,6 +201,45 @@ def dispatch_extension_signal(signal: Signal, *, sender: type[Any] | None, **kwa
         # but we do not re-implement Django's event-loop bridge for it.
         logger.error("Extension-signal receiver is async and was skipped: %r", receiver)
     _log_failures(signal, sender, results)
+
+
+_FIRST_PARTY_PREFIX = "trueppm_api."
+
+
+def _module_is_first_party(module: object) -> bool:
+    return isinstance(module, str) and module.startswith(_FIRST_PARTY_PREFIX)
+
+
+def _is_first_party(receiver: Any) -> bool:
+    """Whether ``receiver`` is OSS code from the ``trueppm_api`` package.
+
+    Fails toward *external* (and therefore toward the savepoint): anything it
+    cannot attribute to ``trueppm_api.*`` is treated as code OSS did not write.
+    ``receiver`` is already dereferenced — Django's ``_live_receivers`` resolves
+    ``weak=True`` references (``weakref.ref`` / ``WeakMethod``) before returning.
+    """
+    seen: set[int] = set()
+    target = receiver
+    while id(target) not in seen:
+        seen.add(id(target))
+        if isinstance(target, functools.partial):
+            target = target.func
+            continue
+        wrapped = getattr(target, "__wrapped__", None)
+        if wrapped is not None:
+            target = wrapped
+            continue
+        break
+    if isinstance(target, types.MethodType):
+        # Both halves must be ours: an Enterprise subclass inheriting an OSS
+        # method still runs Enterprise state through it.
+        owner = target.__self__
+        owner_module = owner.__module__ if isinstance(owner, type) else type(owner).__module__
+        return _module_is_first_party(owner_module) and _is_first_party(target.__func__)
+    if isinstance(target, (types.FunctionType, types.BuiltinFunctionType)):
+        return _module_is_first_party(getattr(target, "__module__", None))
+    # A callable instance: attribute it to its class.
+    return _module_is_first_party(type(target).__module__)
 
 
 def _log_failures(signal: Signal, sender: type[Any] | None, results: Any) -> None:

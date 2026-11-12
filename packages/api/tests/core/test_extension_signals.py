@@ -308,13 +308,17 @@ def test_history_record_created_senders_are_the_historical_classes(project: Proj
     about.
     """
     seen: list[type] = []
-    history_record_created.connect(
-        lambda sender, **kw: seen.append(sender), sender=Task.history.model, weak=False
-    )
+
+    def _capture(sender: type, **kw: object) -> None:
+        seen.append(sender)
+
+    history_record_created.connect(_capture, sender=Task.history.model, weak=False)
     try:
         Task.objects.create(project=project, name="Tracked", duration=1)
     finally:
-        history_record_created.disconnect(sender=Task.history.model)
+        # disconnect() keys on (receiver, sender): a sender-only call matches
+        # nothing and would leak this receiver into every later test.
+        assert history_record_created.disconnect(_capture, sender=Task.history.model)
 
     assert seen == [Task.history.model]
 
@@ -472,3 +476,123 @@ def test_receiver_database_error_on_history_record_keeps_the_save() -> None:
         history_record_created.disconnect(_db_boom)
     task.refresh_from_db()
     assert task.name == "renamed"
+
+
+# ---------------------------------------------------------------------------
+# Savepoint scope: only external receivers pay for one. First-party OSS
+# receivers (trueppm_api.*) sit on the hot task-write path and are reviewed
+# code; a savepoint each would add two statements per receiver per row.
+# ---------------------------------------------------------------------------
+
+_OSS_MODULE = "trueppm_api.core._test_first_party_receiver"
+
+
+def _first_party_boom(sender: object, **kwargs: object) -> None:
+    raise RuntimeError("first-party receiver bug")
+
+
+_first_party_boom.__module__ = _OSS_MODULE
+
+
+def _first_party_noop(sender: object, **kwargs: object) -> None:
+    return None
+
+
+_first_party_noop.__module__ = _OSS_MODULE
+
+
+def _external_noop(sender: object, **kwargs: object) -> None:
+    return None
+
+
+class _FirstPartyHandler:
+    def handle(self, sender: object, **kwargs: object) -> None:
+        return None
+
+
+_FirstPartyHandler.__module__ = _OSS_MODULE
+_FirstPartyHandler.handle.__module__ = _OSS_MODULE
+
+
+class _ExternalSubclass(_FirstPartyHandler):
+    """An external class inheriting an OSS method — still external."""
+
+
+_ExternalSubclass.__module__ = "acme_extension.handlers"
+
+
+def _savepoint_sql(captured: Any) -> list[str]:
+    return [q["sql"] for q in captured.captured_queries if "SAVEPOINT" in q["sql"].upper()]
+
+
+def _dispatch_capturing(receiver: Any, *, weak: bool = False) -> list[str]:
+    from django.db import connection, transaction
+    from django.test.utils import CaptureQueriesContext
+
+    sig = django.dispatch.Signal()
+    sig.connect(receiver, weak=weak)
+    try:
+        with transaction.atomic(), CaptureQueriesContext(connection) as captured:
+            dispatch_extension_signal(sig, sender=object)
+    finally:
+        sig.disconnect(receiver)
+    return _savepoint_sql(captured)
+
+
+@pytest.mark.django_db
+def test_first_party_receiver_gets_no_savepoint_and_failure_is_still_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.ERROR, logger="trueppm_api.core.extension_signals"):
+        statements = _dispatch_capturing(_first_party_boom)
+    assert statements == []
+    failures = [r for r in caplog.records if "receiver failed" in r.getMessage()]
+    assert len(failures) == 1
+    assert "_first_party_boom" in failures[0].getMessage()
+    assert failures[0].exc_info is not None
+    assert isinstance(failures[0].exc_info[1], RuntimeError)
+
+
+@pytest.mark.django_db
+def test_external_receiver_gets_one_savepoint() -> None:
+    statements = _dispatch_capturing(_external_noop)
+    assert len(statements) == 2  # SAVEPOINT + RELEASE SAVEPOINT
+    assert statements[0].upper().startswith("SAVEPOINT")
+    assert statements[1].upper().startswith("RELEASE SAVEPOINT")
+
+
+@pytest.mark.django_db
+def test_bound_methods_and_partials_classify_by_underlying_module() -> None:
+    import functools
+
+    from trueppm_api.core.extension_signals import _is_first_party
+
+    first_party = _FirstPartyHandler()
+    external = _ExternalSubclass()
+    assert _is_first_party(_first_party_noop)
+    assert _is_first_party(first_party.handle)
+    assert _is_first_party(functools.partial(_first_party_noop))
+    assert _is_first_party(functools.partial(functools.partial(first_party.handle)))
+    assert not _is_first_party(_external_noop)
+    assert not _is_first_party(functools.partial(_external_noop))
+    assert not _is_first_party(external.handle)
+
+    # Weak references (Django's default) are dereferenced before classification.
+    assert _dispatch_capturing(first_party.handle, weak=True) == []
+    assert len(_dispatch_capturing(external.handle, weak=True)) == 2
+    assert _dispatch_capturing(functools.partial(_first_party_noop)) == []
+    assert len(_dispatch_capturing(functools.partial(_external_noop))) == 2
+
+
+def test_real_oss_receivers_are_classified_first_party() -> None:
+    """The receivers connected in production are what the query bounds measure."""
+    from trueppm_api.core.extension_signals import _is_first_party
+
+    oss = [
+        r
+        for sig in (task_status_changed, history_record_created)
+        for r in sig._live_receivers(None)[0]
+        if getattr(r, "__module__", "").startswith("trueppm_api.")
+    ]
+    assert oss, "expected at least one first-party receiver connected"
+    assert all(_is_first_party(r) for r in oss)
