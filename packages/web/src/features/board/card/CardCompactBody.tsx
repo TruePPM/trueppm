@@ -52,6 +52,7 @@ function CompactSignalBadge({
         ariaLabel={`${cardSignal.label}. What does this mean?`}
         peekAriaLabel={`${cardSignal.label} — explanation`}
         triggerClassName={`shrink-0 px-1 py-px rounded-chip text-xs border font-medium ${toneClass}`}
+        shortTrigger
         triggerContent={
           <SignalIcon aria-hidden="true" className="h-3 w-3" data-testid="card-signal-icon" />
         }
@@ -140,6 +141,7 @@ export function CardCompactBody({
           <CardPeekButton
             ariaLabel={`Show full title: ${task.name}`}
             peekAriaLabel="Full task title"
+            triggerClassName="p-1"
             triggerContent={
               <MoreHorizontalIcon
                 className="h-3.5 w-3.5 text-neutral-text-secondary"

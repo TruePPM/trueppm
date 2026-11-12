@@ -36,7 +36,10 @@ import { createPortal } from 'react-dom';
  *     its anchor;
  *   - `stopPropagation` on pointerdown+click so opening never drags, selects,
  *     or opens the host card;
- *   - `before:inset-[-12px]` for a ≥44px hit target; rule-4 `focus-visible` ring.
+ *   - a ≥44px `::before` hit pad, sized by the trigger's padding box: `inset-[-12px]` by
+ *     default, `-13px` with `bordered`, and `inset-x-[-13px] inset-y-[-16px]` with
+ *     `shortTrigger` (icon-only ~14px chip). An unbordered trigger shorter than ~20px
+ *     must add its own padding (e.g. `p-1`, `py-0.5`) to reach 44px; rule-4 `focus-visible` ring.
  *
  * The popover surface is intentionally NEUTRAL (rule 253a): the trigger may
  * carry a semantic tone (e.g. the worst-offender health badge), but the peek

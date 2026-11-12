@@ -47,7 +47,7 @@ const FIXTURE_HEATMAP = {
       job_role: 'Lead Engineer',
       color: '#3E8C6D',
       calendar_differs_from_project: false,
-      util: [80, 95, 130, 120, 70, 60, 80, 100],
+      util: [80, 95, 130, 120, 70, 60, 80, 0],
     },
   ],
 };
@@ -394,6 +394,24 @@ test.describe('Heatmap page', () => {
       expect(box!.height).toBeGreaterThanOrEqual(44);
       expect(box!.width).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  test('a 0% cell resolves to a real background color, not an unresolved token (#3861)', async ({
+    page,
+  }) => {
+    const grid = page.getByRole('grid', { name: 'Resource utilization heatmap' });
+    await expect(grid.getByRole('gridcell').first()).toBeVisible();
+    // An unresolved var() reads back as transparent; every cell (incl. the 0% one) must paint.
+    const colors = await grid
+      .getByRole('gridcell')
+      .evaluateAll((els) =>
+        els.map((el) => getComputedStyle(el.firstElementChild ?? el).backgroundColor),
+      );
+    expect(colors.length).toBeGreaterThan(0);
+    for (const c of colors) {
+      expect(c).toMatch(/^rgba?\(/);
+    }
+    expect(colors).not.toContain('rgba(0, 0, 0, 0)');
   });
 
   test('Clicking an over-allocated cell opens the drawer', async ({ page }) => {

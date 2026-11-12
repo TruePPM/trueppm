@@ -604,6 +604,9 @@ test.describe('Wave 10 — Sprints backlog table', () => {
     console.log(`[3519] phantom scrollWidth: with fix ${m.withFix}px, without ${m.withoutFix}px`);
     expect(m.cells).toBeGreaterThan(0);
     expect(m.withFix).toBeLessThanOrEqual(0);
+    // Negative control: removing the padding must reintroduce the phantom width, else the
+    // guard above proves nothing.
+    expect(m.withoutFix).toBeGreaterThan(0);
   });
 
   test('group toggle hides rows and re-shows on second click', async ({ page }) => {

@@ -135,6 +135,20 @@ describe('CustomFieldCompactPeek', () => {
     expect(trigger).toHaveTextContent('7');
   });
 
+  it('pads the bordered ⊕N trigger by -13px to reach 44px', () => {
+    render(<CustomFieldCompactPeek fields={ALL} values={VALUES} />);
+    const trigger = screen.getByRole('button', { name: '7 custom fields' });
+    expect(trigger.className).toContain('before:inset-[-13px]');
+    expect(trigger.className).not.toContain('before:inset-[-12px]');
+  });
+
+  it('pads the unbordered +N more trigger with py-0.5 so -12px reaches 44px', () => {
+    render(<CustomFieldMarks fields={ALL} values={VALUES} density="comfortable" />);
+    const trigger = screen.getByRole('button', { name: '4 more custom fields' });
+    expect(trigger.className).toContain('py-0.5');
+    expect(trigger.className).toContain('before:inset-[-12px]');
+  });
+
   it('renders nothing when no field is populated', () => {
     const { container } = render(<CustomFieldCompactPeek fields={ALL} values={{}} />);
     expect(container).toBeEmptyDOMElement();

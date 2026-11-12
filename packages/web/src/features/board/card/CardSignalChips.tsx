@@ -3,12 +3,12 @@ import { LinkIcon, WarningIcon } from '@/components/Icons';
 import { severityRagBand } from '@/hooks/useTaskDependencies';
 import { riskChipToneClass } from './cardFormat';
 
-// `before:inset-[-12px]` restores the ≥44px touch target (rule 5) the emoji
+// `before:inset-[-13px]` restores the ≥44px touch target (rule 5) the emoji
 // buttons had — the chip itself is ~20px, so the invisible pseudo pad carries
 // the hit area (mirrors the ··· menu / accept ✓ / worst-offender badge).
 const CHIP_BASE = [
   'relative shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
-  "before:absolute before:inset-[-12px] before:content-['']",
+  "before:absolute before:inset-[-13px] before:content-['']",
   'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
 ].join(' ');
 

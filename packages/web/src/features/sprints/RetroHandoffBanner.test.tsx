@@ -53,6 +53,15 @@ describe('RetroHandoffBanner (issue 1471)', () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
+  it('gives the dismiss control a 44px hit pad', () => {
+    render(
+      <RetroHandoffBanner sprintName="S" iterationLabel="sprint" onRun={vi.fn()} onDismiss={vi.fn()} />,
+    );
+    const btn = screen.getByRole('button', { name: /Dismiss retro handoff/ });
+    expect(btn.className).toContain('before:h-11');
+    expect(btn.className).toContain('before:w-11');
+  });
+
   it('respects the iteration label in the supporting copy', () => {
     render(
       <RetroHandoffBanner

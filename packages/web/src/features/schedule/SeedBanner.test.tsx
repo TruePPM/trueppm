@@ -208,7 +208,10 @@ describe('SeedBanner (#2731, ADR-0799 §1)', () => {
       />,
       { wrapper },
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss seed banner' }));
+    const btn = await screen.findByRole('button', { name: 'Dismiss seed banner' });
+    expect(btn.className).toContain('before:h-11');
+    expect(btn.className).toContain('before:w-11');
+    fireEvent.click(btn);
     expect(onDismiss).toHaveBeenCalled();
     expect(postMock).not.toHaveBeenCalled();
   });

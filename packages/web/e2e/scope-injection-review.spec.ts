@@ -242,6 +242,8 @@ test.describe('Sprint scope-injection approve-gate (#881 / ADR-0102)', () => {
         const cx = r.left + r.width / 2;
         const cy = r.top + r.height / 2;
         const hits = (x: number, y: number) => document.elementFromPoint(x, y) === el;
+        // 1px scan: exact only because the trigger boxes and pads are whole-pixel; a fractional
+        // box would quantize by +-1 against the 44px floor (bisection would be needed then).
         let up = 0;
         let down = 0;
         let left = 0;

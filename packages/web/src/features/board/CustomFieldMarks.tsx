@@ -337,6 +337,7 @@ export function CustomFieldMarks({
           }
           ariaLabel={`${hidden.length} more custom field${hidden.length === 1 ? '' : 's'}`}
           peekAriaLabel="Custom fields"
+          triggerClassName="py-0.5"
         >
           <PeekList items={hidden} />
         </CardPeekButton>
@@ -370,6 +371,7 @@ export function CustomFieldCompactPeek({
           </span>
         }
         triggerClassName="px-1 py-px rounded-chip bg-neutral-surface-sunken border border-neutral-border"
+        bordered
         ariaLabel={`${populated.length} custom field${populated.length === 1 ? '' : 's'}`}
         peekAriaLabel="Custom fields"
       >

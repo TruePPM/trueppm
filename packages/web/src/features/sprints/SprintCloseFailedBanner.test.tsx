@@ -89,4 +89,11 @@ describe('SprintCloseFailedBanner (#2992)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss close failure' }));
     expect(onDismiss).toHaveBeenCalledOnce();
   });
+
+  it('gives the dismiss control a 44px hit pad', () => {
+    renderBanner();
+    const btn = screen.getByRole('button', { name: 'Dismiss close failure' });
+    expect(btn.className).toContain('before:h-11');
+    expect(btn.className).toContain('before:w-11');
+  });
 });

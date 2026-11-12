@@ -87,7 +87,8 @@ export function ScheduleTaskCeilingBanner({
         onClick={onDismiss}
         aria-label="Dismiss Schedule size warning"
         data-testid="schedule-task-ceiling-banner-dismiss"
-        className="ml-auto shrink-0 w-11 h-11 inline-flex items-center justify-center rounded-control
+        className="relative ml-auto shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-control
+          before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']
           text-neutral-text-secondary hover:bg-neutral-surface-sunken
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >

@@ -78,7 +78,7 @@ export function CardBadgeRow({
           aria-controls={view.peekId}
           aria-label={`${cardSignal.srText}. Show health details.`}
           className={`relative inline-flex items-center gap-0.5 px-1.5 py-px rounded-chip text-xs border font-medium
-                  before:absolute before:inset-[-12px] before:content-['']
+                  before:absolute before:inset-[-13px] before:content-['']
                   focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                   ${cardSignalToneClass(cardSignal.tone)}`}
         >

@@ -60,7 +60,9 @@ describe('ScheduleTaskCeilingBanner', () => {
   it('sizes the dismiss control to the 44px touch floor', () => {
     render(<ScheduleTaskCeilingBanner taskCount={1_500} onDismiss={vi.fn()} />);
     const btn = screen.getByRole('button', { name: 'Dismiss Schedule size warning' });
-    expect(btn.className).toContain('w-11');
-    expect(btn.className).toContain('h-11');
+    // 24px visual box + a centered 44px ::before hit pad (keeps the banner compact).
+    expect(btn.className).toContain('w-6');
+    expect(btn.className).toContain('before:h-11');
+    expect(btn.className).toContain('before:w-11');
   });
 });

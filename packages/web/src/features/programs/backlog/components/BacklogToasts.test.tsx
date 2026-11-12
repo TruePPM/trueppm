@@ -32,6 +32,20 @@ describe('BacklogToasts', () => {
     expect(link).toHaveAttribute('href', '/projects/p-7/tasks/t-9');
   });
 
+  it('gives the dismiss control a 44px hit pad', () => {
+    renderToast({
+      kind: 'error',
+      // Only the fields the error branch reads; cast keeps the fixture small.
+      item: {} as never,
+      project: { name: 'Avionics' } as never,
+      message: 'boom',
+      offline: false,
+    });
+    const btn = screen.getByRole('button', { name: 'Dismiss' });
+    expect(btn.className).toContain('before:h-11');
+    expect(btn.className).toContain('before:w-11');
+  });
+
   it('omits the deep-link until the task id resolves', () => {
     renderToast({ kind: 'success', message: 'Pulled to Avionics.', projectId: 'p-7' });
     expect(screen.queryByRole('link', { name: 'Go to task' })).not.toBeInTheDocument();
