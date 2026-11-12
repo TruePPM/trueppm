@@ -329,7 +329,7 @@ in that list is enabled by default.
 |--------|----------------|-----------------|
 | `SECRET_KEY` | Django session/CSRF signing; JWT signing when `JWT_SIGNING_KEY` is unset | Full account takeover — attacker can forge any session or token |
 | `JWT_SIGNING_KEY` *(optional)* | Access/refresh JWT signing only | Token forgery for any user — but a leak no longer also compromises session/CSRF signing |
-| `INTEGRATION_ENCRYPTION_KEY` | Fernet key for stored third-party secrets: the single sign-on client secret, every user's Jira credential, and webhook secrets | Offline decryption of every one of those secrets from a database copy |
+| `INTEGRATION_ENCRYPTION_KEY` | Fernet key for stored third-party secrets: the single sign-on client secret, every user's stored external-source (Jira) credential, outgoing webhook secrets, board-automation secrets, and the outbound SMTP password | Offline decryption of every one of those secrets from a database copy |
 | `DATABASE_URL` | PostgreSQL connection | Full data access |
 | `REDIS_URL` | Celery broker, Channels layer | Task injection, event spoofing |
 
@@ -340,21 +340,23 @@ Never commit secrets to version control. Use environment variables, Docker secre
 ### One encryption key covers every stored third-party secret
 
 `INTEGRATION_ENCRYPTION_KEY` is a single key. It encrypts the OIDC/OAuth client
-secret you configure for single sign-on, each user's stored Jira credential, and
-the secrets of your outgoing webhooks. There is no separate key per class and no
+secret you configure for single sign-on, each user's stored Jira credential, the
+secrets of your outgoing webhooks, your board-automation secrets, and the outbound
+SMTP password. There is no separate key per class and no
 key rotation in the open-source edition: stored values are encrypted with exactly
 one key, and nothing re-encrypts them. This is a known, accepted limitation, not
 a misconfiguration. Changing the key, or losing it, makes every stored value
 undecryptable.
 
 **Recovery after a lost or changed key** is to re-enter every secret: the SSO
-client secret (Settings, Single sign-on), each user's Jira connection, and each
-webhook secret. Nothing else is lost. Back the key up with your database backups
-so you never need this, and treat its leak as the leak of all three classes at
+client secret (Settings, Single sign-on), each user's Jira connection, each
+webhook secret, each board-automation secret, and the SMTP password (if you
+configured outbound email). Nothing outside these five is encrypted with this key. Back the key up with your database backups
+so you never need this, and treat its leak as the leak of every one of them at
 once. Rotating the key without re-encrypting is a recovery event, not a routine
 rotation. A KMS-backed key with dual-key decryption and a re-encryption migration
 is an Enterprise hardening item (the design is recorded in the
-[auth architecture](/architecture/auth/#one-encryption-key-for-three-secret-classes)).
+[auth architecture](/architecture/auth/#one-encryption-key-for-every-stored-third-party-secret)).
 
 ### Restarting pods after rotating the Secret
 
@@ -468,9 +470,11 @@ before server-side session revocation (issue
 so those actions cannot reach it, and "every other session is revoked" does not
 hold for it. The gap closes by itself once every such session has expired: 30 days
 at most (the *Keep me signed in* lifetime), counted from the day you first ran a
-release that includes the fix. An install that has run `v0.4.0-beta.1` or later
-since 15 October 2026 or earlier is already clear. One that upgrades from an older
-release is exposed for 30 days from its own upgrade.
+release that includes the fix. `v0.4.0-beta.1` was tagged on 15 September 2026, so
+the window closed on 14 October 2026 for an install that has run `v0.4.0-beta.1` or
+later since its release: if yours has run it for 30 days or more, you are already
+clear. An install that upgrades from an older release is exposed for 30 days from
+its own upgrade.
 
 If you cannot wait that long, for example after a suspected token leak shortly
 after upgrading, rotate `JWT_SIGNING_KEY` as above: it invalidates every

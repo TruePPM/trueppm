@@ -672,9 +672,24 @@ mod date_serde_tests {
         body.lines()
             .filter_map(|l| {
                 let l = l.trim();
-                let rest = l.strip_prefix("pub ")?;
-                let (name, ty) = rest.split_once(':')?;
-                (ty.trim() == "Option<NaiveDate>,").then(|| name.trim().to_string())
+                if l.starts_with("//") || !l.contains("NaiveDate") {
+                    return None;
+                }
+                // Fail loudly rather than skip: any NaiveDate mention that is
+                // not the exact recognised form would silently drop out of the
+                // guard (`chrono::NaiveDate`, an alias, `pub(crate)`, a
+                // multi-line declaration).
+                let parsed = l.strip_prefix("pub ").and_then(|rest| {
+                    let (name, ty) = rest.split_once(':')?;
+                    (ty.trim() == "Option<NaiveDate>,").then(|| name.trim().to_string())
+                });
+                Some(parsed.unwrap_or_else(|| {
+                    panic!(
+                        "unrecognised NaiveDate line in Task struct: `{l}`. Declare date \
+                         fields as a single-line `pub name: Option<NaiveDate>,` or extend \
+                         task_date_fields() to understand the new form."
+                    )
+                }))
             })
             .collect()
     }
