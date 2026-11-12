@@ -30,12 +30,11 @@
 # availability-only). A malformed image of one of those three formats never
 # terminates the dimension probe.
 #
-# There is no patched release in ANY line, which is why this is a suppression
-# rather than a bump. Both advisories are `introduced: 0, last_affected: 2.0.2`
-# with no `fixed` event, and npm `latest` IS 2.0.2 — every published version is
-# affected. Our 1.2.1 is the `legacy` dist-tag. Bumping is not an option that
-# exists; forcing 2.0.2 via `overrides` would both break metro's declared
-# `^1.0.2` range and still be vulnerable.
+# The fix exists only in the 2.x line (first patched version 2.0.3; every 1.x
+# release is affected), and metro's declared `^1.0.2` range blocks the lockfile
+# from taking it. That range is why this is a suppression rather than a bump;
+# forcing 2.x needs an `overrides` entry that has not been bundle-tested here
+# (see the re-triage note below). Our 1.2.1 is the `legacy` dist-tag.
 #
 # It arrives on exactly one path, build-time only:
 #
@@ -76,7 +75,8 @@
 # viable, but it has not been bundle-tested here. The expiry is pulled forward to
 # 2027-01-15 so that override is tried (or ruled out) before the 0.5 release.
 # Re-evaluate when metro moves off image-size 1.x, or when the override is tried.
-# Tracked in #2787 (closed) and #4391.
+# No open issue tracks this: the earlier tracking issues (#2787, #4391) are
+# closed. The `effectiveUntil` date below is the only re-evaluation trigger.
 
 [[PackageOverrides]]
 name = "image-size"
@@ -84,7 +84,7 @@ version = "1.2.1"
 ecosystem = "npm"
 ignore = true
 effectiveUntil = 2027-01-15
-reason = "GHSA-5p2g-fcmc-qvqq / GHSA-w3rx-r6r6-pgpr: no patched 1.x release exists — the first patched version is 2.0.3 (2.1.0 is latest), which metro's declared `^1.0.2` range cannot take without an `overrides` entry (not yet bundle-tested; see the comment above). Build-time only, via metro's asset pipeline (metro/src/Assets.js) under react-native. Not bundled into the app; the input is our own committed image assets, never user or network input."
+reason = "GHSA-5p2g-fcmc-qvqq / GHSA-w3rx-r6r6-pgpr: fixed in 2.x only (first patched version 2.0.3; every 1.x release is affected), and metro's declared `^1.0.2` range blocks the lockfile from taking it without an `overrides` entry (not yet bundle-tested; see the comment above). Build-time only, via metro's asset pipeline (metro/src/Assets.js) under react-native. Not bundled into the app; the input is our own committed image assets, never user or network input."
 
 # GHSA-vcc3-ghjq-m6fr — decode-uri-component DoS via exponential decoding of
 # malformed percent-encoded input (MODERATE, CVSS v4 6.6, availability-only).
@@ -130,7 +130,8 @@ reason = "GHSA-5p2g-fcmc-qvqq / GHSA-w3rx-r6r6-pgpr: no patched 1.x release exis
 # restores named entry exports (or react-navigation deep-imports
 # query-string/base.js); or @react-navigation/core drops query-string. If deep
 # linking is added to the mobile app before the expiry, this stops being
-# unreachable and must be re-scored then. Tracked in #3282.
+# unreachable and must be re-scored then. No open issue tracks this (#3282 is closed); the
+# `effectiveUntil` date below is the re-evaluation trigger.
 
 [[PackageOverrides]]
 name = "decode-uri-component"
@@ -169,7 +170,7 @@ reason = "GHSA-vcc3-ghjq-m6fr: the only patched release (0.5.0) is ESM-only with
 # something to pull forward just to clear this gate; the Jest/Metro path is
 # independent of that migration and has no upstream fix to wait on either.
 # Re-evaluate when braces ships any release past 3.0.3, when #4261 lands, or
-# when Jest/Metro move off micromatch@3. Tracked in #4262.
+# when Jest/Metro move off micromatch@3. Tracked in #4261 (tailwind chain only).
 
 [[PackageOverrides]]
 name = "braces"
