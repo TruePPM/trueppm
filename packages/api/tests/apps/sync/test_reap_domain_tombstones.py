@@ -369,3 +369,64 @@ def test_reap_domain_tombstones_returns_counts(live_project: Project) -> None:
     assert "projects.sprint" in counts
     assert "projects.dependency" in counts
     assert "projects.taskrelation" in counts
+
+
+# ---------------------------------------------------------------------------
+# Label / SprintRetro / TimeEntry (#2342)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_reap_covers_label_sprintretro_and_timeentry_with_retention(live_project: Project) -> None:
+    """Label, SprintRetro and TimeEntry tombstones are reaped only past the window."""
+    from django.contrib.auth import get_user_model
+
+    from trueppm_api.apps.projects.models import Label, Sprint, SprintRetro
+    from trueppm_api.apps.timetracking.models import TimeEntry
+
+    user = get_user_model().objects.create_user(username="reaper", password="pw")
+    task = _make_task(live_project)
+    old_ago = timezone.now() - timedelta(days=95)
+
+    old_label = Label.objects.create(project=live_project, name="old")
+    new_label = Label.objects.create(project=live_project, name="new")
+    live_label = Label.objects.create(project=live_project, name="live")
+    Label.objects.filter(pk__in=[old_label.pk, new_label.pk]).update(is_deleted=True)
+    Label.objects.filter(pk=old_label.pk).update(updated_at=old_ago)
+
+    def _retro() -> SprintRetro:
+        sprint = Sprint.objects.create(
+            project=live_project,
+            name="S",
+            start_date=date(2026, 1, 1),
+            finish_date=date(2026, 1, 14),
+        )
+        return SprintRetro.objects.create(sprint=sprint)
+
+    old_retro, new_retro = _retro(), _retro()
+    SprintRetro.objects.filter(pk__in=[old_retro.pk, new_retro.pk]).update(is_deleted=True)
+    SprintRetro.objects.filter(pk=old_retro.pk).update(updated_at=old_ago)
+
+    def _entry() -> TimeEntry:
+        return TimeEntry.objects.create(task=task, user=user, minutes=30)
+
+    old_entry, new_entry = _entry(), _entry()
+    TimeEntry.objects.filter(pk__in=[old_entry.pk, new_entry.pk]).update(
+        is_deleted=True, deleted_at=timezone.now()
+    )
+    TimeEntry.objects.filter(pk=old_entry.pk).update(deleted_at=old_ago)
+
+    counts = _do_reap(override_days=90)
+
+    assert not Label.objects.filter(pk=old_label.pk).exists()
+    assert Label.objects.filter(pk__in=[new_label.pk, live_label.pk]).count() == 2
+    assert not SprintRetro.objects.filter(pk=old_retro.pk).exists()
+    assert SprintRetro.objects.filter(pk=new_retro.pk).exists()
+    assert not TimeEntry.objects.filter(pk=old_entry.pk).exists()
+    assert TimeEntry.objects.filter(pk=new_entry.pk).exists()
+    assert counts["projects.label"] == 1
+    assert counts["projects.sprintretro"] == 1
+    assert counts["timetracking.timeentry"] == 1
+    # The floor rose, so a client whose cursor predates the reap is told to resync.
+    live_project.refresh_from_db()
+    assert live_project.tombstone_floor > 0

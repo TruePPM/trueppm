@@ -765,6 +765,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     process has no free simulation slot, 404 if the project does not exist,
     403 if the caller lacks read access.
     """
+    from trueppm_scheduler import MAX_DEPENDENCIES
     from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
     from trueppm_scheduler.models import Project as SchedProject
 
@@ -848,6 +849,28 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # part of the forecast. ADR-0057 / Task.committed.
     # select_related("sprint"): build_sched_tasks reads sprint.start_date for the
     # ADR-0168 sprint-window floor; load it with the task to avoid an N+1.
+    # Bound the row materialization BEFORE it happens (#1563). The engine enforces
+    # MC_TASK_CAP / MAX_DEPENDENCIES, but only after both lists below have been loaded
+    # and converted -- a linear read cost bounded by nothing but persisted DB size.
+    # Two cheap COUNTs turn that into the same clean 400 the engine would have raised.
+    task_cap = settings.MC_TASK_CAP
+    if task_cap is not None and Task.committed.filter(project=project).count() > task_cap:
+        # Same 402 body the engine's SimulationCapExceeded produces below, so the
+        # contract is unchanged -- only the cost of reaching it is.
+        return Response(
+            {
+                "error": "simulation_cap_exceeded",
+                "tier": "team",
+                "message": f"Project has more than {task_cap} committed tasks.",
+            },
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+    if Dependency.live.filter(predecessor__project_id=pk).count() > MAX_DEPENDENCIES:
+        return Response(
+            {"detail": f"Project has more than {MAX_DEPENDENCIES} dependencies; cannot simulate."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     db_tasks = list(Task.committed.filter(project=project).select_related("sprint"))
 
     # Shared converter (ADR-0132): the deterministic CPM pass and Monte Carlo

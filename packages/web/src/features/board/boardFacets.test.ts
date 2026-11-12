@@ -60,6 +60,16 @@ describe('priorityBandOf', () => {
 });
 
 describe('dueWindowsOf', () => {
+  it('ignores a stale past finish on a sprint-assigned BACKLOG card (#2985)', () => {
+    const t = makeTask({
+      status: 'BACKLOG',
+      sprintId: 'sprint-1',
+      plannedStart: null,
+      finish: '2026-01-05',
+    });
+    expect(dueWindowsOf(t, NOW).size).toBe(0);
+  });
+
   it('flags a task whose finish is before today as overdue', () => {
     const t = makeTask({ finish: '2026-04-01', plannedStart: '2026-03-30' });
     expect([...dueWindowsOf(t, NOW)]).toEqual(['overdue']);

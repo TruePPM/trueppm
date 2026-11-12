@@ -146,7 +146,16 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
     Deferred so the function can be called safely after Django app setup
     completes, avoiding circular imports at module load time.
     """
-    from trueppm_api.apps.projects.models import Dependency, Risk, Sprint, Task, TaskRelation
+    from trueppm_api.apps.projects.models import (
+        Dependency,
+        Label,
+        Risk,
+        Sprint,
+        SprintRetro,
+        Task,
+        TaskRelation,
+    )
+    from trueppm_api.apps.timetracking.models import TimeEntry
 
     return [
         # Task: deleted_at is stamped in Task.soft_delete() (mirrors Attachment) —
@@ -194,6 +203,33 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
             },
             "deleted_at",
         ),
+        # Label (#2342): direct project FK; no deleted_at, but soft_delete() saves the
+        # row so auto_now ``updated_at`` is the deletion time. Highest-churn catalog.
+        (
+            Label,
+            {"project__is_deleted": False, "project__is_archived": False},
+            "updated_at",
+        ),
+        # SprintRetro (#2342): reaped via its sprint's project; ``updated_at`` as above.
+        # Cascades to RetroActionItem, which _delete_tracking_sync_seq folds into the floor.
+        (
+            SprintRetro,
+            {"sprint__project__is_deleted": False, "sprint__project__is_archived": False},
+            "updated_at",
+        ),
+        # TimeEntry (#2342): reaped via its task's project. ``deleted_at`` is stamped by
+        # TimeEntry.soft_delete(); a row soft-deleted before that column existed has a
+        # NULL and is never reaped (same as Task), which errs toward keeping a tombstone.
+        (
+            TimeEntry,
+            {"task__project__is_deleted": False, "task__project__is_archived": False},
+            "deleted_at",
+        ),
+        # TODO(#2342): NOT yet covered, because no column records WHEN they were deleted and a
+        # created_at/absent age would reap inside the grace window: ProjectMembership,
+        # RetroActionItem, TaskSuggestedAssignee, TaskLink, TaskRecurrenceRule (need a
+        # deleted_at column + migration). Calendar is shared across projects, so it has
+        # no single owner to floor against.
     ]
 
 

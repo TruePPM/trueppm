@@ -14415,9 +14415,9 @@ class ProjectMyTasksView(APIView):
             Task.objects.filter(
                 project=project,
                 is_deleted=False,
-                assignee_id=request.user.pk,
                 early_finish__range=(week_start, week_end),
             )
+            .filter(_my_work_assigned_q(cast("int", request.user.pk)))
             .exclude(status=TaskStatus.COMPLETE)
             .order_by("early_finish")
         )
@@ -18867,7 +18867,7 @@ class MeActiveSprintsView(APIView):
         # membership once ProjectMembership has been soft-deleted.
         active_pairs = (
             Task.objects.filter(
-                assignee_id=user_pk,
+                _my_work_assigned_q(user_pk),
                 is_deleted=False,
                 sprint__state=SprintState.ACTIVE,
                 sprint__is_deleted=False,
@@ -19039,6 +19039,27 @@ class MeWorkPagination(pagination.LimitOffsetPagination):
     max_limit = 200
 
 
+def _my_work_assigned_q(user_pk: int) -> Q:
+    """Rows "assigned to" ``user_pk`` for My Work: the user axis OR the resource axis.
+
+    ``Task.assignee`` is the user axis; ``TaskResource`` -> ``Resource.user`` is the
+    resource axis that the board Assignees editor, the importers and the ``owners``
+    token write (#2750). A correlated ``Exists`` (not a join) keeps a task matched by
+    both axes -- or by several resources linked to the same user -- to ONE row, so the
+    paginated list needs no ``.distinct()`` (which ``Meta.ordering`` would defeat).
+    ``.active()`` drops assignments whose resource was deactivated.
+
+    This is the single definition of "assigned to me" for every My Work surface;
+    see "What 'assigned' means" in ``features/my-work.md``.
+    """
+    from trueppm_api.apps.resources.models import TaskResource
+
+    resource_owned = Exists(
+        TaskResource.objects.active().filter(task_id=OuterRef("pk"), resource__user_id=user_pk)
+    )
+    return Q(assignee_id=user_pk) | Q(resource_owned)
+
+
 class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
     """``GET /api/v1/me/work/`` — contributor's flat task list across all projects.
 
@@ -19050,7 +19071,8 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
     concepts (critical path, float, schedule variance) are intentionally absent.
 
     **RBAC contract (Morgan's sprint-sovereignty requirement)**: the queryset is
-    hard-scoped to ``assignee=request.user`` *and* re-checks project membership
+    hard-scoped to the requesting user (``assignee=request.user`` or a
+    ``TaskResource`` on a ``Resource`` linked to them, #2750) *and* re-checks project membership
     via ``project__memberships``. There is no ``?user=`` escape hatch — a PM-role
     or admin caller gets a 200 with their *own* assigned tasks (which may be
     empty). The endpoint cannot be used as a manager surveillance surface.
@@ -19132,7 +19154,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             excluded_statuses.append(TaskStatus.COMPLETE)
         return (
             Task.objects.filter(
-                assignee_id=user_pk,
+                _my_work_assigned_q(user_pk),
                 is_deleted=False,
                 project__is_deleted=False,
                 project__memberships__user_id=user_pk,
@@ -19463,6 +19485,14 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
 
         mcp_excluded = mcp_excluded_project_ids(request)
+        # Sprint membership of "my" tasks goes through a correlated subquery rather
+        # than the ``tasks__`` join so the resource axis (#2750) counts, and a task
+        # matched by both axes is still counted once.
+        my_sprint_tasks = Task.objects.filter(
+            _my_work_assigned_q(user_pk),
+            sprint_id=OuterRef("pk"),
+            is_deleted=False,
+        ).exclude(status=TaskStatus.BACKLOG)
         active_sprints_qs = (
             Sprint.objects.filter(
                 is_deleted=False,
@@ -19470,19 +19500,16 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                 project__is_deleted=False,
                 project__memberships__user_id=user_pk,
                 project__memberships__is_deleted=False,
-                tasks__assignee_id=user_pk,
-                tasks__is_deleted=False,
             )
+            .filter(Exists(my_sprint_tasks))
             .exclude(tasks__status=TaskStatus.BACKLOG)
             .annotate(
-                task_count=Count(
-                    "tasks",
-                    filter=(
-                        Q(tasks__assignee_id=user_pk)
-                        & Q(tasks__is_deleted=False)
-                        & ~Q(tasks__status=TaskStatus.BACKLOG)
-                    ),
-                    distinct=True,
+                task_count=Subquery(
+                    my_sprint_tasks.order_by()
+                    .values("sprint_id")
+                    .annotate(c=Count("pk"))
+                    .values("c")[:1],
+                    output_field=IntegerField(),
                 )
             )
             # ``project__calendar`` is joined so the utilization signal's
@@ -19500,7 +19527,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         # exactly what the UI shows.
         today = timezone.localdate()
         due_today_base = Task.objects.filter(
-            assignee_id=user_pk,
+            _my_work_assigned_q(user_pk),
             is_deleted=False,
             project__is_deleted=False,
             project__memberships__user_id=user_pk,
@@ -19751,8 +19778,8 @@ def _retro_owned_rows(
     owned_tasks: dict[uuid.UUID, Task] = {}
     if owned_task_ids:
         for task in Task.objects.filter(
+            _my_work_assigned_q(user.pk),
             pk__in=owned_task_ids,
-            assignee=user,
             sprint__isnull=True,
             is_deleted=False,
         ).exclude(status=TaskStatus.COMPLETE):

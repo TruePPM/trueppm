@@ -778,28 +778,21 @@ def test_member_cannot_set_an_owner_on_a_colleagues_task(
 
 
 # ---------------------------------------------------------------------------
-# The axis split, pinned as it actually is
+# The axis split: My Work unions both axes (#2750)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-def test_owners_does_not_put_the_task_in_the_owner_s_my_work_list(
+def test_owners_puts_the_task_in_the_owner_s_my_work_list(
     client: APIClient, project: Project, task: Task
 ) -> None:
-    """Documents a real gap, in the direction opposite to the one #2718 assumed.
+    """A task owned only through ``TaskResource`` shows in the linked user's My Work (#2750).
 
-    #2718 states that contributor-facing views filter on the resource path. They do not:
-    ``MeWorkView.get_queryset`` (``projects/views.py``) filters ``assignee_id`` and
-    reads ``TaskResource`` nowhere. So the two axes are split the *other* way round for
-    My Work — an owner set through ``owners`` gets correct capacity everywhere and still
-    does not see the task in their own list.
-
-    Closing that needs either an implicit ``Task.assignee`` write (which would also grant
-    the person edit rights through ``can_user_edit_task``) or a change to a shipped,
-    RBAC-sensitive endpoint. Both are decisions in their own right, tracked on #2750
-    alongside #2747, which already owns "delete-rights and edit-rights disagree about
-    what assignee means". This test exists so the behavior is recorded rather than
-    assumed, and so it fails loudly the day either fix lands.
+    My Work unions the user axis (``Task.assignee``) with the resource axis
+    (``TaskResource`` -> ``Resource.user``) without writing ``Task.assignee``, so the
+    ``@owner`` token stays an assignment and does not become an edit-rights grant.
+    A task matched by BOTH axes appears exactly once, and an unlinked person's
+    resource does not leak the task to anyone else.
     """
     contributor = User.objects.create_user(username="priya_owner", password="pw")
     ProjectMembership.objects.create(project=project, user=contributor, role=Role.MEMBER)
@@ -807,8 +800,17 @@ def test_owners_does_not_put_the_task_in_the_owner_s_my_work_list(
         name="Priya P", email="priya@example.com", max_units=Decimal("1.0"), user=contributor
     )
     ProjectResource.objects.create(project=project, resource=resource)
+    # A second resource linked to the same user must not duplicate the row.
+    twin = Resource.objects.create(
+        name="Priya P2", email="priya2@example.com", max_units=Decimal("1.0"), user=contributor
+    )
+    ProjectResource.objects.create(project=project, resource=twin)
 
-    res = client.patch(_task_url(task), {"owners": [{"resource": str(resource.pk)}]}, format="json")
+    res = client.patch(
+        _task_url(task),
+        {"owners": [{"resource": str(resource.pk)}, {"resource": str(twin.pk)}]},
+        format="json",
+    )
     assert res.status_code == 200, res.data
     assert TaskResource.objects.filter(task=task, resource=resource).exists()
 
@@ -816,7 +818,47 @@ def test_owners_does_not_put_the_task_in_the_owner_s_my_work_list(
     c.force_authenticate(user=contributor)
     my_work = c.get("/api/v1/me/work/")
     assert my_work.status_code == 200, my_work.data
-    assert str(task.pk) not in {row["id"] for row in my_work.data["results"]}
+    ids = [row["id"] for row in my_work.data["results"]]
+    assert ids.count(str(task.pk)) == 1
+    assert task.assignee_id is None or task.assignee_id != contributor.pk
+
+    # Both axes on the same task: still one row.
+    Task.objects.filter(pk=task.pk).update(assignee=contributor)
+    ids = [row["id"] for row in c.get("/api/v1/me/work/").data["results"]]
+    assert ids.count(str(task.pk)) == 1
+
+    # A different member sees nothing of it.
+    other = User.objects.create_user(username="someone_else", password="pw")
+    ProjectMembership.objects.create(project=project, user=other, role=Role.MEMBER)
+    c2 = APIClient()
+    c2.force_authenticate(user=other)
+    assert str(task.pk) not in {r["id"] for r in c2.get("/api/v1/me/work/").data["results"]}
+
+
+@pytest.mark.django_db
+def test_my_work_resource_owned_task_requires_live_membership_and_resource(
+    client: APIClient, project: Project, task: Task
+) -> None:
+    """The resource axis keeps the membership re-check and ignores deactivated resources."""
+    contributor = User.objects.create_user(username="exmember", password="pw")
+    membership = ProjectMembership.objects.create(
+        project=project, user=contributor, role=Role.MEMBER
+    )
+    resource = Resource.objects.create(
+        name="Ex M", email="exm@example.com", max_units=Decimal("1.0"), user=contributor
+    )
+    TaskResource.objects.create(task=task, resource=resource)
+    c = APIClient()
+    c.force_authenticate(user=contributor)
+    assert str(task.pk) in {r["id"] for r in c.get("/api/v1/me/work/").data["results"]}
+
+    Resource.objects.filter(pk=resource.pk).update(is_deleted=True)
+    assert str(task.pk) not in {r["id"] for r in c.get("/api/v1/me/work/").data["results"]}
+
+    Resource.objects.filter(pk=resource.pk).update(is_deleted=False)
+    membership.is_deleted = True
+    membership.save(update_fields=["is_deleted"])
+    assert str(task.pk) not in {r["id"] for r in c.get("/api/v1/me/work/").data["results"]}
 
 
 # ---------------------------------------------------------------------------
