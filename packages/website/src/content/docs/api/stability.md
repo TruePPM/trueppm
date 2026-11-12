@@ -55,6 +55,10 @@ Every change to the API falls into one of three classes.
 | **Behavioral** | A default value change, a validation tightening, a new required-only-on-new-resource constraint | Announced in the changelog. Ships in a minor release; avoided within a series where possible. |
 | **Breaking** | Removing or renaming an endpoint or field, changing a field type, changing an existing status code, making an existing optional field required, removing an enum value, adding a value to an exhaustive enum | Requires a deprecation window (below) and, at GA, a new API version. |
 
+A change in the **Behavioral** class that alters the computed value of an existing
+field (for example a corrected health or schedule calculation) is announced in the
+changelog with a `Behavioral:` lead-in on the fragment, so it can be found by search.
+
 **Clients must tolerate additive change.** A conforming client ignores response
 fields it does not recognize and does not break when a new value appears on an
 open enum or a new event type appears. Building a client that rejects unknown fields will cause it
@@ -99,9 +103,9 @@ five built-in ordinals on write.
 
 ## Deprecation window & notice
 
-One stable element is scheduled for deprecation, and the Breaking changes taken
-without a window since the last release are listed with it — see
-[Current deprecations](#current-deprecations) below. The window mechanism has not yet
+[Current deprecations](#current-deprecations) is the single registry: every element
+scheduled for removal, and every Breaking change taken without a window, is listed
+there. Nothing deprecated is announced only in a feature page or a code comment. The window mechanism has not yet
 been exercised through to a removal; the Breaking changes taken so far all
 bypassed it deliberately, and each is recorded inline in step 3 or under
 [Current deprecations](#current-deprecations). When a **breaking** change to a
@@ -419,6 +423,34 @@ additive change and is safe for every existing client.
 | Earliest removal | 0.6 |
 | Migration | send `none`; read the response's `group_by` field rather than assuming the request value was honored |
 
+### Webhook `X-TruePPM-Signature` (V1) header (ADR-0837)
+
+Every webhook delivery carries two signature headers. `X-TruePPM-Signature-V2` signs
+`"<unix timestamp>.<raw body>"` and is the recipe to implement. The original
+`X-TruePPM-Signature` signs the raw body alone, carries no timestamp, and so cannot
+detect a replay. It is still sent for receivers written against it and is scheduled
+for removal at 1.0. Recipes and a verification sample are in
+[Webhooks](/features/webhooks/#signature-versions).
+
+| | |
+|---|---|
+| Announced | 0.4 |
+| Behavior during the window | both headers sent on every delivery, from the same secret |
+| Earliest removal | 1.0 |
+| Migration | verify `X-TruePPM-Signature-V2` and add the timestamp check; reject deliveries that lack it |
+
+### Deprecated aliases kept for a release (#4090)
+
+These four were deprecated in code comments or field descriptions only. They are
+registered here so the list is complete. None has a `Deprecation` header yet.
+
+| Element | Replacement | Removal |
+|---------|-------------|---------|
+| `subtask_name` on sprint scope-change rows (ADR-0101) | `item_name`, which carries the same value | no date set; announced as "one release" |
+| `detail` and `cycle` on the `cyclic_dependency` 400 (#3800) | `code` and `offending` | no date set; announced as "one minor" |
+| `has_more` on the sync delta response (#2842) | `next_cursor is not null` | 0.5 |
+| `?token=<access_token>` on the WebSocket handshake | the `?ticket=` flow in [WebSocket API](/api/websockets/#authentication) | off by default; removed in the next release |
+
 ### Mention-group member email removed (#4578)
 
 `members[]` on the user-defined and program-scoped @mention group payloads no longer
@@ -558,6 +590,25 @@ role that was valid before is still valid.
 | Behavior during the window | none — the component is replaced in the same release |
 | Wire values | unchanged; the Community edition still sends and accepts only `1`, `100`, `200`, `300`, `400` |
 | Migration | type role fields as an integer, not as a five-member enum. Compare with `>=` against the built-in ordinals, and accept any integer from 1 to 400 |
+
+## Surfaces with their own policy / not covered
+
+The sections above cover the REST and WebSocket surface in the OpenAPI schema.
+Other surfaces an integrator can depend on are not governed by the change classes
+on this page, and several have no written compatibility promise yet. Treat the
+last column as the place to look, not as a guarantee.
+
+| Surface | Status | Where it is described |
+|---------|--------|-----------------------|
+| Outbound webhook payloads, headers and event catalog | Not covered by this policy. The signature headers are in the registry above | [Webhooks](/features/webhooks/) |
+| Offline sync protocol | Not covered by this policy | [Webhooks, sync and sharing API](/api/reference/collaboration/) |
+| MCP tool names and result shapes | The read-only server is covered for the data it returns; tool names are not frozen | [MCP server](/administration/mcp-server/) |
+| Helm values contract | Not covered by this policy | [Helm values](/administration/helm-values/) |
+| OSS and Enterprise extension points | Not covered by this policy | [Architecture overview](/architecture/overview/) |
+| Django admin and internal management endpoints | Explicitly unstable (see the list above) | none |
+
+A surface in this table can change in any release until it gets its own written
+policy. Any such policy will be linked from here.
 
 ## Versioning approach
 
