@@ -75,8 +75,8 @@
 # viable, but it has not been bundle-tested here. The expiry is pulled forward to
 # 2027-01-15 so that override is tried (or ruled out) before the 0.5 release.
 # Re-evaluate when metro moves off image-size 1.x, or when the override is tried.
-# No open issue tracks this: the earlier tracking issues (#2787, #4391) are
-# closed. The `effectiveUntil` date below is the only re-evaluation trigger.
+# Tracked by #4970 (blocked by metro's `^1.0.2` range); the earlier tracking
+# issues (#2787, #4391) are closed. `effectiveUntil` below is the backstop.
 
 [[PackageOverrides]]
 name = "image-size"
@@ -130,8 +130,8 @@ reason = "GHSA-5p2g-fcmc-qvqq / GHSA-w3rx-r6r6-pgpr: fixed in 2.x only (first pa
 # restores named entry exports (or react-navigation deep-imports
 # query-string/base.js); or @react-navigation/core drops query-string. If deep
 # linking is added to the mobile app before the expiry, this stops being
-# unreachable and must be re-scored then. No open issue tracks this (#3282 is closed); the
-# `effectiveUntil` date below is the re-evaluation trigger.
+# unreachable and must be re-scored then. Tracked by #4971 (#3282 is closed); the
+# `effectiveUntil` date below is the backstop.
 
 [[PackageOverrides]]
 name = "decode-uri-component"
