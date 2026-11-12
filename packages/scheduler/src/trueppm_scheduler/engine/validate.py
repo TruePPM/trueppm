@@ -30,6 +30,7 @@ from trueppm_scheduler.engine.limits import (
     MAX_PROJECT_WORK_DAYS,
 )
 from trueppm_scheduler.models import (
+    _TASK_DATE_FIELDS,
     Calendar,
     DeliveryMode,
     Dependency,
@@ -428,6 +429,14 @@ def _require_plain_date(value: object, label: str) -> None:
         raise InvalidScheduleInput(f"{label} must be a date, not {type(value).__name__}.")
 
 
+# The inputs the span/actuals arithmetic reads, which therefore need this early
+# guard. Every other date field keeps its message from ``_validate_task_fields``;
+# widening this set would change which message (and which order) a bad value
+# reports. The loop below iterates ``_TASK_DATE_FIELDS`` so a name here that is no
+# longer a ``Task`` date field stops being checked, and a test pins the subset.
+_SPAN_DATE_INPUTS = frozenset({"planned_start", "actual_start", "actual_finish"})
+
+
 def _validate_task_date_types(t: Task) -> None:
     """Type guards for the direct-object API (#1209).
 
@@ -444,7 +453,9 @@ def _validate_task_date_types(t: Task) -> None:
         )
     # Exact-type fast path: a plain ``date`` (or None) needs no label. A ``datetime``
     # is a ``date`` subclass, so it must miss the fast path and reach the full check.
-    for name in ("planned_start", "actual_start", "actual_finish"):
+    for name in _TASK_DATE_FIELDS:
+        if name not in _SPAN_DATE_INPUTS:
+            continue
         value = getattr(t, name)
         if value is not None and type(value) is not date:
             _require_plain_date(value, f"Task {_short_repr(t.id)} {name}")
