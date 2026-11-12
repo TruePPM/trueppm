@@ -407,6 +407,17 @@ project start moves nothing ([#4635](https://gitlab.com/trueppm/trueppm/-/issues
 so its percentiles stay the same from day to day until today reaches the start,
 even though each run still records the day it ran as its `status_date`.
 
+The sampling itself is reproducible too. The simulation's random seed is derived
+from the project, its tasks, dependencies and calendar, the data date, the velocity
+history and the run count, so re-running an unchanged project with the same
+`n_simulations` returns the same P50, P80 and P95. Changing any one task's duration
+(or any other input) changes the seed, so the forecast moves for a real reason and not
+because the dice were re-rolled. This holds for a fixed NumPy version: upgrading the
+server's NumPy can change the random stream
+([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099)). A fuller reproducible
+answer stamp is planned ([#1065](https://gitlab.com/trueppm/trueppm/-/issues/1065)).
+The what-if endpoint keeps its own fixed seed.
+
 ## The math
 
 ### PERT-Beta distribution

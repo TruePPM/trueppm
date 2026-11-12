@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -556,6 +557,32 @@ def _persist_mc_run_if_authorized(
         result_dict["run_id"] = str(run.id)
 
 
+def _mc_input_seed(sched_project: Any, runs: int) -> int:
+    """Stable RNG seed for ``POST /monte-carlo/`` derived from the engine inputs (#4307).
+
+    Pinning ``status_date`` only freezes the anchor date; without a seed the
+    sampling noise still moves a percentile by a day between two runs of an
+    unchanged project. Hashing everything the simulation reads (project id,
+    tasks, dependencies, calendar, status date, velocity signal, run count)
+    makes identical inputs draw identical samples, while editing any one
+    duration changes the hash and therefore the draw. Order-insensitive on the
+    task/dependency lists so a row-order change alone does not reseed.
+
+    Reproducibility holds for a fixed NumPy version only (#4099); a NumPy upgrade
+    may change the stream. The fuller "reproducible answer stamp" is #1065. The
+    what-if endpoint keeps its own fixed ``WHATIF_MC_SEED``.
+    """
+    doc = sched_project.to_dict()
+    for key in ("tasks", "dependencies"):
+        doc[key] = sorted(json.dumps(item, sort_keys=True, default=str) for item in doc[key])
+    doc["_runs"] = runs
+    doc["_status_date"] = str(sched_project.status_date)
+    doc["_velocity_samples"] = list(sched_project.velocity_samples or [])
+    doc["_sprint_length_days"] = sched_project.sprint_length_days
+    digest = hashlib.sha256(json.dumps(doc, sort_keys=True, default=str).encode()).digest()
+    return int.from_bytes(digest[:8], "big") >> 1  # 63 bits: fits any signed/unsigned seed API
+
+
 def _mc_lag_delta_kwargs() -> dict[str, int]:
     """Request-path ``monte_carlo()`` kwargs bounding the lag-delta table (#4129).
 
@@ -959,6 +986,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
                 mc_result = monte_carlo(
                     sched_project,
                     runs=n_simulations,
+                    seed=_mc_input_seed(sched_project, n_simulations),
                     max_runs=cap,
                     max_tasks=settings.MC_TASK_CAP,
                     **_mc_lag_delta_kwargs(),

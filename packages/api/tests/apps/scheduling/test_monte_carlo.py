@@ -751,3 +751,56 @@ class TestMonteCarloThrottle:
             assert r.status_code == 200
         finally:
             cache.clear()
+
+
+class TestMonteCarloSeedIsInputDerived:
+    """#4307: an unchanged project re-run returns identical percentiles."""
+
+    def _run(self, client: APIClient, project: Project) -> dict[str, object]:
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": 200},
+            format="json",
+        )
+        assert r.status_code == 200
+        return {k: r.data[k] for k in ("p50", "p80", "p95")}
+
+    def test_identical_inputs_give_identical_percentiles(
+        self, member_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        Task.objects.create(
+            project=project,
+            name="T2",
+            duration=8,
+            optimistic_duration=2,
+            most_likely_duration=8,
+            pessimistic_duration=30,
+        )
+        first = self._run(member_client, project)
+        for _ in range(3):
+            assert self._run(member_client, project) == first
+
+    def test_changing_one_duration_changes_the_seed(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import trueppm_scheduler.engine as engine
+
+        seeds: list[int | None] = []
+        real = engine.monte_carlo
+
+        def spy(*args: object, **kwargs: object) -> object:
+            seeds.append(kwargs.get("seed"))  # type: ignore[arg-type]
+            return real(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(engine, "monte_carlo", spy)
+        self._run(member_client, project)
+        self._run(member_client, project)
+        Task.objects.filter(pk=pert_task.pk).update(pessimistic_duration=11)
+        self._run(member_client, project)
+        assert seeds[0] is not None
+        assert seeds[0] == seeds[1]
+        assert seeds[2] != seeds[0]
