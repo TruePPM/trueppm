@@ -173,8 +173,9 @@ class TestMonteCarloEndpoint:
         )
         assert r.status_code == 402
         assert r.data["error"] == "simulation_cap_exceeded"
+        assert r.data["code"] == "simulation_cap_exceeded"
         assert r.data["tier"] == "team"
-        assert "message" in r.data
+        assert r.data["detail"] == r.data["message"]
 
     def test_engine_sample_cell_cap_returns_400_not_an_upsell(
         self,
@@ -217,6 +218,8 @@ class TestMonteCarloEndpoint:
         )
         assert r.status_code == 402
         assert r.data["error"] == "simulation_cap_exceeded"
+        assert r.data["code"] == "simulation_cap_exceeded"
+        assert r.data["detail"] == r.data["message"]
 
     def test_task_cap_is_checked_before_rows_are_materialized(
         self,
