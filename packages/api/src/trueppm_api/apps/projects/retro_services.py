@@ -58,12 +58,18 @@ def lock_project_before_items(project_id: Any) -> None:
     deadlock. Callers must be inside ``transaction.atomic()``.
 
     Carryover also locks a ``Sprint``, and that lock goes **before** this one: the
-    full order is target sprint, then project, then items. Every other sprint row
-    locker draws a cursor after it, so it runs sprint then project: activate and
-    cancel (``SprintViewSet``) lock a PLANNED sprint and then ``save()`` it, and
-    ``close_sprint`` locks the ACTIVE sprint and then saves it. A carryover that
-    took the project first and the sprint second would deadlock against a cancel
-    or activate of its target sprint. See ``_lock_carryover_target_sprint``.
+    full order is target sprint, then project, then items. The sprint-state
+    lockers draw a cursor after their sprint lock, so they run sprint then project:
+    activate and cancel (``SprintViewSet``) lock a PLANNED sprint and then
+    ``save()`` it, and ``close_sprint`` locks the ACTIVE sprint and then saves it.
+    A carryover that took the project first and the sprint second would deadlock
+    against a cancel or activate of its target sprint. See
+    ``_lock_carryover_target_sprint``.
+
+    The project soft-delete cascade (``cascade_project_children_soft_delete``) is
+    not one of those: it takes the project row first (``_allocate_cascade_seq``) and
+    updates live sprints afterwards, so it can still cycle with an in-flight
+    carryover. That cycle is known and tolerated (#4959).
     """
     from trueppm_api.apps.projects.models import Project
 
@@ -81,6 +87,11 @@ def _lock_carryover_target_sprint(sprint_pk: Any) -> Sprint:
     block, closing a sprint, project, sprint cycle. ``FOR NO KEY UPDATE`` still
     conflicts with the ``FOR UPDATE`` that activate, cancel and close take, so the
     state check stays serialized against them.
+
+    ``tests/apps/projects/test_retro_lock_order.py`` models the real paths' lock
+    sequence by hand rather than driving them; a future Task ``post_save`` receiver
+    that UPDATEs the target Sprint row would reintroduce the close deadlock while
+    those tests stay green.
     """
     from trueppm_api.apps.projects.models import Sprint
 

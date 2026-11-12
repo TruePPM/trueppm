@@ -13,9 +13,15 @@ lock. Under a wrong order the contender holds a lock the holder then needs, the
 cycle closes, and Postgres aborts one side; every fix test has a negative control
 that patches the old order back in and asserts exactly that deadlock.
 
-Promote is not raced here: it locks an item and raises ``AlreadyPromotedError``
-before any cursor draw when the item is promoted, and a soft-delete only touches
-promoted items, so the two share no lock that either holds while waiting.
+Promote is not raced here: ``promote_retro_action_item`` calls
+``lock_project_before_items`` before it locks the item, and the soft-delete also
+locks the project and then items, so the two already share one order.
+
+``_cancel_holder`` and ``_close_carry_holder`` model the lock sequence of the real
+activate/cancel and ``close_sprint`` paths; they do not drive that code. A future
+Task ``post_save`` receiver that UPDATEs the target Sprint row would reintroduce the
+close deadlock while these tests stay green. The project soft-delete cascade takes
+the project row before sprints, which can still cycle with a carryover (#4959).
 """
 
 from __future__ import annotations
@@ -159,20 +165,30 @@ def _carryover(item: RetroActionItem, target: Sprint, user: Any) -> Callable[[],
     return contender
 
 
-def _deadlocked(results: dict[str, Any]) -> list[Exception]:
+def _deadlocked(
+    results: dict[str, Any], caplog: pytest.LogCaptureFixture | None = None
+) -> list[Exception]:
     """The exceptions showing Postgres broke a lock cycle, whichever side it picked.
 
-    When the soft-delete side is the victim, the receiver that calls
-    ``reset_promoted_task_on_delete`` logs and swallows the ``DeadlockDetected``, so
-    the delete surfaces it as the next receiver's ``TransactionManagementError`` on
-    the now-broken transaction rather than as an ``OperationalError``.
+    A real ``OperationalError`` naming a deadlock counts on either side. Pass
+    ``caplog`` only for controls where the soft-delete thread can be the victim:
+    the receiver wraps ``reset_promoted_task_on_delete`` in ``except Exception`` and
+    swallows the ``DeadlockDetected``, so the delete surfaces it as a
+    ``TransactionManagementError`` from the next receiver. That alone proves nothing
+    (any swallowed error would do it), so it counts only when the swallowed
+    exception that was logged is itself a deadlock.
     """
-    return [
-        v
-        for k in ("holder", "contender")
-        if (isinstance(v := results.get(k), OperationalError) and "deadlock" in str(v))
-        or isinstance(v, TransactionManagementError)
-    ]
+    swallowed_deadlock = caplog is not None and any(
+        r.exc_info and "deadlock detected" in str(r.exc_info[1]) for r in caplog.records
+    )
+    found: list[Exception] = []
+    for key in ("holder", "contender"):
+        v = results.get(key)
+        if (isinstance(v, OperationalError) and "deadlock" in str(v)) or (
+            key == "holder" and isinstance(v, TransactionManagementError) and swallowed_deadlock
+        ):
+            found.append(v)
+    return found
 
 
 @pytest.fixture
@@ -221,12 +237,13 @@ def test_retro_save_and_promoted_task_soft_delete_do_not_deadlock(
 @pytest.mark.django_db(transaction=True)
 def test_negative_control_item_first_order_deadlocks(
     scenario: tuple[Project, Sprint, Task, RetroActionItem, Any],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """With the project lock step removed (the old order) the same race deadlocks."""
     _project, sprint, task, item, user = scenario
     with patch.object(retro_services, "lock_project_before_items", lambda _pid: None):
         results = _hold_and_contend(_soft_delete_holder(task), _retro_save(sprint, item, user))
-    assert _deadlocked(results), f"expected a Postgres deadlock, got {results}"
+    assert _deadlocked(results, caplog), f"expected a Postgres deadlock, got {results}"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -248,12 +265,13 @@ def test_carryover_and_promoted_task_soft_delete_do_not_deadlock(
 @pytest.mark.django_db(transaction=True)
 def test_negative_control_carryover_item_first_order_deadlocks(
     scenario: tuple[Project, Sprint, Task, RetroActionItem, Any],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     project, _sprint, task, item, user = scenario
     target = _planned(project)
     with patch.object(retro_services, "lock_project_before_items", lambda _pid: None):
         results = _hold_and_contend(_soft_delete_holder(task), _carryover(item, target, user))
-    assert _deadlocked(results), f"expected a Postgres deadlock, got {results}"
+    assert _deadlocked(results, caplog), f"expected a Postgres deadlock, got {results}"
 
 
 def _cancel_holder(target: Sprint) -> Callable[[Callable[[], None]], str]:
