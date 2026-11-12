@@ -2675,6 +2675,22 @@ web:playwright-pins:
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
 
+lint:nginx-location-parity:
+  extends: .fast-job
+  # Every SPA-serving nginx surface (baked nginx.conf, three Compose templates,
+  # three Helm server blocks) must carry the same top-level locations (#4392).
+  # #4359 added the /asset-manifest.json 404 sentinel to Helm only. Static parse.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash python3
+  script:
+    - bash scripts/check-nginx-location-parity.sh --self-test
+    - bash scripts/check-nginx-location-parity.sh
+
 lint:image-digest-parity:
   extends: .fast-job
   # One digest per name:tag across .gitlab-ci.yml, the CI-image Dockerfiles and the
