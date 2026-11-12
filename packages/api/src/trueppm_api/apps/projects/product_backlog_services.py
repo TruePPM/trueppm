@@ -33,7 +33,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     TaskType,
 )
-from trueppm_api.apps.sync.broadcast import broadcast_board_event
+from trueppm_api.apps.sync.broadcast import broadcast_board_event, defer_task_updated
 
 # ── Scoring ─────────────────────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ def mark_ready(task: Task, actor: Any) -> Task:
     if task.dor != DorState.READY:
         task.dor = DorState.READY
         task.save(update_fields=["dor", "server_version"])
-        _broadcast_task(task)
+        _broadcast_task(task, actor)
     return task
 
 
@@ -151,13 +151,12 @@ def send_to_refine(task: Task, actor: Any) -> Task:
     if task.dor != DorState.REFINE:
         task.dor = DorState.REFINE
         task.save(update_fields=["dor", "server_version"])
-        _broadcast_task(task)
+        _broadcast_task(task, actor)
     return task
 
 
-def _broadcast_task(task: Task) -> None:
-    pid, tid = str(task.project_id), str(task.id)
-    transaction.on_commit(lambda: broadcast_board_event(pid, "task_updated", {"id": tid}))
+def _broadcast_task(task: Task, actor: Any) -> None:
+    defer_task_updated(task, changed_fields=["dor"], actor=actor)
 
 
 # ── Auto-rank ────────────────────────────────────────────────────────────────

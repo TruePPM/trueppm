@@ -1392,13 +1392,7 @@ class TransferOwnershipView(IdempotencyMixin, APIView):
 
     @extend_schema(
         request=TransferOwnershipSerializer,
-        responses={
-            200: OpenApiResponse(description="Ownership transferred."),
-            400: OpenApiResponse(
-                description="Invalid target: unknown user, non-member, or deactivated member "
-                "(identical body for all three), or the caller already owns the workspace."
-            ),
-        },
+        responses={200: OpenApiResponse(description="Ownership transferred.")},
     )
     def post(self, request: Request) -> Response:
         serializer = TransferOwnershipSerializer(data=request.data)

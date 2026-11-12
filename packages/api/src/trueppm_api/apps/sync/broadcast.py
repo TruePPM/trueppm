@@ -207,6 +207,45 @@ def broadcast_task_updated(
     )
 
 
+def defer_task_updated(
+    task: Any,
+    *,
+    changed_fields: list[str],
+    actor: Any = None,
+    task_row_bumped: bool = True,
+) -> None:
+    """Queue a post-commit :func:`broadcast_task_updated` for ``task`` (ADR-0152, #4600).
+
+    The single entry point for write paths that touch a task outside the main
+    ``TaskViewSet`` update: it snapshots ``project_id`` / ``server_version`` /
+    ``actor_id`` at call time (the row may be re-saved before commit) and defers the
+    emit with ``transaction.on_commit`` so a rolled-back write never broadcasts.
+    ``task`` must have been saved already so ``server_version`` is the post-bump value.
+    Pass ``task_row_bumped=False`` when the write touched a child row (acceptance
+    criterion, ...) and left ``Task.server_version`` unchanged: the frame then carries
+    ``version=None``, because the client's version-dedupe gate would otherwise drop it as
+    a replay of the version it already holds.
+    ``actor`` is the user (or ``None`` for system writes); its id lets the originating
+    client suppress its own echo.
+    """
+    from django.db import transaction
+
+    project_id = str(task.project_id)
+    task_id = str(task.pk)
+    version = task.server_version if task_row_bumped else None
+    actor_id = str(actor.pk) if actor is not None and getattr(actor, "pk", None) else None
+    fields = list(changed_fields)
+    transaction.on_commit(
+        lambda: broadcast_task_updated(
+            project_id,
+            task_id=task_id,
+            changed_fields=fields,
+            version=version,
+            actor_id=actor_id,
+        )
+    )
+
+
 def _utcnow_iso() -> str:
     """Current UTC time as an ISO-8601 string (factored out for test stubbing)."""
     from datetime import datetime
