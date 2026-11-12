@@ -108,6 +108,10 @@ dependencies = [
     # opentelemetry); declared because settings normalizes the package version
     # with it, which the published OpenAPI schema depends on.
     "packaging>=24.0",
+    # BSD-3-Clause. Resolved transitively through trueppm-scheduler (which pins the
+    # same range); declared because our own code imports it (sprint-forecast and
+    # velocity sampling in projects/services.py).
+    "numpy>=1.26,<3",
     # MIT (sole transitive dep et-xmlfile is also MIT, zero deps, pure Python).
     # Reads .xlsx uploads for spreadsheet import (#743, ADR-0632). Its two
     # historical XXE CVEs were fixed in 2.4.2 (2017); since then it auto-enables
