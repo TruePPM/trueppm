@@ -529,17 +529,23 @@ declaration correction, not a change taken without a window.
 
 ### No-body actions no longer declare a request body (#2870)
 
-Eighteen `POST` actions that never read the request body (archive/unarchive a project,
+Fifteen `POST` actions that never read the request body (archive/unarchive a project,
 close/reopen/remove-sample a program, activate/cancel/unbind-milestone a sprint,
-mark-all-read, approve-estimates, auto-rank, comment acknowledge, webhook test ping, and
-similar) were published with the viewset's whole write serializer as a *required*
-request body. They now declare no body, and the `400` that was injected only because a
-body was declared is gone. `POST /sprints/{id}/close/`, the bulk scope-change
-accept/reject, and `POST /tasks/{id}/split/` now declare the small payload they validate
-(`carry_over_to`/`pending_disposition`, `ids`, `name`) instead of a whole sprint or task.
-No request that worked before is refused. This is a schema-declaration correction,
-recorded here because the schema diff reports it as removed media types, statuses and
-properties.
+promote a retro action item, mark-all-read, approve-estimates, auto-rank, comment
+acknowledge, webhook test ping on both routes) were published with the viewset's whole
+write serializer as a *required* request body. They now declare no body, and the
+request-validation `400` that was injected only because a body was declared is gone
+(`activate`, `cancel` and `approve-estimates` still declare a `400`, now for a refused
+state rather than a bad request). Actions that do read a body now declare the small
+payload they read instead of a whole sprint, task, program or project:
+`POST /sprints/{id}/close/` (`carry_over_to`/`pending_disposition`), the bulk
+scope-change accept/reject (`ids`), `POST /tasks/{id}/split/` (`name`), retro-board
+sticky create, retro pulse, pull-to-sprint, promote-to-milestone, load-sample, program
+split and sponsorship transfer, project transfer, product-backlog and queue reorder,
+and the program rollup-config and risk-policy `PATCH`. Fields those handlers already
+required are now declared required. No request that worked before is refused. This is a
+schema-declaration correction, recorded here because the schema diff reports it as
+removed media types, statuses and properties.
 
 | | |
 |---|---|

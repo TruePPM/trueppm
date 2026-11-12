@@ -10956,17 +10956,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/PatchedProgramRiskPolicyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/PatchedProgramRiskPolicyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/PatchedProgramRiskPolicyRequest"
                             }
                         }
                     }
@@ -11195,17 +11195,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/PatchedProgramRollupConfigRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/PatchedProgramRollupConfigRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/PatchedProgramRollupConfigRequest"
                             }
                         }
                     }
@@ -11436,17 +11436,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/ProgramSplitBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/ProgramSplitBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/ProgramSplitBodyRequest"
                             }
                         }
                     },
@@ -11588,17 +11588,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/SponsorshipTransferBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/SponsorshipTransferBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/SponsorshipTransferBodyRequest"
                             }
                         }
                     },
@@ -16918,21 +16918,20 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/LoadSampleBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/LoadSampleBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/LoadSampleBodyRequest"
                             }
                         }
-                    },
-                    "required": true
+                    }
                 },
                 "security": [
                     {
@@ -22041,17 +22040,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/ProductBacklogReorderBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/ProductBacklogReorderBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/ProductBacklogReorderBodyRequest"
                             }
                         }
                     },
@@ -22128,17 +22127,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/QueueReorderBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/QueueReorderBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/QueueReorderBodyRequest"
                             }
                         }
                     },
@@ -24455,17 +24454,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/OwnershipTransferBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/OwnershipTransferBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProjectRequest"
+                                "$ref": "#/components/schemas/OwnershipTransferBodyRequest"
                             }
                         }
                     },
@@ -41816,21 +41815,20 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PromoteToMilestoneRequestRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PromoteToMilestoneRequestRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PromoteToMilestoneRequestRequest"
                             }
                         }
-                    },
-                    "required": true
+                    }
                 },
                 "security": [
                     {
@@ -41978,17 +41976,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PulseBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PulseBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PulseBodyRequest"
                             }
                         }
                     },
@@ -42717,17 +42715,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/RetroBoardItemCreateBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/RetroBoardItemCreateBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/RetroBoardItemCreateBodyRequest"
                             }
                         }
                     },
@@ -42836,26 +42834,6 @@
                 "tags": [
                     "sprints"
                 ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -42899,39 +42877,6 @@
                                 }
                             }
                         }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -42969,17 +42914,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PullActionItemToSprintBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PullActionItemToSprintBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/PullActionItemToSprintBodyRequest"
                             }
                         }
                     },
@@ -58548,6 +58493,16 @@
                 "description": "* `on-track` - on-track\n* `at-risk` - at-risk\n* `critical` - critical",
                 "x-trueppm-enum": "open"
             },
+            "LoadSampleBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /programs/load-sample/``; ``sample`` defaults to the launch demo.",
+                "properties": {
+                    "sample": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                }
+            },
             "LoadSampleResponse": {
                 "type": "object",
                 "description": "Response envelope for the load-sample action (#1054).\n\n``landing_project_id`` is the project whose first open sprint was assigned to\nthe caller — the board a contributor should land on so their assigned work is\nimmediately visible; ``null`` when the sample has no open sprint (e.g. the\nwaterfall-only sample), in which case the client falls back to the program\noverview. ``sample_key`` echoes the loaded sample so the client renders the\nmatching \"Start exploring\" guidance without having to guess the default.",
@@ -61047,6 +61002,19 @@
                 "description": "* `success` - success\n* `reachable` - reachable\n* `failure` - failure",
                 "x-trueppm-enum": "open"
             },
+            "OwnershipTransferBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /projects/{id}/transfer/``.\n\n``new_owner_user_id`` is the user's primary key as a string (clients send the\ndecimal-string form).",
+                "properties": {
+                    "new_owner_user_id": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "new_owner_user_id"
+                ]
+            },
             "P80DeltaVsCommitmentReasonEnum": {
                 "enum": [
                     "no_commitment",
@@ -63495,6 +63463,38 @@
                     }
                 }
             },
+            "PatchedProgramRiskPolicyRequest": {
+                "type": "object",
+                "description": "GET/PATCH payload for ``/api/v1/programs/{id}/risk-policy/`` (#529).\n\nWraps the two ``risk_*`` columns on Program. Both fields are partial-\nupdatable. Enum and range are enforced server-side so the UI can stay\nthin — DRF's ``ChoiceField`` rejects unknown values; the explicit\n``min_value``/``max_value`` mirror the model-level validators so a\nwell-formed PATCH never reaches the database with an out-of-range int.",
+                "properties": {
+                    "slip_propagation": {
+                        "$ref": "#/components/schemas/SlipPropagationEnum"
+                    },
+                    "escalation_days": {
+                        "type": "integer",
+                        "maximum": 30,
+                        "minimum": 1
+                    }
+                }
+            },
+            "PatchedProgramRollupConfigRequest": {
+                "type": "object",
+                "description": "GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0169).\n\nBoth writable fields are partial-updatable. ``enabled_kpis`` is validated\nagainst the closed ``RollupKpi`` enum — unknown identifiers raise 400 rather\nthan being silently dropped, which would leave the UI and the server in\ndifferent states.\n\n``unavailable_kpis`` is read-only and publishes which enum members cannot\nproduce a value yet, so the picker can disable them instead of offering a\nswitch that does nothing (#2404). It is deliberately *not* enforced on write:\na program whose stored ``enabled_kpis`` already contains a deferred KPI must\nkeep round-tripping its own config (the client PATCHes the whole array when\ntoggling any other KPI), so rejecting those values here would turn a stale\nconfig into a hard 400 on an unrelated edit. The rollup itself already\ndegrades cleanly, returning ``{\"available\": false, \"reason\": ...}``.",
+                "properties": {
+                    "enabled_kpis": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                        },
+                        "maxItems": 64
+                    },
+                    "aggregation_policy": {
+                        "$ref": "#/components/schemas/AggregationPolicyEnum"
+                    }
+                }
+            },
             "PatchedProgramUserDefinedMentionGroupWriteRequest": {
                 "type": "object",
                 "description": "Write serializer for program-group create/rename/edit — ``program`` from URL.\n\nMembership and mute are managed through dedicated viewset actions (different\nRBAC), so this serializer covers only the group's own attributes.",
@@ -65673,6 +65673,21 @@
                     "unestimated"
                 ]
             },
+            "ProductBacklogReorderBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /projects/{id}/product-backlog/reorder/`` (complete backlog, 1-2000).",
+                "properties": {
+                    "stories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReorderEntryRequest"
+                        }
+                    }
+                },
+                "required": [
+                    "stories"
+                ]
+            },
             "ProductBacklogScoring": {
                 "type": "object",
                 "properties": {
@@ -67732,6 +67747,42 @@
                     "title",
                     "total_float_days",
                     "wbs_path"
+                ]
+            },
+            "ProgramSplitBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /programs/{id}/split/`` (1-50 sub-programs).",
+                "properties": {
+                    "splits": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramSplitEntryRequest"
+                        }
+                    }
+                },
+                "required": [
+                    "splits"
+                ]
+            },
+            "ProgramSplitEntryRequest": {
+                "type": "object",
+                "description": "One sub-program of a split: its name and the projects moved under it.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "project_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                },
+                "required": [
+                    "name",
+                    "project_ids"
                 ]
             },
             "ProgramUserDefinedMentionGroupRead": {
@@ -72387,6 +72438,65 @@
                     "recorded"
                 ]
             },
+            "PromoteToMilestoneRequestRequest": {
+                "type": "object",
+                "description": "Validate the body for ``POST /api/sprints/{id}/promote-to-milestone/``.\n\nAll fields optional. ``milestone_id`` set → bind an existing milestone\n(``name``/``target_date`` are ignored). Omitted → create+bind a new milestone,\nhonoring the optional create overrides (ADR-0106 §E1.2, #928): a blank/absent\n``name`` falls back to the sprint-goal-derived default; an absent\n``target_date`` falls back to the sprint ``finish_date``.",
+                "properties": {
+                    "milestone_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    }
+                }
+            },
+            "PullActionItemToSprintBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/``.\n\nDocuments what the handler reads; the handler still does its own lookup so the\n404 (unknown target sprint) stays distinct from the 400 (field absent).",
+                "properties": {
+                    "target_sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "target_sprint_id"
+                ]
+            },
+            "PulseBodyRequest": {
+                "type": "object",
+                "description": "Body of ``PUT /sprints/{id}/pulse/`` — one-tap team-health response (1-5 each).",
+                "properties": {
+                    "mood": {
+                        "type": "integer",
+                        "maximum": 5,
+                        "minimum": 1
+                    },
+                    "energy": {
+                        "type": "integer",
+                        "maximum": 5,
+                        "minimum": 1
+                    },
+                    "confidence": {
+                        "type": "integer",
+                        "maximum": 5,
+                        "minimum": 1,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "energy",
+                    "mood"
+                ]
+            },
             "PulseResponse": {
                 "type": "object",
                 "description": "A single team member's pulse answer — only ever the requester's own (#923).\n\nRaw responses are never serialized for anyone but their own author: the team\nsees the *aggregate* trend, never an individual's mood/energy (ADR-0117 §5).\nThis serializer backs the one-tap upsert and the requester's own echo only.",
@@ -72529,6 +72639,21 @@
                 "type": "string",
                 "description": "* `scheduled` - Scheduled\n* `manual` - Manual\n* `dry_run` - Dry run",
                 "x-trueppm-enum": "open"
+            },
+            "QueueReorderBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /projects/{id}/queue/reorder/`` (one queue group, 1-2000).",
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReorderEntryRequest"
+                        }
+                    }
+                },
+                "required": [
+                    "tasks"
+                ]
             },
             "QuietHoursTimezoneSourceEnum": {
                 "enum": [
@@ -72716,6 +72841,23 @@
                 "type": "string",
                 "description": "* `relates_to` - Relates to\n* `blocks` - Blocks\n* `duplicates` - Duplicates",
                 "x-trueppm-enum": "open"
+            },
+            "ReorderEntryRequest": {
+                "type": "object",
+                "description": "One ``{id, server_version}`` row of a reorder body (optimistic lock per row).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "server_version": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "id",
+                    "server_version"
+                ]
             },
             "ResolutionEnum": {
                 "enum": [
@@ -73448,6 +73590,28 @@
                     "retro",
                     "text",
                     "updated_at"
+                ]
+            },
+            "RetroBoardItemCreateBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /sprints/{id}/retro-board/`` (create a sticky).\n\n``column`` is a plain string rather than a choice field so the component does not\nmint a second enum that collides with the model's ``RetroColumn`` name.",
+                "properties": {
+                    "column": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A RetroColumn key; default went_well."
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                    },
+                    "color": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "text"
                 ]
             },
             "RetroBoardState": {
@@ -75155,6 +75319,22 @@
                 "type": "string",
                 "description": "* `hand` - Hand-authored\n* `template` - Project template\n* `seed_import` - Native seed import\n* `csv_import` - CSV/Excel import\n* `msproject_import` - MS Project import\n* `jira_import` - Jira import\n* `paste` - Pasted rows",
                 "x-trueppm-enum": "open"
+            },
+            "SponsorshipTransferBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /programs/{id}/transfer-sponsorship/``.",
+                "properties": {
+                    "new_owner_user_id": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "new_lead_user_id": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "new_owner_user_id"
+                ]
             },
             "Sprint": {
                 "type": "object",

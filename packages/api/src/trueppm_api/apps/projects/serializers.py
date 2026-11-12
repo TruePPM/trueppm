@@ -10982,6 +10982,92 @@ class PromoteToMilestoneRequestSerializer(serializers.Serializer[dict[str, Any]]
     target_date = serializers.DateField(required=False, allow_null=True)
 
 
+class PullActionItemToSprintBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/``.
+
+    Documents what the handler reads; the handler still does its own lookup so the
+    404 (unknown target sprint) stays distinct from the 400 (field absent).
+    """
+
+    target_sprint_id = serializers.UUIDField()
+
+
+class RetroBoardItemCreateBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /sprints/{id}/retro-board/`` (create a sticky).
+
+    ``column`` is a plain string rather than a choice field so the component does not
+    mint a second enum that collides with the model's ``RetroColumn`` name.
+    """
+
+    column = serializers.CharField(
+        required=False, help_text="A RetroColumn key; default went_well."
+    )
+    text = serializers.CharField(max_length=2000)
+    color = serializers.CharField(required=False, allow_blank=True)
+
+
+class PulseBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``PUT /sprints/{id}/pulse/`` — one-tap team-health response (1-5 each)."""
+
+    mood = serializers.IntegerField(min_value=1, max_value=5)
+    energy = serializers.IntegerField(min_value=1, max_value=5)
+    confidence = serializers.IntegerField(min_value=1, max_value=5, required=False, allow_null=True)
+
+
+class ReorderEntrySerializer(serializers.Serializer[dict[str, Any]]):
+    """One ``{id, server_version}`` row of a reorder body (optimistic lock per row)."""
+
+    id = serializers.UUIDField()
+    server_version = serializers.IntegerField()
+
+
+class ProductBacklogReorderBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /projects/{id}/product-backlog/reorder/`` (complete backlog, 1-2000)."""
+
+    stories = ReorderEntrySerializer(many=True)
+
+
+class QueueReorderBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /projects/{id}/queue/reorder/`` (one queue group, 1-2000)."""
+
+    tasks = ReorderEntrySerializer(many=True)
+
+
+class OwnershipTransferBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /projects/{id}/transfer/``.
+
+    ``new_owner_user_id`` is the user's primary key as a string (clients send the
+    decimal-string form).
+    """
+
+    new_owner_user_id = serializers.CharField()
+
+
+class SponsorshipTransferBodySerializer(OwnershipTransferBodySerializer):
+    """Body of ``POST /programs/{id}/transfer-sponsorship/``."""
+
+    new_lead_user_id = serializers.CharField(required=False, allow_blank=True)
+
+
+class ProgramSplitEntrySerializer(serializers.Serializer[dict[str, Any]]):
+    """One sub-program of a split: its name and the projects moved under it."""
+
+    name = serializers.CharField()
+    project_ids = serializers.ListField(child=serializers.UUIDField())
+
+
+class ProgramSplitBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /programs/{id}/split/`` (1-50 sub-programs)."""
+
+    splits = ProgramSplitEntrySerializer(many=True)
+
+
+class LoadSampleBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /programs/load-sample/``; ``sample`` defaults to the launch demo."""
+
+    sample = serializers.CharField(required=False)
+
+
 class ReforecastPreviewSerializer(serializers.Serializer[dict[str, Any]]):
     """Response shape for ``GET /api/sprints/{id}/reforecast-preview/`` (§E1.1, #928).
 

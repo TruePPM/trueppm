@@ -6,19 +6,12 @@ from django.db import migrations, models
 
 
 def _normalize_blank_estimate_status(apps: Any, schema_editor: Any) -> None:
-    """Turn legacy ``''`` estimate_status rows into NULL ("not tracked").
+    """Delegate to the tested repair function (rationale lives there)."""
+    from trueppm_api.apps.projects.estimate_status_repair import normalize_blank_estimate_status
 
-    The field was client-writable until it became read-only, and DRF derived
-    ``allow_blank`` from ``blank=True``, so ``PATCH {"estimate_status": ""}`` stored a
-    third value distinct from NULL and both choices. The published contract no longer
-    admits it. History rows keep their own copy of the column, so both tables are
-    repaired. A queryset ``update()`` is deliberate: the column is derived governance
-    state, not a user edit, so no ``server_version`` bump or history row is wanted.
-    """
-    for name in ("Task", "HistoricalTask"):
-        apps.get_model("projects", name).objects.filter(estimate_status="").update(
-            estimate_status=None
-        )
+    normalize_blank_estimate_status(
+        apps.get_model("projects", "Task"), apps.get_model("projects", "HistoricalTask")
+    )
 
 
 class Migration(migrations.Migration):

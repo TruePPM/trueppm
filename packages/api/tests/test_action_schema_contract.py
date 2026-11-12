@@ -423,6 +423,7 @@ NO_BODY_PATHS = [
     "/api/v1/sprints/{id}/activate/",
     "/api/v1/sprints/{id}/cancel/",
     "/api/v1/sprints/{id}/unbind-milestone/",
+    "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/",
     "/api/v1/scope-changes/{id}/accept/",
     "/api/v1/scope-changes/{id}/reject/",
     "/api/v1/tasks/{id}/approve-estimates/",
@@ -641,16 +642,189 @@ def test_blank_estimate_status_is_rejected_by_the_model(project: Project) -> Non
     assert "estimate_status" in excinfo.value.message_dict
 
 
-@pytest.mark.django_db
-def test_patching_a_blank_estimate_status_does_not_store_it(
-    project: Project, admin_user: Any
-) -> None:
-    task = Task.objects.create(project=project, name="T", duration=1)
+def test_estimate_status_is_not_client_writable() -> None:
+    """No serializer path can store ``''``: the field is read-only on the task serializer.
 
-    response = _client(admin_user).patch(
-        f"/api/v1/tasks/{task.id}/", {"estimate_status": ""}, format="json"
+    The other writers (MS Project/Jira import, the seed importer and replay, the
+    approve-estimates action) assign ``ACCEPTED``/``None`` literals, never client input.
+    """
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    assert TaskSerializer().fields["estimate_status"].read_only
+
+
+@pytest.mark.django_db
+def test_repair_normalizes_blank_estimate_status_without_touching_versions(
+    project: Project,
+) -> None:
+    """The #2600 data repair clears ``''`` on Task and HistoricalTask rows.
+
+    It must not bump ``server_version`` or write a history row: the column is derived
+    governance state, so a repair that looked like a user edit would re-sync every
+    repaired task to offline clients.
+    """
+    from trueppm_api.apps.projects.estimate_status_repair import normalize_blank_estimate_status
+    from trueppm_api.apps.projects.models import HistoricalTask
+
+    task = Task.objects.create(project=project, name="T", duration=1)
+    untouched = Task.objects.create(
+        project=project, name="Pending", duration=1, estimate_status="pending"
+    )
+    # queryset.update() bypasses validation, which is how legacy rows got here.
+    Task.objects.filter(pk=task.pk).update(estimate_status="")
+    HistoricalTask.objects.filter(id=task.pk).update(estimate_status="")
+    version_before = Task.objects.get(pk=task.pk).server_version
+    history_before = HistoricalTask.objects.filter(id=task.pk).count()
+
+    repaired = normalize_blank_estimate_status(Task, HistoricalTask)
+
+    assert repaired >= 2
+    task.refresh_from_db()
+    assert task.estimate_status is None
+    assert not HistoricalTask.objects.filter(estimate_status="").exists()
+    assert task.server_version == version_before
+    assert HistoricalTask.objects.filter(id=task.pk).count() == history_before
+    untouched.refresh_from_db()
+    assert untouched.estimate_status == "pending"
+
+
+# ---------------------------------------------------------------------------
+# Body-reading actions declare the body they read, not the viewset's whole object
+# ---------------------------------------------------------------------------
+
+# (method, path, body component, required fields, a property that must be present)
+DECLARED_BODIES = [
+    (
+        "post",
+        "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/",
+        "PullActionItemToSprintBodyRequest",
+        {"target_sprint_id"},
+        "target_sprint_id",
+    ),
+    (
+        "post",
+        "/api/v1/sprints/{id}/retro-board/",
+        "RetroBoardItemCreateBodyRequest",
+        {"text"},
+        "column",
+    ),
+    ("put", "/api/v1/sprints/{id}/pulse/", "PulseBodyRequest", {"mood", "energy"}, "confidence"),
+    (
+        "post",
+        "/api/v1/sprints/{id}/promote-to-milestone/",
+        "PromoteToMilestoneRequestRequest",
+        set(),
+        "milestone_id",
+    ),
+    ("post", "/api/v1/programs/load-sample/", "LoadSampleBodyRequest", set(), "sample"),
+    ("post", "/api/v1/programs/{id}/split/", "ProgramSplitBodyRequest", {"splits"}, "splits"),
+    (
+        "post",
+        "/api/v1/programs/{id}/transfer-sponsorship/",
+        "SponsorshipTransferBodyRequest",
+        {"new_owner_user_id"},
+        "new_lead_user_id",
+    ),
+    (
+        "post",
+        "/api/v1/projects/{id}/transfer/",
+        "OwnershipTransferBodyRequest",
+        {"new_owner_user_id"},
+        "new_owner_user_id",
+    ),
+    (
+        "post",
+        "/api/v1/projects/{id}/product-backlog/reorder/",
+        "ProductBacklogReorderBodyRequest",
+        {"stories"},
+        "stories",
+    ),
+    ("post", "/api/v1/projects/{id}/queue/reorder/", "QueueReorderBodyRequest", {"tasks"}, "tasks"),
+    (
+        "patch",
+        "/api/v1/programs/{id}/risk-policy/",
+        "PatchedProgramRiskPolicyRequest",
+        set(),
+        None,
+    ),
+    (
+        "patch",
+        "/api/v1/programs/{id}/rollup-config/",
+        "PatchedProgramRollupConfigRequest",
+        set(),
+        None,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "component", "required", "prop"),
+    DECLARED_BODIES,
+    ids=[f"{m}:{p}" for m, p, *_ in DECLARED_BODIES],
+)
+def test_body_reading_actions_declare_the_body_they_read(
+    schema: dict[str, Any],
+    method: str,
+    path: str,
+    component: str,
+    required: set[str],
+    prop: str | None,
+) -> None:
+    """Each fell back to ``SprintRequest``/``ProgramRequest``/``ProjectRequest``.
+
+    That published a whole-object payload (name, start_date, ...) for an endpoint that
+    reads one or two fields, so a generated SDK demanded fields the handler ignores and
+    never mentioned the one it needs.
+    """
+    op = _operation(schema, path, method)
+    ref = op["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    assert ref.rsplit("/", 1)[-1] == component
+    body = schema["components"]["schemas"][component]
+    assert set(body.get("required", [])) == required
+    if prop is not None:
+        assert prop in body["properties"]
+    assert "name" not in body["properties"] or component.startswith("PromoteToMilestone")
+
+
+@pytest.mark.django_db
+def test_pulse_put_accepts_the_declared_body(project: Project, teammate: Any) -> None:
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=SprintState.ACTIVE,
+    )
+
+    response = _client(teammate).put(
+        f"/api/v1/sprints/{sprint.id}/pulse/", {"mood": 4, "energy": 3}, format="json"
     )
 
     assert response.status_code == 200, response.data
-    task.refresh_from_db()
-    assert task.estimate_status is None
+    assert response.data["mood"] == 4
+
+
+@pytest.mark.django_db
+def test_pull_to_sprint_requires_the_declared_target_sprint_id(
+    project: Project, admin_user: Any
+) -> None:
+    from trueppm_api.apps.projects.models import RetroActionItem, SprintRetro
+
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=SprintState.COMPLETED,
+    )
+    retro = SprintRetro.objects.create(sprint=sprint)
+    item = RetroActionItem.objects.create(retro=retro, text="Fix CI")
+
+    response = _client(admin_user).post(
+        f"/api/v1/sprints/{sprint.id}/retrospective/action-items/{item.id}/pull-to-sprint/",
+        {},
+        format="json",
+    )
+
+    assert response.status_code == 400, response.data
+    assert "target_sprint_id" in response.data

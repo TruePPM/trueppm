@@ -30,6 +30,8 @@ from typing import Any
 
 import pytest
 from django.urls import URLPattern, URLResolver, get_resolver
+from rest_framework.decorators import action as drf_action
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
@@ -69,11 +71,17 @@ def _overriding_viewsets() -> dict[str, type]:
     }
 
 
-def _inline_permission_actions() -> list[tuple[str, type, str, set[str]]]:
+def _inline_permission_actions(
+    viewsets: dict[str, type] | None = None,
+) -> list[tuple[str, type, str, set[str]]]:
     """``(viewset_name, cls, action_name, declared_permission_names)`` for each
-    ``@action`` that declares its own ``permission_classes`` on an overriding viewset."""
+    ``@action`` that declares its own ``permission_classes`` on an overriding viewset.
+
+    ``viewsets`` defaults to every routed overriding viewset; tests pass a synthetic one
+    to prove the guard fires.
+    """
     found: list[tuple[str, type, str, set[str]]] = []
-    for name, cls in sorted(_overriding_viewsets().items()):
+    for name, cls in sorted((viewsets or _overriding_viewsets()).items()):
         for attr in dir(cls):
             handler = getattr(cls, attr, None)
             kwargs = getattr(handler, "kwargs", None)
@@ -105,17 +113,10 @@ def test_the_scan_still_reaches_the_hand_rolled_viewsets() -> None:
     )
 
 
-@pytest.mark.django_db
-def test_every_inline_action_permission_actually_applies() -> None:
-    """An ``@action``'s own ``permission_classes`` must survive the chain.
-
-    This is the guard the ``split`` action's comment asks for. It fails the moment
-    someone adds ``@action(..., permission_classes=[IsProjectAdmin])`` to one of these
-    viewsets without adding the matching branch — the case that would otherwise ship a
-    Viewer-callable Admin endpoint and pass the author's manual Admin-account test.
-    """
+def _discarded_inline_permissions(viewsets: dict[str, type] | None = None) -> list[str]:
+    """One message per inline ``@action`` permission the chain silently throws away."""
     discarded: list[str] = []
-    for viewset_name, cls, action, declared in _inline_permission_actions():
+    for viewset_name, cls, action, declared in _inline_permission_actions(viewsets):
         effective = _effective_permission_names(cls, action)
         missing = declared - effective
         if missing:
@@ -124,6 +125,23 @@ def test_every_inline_action_permission_actually_applies() -> None:
                 f"get_permissions() returns {sorted(effective)} — {sorted(missing)} is "
                 f"silently discarded"
             )
+    return discarded
+
+
+@pytest.mark.django_db
+def test_every_inline_action_permission_actually_applies() -> None:
+    """An ``@action``'s own ``permission_classes`` must survive the chain.
+
+    This is the guard the ``split`` action's comment asks for. It fails the moment
+    someone adds ``@action(..., permission_classes=[IsProjectAdmin])`` to one of these
+    viewsets without adding the matching branch — the case that would otherwise ship a
+    Viewer-callable Admin endpoint and pass the author's manual Admin-account test.
+
+    There are currently no inline declarations on a routed overriding viewset, so this
+    passes over an empty list by design; the two synthetic-viewset tests below prove the
+    same check fires (and stays quiet) when one is added.
+    """
+    discarded = _discarded_inline_permissions()
 
     assert not discarded, (
         "These @action permission_classes are overridden away by a hand-rolled "
@@ -134,6 +152,43 @@ def test_every_inline_action_permission_actually_applies() -> None:
         "chain — the inline kwarg alone does nothing, and the fall-through default is "
         "the weakest gate on the class."
     )
+
+
+class _ChainThatIgnoresInlineKwarg(ViewSetMixin, APIView):
+    """Synthetic viewset: a hand-rolled chain that never reads ``permission_classes``."""
+
+    def get_permissions(self) -> list[Any]:
+        return [IsAuthenticated()]
+
+    @drf_action(detail=False, methods=["post"], permission_classes=[IsAdminUser])
+    def admin_only(self, request: Request) -> None:  # pragma: no cover - never routed
+        ...
+
+
+class _ChainThatHonorsInlineKwarg(ViewSetMixin, APIView):
+    """Synthetic viewset: the chain has the matching branch, so nothing is discarded."""
+
+    def get_permissions(self) -> list[Any]:
+        if self.action == "admin_only":
+            return [IsAuthenticated(), IsAdminUser()]
+        return [IsAuthenticated()]
+
+    @drf_action(detail=False, methods=["post"], permission_classes=[IsAdminUser])
+    def admin_only(self, request: Request) -> None:  # pragma: no cover - never routed
+        ...
+
+
+def test_the_guard_flags_an_inline_permission_the_chain_discards() -> None:
+    """Negative control: the guard must fail when an inline kwarg is silently dropped."""
+    discarded = _discarded_inline_permissions({"Ignores": _ChainThatIgnoresInlineKwarg})
+
+    assert len(discarded) == 1
+    assert "Ignores.admin_only" in discarded[0]
+    assert "IsAdminUser" in discarded[0]
+
+
+def test_the_guard_passes_when_the_chain_honors_the_inline_permission() -> None:
+    assert _discarded_inline_permissions({"Honors": _ChainThatHonorsInlineKwarg}) == []
 
 
 @pytest.mark.django_db

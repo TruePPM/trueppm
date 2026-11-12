@@ -92,6 +92,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.program_rollup import drift_counts_by_project
 from trueppm_api.apps.projects.serializers import (
+    LoadSampleBodySerializer,
     ProgramExportJobSerializer,
     ProgramImportJobSerializer,
     ProgramProjectRowSerializer,
@@ -101,7 +102,9 @@ from trueppm_api.apps.projects.serializers import (
     ProgramRollupSerializer,
     ProgramScheduleSerializer,
     ProgramSerializer,
+    ProgramSplitBodySerializer,
     SeedImportRequestSerializer,
+    SponsorshipTransferBodySerializer,
 )
 from trueppm_api.apps.projects.views import (
     _ALLOCATION_ASSIGNMENT_LIMIT,
@@ -2155,6 +2158,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Load a bundled sample program",
+        request=LoadSampleBodySerializer,
         responses={
             201: LoadSampleResponseSerializer,
             400: OpenApiResponse(description="``sample`` does not name a known sample key."),
@@ -2441,6 +2445,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Transfer program sponsorship to another member",
+        request=SponsorshipTransferBodySerializer,
         responses={
             200: ProgramSerializer,
             400: validation_envelope_400(
@@ -2534,6 +2539,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Split a program into sub-programs",
+        request=ProgramSplitBodySerializer,
         responses={
             200: OpenApiResponse(
                 description=(
@@ -3009,6 +3015,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Read or update the program rollup KPIs config",
+        request=ProgramRollupConfigSerializer,
         responses={200: ProgramRollupConfigSerializer},
     )
     @action(detail=True, methods=["get", "patch"], url_path="rollup-config")
@@ -3306,6 +3313,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Read or update the program risk & dependencies policy",
+        request=ProgramRiskPolicySerializer,
         responses={200: ProgramRiskPolicySerializer},
     )
     @action(detail=True, methods=["get", "patch"], url_path="risk-policy")

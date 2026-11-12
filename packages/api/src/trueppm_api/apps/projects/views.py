@@ -231,7 +231,9 @@ from trueppm_api.apps.projects.serializers import (
     MyApiTokenCreateSerializer,
     MyApiTokenSerializer,
     OmniSearchResultSerializer,
+    OwnershipTransferBodySerializer,
     PhaseSerializer,
+    ProductBacklogReorderBodySerializer,
     ProjectApiTokenCreateSerializer,
     ProjectApiTokenSerializer,
     ProjectAttentionSerializer,
@@ -253,10 +255,15 @@ from trueppm_api.apps.projects.serializers import (
     ProjectSprintHealthSerializer,
     ProjectUtilizationSerializer,
     ProjectVelocitySerializer,
+    PromoteToMilestoneRequestSerializer,
+    PullActionItemToSprintBodySerializer,
+    PulseBodySerializer,
     PulseResponseSerializer,
+    QueueReorderBodySerializer,
     ReforecastPreviewSerializer,
     RetroActionItemPromotedTaskSerializer,
     RetroActionItemSerializer,
+    RetroBoardItemCreateBodySerializer,
     RetroBoardItemSerializer,
     RetroBoardStateSerializer,
     RiskCommentSerializer,
@@ -2370,6 +2377,7 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Manually reorder the product backlog",
+        request=ProductBacklogReorderBodySerializer,
         responses={
             200: OpenApiResponse(
                 response=SprintReorderResultSerializer,
@@ -2450,6 +2458,7 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Promote / demote tasks in the board queue",
+        request=QueueReorderBodySerializer,
         responses={
             200: OpenApiResponse(
                 response=SprintReorderResultSerializer,
@@ -3108,6 +3117,7 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Transfer project ownership",
+        request=OwnershipTransferBodySerializer,
         responses={
             200: ProjectSerializer,
             400: OpenApiResponse(
@@ -17149,6 +17159,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Bind a sprint to a schedule milestone",
+        request=PromoteToMilestoneRequestSerializer,
         responses={
             200: SprintSerializer,
             201: SprintSerializer,
@@ -17171,7 +17182,6 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         ``200``; binding a *different* one while already bound is ``409
         sprint_already_bound`` — the binding never silently re-points. SCHEDULER+.
         """
-        from trueppm_api.apps.projects.serializers import PromoteToMilestoneRequestSerializer
         from trueppm_api.apps.projects.services import (
             MilestoneNotFound,
             SprintAlreadyBound,
@@ -17949,6 +17959,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     @extend_schema(
         methods=["POST"],
         summary="Create a retro-board sticky (ADR-0117 §1)",
+        request=RetroBoardItemCreateBodySerializer,
         responses={201: RetroBoardItemSerializer},
     )
     @action(detail=True, methods=["get", "post"], url_path="retro-board")
@@ -17999,6 +18010,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Team-health pulse — answer (one tap) or read your own (ADR-0117 §5)",
+        request=PulseBodySerializer,
         responses={
             200: PulseResponseSerializer,
             204: OpenApiResponse(description="No response recorded yet (GET)."),
@@ -18163,6 +18175,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Promote a retro action item to a backlog task",
+        request=None,
         responses={
             201: RetroActionItemPromotedTaskSerializer,
             404: OpenApiResponse(description="Action item not found on this sprint's retro."),
@@ -18241,6 +18254,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Pull a retro action item into a planned sprint",
+        request=PullActionItemToSprintBodySerializer,
         responses={
             200: RetroActionItemPromotedTaskSerializer,
             400: OpenApiResponse(description="Missing target_sprint_id or invalid pull."),
