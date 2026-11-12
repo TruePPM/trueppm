@@ -301,6 +301,27 @@ The per-purpose lists are introduced by 0.5. In 0.4 the escape hatch is
 caller, so it must name only a host at least as trusted as the identity provider.
 :::
 
+## One encryption key for three secret classes
+
+`INTEGRATION_ENCRYPTION_KEY` is one Fernet key. It encrypts the single sign-on
+client secret (`SsoProviderPolicy.secret_ciphertext`), every user's Jira
+credential (`IntegrationCredential`), and webhook secrets. ADR-0187 left open
+whether OIDC should have its own key; the code resolved it by reuse, and this
+page records that as an accepted risk so it is not rediscovered as a finding.
+
+The consequences are structural. A leak of the key exposes all three classes
+together. The open-source edition has no rotation path: `encryption.py` states
+that rotation is an Enterprise hardening item (ADR-0049 section 6), and a changed
+key breaks every stored ciphertext because there is no dual-key decrypt and no
+re-encryption migration. Recovery is for an administrator to re-enter every
+secret. The operator-facing version of this is in
+[Secret management](/administration/security/#one-encryption-key-covers-every-stored-third-party-secret).
+
+The Enterprise counterpart (a KMS-backed key, dual-key decryption, a rotation
+migration) is not yet filed as its own issue. The nearest existing item is
+customer-managed encryption keys, `trueppm-enterprise#181`, which does not
+mention this key or rotation.
+
 ## OSS and Enterprise
 
 The dividing line is the same one used everywhere else in TruePPM: **log in
