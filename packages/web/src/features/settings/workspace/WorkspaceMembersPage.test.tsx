@@ -1052,6 +1052,22 @@ describe('WorkspaceMembersPage — member row variants', () => {
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
+  it('formats an ISO last-active timestamp as a calendar date (#3613)', async () => {
+    setupData([{ ...VARIANTS[1], last_active: '2026-08-27T11:31:31.035373+00:00' }]);
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByText('Secure Singh')).toBeInTheDocument();
+    expect(screen.queryByText(/2026-08-27T/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Aug 2[67], 2026/)).toBeInTheDocument();
+  });
+
+  it('gives the Projects count an accessible-name hint and a sticky header (#3613)', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByText('Pending Park')).toBeInTheDocument();
+    expect(screen.getByTitle('0 projects')).toBeInTheDocument();
+    expect(screen.getByTitle('1 project')).toBeInTheDocument();
+    expect(screen.getByText('Last active').parentElement).toHaveClass('sticky');
+  });
+
   it('shows SSO and 2FA badges only for the member that has them', async () => {
     render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
     expect(await screen.findByText('Secure Singh')).toBeInTheDocument();
