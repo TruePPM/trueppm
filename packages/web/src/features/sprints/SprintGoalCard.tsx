@@ -107,7 +107,7 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: 
   // null = no commitment snapshot yet; render a dash, not a "0" that contradicts
   // the points chip beside it.
   const taskCount = sprint.committed_task_count;
-  const points = sprint.committed_points ?? 0;
+  const points = sprint.committed_points;
 
   const { updateSprint } = useSprintMutations(projectId);
   const [editing, setEditing] = useState(false);
@@ -270,9 +270,11 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: 
                 className="tppm-mono text-xs px-2 py-0.5 rounded border border-neutral-border text-neutral-text-primary"
                 aria-hidden="true"
               >
-                {points} pts committed
+                {points ?? '—'} pts committed
               </span>
-              <span className="sr-only">{points} story points committed</span>
+              <span className="sr-only">
+                {points === null ? 'No committed points' : `${points} story points committed`}
+              </span>
             </div>
           </div>
         </>

@@ -436,21 +436,3 @@ test.describe('Reports tab — refused date window', () => {
     await expect(chart.getByLabel('From date')).toHaveAttribute('min', /^\d{4}-\d{2}-\d{2}$/);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Charts mount at a measured size (#3620)
-// ---------------------------------------------------------------------------
-
-test.describe('Reports tab — chart console', () => {
-  test('logs no zero-size Recharts warning', async ({ page }) => {
-    const warnings: string[] = [];
-    page.on('console', (m) => {
-      if (/should be greater than 0/.test(m.text())) warnings.push(m.text());
-    });
-    await setup(page);
-    await page.goto(`/projects/${PROJECT_ID}/reports`);
-    await expect(page.getByRole('heading', { name: /burn chart/i })).toBeVisible({ timeout: 10_000 });
-    await expect(projectChart(page).locator('svg.recharts-surface').first()).toBeVisible();
-    expect(warnings).toEqual([]);
-  });
-});

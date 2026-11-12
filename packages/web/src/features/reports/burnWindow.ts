@@ -34,5 +34,9 @@ export function isWindowClamped(
 ): boolean {
   if (!echoed) return false;
   if (requestedSince) return echoed.since !== requestedSince;
+  // `>=`, not `>`: the server clamps a defaulted since to until minus the max, so
+  // a clamped window echoes EXACTLY the max span. A project whose history is
+  // exactly that long is indistinguishable here (a server-side flag would be
+  // needed) and is conservatively disclosed.
   return daysBetween(echoed.since, echoed.until) >= BURN_MAX_SPAN_DAYS;
 }

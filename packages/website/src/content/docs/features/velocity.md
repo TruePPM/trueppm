@@ -1,7 +1,12 @@
 ---
 title: Velocity panel
 description: Last-8 closed sprints with rolling avg ± stdev and a forecast range chip.
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+From 0.5 a sprint with no committed points (none recorded, or zero) shows a neutral bar labeled "no committed points" instead of a red "below target" bar, and the panel footer is plain text rather than an ADR link. Before 0.5 such a sprint was drawn as the red bar and the footer linked to ADR-0036.
+:::
 
 This is for Scrum Masters, Product Owners, and PMs who want to know how much work a team can realistically get done. **Velocity** is how many story points a team completes per sprint on average — it's the basis for forecasting how many sprints are left to finish the backlog. This panel shows a bar chart of the team's last 8 closed sprints, color-coded by how much of what they committed to they actually finished, along with a rolling average (with its statistical spread) and a forecast range for the next sprint.
 
@@ -32,7 +37,8 @@ Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--mo
   - ≥ 0.85 → `semantic-on-track`
   - 0.6–0.85 → `semantic-at-risk`
   - < 0.6 → `semantic-critical`
-- **Footer:** `Velocity feeds CPM duration estimates · ADR-0036` link
+  - no committed points (none recorded, or zero) → neutral bar, labeled "no committed points"; never red, because there is no commitment to fall short of
+- **Footer:** the plain text `Velocity feeds CPM duration estimates` (a link to ADR-0036 before 0.5)
 
 ## On the Board sprint panel
 

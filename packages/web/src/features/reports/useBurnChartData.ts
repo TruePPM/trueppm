@@ -4,6 +4,7 @@ import { isAxiosError } from 'axios';
 import { forecastScopeCaption } from '@/features/sprints/sprintMath';
 import { useBurnChart, type BurnVariant, type BurnMetric } from './hooks/useBurnChart';
 import { isWindowClamped } from './burnWindow';
+import { localTodayIso } from '@/lib/localDate';
 import {
   describeBurnSeries,
   deriveProjectSeries,
@@ -117,7 +118,7 @@ export function useBurnChartData(opts: {
   const [until, setUntil] = useState<string | undefined>();
 
   const isSprintCtx = !!sprintId;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localTodayIso();
 
   const sprintQuery = useSprintBurndown(sprintId ?? null);
   const sprintMetric = resolveSprintMetric(
