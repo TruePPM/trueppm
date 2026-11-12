@@ -142,7 +142,7 @@ def mark_ready(task: Task, actor: Any) -> Task:
     if task.dor != DorState.READY:
         task.dor = DorState.READY
         task.save(update_fields=["dor", "server_version"])
-        _broadcast_task(task, actor)
+        _broadcast_task(task)
     return task
 
 
@@ -151,12 +151,14 @@ def send_to_refine(task: Task, actor: Any) -> Task:
     if task.dor != DorState.REFINE:
         task.dor = DorState.REFINE
         task.save(update_fields=["dor", "server_version"])
-        _broadcast_task(task, actor)
+        _broadcast_task(task)
     return task
 
 
-def _broadcast_task(task: Task, actor: Any) -> None:
-    defer_task_updated(task, changed_fields=["dor"], actor=actor)
+def _broadcast_task(task: Task) -> None:
+    # actor=None: the DoR hooks invalidate only the backlog keys, so the actor's own
+    # tasks cache relies on this frame to refresh — it must not read as a self-echo.
+    defer_task_updated(task, changed_fields=["dor"], actor=None)
 
 
 # ── Auto-rank ────────────────────────────────────────────────────────────────

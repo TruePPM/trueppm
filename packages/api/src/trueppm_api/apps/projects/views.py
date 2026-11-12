@@ -5927,6 +5927,10 @@ def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
         server_version=db_models.F("server_version") + 1,
         sync_seq=allocate_for_projects([parent.project_id]),
     )
+    # ``.update()`` leaves the in-memory row at the pre-bump version; the parent's
+    # ``task_updated`` frame must carry the version the row now holds, or a client
+    # that already saw N drops the N+1 change as a replay (ADR-0152).
+    parent.refresh_from_db(fields=["server_version", "sync_seq"])
     if parent.sprint_id is None:
         return
 
@@ -7923,11 +7927,13 @@ class TaskViewSet(
 
             project_id = str(task.project_id)
             # Empty ``changed_fields`` = "unknown, refetch" when only the suggestion
-            # (not the task) changed.
+            # (not the task) changed. actor=None: no web client accepts a suggestion
+            # with an optimistic tasks-cache edit, so the acceptor's own tabs must
+            # refetch rather than treat the frame as a self-echo (ADR-0152).
             defer_task_updated(
                 task,
                 changed_fields=["assignee"] if assigned_now else [],
-                actor=request.user,
+                actor=None,
                 task_row_bumped=assigned_now,
             )
             # Fire task.assigned (#638) when this accept actually bound the
@@ -8272,10 +8278,12 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
     def _broadcast(self, criterion: AcceptanceCriterion) -> None:
         from trueppm_api.apps.sync.broadcast import defer_task_updated
 
+        # actor=None: the backlog AC hooks invalidate only the backlog keys, so the
+        # editor's own tasks cache relies on this frame to refresh (ADR-0152).
         defer_task_updated(
             criterion.task,
             changed_fields=["acceptance_criteria"],
-            actor=self.request.user,
+            actor=None,
             task_row_bumped=False,
         )
 
@@ -9668,10 +9676,12 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         # The template's is_recurring badge changed — notify live boards (ADR-0060
         # parent-update pattern); the save() above already bumped its server_version.
+        # actor=None: useRecurrenceRule invalidates only the rule key, so the
+        # editor's tasks cache needs this frame to pick up is_recurring (ADR-0152).
         defer_task_updated(
             template,
             changed_fields=["is_recurring"],
-            actor=self.request.user,
+            actor=None,
             task_row_bumped=flag_flipped,
         )
 
@@ -9689,10 +9699,12 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
             template.is_recurring = False
             template.save(update_fields=["is_recurring"])
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        # actor=None: useRecurrenceRule invalidates only the rule key, so the
+        # editor's tasks cache needs this frame to pick up is_recurring (ADR-0152).
         defer_task_updated(
             template,
             changed_fields=["is_recurring"],
-            actor=self.request.user,
+            actor=None,
             task_row_bumped=flag_flipped,
         )
 
@@ -16182,10 +16194,12 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         # every UPDATE — no second bump needed here.
         # Attach the task count so the response body includes it (mirrors list).
         self._attach_task_counts([instance])
+        # actor=None: useProjectPhases patches only the phases cache, so the
+        # editor's tasks cache (phase rows are Tasks) needs this frame (ADR-0152).
         defer_task_updated(
             instance,
             changed_fields=list(serializer.validated_data),
-            actor=self.request.user,
+            actor=None,
         )
 
     def perform_destroy(self, instance: Task) -> None:
@@ -20741,10 +20755,13 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
             # Broadcast one task_updated per affected task so connected clients
             # refresh the DoR meter without a manual refetch (deferred to commit).
             for affected_task in affected_tasks.values():
+                # actor=None: a CI write is not interactive — attributing it to the
+                # token's creator would make that user's browser skip the refetch
+                # as a self-echo of an edit it never made (ADR-0152).
                 defer_task_updated(
                     affected_task,
                     changed_fields=["acceptance_criteria"],
-                    actor=actor,
+                    actor=None,
                     task_row_bumped=False,
                 )
 

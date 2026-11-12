@@ -357,7 +357,19 @@ already applied), and `actor_id` lets the originating client suppress its own ec
 rather than re-fetching over its optimistic update. The `id` key is retained for
 backward compatibility.
 
-`changed_fields` lists every stored task field the write changed, including fields
+`version` is `null` when the write changed a row that belongs to the task but not
+the task row itself — an acceptance criterion, or a suggested-assignee accept that
+found the task already assigned. Treat a `null` version as unversioned: skip the
+replay check and refetch. `actor_id` is likewise `null` for writes that are not
+interactive (a CI acceptance-result ingest) and for writes whose originating client
+does not update its own task list, so that client still refetches.
+
+`changed_fields` may be empty, meaning "the task changed in a way the server does not
+name — refetch it". It may also contain the pseudo-field `acceptance_criteria`, which
+is not a stored task field: it says the task's acceptance criteria (and so its
+Definition-of-Ready meter) changed.
+
+For a task edit, `changed_fields` lists every stored task field the write changed, including fields
 the server derives from the submitted ones (for example `status` and `actual_start`
 when a past `planned_start` starts a task). A PATCH emits no `task_updated`, triggers
 no recalculation, and dispatches no `task.updated` webhook only when no stored field

@@ -2,8 +2,13 @@
 
 A bare ``task_updated {"id"}`` carries no ``version`` / ``actor_id``, so the editor's
 own client cannot suppress its self-echo (ADR-0152) and refetches over an optimistic
-edit. These tests pin the previously-bare write paths to the enriched payload and ban a
-literal ``"task_updated"`` emit anywhere but the helper.
+edit. These tests pin the previously-bare write paths to the enriched payload, and an
+AST gate bans a call that passes the literal ``"task_updated"`` outside the helper.
+
+``actor_id`` is set only where the originating web hook already refreshed its own
+``['tasks']`` cache (estimate approval, subtask create); every other site sends
+``None`` so the editor's tabs still refetch. ``version`` is ``None`` where the write
+did not bump the Task row.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
     AcceptanceCriterion,
     Calendar,
@@ -26,11 +32,15 @@ from trueppm_api.apps.projects.models import (
     EstimateStatus,
     EstimationMode,
     Project,
+    ProjectApiToken,
+    SuggestionState,
     Task,
+    TaskRecurrenceRule,
     TaskStatus,
+    TaskSuggestedAssignee,
     TaskType,
 )
-from trueppm_api.apps.projects.product_backlog_services import mark_ready
+from trueppm_api.apps.projects.product_backlog_services import mark_ready, send_to_refine
 
 User = get_user_model()
 SRC = Path(__file__).resolve().parents[3] / "src" / "trueppm_api"
@@ -103,7 +113,8 @@ def test_acceptance_criterion_edit_emits_actor_frame_without_stale_version(
     assert frame["id"] == str(task.pk)
     assert frame["changed_fields"] == ["acceptance_criteria"]
     assert frame["version"] is None
-    assert frame["actor_id"] == str(user.pk)
+    # The backlog AC hook refreshes only backlog keys, so this is not a self-echo.
+    assert frame["actor_id"] is None
 
 
 def test_mark_ready_emits_versioned_actor_frame(
@@ -127,13 +138,19 @@ def test_mark_ready_emits_versioned_actor_frame(
     (frame,) = _frames(m)
     assert frame["changed_fields"] == ["dor"]
     assert frame["version"] == task.server_version
-    assert frame["actor_id"] == str(user.pk)
+    assert frame["actor_id"] is None
 
 
 def test_no_literal_task_updated_emit_outside_the_helper() -> None:
-    """AST gate: a call passing the literal ``"task_updated"`` (``broadcast_board_event``,
-    ``functools.partial`` ...) is a bare emit that bypasses ADR-0152. Go through
-    ``broadcast_task_updated`` / ``defer_task_updated`` in ``sync/broadcast.py``."""
+    """AST gate: a call passing the literal ``"task_updated"`` as a positional argument
+    (``broadcast_board_event``, ``functools.partial`` ...) is a bare emit that bypasses
+    ADR-0152. Go through ``broadcast_task_updated`` / ``defer_task_updated``.
+
+    Blind spots — it sees only a string constant passed directly as a positional call
+    argument. It does not see the event type held in a variable (``et`` in
+    ``integrations/inbound_sync.py``), carried in a tuple or list and unpacked later
+    (``sync/upload.py``), or passed as a keyword. A green run is therefore not "no bare
+    emit exists"; it is "no new emit of the common literal shape"."""
     offenders: list[str] = []
     for path in SRC.rglob("*.py"):
         rel = path.relative_to(SRC).as_posix()
@@ -146,3 +163,173 @@ def test_no_literal_task_updated_emit_outside_the_helper() -> None:
             ):
                 offenders.append(f"{rel}:{node.lineno}")
     assert not offenders, f"bare task_updated emits: {offenders}"
+
+
+def _mock_events() -> Any:
+    return mock.patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+
+
+def test_subtask_create_parent_frame_carries_post_bump_version(
+    client: APIClient, project: Project, user: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The parent is bumped with a queryset ``.update()``; the frame must carry the
+    version the row now holds, not the stale in-memory one (replay-drop on the web)."""
+    parent = Task.objects.create(project=project, name="Parent", duration=2, wbs_path="1")
+    before = Task.objects.get(pk=parent.pk).server_version
+    with _mock_events() as m, django_capture_on_commit_callbacks(execute=True):
+        r = client.post(
+            "/api/v1/tasks/",
+            {
+                "project": str(project.pk),
+                "name": "Sub",
+                "duration": 1,
+                "parent_id": str(parent.pk),
+                "is_subtask": True,
+            },
+            format="json",
+        )
+    assert r.status_code == 201, r.content
+    parent.refresh_from_db()
+    assert parent.server_version > before
+    (frame,) = [f for f in _frames(m) if f["id"] == str(parent.pk)]
+    assert frame["changed_fields"] == ["is_summary"]
+    assert frame["version"] == parent.server_version
+    # useCreateTask invalidates ['tasks'] itself, so the actor's echo is suppressible.
+    assert frame["actor_id"] == str(user.pk)
+
+
+def _suggest(project: Project, user: Any, **task_kw: Any) -> TaskSuggestedAssignee:
+    task = Task.objects.create(project=project, name="Retro item", **task_kw)
+    return TaskSuggestedAssignee.objects.create(task=task, suggested_user=user)
+
+
+def test_suggestion_accept_binding_assignee_emits_versioned_frame(
+    client: APIClient, project: Project, user: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    s = _suggest(project, user)
+    with _mock_events() as m, django_capture_on_commit_callbacks(execute=True):
+        r = client.post(f"/api/v1/tasks/{s.task_id}/suggestions/{s.pk}/accept/")
+    assert r.status_code == 200, r.content
+    task = Task.objects.get(pk=s.task_id)
+    assert task.assignee_id == user.pk  # type: ignore[attr-defined]
+    (frame,) = _frames(m)
+    assert frame["changed_fields"] == ["assignee"]
+    assert frame["version"] == task.server_version
+    assert frame["actor_id"] is None
+
+
+def test_suggestion_accept_conflict_emits_unversioned_frame(
+    client: APIClient, project: Project, user: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Only the suggestion row changes, so ``version`` is None and ``changed_fields``
+    is empty ("unknown, refetch")."""
+    other = User.objects.create_user(username="other", password="pw")
+    ProjectMembership.objects.create(project=project, user=other, role=Role.MEMBER)
+    s = _suggest(project, user, assignee=other)
+    with _mock_events() as m, django_capture_on_commit_callbacks(execute=True):
+        r = client.post(f"/api/v1/tasks/{s.task_id}/suggestions/{s.pk}/accept/")
+    assert r.status_code == 409, r.content
+    s.refresh_from_db()
+    assert s.state == SuggestionState.ACCEPTED
+    (frame,) = _frames(m)
+    assert frame["changed_fields"] == []
+    assert frame["version"] is None
+    assert frame["actor_id"] is None
+
+
+def test_recurrence_create_and_destroy_emit_is_recurring_frames(
+    client: APIClient, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    template = Task.objects.create(project=project, name="Standup", duration=1)
+    with (
+        mock.patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        _mock_events() as m,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        r = client.post(
+            "/api/v1/recurrence-rules/",
+            {"task": str(template.pk), "frequency": "DAILY", "end_type": "NEVER"},
+            format="json",
+        )
+        assert r.status_code == 201, r.content
+        template.refresh_from_db()
+        created_version = template.server_version
+        rule = TaskRecurrenceRule.objects.get(task=template)
+        d = client.delete(f"/api/v1/recurrence-rules/{rule.pk}/")
+        assert d.status_code == 204, d.content
+    template.refresh_from_db()
+    create_frame, destroy_frame = _frames(m)
+    assert create_frame["changed_fields"] == ["is_recurring"]
+    assert create_frame["version"] == created_version
+    assert create_frame["actor_id"] is None
+    assert destroy_frame["changed_fields"] == ["is_recurring"]
+    assert destroy_frame["version"] == template.server_version
+    assert destroy_frame["actor_id"] is None
+
+
+def test_phase_update_emits_versioned_unattributed_frame(
+    client: APIClient, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    phase = Task.objects.create(project=project, name="Phase 1", duration=0, wbs_path="1")
+    with _mock_events() as m, django_capture_on_commit_callbacks(execute=True):
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/phases/{phase.pk}/", {"name": "Design"}, format="json"
+        )
+    assert r.status_code == 200, r.content
+    phase.refresh_from_db()
+    (frame,) = _frames(m)
+    assert frame["changed_fields"] == ["name"]
+    assert frame["version"] == phase.server_version
+    assert frame["actor_id"] is None
+
+
+def test_send_to_refine_emits_versioned_unattributed_frame(
+    project: Project, user: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    task = Task.objects.create(
+        project=project,
+        name="S",
+        type=TaskType.STORY,
+        status=TaskStatus.BACKLOG,
+        dor=DorState.READY,
+    )
+    with _mock_events() as m, django_capture_on_commit_callbacks(execute=True):
+        send_to_refine(task, user)
+    task.refresh_from_db()
+    (frame,) = _frames(m)
+    assert frame["changed_fields"] == ["dor"]
+    assert frame["version"] == task.server_version
+    assert frame["actor_id"] is None
+
+
+def test_ci_acceptance_ingest_frame_is_not_attributed_to_token_creator(
+    project: Project, user: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The token creator made no optimistic edit; attributing the CI write to them would
+    make their browser skip the refetch as a self-echo."""
+    import secrets
+
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ProjectApiToken.objects.create(
+        project=project,
+        name="ci",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=user,
+    )
+    task = Task.objects.create(project=project, name="S", type=TaskType.STORY)
+    c = AcceptanceCriterion.objects.create(task=task, text="AC", met=False, position=0)
+    ci = APIClient()
+    ci.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    with _mock_events() as m, django_capture_on_commit_callbacks(execute=True):
+        r = ci.post(
+            f"/api/v1/projects/{project.pk}/acceptance-results/",
+            {"results": [{"criterion_id": str(c.pk), "passed": True}]},
+            format="json",
+        )
+    assert r.status_code == 200, r.content
+    (frame,) = _frames(m)
+    assert frame["id"] == str(task.pk)
+    assert frame["changed_fields"] == ["acceptance_criteria"]
+    assert frame["version"] is None
+    assert frame["actor_id"] is None

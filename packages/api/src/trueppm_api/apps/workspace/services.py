@@ -229,7 +229,10 @@ def transfer_workspace_ownership(*, new_owner: Any, actor: Any) -> WorkspaceMemb
             )
         except WorkspaceMembership.DoesNotExist as exc:
             raise ValidationError(WORKSPACE_OWNER_NOT_MEMBER_DETAIL) from exc
-        if target.status == MemberStatus.DEACTIVATED:
+        # A deactivated account (``User.is_active=False``) can still hold an ACTIVE
+        # membership row; it cannot sign in, so it gets the same refusal as an
+        # unknown id rather than an ownerless-in-practice workspace (#4596).
+        if target.status == MemberStatus.DEACTIVATED or not new_owner.is_active:
             raise ValidationError(WORKSPACE_OWNER_NOT_MEMBER_DETAIL)
 
         # Promote the target first so the workspace is never momentarily ownerless.

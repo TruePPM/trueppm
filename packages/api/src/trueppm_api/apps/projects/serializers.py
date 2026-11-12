@@ -5421,7 +5421,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         project: the REST PATCH/POST path and the mobile sync upload (which reuses
         this serializer via ``apply_task_changes``) both route through here.
         Soft-deleted memberships are excluded (``is_deleted=False``), matching
-        ``validate_lead``. The error names only "this project", never another
+        ``validate_lead``, and so are deactivated accounts (``user.is_active``): a
+        departed user keeps their membership row but must not take new work
+        (#4596). The error names only "this project", never another
         project's membership, so it leaks nothing about foreign projects.
         """
         assignee = attrs.get("assignee")
@@ -5431,6 +5433,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 is_member = ProjectMembership.objects.filter(
                     project=project,
                     user=assignee,
+                    user__is_active=True,
                     is_deleted=False,
                 ).exists()
                 if not is_member:

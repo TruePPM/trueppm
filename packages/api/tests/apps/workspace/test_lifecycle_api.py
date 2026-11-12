@@ -128,6 +128,29 @@ def test_transfer_unknown_user_and_non_member_are_indistinguishable(owner: objec
     assert unknown.json() == non_member.json()
 
 
+@pytest.mark.django_db
+def test_transfer_to_deactivated_account_with_active_membership_matches_unknown(
+    owner: object,
+) -> None:
+    """``User.is_active=False`` with an ACTIVE membership row is refused exactly like an
+    unknown id — same status, same body, no ownership change (#4596)."""
+    gone = User.objects.create_user(username="gone_active_row", password="pw")
+    gone.is_active = False
+    gone.save(update_fields=["is_active"])
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(),
+        user=gone,
+        role=WorkspaceRole.MEMBER,
+        status=MemberStatus.ACTIVE,
+    )
+    unknown = _client(owner).post(TRANSFER_URL, {"new_owner_user_id": 999999}, format="json")
+    deactivated = _client(owner).post(TRANSFER_URL, {"new_owner_user_id": gone.pk}, format="json")
+    assert unknown.status_code == deactivated.status_code == 400
+    assert unknown.json() == deactivated.json()
+    row = WorkspaceMembership.objects.get(user=gone)
+    assert row.role == WorkspaceRole.MEMBER
+
+
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------

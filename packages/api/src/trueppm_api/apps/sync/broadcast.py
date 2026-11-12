@@ -226,7 +226,11 @@ def defer_task_updated(
     ``version=None``, because the client's version-dedupe gate would otherwise drop it as
     a replay of the version it already holds.
     ``actor`` is the user (or ``None`` for system writes); its id lets the originating
-    client suppress its own echo.
+    client suppress its own echo. Pass a user **only** when that client already
+    patched or invalidated its ``['tasks', project]`` cache for this write: the web
+    skips a self-echo entirely, so naming the actor on a write whose hook refreshes a
+    different cache leaves the actor's own task list stale. Non-interactive writes
+    (CI ingest, token paths) pass ``None`` for the same reason.
     """
     from django.db import transaction
 
