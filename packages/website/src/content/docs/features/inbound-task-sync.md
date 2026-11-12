@@ -173,7 +173,7 @@ Revocation is immediate and append-only — the revoke event appears in the audi
 | `name` | recommended | Task title. Defaults to `external_id` if omitted |
 | `description` | no | Free-form text (stored in TruePPM's `notes` field) |
 | `status` | no | External status string, translated via the token's status_map |
-| `assignee_email` | no | If the email matches a current project member, the assignee is set; otherwise parked in `pending_assignee_email` |
+| `assignee_email` | no | If the email matches a current project member, the assignee is set; otherwise parked in `pending_assignee_email` (also parked when the email matches more than one current member, case-insensitive) |
 | `story_points` | no | Integer 0–999 |
 | `external_url` | no | Canonical URL of the external task (used by future UI surfaces) |
 | `parent_external_id` | no | The external system's parent identifier. If a previous push with that `external_id` exists *for the same source*, the new task is attached as a subtask under it. Cross-source parents are rejected. Starting with 0.5, a parent that cannot take the task will be skipped instead — see [Parents that cannot take a child](#parents-that-cannot-take-a-child). |
@@ -216,7 +216,7 @@ Incremental updates after that fit comfortably in the 100/min steady-state cap.
 
 ## Pending assignees
 
-If an inbound push references an email that doesn't match any current project member, the task is created with `assignee=null` and the email is parked on the inbound link as `pending_assignee_email`. When that user joins the project, the next push for the same `external_id` will resolve the assignee automatically.
+If an inbound push references an email that doesn't match any current project member (or matches more than one member, compared case-insensitively), the task is created with `assignee=null` and the email is parked on the inbound link as `pending_assignee_email`. When that user joins the project, the next push for the same `external_id` will resolve the assignee automatically.
 
 PMs can see the count of unresolved assignees on the project detail response:
 
