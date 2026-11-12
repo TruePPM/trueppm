@@ -23466,7 +23466,9 @@
                                     "SimulationCellCapExceeded": {
                                         "value": {
                                             "error": "simulation_cell_cap_exceeded",
+                                            "code": "simulation_cell_cap_exceeded",
                                             "message": "1000 simulation runs over 5000 tasks exceeds ...",
+                                            "detail": "1000 simulation runs over 5000 tasks exceeds ...",
                                             "max_runs": 500,
                                             "task_count": 5000
                                         },
@@ -23475,7 +23477,7 @@
                                 }
                             }
                         },
-                        "description": "Invalid n_simulations or too many dependencies (synchronous). The following arrive asynchronously, as a failed task run whose result_summary carries this body plus status_code: cyclic dependency, invalid input, or out-of-range project span; or an explicit n_simulations whose runs x tasks product exceeds MC_CELL_CAP (#2839) — body {error: simulation_cell_cap_exceeded, message, max_runs, task_count}, where max_runs is the largest count this project admits. An omitted n_simulations is never refused for size: it runs max_runs iterations and the 200 body's `runs` reports the count actually simulated. Also the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
+                        "description": "Invalid n_simulations or too many dependencies (synchronous). The following arrive asynchronously, as a failed task run whose result_summary carries this body plus status_code: cyclic dependency, invalid input, or out-of-range project span; or an explicit n_simulations whose runs x tasks product exceeds MC_CELL_CAP (#2839) — body {error/code: simulation_cell_cap_exceeded, message/detail, max_runs, task_count}, where max_runs is the largest count this project admits. An omitted n_simulations is never refused for size: it runs max_runs iterations and the 200 body's `runs` reports the count actually simulated. Also the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
                     },
                     "402": {
                         "content": {
@@ -23488,8 +23490,10 @@
                                     "SimulationCapExceeded": {
                                         "value": {
                                             "error": "simulation_cap_exceeded",
+                                            "code": "simulation_cap_exceeded",
                                             "tier": "team",
-                                            "message": "Simulation count exceeds the community-edition cap."
+                                            "message": "Simulation count exceeds the community-edition cap.",
+                                            "detail": "Simulation count exceeds the community-edition cap."
                                         },
                                         "summary": "simulation_cap_exceeded"
                                     }
@@ -23529,7 +23533,7 @@
                                 }
                             }
                         },
-                        "description": "Asynchronous only, via the failed task run's result_summary (#2273): the worker process is already running MC_MAX_CONCURRENT simulations and none finished within the wait window (#2839). Body {error: simulation_busy, message}; retry later. Also {error: simulation_time_exceeded, message} when the simulation ran past MC_WALL_CLOCK_BUDGET_SECONDS and was stopped (#4496); retry with a smaller n_simulations."
+                        "description": "Asynchronous only, via the failed task run's result_summary (#2273): the worker process is already running MC_MAX_CONCURRENT simulations and none finished within the wait window (#2839). Body {error/code: simulation_busy, message/detail}; retry later. Also {error/code: simulation_time_exceeded, message/detail} when the simulation ran past MC_WALL_CLOCK_BUDGET_SECONDS and was stopped (#4496); retry with a smaller n_simulations."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -23791,7 +23795,7 @@
                                 }
                             }
                         },
-                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a completed task (its dates are actuals), a summary (phase) target whose span is rolled up from its children and so cannot be perturbed, a cyclic dependency, or an out-of-range project span; or an explicit n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — body {error: simulation_cell_cap_exceeded, message, max_runs, task_count}; or the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
+                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a completed task (its dates are actuals), a summary (phase) target whose span is rolled up from its children and so cannot be perturbed, a cyclic dependency, or an out-of-range project span; or an explicit n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — body {error/code: simulation_cell_cap_exceeded, message/detail, max_runs, task_count}; or the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
                     },
                     "402": {
                         "content": {
@@ -23824,7 +23828,7 @@
                                 }
                             }
                         },
-                        "description": "No free Monte Carlo slot in this API process (MC_MAX_CONCURRENT, #2839). Body {error: simulation_busy, message}; retry after Retry-After. Also {error: simulation_time_exceeded, message}, with no Retry-After, when the two simulations together ran past MC_WALL_CLOCK_BUDGET_SECONDS (#4496)."
+                        "description": "No free Monte Carlo slot in this API process (MC_MAX_CONCURRENT, #2839). Body {error/code: simulation_busy, message/detail}; retry after Retry-After. Also {error/code: simulation_time_exceeded, message/detail}, with no Retry-After, when the two simulations together ran past MC_WALL_CLOCK_BUDGET_SECONDS (#4496)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
