@@ -822,10 +822,8 @@ they will ship with 0.5 or that release will slip:
 May also land in 0.5, but not yet committed (reserve, stretch, or not yet
 triaged): the zero-duration back-solve that can put a Monte Carlo P50 before
 the CPM date
-([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)), the FF/SF-into-summary fan-out and `derive_value()`
-binding/`imposed_date` mismatch above
-([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437),
-[#4438](https://gitlab.com/trueppm/trueppm/-/issues/4438)), the remaining
+([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)), the FF/SF-into-summary fan-out above
+([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)), the remaining
 MS-Project-parity gaps
 ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
 [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the very-low-run-count percentile imprecision
