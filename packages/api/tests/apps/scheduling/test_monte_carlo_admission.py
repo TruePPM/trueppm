@@ -156,6 +156,9 @@ class TestRunEndpointAdmission:
         r = client.post(_run_url(project), {"n_simulations": 31}, format="json")
         assert r.status_code == 400
         assert r.data["error"] == "simulation_cell_cap_exceeded"
+        # #4609: the project-wide envelope keys ride alongside the legacy ones.
+        assert r.data["code"] == r.data["error"]
+        assert r.data["detail"] == r.data["message"]
         assert r.data["max_runs"] == 30
 
     def test_busy_process_returns_503(
@@ -178,6 +181,8 @@ class TestRunEndpointAdmission:
             sem.release()
         assert r.status_code == 503
         assert r.data["error"] == "simulation_busy"
+        assert r.data["code"] == "simulation_busy"
+        assert r.data["detail"] == r.data["message"]
         assert r.headers["Retry-After"] == str(mc_admission.MC_BUSY_RETRY_AFTER_SECONDS)
         # The slot is free again: the next run is admitted.
         r2 = client.post(_run_url(project), {"n_simulations": 10}, format="json")
@@ -271,3 +276,19 @@ class TestSimulationSlot:
         settings.MC_MAX_CONCURRENT = None  # type: ignore[attr-defined]
         with mc_admission.simulation_slot() as ok:
             assert ok is True
+
+
+def test_openapi_declares_code_and_detail_on_mc_refusals() -> None:
+    """#4609: the published 400/402 examples carry both envelope key pairs."""
+    import json
+    from pathlib import Path
+
+    spec = json.loads(
+        (Path(__file__).resolve().parents[5] / "docs" / "api" / "openapi.json").read_text()
+    )
+    op = spec["paths"]["/api/v1/projects/{id}/monte-carlo/"]["post"]
+    for status_code in ("400", "402"):
+        example = next(
+            iter(op["responses"][status_code]["content"]["application/json"]["examples"].values())
+        )["value"]
+        assert {"error", "code", "message", "detail"} <= set(example)

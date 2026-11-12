@@ -645,8 +645,8 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
             description=(
                 "Cyclic dependency, invalid input, or out-of-range project span; or "
                 "an explicit n_simulations whose runs x tasks product exceeds "
-                "MC_CELL_CAP (#2839) — body {error: simulation_cell_cap_exceeded, "
-                "message, max_runs, task_count}, where max_runs is the largest count "
+                "MC_CELL_CAP (#2839) — body {error/code: simulation_cell_cap_exceeded, "
+                "message/detail, max_runs, task_count}, where max_runs is the largest count "
                 "this project admits. An omitted n_simulations is never refused for "
                 "size: it runs max_runs iterations and the 200 body's `runs` reports "
                 "the count actually simulated."
@@ -656,7 +656,9 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                     "simulation_cell_cap_exceeded",
                     value={
                         "error": "simulation_cell_cap_exceeded",
+                        "code": "simulation_cell_cap_exceeded",
                         "message": "1000 simulation runs over 5000 tasks exceeds ...",
+                        "detail": "1000 simulation runs over 5000 tasks exceeds ...",
                         "max_runs": 500,
                         "task_count": 5000,
                     },
@@ -674,8 +676,10 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                     "simulation_cap_exceeded",
                     value={
                         "error": "simulation_cap_exceeded",
+                        "code": "simulation_cap_exceeded",
                         "tier": "team",
                         "message": "Simulation count exceeds the community-edition cap.",
+                        "detail": "Simulation count exceeds the community-edition cap.",
                     },
                 ),
             ],
@@ -696,8 +700,8 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
             response=OpenApiTypes.OBJECT,
             description=(
                 "This API process is already running MC_MAX_CONCURRENT simulations "
-                "and none finished within the wait window (#2839). Body {error: "
-                "simulation_busy, message}; retry after the Retry-After header."
+                "and none finished within the wait window (#2839). Body {error/code: "
+                "simulation_busy, message/detail}; retry after the Retry-After header."
             ),
         ),
     },
@@ -860,8 +864,10 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         return Response(
             {
                 "error": "simulation_cap_exceeded",
+                "code": "simulation_cap_exceeded",
                 "tier": "team",
                 "message": f"Project has more than {task_cap} committed tasks.",
+                "detail": f"Project has more than {task_cap} committed tasks.",
             },
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
@@ -962,8 +968,10 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             {
                 "error": "simulation_cap_exceeded",
+                "code": "simulation_cap_exceeded",
                 "tier": "team",
                 "message": str(exc),
+                "detail": str(exc),
             },
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
@@ -1678,7 +1686,13 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
         except SimulationCapExceeded as exc:
             return Response(
                 # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
-                {"error": "simulation_cap_exceeded", "tier": "team", "message": str(exc)},
+                {
+                    "error": "simulation_cap_exceeded",
+                    "code": "simulation_cap_exceeded",
+                    "tier": "team",
+                    "message": str(exc),
+                    "detail": str(exc),
+                },
                 status=status.HTTP_402_PAYMENT_REQUIRED,
             )
         except (CyclicDependencyError, ValueError) as exc:

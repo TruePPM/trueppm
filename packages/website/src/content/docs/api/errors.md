@@ -197,6 +197,25 @@ the envelope uses; every other field key is unambiguous.
 | `not_a_sample` | `POST .../programs/{id}/shift-sample-dates/` refused: the program is not sample data, so it has no anchor date to shift from | — |
 | `no_anchor_recorded` | `POST .../programs/{id}/shift-sample-dates/` refused: the sample was loaded before #3481 and carries no recorded anchor date — reload the sample instead of shifting it | — |
 
+### Monte Carlo refusals
+
+`POST /api/v1/projects/{id}/monte-carlo/` and `POST .../monte-carlo/whatif/` refuse
+with the structured envelope below. These bodies predate the `code`/`detail`
+envelope and still carry the older `error`/`message` keys with identical values;
+branch on `code`. `error` and `message` are retained for 0.x clients and are
+slated to fold into the single envelope with the rest of the 1.0 contract cleanup.
+
+| Code | Status | Meaning | Extra keys |
+|------|--------|---------|-----------|
+| `simulation_cell_cap_exceeded` | 400 | The requested runs x tasks product exceeds the server's `MC_CELL_CAP`. `max_runs` is the largest count this project admits | `max_runs`, `task_count` |
+| `simulation_busy` | 503 | The API process is already running its maximum number of concurrent simulations. Retry after the `Retry-After` header | — |
+| `simulation_cap_exceeded` | 402 | The simulation count or task count is above the community-edition cap | `tier` |
+
+`simulation_cap_exceeded` is a **known deviation**: it answers `402 Payment
+Required` with `tier: "team"` (a deliberate choice recorded in ADR-0012), where
+every other refusal on this page uses `400`, `403` or `409`. Integrators should
+branch on `code`, not on the status class alone.
+
 The task-write refusals — `progress_requires_anchor`, `milestone_rollup_locked`,
 `zero_duration_not_milestone`, `guardrail_blocked` and (from 0.5)
 `sprint_committed_dates_locked` — come from the task

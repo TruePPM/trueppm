@@ -102,16 +102,21 @@ def admit_runs(n_tasks: int, requested: int | None) -> McAdmission:
 
     runs = requested if requested is not None else max_runs
     if runs > max_runs or runs < 1:
+        cell_msg = (
+            f"{runs} simulation runs over {n_tasks} tasks exceeds this "
+            f"server's Monte Carlo size limit (MC_CELL_CAP); at most "
+            f"{max_runs} runs are admissible for a project this size."
+        )
         return McAdmission(
             runs=0,
             refusal=Response(
                 {
+                    # error/message are the legacy keys (kept for 0.x clients);
+                    # code/detail are the project-wide envelope (#4609).
                     "error": "simulation_cell_cap_exceeded",
-                    "message": (
-                        f"{runs} simulation runs over {n_tasks} tasks exceeds this "
-                        f"server's Monte Carlo size limit (MC_CELL_CAP); at most "
-                        f"{max_runs} runs are admissible for a project this size."
-                    ),
+                    "code": "simulation_cell_cap_exceeded",
+                    "message": cell_msg,
+                    "detail": cell_msg,
                     "max_runs": max_runs,
                     "task_count": n_tasks,
                 },
@@ -141,14 +146,12 @@ def _semaphore() -> threading.BoundedSemaphore | None:
 
 def busy_response() -> Response:
     """503 returned when no simulation slot frees up within the wait window."""
+    msg = (
+        "The server is already running its maximum number of concurrent "
+        "Monte Carlo simulations. Retry in a few seconds."
+    )
     return Response(
-        {
-            "error": "simulation_busy",
-            "message": (
-                "The server is already running its maximum number of concurrent "
-                "Monte Carlo simulations. Retry in a few seconds."
-            ),
-        },
+        {"error": "simulation_busy", "code": "simulation_busy", "message": msg, "detail": msg},
         status=status.HTTP_503_SERVICE_UNAVAILABLE,
         headers={"Retry-After": str(MC_BUSY_RETRY_AFTER_SECONDS)},
     )
