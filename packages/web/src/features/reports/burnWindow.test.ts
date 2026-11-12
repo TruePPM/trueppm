@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   BURN_MAX_FUTURE_DAYS,
   BURN_MAX_SPAN_DAYS,
@@ -13,7 +14,10 @@ import {
 describe('server constant parity', () => {
   it('mirrors MAX_BURN_WINDOW_DAYS and MAX_BURN_HORIZON_DAYS in projects/services.py', () => {
     const src = readFileSync(
-      resolve(__dirname, '../../../../api/src/trueppm_api/apps/projects/services.py'),
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        '../../../../api/src/trueppm_api/apps/projects/services.py',
+      ),
       'utf8',
     );
     expect(src).toMatch(new RegExp(`^MAX_BURN_WINDOW_DAYS\\s*=\\s*${BURN_MAX_SPAN_DAYS}\\b`, 'm'));
