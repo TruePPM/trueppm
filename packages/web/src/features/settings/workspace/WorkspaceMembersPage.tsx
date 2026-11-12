@@ -15,7 +15,7 @@ import { toast } from '@/components/Toast';
 import { FieldHelp } from '@/components/FieldHelp';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 import { filterMembers } from './filterMembers';
-import { formatAccessDate } from '../members/MemberRow';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { CheckIcon, CloseIcon } from '@/components/Icons';
 import { escapeField } from '@/utils/exportCsv';
 import { useDownloadAnnouncer } from '@/hooks/useDownloadAnnouncer';
@@ -23,9 +23,12 @@ import { useDownloadAnnouncer } from '@/hooks/useDownloadAnnouncer';
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T/;
 
 /** The API sends `last_active` as a raw ISO timestamp; render the calendar date instead. */
-function formatLastActive(value: string | null): string {
+function formatLastActive(value: string | null, fmtDateLong: (iso: string) => string): string {
   if (!value) return '—';
-  return ISO_TIMESTAMP.test(value) ? formatAccessDate(value) : value;
+  if (!ISO_TIMESTAMP.test(value)) return value;
+  // An unparseable timestamp must never leak "Invalid Date" into the cell.
+  if (Number.isNaN(new Date(value).getTime())) return '—';
+  return fmtDateLong(value);
 }
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string; style?: CSSProperties }> = {
@@ -137,6 +140,7 @@ interface MemberTableRowProps {
 }
 
 function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTableRowProps) {
+  const { fmtDateLong } = useUserDateFormat();
   // Two-step destructive confirm: the ✕ reveals an inline "Remove? · Confirm ·
   // Cancel" control rather than firing the DELETE immediately, so a misclick
   // does not silently strip a member's workspace access.
@@ -195,14 +199,16 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
         )}
       </span>
       {/* Projects */}
-      <span
-        className="tppm-mono text-[12px] text-neutral-text-secondary"
-        title={`${m.projectCount} ${m.projectCount === 1 ? 'project' : 'projects'}`}
-      >
-        {m.projectCount}
+      <span className="tppm-mono text-[12px] text-neutral-text-secondary">
+        <span aria-hidden="true">{m.projectCount}</span>
+        <span className="sr-only">
+          {m.projectCount} {m.projectCount === 1 ? 'project' : 'projects'}
+        </span>
       </span>
       {/* Last active */}
-      <span className="text-[12px] text-neutral-text-secondary">{formatLastActive(m.lastActive)}</span>
+      <span className="text-[12px] text-neutral-text-secondary">
+        {formatLastActive(m.lastActive, fmtDateLong)}
+      </span>
       {/* Status */}
       <span className="flex items-center gap-1.5">
         <span
