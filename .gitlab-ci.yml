@@ -4539,6 +4539,49 @@ scheduler:test:compat:
     - cd packages/scheduler
     - pytest
 
+# Dependency-floor leg (#4473). The wheel's Requires-Dist floors (networkx>=3.0,
+# numpy>=1.26) are immutable once published, yet every other scheduler:* job runs on
+# the locked set and api:wheel-install-probe's `lowest` leg tests the API, where
+# networkx/numpy are transitive and resolve to their newest versions. This leg
+# resolves the scheduler's OWN direct dependencies at their declared floors
+# (`--resolution lowest-direct`) on the 3.11 floor interpreter, then runs the
+# non-fuzz suite, so lowering a floor below what the code needs goes red here and
+# not in a user's install. The runtime install is done on its own first so only the
+# published dependencies are lowered; the dev extras (pytest, hypothesis, ...) are
+# then added without disturbing them, because the suite's tooling is not part of
+# what the wheel promises. Same rules and needs as scheduler:test:compat, so it
+# exists in every MR pipeline that its needs: targets do.
+scheduler:test-lowest:
+  stage: test
+  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
+  needs:
+    - scheduler:lint
+    - scheduler:type-check
+  <<: *rules-scheduler
+  before_script:
+    # git: the stock slim image does not bake it in, and
+    # tests/test_public_surface.py shells out to it.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - bash scripts/ci/pip-floor.sh
+    - pip install uv==0.9.5 --quiet
+  script:
+    - uv venv /tmp/lowest-venv
+    - uv pip install --python /tmp/lowest-venv/bin/python --resolution lowest-direct -e packages/scheduler
+    - uv pip install --python /tmp/lowest-venv/bin/python -e "packages/scheduler[dev]"
+    # Assert the floors were really used: a silently-ignored flag would make
+    # this a second scheduler:test. Floors mirror the lower bounds of
+    # networkx/numpy in packages/scheduler/pyproject.toml (keep in sync).
+    - |
+      /tmp/lowest-venv/bin/python - <<'PY'
+      from importlib.metadata import version
+      nx, np = version("networkx"), version("numpy")
+      print("networkx", nx, "numpy", np)
+      assert nx == "3.0", f"networkx resolved to {nx}, expected floor 3.0"
+      assert np.startswith("1.26.0"), f"numpy resolved to {np}, expected floor 1.26.0"
+      PY
+    - cd packages/scheduler
+    - /tmp/lowest-venv/bin/python -m pytest
+
 # Forward-looking 3.14 leg (#4542). Nightly only, so it never gates an MR, and
 # allow_failure because 3.14 is deliberately NOT in the classifiers: a red here
 # is a finding to triage, not a regression. Drop allow_failure and add the

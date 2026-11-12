@@ -90,6 +90,12 @@ class DateRange:
     calendar that no longer existed. Freezing the range makes the edit a loud
     ``FrozenInstanceError`` instead of a silent wrong answer; build a new
     ``DateRange`` (and assign a new ``Calendar.exceptions``) to change a range.
+
+    Attributes:
+        start: First date of the range (inclusive). Must be a plain ``date``, not
+            a ``datetime``.
+        end: Last date of the range (inclusive); must not be before ``start``. A
+            single day is a range whose ``start`` and ``end`` are equal.
     """
 
     start: date
@@ -163,6 +169,46 @@ class Task:
         is on :class:`~trueppm_scheduler.engine.ScheduleResult` (#4178).
 
     Attributes:
+        id: Task identifier; a string, unique within the project.
+        name: Display name.
+        duration: Work estimate in whole working days (a ``timedelta``); a
+            sub-day value is refused. For an in-progress task the engine schedules
+            only the remaining portion (see ``percent_complete``).
+        planned_start: User-set start-no-earlier-than constraint, honored as a
+            floor by the CPM pass. ``None`` means unconstrained.
+        planned_finish: Reserved: accepted and round-tripped through
+            ``to_dict`` / ``from_dict`` but not consumed by the engine (see the
+            note above).
+        early_start: Computed. Earliest start of the *remaining* work (the data
+            date for an in-progress task, ADR-0132). An input value is ignored
+            and overwritten by ``schedule()``.
+        early_finish: Computed. Earliest finish; also the finish of a milestone's
+            shown day. An input value is overwritten.
+        late_start: Computed. Latest start that does not delay the project
+            finish. An input value is overwritten.
+        late_finish: Computed. Latest finish that does not delay the project
+            finish. An input value is overwritten.
+        total_float: Computed. How long the task can slip without delaying the
+            project finish, counted in the task's own working days.
+        free_float: Computed. How long the task can slip without delaying any
+            successor.
+        is_critical: Computed. ``True`` when the task has no total float and is
+            on the critical path.
+        percent_complete: Progress in [0, 100]; a value outside the range is
+            refused, not clamped. Only the remaining share of ``duration`` is
+            scheduled, forward from the project ``status_date`` (ADR-0132).
+        actual_start: Recorded start date, or ``None`` if work has not begun.
+        actual_finish: Recorded finish date. When set the task is complete and
+            pinned to its recorded dates: not re-scheduled, and not re-sampled
+            in Monte Carlo.
+        optimistic_duration: Three-point (PERT) optimistic estimate used by
+            Monte Carlo, or ``None``.
+        most_likely_duration: Three-point most-likely estimate, or ``None``.
+        pessimistic_duration: Three-point pessimistic estimate, or ``None``.
+        delivery_mode: ``DeliveryMode.SCRUM`` makes the task sample from the
+            project's velocity distribution in Monte Carlo using ``story_points``;
+            ``None`` is treated as ``WATERFALL``.
+        story_points: Committed story points for a ``SCRUM`` task, or ``None``.
         calendar_id: Per-task calendar (ADR-0120 D3). When set, this task's
             *duration* arithmetic uses ``Project.calendars[calendar_id]`` instead of
             the pass-level ``Project.calendar`` — the substrate for a program-scoped
@@ -188,6 +234,16 @@ class Task:
             open task's forecast. A caller that persists schedule output (as the
             TruePPM API does) passes it back; ``None`` (the default) is always
             safe. Ignored on any other task.
+        scheduled_start: Computed. Start of the task's whole span (ADR-0752): for
+            an in-progress task this is where the work began, whereas
+            ``early_start`` is where the remaining work begins. An input value is
+            overwritten. Declared last to keep positional construction stable.
+        milestone_at_day_end: Computed. For a zero-duration milestone, ``True``
+            when its instant is the end of the day it is shown on
+            (``early_start``), ``False`` for the start of that day; always
+            ``False`` on a task that is not a milestone. An input value is
+            overwritten. Never diff two shown days as a slip; see
+            :class:`~trueppm_scheduler.engine.ScheduleResult`.
     """
 
     id: str
@@ -555,7 +611,14 @@ class Dependency:
         successor_id: Id of the task being constrained.
         dep_type: Link type (``FS`` by default).
         lag: Offset applied to the link, a ``timedelta`` (negative is a lead).
-            Whole days are consumed as working days on the successor's calendar.
+            Counted in **calendar days**, not working days: the offset is applied
+            as elapsed time from the predecessor's date, and only the resulting
+            candidate date is then snapped forward to the next working day on
+            the **successor's** calendar (``Task.calendar_id`` when set, else the
+            project calendar). A 2-day FS lag after a Friday finish therefore
+            lands on Monday, the same as no lag. A lead (negative lag) follows
+            the same rule and snaps forward, never backward. A sub-day lag is
+            refused with ``InvalidScheduleInput``.
     """
 
     predecessor_id: str
@@ -681,6 +744,17 @@ class Calendar:
         engine — scheduling is in whole-day units, so ``Calendar(hours_per_day=4)``
         does *not* produce half-day scheduling. Sub-day scheduling is a future
         change (#1216).
+
+    Attributes:
+        working_days: 7-bit mask of working weekdays, bit 0 = Monday through
+            bit 6 = Sunday. Defaults to ``0b0011111`` (Monday to Friday).
+        exceptions: Non-working :class:`DateRange` runs (holidays, shutdowns),
+            inclusive on both ends. Any iterable is accepted on construction and
+            normalized to a tuple; to change the set, assign a new value rather
+            than mutating in place.
+        hours_per_day: Reserved: round-trips for parity but is not consumed; the
+            engine schedules in whole days.
+        timezone: Reserved: round-trips for parity but is not consumed.
     """
 
     working_days: int = 0b0011111
