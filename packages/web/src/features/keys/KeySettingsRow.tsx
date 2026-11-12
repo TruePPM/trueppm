@@ -53,7 +53,7 @@ interface KeySettingsRowProps {
  * At {@link RETIRED_KEY_CAP} retired keys the input is read-only and the hint states
  * the cap. For a caller who cannot edit General settings the key is plain mono text
  * with a copy-link button. That button must render **outside** the page's
- * `StubFieldset` — a disabled fieldset disables every descendant button — which is
+ * `ReadOnlyFieldset` — a disabled fieldset disables every descendant button — which is
  * why the pages mount this row between two fieldsets.
  */
 export function KeySettingsRow({

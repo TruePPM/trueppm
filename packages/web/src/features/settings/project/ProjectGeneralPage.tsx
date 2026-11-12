@@ -4,7 +4,7 @@ import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { MemberPicker } from '../components/MemberPicker';
 import { MoveProgramDialog } from '../components/MoveProgramDialog';
-import { StubFieldset } from '../components/StubFieldset';
+import { ReadOnlyFieldset } from '../components/ReadOnlyFieldset';
 import { DangerZoneLink } from '../components/DangerZoneLink';
 import { extractFieldErrors, extractValidationMessage } from '@/lib/apiError';
 import { useDirtyForm } from '../hooks/useDirtyForm';
@@ -530,14 +530,14 @@ export function ProjectGeneralPage() {
   const canEdit = role !== null && role >= ROLE_ADMIN;
 
   // Contextual-help ⓘ (web-rule 263) for a jargon/policy/cascade field. Gated on
-  // `canEdit` because the whole form is wrapped in `<StubFieldset disabled={!canEdit}>`
+  // `canEdit` because the whole form is wrapped in `<ReadOnlyFieldset disabled={!canEdit}>`
   // below (#1084): a `<fieldset disabled>` disables every descendant <button> — the
   // FieldHelp trigger included — so a read-only viewer would get a dimmed, unclickable
   // ⓘ (a dead affordance; ux-review §8 / web-rule 122). Read-only users still get each
   // field's always-visible inline `hint`; only the richer popover + docs deep-link is
   // an editor aid, so we render no trigger at all rather than a disabled one. (Making
   // the popover reachable read-only needs the write-gate to stop blanket-disabling the
-  // labels — a FieldRow/StubFieldset follow-up, tracked for the Workspace/Project slices.)
+  // labels — a FieldRow/ReadOnlyFieldset follow-up, tracked for the Workspace/Project slices.)
   const fieldHelp = (props: { label: string; body: string; docHref: string }) =>
     canEdit ? <FieldHelp {...props} /> : undefined;
 
@@ -548,11 +548,11 @@ export function ProjectGeneralPage() {
         subtitle="Identity, defaults, and scheduling rules for this project. These override workspace defaults."
       />
 
-      {/* Below Admin the whole form is read-only (issue 1084): StubFieldset disables
+      {/* Below Admin the whole form is read-only (issue 1084): ReadOnlyFieldset disables
           every native control with the rule-122 recipe, and the custom pickers /
           toggles get canEdit={canEdit} so they render their own read-only view. */}
       <div className="px-6 pb-8 max-w-[720px]">
-        <StubFieldset disabled={!canEdit}>
+        <ReadOnlyFieldset disabled={!canEdit}>
           <FieldRow label="Project name">
             <input
               type="text"
@@ -563,7 +563,7 @@ export function ProjectGeneralPage() {
             />
           </FieldRow>
 
-        </StubFieldset>
+        </ReadOnlyFieldset>
 
         {/* Outside the fieldset on purpose: read-only callers get a copy-link
             button here, and a disabled <fieldset> would disable it (ADR-1237 UX §2). */}
@@ -582,7 +582,7 @@ export function ProjectGeneralPage() {
           inputRef={keyInputRef}
         />
 
-        <StubFieldset disabled={!canEdit}>
+        <ReadOnlyFieldset disabled={!canEdit}>
 
           <FieldRow label="Description" hint="One paragraph. Shown on the overview page.">
             <textarea
@@ -613,7 +613,7 @@ export function ProjectGeneralPage() {
               action button — the move rides its own confirm modal and isolated PATCH
               (see moveProgram), never the shared save bar, so a dual-Admin 400 can't
               sink an unrelated name/health/timezone save. The button is a form control,
-              so the enclosing StubFieldset already disables it below Admin; canEdit
+              so the enclosing ReadOnlyFieldset already disables it below Admin; canEdit
               double-gates for clarity. */}
           <FieldRow
             label="Program"
@@ -960,7 +960,7 @@ export function ProjectGeneralPage() {
                 AND on the Working calendars page, so a save here could silently clobber
                 that page's overlay composition. The base is now written only there;
                 this row names the resolved calendar and its provenance and links across.
-                A <Link> is not a form control, so the enclosing StubFieldset (which
+                A <Link> is not a form control, so the enclosing ReadOnlyFieldset (which
                 disables inputs below Admin) leaves it navigable for every role. */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2">
@@ -1207,7 +1207,7 @@ export function ProjectGeneralPage() {
               />
             </FieldRow>
           )}
-        </StubFieldset>
+        </ReadOnlyFieldset>
       </div>
 
       {/* Destructive actions live on the Archive / Delete page (#977). */}

@@ -275,7 +275,7 @@ These rules are enforced at review time. Violations block merge.
 
 *What an unavailable control is allowed to look like.*
 
-122. **Disabled placeholder/stub controls in `features/settings/` use the `.settings-stub` recipe — never `disabled:opacity-50`.** → [rule](../../docs/design/invariants/122-disabled-placeholder-stub-controls-in-features-settings-use.md)
+122. **Disabled placeholder/stub controls in `features/settings/` use the `.settings-readonly` recipe — never `disabled:opacity-50`.** → [rule](../../docs/design/invariants/122-disabled-placeholder-stub-controls-in-features-settings-use.md)
 274. **A read-only surface for an operator / deploy-time (env or Helm) value presents an honest *status* — a state chip, the controlling env-var name, and an explicit "configured in the server environment, not editable here" — never a disabled in-app toggle or a "fix it here" link.** → [rule](../../docs/design/invariants/274-a-read-only-surface-for-an-operator-deploy-time-env-or-helm.md)
 306. **A security-relevant escaper (CSV cell, HTML, filename, shell) has exactly ONE implementation in this tree, and the thing that keeps it that way is a source-scanning test — not a code review.** → [rule](../../docs/design/invariants/306-a-security-relevant-escaper-csv-cell-html-filename-shell.md)
 336. **A tinted control inside an already-tinted container composites TWICE — an AA-safe token pair is not AA-safe at nesting depth 2, and the DS-v2 gate's own prescribed fix does not rescue it.** → [rule](../../docs/design/invariants/336-a-tinted-control-inside-an-already-tinted-container.md)

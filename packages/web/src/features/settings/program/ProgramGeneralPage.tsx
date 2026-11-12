@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { MemberPicker } from '../components/MemberPicker';
-import { StubFieldset } from '../components/StubFieldset';
+import { ReadOnlyFieldset } from '../components/ReadOnlyFieldset';
 import { DangerZoneLink } from '../components/DangerZoneLink';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
@@ -580,14 +580,14 @@ export function ProgramGeneralPage() {
   const closedToAdmin = isAdmin && program?.is_closed === true;
 
   // Contextual-help ⓘ (web-rule 263) for a jargon/policy/cascade field. Gated on
-  // `canEdit` because the whole form is wrapped in `<StubFieldset disabled={!canEdit}>`
+  // `canEdit` because the whole form is wrapped in `<ReadOnlyFieldset disabled={!canEdit}>`
   // below (#1084): a `<fieldset disabled>` disables every descendant <button> — the
   // FieldHelp trigger included — so a read-only viewer would get a dimmed, unclickable
   // ⓘ (a dead affordance; ux-review §8 / web-rule 122). Read-only users still get each
   // field's always-visible inline `hint`; only the richer popover + docs deep-link is
   // an editor aid, so we render no trigger at all rather than a disabled one. (Making
   // the popover reachable read-only needs the write-gate to stop blanket-disabling the
-  // labels — a FieldRow/StubFieldset follow-up, tracked for the Workspace/Project slices.)
+  // labels — a FieldRow/ReadOnlyFieldset follow-up, tracked for the Workspace/Project slices.)
   const fieldHelp = (props: { label: string; body: string; docHref: string }) =>
     canEdit ? <FieldHelp {...props} /> : undefined;
 
@@ -624,11 +624,11 @@ export function ProgramGeneralPage() {
         }
       />
 
-      {/* Below Admin the whole form is read-only (issue 1084): StubFieldset disables
+      {/* Below Admin the whole form is read-only (issue 1084): ReadOnlyFieldset disables
           every native control with the rule-122 recipe, and the custom pickers /
           toggles get canEdit={canEdit} so they render their own read-only view. */}
       <div className="px-6 pb-8 max-w-[720px]">
-        <StubFieldset disabled={!canEdit}>
+        <ReadOnlyFieldset disabled={!canEdit}>
           <FieldRow label="Program name">
             <input
               type="text"
@@ -638,7 +638,7 @@ export function ProgramGeneralPage() {
               className="w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
-        </StubFieldset>
+        </ReadOnlyFieldset>
 
         {/* Outside the fieldset on purpose: read-only callers get a copy-link
             button here, and a disabled <fieldset> would disable it (ADR-1237 UX §2). */}
@@ -657,7 +657,7 @@ export function ProgramGeneralPage() {
           inputRef={keyInputRef}
         />
 
-        <StubFieldset disabled={!canEdit}>
+        <ReadOnlyFieldset disabled={!canEdit}>
           <FieldRow
             label="Accent color"
             hint="Tints this program's identity square in lists and its rollup-chart accents. Optional."
@@ -721,7 +721,7 @@ export function ProgramGeneralPage() {
 
           {/* Headline target finish date (issue 560) — a program spans projects with
               independent CPM schedules, so there is no computed end date; the PM
-              sets one. Native date input → StubFieldset disables it below Admin
+              sets one. Native date input → ReadOnlyFieldset disables it below Admin
               (rule 122). Empty clears it (open-ended). */}
           <FieldRow
             label="Target date"
@@ -748,7 +748,7 @@ export function ProgramGeneralPage() {
             label="Program lead"
             // The load-bearing sentence lives in `hint`, not `help`: `fieldHelp`
             // returns undefined below Admin (the ⓘ would render dead inside the
-            // page's StubFieldset), so a `help`-only row explains itself to
+            // page's ReadOnlyFieldset), so a `help`-only row explains itself to
             // editors and to nobody else — and a Viewer is exactly the reader
             // most likely to read this as the Program Manager role.
             hint="A display field — it grants no access. Roles are set under Access."
@@ -1185,7 +1185,7 @@ export function ProgramGeneralPage() {
           >
             {programId ? <ExportProgramBundle programId={programId} code={program?.code} /> : null}
           </FieldRow>
-        </StubFieldset>
+        </ReadOnlyFieldset>
       </div>
 
       {/* Destructive actions live on the Archive / Delete page (#977). */}

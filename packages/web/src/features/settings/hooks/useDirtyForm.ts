@@ -12,7 +12,7 @@ export interface UseDirtyFormOptions<T extends Record<string, unknown>> {
   /** Reset handler. Page must restore its local state to `initialValues` synchronously. */
   onReset: () => void;
   /**
-   * False = stub page; save bar never arms and inputs should be wrapped in `<StubFieldset>`.
+   * False = stub page; save bar never arms and its inputs should be disabled.
    * Pages flip to true when their per-page API issue (#517–#530) wires a real mutation.
    */
   apiReady: boolean;

@@ -428,7 +428,7 @@ function BaseCalendarRow({
         <span className="shrink-0 rounded border border-neutral-border/55 bg-neutral-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
           Base
         </span>
-        {/* This page has no StubFieldset, so the ⓘ renders unconditionally — it stays
+        {/* This page has no ReadOnlyFieldset, so the ⓘ renders unconditionally — it stays
             clickable and is not a disabled-fieldset dead affordance (web-rule 122). */}
         <FieldHelp
           label="Base calendar"

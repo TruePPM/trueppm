@@ -455,7 +455,7 @@ export function ProgramRollupPage() {
         >
           <div className="px-4 py-3 border-b border-neutral-border/55 bg-neutral-surface-sunken">
             {/* FieldHelp is unconditional here (unlike ProgramGeneralPage): this
-                page has no StubFieldset, so the ⓘ trigger is never inside a
+                page has no ReadOnlyFieldset, so the ⓘ trigger is never inside a
                 disabled fieldset and stays reachable for read-only viewers —
                 exactly the read-only-reachable help deferred from #2266 MR3. */}
             <div className="flex items-center gap-1.5">

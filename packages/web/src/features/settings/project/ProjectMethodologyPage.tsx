@@ -454,7 +454,7 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
 
         {/* Method cards */}
         <section aria-labelledby="method-heading">
-          {/* This page has no StubFieldset, so the ⓘ renders unconditionally and stays
+          {/* This page has no ReadOnlyFieldset, so the ⓘ renders unconditionally and stays
               clickable for every role — purely informational, never a disabled-fieldset
               dead affordance (web-rule 122). */}
           <div className="mb-3 flex items-center gap-1.5">
