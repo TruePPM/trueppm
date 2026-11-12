@@ -1438,7 +1438,7 @@ describe('BoardCard compact bar touch affordances (#1947)', () => {
     expect(chip.className).toContain('before:inset-y-[-16px]');
     // 14px unbordered glyph + p-1 (22px box) + -12px = 46px.
     const glyph = screen.getByRole('button', { name: /show full title/i });
-    expect(glyph.className).toContain('p-1');
+    expect(glyph.className).toMatch(/(^|\s)p-1(\s|$)/);
     expect(glyph.className).toContain('before:inset-[-12px]');
   });
 
