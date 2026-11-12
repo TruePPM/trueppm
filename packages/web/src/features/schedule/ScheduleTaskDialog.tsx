@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type RefObject } from 
 import type { Task } from '@/types';
 import { usePromoteTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { formatShortDate, todayLocalIso } from './scheduleUtils';
 import { CloseIcon } from '@/components/Icons';
@@ -55,7 +56,7 @@ export function ScheduleTaskDialog({
 
   const [date, setDate] = useState<string>(() => todayLocalIso());
   const [error, setError] = useState<string | null>(null);
-  const [offline, setOffline] = useState<boolean>(() => !navigator.onLine);
+  const offline = !useOnlineStatus();
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -66,17 +67,6 @@ export function ScheduleTaskDialog({
   // Focus the date input on open (focus-first, rule 135).
   useEffect(() => {
     dateInputRef.current?.focus();
-  }, []);
-
-  // Track online/offline so the Schedule button reflects connectivity (rule 29).
-  useEffect(() => {
-    const update = () => setOffline(!navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    };
   }, []);
 
   // focus-trap: hand-rolled Tab/Shift+Tab containment, verified correct in
@@ -117,10 +107,7 @@ export function ScheduleTaskDialog({
 
   const handleSchedule = useCallback(() => {
     if (!date) return;
-    if (!navigator.onLine) {
-      setOffline(true);
-      return;
-    }
+    if (offline) return;
     setError(null);
     // Decision A2: explicit status: 'NOT_STARTED' skips the server's date-gated
     // → IN_PROGRESS auto-bump, so the promotion is deterministically To Do.
@@ -167,6 +154,7 @@ export function ScheduleTaskDialog({
     assignSprint,
     onClose,
     itl.lower,
+    offline,
   ]);
 
   const scheduleDisabled = !date || offline || promote.isPending;

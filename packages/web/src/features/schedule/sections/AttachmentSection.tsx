@@ -6,7 +6,7 @@
  * link-pin modal) lands in phase 2 alongside the offline IndexedDB queue.
  */
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import {
   BanIcon,
@@ -32,6 +32,7 @@ import { formatRelative } from '@/lib/formatRelative';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import type { TaskAttachment } from '@/types';
 import { useDemoMode } from '@/hooks/useDemoMode';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { DEMO_DISABLED_NOTE } from '@/lib/demoReadOnly';
 import { AttachmentDropZone, validateFileForUpload } from './AttachmentDropZone';
 import { LinkInputModal } from './LinkInputModal';
@@ -330,23 +331,11 @@ export function AttachmentSection({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Offline guard — blocks drop zone + upload buttons + pin link button while
-  // the browser reports no connectivity. Mirrors the navigator.onLine pattern
-  // used in useDragCpm / useScheduleCommit. IndexedDB write queue is deferred
+  // the browser reports no connectivity. Uses the shared
+  // connectivity hook. IndexedDB write queue is deferred
   // to #311 phase 2c; for now we surface a clear blocked state instead of
   // letting a 100 MB multipart sit pending for 30s before failing.
-  const [isOnline, setIsOnline] = useState(() =>
-    typeof navigator !== 'undefined' ? navigator.onLine : true,
-  );
-  useEffect(() => {
-    const on = () => setIsOnline(true);
-    const off = () => setIsOnline(false);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
-    return () => {
-      window.removeEventListener('online', on);
-      window.removeEventListener('offline', off);
-    };
-  }, []);
+  const isOnline = useOnlineStatus();
   // ADR-1197 D3 — the read-only demo refuses the upload POST, so the add-controls are
   // disabled up front rather than after a visitor has picked a file. Folded into the
   // existing predicate so the drop zone, "+ Attach file" and "+ Pin link" all inherit
@@ -426,7 +415,12 @@ export function AttachmentSection({
       )}
 
       {isLoading && (
-        <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading attachments">
+        <div
+          role="status"
+          className="flex flex-col gap-2"
+          aria-busy="true"
+          aria-label="Loading attachments"
+        >
           {[0, 1].map((i) => (
             <div
               key={i}

@@ -5,6 +5,20 @@ import type { ReactNode } from 'react';
 import { PendingCrossProjectReview } from './PendingCrossProjectReview';
 import { ROLE_SCHEDULER, ROLE_MEMBER } from '@/lib/roles';
 
+// Delegates to the real hook unless a test pins the value, so the existing
+// navigator.onLine cases keep exercising it while the cases tagged "shared hook"
+// prove the component reads connectivity through `useOnlineStatus` (#3863).
+const onlineOverride = vi.hoisted(() => ({ value: null as boolean | null }));
+vi.mock('@/hooks/useOnlineStatus', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useOnlineStatus')>();
+  return {
+    useOnlineStatus: () => {
+      const real = actual.useOnlineStatus();
+      return onlineOverride.value ?? real;
+    },
+  };
+});
+
 const { getMock, postMock, toastMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
   postMock: vi.fn().mockResolvedValue({ data: {} }),
@@ -62,7 +76,9 @@ const pendingDep = {
 };
 
 function mockList(results: unknown[]) {
-  getMock.mockResolvedValue({ data: { count: results.length, next: null, previous: null, results } });
+  getMock.mockResolvedValue({
+    data: { count: results.length, next: null, previous: null, results },
+  });
 }
 
 describe('PendingCrossProjectReview (ADR-0120 D2, #1480)', () => {
@@ -74,6 +90,7 @@ describe('PendingCrossProjectReview (ADR-0120 D2, #1480)', () => {
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
   });
   afterEach(() => {
+    onlineOverride.value = null;
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
   });
 
@@ -95,7 +112,9 @@ describe('PendingCrossProjectReview (ADR-0120 D2, #1480)', () => {
     const reviewBtn = await screen.findByRole('button', { name: 'Review' });
     fireEvent.click(reviewBtn);
     // Panel opens with the upstream D5 card (title + owning project).
-    expect(await screen.findByRole('dialog', { name: /Review cross-project links/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: /Review cross-project links/ }),
+    ).toBeInTheDocument();
     expect(screen.getByText('Provision cluster')).toBeInTheDocument();
     expect(screen.getByText(/in Platform/)).toBeInTheDocument();
   });
@@ -171,7 +190,9 @@ describe('PendingCrossProjectReview (ADR-0120 D2, #1480)', () => {
       wrapper: noRetryWrapper,
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
-    expect(await screen.findByRole('dialog', { name: /Review cross-project links/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: /Review cross-project links/ }),
+    ).toBeInTheDocument();
 
     // Accepting invalidates the pending list; the refetch dies.
     getMock.mockRejectedValue(new Error('503'));
@@ -191,7 +212,9 @@ describe('PendingCrossProjectReview (ADR-0120 D2, #1480)', () => {
       wrapper: noRetryWrapper,
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
-    expect(await screen.findByRole('dialog', { name: /Review cross-project links/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: /Review cross-project links/ }),
+    ).toBeInTheDocument();
 
     mockList([]);
     fireEvent.click(screen.getByRole('button', { name: /Accept cross-project link/ }));
@@ -203,6 +226,17 @@ describe('PendingCrossProjectReview (ADR-0120 D2, #1480)', () => {
   it('offline disables the controls (never queue a consent decision)', async () => {
     mockList([pendingDep]);
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    render(<PendingCrossProjectReview projectId="proj-b" currentRole={ROLE_SCHEDULER} />, {
+      wrapper,
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    expect(screen.getByRole('button', { name: /Accept cross-project link/ })).toBeDisabled();
+    expect(screen.getByText(/offline/)).toBeInTheDocument();
+  });
+
+  it('gates the controls through the shared useOnlineStatus hook (shared hook)', async () => {
+    mockList([pendingDep]);
+    onlineOverride.value = false;
     render(<PendingCrossProjectReview projectId="proj-b" currentRole={ROLE_SCHEDULER} />, {
       wrapper,
     });

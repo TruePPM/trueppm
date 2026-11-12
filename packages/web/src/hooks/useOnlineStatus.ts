@@ -17,7 +17,7 @@ export function useOnlineStatus(): boolean {
   );
 
   useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
+    const update = () => setOnline(typeof navigator === 'undefined' || navigator.onLine);
     // Re-read on mount in case connectivity changed between the initial render
     // and effect commit.
     update();

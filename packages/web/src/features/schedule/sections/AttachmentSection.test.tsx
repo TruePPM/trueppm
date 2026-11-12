@@ -3,6 +3,20 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type { TaskAttachment } from '@/types';
 import { AttachmentSection } from './AttachmentSection';
 
+// Delegates to the real hook unless a test pins the value, so the existing
+// navigator.onLine cases keep exercising it while the cases tagged "shared hook"
+// prove the component reads connectivity through `useOnlineStatus` (#3863).
+const onlineOverride = vi.hoisted(() => ({ value: null as boolean | null }));
+vi.mock('@/hooks/useOnlineStatus', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useOnlineStatus')>();
+  return {
+    useOnlineStatus: () => {
+      const real = actual.useOnlineStatus();
+      return onlineOverride.value ?? real;
+    },
+  };
+});
+
 // Read-only demo gate (ADR-1197 D3, #3926). Mocked rather than provider-wrapped so
 // these specs keep rendering the component bare; the demo branch is exercised by its
 // own case below.
@@ -71,6 +85,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  onlineOverride.value = null;
   // Restore any per-test navigator.onLine spies so other test files don't see
   // a leaked non-configurable property.
   vi.restoreAllMocks();
@@ -830,5 +845,15 @@ describe('AttachmentSection — attachment policy still loading (#976)', () => {
     });
     expect(mutate).not.toHaveBeenCalled();
     expect(screen.getByRole('alert').textContent).toMatch(/No file types are allowed/);
+  });
+
+  describe('AttachmentSection — shared hook', () => {
+    it('blocks uploads when useOnlineStatus reports offline (shared hook)', () => {
+      onlineOverride.value = false;
+      useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+      render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+      expect(screen.getByText('+ Attach file')).toBeDisabled();
+      expect(screen.getByRole('status').textContent).toMatch(/offline/i);
+    });
   });
 });

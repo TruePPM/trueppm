@@ -2,6 +2,20 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { OfflineBanner } from './OfflineBanner';
 
+// Delegates to the real hook unless a test pins the value, so the existing
+// navigator.onLine cases keep exercising it while the cases tagged "shared hook"
+// prove the component reads connectivity through `useOnlineStatus` (#3863).
+const onlineOverride = vi.hoisted(() => ({ value: null as boolean | null }));
+vi.mock('@/hooks/useOnlineStatus', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useOnlineStatus')>();
+  return {
+    useOnlineStatus: () => {
+      const real = actual.useOnlineStatus();
+      return onlineOverride.value ?? real;
+    },
+  };
+});
+
 function setOnline(value: boolean) {
   Object.defineProperty(navigator, 'onLine', { value, configurable: true });
 }
@@ -9,6 +23,7 @@ function setOnline(value: boolean) {
 describe('OfflineBanner', () => {
   afterEach(() => {
     setOnline(true);
+    onlineOverride.value = null;
     vi.restoreAllMocks();
   });
 
@@ -57,5 +72,12 @@ describe('OfflineBanner', () => {
       window.dispatchEvent(new Event('online'));
     });
     expect(region).toBeEmptyDOMElement();
+  });
+
+  it('follows the shared useOnlineStatus hook, not navigator directly (shared hook)', () => {
+    setOnline(true);
+    onlineOverride.value = false;
+    render(<OfflineBanner />);
+    expect(screen.getByRole('status')).toHaveTextContent(/offline/i);
   });
 });

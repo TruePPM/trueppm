@@ -67,6 +67,20 @@ function todayLocalIso(): string {
   return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
 }
 
+// Delegates to the real hook unless a test pins the value, so the existing
+// navigator.onLine cases keep exercising it while the cases tagged "shared hook"
+// prove the component reads connectivity through `useOnlineStatus` (#3863).
+const onlineOverride = vi.hoisted(() => ({ value: null as boolean | null }));
+vi.mock('@/hooks/useOnlineStatus', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useOnlineStatus')>();
+  return {
+    useOnlineStatus: () => {
+      const real = actual.useOnlineStatus();
+      return onlineOverride.value ?? real;
+    },
+  };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   patchMock.mockResolvedValue({ data: {} });
@@ -75,31 +89,26 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  onlineOverride.value = null;
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
 });
 
 describe('ScheduleTaskDialog', () => {
   it('renders the dialog title, helper, and a date input defaulted to today', () => {
-    renderDialog(
-      <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />,
-    );
+    renderDialog(<ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />);
 
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
     expect(
       screen.getByRole('heading', { name: /Add.*Spike auth flow.*to a sprint/ }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/commits the idea from your backlog to a sprint/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/commits the idea from your backlog to a sprint/)).toBeInTheDocument();
 
     const dateInput = screen.getByLabelText<HTMLInputElement>('Target date');
     expect(dateInput.value).toBe(todayLocalIso());
   });
 
   it('speaks in sprint/milestone language, not CPM float/early-start terms', () => {
-    renderDialog(
-      <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />,
-    );
+    renderDialog(<ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />);
 
     // Jordan (PO) hard-NO: the drop dialog must not force CPM/WBS vocabulary.
     const dialog = screen.getByRole('dialog');
@@ -109,9 +118,7 @@ describe('ScheduleTaskDialog', () => {
   });
 
   it('focuses the date input on open (focus-first, rule 135)', () => {
-    renderDialog(
-      <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />,
-    );
+    renderDialog(<ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />);
     expect(screen.getByLabelText('Target date')).toHaveFocus();
   });
 
@@ -183,9 +190,7 @@ describe('ScheduleTaskDialog', () => {
     document.body.appendChild(trigger);
     trigger.focus();
 
-    renderDialog(
-      <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={onClose} />,
-    );
+    renderDialog(<ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={onClose} />);
     // Dialog steals focus to the date input on mount.
     expect(screen.getByLabelText('Target date')).toHaveFocus();
 
@@ -197,9 +202,7 @@ describe('ScheduleTaskDialog', () => {
 
   it('disables Schedule when offline and surfaces the offline title', () => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
-    renderDialog(
-      <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />,
-    );
+    renderDialog(<ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />);
     const scheduleBtn = screen.getByRole('button', { name: 'Add to sprint' });
     expect(scheduleBtn).toBeDisabled();
     expect(scheduleBtn).toHaveAttribute('title', "You're offline — change not saved.");
@@ -208,14 +211,20 @@ describe('ScheduleTaskDialog', () => {
   it('keeps the dialog open with an inline error on PATCH failure', async () => {
     patchMock.mockRejectedValueOnce(new Error('boom'));
     const onClose = vi.fn();
-    renderDialog(
-      <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={onClose} />,
-    );
+    renderDialog(<ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={onClose} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add to sprint' }));
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent("Couldn't add this item to the sprint"),
     );
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  describe('ScheduleTaskDialog — shared hook', () => {
+    it('disables Schedule when useOnlineStatus reports offline (shared hook)', () => {
+      onlineOverride.value = false;
+      renderDialog(<ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />);
+      expect(screen.getByRole('button', { name: 'Add to sprint' })).toBeDisabled();
+    });
   });
 });
