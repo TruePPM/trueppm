@@ -464,6 +464,14 @@ playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image 
 	@# ~1s, no network.
 	@bash scripts/check-playwright-pins.sh
 
+nginx-location-parity-check: ## Fail if one SPA nginx surface lacks a location the others have (#4392)
+	@# #4359 added `location = /asset-manifest.json` to the Helm blocks only, so a
+	@# non-Helm deployment of a build with no manifest answered 200 with index.html.
+	@# Compares top-level locations across the baked nginx.conf, the three Compose
+	@# templates and the Helm configmap. Static parse, no network.
+	@bash scripts/check-nginx-location-parity.sh --self-test
+	@bash scripts/check-nginx-location-parity.sh
+
 image-digest-parity-check: ## Fail if one name:tag image is pinned to different digests across CI files and Dockerfiles (#4623)
 	@# Renovate bumped the web Dockerfile's node digest but not the CI `image:` pins,
 	@# so CI tested on a different base layer than shipped. Pure grep, no network.
@@ -793,6 +801,7 @@ pre-push-checks: compose-nginx-shutdown-check
 pre-push-checks: compose-ports-check
 pre-push-checks: playwright-pins-check
 pre-push-checks: image-digest-parity-check
+pre-push-checks: nginx-location-parity-check
 pre-push-checks: nul-bytes-check
 pre-push-checks: api-scheduler-lock-check
 pre-push-checks: ci-api-tag-check
