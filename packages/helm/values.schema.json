@@ -1067,7 +1067,7 @@
             },
             "outboxOldestAgeSeconds": {
               "description": "Deprecated: use outboxOldestAge. Still honored for one minor.",
-              "type": "integer",
+              "type": ["integer", "null"],
               "minimum": 0
             },
             "outboxOldestAge": {
