@@ -64,7 +64,25 @@ const BURN_RESPONSE = {
 
 type Page = import('@playwright/test').Page;
 
-async function setup(page: Page, burnStatus = 200, burnBody: unknown = BURN_RESPONSE) {
+const SPRINT = {
+  id: 'sp-reports-1',
+  server_version: 1,
+  name: 'Iteration 9',
+  goal: '',
+  start_date: '2026-04-01',
+  finish_date: '2026-04-14',
+  state: 'ACTIVE',
+};
+
+/** The project-scoped chart (the sprint-scoped one is headed "… Burndown"). */
+const projectChart = (page: Page) => page.getByRole('region', { name: 'Burn Chart' });
+
+async function setup(
+  page: Page,
+  burnStatus = 200,
+  burnBody: unknown = BURN_RESPONSE,
+  sprints: unknown[] = [SPRINT],
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -149,6 +167,18 @@ async function setup(page: Page, burnStatus = 200, burnBody: unknown = BURN_RESP
   await page.route('**/api/v1/projects/*/risks/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
   );
+  // The project burn chart only renders once the project has a sprint (#3611).
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(sprints) }),
+  );
+  // Object-shaped endpoint: the list-shaped catch-all would crash the sprint chart.
+  await page.route(/\/api\/v1\/sprints\/.*\/burndown\//, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sprint: SPRINT, snapshots: [] }),
+    }),
+  );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/burn/**`, (r) =>
     r.fulfill({
       status: burnStatus,
@@ -174,27 +204,27 @@ test.describe('Reports tab — golden path', () => {
   });
 
   test('renders the variant segmented control', async ({ page }) => {
-    await expect(page.getByRole('group', { name: /chart variant/i })).toBeVisible();
-    await expect(page.getByRole('radio', { name: /burn down/i })).toBeVisible();
-    await expect(page.getByRole('radio', { name: /burn up/i })).toBeVisible();
-    await expect(page.getByRole('radio', { name: /combined/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('group', { name: /chart variant/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('radio', { name: /burn down/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('radio', { name: /burn up/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('radio', { name: /combined/i })).toBeVisible();
   });
 
   test('burn down is active by default', async ({ page }) => {
-    await expect(page.getByRole('radio', { name: /burn down/i })).toHaveAttribute('aria-checked', 'true');
+    await expect(projectChart(page).getByRole('radio', { name: /burn down/i })).toHaveAttribute('aria-checked', 'true');
   });
 
   test('date range pickers are present', async ({ page }) => {
-    await expect(page.getByLabel('From date')).toBeVisible();
-    await expect(page.getByLabel('To date')).toBeVisible();
+    await expect(projectChart(page).getByLabel('From date')).toBeVisible();
+    await expect(projectChart(page).getByLabel('To date')).toBeVisible();
   });
 
   test('metric selector is present', async ({ page }) => {
-    await expect(page.getByLabel('Metric')).toBeVisible();
+    await expect(projectChart(page).getByLabel('Metric')).toBeVisible();
   });
 
   test('export button is present', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /export chart/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('button', { name: /export chart/i })).toBeVisible();
   });
 
   test('Reports tab is active in ViewTabs', async ({ page }) => {
@@ -216,18 +246,18 @@ test.describe('Reports tab — variant switching', () => {
   });
 
   test('clicking Burn up marks it as checked and renders both lines (#1279)', async ({ page }) => {
-    await page.getByRole('radio', { name: /burn up/i }).click();
-    await expect(page.getByRole('radio', { name: /burn up/i })).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByRole('radio', { name: /burn down/i })).toHaveAttribute('aria-checked', 'false');
+    await projectChart(page).getByRole('radio', { name: /burn up/i }).click();
+    await expect(projectChart(page).getByRole('radio', { name: /burn up/i })).toHaveAttribute('aria-checked', 'true');
+    await expect(projectChart(page).getByRole('radio', { name: /burn down/i })).toHaveAttribute('aria-checked', 'false');
     // Burnup shows the completed line and the total-scope line — surfaced by their
     // legend entries (the burndown's "Ideal" entry is gone).
-    await expect(page.getByText('Completed', { exact: true })).toBeVisible();
-    await expect(page.getByText('Total scope', { exact: true })).toBeVisible();
+    await expect(projectChart(page).getByText('Completed', { exact: true })).toBeVisible();
+    await expect(projectChart(page).getByText('Total scope', { exact: true })).toBeVisible();
   });
 
   test('clicking Combined marks it as checked', async ({ page }) => {
-    await page.getByRole('radio', { name: /combined/i }).click();
-    await expect(page.getByRole('radio', { name: /combined/i })).toHaveAttribute('aria-checked', 'true');
+    await projectChart(page).getByRole('radio', { name: /combined/i }).click();
+    await expect(projectChart(page).getByRole('radio', { name: /combined/i })).toHaveAttribute('aria-checked', 'true');
   });
 });
 
@@ -243,44 +273,44 @@ test.describe('Reports tab — export menu', () => {
   });
 
   test('clicking the trigger opens the menu and reveals PNG/PDF items', async ({ page }) => {
-    const trigger = page.getByRole('button', { name: /export chart/i });
+    const trigger = projectChart(page).getByRole('button', { name: /export chart/i });
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     // Menu items are CSS-hidden until opened.
-    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeHidden();
+    await expect(projectChart(page).getByRole('menuitem', { name: /download png/i })).toBeHidden();
     await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: /download pdf/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('menuitem', { name: /download png/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('menuitem', { name: /download pdf/i })).toBeVisible();
   });
 
   test('picking Download PNG closes the menu', async ({ page }) => {
-    const trigger = page.getByRole('button', { name: /export chart/i });
+    const trigger = projectChart(page).getByRole('button', { name: /export chart/i });
     await trigger.click();
-    await page.getByRole('menuitem', { name: /download png/i }).click();
+    await projectChart(page).getByRole('menuitem', { name: /download png/i }).click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     // Move the pointer off the group so the group-hover enhancement does not
     // keep the (state-closed) menu visible while asserting it is hidden.
     await page.mouse.move(0, 0);
-    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeHidden();
+    await expect(projectChart(page).getByRole('menuitem', { name: /download png/i })).toBeHidden();
   });
 
   test('Escape closes an open menu', async ({ page }) => {
-    const trigger = page.getByRole('button', { name: /export chart/i });
+    const trigger = projectChart(page).getByRole('button', { name: /export chart/i });
     await trigger.click();
-    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('menuitem', { name: /download png/i })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await page.mouse.move(0, 0);
-    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeHidden();
+    await expect(projectChart(page).getByRole('menuitem', { name: /download png/i })).toBeHidden();
   });
 
   test('clicking outside closes an open menu', async ({ page }) => {
-    const trigger = page.getByRole('button', { name: /export chart/i });
+    const trigger = projectChart(page).getByRole('button', { name: /export chart/i });
     await trigger.click();
-    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeVisible();
+    await expect(projectChart(page).getByRole('menuitem', { name: /download png/i })).toBeVisible();
     await page.getByRole('heading', { name: 'Reports' }).click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeHidden();
+    await expect(projectChart(page).getByRole('menuitem', { name: /download png/i })).toBeHidden();
   });
 });
 
@@ -357,5 +387,70 @@ test.describe('Reports tab — empty state', () => {
     await setup(page, 200, { ...BURN_RESPONSE, series: [] });
     await page.goto(`/projects/${PROJECT_ID}/reports`);
     await expect(page.getByText(/no tasks to chart yet/i)).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No sprints — nothing to burn against (#3611)
+// ---------------------------------------------------------------------------
+
+test.describe('Reports tab — project with no sprints', () => {
+  test('hides the burn chart and explains why', async ({ page }) => {
+    await setup(page, 200, BURN_RESPONSE, []);
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    await expect(page.getByText('No sprints yet')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: /burn chart/i })).toHaveCount(0);
+    await expect(page.getByRole('group', { name: /chart variant/i })).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Out-of-bounds date window — the server's explanation, not a futile Retry (#3580)
+// ---------------------------------------------------------------------------
+
+test.describe('Reports tab — refused date window', () => {
+  test('shows the server detail and no Retry for a 400', async ({ page }) => {
+    await setup(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/burn/**`, (r) =>
+      r.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'The date window may span at most 366 days.' }),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    const chart = projectChart(page);
+    await expect(chart.getByRole('alert')).toContainText('at most 366 days', { timeout: 10_000 });
+    await expect(chart.getByRole('button', { name: /^Retry$/ })).toHaveCount(0);
+  });
+
+  test('the pickers carry the server window limits and are seeded from the echoed window', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    const chart = projectChart(page);
+    await expect(chart.getByLabel('From date')).toHaveValue('2026-04-01', { timeout: 10_000 });
+    await expect(chart.getByLabel('To date')).toHaveValue('2026-04-14');
+    await expect(chart.getByLabel('To date')).toHaveAttribute('max', /^\d{4}-\d{2}-\d{2}$/);
+    await expect(chart.getByLabel('From date')).toHaveAttribute('min', /^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Charts mount at a measured size (#3620)
+// ---------------------------------------------------------------------------
+
+test.describe('Reports tab — chart console', () => {
+  test('logs no zero-size Recharts warning', async ({ page }) => {
+    const warnings: string[] = [];
+    page.on('console', (m) => {
+      if (/should be greater than 0/.test(m.text())) warnings.push(m.text());
+    });
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    await expect(page.getByRole('heading', { name: /burn chart/i })).toBeVisible({ timeout: 10_000 });
+    await expect(projectChart(page).locator('svg.recharts-surface').first()).toBeVisible();
+    expect(warnings).toEqual([]);
   });
 });

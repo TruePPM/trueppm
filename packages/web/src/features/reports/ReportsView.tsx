@@ -29,7 +29,7 @@ function orderSprints(sprints: ApiSprint[]): ApiSprint[] {
 export function ReportsView() {
   const projectId = useProjectId();
   const [tab, setTab] = useState<ReportsTab>('metrics');
-  const { sprints } = useSprints(projectId);
+  const { sprints, isLoading: sprintsLoading, error: sprintsError } = useSprints(projectId);
   const itl = useIterationLabel(projectId);
 
   // Roving tabindex for the Reports tablist (rule 167): Arrow/Home/End move DOM
@@ -117,7 +117,27 @@ export function ReportsView() {
               <BurnChart sprintId={selectedSprintId} defaultVariant="burndown" />
             </section>
           )}
-          <BurnChart projectId={projectId ?? undefined} />
+          {/* With no sprints there is no committed scope to burn against: the
+              ideal line sits at zero and the actual line can only climb, which
+              reads as a defect. Hide the chart until a sprint exists. While the
+              list is still loading, or if it failed, fall through to the chart
+              rather than claim the project has none. */}
+          {!sprintsLoading && !sprintsError && ordered.length === 0 ? (
+            <section
+              aria-label="Burn chart"
+              className="rounded-card border border-neutral-border bg-neutral-surface px-4 py-8 text-center"
+            >
+              <p className="text-sm font-medium text-neutral-text-primary">
+                No {itl.lowerPlural} yet
+              </p>
+              <p className="mt-1 text-xs text-neutral-text-secondary">
+                Burn charts need committed scope. Plan a {itl.lower} and its burn chart will
+                appear here.
+              </p>
+            </section>
+          ) : (
+            !sprintsLoading && <BurnChart projectId={projectId ?? undefined} />
+          )}
         </div>
       ) : projectId ? (
         <DecisionsPanel projectId={projectId} />

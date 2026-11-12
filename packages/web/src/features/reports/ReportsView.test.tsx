@@ -9,7 +9,7 @@ const useSprintsMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: useProjectIdMock }));
 vi.mock('@/hooks/useSprints', () => ({ useSprints: useSprintsMock }));
 vi.mock('@/hooks/useIterationLabel', () => ({
-  useIterationLabel: () => ({ singular: 'Sprint', lower: 'sprint', plural: 'Sprints' }),
+  useIterationLabel: () => ({ singular: 'Sprint', lower: 'sprint', plural: 'Sprints', lowerPlural: 'sprints' }),
 }));
 // The tab content is out of scope for the tablist keyboard test — stub the two
 // heavy panels so the test isolates the tablist behavior (#2158).
@@ -18,10 +18,18 @@ vi.mock('@/features/decisions/DecisionsPanel', () => ({
   DecisionsPanel: () => <div data-testid="decisions-panel" />,
 }));
 
+const SPRINT = {
+  id: 's1',
+  name: 'Sprint 1',
+  state: 'ACTIVE',
+  start_date: '2026-04-01',
+  finish_date: '2026-04-14',
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   useProjectIdMock.mockReturnValue('p1');
-  useSprintsMock.mockReturnValue({ sprints: [] });
+  useSprintsMock.mockReturnValue({ sprints: [SPRINT], isLoading: false, error: null });
 });
 
 describe('ReportsView tablist', () => {
@@ -45,7 +53,7 @@ describe('ReportsView tablist', () => {
     expect(decisions).toHaveFocus();
     // ...but focus movement alone must NOT switch the panel — Metrics stays selected.
     expect(metrics).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('burn-chart')).toBeInTheDocument();
+    expect(screen.getAllByTestId('burn-chart').length).toBeGreaterThan(0);
     // Activation (click / Enter / Space via the native button) switches the tab.
     fireEvent.click(decisions);
     expect(decisions).toHaveAttribute('aria-selected', 'true');
@@ -61,5 +69,26 @@ describe('ReportsView tablist', () => {
     expect(decisions).toHaveFocus();
     fireEvent.keyDown(decisions, { key: 'Home' });
     expect(metrics).toHaveFocus();
+  });
+});
+
+describe('ReportsView project burn chart gate', () => {
+  it('hides the project burn chart and says why when the project has no sprints', () => {
+    useSprintsMock.mockReturnValue({ sprints: [], isLoading: false, error: null });
+    render(<ReportsView />);
+    expect(screen.queryByTestId('burn-chart')).not.toBeInTheDocument();
+    expect(screen.getByText('No sprints yet')).toBeInTheDocument();
+  });
+
+  it('does not claim "no sprints" while the sprint list is still loading', () => {
+    useSprintsMock.mockReturnValue({ sprints: [], isLoading: true, error: null });
+    render(<ReportsView />);
+    expect(screen.queryByText('No sprints yet')).not.toBeInTheDocument();
+  });
+
+  it('keeps the chart when the sprint list failed to load', () => {
+    useSprintsMock.mockReturnValue({ sprints: [], isLoading: false, error: new Error('x') });
+    render(<ReportsView />);
+    expect(screen.getAllByTestId('burn-chart').length).toBeGreaterThan(0);
   });
 });

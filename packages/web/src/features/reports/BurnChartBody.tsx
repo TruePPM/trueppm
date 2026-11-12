@@ -6,9 +6,21 @@ import { ChartSkeleton, ChartEmpty } from './BurnChartChrome';
 
 interface ChartErrorProps {
   onRetry: () => void;
+  /** Server's explanation of a refused request; retrying it can never succeed. */
+  detail: string | null;
 }
 
-function ChartError({ onRetry }: ChartErrorProps) {
+function ChartError({ onRetry, detail }: ChartErrorProps) {
+  if (detail) {
+    return (
+      <div
+        className="flex items-center justify-center h-48 px-4 text-center text-xs text-semantic-at-risk"
+        role="alert"
+      >
+        <span>⚠ {detail} Adjust the date range above.</span>
+      </div>
+    );
+  }
   return (
     <div
       className="flex items-center justify-center gap-3 h-48 text-xs text-semantic-at-risk"
@@ -33,6 +45,7 @@ interface BurnChartBodyProps {
   isError: boolean;
   showEmpty: boolean;
   onRetry: () => void;
+  errorDetail?: string | null;
   isSprintCtx: boolean;
   sprint: Parameters<typeof ChartEmpty>[0]['sprint'];
   iterationLabel: string;
@@ -56,6 +69,7 @@ export function BurnChartBody({
   isError,
   showEmpty,
   onRetry,
+  errorDetail = null,
   isSprintCtx,
   sprint,
   iterationLabel,
@@ -70,7 +84,7 @@ export function BurnChartBody({
   return (
     <div ref={chartRef} className="px-4 py-4">
       {isLoading && <ChartSkeleton />}
-      {isError && <ChartError onRetry={onRetry} />}
+      {isError && <ChartError onRetry={onRetry} detail={errorDetail} />}
       {showEmpty && !isError && (
         <ChartEmpty isSprintCtx={isSprintCtx} sprint={sprint} iterationLabel={iterationLabel} />
       )}

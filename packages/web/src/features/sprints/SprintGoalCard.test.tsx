@@ -41,6 +41,14 @@ describe('SprintGoalCard — banner (read) state', () => {
     expect(screen.getByText(/^18$/)).toBeInTheDocument();
   });
 
+  it('shows a dash, not 0, when the committed task count is unknown', () => {
+    renderCard({
+      sprint: makeSprint({ state: 'ACTIVE', committed_task_count: null, committed_points: 26 }),
+    });
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText(/^0$/)).not.toBeInTheDocument();
+  });
+
   it('renders points-committed pill', () => {
     renderCard({ sprint: makeSprint({ committed_points: 47 }) });
     expect(screen.getByText(/47 story points committed/i)).toBeInTheDocument();

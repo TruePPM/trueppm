@@ -236,7 +236,7 @@ test.describe('Wave 10 — Sprints metrics row', () => {
 
     await expect(page.getByRole('region', { name: /Velocity/i })).toBeVisible();
     await expect(page.getByLabel(/Forecast range 27 to 33 points/)).toBeVisible();
-    await expect(page.getByRole('link', { name: 'ADR-0036' })).toBeVisible();
+    await expect(page.getByText('Velocity feeds CPM duration estimates.')).toBeVisible();
     // v2 fidelity (issue 1230): the active sprint's in-flight "N/M" stat.
     await expect(page.getByLabel(/This sprint: 14 of 40 points completed/)).toBeVisible();
   });
