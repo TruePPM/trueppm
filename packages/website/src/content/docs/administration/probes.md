@@ -229,7 +229,7 @@ forward into `assets/`, never to the html root, so this file can never be a
 carried-over prior release's. The chart's web ConfigMap gives it its own
 `location = /asset-manifest.json { try_files $uri =404; }`, so a missing
 manifest 404s the probe instead of silently falling through to the SPA
-shell. What this does **not** prove: the manifest's mere presence says
+shell. The web image's baked `nginx.conf` and the Compose nginx templates carry the same location, and `scripts/check-nginx-location-parity.sh` keeps all of them in step. What this does **not** prove: the manifest's mere presence says
 nothing about whether the individual JS chunks it names are actually on
 disk and intact — a corrupt or partially missing `assets/` directory still
 passes this probe (see `scripts/check-served-assets.sh`, a separate,
