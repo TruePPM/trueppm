@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from trueppm_api.apps.integrations.encryption import decrypt_secret, encrypt_secret
@@ -72,12 +74,25 @@ PING_EVENT_TYPE = "ping"
 # automatically deactivated (#2884). Before this existed, a revoked receiver
 # answering 404/410 was retried forever with no state change: `is_active` was
 # only ever written by a human PATCH, so the queue and the receiver both burned
-# indefinitely. Five is one working day's worth of noise for a low-traffic
-# project and about a minute for a busy one — high enough that a brief receiver
-# outage does not trip it (a transient 5xx recovers within the retry chain and
-# resets the counter on the next success), low enough that a permanently broken
-# endpoint stops being retried.
+# indefinitely. Five failures is a count, not a duration: on a busy project they
+# can land within seconds, which is why AUTO_DISABLE_MIN_FAILURE_WINDOW below
+# also applies. The count is high enough that a brief receiver outage does not
+# trip it (a transient 5xx recovers within the retry chain and resets the
+# counter on the next success), low enough that a permanently broken endpoint
+# stops being retried.
 AUTO_DISABLE_CONSECUTIVE_FAILURES = 5
+
+# Minimum span between the first failure of a streak and the failure that may
+# deactivate the subscription. A permanent 4xx costs one HTTP round trip, not a
+# retry chain, so on a busy project five failures can land inside seconds: a
+# receiver's ten-second auth blip (or a Member bursting events at a WAF that
+# answers 403) would otherwise kill an Admin-owned integration. A time floor
+# raises the cost of that for every event-generation path, whatever status the
+# receiver returns, but does not defeat it: a Member who can keep triggering
+# 403s can still deactivate a webhook with two bursts at least five minutes
+# apart when no success lands between them. A genuinely dead endpoint is
+# deactivated on its next failure once the window has elapsed.
+AUTO_DISABLE_MIN_FAILURE_WINDOW = timedelta(minutes=5)
 
 
 class Webhook(models.Model):
@@ -150,6 +165,9 @@ class Webhook(models.Model):
         "on any successful delivery.",
     )
     last_failure_at = models.DateTimeField(null=True, blank=True)
+    # Start of the current failure streak; internal, not serialized. Reset with
+    # the counter on success or re-enable. Backs the wall-clock floor.
+    first_failure_at = models.DateTimeField(null=True, blank=True, editable=False)
     last_failure_reason = models.CharField(max_length=255, blank=True, default="")
     disabled_at = models.DateTimeField(
         null=True,
@@ -241,10 +259,12 @@ class Webhook(models.Model):
             return
         Webhook.objects.filter(pk=self.pk).update(
             consecutive_failures=0,
+            first_failure_at=None,
             last_failure_at=None,
             last_failure_reason="",
         )
         self.consecutive_failures = 0
+        self.first_failure_at = None
         self.last_failure_at = None
         self.last_failure_reason = ""
 
@@ -264,20 +284,24 @@ class Webhook(models.Model):
         now = timezone.now()
         Webhook.objects.filter(pk=self.pk).update(
             consecutive_failures=models.F("consecutive_failures") + 1,
+            first_failure_at=Coalesce("first_failure_at", models.Value(now)),
             last_failure_at=now,
             last_failure_reason=reason[:255],
         )
-        failures: int = (
-            Webhook.objects.filter(pk=self.pk)
-            .values_list("consecutive_failures", flat=True)
-            .first()
-            or 0
-        )
+        failures, first_failure_at = Webhook.objects.filter(pk=self.pk).values_list(
+            "consecutive_failures", "first_failure_at"
+        ).first() or (0, None)
         self.consecutive_failures = failures
+        self.first_failure_at = first_failure_at
         self.last_failure_at = now
         self.last_failure_reason = reason[:255]
 
         if failures < AUTO_DISABLE_CONSECUTIVE_FAILURES:
+            return False
+        if (
+            first_failure_at is not None
+            and now - first_failure_at < AUTO_DISABLE_MIN_FAILURE_WINDOW
+        ):
             return False
         # Only the first call across the threshold flips the flag, so a webhook
         # already deactivated (by the guard or by an admin) is not re-stamped.

@@ -17,12 +17,13 @@ import hashlib
 import hmac
 import urllib.error
 import urllib.request
-from datetime import UTC, date
+from datetime import UTC, date, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -36,6 +37,7 @@ from trueppm_api.apps.webhooks.backfill import (
 )
 from trueppm_api.apps.webhooks.models import (
     AUTO_DISABLE_CONSECUTIVE_FAILURES,
+    AUTO_DISABLE_MIN_FAILURE_WINDOW,
     DeliveryStatus,
     Webhook,
     WebhookDelivery,
@@ -617,8 +619,7 @@ def test_the_deactivating_failure_says_so_in_the_dead_letter_record(webhook: Web
     dies. Without a marker on this record, "the alerts stopped" reads as "the
     receiver recovered".
     """
-    for _ in range(AUTO_DISABLE_CONSECUTIVE_FAILURES):
-        _deliver(_delivery(webhook), 404)
+    _fail_until_disabled(webhook)
 
     webhook.refresh_from_db()
     assert webhook.is_active is False
@@ -654,6 +655,38 @@ def test_inactive_webhook_is_not_dead_lettered(webhook: Webhook) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _age_failure_streak(webhook: Webhook) -> None:
+    """Backdate the streak start past the wall-clock floor."""
+    Webhook.objects.filter(pk=webhook.pk).update(
+        first_failure_at=timezone.now() - AUTO_DISABLE_MIN_FAILURE_WINDOW - timedelta(seconds=1)
+    )
+
+
+def _fail_until_disabled(webhook: Webhook) -> None:
+    """Deliver threshold-1 terminal failures, age the streak, then the tipping one."""
+    for _ in range(AUTO_DISABLE_CONSECUTIVE_FAILURES - 1):
+        _deliver(_delivery(webhook), 404)
+    _age_failure_streak(webhook)
+    _deliver(_delivery(webhook), 404)
+
+
+@pytest.mark.django_db
+def test_a_burst_of_failures_inside_the_floor_does_not_deactivate(webhook: Webhook) -> None:
+    """A receiver blip (five terminal 4xx in seconds) must not kill the integration."""
+    for _ in range(AUTO_DISABLE_CONSECUTIVE_FAILURES + 3):
+        _deliver(_delivery(webhook), 403)
+    webhook.refresh_from_db()
+    assert webhook.consecutive_failures == AUTO_DISABLE_CONSECUTIVE_FAILURES + 3
+    assert webhook.is_active is True
+    assert webhook.first_failure_at is not None
+
+    # Once the streak has lasted past the floor, the next failure deactivates.
+    _age_failure_streak(webhook)
+    _deliver(_delivery(webhook), 403)
+    webhook.refresh_from_db()
+    assert webhook.is_active is False
+
+
 @pytest.mark.django_db
 def test_consecutive_failures_accumulate_and_auto_disable(webhook: Webhook) -> None:
     """After the threshold the subscription deactivates itself, with a reason."""
@@ -662,6 +695,7 @@ def test_consecutive_failures_accumulate_and_auto_disable(webhook: Webhook) -> N
         webhook.refresh_from_db()
         assert webhook.is_active is True
 
+    _age_failure_streak(webhook)
     _deliver(_delivery(webhook), 404)
     webhook.refresh_from_db()
     assert webhook.consecutive_failures == AUTO_DISABLE_CONSECUTIVE_FAILURES
@@ -684,6 +718,7 @@ def test_success_resets_the_failure_counter(webhook: Webhook) -> None:
     webhook.refresh_from_db()
     assert webhook.consecutive_failures == 0
     assert webhook.last_failure_at is None
+    assert webhook.first_failure_at is None
     assert webhook.is_active is True
 
     # ...and the counter genuinely restarted, rather than sitting one below.
@@ -696,8 +731,7 @@ def test_success_resets_the_failure_counter(webhook: Webhook) -> None:
 @pytest.mark.django_db
 def test_auto_disable_stamps_only_once(webhook: Webhook) -> None:
     """A webhook already given up on is not re-stamped by later failures."""
-    for _ in range(AUTO_DISABLE_CONSECUTIVE_FAILURES):
-        _deliver(_delivery(webhook), 404)
+    _fail_until_disabled(webhook)
     webhook.refresh_from_db()
     first_disabled_at = webhook.disabled_at
 
@@ -753,8 +787,7 @@ def test_reactivating_clears_the_failure_record(
     admin_client: APIClient, project: Project, webhook: Webhook
 ) -> None:
     """An admin who fixes the receiver can actually get out of the disabled state."""
-    for _ in range(AUTO_DISABLE_CONSECUTIVE_FAILURES):
-        _deliver(_delivery(webhook), 404)
+    _fail_until_disabled(webhook)
     webhook.refresh_from_db()
     assert webhook.is_active is False
 
@@ -770,6 +803,7 @@ def test_reactivating_clears_the_failure_record(
     assert webhook.disabled_at is None
     assert webhook.disabled_reason == ""
     assert webhook.last_failure_at is None
+    assert webhook.first_failure_at is None
 
 
 @pytest.mark.django_db

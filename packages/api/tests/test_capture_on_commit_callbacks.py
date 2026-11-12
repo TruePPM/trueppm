@@ -146,3 +146,53 @@ def test_fixture_is_the_shared_helper(
     same object or one of them silently reverts to the broken implementation.
     """
     assert django_capture_on_commit_callbacks is capture_on_commit_callbacks
+
+
+@pytest.mark.django_db
+def test_savepoint_rollback_inside_callback_does_not_rerun_it(
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A callback that unwinds a savepoint must run once, not forever.
+
+    ``savepoint_rollback`` rebuilds ``run_on_commit`` as new tuples around the same
+    callables; keying on tuple identity re-ran the callback on every rebuild.
+    """
+    calls: list[str] = []
+
+    def rolls_back() -> None:
+        calls.append("ran")
+        if len(calls) > 5:
+            raise AssertionError("callback re-run in a loop")
+        try:
+            with transaction.atomic():
+                raise RuntimeError("force savepoint rollback")
+        except RuntimeError:
+            pass
+
+    with django_capture_on_commit_callbacks(execute=True) as captured:
+        transaction.on_commit(rolls_back)
+
+    assert calls == ["ran"]
+    assert len(captured) == 1
+
+
+@pytest.mark.django_db
+def test_same_callable_registered_twice_runs_twice(
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Two registrations of one callable object are two runs, not one.
+
+    Keying on callable identity alone collapsed them and let a test asserting two
+    deliveries pass vacuously.
+    """
+    calls: list[str] = []
+
+    def work() -> None:
+        calls.append("ran")
+
+    with django_capture_on_commit_callbacks(execute=True) as captured:
+        transaction.on_commit(work)
+        transaction.on_commit(work)
+
+    assert calls == ["ran", "ran"]
+    assert len(captured) == 2

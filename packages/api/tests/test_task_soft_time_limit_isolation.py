@@ -52,6 +52,10 @@ _EXEMPT: dict[tuple[str, str], tuple[int, str]] = {
     ("apps/sync/conflict.py", "_payload_changed_fields"): (2, "request path, no I/O"),
     ("apps/sync/consumers.py", "_presence_keepalive"): (1, "ASGI consumer, not a worker"),
     ("core/idempotent.py", "_run"): (1, "lock-extender thread; signal fires on main thread"),
+    ("core/extension_signals.py", "dispatch_extension_signal"): (
+        1,
+        "KNOWN-UNGUARDED #4421: per-receiver catch matches the send_robust it replaced",
+    ),
     ("apps/projects/seed/importer.py", "_refresh_active_sprint_burndown"): (
         1,
         "KNOWN-UNGUARDED #4421 (seed import)",

@@ -210,6 +210,28 @@ class TestProviderHook:
         otel.register_provider_hook(received.append)
         assert received == [ctx]  # fired immediately against the stored context
 
+    @override_settings(OTEL_EXPORTER_OTLP_ENDPOINT=_ENDPOINT)
+    def test_duplicate_registration_before_bootstrap_fires_once(
+        self, no_global_install: dict[str, list[object]]
+    ) -> None:
+        received: list[otel.OTelBootstrapContext] = []
+        hook = received.append
+        otel.register_provider_hook(hook)
+        otel.register_provider_hook(hook)
+        otel.bootstrap()
+        assert len(received) == 1
+
+    @override_settings(OTEL_EXPORTER_OTLP_ENDPOINT=_ENDPOINT)
+    def test_duplicate_registration_after_bootstrap_fires_once(
+        self, no_global_install: dict[str, list[object]]
+    ) -> None:
+        otel.bootstrap()
+        received: list[otel.OTelBootstrapContext] = []
+        hook = received.append
+        otel.register_provider_hook(hook)
+        otel.register_provider_hook(hook)
+        assert len(received) == 1
+
     @override_settings(OTEL_EXPORTER_OTLP_ENDPOINT="")
     def test_hook_fires_even_when_disabled(self) -> None:
         received: list[otel.OTelBootstrapContext] = []

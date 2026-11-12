@@ -27,8 +27,10 @@
 # tomorrow is covered without touching this script — which matters, because the
 # failure mode here is a NEW extension point written in the old style.
 #
-# Allowed dispatch: `dispatch_extension_signal(<name>, ...)` (send_robust plus a
-# log line) or a direct `<name>.send_robust(...)`.
+# Allowed dispatch: `dispatch_extension_signal(<name>, ...)` only. It contains
+# receiver exceptions AND isolates each receiver's database work in a savepoint
+# when called inside a transaction; a direct `<name>.send_robust(...)` does only
+# the first, so it fails this gate just like a bare `.send()`.
 #
 # ## The fail-closed exception
 #
@@ -100,7 +102,7 @@ if [ "${1:-}" = "--self-test" ]; then
 
   d="$st_tmp/send_robust"; mkdir -p "$d"; st_sig "$d"
   printf 'from .signals import thing_happened\n\n\ndef go():\n    thing_happened.send_robust(sender=None)\n' > "$d/services.py"
-  st_probe "direct .send_robust()" accept "$d"
+  st_probe "direct .send_robust()" reject "$d"
 
   # The violation this gate exists to catch.
   d="$st_tmp/bare_send"; mkdir -p "$d"; st_sig "$d"
@@ -200,8 +202,8 @@ violations=0
 checked=0
 
 for sig in $signals; do
-  # Bare `.send(` on this signal, excluding `.send_robust(`.
-  hits=$(grep -rn "${sig}\.send(" "$ROOT" --include='*.py' 2>/dev/null || true)
+  # Bare `.send(` or direct `.send_robust(` on this signal.
+  hits=$(grep -rnE "${sig}\.send(_robust)?\(" "$ROOT" --include='*.py' 2>/dev/null || true)
   hits="$(printf '%s\n' "$hits" | drop_ignored_lines)"
   [ -z "$hits" ] && continue
   while IFS= read -r hit; do
@@ -215,7 +217,7 @@ for sig in $signals; do
     if grep -q 'FAIL-CLOSED' <<<"$(sed -n "${start},${lineno}p" "$file" 2>/dev/null)"; then
       continue
     fi
-    echo "VIOLATION: $file:$lineno — ${sig}.send() is not robust"
+    echo "VIOLATION: $file:$lineno — ${sig}.send()/.send_robust() bypasses dispatch_extension_signal"
     violations=$((violations + 1))
   done <<< "$hits"
 done

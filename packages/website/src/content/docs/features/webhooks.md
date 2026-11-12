@@ -329,10 +329,22 @@ reconciliation read against the API for anything you cannot afford to miss.
 ## Automatic deactivation
 
 A webhook that keeps failing terminally is deactivated automatically after **5
-consecutive terminal failures**, and stops receiving deliveries. This bounds the
+consecutive terminal failures spanning at least 5 minutes**, and stops receiving
+deliveries. The time floor means a single short receiver outage (a rotating token, a
+gateway briefly answering `403`) cannot deactivate the webhook, however many
+events fire during it; the next terminal failure after the 5 minutes have elapsed
+does. It is not a guarantee against repeated outages: if no delivery succeeds
+between two bursts of failures at least 5 minutes apart, the webhook is still
+deactivated. This bounds the
 damage from a receiver that has been decommissioned or has had its URL revoked —
 before it, a revoked endpoint answering `410` was retried for every matching event
 indefinitely.
+
+:::note[Ships in 0.5]
+The 5-minute floor is introduced by 0.5. In 0.4, a webhook is deactivated after 5
+consecutive terminal failures over any span of time, so a short receiver outage on
+a busy project can deactivate it within seconds.
+:::
 
 Two kinds of terminal failure are recorded but deliberately **not** counted toward
 that threshold, because neither is evidence about the receiver's health under
