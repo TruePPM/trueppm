@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -997,3 +998,38 @@ def get_system_health(request: HttpRequest | Request | None = None) -> dict[str,
         "telemetry": _telemetry(),
         "security": _security(request),
     }
+
+
+# Process-local memo of the last readiness verdict (#2820). Kubelet probes every
+# ~10 s, but /readyz is unauthenticated and reachable at the pod IP, so a flood
+# would otherwise buy a migration-graph build and database round-trips per
+# request. A short TTL collapses any number of callers inside the window into one
+# real probe while staying far below kubelet's period, so a genuine state change
+# is still seen on the next kubelet tick. The verdict is cached whatever it says:
+# a not-ready result is held for at most the same TTL, never longer, so a pod
+# that recovers rejoins the Service within TTL seconds and one that fails leaves
+# it within TTL seconds. The lock makes concurrent callers wait for the single
+# in-flight probe instead of each running their own.
+_readiness_memo: tuple[float, tuple[bool, dict[str, str], str]] | None = None
+_readiness_memo_lock = threading.Lock()
+
+
+def get_readiness_memoized() -> tuple[bool, dict[str, str], str]:
+    """``get_readiness()`` behind a short process-local TTL (``TRUEPPM_READYZ_CACHE_SECONDS``).
+
+    A TTL of 0 disables memoization. The result is a fresh copy of the ``checks``
+    dict each call so a caller cannot mutate the cached verdict.
+    """
+    global _readiness_memo
+    ttl = float(settings.TRUEPPM_READYZ_CACHE_SECONDS)
+    if ttl <= 0:
+        return get_readiness()
+    with _readiness_memo_lock:
+        now = time.monotonic()
+        if _readiness_memo is None or now - _readiness_memo[0] >= ttl:
+            # Stamped when the probe finishes, so a slow probe is not
+            # already half-expired by the time it is stored.
+            verdict = get_readiness()
+            _readiness_memo = (time.monotonic(), verdict)
+        ready, checks, migration_state = _readiness_memo[1]
+        return ready, dict(checks), migration_state

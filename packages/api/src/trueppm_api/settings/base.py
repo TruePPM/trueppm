@@ -2189,6 +2189,9 @@ TRUEPPM_BEAT_STALE_SECONDS: int = env.int("TRUEPPM_BEAT_STALE_SECONDS", default=
 # read the release's migrations and knows they are additive can set this to true
 # to let the older image serve. It never suppresses the "behind" gate: a
 # mid-upgrade pod is still kept out of the Service.
+# How long /readyz reuses its last verdict, in seconds (#2820). Process-local.
+# Keep well under the kubelet probe period (10 s default); 0 disables.
+TRUEPPM_READYZ_CACHE_SECONDS: float = env.float("TRUEPPM_READYZ_CACHE_SECONDS", default=2.0)
 TRUEPPM_READYZ_ALLOW_DB_AHEAD: bool = env.bool("TRUEPPM_READYZ_ALLOW_DB_AHEAD", default=False)
 
 # Freshness/dedup window in hours for mobile sync upload batches (ADR-0082). A

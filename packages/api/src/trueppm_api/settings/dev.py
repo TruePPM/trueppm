@@ -297,3 +297,7 @@ def _use_fast_password_hashers(modules: Mapping[str, Any]) -> bool:
 
 if _use_fast_password_hashers(sys.modules):
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
+# Tests probe /readyz under many mocked states; a process-local memo would leak a
+# verdict across tests (#2820). Production keeps the base default.
+TRUEPPM_READYZ_CACHE_SECONDS = 0.0

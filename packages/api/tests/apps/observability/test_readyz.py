@@ -73,9 +73,11 @@ def reset_process_latches() -> Iterator[None]:
 
     selectors_module._first_migration_state = None
     selectors_module._db_ahead_override_warned = False
+    selectors_module._readiness_memo = None
     try:
         yield
     finally:
+        selectors_module._readiness_memo = None
         selectors_module._first_migration_state = None
         selectors_module._db_ahead_override_warned = False
 
@@ -590,3 +592,64 @@ class TestReadyzMigrationDiskCache:
             assert selectors_module._disk_migration_cache is not None
         finally:
             selectors_module._disk_migration_cache = None
+
+
+@pytest.mark.django_db
+class TestReadyzMemoization:
+    """A flood inside the TTL collapses to one real probe (#2820)."""
+
+    def test_two_calls_within_ttl_run_the_migration_probe_once(self, settings) -> None:  # type: ignore[no-untyped-def]
+        from trueppm_api.apps.observability import selectors as selectors_module
+
+        settings.TRUEPPM_READYZ_CACHE_SECONDS = 60
+        with patch.object(
+            selectors_module, "_probe_migrations", return_value=READY_MIGRATIONS_IN_SYNC
+        ) as probe:
+            first = APIClient().get(URL)
+            second = APIClient().get(URL)
+        assert first.status_code == second.status_code == 200
+        assert probe.call_count == 1
+
+    def test_expired_ttl_reprobes(self, settings) -> None:  # type: ignore[no-untyped-def]
+        from trueppm_api.apps.observability import selectors as selectors_module
+
+        settings.TRUEPPM_READYZ_CACHE_SECONDS = 0.01
+        with patch.object(
+            selectors_module, "_probe_migrations", return_value=READY_MIGRATIONS_IN_SYNC
+        ) as probe:
+            APIClient().get(URL)
+            import time
+
+            time.sleep(0.05)
+            APIClient().get(URL)
+        assert probe.call_count == 2
+
+    def test_not_ready_is_cached_only_for_the_ttl_then_recovers(self, settings) -> None:  # type: ignore[no-untyped-def]
+        import time
+
+        from trueppm_api.apps.observability import selectors as selectors_module
+
+        settings.TRUEPPM_READYZ_CACHE_SECONDS = 0.05
+        with patch.object(
+            selectors_module, "_probe_migrations", return_value=READY_MIGRATIONS_BEHIND
+        ):
+            assert APIClient().get(URL).status_code == 503
+        # Within the TTL the stale failure is served even though the probe now passes...
+        with patch.object(
+            selectors_module, "_probe_migrations", return_value=READY_MIGRATIONS_IN_SYNC
+        ):
+            assert APIClient().get(URL).status_code == 503
+            time.sleep(0.1)
+            # ...and one TTL later the recovered state is visible.
+            assert APIClient().get(URL).status_code == 200
+
+    def test_zero_ttl_disables_memoization(self, settings) -> None:  # type: ignore[no-untyped-def]
+        from trueppm_api.apps.observability import selectors as selectors_module
+
+        settings.TRUEPPM_READYZ_CACHE_SECONDS = 0
+        with patch.object(
+            selectors_module, "_probe_migrations", return_value=READY_MIGRATIONS_IN_SYNC
+        ) as probe:
+            APIClient().get(URL)
+            APIClient().get(URL)
+        assert probe.call_count == 2

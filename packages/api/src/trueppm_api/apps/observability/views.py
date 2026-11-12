@@ -20,7 +20,7 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.permissions import IsWorkspaceOperator
 from trueppm_api.apps.observability.models import BeatHeartbeat, PurgeRun
 from trueppm_api.apps.observability.selectors import (
-    get_readiness,
+    get_readiness_memoized,
     get_system_health,
     notification_email_signals,
 )
@@ -134,9 +134,11 @@ def readyz(_request: Request) -> Response:
     full throttle exemption ``/health/``/``/edition/`` get: unlike those two this
     view does a real database and cache round-trip per call, so an unauthenticated
     caller who reaches the pod IP directly (the probe path bypasses the Ingress)
-    must not be able to drive unbounded load with zero rate limit.
+    must not be able to drive unbounded load with zero rate limit. The verdict is
+    additionally memoized per process for ``TRUEPPM_READYZ_CACHE_SECONDS`` (default 2,
+    well under kubelet's 10 s period), so a flood inside the window costs one probe.
     """
-    ready, checks, migration_state = get_readiness()
+    ready, checks, migration_state = get_readiness_memoized()
     return Response(
         {
             "status": "ok" if ready else "fail",
