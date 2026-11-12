@@ -12761,7 +12761,10 @@ def _validate_retro_assignees(items_in: list[dict[str, Any]], project_id: Any) -
         return None
     member_ids = set(
         ProjectMembership.objects.filter(
-            project_id=project_id, user_id__in=requested, is_deleted=False
+            project_id=project_id,
+            user_id__in=requested,
+            is_deleted=False,
+            user__is_active=True,
         ).values_list("user_id", flat=True)
     )
     if requested - member_ids:

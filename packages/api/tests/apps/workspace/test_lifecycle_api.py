@@ -117,9 +117,15 @@ def test_transfer_to_deactivated_member_is_rejected(owner: object) -> None:
 
 
 @pytest.mark.django_db
-def test_transfer_to_unknown_user_is_404(owner: object) -> None:
-    resp = _client(owner).post(TRANSFER_URL, {"new_owner_user_id": 999999}, format="json")
-    assert resp.status_code == 404
+def test_transfer_unknown_user_and_non_member_are_indistinguishable(owner: object) -> None:
+    """No user-id existence oracle (#4596): identical status and body for both."""
+    stranger = User.objects.create_user(username="stranger2", password="pw")
+    unknown = _client(owner).post(TRANSFER_URL, {"new_owner_user_id": 999999}, format="json")
+    non_member = _client(owner).post(
+        TRANSFER_URL, {"new_owner_user_id": stranger.pk}, format="json"
+    )
+    assert unknown.status_code == non_member.status_code == 400
+    assert unknown.json() == non_member.json()
 
 
 # ---------------------------------------------------------------------------

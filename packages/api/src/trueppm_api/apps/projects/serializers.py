@@ -9631,6 +9631,7 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
                 project_id=project_pk,
                 user=owner,
                 is_deleted=False,
+                user__is_active=True,
             ).exists()
             if not is_member:
                 raise serializers.ValidationError(

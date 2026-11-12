@@ -1392,7 +1392,13 @@ class TransferOwnershipView(IdempotencyMixin, APIView):
 
     @extend_schema(
         request=TransferOwnershipSerializer,
-        responses={200: OpenApiResponse(description="Ownership transferred.")},
+        responses={
+            200: OpenApiResponse(description="Ownership transferred."),
+            400: OpenApiResponse(
+                description="Invalid target: unknown user, non-member, or deactivated member "
+                "(identical body for all three), or the caller already owns the workspace."
+            ),
+        },
     )
     def post(self, request: Request) -> Response:
         serializer = TransferOwnershipSerializer(data=request.data)
@@ -1402,7 +1408,12 @@ class TransferOwnershipView(IdempotencyMixin, APIView):
         try:
             new_owner = User.objects.get(pk=new_owner_id)
         except User.DoesNotExist:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            # Same status and body as a non-member (#4596): a distinct 404 would
+            # let the owner enumerate which integer user ids exist.
+            return Response(
+                {"detail": services.WORKSPACE_OWNER_NOT_MEMBER_DETAIL},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             services.transfer_workspace_ownership(new_owner=new_owner, actor=request.user)
