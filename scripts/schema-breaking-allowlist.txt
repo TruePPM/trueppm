@@ -65,6 +65,9 @@ media-type-removed | POST /api/v1/sprints/{id}/cancel/ body * | no-body-actions-
 media-type-removed | POST /api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
 media-type-removed | POST /api/v1/sprints/{id}/unbind-milestone/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
 media-type-removed | POST /api/v1/tasks/{id}/approve-estimates/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
 property-removed | request PATCH /api/v1/programs/{id}/risk-policy/ body [[]PatchedProgramRequest->PatchedProgramRiskPolicyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
 property-removed | request PATCH /api/v1/programs/{id}/rollup-config/ body [[]PatchedProgramRequest->PatchedProgramRollupConfigRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
 property-removed | request POST /api/v1/programs/load-sample/ body [[]ProgramRequest->LoadSampleBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
@@ -93,3 +96,6 @@ status-removed | POST /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id
 status-removed | POST /api/v1/projects/{project_pk}/webhooks/{id}/test/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
 status-removed | POST /api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
 status-removed | POST /api/v1/sprints/{id}/unbind-milestone/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError

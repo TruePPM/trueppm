@@ -1041,7 +1041,7 @@ class Program(VersionedModel):
     # which the card renders as a health-tinted neutral — distinct from "" so
     # the General settings swatch picker can show "no color chosen". Mirrors
     # the ``Task.color`` phase-accent pattern below.
-    color = models.CharField(  # noqa: DJ001 — null distinguishes "unset" from ""
+    color = models.CharField(  # noqa: DJ001 — null is the only "unset" value; blank is not admissible
         max_length=7,
         null=True,
         blank=True,

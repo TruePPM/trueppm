@@ -430,6 +430,9 @@ NO_BODY_PATHS = [
     "/api/v1/projects/{project_pk}/task-runs/{id}/cancel/",
     "/api/v1/projects/{project_pk}/webhooks/{id}/test/",
     "/api/v1/programs/{program_pk}/webhooks/{id}/test/",
+    "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/",
+    "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/",
+    "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/",
 ]
 
 
@@ -623,6 +626,122 @@ def test_mark_all_read_succeeds_with_an_empty_body(admin_user: Any) -> None:
 
     assert response.status_code == 200, response.data
     assert response.data == {"updated": 0}
+
+
+# Empty-body smoke over the remaining corrected no-body endpoints. Each case builds the
+# cheapest real object so the request reaches the handler; "not rejected for the body"
+# means no 415 and no 400 that names a missing field. A 400/409 for a refused *state*
+# (a sprint with nothing to activate) is a handler decision, not a body rejection.
+def _fake_id_urls(project: Project) -> list[str]:
+    fake = "00000000-0000-0000-0000-000000000001"
+    return [
+        f"/api/v1/projects/{project.id}/tasks/{fake}/comments/{fake}/acknowledge/",
+        f"/api/v1/sprints/{fake}/retrospective/action-items/{fake}/promote/",
+        f"/api/v1/projects/{project.id}/task-runs/{fake}/cancel/",
+        f"/api/v1/projects/{project.id}/webhooks/{fake}/test/",
+    ]
+
+
+def _sprint(project: Project, state: str) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=state,
+    )
+
+
+def _live_empty_body_urls(project: Project, program: Program) -> dict[str, str]:
+    from trueppm_api.apps.projects.models import TaskSuggestedAssignee
+
+    suggested = User.objects.create_user(username="contract_suggested", password="pw")
+    ProjectMembership.objects.create(project=project, user=suggested, role=Role.MEMBER)
+    task = Task.objects.create(project=project, name="T", duration=1)
+    urls: dict[str, str] = {}
+    for verb in ("accept", "decline", "revoke"):
+        # One task per suggestion: a PENDING (task, user) pair is unique.
+        sug_task = Task.objects.create(project=project, name=f"S-{verb}", duration=1)
+        sug = TaskSuggestedAssignee.objects.create(task=sug_task, suggested_user=suggested)
+        urls[f"suggestion-{verb}"] = f"/api/v1/tasks/{sug_task.id}/suggestions/{sug.id}/{verb}/"
+    urls["sprint-activate"] = (
+        f"/api/v1/sprints/{_sprint(project, SprintState.PLANNED).id}/activate/"
+    )
+    urls["sprint-cancel"] = f"/api/v1/sprints/{_sprint(project, SprintState.PLANNED).id}/cancel/"
+    urls["sprint-unbind-milestone"] = (
+        f"/api/v1/sprints/{_sprint(project, SprintState.PLANNED).id}/unbind-milestone/"
+    )
+    urls["program-close"] = f"/api/v1/programs/{program.id}/close/"
+    urls["program-reopen"] = f"/api/v1/programs/{program.id}/reopen/"
+    urls["program-remove-sample"] = f"/api/v1/programs/{program.id}/remove-sample/"
+    urls["auto-rank"] = f"/api/v1/projects/{project.id}/product-backlog/auto-rank/"
+    urls["approve-estimates"] = f"/api/v1/tasks/{task.id}/approve-estimates/"
+    return urls
+
+
+def _assert_not_body_rejected(response: Any, url: str) -> None:
+    assert response.status_code != 415, f"{url} rejected the empty body's media type"
+    if response.status_code == 400:
+        assert "required" not in json.dumps(response.data).lower(), (
+            f"{url} 400 names a missing field for an empty body: {response.data}"
+        )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "key",
+    [
+        "suggestion-accept",
+        "suggestion-decline",
+        "suggestion-revoke",
+        "sprint-activate",
+        "sprint-cancel",
+        "sprint-unbind-milestone",
+        "program-close",
+        "program-reopen",
+        "program-remove-sample",
+        "auto-rank",
+        "approve-estimates",
+    ],
+)
+def test_no_body_endpoints_are_not_rejected_for_an_empty_body(
+    key: str, project: Project, program: Program, admin_user: Any
+) -> None:
+    """Live setup, real object: the empty-body POST reaches the handler."""
+    url = _live_empty_body_urls(project, program)[key]
+    response = _client(admin_user).post(url)
+
+    _assert_not_body_rejected(response, url)
+    # A body rejection would be a 400; these all have a happy path or a state refusal.
+    assert response.status_code < 500, response.data
+
+
+@pytest.mark.django_db
+def test_suggestion_routes_return_2xx_with_an_empty_body(
+    project: Project, program: Program, admin_user: Any
+) -> None:
+    """Accept, decline and revoke each succeed live (not merely 'not 400')."""
+    urls = _live_empty_body_urls(project, program)
+    # Accept and decline are the suggested user's alone; revoke is the manager's.
+    suggested = User.objects.get(username="contract_suggested")
+    for verb, actor in (("accept", suggested), ("decline", suggested), ("revoke", admin_user)):
+        response = _client(actor).post(urls[f"suggestion-{verb}"])
+        assert response.status_code == 200, (verb, response.data)
+
+
+@pytest.mark.django_db
+def test_remaining_no_body_routes_resolve_and_are_not_body_rejected(
+    project: Project, admin_user: Any
+) -> None:
+    """Heavy-setup endpoints (comment acknowledge, retro promote, task-run cancel,
+    webhook test ping): an unknown id answers 404, which proves routing and the
+    absence of a 415 only — body validation is not exercised there. The schema half
+    (``NO_BODY_PATHS``) is what pins those four."""
+    client = _client(admin_user)
+    for url in _fake_id_urls(project):
+        response = client.post(url)
+        assert response.status_code in (404, 403), (url, response.status_code)
+        assert response.status_code != 415
 
 
 # ---------------------------------------------------------------------------

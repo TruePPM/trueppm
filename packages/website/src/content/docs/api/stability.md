@@ -529,10 +529,10 @@ declaration correction, not a change taken without a window.
 
 ### No-body actions no longer declare a request body (#2870)
 
-Fifteen `POST` actions that never read the request body (archive/unarchive a project,
+Eighteen `POST` actions that never read the request body (archive/unarchive a project,
 close/reopen/remove-sample a program, activate/cancel/unbind-milestone a sprint,
 promote a retro action item, mark-all-read, approve-estimates, auto-rank, comment
-acknowledge, webhook test ping on both routes) were published with the viewset's whole
+acknowledge, webhook test ping on both routes, accept/decline/revoke a suggested assignee) were published with the viewset's whole
 write serializer as a *required* request body. They now declare no body, and the
 request-validation `400` that was injected only because a body was declared is gone
 (`activate`, `cancel` and `approve-estimates` still declare a `400`, now for a refused

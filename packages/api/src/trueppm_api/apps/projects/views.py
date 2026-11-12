@@ -7859,6 +7859,7 @@ class TaskViewSet(
     # parameterless tasks/{pk}/suggestions/accept/ route that 404s at runtime
     # (suggestion_pk always None) and pollutes the OpenAPI schema (#846).
     @extend_schema(
+        request=None,
         responses={
             200: inline_serializer(
                 name="TaskSuggestionAcceptResponse",
@@ -7999,6 +8000,7 @@ class TaskViewSet(
     # Routed explicitly in urls.py (see accept_suggestion) — not an @action so
     # no parameterless ghost route is generated (#846).
     @extend_schema(
+        request=None,
         responses={
             200: inline_serializer(
                 name="TaskSuggestionDeclineResponse",
@@ -8101,6 +8103,7 @@ class TaskViewSet(
     # Routed explicitly in urls.py (see accept_suggestion) — not an @action so
     # no parameterless ghost route is generated (#846).
     @extend_schema(
+        request=None,
         responses={
             200: inline_serializer(
                 name="TaskSuggestionRevokeResponse",
