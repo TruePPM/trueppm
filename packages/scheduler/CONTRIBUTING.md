@@ -102,17 +102,14 @@ work earlier", polices that instead. It cannot
 see a bug that moves early dates while keeping floats consistent. The reference
 properties above cover that class, except for a completed milestone with
 recorded actuals — #4433's shape, which the reference refuses and which stays
-pinned by a metamorphic closed-versus-live test — and the excluded #4631 shape. It runs on Rust only where `cargo` (or
+pinned by a metamorphic closed-versus-live test. It runs on Rust only where `cargo` (or
 `TRUEPPM_ORACLE_RUST_RUNNER`) is available.
 
-There is exactly one tracked exception to "do not carve the shape out",
-excused by a named filter and pinned by a strict xfail on its unfiltered repro
-that turns red when the issue is resolved, so the filter must be deleted then:
-
-- the open #4631 (an FF successor of completed work whose `actual_finish` is a
-  non-working day: the reference reads it in working time, the engines as the
-  verbatim day; the semantics are undecided) — `_ff_out_of_a_non_working_actual_finish`,
-  in the reference properties and the corpus generator.
+No reference property carves a shape out by a named filter. The last one, #4631
+(an FF successor of a non-working `actual_finish`), was settled on the
+working-time reading and now compares; `_ff_out_of_a_non_working_actual_finish`
+survives only as the corpus generator's redraw filter, so the committed corpus's
+seeded inputs stay stable.
 
 One further open defect is pinned without a filter, because the generator does
 not reach it: the open #4883 (a floor that only ties a milestone's link, #4690,

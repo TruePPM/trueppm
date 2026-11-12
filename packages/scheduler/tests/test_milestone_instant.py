@@ -1833,12 +1833,14 @@ class TestLagAfterNonWorkingTime:
         )
         assert schedule(p).project_finish == date(2026, 1, 19)
 
-    def test_zero_lag_after_a_non_working_actual_finish_is_the_next_start(self) -> None:
-        """A recorded finish on Saturday puts ``A -FS-> M`` at Sunday midnight.
+    def test_zero_lag_after_a_non_working_actual_finish_is_the_close_of_friday(self) -> None:
+        """A recorded finish on Saturday is the close of Friday in working time (#4631).
 
-        The same rule as a lag: the working day before that midnight is not a
-        working day, so M is the start of Monday — not the end of the Friday
-        before A actually finished, which is where the pre-#4173 engine put it.
+        ``A -FS-> M`` measures from Saturday midnight, the end of the last working
+        day at or before the recorded finish, so M is the end of Friday, where a
+        Friday ``actual_finish`` puts it. Measuring from the verbatim Sunday
+        midnight showed it at the start of Monday and let a lag out of M count
+        from a day later than the Friday-finish twin.
         """
         done = Task(
             id="A",
@@ -1849,8 +1851,8 @@ class TestLagAfterNonWorkingTime:
             percent_complete=100.0,
         )
         by_id = _by_id(_project([done, _task("M", 0)], [_dep("A", "M")]))
-        assert by_id["M"].early_start == _JAN_12_MON
-        assert by_id["M"].milestone_at_day_end is False
+        assert by_id["M"].early_start == date(2026, 1, 9)
+        assert by_id["M"].milestone_at_day_end is True
 
     def test_derivation_cites_the_fs_link_at_the_shown_day(self) -> None:
         d = derive_value(_ss_fs_join(4), "M", Quantity.EARLY_START)
