@@ -718,6 +718,7 @@ def test_success_resets_the_failure_counter(webhook: Webhook) -> None:
     webhook.refresh_from_db()
     assert webhook.consecutive_failures == 0
     assert webhook.last_failure_at is None
+    assert webhook.first_failure_at is None
     assert webhook.is_active is True
 
     # ...and the counter genuinely restarted, rather than sitting one below.

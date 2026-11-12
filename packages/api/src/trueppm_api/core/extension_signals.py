@@ -35,6 +35,12 @@ inside a transaction, each receiver runs in its own savepoint, so a receiver's
 transaction usable. The helper skips the savepoint when no receiver is
 connected.
 
+Extension receivers are **synchronous by contract**. The two paths are
+deliberately not symmetric for an ``async def`` receiver: outside a transaction
+it goes through ``send_robust`` (Django bridges it to the event loop), while
+inside one it is logged and skipped, because it would run on another connection
+and this helper does not re-implement Django's bridge. Do not register one.
+
 The ``sender`` convention
 -------------------------
 

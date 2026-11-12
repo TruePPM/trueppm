@@ -391,15 +391,23 @@ def test_risk_changed_reaches_a_sender_filtered_receiver(project: Project) -> No
 # ---------------------------------------------------------------------------
 
 
+def _unique_violation() -> None:
+    """Receiver body: a real unique-constraint violation (aborts the transaction)."""
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO auth_group (name) VALUES ('dup-4084')")
+        cur.execute("INSERT INTO auth_group (name) VALUES ('dup-4084')")
+
+
 @pytest.mark.django_db(transaction=True)
 def test_receiver_database_error_does_not_abort_the_transaction() -> None:
-    from django.db import IntegrityError, connection, transaction
+    from django.db import connection, transaction
 
     sig = django.dispatch.Signal()
 
     def _db_boom(sender: object, **kwargs: object) -> None:
-        with connection.cursor() as cur:
-            cur.execute("SELECT 1/0")
+        _unique_violation()
 
     sig.connect(_db_boom, weak=False)
     try:
@@ -411,28 +419,56 @@ def test_receiver_database_error_does_not_abort_the_transaction() -> None:
                 assert cur.fetchone() == (1,)
     finally:
         sig.disconnect(_db_boom)
-    assert IntegrityError  # imported for clarity of the failure class under test
+
+
+def _make_project_and_task() -> tuple[Project, Task]:
+    project = Project.objects.create(
+        name="P", calendar=Calendar.objects.create(name="C"), start_date=date(2026, 1, 5)
+    )
+    task = Task.objects.create(project=project, name="T", duration=1, status=TaskStatus.NOT_STARTED)
+    return project, task
 
 
 @pytest.mark.django_db(transaction=True)
 def test_receiver_database_error_on_task_status_change_keeps_the_save() -> None:
-    from django.db import connection
+    """Inside an atomic block (as under ATOMIC_REQUESTS) a failing receiver must
+    not abort the transaction: the save and later queries in it still succeed."""
+    from django.db import transaction
+
+    _, task = _make_project_and_task()
 
     def _db_boom(sender: object, **kwargs: object) -> None:
-        with connection.cursor() as cur:
-            cur.execute("SELECT 1/0")
+        _unique_violation()
 
     task_status_changed.connect(_db_boom, weak=False)
     try:
-        project = Project.objects.create(
-            name="P", calendar=Calendar.objects.create(name="C"), start_date=date(2026, 1, 5)
-        )
-        task = Task.objects.create(
-            project=project, name="T", duration=1, status=TaskStatus.NOT_STARTED
-        )
-        task.status = TaskStatus.IN_PROGRESS
-        task.save()
+        with transaction.atomic():
+            task.status = TaskStatus.IN_PROGRESS
+            task.save()
+            # Without the savepoint this raises InFailedSqlTransaction.
+            task.refresh_from_db()
     finally:
         task_status_changed.disconnect(_db_boom)
     task.refresh_from_db()
     assert task.status == TaskStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db(transaction=True)
+def test_receiver_database_error_on_history_record_keeps_the_save() -> None:
+    """Same containment for history_record_created, the highest-volume site."""
+    from django.db import transaction
+
+    def _db_boom(sender: object, **kwargs: object) -> None:
+        _unique_violation()
+
+    history_record_created.connect(_db_boom, weak=False)
+    try:
+        with transaction.atomic():
+            _, task = _make_project_and_task()
+            task.name = "renamed"
+            task.save()
+            task.refresh_from_db()
+    finally:
+        history_record_created.disconnect(_db_boom)
+    task.refresh_from_db()
+    assert task.name == "renamed"
