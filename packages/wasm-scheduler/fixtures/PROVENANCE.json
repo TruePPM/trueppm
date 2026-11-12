@@ -157,9 +157,9 @@
       "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
     },
     "expected/milestone_after_non_working_actual_finish.json": {
-      "provenance": "unknown",
-      "issue": "#4173",
-      "evidence": "9bfa3b1d4: last change carries no regeneration or hand-derivation statement"
+      "provenance": "regenerated",
+      "issue": "#4631",
+      "evidence": "regenerated (REGEN_EXPECTED=1) for the working-time reading of a non-working actual (#4631, #4702); values hand-checked against the reference oracle"
     },
     "expected/milestone_end_of_day_cap_own_calendar.json": {
       "provenance": "unknown",
@@ -177,9 +177,9 @@
       "evidence": "1a764c63c: last change carries no regeneration or hand-derivation statement"
     },
     "expected/milestone_ff_after_non_working_actual_finish.json": {
-      "provenance": "unknown",
-      "issue": "#4173",
-      "evidence": "5dbe66c4f: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+      "provenance": "regenerated",
+      "issue": "#4631",
+      "evidence": "regenerated (REGEN_EXPECTED=1) for the working-time reading of a non-working actual (#4631, #4702); values hand-checked against the reference oracle"
     },
     "expected/milestone_ff_after_six_day_calendar_finish.json": {
       "provenance": "unknown",
@@ -407,9 +407,9 @@
       "evidence": "8d8b34c92: last change carries no regeneration or hand-derivation statement"
     },
     "expected/progress_started_link_anchor.json": {
-      "provenance": "unknown",
-      "issue": "#4523",
-      "evidence": "412f0cfae: last change carries no regeneration or hand-derivation statement"
+      "provenance": "regenerated",
+      "issue": "#4631",
+      "evidence": "regenerated (REGEN_EXPECTED=1) for the working-time reading of a non-working actual (#4631, #4702); values hand-checked against the reference oracle"
     },
     "expected/progress_started_snet_resume.json": {
       "provenance": "unknown",

@@ -101,10 +101,10 @@ def test_weekend_milestone_actual_then_fs_lag_chain_matches_cpm() -> None:
 
 
 def test_ss_lag_from_work_started_on_a_weekend_matches_cpm() -> None:
-    """SS+3 from work whose recorded start is Sat 03-14 measures from Saturday.
+    """SS+3 from work whose recorded start is Sat 03-14 measures from Monday (#4702).
 
-    Sat + 3 = Tue 03-17, and X's six days end Tue 03-24. From the snapped Monday
-    the successor started Thu and MC reported Thu 03-26.
+    The Saturday start is read in working time, the start of Mon 03-16, so
+    Mon + 3 = Thu 03-19 and X's six days end Thu 03-26 in both MC and CPM.
     """
     project = _project(
         [
@@ -113,11 +113,11 @@ def test_ss_lag_from_work_started_on_a_weekend_matches_cpm() -> None:
         ],
         [_dep("W", "X", DependencyType.SS, 3)],
     )
-    assert _assert_mc_matches_cpm(project) == date(2026, 3, 24)
+    assert _assert_mc_matches_cpm(project) == date(2026, 3, 26)
 
 
 def test_ss_lag_from_weekend_started_work_into_a_milestone_matches_cpm() -> None:
-    """The milestone branch reads the verbatim start too (MC was Wed 04-01)."""
+    """The milestone branch reads the start in working time too (#4702)."""
     project = _project(
         [
             _work("W", 7, percent_complete=10.0, actual_start=date(2026, 3, 14)),
@@ -126,16 +126,15 @@ def test_ss_lag_from_weekend_started_work_into_a_milestone_matches_cpm() -> None
         ],
         [_dep("W", "M", DependencyType.SS, 1), _dep("M", "X", DependencyType.FS)],
     )
-    assert _assert_mc_matches_cpm(project) == date(2026, 3, 31)
+    assert _assert_mc_matches_cpm(project) == date(2026, 4, 1)
 
 
 def test_sf_lag_from_work_started_on_a_weekend_matches_cpm() -> None:
-    """A positive SF lag counts from the day before the verbatim start (#4333).
+    """A positive SF lag counts from the day before the start (#4333).
 
-    W's recorded start is Sat 03-14, so SF+4 anchors on Fri 03-13 and finishes X
-    on Tue 03-17; Y's twenty days then run Wed 03-18..Tue 04-14. Measured from the
-    snapped Monday the anchor was Sunday and X finished Thu 03-19 — two working
-    days late, carried to the finish.
+    W's recorded start Sat 03-14 reads as the start of Mon 03-16 (#4702), so SF+4
+    anchors on Sun 03-15 and finishes X on Thu 03-19; Y's twenty days then run
+    Fri 03-20..Thu 04-16, in both MC and CPM.
     """
     project = _project(
         [
@@ -145,13 +144,13 @@ def test_sf_lag_from_work_started_on_a_weekend_matches_cpm() -> None:
         ],
         [_dep("W", "X", DependencyType.SF, 4), _dep("X", "Y", DependencyType.FS)],
     )
-    assert _assert_mc_matches_cpm(project) == date(2026, 4, 14)
+    assert _assert_mc_matches_cpm(project) == date(2026, 4, 16)
 
 
 def test_sf_lag_from_weekend_started_work_into_a_milestone_matches_cpm() -> None:
-    """The milestone branch reads the verbatim start for a positive SF lag too.
+    """The milestone branch reads the start in working time for a positive SF lag too.
 
-    Sat 03-14 + 4 = Wed 03-18 00:00, the end of Tuesday, so Y starts Wed 03-18.
+    Mon 03-16 + 4 = Fri 03-20 00:00, the end of Thursday, so Y starts Fri 03-20.
     """
     project = _project(
         [
@@ -161,7 +160,7 @@ def test_sf_lag_from_weekend_started_work_into_a_milestone_matches_cpm() -> None
         ],
         [_dep("W", "M", DependencyType.SF, 4), _dep("M", "Y", DependencyType.FS)],
     )
-    assert _assert_mc_matches_cpm(project) == date(2026, 4, 14)
+    assert _assert_mc_matches_cpm(project) == date(2026, 4, 16)
 
 
 def test_milestone_on_its_weekend_actual_can_be_the_finish() -> None:

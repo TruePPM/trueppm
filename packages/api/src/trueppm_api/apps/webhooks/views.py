@@ -61,6 +61,7 @@ from trueppm_api.apps.webhooks.serializers import (
 )
 from trueppm_api.apps.webhooks.tasks import deliver_webhook
 from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
+from trueppm_api.core.openapi import CURSOR_PAGINATION_PARAMETERS
 
 logger = logging.getLogger(__name__)
 
@@ -373,6 +374,7 @@ class WebhookViewSet(
 
     @extend_schema(
         summary="List recent webhook deliveries",
+        parameters=CURSOR_PAGINATION_PARAMETERS,
         responses={200: WEBHOOK_DELIVERY_PAGE},
         # Pinned because declaring the envelope changes what drf-spectacular
         # thinks this operation is. It derives the operationId's `_list`/
@@ -412,6 +414,7 @@ class WebhookViewSet(
     # and why the id is pinned at all (#2583).
     deliveries=extend_schema(
         summary="List recent webhook deliveries",
+        parameters=CURSOR_PAGINATION_PARAMETERS,
         responses={
             200: WEBHOOK_DELIVERY_PAGE,
             403: OpenApiResponse(

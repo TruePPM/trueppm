@@ -335,23 +335,24 @@ def test_an_ss_link_out_of_a_started_task_is_not_a_late_date_term() -> None:
         [_dep("A", "B", DependencyType.SS, 4)],
     )
     assert _rows(project, "A", Quantity.LATE_START) == (
-        "2026-01-16",
+        "2026-01-20",
         [
-            ("project_finish", None, "2026-01-16", None, False),
-            ("duration_from_late_finish", None, "2026-01-16", 1, True),
+            ("project_finish", None, "2026-01-20", None, False),
+            ("duration_from_late_finish", None, "2026-01-20", 1, True),
         ],
     )
     assert _rows(project, "A", Quantity.LATE_FINISH) == (
-        "2026-01-16",
-        [("project_finish", None, "2026-01-16", None, True)],
+        "2026-01-20",
+        [("project_finish", None, "2026-01-20", None, True)],
     )
-    # Nor does it limit A's free float; B is still measured from Saturday.
-    assert _rows(project, "A", Quantity.FREE_FLOAT) == (4, [("total_float", None, None, 4, True)])
+    # Nor does it limit A's free float. B is measured from the start of Monday,
+    # the working-time reading of the Saturday start (#4702): Mon + 4 = Fri.
+    assert _rows(project, "A", Quantity.FREE_FLOAT) == (6, [("total_float", None, None, 6, True)])
     assert _rows(project, "B", Quantity.EARLY_START) == (
-        "2026-01-14",
+        "2026-01-16",
         [
             ("project_start", None, "2026-01-05", None, False),
-            ("predecessor_ss", "A", "2026-01-14", None, True),
+            ("predecessor_ss", "A", "2026-01-16", None, True),
         ],
     )
 

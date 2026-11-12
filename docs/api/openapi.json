@@ -16696,12 +16696,28 @@
                 "summary": "List recent webhook deliveries",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque continuation token. Pass the `cursor` value taken from the `next` or `previous` URL of the previous response; omit it for the first page."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
                     },
                     {
                         "in": "path",
@@ -37055,12 +37071,28 @@
                 "summary": "List recent webhook deliveries",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque continuation token. Pass the `cursor` value taken from the `next` or `previous` URL of the previous response; omit it for the first page."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
                     },
                     {
                         "in": "path",
@@ -49118,11 +49150,27 @@
                     },
                     {
                         "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque continuation token. Pass the `cursor` value taken from the `next` or `previous` URL of the previous response; omit it for the first page."
+                    },
+                    {
+                        "in": "query",
                         "name": "event_type",
                         "schema": {
                             "type": "string"
                         },
                         "description": "Filter to a single AuditEventType value."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
                     },
                     {
                         "in": "query",
@@ -52077,6 +52125,24 @@
             "get": {
                 "operationId": "v1_workspace_members_retrieve",
                 "description": "GET /api/v1/workspace/members/ — list members (#518).\n\nAdmins see every member; a non-admin member sees only their own row.\nCursor-paginated (#1317): each page materializes at most ``page_size`` rows,\nso the member-row builder's batched queries stay bounded regardless of org\nsize.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque continuation token. Pass the `cursor` value taken from the `next` or `previous` URL of the previous response; omit it for the first page."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
+                    }
+                ],
                 "tags": [
                     "workspace"
                 ],

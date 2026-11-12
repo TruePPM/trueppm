@@ -83,7 +83,7 @@ from trueppm_api.apps.workspace.serializers import (
 )
 from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
 from trueppm_api.core.export_downloads import stream_export_job_or_error
-from trueppm_api.core.openapi import state_refusal_400
+from trueppm_api.core.openapi import CURSOR_PAGINATION_PARAMETERS, state_refusal_400
 
 # Typed-confirmation header for the destructive workspace delete (ADR-0174). Its
 # value must equal the workspace name exactly — the web danger page sends it.
@@ -399,6 +399,7 @@ class WorkspaceMemberListView(APIView):
         return annotated
 
     @extend_schema(
+        parameters=CURSOR_PAGINATION_PARAMETERS,
         # This view manually cursor-paginates (it is an APIView, so drf-spectacular
         # does not auto-wrap); declare the envelope explicitly so the schema matches
         # the ``{next, previous, results}`` body (#2127).
@@ -411,7 +412,7 @@ class WorkspaceMemberListView(APIView):
                     "results": WorkspaceMemberSerializer(many=True),
                 },
             )
-        }
+        },
     )
     def get(self, request: Request) -> Response:
         role = _workspace_membership_role(request)
@@ -1534,6 +1535,7 @@ class WorkspaceAuditEventListView(APIView):
             OpenApiParameter(
                 "until", str, description="Only events at/before this ISO-8601 instant."
             ),
+            *CURSOR_PAGINATION_PARAMETERS,
         ],
         # The handler paginates (``AuditEventCursorPagination.get_paginated_response``),
         # so the 200 body is a cursor envelope, NOT a bare array. drf-spectacular's
