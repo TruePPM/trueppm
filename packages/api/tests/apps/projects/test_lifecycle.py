@@ -1247,3 +1247,42 @@ def test_export_project_available_when_archived(owner: object, project: Project)
     assert resp.status_code == 200, resp.content
     body = json.loads(resp.content)
     assert body["projects"][0]["name"] == "Apollo"
+
+
+# ---------------------------------------------------------------------------
+# Transfer ids are declared integer; the server still accepts both spellings
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("as_string", [False, True], ids=["int", "numeric-string"])
+def test_project_transfer_accepts_int_and_numeric_string_id(
+    owner: object, other_user: object, project: Project, as_string: bool
+) -> None:
+    ProjectMembership.objects.create(project=project, user=other_user, role=Role.MEMBER)
+    new_id = str(other_user.pk) if as_string else other_user.pk
+    resp = _client(owner).post(
+        f"/api/v1/projects/{project.pk}/transfer/",
+        {"new_owner_user_id": new_id},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    assert ProjectMembership.objects.get(project=project, user=other_user).role == Role.OWNER
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("as_string", [False, True], ids=["int", "numeric-string"])
+def test_sponsorship_transfer_accepts_int_and_numeric_string_ids(
+    owner: object, other_user: object, program: Program, as_string: bool
+) -> None:
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    new_id = str(other_user.pk) if as_string else other_user.pk
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/",
+        {"new_owner_user_id": new_id, "new_lead_user_id": new_id},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    assert ProgramMembership.objects.get(program=program, user=other_user).role == Role.OWNER
+    program.refresh_from_db()
+    assert program.lead_id == other_user.pk

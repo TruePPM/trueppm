@@ -60845,11 +60845,10 @@
             },
             "OwnershipTransferBodyRequest": {
                 "type": "object",
-                "description": "Body of ``POST /projects/{id}/transfer/``.\n\n``new_owner_user_id`` is the user's primary key as a string (clients send the\ndecimal-string form).",
+                "description": "Body of ``POST /projects/{id}/transfer/``.\n\nThe ids are the stock ``auth.User`` integer PK, so they are declared integer.\nThe handlers read ``request.data`` directly and ``User.objects.get(pk=...)``\nalso accepts a numeric string, which the web client still sends; this\nserializer only feeds the schema.",
                 "properties": {
                     "new_owner_user_id": {
-                        "type": "string",
-                        "minLength": 1
+                        "type": "integer"
                     }
                 },
                 "required": [
@@ -75166,11 +75165,10 @@
                 "description": "Body of ``POST /programs/{id}/transfer-sponsorship/``.",
                 "properties": {
                     "new_owner_user_id": {
-                        "type": "string",
-                        "minLength": 1
+                        "type": "integer"
                     },
                     "new_lead_user_id": {
-                        "type": "string"
+                        "type": "integer"
                     }
                 },
                 "required": [

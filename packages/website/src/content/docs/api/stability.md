@@ -547,6 +547,10 @@ required are now declared required. No request that worked before is refused. Th
 schema-declaration correction, recorded here because the schema diff reports it as
 removed media types, statuses and properties.
 
+The project and sponsorship transfer actions declare their user ids (`new_owner_user_id`,
+`new_lead_user_id`) as `integer`, matching the roster ids below; the server also still
+accepts a numeric string such as `"42"` for backward compatibility.
+
 | | |
 |---|---|
 | Announced | 0.5 |

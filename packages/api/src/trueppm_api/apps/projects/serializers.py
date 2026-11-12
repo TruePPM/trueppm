@@ -11036,17 +11036,19 @@ class QueueReorderBodySerializer(serializers.Serializer[dict[str, Any]]):
 class OwnershipTransferBodySerializer(serializers.Serializer[dict[str, Any]]):
     """Body of ``POST /projects/{id}/transfer/``.
 
-    ``new_owner_user_id`` is the user's primary key as a string (clients send the
-    decimal-string form).
+    The ids are the stock ``auth.User`` integer PK, so they are declared integer.
+    The handlers read ``request.data`` directly and ``User.objects.get(pk=...)``
+    also accepts a numeric string, which the web client still sends; this
+    serializer only feeds the schema.
     """
 
-    new_owner_user_id = serializers.CharField()
+    new_owner_user_id = serializers.IntegerField()
 
 
 class SponsorshipTransferBodySerializer(OwnershipTransferBodySerializer):
     """Body of ``POST /programs/{id}/transfer-sponsorship/``."""
 
-    new_lead_user_id = serializers.CharField(required=False, allow_blank=True)
+    new_lead_user_id = serializers.IntegerField(required=False)
 
 
 class ProgramSplitEntrySerializer(serializers.Serializer[dict[str, Any]]):
