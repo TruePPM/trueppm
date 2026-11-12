@@ -237,7 +237,7 @@ export function NotificationPanel({ onClose }: Props) {
         className="flex-1 overflow-y-auto p-3 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
       >
         {isLoading && (
-          <div aria-busy="true" aria-label="Loading notifications" className="flex flex-col gap-2">
+          <div role="status" aria-busy="true" aria-label="Loading notifications" className="flex flex-col gap-2">
             {[0, 1, 2].map((i) => (
               <div
                 key={i}

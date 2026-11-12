@@ -101,7 +101,7 @@ export function PersonalAccessTokensPage() {
       </header>
 
       {isLoading ? (
-        <div aria-busy="true" aria-label="Loading tokens" className="space-y-2">
+        <div role="status" aria-busy="true" aria-label="Loading tokens" className="space-y-2">
           <div className="h-14 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
           <div className="h-14 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
         </div>

@@ -415,7 +415,7 @@ function WorkGroupHeader({ group, taskCount }: { group: MyWorkGroup; taskCount: 
 
 function LoadingSkeleton() {
   return (
-    <ul aria-label="Loading your tasks" className="flex flex-col gap-1 px-4 md:px-6">
+    <ul role="status" aria-label="Loading your tasks" className="flex flex-col gap-1 px-4 md:px-6">
       {[1, 2, 3, 4, 5, 6].map((i) => (
         <li
           key={i}

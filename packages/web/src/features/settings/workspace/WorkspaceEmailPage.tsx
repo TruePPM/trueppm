@@ -735,7 +735,7 @@ export function WorkspaceEmailPage() {
 
   if (isLoading || !form || !data) {
     return (
-      <div className="px-6 py-8 space-y-3" aria-label="Loading email settings" aria-busy="true">
+      <div role="status" className="px-6 py-8 space-y-3" aria-label="Loading email settings" aria-busy="true">
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}

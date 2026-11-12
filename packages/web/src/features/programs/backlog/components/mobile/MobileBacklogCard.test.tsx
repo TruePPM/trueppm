@@ -78,6 +78,11 @@ describe('MobileBacklogCard', () => {
     expect(onPull).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps the Pull control at the 44px touch-target floor (#4306)', () => {
+    renderCard();
+    expect(screen.getByRole('button', { name: /^Pull / }).className).toContain('h-11');
+  });
+
   it('hides Pull for a viewer and for a non-proposed item', () => {
     renderCard({}, false);
     expect(screen.queryByRole('button', { name: /^Pull / })).toBeNull();

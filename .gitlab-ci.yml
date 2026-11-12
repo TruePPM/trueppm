@@ -1318,6 +1318,21 @@ lint:aria-modal-focus-trap:
     - bash scripts/check-aria-modal-focus-trap.sh --self-test
     - bash scripts/check-aria-modal-focus-trap.sh
 
+lint:loading-skeleton-role:
+  extends: .fast-job
+  # A loading placeholder with aria-label on a role-less div gives screen readers
+  # no name and no announcement (#4618). See scripts/check-loading-skeleton-role.py.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache python3
+  script:
+    - python3 scripts/check-loading-skeleton-role.py --self-test
+    - python3 scripts/check-loading-skeleton-role.py
+
 lint:hover-reveal-focus:
   extends: .fast-job
   # Hover-only reveal keyboard-reachability gate (web-rule 417, #3619). A

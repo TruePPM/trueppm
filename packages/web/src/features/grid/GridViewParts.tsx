@@ -217,7 +217,7 @@ export function GridFacetRow({
 /** Ten pulsing rows while the task list loads; outline mode fakes an indent cascade. */
 export function GridLoadingSkeleton({ outline }: { outline: boolean }) {
   return (
-    <div className="flex h-full flex-col bg-neutral-surface p-3 gap-1" aria-busy="true">
+    <div className="flex h-full flex-col bg-neutral-surface p-3 gap-1" role="status" aria-label="Loading tasks" aria-busy="true">
       {Array.from({ length: 10 }).map((_, i) => (
         <div
           key={i}

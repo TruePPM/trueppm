@@ -222,7 +222,7 @@ export function ProgramListPage() {
 
       <div className="flex flex-1 flex-col overflow-y-auto px-6 py-6">
         {isLoading && (
-          <ul aria-label="Loading programs" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <ul role="status" aria-label="Loading programs" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {[1, 2, 3].map((i) => (
               <li
                 key={i}

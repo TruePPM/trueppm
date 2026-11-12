@@ -134,6 +134,8 @@ describe('SchedulePulse', () => {
     useProjectScheduleSummary.mockReturnValue({ data: undefined, isLoading: true, error: null });
     render(<SchedulePulse projectId="p1" />);
     expect(screen.getByLabelText('Loading schedule status')).toBeInTheDocument();
+    // getByLabelText passes on a role-less div; the role is what announces it (#4618).
+    expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument();
   });
 
   it('shows an inline error if the overview fails, without crashing the strip', () => {

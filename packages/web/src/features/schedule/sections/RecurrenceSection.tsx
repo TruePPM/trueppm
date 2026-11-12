@@ -664,7 +664,7 @@ export function RecurrenceSection({ taskId, projectId, userRole, canEdit }: Draw
 
   if (isLoading || roleLoading) {
     return (
-      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading recurrence">
+      <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading recurrence">
         {[0, 1, 2].map((i) => (
           <div
             key={i}

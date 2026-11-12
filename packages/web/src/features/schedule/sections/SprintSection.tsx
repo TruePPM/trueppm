@@ -60,7 +60,7 @@ function SprintAssignmentControl({
 }) {
   if (isLoading) {
     return (
-      <div
+      <div role="status"
         className="h-9 rounded-control bg-neutral-surface-raised motion-safe:animate-pulse w-full"
         aria-label={`Loading ${itl.lowerPlural}`}
       />

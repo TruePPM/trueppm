@@ -328,7 +328,7 @@ export function MobileGroomingPage() {
             type="button"
             onClick={() => setQuickAddOpen(true)}
             aria-label="Add story"
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-primary text-neutral-text-inverse ${FOCUS_RING}`}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-primary text-neutral-text-inverse ${FOCUS_RING}`}
           >
             <PlusIcon aria-hidden className="h-4 w-4" />
           </button>

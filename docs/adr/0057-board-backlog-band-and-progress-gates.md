@@ -160,8 +160,12 @@ single flat priority-ordered list grouped into four sections:
 |---|---|---|
 | **Next up · ready to pull** | `NOT_STARTED` | `priorityRank` asc |
 | **In flight** | `IN_PROGRESS` + `REVIEW` | `priorityRank` asc |
-| **Backlog · needs decision** | `BACKLOG` | `statusEnteredAt` desc |
+| **Backlog · needs decision** | `BACKLOG` | `priorityRank` asc, `statusEnteredAt` desc tie-break (amended 2026-11-11) |
 | **Recently done** | `COMPLETE` within 14 days | `actualFinish` desc |
+
+> **Amendment 2026-11-11 (#4312):** the Queue layout's Backlog group now sorts by priority
+> (`priorityRank` asc) with `statusEnteredAt` desc as the recency tie-break, matching the other
+> priority-ordered groups. The original `statusEnteredAt`-only sort is superseded.
 
 `ON_HOLD` is intentionally inert (legacy status). Summary tasks are excluded.
 The recently-done window is fixed at 14 days — long enough to anchor a "what

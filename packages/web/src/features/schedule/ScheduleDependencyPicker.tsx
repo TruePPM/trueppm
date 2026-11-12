@@ -1058,7 +1058,7 @@ function ProgramResults({
   }
   if (isLoading) {
     return (
-      <div
+      <div role="status"
         className="flex-1 overflow-y-auto px-4 pb-2 pt-1"
         aria-busy="true"
         aria-label="Loading tasks"
