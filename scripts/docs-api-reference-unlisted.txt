@@ -45,7 +45,6 @@ GET /api/v1/me/active-sprints/
 GET /api/v1/me/api-token-audit/
 GET /api/v1/me/api-tokens/{id}/
 GET /api/v1/me/credentials/
-GET /api/v1/me/notification-settings/
 GET /api/v1/me/notifications/
 POST /api/v1/me/notifications/mark-all-read/
 GET /api/v1/me/notifications/{id}/

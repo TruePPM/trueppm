@@ -226,7 +226,7 @@ paginated `{count, results}` envelope the list route returns and not a single
 preference object — apply the array to your local state directly rather than
 refetching.
 
-Do Not Disturb and the digest schedule use `GET` and `PATCH /api/v1/me/notification-settings/`; see [Do Not Disturb](/features/notifications/#do-not-disturb).
+Do Not Disturb and the digest schedule use `GET /api/v1/me/notification-settings/` and `PATCH /api/v1/me/notification-settings/`; see [Do Not Disturb](/features/notifications/#do-not-disturb).
 
 ## Mention groups
 

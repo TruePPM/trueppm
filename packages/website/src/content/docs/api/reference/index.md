@@ -89,8 +89,16 @@ parameters the operation declares rather than assuming one convention.
 |---------|------------------|-------------------|---------|
 | Page number | `page` | `{count, next, previous, results}` | Most list endpoints (default page size 50) |
 | Page number with size | `page`, `page_size` | `{count, next, previous, results}` | Endpoints that let you choose the page size, such as `/admin/failed-tasks/` |
-| Cursor | `cursor`, `page_size` (default 50, maximum 200) | `{next, previous, results}`, no `count` | The [audit log](/administration/audit-log/#reading-the-log), the workspace member list, and a webhook's delivery history |
+| Cursor (DRF `CursorPagination`) | `cursor`, `page_size` (default 50, maximum 200) | `{next, previous, results}`, no `count` | Only the [audit log](/administration/audit-log/#reading-the-log), the workspace member list, and a webhook's delivery history |
 | Limit and offset | `limit`, `offset` | `{count, next, previous, results}` | `/me/work/`, `/me/external-items/`, the product backlog and the API token audit lists |
+
+Several other endpoints also declare `cursor` and `page_size`, but they are not DRF
+cursor paginators and do not return `{next, previous, results}`: the asset feeds
+(`/assets/`, `/programs/{program_pk}/assets/`, `/projects/{project_pk}/assets/`) and the
+project changelog (`/projects/{project_pk}/changelog/`) return `{results, next_cursor}`,
+and the sync pulls (`/projects/{id}/sync/`, `/sync/user/programs/`) return
+`{changes, timestamp, next_cursor, ...}`. For these, pass `next_cursor` back as
+`cursor` until it is `null`; the cursor is opaque.
 
 A fifth, bespoke shape, `{results, next_until}`, is used by the board activity feed
 (`/projects/{id}/board/activity/`): pass the returned `next_until` back as the

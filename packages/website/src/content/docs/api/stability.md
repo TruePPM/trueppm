@@ -441,15 +441,19 @@ for removal at 1.0. Recipes and a verification sample are in
 
 ### Deprecated aliases kept for a release (#4090)
 
-These four were deprecated in code comments or field descriptions only. They are
+These four were deprecated in code comments or field descriptions only (#4090). They are
 registered here so the list is complete. None has a `Deprecation` header yet.
 
 | Element | Replacement | Removal |
 |---------|-------------|---------|
 | `subtask_name` on sprint scope-change rows (ADR-0101) | `item_name`, which carries the same value | no date set; announced as "one release" |
-| `detail` and `cycle` on the `cyclic_dependency` 400 (#3800) | `code` and `offending` | no date set; announced as "one minor" |
 | `has_more` on the sync delta response (#2842) | `next_cursor is not null` | 0.5 |
 | `?token=<access_token>` on the WebSocket handshake | the `?ticket=` flow in [WebSocket API](/api/websockets/#authentication) | off by default; removed in the next release |
+| `task_id` on the `task_created` and `task_updated` WebSocket payloads sent by retrospective promotion and carryover | `id`, which every other `task_created` and `task_updated` payload carries | dropped after 0.5 |
+
+Also deprecated, outside those four: `detail` and `cycle` on the `cyclic_dependency` 400
+(#3800) are replaced by `code` and `offending`. No removal date is set; it was announced
+as "one minor".
 
 ### Mention-group member email removed (#4578)
 
