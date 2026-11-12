@@ -287,7 +287,7 @@ def test_project_scoped_token_still_works_on_task_sync(project: Project, owner: 
         },
         format="json",
     )
-    assert resp.status_code in (200, 201), resp.data
+    assert resp.status_code == 201, resp.data
 
 
 @pytest.mark.django_db
