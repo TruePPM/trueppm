@@ -13,12 +13,18 @@
  *     separate key.
  *
  * Mounted on My Work (the common landing); kept lightweight.
+ *
+ * Yields to the first-login home picker (rule 363, #3616): both explain the same
+ * thing ("where TruePPM opens") and the picker is the actionable one, so while the
+ * picker is eligible this hint stays out of the column. It is latched like the
+ * picker's own eligibility so it does not pop in the moment the picker is skipped.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { CloseIcon } from '@/components/Icons';
 import { LANDING_HINT_SEEN_KEY, LANDING_FALLBACK_NOTICE_SEEN_KEY } from '@/features/me/landing';
+import { shouldShowLandingPrompt } from '@/features/me/LandingPrimaryUsePrompt';
 
 type HintVariant = 'role_policy' | 'fallback';
 
@@ -59,12 +65,16 @@ export function resolveLandingHint(
 export function LandingContextHint() {
   const { user } = useCurrentUser();
   const [dismissed, setDismissed] = useState(false);
+  const pickerEligibleRef = useRef(false);
+  if (!pickerEligibleRef.current && user && shouldShowLandingPrompt(user.default_landing)) {
+    pickerEligibleRef.current = true;
+  }
 
   const variant = user
     ? resolveLandingHint(user.landing?.resolved_by, user.landing?.intent, user.default_landing)
     : null;
 
-  if (!user || variant == null || dismissed) return null;
+  if (!user || variant == null || dismissed || pickerEligibleRef.current) return null;
 
   function handleDismiss() {
     if (!user) return;
