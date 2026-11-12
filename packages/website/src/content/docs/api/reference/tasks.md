@@ -148,6 +148,8 @@ checked explicitly rather than through the usual project-scoped permission class
 since this route is not nested under `/projects/{id}/` and carries no URL-level
 project id to gate on.
 
+Task custom-field values are written per field with `PUT` and `DELETE` on `/api/v1/projects/{project_pk}/tasks/{task_pk}/field-values/{field_id}/`; the request and response shapes are in the [interactive schema](/api/reference/#interactive-schema).
+
 ## Task attachments
 
 Each attachment is **either** an uploaded file **or** an external URL — never both.

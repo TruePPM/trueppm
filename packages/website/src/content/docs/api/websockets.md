@@ -8,7 +8,7 @@ TruePPM pushes real-time collaboration events over WebSocket. OpenAPI 3.0 cannot
 describe WebSocket channels, so this page is the reference for the WS surface that
 `docs/api/openapi.json` does not cover.
 
-There are two endpoints, both scoped to a single project by its UUID.
+There is one endpoint, scoped to a single project by its UUID.
 
 | Endpoint | Consumer | Purpose |
 |----------|----------|---------|
@@ -23,7 +23,7 @@ program's channel group. The server does emit five program lifecycle events —
 `program_closed`, `program_reopened`, `program_deleted`, `program_split`, and
 `program_sponsorship_transferred` — but it fans them out on the group
 `project_{program_id}`, and **nothing in the product can join that group**: the only WS
-routes are the two project endpoints above, and `ProjectConsumer` resolves membership
+route is the project endpoint above, and `ProjectConsumer` resolves membership
 against `ProjectMembership`, which a program UUID never matches. A handshake against a
 program UUID is closed with `4003`.
 
@@ -50,6 +50,10 @@ Authorization: Bearer <access_token>
 
 → 200 { "ticket": "<opaque>", "expires_in": 30 }
 ```
+
+The mint requires a JWT access token or the session cookie. A personal access
+token is refused with `403`, because a ticket would let a long-lived token open
+live sockets.
 
 Then open the socket with the ticket as the `ticket` query parameter:
 

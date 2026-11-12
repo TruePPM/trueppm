@@ -81,18 +81,41 @@ Kubernetes should point a readiness probe at.
 
 ## Pagination
 
-Default page size: 50. Response envelope:
+Four pagination dialects ship today. The generated
+[OpenAPI schema](#interactive-schema) is authoritative per endpoint: read the
+parameters the operation declares rather than assuming one convention.
+
+| Dialect | Query parameters | Response envelope | Used by |
+|---------|------------------|-------------------|---------|
+| Page number | `page` | `{count, next, previous, results}` | Most list endpoints (default page size 50) |
+| Page number with size | `page`, `page_size` | `{count, next, previous, results}` | Endpoints that let you choose the page size, such as `/admin/failed-tasks/` |
+| Cursor (DRF `CursorPagination`) | `cursor`, `page_size` (default 50, maximum 200) | `{next, previous, results}`, no `count` | Only the [audit log](/administration/audit-log/#reading-the-log), the workspace member list, and a webhook's delivery history |
+| Limit and offset | `limit`, `offset` | `{count, next, previous, results}` | `/me/work/`, `/me/external-items/`, the product backlog and the API token audit lists |
+
+Several other endpoints also declare `cursor` and `page_size`, but they are not DRF
+cursor paginators and do not return `{next, previous, results}`: the asset feeds
+(`/assets/`, `/programs/{program_pk}/assets/`, `/projects/{project_pk}/assets/`) and the
+project changelog (`/projects/{project_pk}/changelog/`) return `{results, next_cursor}`,
+and the sync pulls (`/projects/{id}/sync/`, `/sync/user/programs/`) return
+`{changes, timestamp, next_cursor, ...}`. For these, pass `next_cursor` back as
+`cursor` until it is `null`; the cursor is opaque.
+
+A fifth, bespoke shape, `{results, next_until}`, is used by the board activity feed
+(`/projects/{id}/board/activity/`): pass the returned `next_until` back as the
+upper time bound of the next request.
 
 ```json
 {"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
 ```
 
-Endpoints over unbounded, append-only logs are **cursor**-paginated instead — the
-[audit log](/administration/audit-log/#reading-the-log), the workspace member
-list, and a webhook's delivery history. A cursor envelope has no `count`
-(computing one would defeat the point of a cursor), so it is
+Cursor endpoints cover unbounded, append-only logs. A cursor envelope has no
+`count` (computing one would defeat the point of a cursor), so it is
 `{next, previous, results}` only. Follow `next` until it is `null`; do not
-compute page counts from these endpoints.
+compute page counts from these endpoints, and treat the `cursor` value as opaque.
+
+The four dialects are a pre-1.0 inconsistency, not a design. One convention will be
+chosen for 1.0; until then, a client should not assume the dialect from the
+endpoint's neighbors.
 
 Not every list endpoint is paginated. Some return a **bare array** where the
 result set is inherently small and bounded — a task's
