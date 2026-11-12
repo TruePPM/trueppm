@@ -972,10 +972,11 @@ mod tests {
         }
     }
 
-    /// #4173: a zero-lag FS milestone after a task whose recorded finish is a
-    /// Saturday sits at Sunday midnight, so it reads as the start of Monday.
+    /// #4631: a recorded Saturday finish is the close of Friday in working time,
+    /// so a zero-lag FS milestone after it sits at Saturday midnight, the end of
+    /// Friday, where a Friday finish puts it.
     #[test]
-    fn test_milestone_after_non_working_actual_finish_is_next_start() {
+    fn test_milestone_after_non_working_actual_finish_is_close_of_friday() {
         let mut a = make_task("A", 3);
         a.percent_complete = 100.0;
         a.actual_start = Some(NaiveDate::from_ymd_opt(2026, 1, 7).unwrap());
@@ -994,8 +995,8 @@ mod tests {
         };
         let result = schedule_impl(&project).unwrap();
         let m = result.tasks.iter().find(|t| t.id == "M").unwrap();
-        assert_eq!(m.early_start, NaiveDate::from_ymd_opt(2026, 1, 12).unwrap());
-        assert!(!m.milestone_at_day_end);
+        assert_eq!(m.early_start, NaiveDate::from_ymd_opt(2026, 1, 9).unwrap());
+        assert!(m.milestone_at_day_end);
     }
 
     #[test]
