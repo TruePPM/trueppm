@@ -34,6 +34,7 @@ from trueppm_scheduler import (
     InvalidScheduleInput,
     Project,
     Task,
+    schedule,
 )
 from trueppm_scheduler.models import (
     _parse_timedelta,
@@ -1018,3 +1019,31 @@ def test_exception_mask_days_empty_and_clipped_spans() -> None:
     assert three._exception_mask_days(o(date(2026, 3, 1)), o(date(2026, 3, 31))) == 4
     assert three._exception_mask_days(o(date(2026, 3, 2)), o(date(2026, 3, 17))) == 4
     assert three._exception_mask_days(o(date(2026, 3, 3)), o(date(2026, 3, 16))) == 2
+
+
+def _date_annotated_task_fields() -> list[str]:
+    """Every ``Task`` field whose resolved annotation admits a ``date``.
+
+    Read from the dataclass itself, independently of the validator's own field list,
+    so a date field added to ``Task`` without a guard fails here (#2866).
+    """
+    import dataclasses
+    import typing
+
+    hints = typing.get_type_hints(Task)
+    return [
+        f.name
+        for f in dataclasses.fields(Task)
+        if date in typing.get_args(hints[f.name]) or hints[f.name] is date
+    ]
+
+
+def test_every_date_annotated_task_field_is_type_checked() -> None:
+    """A wrong-typed value in ANY date field of ``Task`` is refused by ``schedule()``."""
+    names = _date_annotated_task_fields()
+    assert "scheduled_start" in names
+    for name in names:
+        t = _ok_task()
+        setattr(t, name, timedelta(days=1))
+        with pytest.raises(InvalidScheduleInput, match=f"Task 'T' {name} must be a date"):
+            schedule(Project(id="p", name="P", start_date=date(2026, 3, 2), tasks=[t]))

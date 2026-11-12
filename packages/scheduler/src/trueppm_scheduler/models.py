@@ -9,7 +9,7 @@ import math
 import re
 import sys
 from collections.abc import Iterable, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta
 from typing import Any, NoReturn, Self
 
@@ -1596,17 +1596,12 @@ def _timedelta_field_fast(t: Task, name: str, value: Any, *, optional: bool) -> 
     _check_timedelta_field(value, f"Task {_short_repr(t.id)} {name}", optional=optional)
 
 
-_TASK_DATE_FIELDS = (
-    "planned_start",
-    "planned_finish",
-    "early_start",
-    "early_finish",
-    "late_start",
-    "late_finish",
-    "actual_start",
-    "actual_finish",
-    "scheduled_start",
-    "live_day_end_on",
+# Derived from the dataclass's own annotations rather than enumerated by hand: a
+# hand-written list is a guard narrower than the class it names, and a date field
+# appended to ``Task`` later would otherwise ship with no type check at all.
+# ``from __future__ import annotations`` keeps ``Field.type`` as the source string.
+_TASK_DATE_FIELDS = tuple(
+    f.name for f in fields(Task) if f.type in ("date | None", "date", "Optional[date]")
 )
 
 
