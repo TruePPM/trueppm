@@ -97,7 +97,9 @@ def _completed_dates(
     predecessors' durations, and the percentiles under-reported risk downstream of it.)
 
     Scalar ``date`` space also preserves the *non-working* dates the working-day offset
-    index cannot represent — a weekend ``actual_finish`` stays verbatim.
+    index cannot represent — a weekend ``actual_finish`` stays verbatim as a date and
+    is read in working time (the end of the last working day before it) by
+    :func:`_edge_anchor` when the edge constraint is built (#4631, #4702).
 
     Args:
         project: The project being simulated (supplies the start date, project
@@ -221,10 +223,12 @@ def _completed_edge_constraints(
     ``_forward_pass`` on a non-working actual (#2461).
 
     The vectorised path could not: it anchors on the predecessor's working-day offset
-    and applies the lag through :func:`_build_lag_delta`, so a weekend
-    ``actual_finish`` was silently read as the preceding Friday and any non-zero lag
-    (or any SS/SF link, which anchors on the start) landed a working day off. The
-    formulas below are ``_forward_pass``'s own (:func:`_edge_anchor`); FF/SF produce
+    and applies the lag through :func:`_build_lag_delta`, which cannot represent a
+    date off the working-day index. The verbatim dates reach :func:`_edge_anchor`,
+    which reads a non-working finish as the end of the last working day before it and
+    a non-working start as the opening of the next working day (#4631, #4702), so
+    this pass and ``_forward_pass`` snap them identically at every lag and link
+    type. The formulas below are ``_forward_pass``'s own; FF/SF produce
     an *inclusive* constraint date, so ``+ 1`` converts it to the exclusive-EF
     offset space the Monte Carlo pass works in.
 

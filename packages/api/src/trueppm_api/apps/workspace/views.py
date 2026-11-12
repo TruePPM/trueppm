@@ -83,7 +83,7 @@ from trueppm_api.apps.workspace.serializers import (
 )
 from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
 from trueppm_api.core.export_downloads import stream_export_job_or_error
-from trueppm_api.core.openapi import state_refusal_400
+from trueppm_api.core.openapi import CURSOR_PAGINATION_PARAMETERS, state_refusal_400
 
 # Typed-confirmation header for the destructive workspace delete (ADR-0174). Its
 # value must equal the workspace name exactly — the web danger page sends it.
@@ -399,6 +399,7 @@ class WorkspaceMemberListView(APIView):
         return annotated
 
     @extend_schema(
+        parameters=CURSOR_PAGINATION_PARAMETERS,
         # This view manually cursor-paginates (it is an APIView, so drf-spectacular
         # does not auto-wrap); declare the envelope explicitly so the schema matches
         # the ``{next, previous, results}`` body (#2127).
@@ -411,7 +412,7 @@ class WorkspaceMemberListView(APIView):
                     "results": WorkspaceMemberSerializer(many=True),
                 },
             )
-        }
+        },
     )
     def get(self, request: Request) -> Response:
         role = _workspace_membership_role(request)
@@ -1401,7 +1402,12 @@ class TransferOwnershipView(IdempotencyMixin, APIView):
         try:
             new_owner = User.objects.get(pk=new_owner_id)
         except User.DoesNotExist:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            # Same status and body as a non-member (#4596): a distinct 404 would
+            # let the owner enumerate which integer user ids exist.
+            return Response(
+                {"detail": services.WORKSPACE_OWNER_NOT_MEMBER_DETAIL},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             services.transfer_workspace_ownership(new_owner=new_owner, actor=request.user)
@@ -1534,6 +1540,7 @@ class WorkspaceAuditEventListView(APIView):
             OpenApiParameter(
                 "until", str, description="Only events at/before this ISO-8601 instant."
             ),
+            *CURSOR_PAGINATION_PARAMETERS,
         ],
         # The handler paginates (``AuditEventCursorPagination.get_paginated_response``),
         # so the 200 body is a cursor envelope, NOT a bare array. drf-spectacular's

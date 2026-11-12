@@ -703,6 +703,20 @@ class TestTaskLabelFilter:
             "t_none": t_none,
         }
 
+    def test_filter_uses_exists_not_distinct(self, scenario: dict[str, Any]) -> None:
+        """#4608: ``Exists`` subquery, no DISTINCT, and the two-label task is one row."""
+        from trueppm_api.apps.projects.views import _filter_tasks_by_labels
+
+        ids = f"{scenario['label_a'].pk},{scenario['label_b'].pk}"
+        qs = _filter_tasks_by_labels(Task.objects.all(), {"labels": ids})
+
+        assert qs.query.distinct is False
+        where = str(qs.query).split(" WHERE ", 1)[1]
+        assert "EXISTS(" in where.replace("EXISTS (", "EXISTS(")
+        got = list(qs.values_list("pk", flat=True))
+        assert len(got) == len(set(got))
+        assert set(got) == {scenario["t_a"].pk, scenario["t_b"].pk, scenario["t_ab"].pk}
+
     def test_single_label_returns_only_its_tasks(
         self, member_client: APIClient, project: Project, scenario: dict[str, Any]
     ) -> None:

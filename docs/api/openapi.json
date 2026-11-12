@@ -5315,7 +5315,7 @@
         "/api/v1/me/active-sprints/": {
             "get": {
                 "operationId": "v1_me_active_sprints_retrieve",
-                "description": "``GET /api/v1/me/active-sprints/`` — multi-team Sprints lens (#230).\n\nReturns a summary entry for every project where the requesting user has\na non-complete task assignment in that project's currently-ACTIVE\nsprint. Frontends use this to render the multi-team Sprints lens\nwithout iterating ``/projects/`` and ``/sprints/`` per project.\n\nEach entry includes enough data to render a card without follow-up\nrequests: sprint name + window + day-N-of-M, points remaining, capacity\nratio + label, and the rolling-velocity forecast range.\n\nMembership is **checked, never inferred** (#2895). An assignment is not a\nmembership: ``ProjectMembership`` is soft-deleted, so a revoked member keeps\ntheir stale ``Task.assignee`` rows and would otherwise keep reading the\nproject through this lens long after every other endpoint denied them. The\nqueryset below therefore joins live membership explicitly, and the velocity\nblock runs the ADR-0104 gate per project — this is a sink for\n``velocity_summary`` exactly like ``/velocity/`` and ``/forecast/``, and the\ngate has to fire at *every* sink or the lens is a side-channel back to the\nband those two suppress.\n\nThat sink set is **not** closed as of this writing: ``reforecast-preview``\nstill returns ``forecast_range_low``/``_high`` ungated (#2982). Do not read\nthe paragraph above as a guarantee that every sibling is gated — it is the\nrule, not a statement that the rule currently holds everywhere.",
+                "description": "``GET /api/v1/me/active-sprints/`` — multi-team Sprints lens (#230).\n\nReturns a summary entry for every project where the requesting user has\na non-complete task assignment in that project's currently-ACTIVE\nsprint. Frontends use this to render the multi-team Sprints lens\nwithout iterating ``/projects/`` and ``/sprints/`` per project.\n\nEach entry includes enough data to render a card without follow-up\nrequests: sprint name + window + day-N-of-M, points remaining, capacity\nratio + label, and the rolling-velocity forecast range.\n\nMembership is **checked, never inferred** (#2895). An assignment is not a\nmembership: ``ProjectMembership`` is soft-deleted, so a revoked member keeps\ntheir stale ``Task.assignee`` rows and would otherwise keep reading the\nproject through this lens long after every other endpoint denied them. The\nqueryset below therefore joins live membership explicitly, and the velocity\nblock runs the ADR-0104 gate per project — this is a sink for\n``velocity_summary_unfiltered`` exactly like ``/velocity/`` and ``/forecast/``, and the\ngate has to fire at *every* sink or the lens is a side-channel back to the\nband those two suppress.",
                 "summary": "Multi-team active-sprints lens for the current user",
                 "tags": [
                     "me"
@@ -16696,12 +16696,28 @@
                 "summary": "List recent webhook deliveries",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque continuation token. Pass the `cursor` value taken from the `next` or `previous` URL of the previous response; omit it for the first page."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
                     },
                     {
                         "in": "path",
@@ -20806,7 +20822,7 @@
         "/api/v1/projects/{id}/forecast/": {
             "get": {
                 "operationId": "v1_projects_forecast_retrieve",
-                "description": "``GET /api/v1/projects/<pk>/forecast/`` — the bridge forecast read (ADR-0106 §5).\n\nReturns the velocity range + per-sprint series, the remaining committed\nbacklog re-paced into a sprints-to-complete range, and the latest\n``ForecastSnapshot`` per bound milestone (cpm_finish + p50/p80 + confidence\nband). Any project member (matching ``ProjectVelocityView``); the\nprivacy-sensitive direction is upward (cross-team aggregation, Enterprise),\nnever downward to the team. The ``velocity`` payload is byte-identical to the\nexisting ``/velocity/`` read for the same VIEWER+ audience — the velocity\nprivacy gate (ADR-0104 / #553, not yet merged) will, when it lands, suppress\nthe per-sprint series for below-tier readers at the shared ``velocity_summary``\nsink so both endpoints inherit it.",
+                "description": "``GET /api/v1/projects/<pk>/forecast/`` — the bridge forecast read (ADR-0106 §5).\n\nReturns the velocity range + per-sprint series, the remaining committed\nbacklog re-paced into a sprints-to-complete range, and the latest\n``ForecastSnapshot`` per bound milestone (cpm_finish + p50/p80 + confidence\nband). Any project member (matching ``ProjectVelocityView``); the\nprivacy-sensitive direction is upward (cross-team aggregation, Enterprise),\nnever downward to the team. The ``velocity`` payload is byte-identical to the\nexisting ``/velocity/`` read for the same VIEWER+ audience — the velocity\nprivacy gate (ADR-0104 / #553, not yet merged) will, when it lands, suppress\nthe per-sprint series for below-tier readers at the shared ``velocity_summary_unfiltered``\nsink so both endpoints inherit it.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37055,12 +37071,28 @@
                 "summary": "List recent webhook deliveries",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque continuation token. Pass the `cursor` value taken from the `next` or `previous` URL of the previous response; omit it for the first page."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
                     },
                     {
                         "in": "path",
@@ -49118,11 +49150,27 @@
                     },
                     {
                         "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque continuation token. Pass the `cursor` value taken from the `next` or `previous` URL of the previous response; omit it for the first page."
+                    },
+                    {
+                        "in": "query",
                         "name": "event_type",
                         "schema": {
                             "type": "string"
                         },
                         "description": "Filter to a single AuditEventType value."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
                     },
                     {
                         "in": "query",
@@ -52077,6 +52125,24 @@
             "get": {
                 "operationId": "v1_workspace_members_retrieve",
                 "description": "GET /api/v1/workspace/members/ — list members (#518).\n\nAdmins see every member; a non-admin member sees only their own row.\nCursor-paginated (#1317): each page materializes at most ``page_size`` rows,\nso the member-row builder's batched queries stay bounded regardless of org\nsize.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque continuation token. Pass the `cursor` value taken from the `next` or `previous` URL of the previous response; omit it for the first page."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
+                    }
+                ],
                 "tags": [
                     "workspace"
                 ],
@@ -70386,7 +70452,7 @@
             },
             "ProjectForecast": {
                 "type": "object",
-                "description": "Project forecast read response (ADR-0106 §5, #487/#860).\n\n``velocity`` is the full ``velocity_summary`` payload (avg ± 1σ + the\nper-sprint series). The ADR-0104 velocity privacy gate (#553/#981) suppresses\nthe series — and nulls ``remaining_committed_points`` + ``sprints_to_complete_*``\nand the milestone velocity band — for readers below the velocity audience, so\nthose fields are nullable. ``sprints_to_complete_*`` is the remaining committed\nbacklog re-paced by the velocity band into a sprint count range; ``milestones``\nis the latest snapshot per bound milestone.",
+                "description": "Project forecast read response (ADR-0106 §5, #487/#860).\n\n``velocity`` is the full ``velocity_summary_unfiltered`` payload (avg ± 1σ + the\nper-sprint series). The ADR-0104 velocity privacy gate (#553/#981) suppresses\nthe series — and nulls ``remaining_committed_points`` + ``sprints_to_complete_*``\nand the milestone velocity band — for readers below the velocity audience, so\nthose fields are nullable. ``sprints_to_complete_*`` is the remaining committed\nbacklog re-paced by the velocity band into a sprint count range; ``milestones``\nis the latest snapshot per bound milestone.",
                 "properties": {
                     "velocity": {
                         "type": "object",
@@ -72789,7 +72855,7 @@
             },
             "ProjectVelocity": {
                 "type": "object",
-                "description": "Response shape for ``GET /api/v1/projects/{id}/velocity/``.\n\nSee :func:`services.velocity_summary`.\n\n``velocity_suppressed`` is present only when\n:func:`signal_privacy_services.suppress_velocity_summary` redacted the\nteam-private detail for a reader outside the velocity audience (ADR-0104\n§2.1) — ``sprints`` is emptied and the point-based fields are nulled in that\ncase, so it is the discriminator a client checks rather than re-deriving\nsuppression from an empty list (#3679).",
+                "description": "Response shape for ``GET /api/v1/projects/{id}/velocity/``.\n\nSee :func:`services.velocity_summary_unfiltered`, gated by\n:func:`signal_privacy_services.velocity_summary_for`.\n\n``velocity_suppressed`` is present only when\n:func:`signal_privacy_services.suppress_velocity_summary` redacted the\nteam-private detail for a reader outside the velocity audience (ADR-0104\n§2.1) — ``sprints`` is emptied and the point-based fields are nulled in that\ncase, so it is the discriminator a client checks rather than re-deriving\nsuppression from an empty list (#3679).",
                 "properties": {
                     "sprints": {
                         "type": "array",
@@ -72854,7 +72920,7 @@
             },
             "ProjectVelocitySprintEntry": {
                 "type": "object",
-                "description": "One sprint row in :func:`services.velocity_summary` (#984, #3679).",
+                "description": "One sprint row in :func:`services.velocity_summary_unfiltered` (#984, #3679).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -76218,7 +76284,7 @@
             },
             "SprintCapacityHint": {
                 "type": "object",
-                "description": "The suggested first-iteration points figure — a planning aid, never a cap.\n\n``note`` is not decoration: it travels with the number so no client can\nrender the suggestion without the sentence that bounds it. ``points`` is\n``null`` when the team has no closed iteration to draw from — a made-up\ndefault would be a ceiling invented by the tool (ADR-0073 / ADR-0113).",
+                "description": "The suggested first-iteration points figure — a planning aid, never a cap.\n\n``note`` is not decoration: it travels with the number so no client can\nrender the suggestion without the sentence that bounds it. ``points`` is\n``null`` when the team has no closed iteration to draw from — a made-up\ndefault would be a ceiling invented by the tool (ADR-0073 / ADR-0113). The hint\nis velocity-derived, so a reader outside the velocity audience (ADR-0104) gets\n``points=null`` with ``basis=\"suppressed\"``.",
                 "properties": {
                     "points": {
                         "type": "integer",
@@ -76252,10 +76318,11 @@
             "SprintCapacityHintBasisEnum": {
                 "enum": [
                     "velocity_average",
-                    "no_history"
+                    "no_history",
+                    "suppressed"
                 ],
                 "type": "string",
-                "description": "* `velocity_average` - velocity_average\n* `no_history` - no_history",
+                "description": "* `velocity_average` - velocity_average\n* `no_history` - no_history\n* `suppressed` - suppressed",
                 "x-trueppm-enum": "open"
             },
             "SprintCapacityMember": {

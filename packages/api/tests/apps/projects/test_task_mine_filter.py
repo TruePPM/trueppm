@@ -193,3 +193,25 @@ class TestMineFilter:
             assert _names(resp) == set()
         else:
             assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_mine_filter_uses_exists_not_distinct(
+    user_alice: object,
+    project: Project,
+    tasks_with_assignments: dict[str, Task],
+) -> None:
+    """#4608: a join + bare ``.distinct()`` de-duplicates the whole annotated Task row
+    before LIMIT. The filter must be an ``Exists`` predicate and set no DISTINCT, while
+    a task with two matching assignments still appears exactly once."""
+    from trueppm_api.apps.projects.views import _filter_tasks_mine
+
+    second = Resource.objects.create(name="Alice Alt", email="alice@example.com", user=user_alice)
+    TaskResource.objects.create(task=tasks_with_assignments["alice"], resource=second, units=0.5)
+    qs = _filter_tasks_mine(Task.objects.all(), {"mine": "true"}, user_alice)
+
+    assert qs.query.distinct is False
+    where = str(qs.query).split(" WHERE ", 1)[1]
+    assert "EXISTS(" in where.replace("EXISTS (", "EXISTS(")
+    pks = list(qs.values_list("pk", flat=True))
+    assert pks == [tasks_with_assignments["alice"].pk]  # two assignments, one row

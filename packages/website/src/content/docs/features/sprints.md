@@ -79,6 +79,15 @@ starts being the tool telling a team what it may commit to — which is exactly
 what sprint commitment belongs to the team, not to a generator. Forecasting a
 capacity for sprint twelve from today's throughput would be fiction either way.
 
+:::note[Ships in 0.5]
+The suggested figure will be withheld from project Owners and Admins. It is the
+team's velocity as a single number, and velocity is team-private under the team's
+[velocity privacy setting](/features/velocity/): the preview and the committed
+response will both carry no suggested points for the project-management band,
+while team members still see it. Until 0.5, the figure is offered to every role
+that can generate sprints.
+:::
+
 Generated sprints land in `PLANNED` state with no goal, no capacity, and no
 tasks. Activate, name a goal, and pull work in exactly as you would for a sprint
 you created by hand.

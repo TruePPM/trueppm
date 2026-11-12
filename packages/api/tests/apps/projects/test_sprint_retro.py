@@ -490,6 +490,27 @@ def test_post_allows_member_action_item_assignee(
 
 
 @pytest.mark.django_db
+def test_post_rejects_deactivated_member_action_item_assignee(
+    project: Project, member: object, admin_user: object
+) -> None:
+    """A deactivated user's membership row is never soft-deleted (#4596)."""
+    admin_user.is_active = False
+    admin_user.save(update_fields=["is_active"])
+    s = _closed_sprint(project)
+    resp = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {
+            "notes": "retro",
+            "action_items": [{"text": "do a thing", "assignee": str(admin_user.pk)}],
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "action_items" in resp.data
+    assert not RetroActionItem.objects.filter(retro__sprint=s).exists()
+
+
+@pytest.mark.django_db
 def test_post_allows_unassigned_action_item(project: Project, member: object) -> None:
     s = _closed_sprint(project)
     resp = _client(member).post(

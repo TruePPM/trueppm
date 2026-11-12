@@ -690,3 +690,35 @@ class TestReleaseMetadataConsistency:
                     f"'Duration and lag are counted in different units'); seeded runs "
                     f"are reproducible only on the same numpy and scheduler versions."
                 )
+
+
+def _exported_dataclasses() -> list[type]:
+    return [
+        obj
+        for name in ts.__all__
+        if dataclasses.is_dataclass(obj := getattr(ts, name)) and isinstance(obj, type)
+    ]
+
+
+def test_exported_dataclasses_document_every_field_under_attributes() -> None:
+    """Each exported dataclass has a Google ``Attributes:`` section naming every field (#4471).
+
+    The field contract used to live in ``#`` source comments that ``help()``, IDE
+    hovers and generated API references cannot see. Private (``_``-prefixed)
+    fields are internal caches and are exempt.
+    """
+    exported = _exported_dataclasses()
+    assert len(exported) >= 13  # guards against the discovery silently matching nothing
+    problems: list[str] = []
+    for cls in exported:
+        doc = cls.__doc__ or ""
+        _, sep, section = doc.partition("Attributes:")
+        if not sep:
+            problems.append(f"{cls.__name__}: no Attributes: section")
+            continue
+        for f in dataclasses.fields(cls):
+            if f.name.startswith("_"):
+                continue
+            if not re.search(rf"^\s+{re.escape(f.name)}: ", section, re.MULTILINE):
+                problems.append(f"{cls.__name__}.{f.name}: not documented under Attributes:")
+    assert not problems, "\n".join(problems)

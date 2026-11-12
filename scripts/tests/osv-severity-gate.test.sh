@@ -36,10 +36,14 @@ check() { # check "<description>" <condition-exit-code>
 
 # run_gate <json-file> — runs the gate, captures combined output + exit code
 # into the globals $OUT and $RC (never aborts the test under `set -e`).
+# The expiry warning reads packages/*/osv-scanner.toml under OSV_SUPPRESSION_ROOT; point
+# it at an empty tree by default so the repo's real suppression dates never leak into
+# these cases (the dedicated expiry cases below override it).
+mkdir -p "$TMP/no-suppressions"
 run_gate() {
   local fixture="$1"
   set +e
-  OUT="$(sh "$GATE" "$fixture" 2>&1)"
+  OUT="$(OSV_SUPPRESSION_ROOT="${OSV_SUPPRESSION_ROOT:-$TMP/no-suppressions}" sh "$GATE" "$fixture" 2>&1)"
   RC=$?
   set -e
 }
@@ -146,6 +150,62 @@ check "empty results file fails safe (exit 1)" "$([ "$RC" -eq 1 ] && echo 0 || e
 echo 'not json {{{' > "$TMP/garbage.json"
 run_gate "$TMP/garbage.json"
 check "malformed JSON fails safe (exit 1)" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
+
+# --- Suppression-expiry warning (#4391) -----------------------------------
+# A fixture tree with one entry of each interesting age, evaluated against a pinned
+# "today" of 2026-12-01: expiring in 10 days (warns), 40 days out (silent), already
+# expired (reported as EXPIRED), and an `ignoreUntil` in the api-style IgnoredVulns
+# table 5 days out (warns, proving both keys and both packages are covered).
+mkdir -p "$TMP/exp/packages/web" "$TMP/exp/packages/api" "$TMP/exp/packages/scheduler"
+cat > "$TMP/exp/packages/web/osv-scanner.toml" <<'TOML'
+[[PackageOverrides]]
+name = "soon-pkg"
+version = "1.0.0"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-11
+reason = "expires in 10 days"
+
+[[PackageOverrides]]
+name = "later-pkg"
+version = "1.0.0"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2027-01-10
+reason = "expires in 40 days"
+
+[[PackageOverrides]]
+name = "gone-pkg"
+version = "1.0.0"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-11-20
+reason = "already expired"
+TOML
+cat > "$TMP/exp/packages/api/osv-scanner.toml" <<'TOML'
+[[IgnoredVulns]]
+id = "GHSA-ignored-soon"
+ignoreUntil = 2026-12-06
+reason = "expires in 5 days"
+TOML
+printf '# no suppressions\n' > "$TMP/exp/packages/scheduler/osv-scanner.toml"
+
+OSV_SUPPRESSION_ROOT="$TMP/exp" OSV_TODAY=2026-12-01 run_gate "$TMP/clean.json"
+check "expiry warning does not change a clean exit (exit 0)" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
+check "a suppression expiring in 10 days is warned about" "$(grep -q 'soon-pkg.*10d' <<<"$OUT" && echo 0 || echo 1)"
+check "an api ignoreUntil expiring in 5 days is warned about" "$(grep -q 'GHSA-ignored-soon.*ignoreUntil.*5d' <<<"$OUT" && echo 0 || echo 1)"
+check "a suppression 40 days out is not warned about" "$(grep -q 'later-pkg' <<<"$OUT" && echo 1 || echo 0)"
+check "an already-expired suppression is flagged EXPIRED" "$(grep -q 'gone-pkg.*EXPIRED' <<<"$OUT" && echo 0 || echo 1)"
+
+# An expired suppression stops suppressing, so its advisory reaches the gate and a
+# HIGH one still fails the run — the warning is additive, never a substitute.
+OSV_SUPPRESSION_ROOT="$TMP/exp" OSV_TODAY=2026-12-01 run_gate "$TMP/high.json"
+check "HIGH advisory still blocks with the expiry warning active (exit 1)" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
+check "the warning is printed on a blocking run too" "$(grep -q 'soon-pkg' <<<"$OUT" && echo 0 || echo 1)"
+
+# Nothing in range: no warning noise at all.
+OSV_SUPPRESSION_ROOT="$TMP/exp" OSV_TODAY=2026-10-01 run_gate "$TMP/clean.json"
+check "no warning when every suppression is more than 30 days out" "$(grep -q 'WARNING' <<<"$OUT" && echo 1 || echo 0)"
 
 # --- No-arg usage → exit 3 (hard block, NOT the exit-2 warning band) -------
 # A usage error must never be mistaken for the non-blocking MEDIUM/LOW warning
