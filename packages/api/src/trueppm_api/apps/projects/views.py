@@ -13034,6 +13034,7 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
     replace — see :func:`_plan_retro_item_diff` for the per-entry rules.
     """
     from trueppm_api.apps.projects.models import RetroActionItem, RetroVisibility, SprintRetro
+    from trueppm_api.apps.projects.retro_services import lock_project_before_items
 
     body = object_body(request)
     notes = body.get("notes", "")
@@ -13058,19 +13059,16 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
         return _invalid_visibility_response(new_visibility)
 
     with transaction.atomic():
-        # Lock the live item set BEFORE the retro upsert. Both writes below draw
-        # from the project's sync sequence (a project-row lock), and the promote /
-        # carryover services lock an item first and the project second, so taking
-        # the item locks first here matches them and removes that deadlock.
-        #
-        # It does not remove every one. A Task soft-delete takes the project lock
-        # first (its save allocates a sync cursor) and then item row locks, through
-        # the post_save receiver that clears `promoted_task_id`
-        # (`retro_services.reset_promoted_task_on_delete`). A retro save racing the
-        # delete of one of its own promoted tasks can still deadlock; Postgres
-        # aborts one side and that request fails. Before #4591 this path had the
-        # mirror-image risk with promote instead. The full fix is one global lock
-        # order across all three writers, which this change does not attempt.
+        # One global lock order across every writer of RetroActionItem rows (#4628):
+        # the project row first, then item rows. A Task soft-delete already runs that
+        # way (its save draws a sync cursor, locking the project, and only then the
+        # post_save receiver `retro_services.reset_promoted_task_on_delete` updates
+        # items), and promote / carryover take the project lock before their item
+        # lock for the same reason. Locking items first here would let a retro save
+        # racing the soft-delete of one of its promoted tasks deadlock. Both writes
+        # below also draw from the project's sync sequence, so the lock is not extra
+        # contention — it is the same row lock, taken earlier.
+        lock_project_before_items(sprint.project_id)
         live_items = {
             item.pk: item
             for item in RetroActionItem.objects.select_for_update(of=("self",)).filter(

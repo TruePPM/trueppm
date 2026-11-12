@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -44,6 +44,31 @@ class AlreadyPromotedError(ValidationError):
     def __init__(self, existing_task_id: str) -> None:
         super().__init__("Action item already promoted.")
         self.existing_task_id = existing_task_id
+
+
+def lock_project_before_items(project_id: Any) -> None:
+    """Take the project row lock that every sync-cursor draw takes, before item locks.
+
+    The one global lock order for retro writers is **project row, then
+    ``RetroActionItem`` rows** (#4628). A Task soft-delete already runs in that order:
+    its ``save()`` draws a sync cursor (locking the project row) and only then does
+    ``reset_promoted_task_on_delete`` update items. Retro save, promote and carryover
+    used to lock items first and reach the project later through their own cursor
+    draws, so a retro save racing the soft-delete of one of its promoted tasks could
+    deadlock. Callers must be inside ``transaction.atomic()``.
+    """
+    from trueppm_api.apps.projects.models import Project
+
+    list(Project.objects.select_for_update(of=("self",)).filter(pk=project_id).values("pk"))
+
+
+def _project_id_of_item(item_pk: Any) -> Any:
+    """Unlocked read of an item's project id (immutable, so safe before any lock)."""
+    from trueppm_api.apps.projects.models import RetroActionItem
+
+    return RetroActionItem.objects.values_list("retro__sprint__project_id", flat=True).get(
+        pk=item_pk
+    )
 
 
 def promote_retro_action_item(
@@ -78,6 +103,8 @@ def promote_retro_action_item(
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     with transaction.atomic():
+        # Project lock first, then the item row (#4628 global lock order).
+        lock_project_before_items(_project_id_of_item(action_item.pk))
         # Re-read with row lock; the in-memory action_item passed in may be stale.
         locked = (
             RetroActionItem.objects.select_for_update()
@@ -203,6 +230,7 @@ def pull_carryover_item_to_sprint(
     from trueppm_api.apps.sync.broadcast import defer_task_updated
 
     with transaction.atomic():
+        lock_project_before_items(_project_id_of_item(action_item.pk))
         locked = (
             RetroActionItem.objects.select_for_update()
             .select_related("retro__sprint__project")
