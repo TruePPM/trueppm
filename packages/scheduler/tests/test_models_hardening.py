@@ -1054,7 +1054,7 @@ class _Respelled:
     """Date fields spelled every way a union can be written."""
 
     a: date | None = None
-    b: None | date = None
+    b: None | date = None  # noqa: RUF036, RUF100 - the spelling is the point
     c: Optional[date] = None  # noqa: UP045 - the spelling is the point
     d: typing.Union[date, None] = None  # noqa: UP007
     e: date = date(2026, 1, 1)
