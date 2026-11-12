@@ -20,9 +20,12 @@ exception-interval cache. The second half of this file pins those.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
+import typing
 from datetime import date, timedelta
+from typing import Optional
 
 import pytest
 
@@ -34,6 +37,7 @@ from trueppm_scheduler import (
     InvalidScheduleInput,
     Project,
     Task,
+    schedule,
 )
 from trueppm_scheduler.models import (
     _parse_timedelta,
@@ -1018,3 +1022,70 @@ def test_exception_mask_days_empty_and_clipped_spans() -> None:
     assert three._exception_mask_days(o(date(2026, 3, 1)), o(date(2026, 3, 31))) == 4
     assert three._exception_mask_days(o(date(2026, 3, 2)), o(date(2026, 3, 17))) == 4
     assert three._exception_mask_days(o(date(2026, 3, 3)), o(date(2026, 3, 16))) == 2
+
+
+def _date_annotated_task_fields() -> list[str]:
+    """Every ``Task`` field whose resolved annotation admits a ``date``.
+
+    Read from the dataclass itself, independently of the validator's own field list,
+    so a date field added to ``Task`` without a guard fails here (#2866).
+    """
+    hints = typing.get_type_hints(Task)
+    return [
+        f.name
+        for f in dataclasses.fields(Task)
+        if date in typing.get_args(hints[f.name]) or hints[f.name] is date
+    ]
+
+
+def test_every_date_annotated_task_field_is_type_checked() -> None:
+    """A wrong-typed value in ANY date field of ``Task`` is refused by ``schedule()``."""
+    names = _date_annotated_task_fields()
+    assert "scheduled_start" in names
+    for name in names:
+        t = _ok_task()
+        setattr(t, name, timedelta(days=1))
+        with pytest.raises(InvalidScheduleInput, match=f"Task 'T' {name} must be a date"):
+            schedule(Project(id="p", name="P", start_date=date(2026, 3, 2), tasks=[t]))
+
+
+@dataclasses.dataclass
+class _Respelled:
+    """Date fields spelled every way a union can be written."""
+
+    a: date | None = None
+    b: None | date = None  # noqa: RUF036, RUF100 - the spelling is the point
+    c: Optional[date] = None  # noqa: UP045 - the spelling is the point
+    d: typing.Union[date, None] = None  # noqa: UP007
+    e: date = date(2026, 1, 1)
+    f: int | None = None
+
+
+def _string_matched(cls: type) -> tuple[str, ...]:
+    """A hypothetical string-matching derivation: match the annotation source string."""
+    return tuple(
+        f.name
+        for f in dataclasses.fields(cls)
+        if f.type in ("date | None", "date", "Optional[date]")
+    )
+
+
+def test_task_date_fields_derivation_ignores_union_spelling() -> None:
+    from trueppm_scheduler.models import _date_field_names
+
+    assert _date_field_names(_Respelled) == ("a", "b", "c", "d", "e")
+    # Negative control: the string-matching derivation drops ``b`` and ``d``.
+    assert _string_matched(_Respelled) == ("a", "c", "e")
+
+
+def test_task_date_fields_cover_every_date_annotated_field() -> None:
+    from trueppm_scheduler.models import _TASK_DATE_FIELDS
+
+    assert list(_TASK_DATE_FIELDS) == _date_annotated_task_fields()
+
+
+def test_span_date_inputs_are_task_date_fields() -> None:
+    from trueppm_scheduler.engine.validate import _SPAN_DATE_INPUTS
+    from trueppm_scheduler.models import _TASK_DATE_FIELDS
+
+    assert set(_TASK_DATE_FIELDS) >= _SPAN_DATE_INPUTS

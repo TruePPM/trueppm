@@ -9,9 +9,9 @@ import math
 import re
 import sys
 from collections.abc import Iterable, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta
-from typing import Any, NoReturn, Self
+from typing import Any, NoReturn, Self, get_args, get_type_hints
 
 _REPR_LIMIT = 200
 
@@ -560,18 +560,7 @@ def _check_sprint_length(sprint_length_days: Any) -> None:
 
 def _coerce_task_dates(d: dict[str, Any]) -> None:
     """Parse every strict ISO-8601 date field in place."""
-    for f in (
-        "planned_start",
-        "planned_finish",
-        "early_start",
-        "early_finish",
-        "late_start",
-        "late_finish",
-        "actual_start",
-        "actual_finish",
-        "scheduled_start",
-        "live_day_end_on",
-    ):
+    for f in _TASK_DATE_FIELDS:
         if d.get(f) is not None:
             d[f] = _parse_date(d[f], f)
 
@@ -1596,18 +1585,26 @@ def _timedelta_field_fast(t: Task, name: str, value: Any, *, optional: bool) -> 
     _check_timedelta_field(value, f"Task {_short_repr(t.id)} {name}", optional=optional)
 
 
-_TASK_DATE_FIELDS = (
-    "planned_start",
-    "planned_finish",
-    "early_start",
-    "early_finish",
-    "late_start",
-    "late_finish",
-    "actual_start",
-    "actual_finish",
-    "scheduled_start",
-    "live_day_end_on",
-)
+# Derived from the dataclass's own annotations rather than enumerated by hand: a
+# hand-written list is a guard narrower than the class it names, and a date field
+# appended to ``Task`` later would otherwise ship with no type check at all.
+# ``from __future__ import annotations`` keeps ``Field.type`` as the source string.
+def _admits_date(hint: object) -> bool:
+    """True when a resolved annotation is ``date`` or a union containing ``date``."""
+    return hint is date or date in get_args(hint)
+
+
+# Derived from the resolved annotations (``get_type_hints`` evaluates the stringified
+# ``from __future__`` annotations), so ``None | date`` and ``Optional[date]`` count
+# the same as ``date | None``; matching the annotation source string would silently
+# drop a re-spelled field. Declaration order is preserved.
+def _date_field_names(cls: type) -> tuple[str, ...]:
+    """Names of ``cls``'s dataclass fields whose resolved annotation admits a ``date``."""
+    hints = get_type_hints(cls)
+    return tuple(f.name for f in fields(cls) if _admits_date(hints[f.name]))
+
+
+_TASK_DATE_FIELDS = _date_field_names(Task)
 
 
 def _validate_task_fields(t: Task) -> None:
