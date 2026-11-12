@@ -1159,3 +1159,53 @@ def test_competing_links_into_one_instant_are_resolved_on_the_instant_not_the_da
         assert terms["A"].is_binding
         assert not terms["C"].is_binding
         assert derivation.binding is terms["A"]
+
+
+def _tied_actual_start_cases() -> list[tuple[list[Task], list[Dependency]]]:
+    return [
+        (
+            [
+                Task(id="A", name="A", duration=timedelta(days=3)),
+                Task(id="M", name="M", duration=timedelta(0), actual_start=date(2026, 3, 8)),
+            ],
+            [Dependency("A", "M", dep_type=DependencyType.FF, lag=timedelta(days=3))],
+        ),
+        (
+            [
+                Task(
+                    id="A",
+                    name="A",
+                    duration=timedelta(days=8),
+                    actual_start=date(2026, 3, 15),
+                    actual_finish=date(2026, 3, 17),
+                ),
+                Task(id="M", name="M", duration=timedelta(0), actual_start=date(2026, 3, 15)),
+            ],
+            [Dependency("A", "M", dep_type=DependencyType.SS)],
+        ),
+    ]
+
+
+@pytest.mark.parametrize("case", [0, 1], ids=["FF", "SS"])
+@pytest.mark.parametrize("quantity", ["early_start", "early_finish"])
+def test_tied_non_working_actual_start_is_the_binding_term(case: int, quantity: str) -> None:
+    """A Sunday ``actual_start`` tied with a link names the term the engine shows (#4438).
+
+    The link and the actual start propose the same working-time position (end of
+    Saturday == start of Sunday == start of Monday). In the FF case the engine shows
+    the verbatim Sunday, so the binding term must be the actual start, whose
+    ``imposed_date`` is that Sunday, not the link, whose shown day is Monday. The SS
+    case is kept as a guard on the same invariant: whichever day the engine shows,
+    the binding term's ``imposed_date`` is that day.
+    """
+    tasks, deps = _tied_actual_start_cases()[case]
+    p = Project(id="p", name="p", start_date=date(2026, 3, 2), tasks=tasks, dependencies=deps)
+    result = schedule(p)
+    d = derive_value(p, "M", quantity, result=result)
+    assert d.binding is not None
+    assert d.binding.imposed_date is not None
+    assert d.binding.imposed_date.isoformat() == d.value
+    if case == 0:
+        # FF: the engine shows the verbatim Sunday, so only the actual start names it.
+        assert d.value == "2026-03-08"
+        assert d.binding.kind == "actual_start"

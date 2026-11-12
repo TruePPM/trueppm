@@ -517,12 +517,23 @@ def _pred_forward_contribution(
 
 
 def _flag_latest_instant(
-    terms: list[DerivationContribution], keys: dict[int, tuple[date, bool]]
+    terms: list[DerivationContribution],
+    keys: dict[int, tuple[date, bool]],
+    shown: date | None = None,
 ) -> None:
     """Flag the term proposing the latest instant, as ``engine._place_milestone`` picks it.
 
-    A floor term (no key) proposes the start of its own day. Ties prefer a real
-    predecessor link, as :func:`_flag_binding` does.
+    A floor term (no key) proposes the start of its own day. Among tied terms, the
+    ones whose ``imposed_date`` is ``shown`` (the day the engine shows the milestone
+    on) are kept first; among those, a real predecessor link wins, as
+    :func:`_flag_binding` does.
+
+    Why the shown day comes first: two terms can propose the same working-time
+    position yet name different days. A link reaching the end of Saturday and a
+    Sunday ``actual_start`` are one instant; the engine shows the verbatim Sunday,
+    while the link's own imposed day is the Monday after it. Preferring the link
+    there named a binding term whose ``imposed_date`` contradicts the value it is
+    meant to explain — ``DerivationContribution`` promises they are equal.
     """
 
     def key_of(c: DerivationContribution) -> tuple[date, bool]:
@@ -533,7 +544,9 @@ def _flag_latest_instant(
 
     best = max(key_of(c) for c in terms)
     winners = [c for c in terms if key_of(c) == best]
-    chosen = next((c for c in winners if c.source_task_id is not None), winners[0])
+    on_shown = [c for c in winners if shown is not None and c.imposed_date == shown]
+    pool = on_shown or winners
+    chosen = next((c for c in pool if c.source_task_id is not None), pool[0])
     chosen.is_binding = True
 
 
@@ -586,7 +599,7 @@ def _derive_forward(
         # A milestone is one instant (#4079): every term competes for the same
         # date, and its start and finish are that date.
         contribs.extend(ef_terms)
-        _flag_latest_instant(contribs, keys)
+        _flag_latest_instant(contribs, keys, task.early_start)
         value = task.early_finish if want_finish else task.early_start
         return (value.isoformat() if value else None, contribs)
 
