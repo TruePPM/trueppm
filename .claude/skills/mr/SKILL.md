@@ -56,7 +56,7 @@ Wait for both agents to return. Then evaluate:
   - If the title matches the current commits, report the URL and stop.
   - If the title does **not** match, **stop and tell the user** with a clear conflict description.
 
-**Exempt from changelog fragment**: `chore/*`, `ci/*`, `docs/*` branches; dependency bumps; test-only changes with no behavior change.
+**Exempt from changelog fragment**: `chore/*`, `ci/*`, `docs/*`, `test/*` branches; dependency bumps; test-only changes with no behavior change.
 
 ---
 

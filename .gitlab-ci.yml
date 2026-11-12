@@ -563,7 +563,7 @@ changelog:check:
   # Fragments are assembled into CHANGELOG.md at release time by
   # scripts/assemble-changelog.sh. See changelog.d/README.md for details.
   #
-  # Exempt branches: chore/*, ci/*, docs/* carry no user-visible change.
+  # Exempt branches: chore/*, ci/*, docs/*, test/* carry no user-visible change.
   # Exempt MRs: add the ~no-changelog label in GitLab to skip this check.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
@@ -573,7 +573,7 @@ changelog:check:
     # this job whenever a branch had >20 commits since branching from main.
     GIT_DEPTH: "0"
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(chore|ci|docs)\//i'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(chore|ci|docs|test)\//i'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
