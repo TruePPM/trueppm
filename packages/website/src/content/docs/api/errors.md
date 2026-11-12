@@ -13,6 +13,25 @@ For what a version bump may and may not change, see
 surface with its own retry semantics — see
 [Webhooks](/features/webhooks/#delivery-retries).
 
+## Unrecognized query parameters are ignored
+
+A query parameter the endpoint does not recognize is **silently ignored**: the
+request succeeds with `200` and the parameter has no effect. It is not rejected
+with a `400`. A mistyped filter such as `?is_phse=true` therefore returns the
+unfiltered list, which looks the same as a filter that matched everything.
+
+Because the response gives no signal, a client that depends on a filter should
+guard against a typo itself:
+
+- Validate parameter names against the operation's `parameters` in the published
+  [OpenAPI schema](/api/reference/#interactive-schema), ideally in a test or at
+  client-generation time.
+- Check a known-filter response. Send the filter against data whose answer you
+  know, and fail if the result is not narrowed.
+
+No strict mode that rejects unknown parameters ships today. If one is added it
+will be linked here and announced in the changelog.
+
 ## Shape 1 — field validation errors (no refusal `code`)
 
 Serializer validation failures return a map of **field name → list of messages**,

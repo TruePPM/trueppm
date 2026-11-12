@@ -501,7 +501,7 @@ export interface SprintCadenceRow {
  */
 export interface SprintCapacityHint {
   points: number | null;
-  basis: 'velocity_average' | 'no_history';
+  basis: 'velocity_average' | 'no_history' | 'suppressed';
   sprints_sampled: number;
   note: string;
 }

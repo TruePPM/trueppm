@@ -196,6 +196,28 @@ _SUPPRESS_PAGINATION_ATTR = "spectacular_suppress_pagination"
 _JSON_MEDIA_TYPE = "application/json"
 
 
+# Declared by hand because the cursor endpoints are plain ``APIView`` handlers (or
+# actions on a viewset whose class-level paginator is page-number) that build a
+# ``CursorPagination`` inline, so drf-spectacular never sees the paginator and
+# publishes neither query parameter (#4611). The page size cap mirrors the
+# ``max_page_size`` of the three cursor paginators.
+CURSOR_PAGINATION_PARAMETERS: list[OpenApiParameter] = [
+    OpenApiParameter(
+        "cursor",
+        str,
+        description=(
+            "Opaque continuation token. Pass the `cursor` value taken from the `next` "
+            "or `previous` URL of the previous response; omit it for the first page."
+        ),
+    ),
+    OpenApiParameter(
+        "page_size",
+        int,
+        description="Rows per page. Default 50, maximum 200.",
+    ),
+]
+
+
 def suppress_list_pagination(view_func: Any) -> Any:
     """Mark a viewset ``@action``'s list response as NON-paginated for the schema.
 
