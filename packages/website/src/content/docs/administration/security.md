@@ -553,6 +553,13 @@ before the reset, and is still waiting when the reset commits, is refused with
 a `401`. A personal token or share link can no longer slip through the
 milliseconds between the reset's sweep and its commit.
 
+Signing in with a password and refreshing a session take the same lock, so a
+sign-in or refresh that is running when a reset commits cannot hand back a
+session that outlives it. A refresh whose token predates the reset is refused with a
+`401`. A sign-in that verified the old password just before the reset
+committed is refused with the same `401` as a wrong password, and the person signs
+in again with the new one.
+
 The cutoff is set one second after the reset, and the comparison is strict to
 the second, because a token's issue time is only recorded in whole seconds. The
 extra second absorbs clock skew between replicas: a token minted just before the

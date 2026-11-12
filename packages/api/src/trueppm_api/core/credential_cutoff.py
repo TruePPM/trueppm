@@ -120,6 +120,28 @@ def issued_before_cutoff(iat: Any, cutoff: datetime | None, *, whole_seconds: bo
     return issued <= cutoff.timestamp()
 
 
+def lock_profile_and_read_cutoff(user: Any) -> datetime | None:
+    """Take the account's ``UserProfile`` row lock and return the cutoff from the locked row.
+
+    The one place the lock is taken, shared by the durable-grant mints
+    (:func:`lock_and_recheck_credential_cutoff`) and the token refresh and password
+    login paths (#4846), so they all order against ``mark_credentials_revoked`` (which
+    holds the same lock from the stamp to commit) identically. The row is created
+    lazily, so ``get_or_create`` inserts it first; two creators collide on the unique
+    ``user`` key and the loser waits for the winner's commit. Must run inside a
+    transaction (``ATOMIC_REQUESTS``) so the lock is held until the caller commits.
+    Take it before any other row lock, as the module's other callers do.
+    """
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    UserProfile.objects.get_or_create(user=user)
+    return (
+        UserProfile.objects.select_for_update()
+        .values_list("credentials_revoked_at", flat=True)
+        .get(user=user)
+    )
+
+
 def lock_and_recheck_credential_cutoff(request: Any) -> None:
     """Serialize a durable-grant mint against a concurrent credential sweep (#4839).
 
@@ -169,17 +191,10 @@ def lock_and_recheck_credential_cutoff(request: Any) -> None:
     Raises:
         AuthenticationFailed: the caller's token predates the cutoff (HTTP 401).
     """
-    from trueppm_api.apps.profiles.models import UserProfile
-
     user = request.user
     if not getattr(user, "is_authenticated", False):
         return
-    UserProfile.objects.get_or_create(user=user)
-    cutoff = (
-        UserProfile.objects.select_for_update()
-        .values_list("credentials_revoked_at", flat=True)
-        .get(user=user)
-    )
+    cutoff = lock_profile_and_read_cutoff(user)
     from trueppm_api.apps.projects.models import ApiToken
 
     auth: Any = getattr(request, "auth", None)

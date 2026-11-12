@@ -480,6 +480,9 @@ def _token_subject_is_active(refresh: RefreshToken) -> bool:
     cutoff (#4499). The cutoff check is what reaches a refresh token that predates
     #2999 and so has no ``OutstandingToken`` row for the blacklist to revoke.
 
+    Runs inside the request transaction and leaves the account's ``UserProfile`` row
+    locked until it commits (see :func:`lock_profile_and_read_cutoff`).
+
     The wording of the caller's rejection is deliberately the same
     "invalid or expired" string simplejwt uses for a bad token: a distinct message
     would tell an attacker holding a stolen token that the account exists and was
@@ -492,15 +495,16 @@ def _token_subject_is_active(refresh: RefreshToken) -> bool:
     if user_id is None:
         return False
 
-    from trueppm_api.core.credential_cutoff import credentials_revoked_at, issued_before_cutoff
+    from trueppm_api.core.credential_cutoff import (
+        issued_before_cutoff,
+        lock_profile_and_read_cutoff,
+    )
 
     user_model = get_user_model()
     try:
-        user = (
-            user_model.objects.select_related("profile")
-            .filter(**{api_settings.USER_ID_FIELD: user_id, "is_active": True})
-            .first()
-        )
+        user = user_model.objects.filter(
+            **{api_settings.USER_ID_FIELD: user_id, "is_active": True}
+        ).first()
     except (DjangoValidationError, ValueError, TypeError):
         # A claim of the wrong type for the pk column (a string where an int is
         # expected) makes Django raise at query build. DRF does not convert
@@ -510,7 +514,35 @@ def _token_subject_is_active(refresh: RefreshToken) -> bool:
         return False
     if user is None:
         return False
-    return not issued_before_cutoff(refresh.payload.get("iat"), credentials_revoked_at(user))
+    # Re-read the cutoff from the LOCKED profile row (#4846), not a plain join: the
+    # caller issues the new pair after this returns, in the same ATOMIC_REQUESTS
+    # transaction, so the lock is held until the pair is committed. A reset that stamps
+    # first is seen (this blocks on its commit and refuses); one that arrives later
+    # blocks until this commits, and its stamp lands after the new pair's ``iat``.
+    return not issued_before_cutoff(refresh.payload.get("iat"), lock_profile_and_read_cutoff(user))
+
+
+def _refuse_login_raced_by_reset(user: Any, refresh_token: Any) -> None:
+    """Raise ``AuthenticationFailed`` if a reset committed during this password login (#4846).
+
+    Locks the account's ``UserProfile`` row (held to the end of the request's
+    transaction, so a later reset waits for this login's pair to commit and its cutoff
+    then covers it) and checks the two things a committed reset leaves behind: a
+    changed password hash (the credentials this login verified are no longer valid),
+    and a credential cutoff at or after the freshly minted pair's ``iat``. The wording
+    matches a bad-password login so the refusal reveals nothing. The raise rolls back
+    the ``OutstandingToken`` row ``for_user`` wrote, via DRF's ``set_rollback()``.
+    """
+    from trueppm_api.core.credential_cutoff import (
+        issued_before_cutoff,
+        lock_profile_and_read_cutoff,
+    )
+
+    cutoff = lock_profile_and_read_cutoff(user)
+    current_hash = User.objects.filter(pk=user.pk).values_list("password", flat=True).first()
+    iat = RefreshToken(refresh_token).payload.get("iat") if refresh_token else None
+    if current_hash != user.password or (cutoff is not None and issued_before_cutoff(iat, cutoff)):
+        raise AuthenticationFailed("No active account found with the given credentials")
 
 
 def _apply_remember(refresh: RefreshToken, *, remember: bool) -> None:
@@ -752,6 +784,13 @@ class CookieTokenObtainPairView(TokenObtainPairView):
 
         data = dict(serializer.validated_data)
         refresh_token = data.pop("refresh", None)
+
+        # #4846: the password was verified and the pair minted (inside ``is_valid``)
+        # BEFORE this lock, so a reset that committed in between would otherwise leave a
+        # pair whose ``iat`` can land past its cutoff. Lock the profile row, which holds
+        # the pair's commit behind any later reset, and refuse when a reset already
+        # committed: the password hash changed, or the pair predates the cutoff.
+        _refuse_login_raced_by_reset(serializer.user, refresh_token)
 
         response = Response(data, status=status.HTTP_200_OK)
         if refresh_token:
