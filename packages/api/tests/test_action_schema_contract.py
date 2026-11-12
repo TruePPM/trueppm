@@ -807,6 +807,28 @@ def test_repair_normalizes_blank_estimate_status_without_touching_versions(
     assert untouched.estimate_status == "pending"
 
 
+@pytest.mark.django_db
+def test_full_clean_accepts_null_estimate_status_and_rejects_blank(project: Project) -> None:
+    """NULL ("not tracked") must stay valid while ``''`` is refused (#2600).
+
+    Dropping ``blank=True`` alone also rejects NULL, because Django's blank check fires
+    for every value in ``empty_values`` and NULL is the normal state of the column.
+    """
+    from django.core.exceptions import ValidationError
+
+    task = Task.objects.create(project=project, name="T", duration=1)
+    assert task.estimate_status is None
+    task.full_clean()
+
+    task.estimate_status = "accepted"
+    task.full_clean()
+
+    task.estimate_status = ""
+    with pytest.raises(ValidationError) as exc:
+        task.full_clean()
+    assert "estimate_status" in exc.value.message_dict
+
+
 # ---------------------------------------------------------------------------
 # Body-reading actions declare the body they read, not the viewset's whole object
 # ---------------------------------------------------------------------------

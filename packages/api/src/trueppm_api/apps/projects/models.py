@@ -4408,6 +4408,19 @@ class Task(VersionedModel):
                 new_status=self.status,
             )
 
+    def clean_fields(self, exclude: Collection[str] | None = None) -> None:
+        """Validate fields, keeping NULL ``estimate_status`` valid while ``''`` is not.
+
+        ``estimate_status`` drops ``blank=True`` so ``''`` — a third state the
+        published contract declares impossible — fails validation. But Django's blank
+        check fires for every value in ``empty_values``, NULL included, and NULL
+        ("not tracked") is the column's normal state. Skipping the field only when it
+        is NULL restores that case without readmitting ``''``.
+        """
+        if self.estimate_status is None:
+            exclude = {*(exclude or ()), "estimate_status"}
+        super().clean_fields(exclude=exclude)
+
     @staticmethod
     def _also_write(kwargs: dict[str, Any], *names: str) -> dict[str, Any]:
         """Add implicitly-stamped columns to a partial save's ``update_fields``.
