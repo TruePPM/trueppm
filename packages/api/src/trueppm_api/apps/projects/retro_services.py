@@ -56,10 +56,35 @@ def lock_project_before_items(project_id: Any) -> None:
     used to lock items first and reach the project later through their own cursor
     draws, so a retro save racing the soft-delete of one of its promoted tasks could
     deadlock. Callers must be inside ``transaction.atomic()``.
+
+    Carryover also locks a ``Sprint``, and that lock goes **before** this one: the
+    full order is target sprint, then project, then items. Every other sprint row
+    locker draws a cursor after it, so it runs sprint then project: activate and
+    cancel (``SprintViewSet``) lock a PLANNED sprint and then ``save()`` it, and
+    ``close_sprint`` locks the ACTIVE sprint and then saves it. A carryover that
+    took the project first and the sprint second would deadlock against a cancel
+    or activate of its target sprint. See ``_lock_carryover_target_sprint``.
     """
     from trueppm_api.apps.projects.models import Project
 
     list(Project.objects.select_for_update(of=("self",)).filter(pk=project_id).values("pk"))
+
+
+def _lock_carryover_target_sprint(sprint_pk: Any) -> Sprint:
+    """Lock the carryover target sprint so its state cannot change before commit.
+
+    Taken before the project lock (see ``lock_project_before_items``). It is
+    ``FOR NO KEY UPDATE`` rather than ``FOR UPDATE`` because ``close_sprint`` moves
+    carried tasks into its ``carry_over_to`` sprint, usually the same PLANNED sprint
+    a carryover targets, after it already holds the project lock. Each moved task's
+    foreign key takes ``FOR KEY SHARE`` on that sprint, which ``FOR UPDATE`` would
+    block, closing a sprint, project, sprint cycle. ``FOR NO KEY UPDATE`` still
+    conflicts with the ``FOR UPDATE`` that activate, cancel and close take, so the
+    state check stays serialized against them.
+    """
+    from trueppm_api.apps.projects.models import Sprint
+
+    return Sprint.objects.select_for_update(no_key=True).get(pk=sprint_pk)
 
 
 def _project_id_of_item(item_pk: Any) -> Any:
@@ -223,13 +248,14 @@ def pull_carryover_item_to_sprint(
     """
     from trueppm_api.apps.projects.models import (
         RetroActionItem,
-        Sprint,
         SprintState,
         Task,
     )
     from trueppm_api.apps.sync.broadcast import defer_task_updated
 
     with transaction.atomic():
+        # Sprint, then project, then item (#4628 global lock order).
+        target_locked = _lock_carryover_target_sprint(target_sprint.pk)
         lock_project_before_items(_project_id_of_item(action_item.pk))
         locked = (
             RetroActionItem.objects.select_for_update()
@@ -238,7 +264,6 @@ def pull_carryover_item_to_sprint(
         )
         source_project_id = locked.retro.sprint.project_id
 
-        target_locked = Sprint.objects.select_for_update().get(pk=target_sprint.pk)
         if target_locked.project_id != source_project_id:
             raise ValidationError(
                 "Target sprint must be in the same project as the retro action item."
