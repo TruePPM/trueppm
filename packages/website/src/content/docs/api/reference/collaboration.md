@@ -226,6 +226,8 @@ paginated `{count, results}` envelope the list route returns and not a single
 preference object — apply the array to your local state directly rather than
 refetching.
 
+Do Not Disturb and the digest schedule use `GET` and `PATCH /api/v1/me/notification-settings/`; see [Do Not Disturb](/features/notifications/#do-not-disturb).
+
 ## Mention groups
 
 A user-defined `@mention` group is a named alias for a curated set of people, so
@@ -315,6 +317,8 @@ Read-only team-visible audit trail (ADR-0112). See
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/users/search/` | Typeahead over workspace users, for the member-invite / mention-group pickers |
+
+`GET /api/v1/me/search/` is the omni-search behind the global search box; its parameters and response are in the [interactive schema](/api/reference/#interactive-schema).
 
 Throttled at `user_search` (60/min per user — see
 [Rate limiting](/api/reference/#rate-limiting)) to bound bulk scraping of the user directory.

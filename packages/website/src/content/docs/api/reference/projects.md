@@ -14,6 +14,12 @@ documentedFor: "0.5"
 | PUT / PATCH | `/api/v1/calendars/{id}/` | Update |
 | DELETE | `/api/v1/calendars/{id}/` | Soft-delete |
 
+Calendar exceptions (`/api/v1/calendars/{calendar_pk}/exceptions/` and `.../exceptions/{id}/`, standard CRUD) are described in [Managing exceptions](/features/calendars/#managing-exceptions).
+
+## Labels
+
+Project labels (`/api/v1/projects/{project_pk}/labels/`), task label assignment (`/api/v1/projects/{project_pk}/tasks/{task_pk}/labels/`) and the program-wide catalog (`/api/v1/programs/{program_pk}/label-catalog/`, `.../label-tasks/`) are described in [Labels](/features/labels/#for-integrations-and-agents).
+
 ## Projects
 
 | Method | Path | Description |
