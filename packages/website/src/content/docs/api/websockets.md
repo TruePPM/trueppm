@@ -370,6 +370,11 @@ name — refetch it". It may also contain the pseudo-field `acceptance_criteria`
 is not a stored task field: it says the task's acceptance criteria (and so its
 Definition-of-Ready meter) changed.
 
+Two producers emit a leaner or wider frame than the shape above. Inbound task-sync
+frames (Jira and Linear) carry only `id` and `source`. The retro carryover frame
+also carries `task_id`, `sprint_id` and `source`. Treat any `task_updated` frame
+without `changed_fields` as "refetch the task".
+
 For a task edit, `changed_fields` lists every stored task field the write changed, including fields
 the server derives from the submitted ones (for example `status` and `actual_start`
 when a past `planned_start` starts a task). A PATCH emits no `task_updated`, triggers
