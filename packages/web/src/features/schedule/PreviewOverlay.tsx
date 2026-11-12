@@ -47,12 +47,13 @@ import { isPinnedByActuals, PINNED_DRAG_EXPLANATION } from './pinnedByActuals';
 // is 3.6:1 (light) / 4.6:1 (dark) — #2207.
 const GHOST_FILL = 'rgb(var(--ghost-fill) / 0.14)';
 const GHOST_BORDER = 'rgb(var(--ghost-border) / 0.85)';
-const CRITICAL_BORDER = 'var(--color-semantic-critical, #B91C1C)';
+const CRITICAL_BORDER = 'rgb(var(--semantic-critical))';
 // Origin ghost bar: more opaque border to distinguish from downstream previews (rule 52).
 // Kept above the preview's 0.85 so the anchor still reads as "more solid"; theme-aware (#2207).
 const ORIGIN_BORDER = 'rgb(var(--ghost-border) / 0.95)';
 // Build ghost bar: dashed brand-accent (amber) border during inline name editing (#344)
-const BUILD_BORDER = 'var(--color-brand-accent, #E8A020)';
+// brand-accent is a static hex in tailwind.config.ts; there is no CSS variable to reference.
+const BUILD_BORDER = '#E8A020';
 
 /**
  * Vertical placement of a ghost bar inside the clipped bars band.

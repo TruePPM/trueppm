@@ -24,14 +24,13 @@ export function ResourceRow({ resource, days, rowIndex, onOpenDrawer }: Props) {
     >
       {/* Sticky resource name column — 160px */}
       <div
-        className="
+        className={`
           sticky left-0 z-10 flex-none w-40 h-8
           flex items-center px-3
           border-r border-neutral-border
-          bg-neutral-surface text-xs font-medium text-neutral-text-primary
+          ${isEvenRow ? 'bg-neutral-surface' : 'bg-neutral-surface-sunken'} text-xs font-medium text-neutral-text-primary
           truncate
-        "
-        style={{ background: isEvenRow ? undefined : 'var(--color-neutral-surface-sunken, #f5f5f0)' }}
+        `}
         title={resource.resource_name}
       >
         <span className="truncate">{resource.resource_name}</span>

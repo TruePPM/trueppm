@@ -58,6 +58,9 @@ interface Props {
   children: ReactNode;
   /** Dismissal copy — never an action verb (rule 253b). */
   closeLabel?: string;
+  /** The trigger carries a 1px border: its absolute `::before` resolves offsets against the
+   *  padding box (inside the border), so the pad needs 1px more per side to reach 44px. */
+  bordered?: boolean;
 }
 
 /** Popover geometry — the same constants as the rule-253 reference. Height is a
@@ -73,6 +76,7 @@ export function CardPeekButton({
   peekAriaLabel,
   children,
   closeLabel = 'Got it',
+  bordered = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -175,7 +179,9 @@ export function CardPeekButton({
           'relative z-10 inline-flex items-center',
           triggerClassName ?? '',
           // Invisible ≥44px touch target without visually enlarging the trigger.
-          "before:absolute before:inset-[-12px] before:content-['']",
+          bordered
+            ? "before:absolute before:inset-[-13px] before:content-['']"
+            : "before:absolute before:inset-[-12px] before:content-['']",
           'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
         ].join(' ')}
       >

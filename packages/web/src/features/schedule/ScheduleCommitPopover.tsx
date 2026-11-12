@@ -236,14 +236,14 @@ export function ScheduleCommitPopover({
     ? {
         top: -POINTER_TRIANGLE_HEIGHT,
         left: Math.max(12, Math.min(POPOVER_WIDTH - 12, anchor.x - position.left)),
-        borderBottom: `${POINTER_TRIANGLE_HEIGHT}px solid var(--color-neutral-surface, #ffffff)`,
+        borderBottom: `${POINTER_TRIANGLE_HEIGHT}px solid rgb(var(--neutral-surface))`,
         borderLeft: '6px solid transparent',
         borderRight: '6px solid transparent',
       }
     : {
         bottom: -POINTER_TRIANGLE_HEIGHT,
         left: Math.max(12, Math.min(POPOVER_WIDTH - 12, anchor.x - position.left)),
-        borderTop: `${POINTER_TRIANGLE_HEIGHT}px solid var(--color-neutral-surface, #ffffff)`,
+        borderTop: `${POINTER_TRIANGLE_HEIGHT}px solid rgb(var(--neutral-surface))`,
         borderLeft: '6px solid transparent',
         borderRight: '6px solid transparent',
       };

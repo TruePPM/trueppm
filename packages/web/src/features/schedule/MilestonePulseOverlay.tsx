@@ -80,17 +80,15 @@ function PulseRings({ x, y }: { x: number; y: number }) {
         cx={24}
         cy={24}
         fill="none"
-        stroke="var(--brand-accent)"
         strokeWidth={2}
-        className="animate-milestone-pulse"
+        className="stroke-brand-accent animate-milestone-pulse"
       />
       <circle
         cx={24}
         cy={24}
         fill="none"
-        stroke="var(--brand-accent)"
         strokeWidth={2}
-        className="animate-milestone-pulse"
+        className="stroke-brand-accent animate-milestone-pulse"
         style={{ animationDelay: '250ms' }}
       />
     </svg>

@@ -128,6 +128,7 @@ function InteractivePendingChip({
           </>
         }
         triggerClassName={CHIP_SURFACE}
+        bordered
         ariaLabel="Pending acceptance. What does this mean?"
         peekAriaLabel="Pending acceptance — explanation"
       >
