@@ -364,7 +364,7 @@ function BacklogGroup({ sprintId, group, onRemoveTask, onOpenTask, iterationLowe
                 </span>
               </td>
               {onRemoveTask && (
-                <td className="px-2 py-2 align-top w-8 text-right">
+                <td className="px-2 max-md:pr-[14px] py-2 align-top w-8 text-right">
                   <button
                     type="button"
                     onClick={() => onRemoveTask(t.id)}

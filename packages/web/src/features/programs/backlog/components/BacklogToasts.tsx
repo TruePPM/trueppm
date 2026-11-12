@@ -18,6 +18,10 @@ import { CloseIcon, WarningIcon } from '@/components/Icons';
 import type { BacklogController } from '../hooks/useBacklogController';
 import { FOCUS_RING } from './styles';
 
+// Invisible 44x44 hit area centered on the 24px dismiss glyph box (rule 5).
+const PAD_44 =
+  "before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']";
+
 /**
  * Narrowed to the three fields this component reads (#3644). It used to take the
  * whole `BacklogController`, which forced its test to build one with
@@ -87,7 +91,7 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
               type="button"
               onClick={controller.dismissToast}
               aria-label="Dismiss"
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
+              className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING} ${PAD_44}`}
             >
               <CloseIcon aria-hidden="true" className="h-3.5 w-3.5" />
             </button>

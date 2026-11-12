@@ -210,6 +210,56 @@ test.describe('Sprint scope-injection approve-gate (#881 / ADR-0102)', () => {
     await expect(chip.first()).toBeFocused();
   });
 
+  // Measures the REAL hit band of the pending chip trigger (its ::before pad) by probing
+  // elementFromPoint along each axis, so a wrong inset fails here and not just in a class
+  // string assertion (#3509). The `bordered` prop exists because the 1px border shifts the
+  // pad's containing block; this proves the 44px floor actually holds at both densities.
+  for (const [label, density] of [
+    ['full density', 'comfortable'],
+    ['compact density (icon-only chip)', 'compact'],
+  ] as const) {
+    test(`pending chip hit band is >= 44px square — ${label} (#3509)`, async ({ page }) => {
+      await page.addInitScript((d) => localStorage.setItem('trueppm.board.density', d), density);
+      await setupRoutes(page);
+      await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ id: 'mem-1', role: 100 }]),
+        }),
+      );
+      await page.goto(BASE_URL);
+      const myTasks = page.getByRole('button', { name: 'My tasks' });
+      if ((await myTasks.getAttribute('aria-pressed')) === 'true') await myTasks.click();
+      const chip = page
+        .getByRole('button', { name: /Pending acceptance\. What does this mean\?/ })
+        .first();
+      await chip.scrollIntoViewIfNeeded();
+      await expect(chip).toBeVisible();
+
+      const band = await chip.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const hits = (x: number, y: number) => document.elementFromPoint(x, y) === el;
+        // 1px scan: exact only because the trigger boxes and pads are whole-pixel; a fractional
+        // box would quantize by +-1 against the 44px floor (bisection would be needed then).
+        let up = 0;
+        let down = 0;
+        let left = 0;
+        let right = 0;
+        while (hits(cx, cy - up - 1)) up++;
+        while (hits(cx, cy + down + 1)) down++;
+        while (hits(cx - left - 1, cy)) left++;
+        while (hits(cx + right + 1, cy)) right++;
+        return { w: left + right + 1, h: up + down + 1, boxW: r.width, boxH: r.height };
+      });
+      console.log(`[3509] ${label}: hit band ${band.w}x${band.h} (box ${band.boxW}x${band.boxH})`);
+      expect(band.w).toBeGreaterThanOrEqual(44);
+      expect(band.h).toBeGreaterThanOrEqual(44);
+    });
+  }
+
   test('empty state: panel with no pending items shows the all-clear message', async ({ page }) => {
     await setupRoutes(page);
     // Re-route the sprint + tasks so nothing is pending.

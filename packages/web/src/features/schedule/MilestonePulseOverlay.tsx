@@ -80,7 +80,7 @@ function PulseRings({ x, y }: { x: number; y: number }) {
         cx={24}
         cy={24}
         fill="none"
-        stroke="var(--brand-accent)"
+        stroke="rgb(var(--brand-accent))"
         strokeWidth={2}
         className="animate-milestone-pulse"
       />
@@ -88,7 +88,7 @@ function PulseRings({ x, y }: { x: number; y: number }) {
         cx={24}
         cy={24}
         fill="none"
-        stroke="var(--brand-accent)"
+        stroke="rgb(var(--brand-accent))"
         strokeWidth={2}
         className="animate-milestone-pulse"
         style={{ animationDelay: '250ms' }}

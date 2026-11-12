@@ -1177,6 +1177,19 @@ describe('BoardCard', () => {
       ).not.toBeInTheDocument();
     });
 
+    it('hand-rolled bordered chips pad by -13px (44px hit area)', () => {
+      renderCard({
+        task: { ...baseTask, isCritical: true, linkedRisksCount: 3, linkedRisksMaxSeverity: 18 },
+      });
+      for (const el of [
+        screen.getByRole('button', { name: /show health details/i }),
+        screen.getByLabelText(/3 linked risks/),
+      ]) {
+        expect(el.className).toContain('before:inset-[-13px]');
+        expect(el.className).not.toContain('before:inset-[-12px]');
+      }
+    });
+
     it('the badge toggles the health-chip peek and reflects aria-expanded', () => {
       renderCard({ task: { ...baseTask, isCritical: true } });
       const badge = screen.getByRole('button', { name: /show health details/i });
@@ -1414,6 +1427,19 @@ describe('BoardCard compact bar touch affordances (#1947)', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('(c2) coarse trigger hit pads reach 44px: short signal chip and the title glyph', () => {
+    stubPointer(true);
+    overflowState.value = true;
+    renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
+    // 12px icon + 2px padding box: icon-only chip uses the short (-16px vertical) pad.
+    const chip = screen.getByRole('button', { name: /what does this mean/i });
+    expect(chip.className).toContain('before:inset-y-[-16px]');
+    // 14px unbordered glyph + p-1 (22px box) + -12px = 46px.
+    const glyph = screen.getByRole('button', { name: /show full title/i });
+    expect(glyph.className).toMatch(/(^|\s)p-1(\s|$)/);
+    expect(glyph.className).toContain('before:inset-[-12px]');
   });
 
   it('(d) fine pointer → no peek buttons; health badge stays a display-only span', () => {

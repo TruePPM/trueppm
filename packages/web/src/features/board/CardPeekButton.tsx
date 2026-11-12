@@ -36,7 +36,10 @@ import { createPortal } from 'react-dom';
  *     its anchor;
  *   - `stopPropagation` on pointerdown+click so opening never drags, selects,
  *     or opens the host card;
- *   - `before:inset-[-12px]` for a ≥44px hit target; rule-4 `focus-visible` ring.
+ *   - a ≥44px `::before` hit pad, sized by the trigger's padding box: `inset-[-12px]` by
+ *     default, `-13px` with `bordered`, and `inset-x-[-13px] inset-y-[-16px]` with
+ *     `shortTrigger` (icon-only ~14px chip). An unbordered trigger shorter than ~20px
+ *     must add its own padding (e.g. `p-1`, `py-0.5`) to reach 44px; rule-4 `focus-visible` ring.
  *
  * The popover surface is intentionally NEUTRAL (rule 253a): the trigger may
  * carry a semantic tone (e.g. the worst-offender health badge), but the peek
@@ -58,6 +61,12 @@ interface Props {
   children: ReactNode;
   /** Dismissal copy — never an action verb (rule 253b). */
   closeLabel?: string;
+  /** The trigger carries a 1px border: its absolute `::before` resolves offsets against the
+   *  padding box (inside the border), so the pad needs 1px more per side to reach 44px. */
+  bordered?: boolean;
+  /** The trigger is a short (~14px) icon-only chip: widen the vertical pad to 16px per side
+   *  (12px padding box + 32px = 44px). Horizontal stays at the bordered 13px (18 + 26 = 44). */
+  shortTrigger?: boolean;
 }
 
 /** Popover geometry — the same constants as the rule-253 reference. Height is a
@@ -73,6 +82,8 @@ export function CardPeekButton({
   peekAriaLabel,
   children,
   closeLabel = 'Got it',
+  bordered = false,
+  shortTrigger = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -175,7 +186,11 @@ export function CardPeekButton({
           'relative z-10 inline-flex items-center',
           triggerClassName ?? '',
           // Invisible ≥44px touch target without visually enlarging the trigger.
-          "before:absolute before:inset-[-12px] before:content-['']",
+          shortTrigger
+            ? "before:absolute before:inset-x-[-13px] before:inset-y-[-16px] before:content-['']"
+            : bordered
+              ? "before:absolute before:inset-[-13px] before:content-['']"
+              : "before:absolute before:inset-[-12px] before:content-['']",
           'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
         ].join(' ')}
       >

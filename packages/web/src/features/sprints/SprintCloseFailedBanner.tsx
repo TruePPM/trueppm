@@ -98,7 +98,8 @@ export function SprintCloseFailedBanner({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss close failure"
-          className="h-7 w-7 grid place-items-center rounded text-neutral-text-secondary
+          className="relative h-7 w-7 grid place-items-center rounded text-neutral-text-secondary
+          before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']
             hover:bg-neutral-surface-raised
             focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >

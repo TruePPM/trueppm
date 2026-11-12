@@ -60,7 +60,8 @@ export function RetroHandoffBanner({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss retro handoff"
-          className="h-7 w-7 grid place-items-center rounded text-neutral-text-secondary
+          className="relative h-7 w-7 grid place-items-center rounded text-neutral-text-secondary
+          before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']
             hover:bg-neutral-surface-raised
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >

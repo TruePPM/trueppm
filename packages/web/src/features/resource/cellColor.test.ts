@@ -4,15 +4,15 @@ import { cellColor } from './cellColor';
 describe('cellColor', () => {
   it('returns surface-sunken for 0%', () => {
     const c = cellColor(0);
-    expect(c.bg).toBe('var(--neutral-surface-sunken)');
-    expect(c.fg).toBe('var(--neutral-text-disabled)');
+    expect(c.bg).toBe('rgb(var(--neutral-surface-sunken))');
+    expect(c.fg).toBe('rgb(var(--neutral-text-disabled))');
     expect(c.border).toBeUndefined();
   });
 
   it('returns green ramp for 50% with primary text', () => {
     const c = cellColor(50);
     expect(c.bg).toMatch(/rgba\(28, 107, 58/);
-    expect(c.fg).toBe('var(--neutral-text-primary)');
+    expect(c.fg).toBe('rgb(var(--neutral-text-primary))');
     expect(c.border).toBeUndefined();
   });
 
@@ -31,15 +31,15 @@ describe('cellColor', () => {
   it('returns red ramp with critical border at 101%', () => {
     const c = cellColor(101);
     expect(c.bg).toMatch(/rgba\(185, 28, 28/);
-    expect(c.border).toBe('1px solid var(--semantic-critical)');
+    expect(c.border).toBe('1px solid rgb(var(--semantic-critical))');
     // 101% → util=1 over 100 → t=1/30 ≈ 0.033 → fg still primary
-    expect(c.fg).toBe('var(--neutral-text-primary)');
+    expect(c.fg).toBe('rgb(var(--neutral-text-primary))');
   });
 
   it('returns white text above 110%', () => {
     const c = cellColor(111);
     expect(c.fg).toBe('#fff');
-    expect(c.border).toBe('1px solid var(--semantic-critical)');
+    expect(c.border).toBe('1px solid rgb(var(--semantic-critical))');
   });
 
   it('caps red alpha at 0.70 for very high values (120%+)', () => {
@@ -51,5 +51,16 @@ describe('cellColor', () => {
     // 200% should clamp to t=1
     const alphaAt200 = (0.15 + 1 * 0.55).toFixed(3);
     expect(c200.bg).toContain(alphaAt200);
+  });
+});
+
+describe('cellColor token wrapping', () => {
+  it('never emits an unwrapped token var (a bare RGB triple is not a valid CSS color)', () => {
+    for (const util of [0, 50, 80, 101, 111]) {
+      const c = cellColor(util);
+      for (const v of [c.bg, c.fg, c.border ?? '']) {
+        expect(v).not.toMatch(/(^|[^(])var\(--/);
+      }
+    }
   });
 });

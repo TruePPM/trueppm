@@ -136,4 +136,20 @@ describe('PendingAcceptanceChip interactive disclosure (#1472)', () => {
     expect(trigger.className).not.toContain('semantic-at-risk');
     expect(trigger.className).not.toContain('semantic-critical');
   });
+
+  it('pads a bordered interactive trigger by -13px so the hit area reaches 44px', () => {
+    render(<PendingAcceptanceChip explainer="Someone on the team accepts it." />);
+    const trigger = screen.getByRole('button', { name: /pending acceptance/i });
+    // 16px line + 2px padding + 2px border = 18px padding box; an offset resolves
+    // against the padding box, so -13px per side gives 18 + 26 = 44.
+    expect(trigger.className).toContain('before:inset-[-13px]');
+    expect(trigger.className).not.toContain('before:inset-[-12px]');
+  });
+
+  it('widens the vertical pad of the icon-only compact trigger to reach 44px (14px box)', () => {
+    render(<PendingAcceptanceChip compact explainer="Someone on the team accepts it." />);
+    const trigger = screen.getByRole('button', { name: /pending acceptance/i });
+    expect(trigger.className).toContain('before:inset-y-[-16px]');
+    expect(trigger.className).toContain('before:inset-x-[-13px]');
+  });
 });

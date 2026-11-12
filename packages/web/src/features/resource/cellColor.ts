@@ -15,21 +15,21 @@ export interface CellColor {
  */
 export function cellColor(util: number): CellColor {
   if (util === 0) {
-    return { bg: 'var(--neutral-surface-sunken)', fg: 'var(--neutral-text-disabled)' };
+    return { bg: 'rgb(var(--neutral-surface-sunken))', fg: 'rgb(var(--neutral-text-disabled))' };
   }
 
   if (util > 100) {
     const t = Math.min(1, (util - 100) / 30);
     return {
       bg: `rgba(185, 28, 28, ${(0.15 + t * 0.55).toFixed(3)})`,
-      fg: util > 110 ? '#fff' : 'var(--neutral-text-primary)',
-      border: '1px solid var(--semantic-critical)',
+      fg: util > 110 ? '#fff' : 'rgb(var(--neutral-text-primary))',
+      border: '1px solid rgb(var(--semantic-critical))',
     };
   }
 
   const t = util / 100;
   return {
     bg: `rgba(28, 107, 58, ${(0.1 + t * 0.55).toFixed(3)})`,
-    fg: t > 0.65 ? '#fff' : 'var(--neutral-text-primary)',
+    fg: t > 0.65 ? '#fff' : 'rgb(var(--neutral-text-primary))',
   };
 }
