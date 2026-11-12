@@ -295,7 +295,7 @@ def test_readd_member_resurrects_soft_deleted_membership(
     resp = _client(admin).post(
         f"{GROUPS_URL}{gid}/members/", {"user": str(teammate.pk)}, format="json"
     )
-    assert resp.status_code in (200, 201)
+    assert resp.status_code == 201
     pm = _membership(project, teammate)
     assert pm is not None
     assert pm.pk == original_pk  # resurrected, not re-created
