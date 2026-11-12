@@ -17,7 +17,7 @@ import sys
 TAG = re.compile(
     r"<(div|section|ul|span|p)\b((?:[^<>{}]|\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})*?)>", re.S
 )
-LOADING = re.compile(r"aria-label=(\{[^}]*Loading|\"Loading|'Loading)")
+LOADING = re.compile(r"aria-label=(\{[^}]*Loading|\"[^\"]*Loading|'[^']*Loading)", re.I)
 
 
 def scan(text: str) -> list[int]:
@@ -37,11 +37,15 @@ def self_test() -> int:
     bad_tpl = "<div\n  aria-busy\n  aria-label={`Loading ${x}`}\n>"
     good = '<div role="status" aria-label="Loading things…" />'
     other = '<div aria-label="Close" />'
+    mid = '<div aria-label="Task loading…" />'
+    waived = '// skeleton-role-ok: decorative\n<div aria-label="Loading x" />'
     ok = (
         scan(bad) == [1]
         and scan(bad_tpl) == [1]
         and scan(good) == []
         and scan(other) == []
+        and scan(mid) == [1]
+        and scan(waived) == []
     )
     print("self-test " + ("ok" if ok else "FAILED"))
     return 0 if ok else 1
