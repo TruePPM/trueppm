@@ -105,6 +105,7 @@ def _table_specs() -> list[tuple[str, QuerySet[Any], tuple[str, ...]]]:
         SprintRetro,
         Task,
         TaskComment,
+        TaskCustomFieldValue,
     )
     from trueppm_api.apps.resources.models import (
         ProjectResource,
@@ -159,6 +160,7 @@ def _table_specs() -> list[tuple[str, QuerySet[Any], tuple[str, ...]]]:
         ("projects/risk_comments.json", RiskComment.objects.all(), ()),
         ("projects/task_comments.json", TaskComment.objects.all(), ()),
         ("projects/custom_fields.json", ProjectCustomField.objects.all(), ()),
+        ("projects/task_custom_field_values.json", TaskCustomFieldValue.objects.all(), ()),
         ("projects/task_runs.json", TaskRun.objects.all(), ()),
     ]
 
