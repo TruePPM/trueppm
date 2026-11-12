@@ -527,6 +527,25 @@ declaration correction, not a change taken without a window.
 | Announced | 0.4 |
 | Migration | regenerate clients; send the retro fields the endpoint documents |
 
+### No-body actions no longer declare a request body (#2870)
+
+Eighteen `POST` actions that never read the request body (archive/unarchive a project,
+close/reopen/remove-sample a program, activate/cancel/unbind-milestone a sprint,
+mark-all-read, approve-estimates, auto-rank, comment acknowledge, webhook test ping, and
+similar) were published with the viewset's whole write serializer as a *required*
+request body. They now declare no body, and the `400` that was injected only because a
+body was declared is gone. `POST /sprints/{id}/close/`, the bulk scope-change
+accept/reject, and `POST /tasks/{id}/split/` now declare the small payload they validate
+(`carry_over_to`/`pending_disposition`, `ids`, `name`) instead of a whole sprint or task.
+No request that worked before is refused. This is a schema-declaration correction,
+recorded here because the schema diff reports it as removed media types, statuses and
+properties.
+
+| | |
+|---|---|
+| Announced | 0.5 |
+| Migration | regenerate clients; call these actions with an empty body |
+
 ### User ids declared as integers (#4293)
 
 The four mention-group roster request bodies (`add-member` and `remove-member`, on both

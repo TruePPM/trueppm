@@ -36,3 +36,12 @@ property-removed | response #/ImportRequestProvenance.initiated_by | import-prov
 # Declaration correction, wire behavior unchanged.
 param-removed | * query:search | search--ordering-no-longer-declared-where-they-were-ignored-3452 | parameter was documented but ignored by the server
 param-removed | * query:ordering | search--ordering-no-longer-declared-where-they-were-ignored-3452 | parameter was documented but ignored by the server
+
+# #2870 - annotated @actions that read no body stopped publishing the viewset's write
+# serializer as a required request body; the ones that do read a body now declare it.
+# Declaration correction, wire behavior unchanged.
+media-type-removed | POST /api/v1/*/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+status-removed | POST /api/v1/* 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+property-removed | request POST /api/v1/tasks/{id}/split/ body [[]TaskRequest->TaskSplitRequestRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the field the endpoint reads
+property-removed | request POST /api/v1/sprints/{id}/close/ body [[]SprintRequest->SprintCloseRequestRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the close payload the endpoint reads
+property-removed | request POST /api/v1/sprints/{id}/scope-changes/*/ body [[]SprintRequest->ScopeChangeBulkRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the ids payload the endpoint reads
