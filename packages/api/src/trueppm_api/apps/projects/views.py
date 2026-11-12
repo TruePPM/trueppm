@@ -16656,6 +16656,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         carries the higher SCHEDULER+ field gate from ADR-0073, re-checked in the
         serializer so the bulk route is not a way around it.
         """
+        from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
         from trueppm_api.apps.projects.sprint_cadence import (
             CadenceError,
             annotate_edited_rows,
@@ -16663,6 +16664,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             capacity_hint,
             commit_cadence,
             existing_sprint_names,
+            suppress_capacity_hint,
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -16717,7 +16719,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # The hint is the team's velocity as one rounded number (ADR-0104 §2.1): gate it
+        # like every other velocity sink, or the PM band reads what it is suppressed from.
+        # velocity-unfiltered-ok: gated below by can_read_signal + suppress_capacity_hint.
         hint = capacity_hint(project)
+        if not can_read_signal(request, project.pk, "velocity"):
+            hint = suppress_capacity_hint(hint)
 
         if params["dry_run"]:
             payload = {
@@ -17248,6 +17255,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         self.check_object_permissions(request, sprint)
         milestone_id = request.query_params.get("milestone_id") or None
         try:
+            # velocity-unfiltered-ok: velocity_low/high suppressed below (#2982).
             payload = reforecast_preview(sprint, milestone_id=milestone_id)
         except MilestoneNotFound:
             return Response(
@@ -17255,7 +17263,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 status=status.HTTP_404_NOT_FOUND,
             )
         # ADR-0104 §2.1 at a ninth sink (#2982). ``velocity_low``/``velocity_high``
-        # here are ``velocity_summary``'s ``forecast_range_low``/``_high`` passed
+        # here are ``velocity_summary_unfiltered``'s ``forecast_range_low``/``_high`` passed
         # through verbatim — the same two fields ``suppress_velocity_summary``
         # nulls — so without this a reader suppressed on /velocity/, /forecast/,
         # /sprint-forecast/ and /me/active-sprints/ reads the identical band with
@@ -18833,14 +18841,9 @@ class MeActiveSprintsView(APIView):
     project through this lens long after every other endpoint denied them. The
     queryset below therefore joins live membership explicitly, and the velocity
     block runs the ADR-0104 gate per project — this is a sink for
-    ``velocity_summary`` exactly like ``/velocity/`` and ``/forecast/``, and the
+    ``velocity_summary_unfiltered`` exactly like ``/velocity/`` and ``/forecast/``, and the
     gate has to fire at *every* sink or the lens is a side-channel back to the
     band those two suppress.
-
-    That sink set is **not** closed as of this writing: ``reforecast-preview``
-    still returns ``forecast_range_low``/``_high`` ungated (#2982). Do not read
-    the paragraph above as a guarantee that every sibling is gated — it is the
-    rule, not a statement that the rule currently holds everywhere.
     """
 
     permission_classes = [IsAuthenticated]
@@ -18849,7 +18852,7 @@ class MeActiveSprintsView(APIView):
         from trueppm_api.apps.projects.services import (
             capacity_summaries_for_sprints,
             sprint_trend_points,
-            velocity_bands_for_projects,
+            velocity_bands_for_projects_unfiltered,
         )
         from trueppm_api.apps.projects.signal_privacy_services import (
             can_read_signal_for_projects,
@@ -18924,7 +18927,8 @@ class MeActiveSprintsView(APIView):
         # batch each; the gate decision is the same ladder as `can_read_signal`, and a
         # suppressed project's band is withheld exactly as before.
         sprint_project_ids = {str(sp.project_id) for sp in sprints}
-        bands = velocity_bands_for_projects(sprint_project_ids)
+        # velocity-unfiltered-ok: suppressed per project below via can_read_signal_for_projects.
+        bands = velocity_bands_for_projects_unfiltered(sprint_project_ids)
         readable = can_read_signal_for_projects(request, sprint_project_ids, "velocity")
         for sprint in sprints:
             window = (sprint.finish_date - sprint.start_date).days + 1
@@ -19842,17 +19846,13 @@ class ProjectVelocityView(APIView):
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.projects.services import velocity_summary
-        from trueppm_api.apps.projects.signal_privacy_services import (
-            can_read_signal,
-            suppress_velocity_summary,
-        )
+        from trueppm_api.apps.projects.signal_privacy_services import velocity_summary_for
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
-        summary = velocity_summary(project.pk)
-        # ADR-0104 §2.1: strip the team-private velocity detail (series + rolling
-        # points) when the requester's band is outside the velocity audience.
+        # ADR-0104 §2.1: velocity_summary_for strips the team-private velocity
+        # detail (series + rolling points) when the requester's band is outside the
+        # velocity audience.
         #
         # The gate is an INVERSION of the usual role ordering, and reading it as
         # "higher role sees more" gets it backwards (#2915). The ladder measures
@@ -19868,8 +19868,7 @@ class ProjectVelocityView(APIView):
         # executive dashboards" is a documented hard NO). Raising the audience WIDENS
         # the readership rather than narrowing it, and takes majority team
         # ratification with no management bypass.
-        if not can_read_signal(request, project.pk, "velocity"):
-            summary = suppress_velocity_summary(summary)
+        summary = velocity_summary_for(request, project.pk)
         return Response(summary, status=status.HTTP_200_OK)
 
 
@@ -19929,7 +19928,7 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
     never downward to the team. The ``velocity`` payload is byte-identical to the
     existing ``/velocity/`` read for the same VIEWER+ audience — the velocity
     privacy gate (ADR-0104 / #553, not yet merged) will, when it lands, suppress
-    the per-sprint series for below-tier readers at the shared ``velocity_summary``
+    the per-sprint series for below-tier readers at the shared ``velocity_summary_unfiltered``
     sink so both endpoints inherit it.
     """
 
@@ -19954,6 +19953,7 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
+        # velocity-unfiltered-ok: suppressed below when can_read_signal is False (#981).
         data = project_forecast(project.pk)
         velocity = data["velocity"]
         remaining = data["remaining_committed_points"]
@@ -20028,6 +20028,7 @@ class ProjectSprintForecastView(McpReadableViewMixin, APIView):
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
+        # velocity-unfiltered-ok: whole payload replaced below when can_read_signal is False.
         data = sprint_forecast(project.pk)
         if not can_read_signal(request, project.pk, "velocity"):
             # The entire payload is velocity-derived, so a below-audience reader

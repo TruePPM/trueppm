@@ -104,6 +104,10 @@ CAPACITY_HINT_NOTE_NO_HISTORY = (
     "No closed iterations to draw from yet, so there is no suggestion to make. "
     "The team decides what it commits to."
 )
+CAPACITY_HINT_NOTE_SUPPRESSED = (
+    "The team has not shared its velocity with your role, so there is no suggestion "
+    "to show. The team decides what it commits to."
+)
 
 
 class CadenceError(ValueError):
@@ -328,9 +332,12 @@ def capacity_hint(project: Project) -> dict[str, Any]:
     """
     from trueppm_api.apps.projects.services import velocity_eligible_sprints
 
+    # velocity-unfiltered-ok: returns the raw average; the view must pass it through
+    # suppress_capacity_hint() unless can_read_signal(request, pk, "velocity").
+    eligible = velocity_eligible_sprints(project.pk)
     samples = [
         float(s.completed_points)
-        for s in velocity_eligible_sprints(project.pk)[:CAPACITY_HINT_WINDOW]
+        for s in eligible[:CAPACITY_HINT_WINDOW]
         if s.completed_points is not None
     ]
     if not samples:
@@ -345,6 +352,22 @@ def capacity_hint(project: Project) -> dict[str, Any]:
         "basis": "velocity_average",
         "sprints_sampled": len(samples),
         "note": CAPACITY_HINT_NOTE,
+    }
+
+
+def suppress_capacity_hint(hint: dict[str, Any]) -> dict[str, Any]:
+    """Strip the velocity-derived figure from a hint for a reader outside the velocity audience.
+
+    The hint is a rounded mean of the last closed sprints' completed points, so it
+    is the team's velocity in another shape (ADR-0104 §2.1). The PM band is
+    suppressed from velocity at the default audience and must not read it here.
+    """
+    return {
+        **hint,
+        "points": None,
+        "basis": "suppressed",
+        "sprints_sampled": 0,
+        "note": CAPACITY_HINT_NOTE_SUPPRESSED,
     }
 
 

@@ -19,7 +19,7 @@ from trueppm_api.apps.projects.services import (
     capacity_check,
     capacity_summary,
     compute_sprint_burn_status,
-    velocity_summary,
+    velocity_summary_unfiltered,
 )
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
@@ -57,7 +57,7 @@ def _closed_sprint(
 
 
 def test_velocity_returns_empty_when_no_closed_sprints(project: Project) -> None:
-    summary = velocity_summary(project.pk)
+    summary = velocity_summary_unfiltered(project.pk)
     assert summary["sprints"] == []
     assert summary["rolling_avg_points"] is None
     assert summary["forecast_range_low"] is None
@@ -66,7 +66,7 @@ def test_velocity_returns_empty_when_no_closed_sprints(project: Project) -> None
 def test_velocity_truncates_to_8_sprints(project: Project) -> None:
     for i in range(10):
         _closed_sprint(project, name=f"S{i}", points_committed=20, points_completed=18)
-    summary = velocity_summary(project.pk)
+    summary = velocity_summary_unfiltered(project.pk)
     assert len(summary["sprints"]) == 8
 
 
@@ -74,7 +74,7 @@ def test_velocity_avg_and_stdev_roundtrip(project: Project) -> None:
     _closed_sprint(project, name="S1", points_committed=20, points_completed=10)
     _closed_sprint(project, name="S2", points_committed=20, points_completed=20)
     _closed_sprint(project, name="S3", points_committed=20, points_completed=30)
-    summary = velocity_summary(project.pk)
+    summary = velocity_summary_unfiltered(project.pk)
     assert summary["rolling_avg_points"] == 20.0
     assert summary["rolling_stdev_points"] is not None
     assert summary["forecast_range_low"] is not None
@@ -83,7 +83,7 @@ def test_velocity_avg_and_stdev_roundtrip(project: Project) -> None:
 
 def test_velocity_single_sprint_has_avg_no_stdev(project: Project) -> None:
     _closed_sprint(project, name="Only", points_committed=20, points_completed=15)
-    summary = velocity_summary(project.pk)
+    summary = velocity_summary_unfiltered(project.pk)
     assert summary["rolling_avg_points"] == 15.0
     assert summary["rolling_stdev_points"] is None
     assert summary["forecast_range_low"] is None
@@ -98,7 +98,7 @@ def test_velocity_delta_vs_prior_sprint(project: Project) -> None:
     _closed_sprint(project, name="S1", points_committed=20, points_completed=10, counts_completed=5)
     _closed_sprint(project, name="S2", points_committed=20, points_completed=18, counts_completed=9)
     _closed_sprint(project, name="S3", points_committed=20, points_completed=15, counts_completed=7)
-    sprints = velocity_summary(project.pk)["sprints"]
+    sprints = velocity_summary_unfiltered(project.pk)["sprints"]
     # Chronological (oldest -> newest); first has no prior.
     assert sprints[0]["delta_vs_prior_points"] is None
     assert sprints[0]["delta_vs_prior_tasks"] is None
@@ -130,7 +130,7 @@ def test_velocity_excludes_flagged_sprint_from_stats(project: Project) -> None:
     _closed_sprint(
         project, name="S2", points_committed=30, points_completed=30, closed_offset_days=10
     )
-    summary = velocity_summary(project.pk)
+    summary = velocity_summary_unfiltered(project.pk)
     # Average is over the two eligible sprints only.
     assert summary["rolling_avg_points"] == 30.0
     assert summary["excluded_count"] == 1
@@ -149,7 +149,7 @@ def test_velocity_keeps_excluded_sprint_visible_and_marked(project: Project) -> 
     _closed_sprint(
         project, name="S1", points_committed=30, points_completed=28, closed_offset_days=10
     )
-    sprints = velocity_summary(project.pk)["sprints"]
+    sprints = velocity_summary_unfiltered(project.pk)["sprints"]
     assert len(sprints) == 2  # both still present
     by_name = {s["name"]: s for s in sprints}
     assert by_name["Sprint 0"]["exclude_from_velocity"] is True
@@ -172,7 +172,7 @@ def test_velocity_delta_skips_excluded_sprint(project: Project) -> None:
     _closed_sprint(
         project, name="S2", points_committed=30, points_completed=26, closed_offset_days=10
     )
-    sprints = velocity_summary(project.pk)["sprints"]  # chronological
+    sprints = velocity_summary_unfiltered(project.pk)["sprints"]  # chronological
     by_name = {s["name"]: s for s in sprints}
     # The excluded sprint carries no delta.
     assert by_name["Sprint 0"]["delta_vs_prior_points"] is None
@@ -191,7 +191,7 @@ def test_velocity_all_eligible_excluded_falls_back_to_empty_stats(project: Proje
         points_completed=3,
         exclude_from_velocity=True,
     )
-    summary = velocity_summary(project.pk)
+    summary = velocity_summary_unfiltered(project.pk)
     assert summary["rolling_avg_points"] is None
     assert summary["excluded_count"] == 1
     assert len(summary["sprints"]) == 1  # still shown
