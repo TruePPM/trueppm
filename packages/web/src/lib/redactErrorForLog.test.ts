@@ -104,7 +104,7 @@ describe('redactedRootErrorOptions.onUncaughtError', () => {
     }
     expect(seen).toHaveLength(1);
     expect(seen[0].message).toBe('Request failed');
-    expect(JSON.stringify(seen[0].error.stack)).not.toContain('secret-access-token');
+    expect(String((seen[0].error as Error).stack)).not.toContain('secret-access-token');
     expect(seen[0].error).not.toBeInstanceOf(AxiosError);
   });
 });
