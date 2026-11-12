@@ -392,6 +392,29 @@ def test_unresolved_email_lands_in_pending(
 
 
 @pytest.mark.django_db
+def test_deactivated_member_email_does_not_bind_assignee(
+    project: Project, admin_user: Any, member_user: Any
+) -> None:
+    """A deactivated account keeps its membership row, but its email must not bind it
+    as the task's assignee — it lands in pending like any unmatched email (#4596)."""
+    member_user.is_active = False
+    member_user.save(update_fields=["is_active"])
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "assignee_email": member_user.email},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.data["assignee_resolved"] is False
+    task = Task.objects.get(pk=resp.data["task_id"])
+    assert task.assignee_id is None
+    link = InboundTaskLink.objects.get(task=task)
+    assert link.pending_assignee_email == member_user.email
+
+
+@pytest.mark.django_db
 def test_pending_assignee_resolves_on_member_join(
     project: Project, admin_user: Any, other_user: Any
 ) -> None:

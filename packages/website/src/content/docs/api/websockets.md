@@ -8,7 +8,7 @@ TruePPM pushes real-time collaboration events over WebSocket. OpenAPI 3.0 cannot
 describe WebSocket channels, so this page is the reference for the WS surface that
 `docs/api/openapi.json` does not cover.
 
-There are two endpoints, both scoped to a single project by its UUID.
+There is one endpoint, scoped to a single project by its UUID.
 
 | Endpoint | Consumer | Purpose |
 |----------|----------|---------|
@@ -23,7 +23,7 @@ program's channel group. The server does emit five program lifecycle events —
 `program_closed`, `program_reopened`, `program_deleted`, `program_split`, and
 `program_sponsorship_transferred` — but it fans them out on the group
 `project_{program_id}`, and **nothing in the product can join that group**: the only WS
-routes are the two project endpoints above, and `ProjectConsumer` resolves membership
+route is the project endpoint above, and `ProjectConsumer` resolves membership
 against `ProjectMembership`, which a program UUID never matches. A handshake against a
 program UUID is closed with `4003`.
 
@@ -50,6 +50,10 @@ Authorization: Bearer <access_token>
 
 → 200 { "ticket": "<opaque>", "expires_in": 30 }
 ```
+
+The mint requires a JWT access token or the session cookie. A personal access
+token is refused with `403`, because a ticket would let a long-lived token open
+live sockets.
 
 Then open the socket with the ticket as the `ticket` query parameter:
 
@@ -353,7 +357,25 @@ already applied), and `actor_id` lets the originating client suppress its own ec
 rather than re-fetching over its optimistic update. The `id` key is retained for
 backward compatibility.
 
-`changed_fields` lists every stored task field the write changed, including fields
+`version` is `null` when the write changed a row that belongs to the task but not
+the task row itself — an acceptance criterion, a suggested-assignee accept that
+found the task already assigned, or a recurrence-rule create or delete that did not
+flip the task's `is_recurring` flag. Treat a `null` version as unversioned: skip the
+replay check and refetch. `actor_id` is likewise `null` for writes that are not
+interactive (a CI acceptance-result ingest) and for writes whose originating client
+does not update its own task list, so that client still refetches.
+
+`changed_fields` may be empty, meaning "the task changed in a way the server does not
+name — refetch it". It may also contain the pseudo-field `acceptance_criteria`, which
+is not a stored task field: it says the task's acceptance criteria (and so its
+Definition-of-Ready meter) changed.
+
+Two producers emit a leaner or wider frame than the shape above. Inbound task-sync
+frames (Jira and Linear) carry only `id` and `source`. The retro carryover frame
+also carries `task_id`, `sprint_id` and `source`. Treat any `task_updated` frame
+without `changed_fields` as "refetch the task".
+
+For a task edit, `changed_fields` lists every stored task field the write changed, including fields
 the server derives from the submitted ones (for example `status` and `actual_start`
 when a past `planned_start` starts a task). A PATCH emits no `task_updated`, triggers
 no recalculation, and dispatches no `task.updated` webhook only when no stored field

@@ -434,11 +434,21 @@ rolling-update version-skew investigation.
 
 **Always merge `origin/main` before regenerating `docs/api/openapi.json`.**
 
-The `api:schema-drift` CI check only verifies self-consistency (committed schema
-matches current branch code). It does not protect against a branch that is behind
-main silently dropping endpoints. Without a merge first, regenerating will produce
-a schema that is missing any paths or schemas added to main after the branch was cut,
-and the CI check will still pass — the regression only surfaces at merge time.
+`scripts/export-openapi.sh --check` (the `api:schema-drift` gate) does two things:
+it verifies self-consistency (the committed schema matches the branch's code), and
+on any non-default branch it runs `scripts/check-schema-regression.py` against
+`origin/main`'s committed schema, failing if a path or schema component present on
+main is missing. A deliberate removal is declared in
+`scripts/schema-removal-allowlist.txt`. So a branch behind main that drops
+endpoints does fail the gate; do not under-trust it.
+
+What it still cannot see: it compares against main, not the last release tag; it
+checks only the *presence* of paths and schema components, not field types or
+formats, or enum values; and it skips itself on `main`. Merging `origin/main`
+first still matters because regenerating from a stale tree produces a schema
+missing everything added to main since the branch was cut. The guard then forces
+you to notice, but a clean merge-then-regenerate avoids the failure and keeps
+your diff to your own changes.
 
 Correct sequence:
 ```bash

@@ -182,6 +182,12 @@ def record_audit_event(
 # ---------------------------------------------------------------------------
 
 
+# One body for every "this user cannot be the new owner" refusal — unknown id,
+# non-member, deactivated member — so the endpoint is not an existence oracle over
+# the integer user-id space (#4575, #4596).
+WORKSPACE_OWNER_NOT_MEMBER_DETAIL = "The new owner must be an active workspace member."
+
+
 def transfer_workspace_ownership(*, new_owner: Any, actor: Any) -> WorkspaceMembership:
     """Atomically promote a workspace member to OWNER, demote the actor to ADMIN.
 
@@ -222,11 +228,12 @@ def transfer_workspace_ownership(*, new_owner: Any, actor: Any) -> WorkspaceMemb
                 is_deleted=False,
             )
         except WorkspaceMembership.DoesNotExist as exc:
-            raise ValidationError(
-                "The new owner must already be an active workspace member."
-            ) from exc
-        if target.status == MemberStatus.DEACTIVATED:
-            raise ValidationError("The new owner must be an active workspace member.")
+            raise ValidationError(WORKSPACE_OWNER_NOT_MEMBER_DETAIL) from exc
+        # A deactivated account (``User.is_active=False``) can still hold an ACTIVE
+        # membership row; it cannot sign in, so it gets the same refusal as an
+        # unknown id rather than an ownerless-in-practice workspace (#4596).
+        if target.status == MemberStatus.DEACTIVATED or not new_owner.is_active:
+            raise ValidationError(WORKSPACE_OWNER_NOT_MEMBER_DETAIL)
 
         # Promote the target first so the workspace is never momentarily ownerless.
         if target.role != WorkspaceRole.OWNER:

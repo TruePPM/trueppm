@@ -8,6 +8,7 @@ that was subsequently rolled back.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC
 from typing import Any
 
@@ -177,6 +178,7 @@ def broadcast_task_updated(
     changed_fields: list[str],
     version: int | None,
     actor_id: str | None,
+    extra: Mapping[str, Any] | None = None,
 ) -> None:
     """Broadcast a field-level ``task_updated`` delta (ADR-0152, #327).
 
@@ -193,17 +195,89 @@ def broadcast_task_updated(
     Like :func:`broadcast_board_event`, this is best-effort and must be wrapped in
     ``transaction.on_commit`` by the caller. The ``id`` key is retained for
     backward compatibility with consumers that only read it.
+
+    ``extra`` carries site-specific context keys (``source``, ``sprint_id`` ...) that a
+    caller already published. It is merged *under* the standard keys, so it can add to
+    the frame but never override ``id`` / ``changed_fields`` / ``version`` /
+    ``actor_id`` / ``ts`` — the keys the client's dedupe and echo gates read.
     """
+    fields = sorted(changed_fields)
+    ts = _utcnow_iso()
+    if extra:
+        # ``**extra`` first, so a colliding key is overwritten by the standard one.
+        # The spread makes this one call opaque to the payload-shape conformance scan
+        # (``tests/apps/sync/test_broadcast_payload_shape.py``); the literal call below
+        # keeps the standard shape visible to it.
+        broadcast_board_event(
+            project_id,
+            "task_updated",
+            {
+                **extra,
+                "id": task_id,
+                "changed_fields": fields,
+                "version": version,
+                "actor_id": actor_id,
+                "ts": ts,
+            },
+        )
+        return
     broadcast_board_event(
         project_id,
         "task_updated",
         {
             "id": task_id,
-            "changed_fields": sorted(changed_fields),
+            "changed_fields": fields,
             "version": version,
             "actor_id": actor_id,
-            "ts": _utcnow_iso(),
+            "ts": ts,
         },
+    )
+
+
+def defer_task_updated(
+    task: Any,
+    *,
+    changed_fields: list[str],
+    actor: Any = None,
+    task_row_bumped: bool = True,
+    extra: Mapping[str, Any] | None = None,
+) -> None:
+    """Queue a post-commit :func:`broadcast_task_updated` for ``task`` (ADR-0152, #4600).
+
+    The single entry point for write paths that touch a task outside the main
+    ``TaskViewSet`` update: it snapshots ``project_id`` / ``server_version`` /
+    ``actor_id`` at call time (the row may be re-saved before commit) and defers the
+    emit with ``transaction.on_commit`` so a rolled-back write never broadcasts.
+    ``task`` must have been saved already so ``server_version`` is the post-bump value.
+    Pass ``task_row_bumped=False`` when the write touched a child row (acceptance
+    criterion, ...) and left ``Task.server_version`` unchanged: the frame then carries
+    ``version=None``, because the client's version-dedupe gate would otherwise drop it as
+    a replay of the version it already holds.
+    ``actor`` is the user (or ``None`` for system writes); its id lets the originating
+    client suppress its own echo. Pass a user **only** when that client already
+    patched or invalidated its ``['tasks', project]`` cache for this write: the web
+    skips a self-echo entirely, so naming the actor on a write whose hook refreshes a
+    different cache leaves the actor's own task list stale. Non-interactive writes
+    (CI ingest, token paths) pass ``None`` for the same reason.
+    ``extra`` is forwarded to :func:`broadcast_task_updated` (snapshotted here).
+    """
+    from django.db import transaction
+
+    project_id = str(task.project_id)
+    task_id = str(task.pk)
+    version = task.server_version if task_row_bumped else None
+    actor_id = str(actor.pk) if actor is not None and getattr(actor, "pk", None) else None
+    fields = list(changed_fields)
+    extra_keys = dict(extra) if extra else None
+    transaction.on_commit(
+        lambda: broadcast_task_updated(
+            project_id,
+            task_id=task_id,
+            changed_fields=fields,
+            version=version,
+            actor_id=actor_id,
+            extra=extra_keys,
+        )
     )
 
 

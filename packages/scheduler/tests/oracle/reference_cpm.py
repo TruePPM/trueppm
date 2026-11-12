@@ -145,11 +145,13 @@ Not modeled, and refused by :func:`reference_schedule` rather than answered:
 * a completed milestone with recorded actuals, which keeps the day edge it had
   live (#4433, #4525) — a display convention this oracle does not model.
 
-Out of scope: summary tasks, ``live_day_end_on``, Monte Carlo. One shape is
-modeled but excluded from the engine comparison by name: an FF link out of
-completed work whose ``actual_finish`` is a non-working day, which this module
-reads in working time and both engines read as the verbatim day (#4631, open;
-``_ff_out_of_a_non_working_actual_finish`` in ``test_cpm_oracle.py``).
+* **Non-working actuals are read in working time (#4631, #4702).** A link out of
+  work whose recorded ``actual_finish`` falls on a non-working day measures from
+  the close of the last working day before it; one out of a non-working
+  ``actual_start``, from the opening of the next working day — for all four link
+  types, at every lag (:func:`link_need`).
+
+Out of scope: summary tasks, ``live_day_end_on``, Monte Carlo.
 
 For a milestone the oracle states only *where in working time* it sits. Which of
 two adjacent days it is *shown* on is a display convention (#4079, #4173, #4183)
@@ -365,8 +367,19 @@ def previous_working_start(start: date, cal: RefCalendar) -> date:
 
 
 def link_need(link: RefLink, pred: Span, cal: RefCalendar) -> date:
-    """The raw instant ``link`` requires its successor's start/finish to reach."""
+    """The raw instant ``link`` requires its successor's start/finish to reach.
+
+    Work is read in working time (#4631, #4702): a span that opens or closes in
+    non-working time — a weekend ``actual_start`` or ``actual_finish``, kept
+    verbatim — is measured from the opening of the next working day and the
+    close of the last one, the same working-time positions. A milestone's span is
+    one instant (start equal to finish) and is never moved: its raw midnight is
+    what a lag out of it counts from (#4173).
+    """
     pred_start, pred_finish = pred
+    if pred_start != pred_finish:
+        pred_start = start_at_or_after(pred_start, cal)
+        pred_finish = close_of_previous_working_day(pred_finish, cal)
     if link.kind in ("FS", "FF"):
         anchor = pred_finish
     elif link.kind == "SS":

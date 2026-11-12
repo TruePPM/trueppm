@@ -385,14 +385,15 @@ def build_owner_index(project_id: str) -> dict[str, User]:
     """Build the lowercased UUID/email/username → member lookup for owner matching.
 
     One query (``select_related('user')``), scoped to active project members so
-    an import can never assign a risk to someone outside the project. Imported
+    an import can never assign a risk to someone outside the project — or to a
+    deactivated account, which the risk owner validator also refuses (#4596). Imported
     here-locally to avoid a circular import at module load (access ↔ projects).
     """
     from trueppm_api.apps.access.models import ProjectMembership
 
     index: dict[str, User] = {}
     memberships = ProjectMembership.objects.filter(
-        project_id=project_id, is_deleted=False
+        project_id=project_id, is_deleted=False, user__is_active=True
     ).select_related("user")
     for membership in memberships:
         user = membership.user

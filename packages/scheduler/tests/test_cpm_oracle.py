@@ -32,10 +32,9 @@ What is compared, exactly
   five- and seven-day per-task calendars with exceptions. Not generated there:
   summary tasks, ``live_day_end_on``; and, because the reference refuses them, an
   FF/SF link across two calendars (``_on_one_calendar`` makes it FS/SS) and a
-  completed milestone with recorded actuals (its actuals are dropped). One shape
-  is drawn but excluded by name, the open #4631
-  (``_ff_out_of_a_non_working_actual_finish``), and pinned by a strict xfail so
-  the exclusion cannot outlive the decision. The last planning-network shapes the
+  completed milestone with recorded actuals (its actuals are dropped). A link out
+  of a non-working actual is read in working time by all three (#4631, #4702) and
+  compared like any other input. The last planning-network shapes the
   engines disagreed with the reference on — a lagged FF/SF link into a milestone
   (#4272) and an FF link out of one (#4273) — were fixed in the engines, not
   excluded here.
@@ -66,12 +65,11 @@ predecessor, what follows it, whose lags now count from a re-read link instant
 A slip oracle sees only float that disagrees with what slipping does. A bug that
 moves early dates while keeping floats consistent is invisible to it: #4433 (a
 closed milestone pushing its successors a day) is one, pinned instead by a
-metamorphic closed-versus-live test; the open #4631 (an FF successor of a
-weekend ``actual_finish``) is another. The ``*_with_progress`` reference
-properties cover that early-date class, except for two shapes: a completed
-milestone with recorded actuals, which is #4433's own shape and which the
-reference refuses (it stays with the metamorphic test), and the excluded #4631
-shape. In CI only the Python engine runs these properties — the scheduler image
+metamorphic closed-versus-live test; #4631 (an FF successor of a weekend
+``actual_finish``) was another. The ``*_with_progress`` reference properties
+cover that early-date class, except for a completed milestone with recorded
+actuals, which is #4433's own shape and which the reference refuses (it stays
+with the metamorphic test). In CI only the Python engine runs these properties — the scheduler image
 has no Rust toolchain.
 
 The Rust side runs in two ways. The Hypothesis properties drive a native build of
@@ -456,7 +454,10 @@ def random_progress_project(rng: random.Random) -> RefProject:
     first 30 days, so the committed corpus fixture stays stable.
 
     Drawn from a seeded RNG, and redrawn until the case is one the reference models
-    and is not the open #4631 shape (``_ff_out_of_a_non_working_actual_finish``).
+    and is not an FF link out of a non-working ``actual_finish``
+    (``_ff_out_of_a_non_working_actual_finish``). That shape compares now (#4631);
+    the redraw only keeps the committed corpus's inputs byte-stable, and the shape
+    reaches the corpus through ``NAMED_CORPUS_CASES`` instead.
     """
     while True:
         project = _random_progress_project(rng)
@@ -2035,16 +2036,11 @@ def test_rust_floats_survive_perturbation(rust_engine: RustRunner, project: RefP
 
 
 def _ff_out_of_a_non_working_actual_finish(project: RefProject) -> bool:
-    """TODO(#4631): the open semantics question, excluded by name until it is decided.
+    """An FF link out of completed work whose ``actual_finish`` is a non-working day.
 
-    An FF link out of completed work whose ``actual_finish`` is a non-working day of
-    that work's calendar. The reference reads the finish in working time (the end of
-    Sunday is the end of Friday, so ``FF+0`` lands its successor on Friday); both
-    engines read the verbatim day and land it on Monday. The docs say neither. True
-    only for that link shape — an FS link out of the same task, an FF link out of
-    the same task with a working-day finish, and every other input still compare.
-    Delete this when #4631 closes, and move the reference with it if the decision
-    is the verbatim reading.
+    Excluded by name until #4631 settled it on the working-time reading; every
+    property compares it now. Kept only as the corpus redraw filter
+    (:func:`random_progress_project`), so the seeded corpus inputs do not change.
     """
     for link in project.links:
         recorded = project.progress.get(link.pred)
@@ -2059,8 +2055,8 @@ def _ff_out_of_a_non_working_actual_finish(project: RefProject) -> bool:
     return False
 
 
-#: #4631 (open) — ``A(2d)`` completed on Saturday 01-10, ``A -FF-> B(1d)``: the
-#: reference puts ``B`` on Friday 01-09, the engines on Monday 01-12.
+#: #4631 — ``A(2d)`` completed on Saturday 01-10, ``A -FF-> B(1d)``: ``B`` finishes
+#: on Friday 01-09, as from a Friday ``actual_finish``, not on Monday 01-12.
 FF_OUT_OF_A_SATURDAY_ACTUAL_FINISH = RefProject(
     start=_EPOCH,
     durations={"A": 2, "B": 1},
@@ -2250,27 +2246,133 @@ def test_the_reference_states_the_adr_0132_and_0136_rules() -> None:
                 assert t.late_start_at >= t.start_at and t.late_finish_at >= t.finish_at
 
 
-def test_the_4631_exclusion_is_what_hides_the_open_shape() -> None:
-    """The filter matches #4631's repro, and the repro genuinely disagrees."""
-    project = FF_OUT_OF_A_SATURDAY_ACTUAL_FINISH
-    assert _ff_out_of_a_non_working_actual_finish(project)
-    assert mismatches(python_engine(project), reference_schedule(project), project)
-    fs = replace(project, links=(RefLink("A", "B", "FS", 0),))
-    friday = replace(project, progress={"A": RefProgress(actual_finish=date(2026, 1, 9))})
-    for neighbor in (fs, friday):
-        assert not _ff_out_of_a_non_working_actual_finish(neighbor)
-        assert_matches_reference(python_engine(neighbor), neighbor)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="TODO(#4631): an FF successor of a weekend actual_finish lands on Monday in "
-    "both engines and on Friday in the reference; when this XPASSes, delete "
-    "_ff_out_of_a_non_working_actual_finish",
-)
 def test_ff_successor_of_a_non_working_actual_finish() -> None:
+    """#4631: ``B`` finishes Friday 01-09, as from a Friday finish, in the reference too."""
     project = FF_OUT_OF_A_SATURDAY_ACTUAL_FINISH
+    assert python_engine(project)["B"].early_finish == date(2026, 1, 9)
+    assert reference_schedule(project).tasks["B"].finish_at == date(2026, 1, 10)
     assert_matches_reference(python_engine(project), project)
+
+
+#: #4631's own table: ``A`` completed on a weekend day, ``A -FF-> B(2d)``. ``B`` finishes
+#: the lag's calendar days before Friday 03-06, the close of the last working day.
+_FF_LEAD_FROM_A_WEEKEND_FINISH = {
+    0: date(2026, 3, 6),
+    -1: date(2026, 3, 5),
+    -2: date(2026, 3, 4),
+    -3: date(2026, 3, 3),
+}
+
+
+@pytest.mark.parametrize("day", [date(2026, 3, 7), date(2026, 3, 8)], ids=["Sat", "Sun"])
+@pytest.mark.parametrize("lag", sorted(_FF_LEAD_FROM_A_WEEKEND_FINISH))
+def test_ff_lead_out_of_a_weekend_finish_matches_the_friday_finish(lag: int, day: date) -> None:
+    """#4631: FF 0/-1/-2/-3 out of a Saturday or Sunday finish lands as from Friday's."""
+    project = _non_working_actual_project("FF", lag, "completed", day, None)
+    want = _FF_LEAD_FROM_A_WEEKEND_FINISH[lag]
+    assert python_engine(project)["B"].early_finish == want
+    assert reference_schedule(project).tasks["B"].finish_at == want + timedelta(days=1)
+    assert_matches_reference(python_engine(project), project)
+
+
+#: Monday-to-Thursday: Friday is non-working too, so a Friday actual is in the sweep.
+_MON_TO_THU = RefCalendar(working_mask=0b0001111)
+#: Monday-to-Friday with Thursday 03-05 a holiday: a weekday exception day recorded as an actual.
+_MON_FRI_HOLIDAY = RefCalendar(exceptions=((date(2026, 3, 5), date(2026, 3, 5)),))
+_LAGS = (-3, -2, -1, 0, 1, 2, 3)
+
+
+def _non_working_actual_project(
+    kind: str, lag: int, state: str, when: date, cal: RefCalendar | None
+) -> RefProject:
+    """``A(5d) -kind+lag-> B(2d)`` with ``A``'s actual recorded on ``when``."""
+    if kind in ("FS", "FF"):
+        progress = RefProgress(actual_finish=when)
+    elif state == "completed":
+        progress = RefProgress(actual_start=when, actual_finish=date(2026, 3, 19))
+    else:
+        progress = RefProgress(percent_complete=20.0, actual_start=when)
+    project = RefProject(
+        start=date(2026, 3, 2),
+        durations={"A": 5, "B": 2},
+        links=(RefLink("A", "B", kind, lag),),
+        # No data date: one past the recorded days would floor B at it whatever the
+        # anchor says, and the sweep would stop discriminating the snap.
+        status_date=None,
+        progress={"A": progress},
+    )
+    if cal is None:
+        return project
+    return replace(project, calendars={"c": cal}, task_calendar={"A": "c", "B": "c"})
+
+
+def _non_working_actual_cases() -> list[tuple[str, RefProject, RefProject]]:
+    """#4631/#4702's class: ``(name, recorded, twin)``, the twin recorded in working time.
+
+    Finish side, FS and FF out of completed ``A(5d)`` finished on a non-working day
+    (Saturday or Sunday; Friday too on a Monday-to-Thursday week; a holiday
+    exception day on the third calendar); start side, SS
+    and SF out of ``A(5d)`` started on one, in progress and completed — each at
+    every lag in ``-3..+3``, on the project calendar and on a per-task calendar
+    ``A`` and ``B`` share. The twin records the same work at its working-time
+    position: the last working day at or before the finish, the first at or after
+    the start. ``B(2d)`` must sit in the same place in both.
+    """
+    cases: list[tuple[str, RefProject, RefProject]] = []
+    for cal_name, cal in (
+        ("mon-fri", None),
+        ("mon-thu", _MON_TO_THU),
+        ("mon-fri-holiday", _MON_FRI_HOLIDAY),
+    ):
+        ref_cal = cal or RefCalendar()
+        recorded_days = [date(2026, 3, d) for d in (5, 6, 7, 8)]  # Thu, Fri, Sat, Sun
+        for day in [d for d in recorded_days if not ref_cal.is_working(d)]:
+            for kind in LINK_TYPES:
+                finish_side = kind in ("FS", "FF")
+                twin_day = (
+                    last_working_on_or_before(day, ref_cal)
+                    if finish_side
+                    else first_working_on_or_after(day, ref_cal)
+                )
+                states = ("completed",) if finish_side else ("in-progress", "completed")
+                for lag in _LAGS:
+                    for state in states:
+                        name = f"{cal_name}-{kind}{lag:+d}-{state}-{day:%a}"
+                        recorded = _non_working_actual_project(kind, lag, state, day, cal)
+                        twin = _non_working_actual_project(kind, lag, state, twin_day, cal)
+                        cases.append((name, recorded, twin))
+    return cases
+
+
+_NON_WORKING_ACTUAL_CASES = _non_working_actual_cases()
+
+
+@pytest.mark.parametrize(
+    ("name", "recorded", "twin"),
+    _NON_WORKING_ACTUAL_CASES,
+    ids=[c[0] for c in _NON_WORKING_ACTUAL_CASES],
+)
+def test_python_reads_a_non_working_actual_in_working_time(
+    name: str, recorded: RefProject, twin: RefProject
+) -> None:
+    """#4631, #4702: ``B`` is where the working-time twin puts it, and the reference agrees."""
+    got, want = python_engine(recorded)["B"], python_engine(twin)["B"]
+    assert (got.early_start, got.early_finish) == (want.early_start, want.early_finish), name
+    assert_matches_reference(python_engine(recorded), recorded)
+
+
+@pytest.mark.parametrize(
+    ("name", "recorded", "twin"),
+    _NON_WORKING_ACTUAL_CASES,
+    ids=[c[0] for c in _NON_WORKING_ACTUAL_CASES],
+)
+def test_rust_reads_a_non_working_actual_in_working_time(
+    rust_engine: RustRunner, name: str, recorded: RefProject, twin: RefProject
+) -> None:
+    """The Rust twin of the sweep above."""
+    got, want = rust_engine.schedule(recorded)["B"], rust_engine.schedule(twin)["B"]
+    assert (got.early_start, got.early_finish) == (want.early_start, want.early_finish), name
+    assert_matches_reference(rust_engine.schedule(recorded), recorded)
 
 
 def _floors_tying_a_milestone_link() -> list[tuple[str, RefProject]]:
@@ -2377,7 +2479,6 @@ def _with_progress_examples(test: Callable[..., None]) -> Callable[..., None]:
 @_with_progress_examples
 def test_python_engine_matches_reference_with_progress(project: RefProject) -> None:
     """Progress, the data date, SNETs and per-task calendars: every compared field."""
-    assume(not _ff_out_of_a_non_working_actual_finish(project))
     assert_matches_reference(python_engine(project), project)
 
 
@@ -2387,7 +2488,6 @@ def test_python_engine_matches_reference_with_progress(project: RefProject) -> N
 def test_rust_engine_matches_reference_with_progress(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
-    assume(not _ff_out_of_a_non_working_actual_finish(project))
     assert_matches_reference(rust_engine.schedule(project), project)
 
 
@@ -2404,7 +2504,6 @@ _DEEP_ONLY = pytest.mark.skipif(
 @given(project=progress_projects(max_tasks=25, modeled=True))
 def test_python_engine_matches_reference_on_a_large_sparse_network(project: RefProject) -> None:
     """Twenty-five tasks, sparse links, the full widened ranges: every compared field."""
-    assume(not _ff_out_of_a_non_working_actual_finish(project))
     assert_matches_reference(python_engine(project), project)
 
 
@@ -2414,12 +2513,11 @@ def test_python_engine_matches_reference_on_a_large_sparse_network(project: RefP
 def test_rust_engine_matches_reference_on_a_large_sparse_network(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
-    assume(not _ff_out_of_a_non_working_actual_finish(project))
     assert_matches_reference(rust_engine.schedule(project), project)
 
 
 #: The share of draws the reference must accept. A widened range the reference mostly
-#: refuses (or the #4631 filter mostly discards) would leave the sweep checking little.
+#: refuses would leave the sweep checking little.
 MIN_ACCEPTANCE_RATE = 0.8
 _ACCEPTANCE_DRAWS = 300
 
@@ -2430,8 +2528,8 @@ def test_the_progress_generator_is_accepted_by_the_reference(
 ) -> None:
     """Draw the generator and floor the share the reference models (scheduler-engine skill).
 
-    A draw is accepted when the reference models it and it is not the excluded #4631
-    shape. Self-contained and seeded, so it holds in any order, selection or worker.
+    A draw is accepted when the reference models it. Self-contained and seeded, so
+    it holds in any order, selection or worker.
     The rate is in the assertion message and recorded as the ``acceptance_rate``
     property, which ``conftest.pytest_terminal_summary`` prints on a green run.
     """
@@ -2440,9 +2538,6 @@ def test_the_progress_generator_is_accepted_by_the_reference(
     @settings(max_examples=_ACCEPTANCE_DRAWS, derandomize=True, database=None)
     @given(project=progress_projects(max_tasks=25, modeled=True))
     def draw_projects(project: RefProject) -> None:
-        if _ff_out_of_a_non_working_actual_finish(project):
-            outcomes["excluded-4631"] += 1
-            return
         try:
             reference_schedule(project)
         except NotImplementedError:
@@ -2510,6 +2605,13 @@ NAMED_CORPUS_CASES: tuple[tuple[str, RefProject], ...] = (
     (
         "milestone_started_the_day_after_its_shown_monday",
         MILESTONE_STARTED_THE_DAY_AFTER_ITS_SHOWN_MONDAY,
+    ),
+    # #4631/#4702: every link type out of a non-working actual, at zero lag and a
+    # weekend-spanning one, so wasm:test holds Rust to the working-time reading.
+    *(
+        (f"non_working_actual_{name}", recorded)
+        for name, recorded, _twin in _NON_WORKING_ACTUAL_CASES
+        if any(link.lag in (0, 2) for link in recorded.links)
     ),
 )
 
