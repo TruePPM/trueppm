@@ -1496,8 +1496,8 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "whose span is rolled up from its children and so cannot be perturbed, "
                     "a cyclic dependency, or an out-of-range project span; or an explicit "
                     "n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — "
-                    "body {error: simulation_cell_cap_exceeded, message, max_runs, "
-                    "task_count}."
+                    "body {error/code: simulation_cell_cap_exceeded, message/detail, "
+                    "max_runs, task_count}."
                 ),
             ),
             402: OpenApiResponse(
@@ -1512,7 +1512,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "No free Monte Carlo slot in this API process (MC_MAX_CONCURRENT, "
-                    "#2839). Body {error: simulation_busy, message}; retry after "
+                    "#2839). Body {error/code: simulation_busy, message/detail}; retry after "
                     "Retry-After."
                 ),
             ),

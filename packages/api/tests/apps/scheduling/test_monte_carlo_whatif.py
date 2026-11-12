@@ -580,6 +580,42 @@ class TestWhatIfErrors:
         assert r.status_code == 402
         assert r.data["error"] == "simulation_cap_exceeded"
 
+    def test_402_envelope_carries_both_vocabularies(
+        self,
+        member_client: APIClient,
+        project: Project,
+        long_task: Task,
+        settings: object,
+    ) -> None:
+        """The what-if refusal answers to `error`/`message` and `code`/`detail` alike."""
+        settings.MC_SIMULATION_CAP = 100  # type: ignore[attr-defined]
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(long_task.pk), "duration_delta": 1, "n_simulations": 101},
+        )
+        assert r.status_code == 402
+        assert r.data["code"] == r.data["error"] == "simulation_cap_exceeded"
+        assert r.data["detail"] == r.data["message"]
+        assert r.data["detail"]
+
+    def test_cell_cap_400_envelope_carries_both_vocabularies(
+        self,
+        member_client: APIClient,
+        project: Project,
+        long_task: Task,
+        short_task: Task,
+        settings: object,
+    ) -> None:
+        settings.MC_CELL_CAP = 10  # type: ignore[attr-defined]
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(long_task.pk), "duration_delta": 1, "n_simulations": 100},
+        )
+        assert r.status_code == 400, r.data
+        assert r.data["code"] == r.data["error"] == "simulation_cell_cap_exceeded"
+        assert r.data["detail"] == r.data["message"]
+        assert r.data["detail"]
+
 
 # ---------------------------------------------------------------------------
 # Throttle
