@@ -264,11 +264,24 @@ git fetch origin "$B"
 # Rebase the MR's commits onto the current sim tip, then land them.
 # Use merge --no-ff to mirror how GitLab lands the branch:
 if ! git merge --no-ff --no-edit "origin/$B"; then
-  git merge --abort
-  echo "CONFLICT: !$iid does not merge cleanly onto the stack → STOP"
-  # record as blocker; do not continue past this MR
+  UNMERGED=$(git diff --name-only --diff-filter=U)
+  if [ -n "$UNMERGED" ] && ! echo "$UNMERGED" | grep -qvxE 'docs/api/openapi\.json|packages/website/docs-declaration-baseline\.txt'; then
+    # Generated-file-only conflict: non-blocking. Phase B regenerates it the same way.
+    echo "!$iid: generated-file-only conflict, will regenerate in Phase B"
+    echo "$UNMERGED" | xargs git checkout --ours --
+    scripts/export-openapi.sh
+    bash scripts/check-version-status.sh --update-baseline
+    echo "$UNMERGED" | xargs git add --
+    git commit --no-edit
+  else
+    git merge --abort
+    echo "CONFLICT: !$iid does not merge cleanly onto the stack → STOP"
+    # record as blocker; do not continue past this MR
+  fi
 fi
 ```
+
+Any conflicted path outside those two generated files still stops the run.
 
 Then run the aggregate gate suite **on the sim tree** (fast, seconds, no CI):
 
@@ -477,6 +490,10 @@ fi
   - `docs/api/openapi.json` → `(cd "$WT" && scripts/export-openapi.sh)`
   - `packages/website/docs-declaration-baseline.txt` →
     `(cd "$WT" && bash scripts/check-version-status.sh --update-baseline)`
+
+    Warning: `--update-baseline` rubber-stamps the current hash of every
+    non-declaring page, including any the MR itself edited, so use it only to
+    resolve the baseline file's own merge conflict.
 
   ```bash
   git -C "$WT" checkout --ours -- <generated paths>   # either side; it is overwritten
@@ -775,7 +792,9 @@ Rules for Phase B:
   40-char sha) and loops forever; `head_pipeline` goes stale after a force-push.
   Treat `failed`/`canceled` as a hard stop and `none` (pipeline not yet created)
   as keep-waiting.
-- **A merge conflict in Phase B stops the run.** Phase A combined the *original*
+- **A merge conflict in Phase B stops the run**, unless the generated-file-only
+  rule applies (conflicted paths limited to `docs/api/openapi.json` and
+  `packages/website/docs-declaration-baseline.txt`; regenerate, see Phase B). Phase A combined the *original*
   branch tips; a Phase B merge can still conflict once an earlier MR from this
   batch has actually landed. That is a real semantic conflict — hand it to the
   user, do not guess a resolution. Two shapes recur and are worth naming when you
@@ -927,7 +946,7 @@ before merging rather than after.
   registry-vs-coverage-test conflict passes simulation and detonates mid-batch.
   Playwright e2e stays the residual risk Phase A cannot certify — budget triage
   time for it instead of reading a red `web:e2e` as an uncomposable batch.
-- **Never resolve a merge/rebase conflict by guessing** — stop and hand it back.
+- **Never resolve a merge/rebase conflict by guessing** — stop and hand it back, unless the generated-file-only rule applies (conflicted paths limited to `docs/api/openapi.json` and `packages/website/docs-declaration-baseline.txt`), which is regenerated rather than guessed.
 - **A zero-job `failed` pipeline is capacity, not code — never conclude from it.**
   `jobs: 0` + `started_at: null` + instant finish + `yaml_errors: null` means the
   pipeline failed at *creation*, most often "Project exceeded the allowed number
