@@ -4,8 +4,8 @@
  * defaulted `since`; the pickers carry the same limits so an out-of-bounds range
  * is unreachable rather than a dead-end 400.
  */
-export const BURN_MAX_SPAN_DAYS = 366;
-export const BURN_MAX_FUTURE_DAYS = 31;
+export const BURN_MAX_SPAN_DAYS = 366; // server: MAX_BURN_WINDOW_DAYS (projects/services.py)
+export const BURN_MAX_FUTURE_DAYS = 31; // server: MAX_BURN_HORIZON_DAYS (projects/services.py)
 
 const DAY_MS = 86_400_000;
 
@@ -39,4 +39,25 @@ export function isWindowClamped(
   // exactly that long is indistinguishable here (a server-side flag would be
   // needed) and is conservatively disclosed.
   return daysBetween(echoed.since, echoed.until) >= BURN_MAX_SPAN_DAYS;
+}
+
+/**
+ * Today's UTC calendar date. The server bounds `until` with
+ * `timezone.localdate()` and `TIME_ZONE = "UTC"`, so the picker bound must use
+ * the UTC day too: a local date east of UTC would offer a last day the server
+ * refuses with a 400.
+ */
+export function utcTodayIso(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+/**
+ * Latest selectable `until`: the server horizon (today + 31 days), further
+ * capped so the span from `since` never exceeds the server's 366-day window.
+ */
+export function burnMaxUntil(utcToday: string, since?: string): string {
+  const horizon = shiftIsoDate(utcToday, BURN_MAX_FUTURE_DAYS);
+  if (!since) return horizon;
+  const spanCap = shiftIsoDate(since, BURN_MAX_SPAN_DAYS);
+  return spanCap < horizon ? spanCap : horizon;
 }

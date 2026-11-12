@@ -43,7 +43,7 @@ Overlays burn down and burn up on the same axes. The area between the two lines 
 From 0.5 the Reports tab changes in four ways:
 
 - A project with no sprints shows a **No sprints yet** card instead of the project burn chart; the chart appears once the project has a sprint.
-- The **From** / **To** pickers carry the server's limits (no `To` more than 31 days ahead, no span over 366 days), so an out-of-range window cannot be chosen.
+- The **From** / **To** pickers carry the server's limits (no `To` more than 31 days ahead, no span over 366 days), so the date pickers will not offer an out-of-range window. A date typed by hand can still go past them, and the server then refuses it with an explanation shown in the chart.
 - When the server shortened the window to its most recent 366 days, the chart says **Showing the most recent 366 days**. A project whose history is exactly 366 days long gets the same message, because the response cannot tell the two cases apart.
 - If the server rejects the window with a 400, the chart shows the server's explanation in an alert with no **Retry** button, since retrying the same request cannot succeed. Other failures keep **Retry**.
 :::

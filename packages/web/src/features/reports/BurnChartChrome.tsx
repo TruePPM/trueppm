@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiSprint } from '@/types';
 import type { BurnVariant, BurnMetric } from './hooks/useBurnChart';
-import { BURN_MAX_FUTURE_DAYS, BURN_MAX_SPAN_DAYS, shiftIsoDate } from './burnWindow';
+import { BURN_MAX_SPAN_DAYS, burnMaxUntil, shiftIsoDate, utcTodayIso } from './burnWindow';
 import { CHART_COLORS, type ScopeChange } from './burnChartData';
 
 /**
@@ -107,7 +107,6 @@ export function BurnChartControls({
   onSinceChange,
   until,
   onUntilChange,
-  today,
   windowClamped = false,
 }: {
   variant: BurnVariant;
@@ -118,12 +117,12 @@ export function BurnChartControls({
   onSinceChange: (v: string | undefined) => void;
   until: string | undefined;
   onUntilChange: (v: string | undefined) => void;
-  today: string;
   /** The server shortened the window; say so rather than let the chart look complete. */
   windowClamped?: boolean;
 }) {
-  const maxUntil = shiftIsoDate(today, BURN_MAX_FUTURE_DAYS);
-  const minSince = shiftIsoDate(until ?? today, -BURN_MAX_SPAN_DAYS);
+  const utcToday = utcTodayIso();
+  const maxUntil = burnMaxUntil(utcToday, since);
+  const minSince = shiftIsoDate(until ?? utcToday, -BURN_MAX_SPAN_DAYS);
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-neutral-surface-raised">
       <div

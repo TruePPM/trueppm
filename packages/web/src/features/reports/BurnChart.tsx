@@ -111,7 +111,6 @@ export function BurnChart({
         onSinceChange={d.setSince}
         until={d.shownUntil}
         onUntilChange={d.setUntil}
-        today={d.today}
         windowClamped={d.windowClamped}
       />
 

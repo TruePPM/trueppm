@@ -120,8 +120,8 @@ export function ReportsView() {
           {/* With no sprints there is no committed scope to burn against: the
               ideal line sits at zero and the actual line can only climb, which
               reads as a defect. Hide the chart until a sprint exists. While the
-              list is still loading, or if it failed, fall through to the chart
-              rather than claim the project has none. */}
+              list is loading nothing is rendered (no flash of the wrong state); if
+              it failed, the chart is shown rather than claim the project has none. */}
           {!sprintsLoading && !sprintsError && ordered.length === 0 ? (
             <section
               aria-label="Burn chart"
@@ -131,8 +131,8 @@ export function ReportsView() {
                 No {itl.lowerPlural} yet
               </p>
               <p className="mt-1 text-xs text-neutral-text-secondary">
-                Burn charts need committed scope. Plan a {itl.lower} and its burn chart will
-                appear here.
+                Burn charts need committed scope. Plan a {itl.lower} and its burn chart will appear
+                here.
               </p>
             </section>
           ) : (
