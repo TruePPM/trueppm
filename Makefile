@@ -314,6 +314,10 @@ dropdown-scroll-check: ## Fail if a role="menu"/role="listbox" panel has no scro
 	@# that are genuinely safe by construction — see the script header.
 	@bash scripts/check-dropdown-scroll.sh
 
+loading-skeleton-role-check: ## Fail if aria-label="Loading…" sits on a role-less element (#4618)
+	@python3 scripts/check-loading-skeleton-role.py --self-test
+	@python3 scripts/check-loading-skeleton-role.py
+
 hover-reveal-focus-check: ## Fail if opacity-0 + hover:opacity-100 has no focus counterpart (web-rule 417, #3619)
 	@# A control revealed only on :hover, with no focus:/focus-within:/
 	@# focus-visible:/group-focus-within: counterpart, is unreachable by keyboard
@@ -460,6 +464,14 @@ playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image 
 	@# ~1s, no network.
 	@bash scripts/check-playwright-pins.sh
 
+nginx-location-parity-check: ## Fail if one SPA nginx surface lacks a location the others have (#4392)
+	@# #4359 added `location = /asset-manifest.json` to the Helm blocks only, so a
+	@# non-Helm deployment of a build with no manifest answered 200 with index.html.
+	@# Compares top-level locations across the baked nginx.conf, the three Compose
+	@# templates and the Helm configmap. Static parse, no network.
+	@bash scripts/check-nginx-location-parity.sh --self-test
+	@bash scripts/check-nginx-location-parity.sh
+
 image-digest-parity-check: ## Fail if one name:tag image is pinned to different digests across CI files and Dockerfiles (#4623)
 	@# Renovate bumped the web Dockerfile's node digest but not the CI `image:` pins,
 	@# so CI tested on a different base layer than shipped. Pure grep, no network.
@@ -592,7 +604,7 @@ e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
 
-.PHONY: negated-closing-keywords-check
+.PHONY: negated-closing-keywords-check loading-skeleton-role-check
 negated-closing-keywords-check: ## Run the lint:negated-closing-keywords CI job locally (#4926; commit messages only, no MR description before the MR exists)
 	@bash scripts/check-negated-closing-keywords.sh --self-test
 	@bash scripts/check-negated-closing-keywords.sh --commits
@@ -789,6 +801,7 @@ pre-push-checks: compose-nginx-shutdown-check
 pre-push-checks: compose-ports-check
 pre-push-checks: playwright-pins-check
 pre-push-checks: image-digest-parity-check
+pre-push-checks: nginx-location-parity-check
 pre-push-checks: nul-bytes-check
 pre-push-checks: api-scheduler-lock-check
 pre-push-checks: ci-api-tag-check
@@ -798,6 +811,7 @@ pre-push-checks: web-row-vocabulary-check
 pre-push-checks: design-system-check
 pre-push-checks: dropdown-scroll-check
 pre-push-checks: hover-reveal-focus-check
+pre-push-checks: loading-skeleton-role-check
 pre-push-checks: anchored-popover-check
 pre-push-checks: focus-trap-focuskey-check
 pre-push-checks: aria-modal-focus-trap-check

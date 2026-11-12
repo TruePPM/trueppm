@@ -83,7 +83,7 @@ export function RiskTablePanel({
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
       {/* Loading */}
       {isLoading && (
-        <div className="flex flex-col gap-1" aria-label="Loading risks" aria-busy="true">
+        <div role="status" className="flex flex-col gap-1" aria-label="Loading risks" aria-busy="true">
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}

@@ -321,7 +321,7 @@ export function ProgramSchedulePage() {
  *  pages' `animate-pulse` idiom (e.g. KpiSkeleton). */
 function LoadingSkeleton() {
   return (
-    <div className="flex-1 space-y-3 p-4" aria-busy="true" aria-label="Loading program schedule">
+    <div role="status" className="flex-1 space-y-3 p-4" aria-busy="true" aria-label="Loading program schedule">
       {[0, 1, 2].map((lane) => (
         <div key={lane} className="space-y-2">
           <div className="h-4 w-40 motion-safe:animate-pulse rounded-chip bg-neutral-surface-raised" />

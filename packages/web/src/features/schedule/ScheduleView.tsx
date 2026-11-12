@@ -4502,7 +4502,7 @@ export function ScheduleView() {
 
   if ((isLoading || !rawTasks) && !isMobile) {
     return (
-      <div
+      <div role="status"
         className="flex h-full bg-neutral-surface"
         aria-busy="true"
         aria-label="Loading Schedule"

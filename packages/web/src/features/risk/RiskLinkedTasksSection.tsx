@@ -98,7 +98,7 @@ export function RiskLinkedTasksSection({
       </p>
 
       {showSkeleton ? (
-        <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading linked tasks">
+        <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading linked tasks">
           <div className="h-8 rounded-card motion-safe:animate-pulse bg-neutral-border/30" />
           <div className="h-8 rounded-card motion-safe:animate-pulse bg-neutral-border/30" />
         </div>

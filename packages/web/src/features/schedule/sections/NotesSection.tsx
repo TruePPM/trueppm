@@ -299,7 +299,7 @@ export function NotesSection({ taskId, projectId, userRole, canEdit }: DrawerSec
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading notes">
+      <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading notes">
         {[0, 1, 2].map((i) => (
           <div
             key={i}

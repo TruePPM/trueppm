@@ -1937,9 +1937,9 @@ done
 demo_rule() { yq "select(.kind==\"PrometheusRule\") | .spec.groups[] | select(.name==\"trueppm.demo\") | .rules[] | select(.alert==\"$1\") | .$2" <<<"$rules_on"; }
 reset_period=86400
 stale_after="$(demo_rule TruePPMDemoResetStale expr | grep -oE '> *[0-9]+' | tr -dc '0-9')"
-stale_default="$(yq '.alerts.thresholds.demoReset.staleAfterSeconds' "$CHART/values.yaml")"
+stale_default=93600  # the chart default (26h); staleAfter is unset in values.yaml so an old key is distinguishable (#4487)
 [[ "$stale_after" == "$stale_default" ]] \
-  || fail "TruePPMDemoResetStale renders '${stale_after}s' but values.yaml sets staleAfterSeconds=${stale_default} — the rule must follow the value"
+  || fail "TruePPMDemoResetStale renders '${stale_after}s' but the chart default is ${stale_default}s (26h) — keep the template default and the documented default in step"
 [[ "$stale_after" =~ ^[0-9]+$ ]] && (( stale_after > reset_period )) \
   || fail "TruePPMDemoResetStale threshold '${stale_after}s' does not exceed the daily reset period (${reset_period}s) — it would fire between healthy runs"
 never_for="$(demo_rule TruePPMDemoResetNeverSucceeded for)"
@@ -1948,6 +1948,45 @@ never_default="$(yq '.alerts.thresholds.demoReset.neverSucceededFor' "$CHART/val
   || fail "TruePPMDemoResetNeverSucceeded renders for '$never_for' but values.yaml sets neverSucceededFor=$never_default — the rule must follow the value"
 [[ "$never_for" =~ ^([0-9]+)h$ ]] && (( BASH_REMATCH[1] * 3600 > reset_period )) \
   || fail "TruePPMDemoResetNeverSucceeded 'for' '$never_for' does not exceed the daily reset period — a fresh install would alert before its first run"
+
+# N+7.e2. Age thresholds are Prometheus duration strings, and the deprecated integer-
+#         seconds keys still render the same rule for one minor (#4487). Each pair
+#         below must produce an IDENTICAL threshold, and the schema must refuse the
+#         mixed types (an integer under the new key, a string under the old one). A
+#         zero staleness window must be refused by the template, which the schema
+#         cannot do for a "0s" string.
+age_rules() { helm template trueppm "$CHART" "${demo_args[@]}" --set demo.reset.enabled=true \
+  --set backup.enabled=true --set backup.persistence.enabled=true --set alerts.enabled=true "$@" \
+  --show-only templates/prometheusrule.yaml; }
+age_expr() { yq "select(.kind==\"PrometheusRule\") | .spec.groups[].rules[] | select(.alert==\"$2\") | .expr" <<<"$1" | grep -oE '> *[0-9]+' | tr -dc '0-9'; }
+age_new="$(age_rules --set alerts.thresholds.backup.staleAfter=1h30m \
+  --set alerts.thresholds.demoReset.staleAfter=2d --set alerts.thresholds.outboxOldestAge=0s)"
+age_old="$(age_rules --set alerts.thresholds.backup.staleAfterSeconds=5400 \
+  --set alerts.thresholds.demoReset.staleAfterSeconds=172800 --set alerts.thresholds.outboxOldestAgeSeconds=0)"
+for pair in "TruePPMBackupStale:5400" "TruePPMDemoResetStale:172800" "TruePPMOutboxOldestAgeRising:0"; do
+  alert="${pair%%:*}"; want="${pair##*:}"
+  [[ "$(age_expr "$age_new" "$alert")" == "$want" ]] \
+    || fail "$alert: the duration-string key did not render a threshold of ${want}s (#4487)"
+  [[ "$(age_expr "$age_old" "$alert")" == "$want" ]] \
+    || fail "$alert: the deprecated integer-seconds key did not render the same ${want}s threshold as the duration key (#4487)"
+done
+# Defaults are unchanged by the key rename: 48h, 26h, 15m.
+age_default="$(age_rules)"
+for pair in "TruePPMBackupStale:172800" "TruePPMDemoResetStale:93600" "TruePPMOutboxOldestAgeRising:900"; do
+  alert="${pair%%:*}"; want="${pair##*:}"
+  [[ "$(age_expr "$age_default" "$alert")" == "$want" ]] \
+    || fail "$alert: default threshold is not ${want}s after the #4487 key rename"
+done
+# Mixed types are refused by the schema, not coerced.
+for bad in "alerts.thresholds.backup.staleAfter=172800" "alerts.thresholds.demoReset.staleAfter=26" \
+           "alerts.thresholds.outboxOldestAge=900" "alerts.thresholds.backup.staleAfterSeconds=48h"; do
+  if helm template trueppm "$CHART" --set image.tag=latest --set alerts.enabled=true --set "$bad" >/dev/null 2>&1; then
+    fail "--set $bad rendered: a mixed-type alert threshold must be rejected by values.schema.json (#4487)"
+  fi
+done
+if age_rules --set alerts.thresholds.backup.staleAfter=0s >/dev/null 2>&1; then
+  fail "alerts.thresholds.backup.staleAfter=0s rendered: a zero staleness window makes TruePPMBackupStale fire permanently (#4487)"
+fi
 
 # N+7.f. Interactive demo edge hardening (ADR-1197 D1/D6/D7, #3925 MR 2): the third
 #        nginx server block, the api/celery-worker egress-deny NetworkPolicy, the

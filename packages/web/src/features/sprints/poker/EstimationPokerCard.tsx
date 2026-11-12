@@ -87,7 +87,7 @@ export function EstimationPokerCard({
       <h3 className="text-sm font-semibold text-neutral-text-primary">Estimation poker</h3>
 
       {isLoading ? (
-        <div className="h-16 rounded bg-neutral-surface motion-safe:animate-pulse" aria-busy="true" />
+        <div className="h-16 rounded bg-neutral-surface motion-safe:animate-pulse" role="status" aria-label="Loading estimation session" aria-busy="true" />
       ) : !liveSession ? (
         <IdleBody
           unestimatedCount={unestimated.length}

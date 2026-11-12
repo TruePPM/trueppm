@@ -768,6 +768,7 @@ export function UnscheduledGutter({
           248). */}
       {promoteMutation.isPending && (
         <div
+          role="status"
           aria-busy="true"
           aria-label="Promoting task…"
           style={{ paddingLeft: taskListWidth }}

@@ -522,7 +522,7 @@ export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerS
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading comments">
+      <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading comments">
         {[0, 1, 2].map((i) => (
           <div
             key={i}

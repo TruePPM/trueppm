@@ -126,7 +126,7 @@ export function NotificationListPage() {
       </div>
 
       {isLoading && (
-        <div aria-busy="true" aria-label="Loading notifications" className="flex flex-col gap-2">
+        <div role="status" aria-busy="true" aria-label="Loading notifications" className="flex flex-col gap-2">
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}

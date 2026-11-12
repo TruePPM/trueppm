@@ -368,7 +368,7 @@ export function NotificationPreferencesPage() {
 
   if (isLoading) {
     return (
-      <section aria-busy="true" aria-label="Loading notification preferences" className="p-6">
+      <section role="status" aria-busy="true" aria-label="Loading notification preferences" className="p-6">
         <div className="h-8 w-64 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse mb-4" />
         <div className="h-40 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
       </section>

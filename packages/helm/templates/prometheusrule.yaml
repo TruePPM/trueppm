@@ -85,10 +85,9 @@ spec:
           # explicit zero-tolerance `outboxOldestAgeSeconds: 0` is not
           # clobbered, and an explicit `null` still renders 900, not an empty,
           # invalid PromQL expression.
-          {{- $outboxOldestAgeSeconds := 900 }}
-          {{- if not (kindIs "invalid" .Values.alerts.thresholds.outboxOldestAgeSeconds) }}
-          {{- $outboxOldestAgeSeconds = .Values.alerts.thresholds.outboxOldestAgeSeconds }}
-          {{- end }}
+          # `outboxOldestAge` ("15m") replaced the integer `outboxOldestAgeSeconds`
+          # (#4487); the old key is still read for one minor.
+          {{- $outboxOldestAgeSeconds := include "trueppm.alertSeconds" (dict "new" .Values.alerts.thresholds.outboxOldestAge "old" .Values.alerts.thresholds.outboxOldestAgeSeconds "default" 900) }}
           expr: max by (trueppm_outbox_name) (trueppm_outbox_oldest_age_seconds) > {{ $outboxOldestAgeSeconds }}
           for: {{ .Values.alerts.thresholds.outboxOldestAgeFor | default "10m" | quote }}
           labels:
@@ -189,15 +188,22 @@ spec:
           # onward, not track a real degrading signal. values.schema.json's
           # `exclusiveMinimum: 0` on this field makes that true by construction,
           # not just by convention: 0 is rejected before this template ever runs.
+          # `staleAfter` ("26h") replaced the integer `staleAfterSeconds` (#4487);
+          # the old key is still read for one minor. Zero is refused here as well as
+          # by the schema, which cannot see a "0s" duration string.
+          {{- $demoStaleSeconds := include "trueppm.alertSeconds" (dict "new" .Values.alerts.thresholds.demoReset.staleAfter "old" .Values.alerts.thresholds.demoReset.staleAfterSeconds "default" 93600) | int64 }}
+          {{- if le $demoStaleSeconds 0 }}
+          {{- fail "alerts.thresholds.demoReset.staleAfter must be greater than zero: 0 would make TruePPMDemoResetStale fire permanently" }}
+          {{- end }}
           expr: >-
             time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
-            > {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 93600 }}
+            > {{ $demoStaleSeconds }}
           for: {{ .Values.alerts.thresholds.demoReset.staleFor | default "30m" | quote }}
           labels:
             severity: warning
           annotations:
             summary: "TruePPM demo has not been reset recently"
-            description: "No successful demo reset has completed within {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 93600 }}s, so the sample dates are aging. Check that the CronJob is not suspended and that its Jobs are being scheduled."
+            description: "No successful demo reset has completed within {{ $demoStaleSeconds }}s, so the sample dates are aging. Check that the CronJob is not suspended and that its Jobs are being scheduled."
         - alert: TruePPMDemoResetNeverSucceeded
           # Deliberately separate from the staleness rule: kube-state-metrics publishes
           # last_successful_time only after a first success, so an `or absent(...)` on
@@ -233,15 +239,21 @@ spec:
           # Same reasoning as TruePPMDemoResetStale above (#4351) — 0 degenerates
           # this alert to permanently-firing rather than expressing a tolerance,
           # and values.schema.json's `exclusiveMinimum: 0` rejects it outright.
+          # `staleAfter` ("48h") replaced the integer `staleAfterSeconds` (#4487);
+          # the old key is still read for one minor.
+          {{- $backupStaleSeconds := include "trueppm.alertSeconds" (dict "new" .Values.alerts.thresholds.backup.staleAfter "old" .Values.alerts.thresholds.backup.staleAfterSeconds "default" 172800) | int64 }}
+          {{- if le $backupStaleSeconds 0 }}
+          {{- fail "alerts.thresholds.backup.staleAfter must be greater than zero: 0 would make TruePPMBackupStale fire permanently" }}
+          {{- end }}
           expr: >-
             time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-backup"})
-            > {{ .Values.alerts.thresholds.backup.staleAfterSeconds | default 172800 }}
+            > {{ $backupStaleSeconds }}
           for: {{ .Values.alerts.thresholds.backup.staleFor | default "30m" | quote }}
           labels:
             severity: critical
           annotations:
             summary: "TruePPM has taken no successful backup recently"
-            description: "No successful backup Job has completed within {{ .Values.alerts.thresholds.backup.staleAfterSeconds | default 172800 }}s. Default is 2x the daily schedule, so one missed run is tolerated and two are not. Check that the CronJob is not suspended and that its Jobs are being scheduled."
+            description: "No successful backup Job has completed within {{ $backupStaleSeconds }}s. Default is 2x the daily schedule, so one missed run is tolerated and two are not. Check that the CronJob is not suspended and that its Jobs are being scheduled."
         - alert: TruePPMBackupNeverSucceeded
           # Deliberately a SEPARATE rule from the staleness one rather than an
           # `or absent(...)` disjunct on it. kube-state-metrics publishes

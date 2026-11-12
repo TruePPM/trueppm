@@ -38,6 +38,10 @@ class SummaryExpansion:
     helper can grow fields without breaking the pip contract (#1325). Iterable for
     backward compatibility — ``leaf_tasks, deps = expand_summary_dependencies(...)``
     still unpacks — while ``.tasks`` / ``.dependencies`` are the named accessors.
+
+    Attributes:
+        tasks: Input tasks with summary tasks removed (only leaves remain).
+        dependencies: Dependencies fanned out to leaf-level edges, deduplicated.
     """
 
     #: Input tasks with summary tasks removed (only leaves remain).

@@ -249,7 +249,7 @@ function TaskListRow({
 
 function ListSkeleton() {
   return (
-    <div aria-label="Loading tasks" aria-busy="true">
+    <div role="status" aria-label="Loading tasks" aria-busy="true">
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}

@@ -144,7 +144,7 @@ export function ProgramLabelsPage() {
       ) : null}
 
       {selected && tasks.isPending ? (
-        <div className="mt-4 space-y-3" aria-busy="true">
+        <div className="mt-4 space-y-3" role="status" aria-label="Loading tasks" aria-busy="true">
           {[0, 1].map((group) => (
             <div key={group}>
               <div className="h-4 w-40 animate-pulse rounded bg-neutral-surface-raised" />

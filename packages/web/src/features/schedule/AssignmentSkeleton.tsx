@@ -1,6 +1,6 @@
 export function AssignmentSkeleton() {
   return (
-    <div aria-busy="true" aria-label="Loading resource assignments">
+    <div role="status" aria-busy="true" aria-label="Loading resource assignments">
       {[0, 1].map((i) => (
         <div
           key={i}

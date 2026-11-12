@@ -356,7 +356,7 @@ export function ProgramProjectsPage() {
 
       <div className="px-6 pb-8 max-w-[920px]">
         {isLoading && (
-          <div aria-label="Loading projects" className="space-y-2 mt-4">
+          <div role="status" aria-label="Loading projects" className="space-y-2 mt-4">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}

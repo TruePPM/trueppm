@@ -90,7 +90,7 @@ function compareFinishDesc(a: Task, b: Task): number {
  * Group rules (ADR-0057 + Claude Design handoff):
  *   • NEXT UP — NOT_STARTED, sorted by priorityRank asc.
  *   • IN FLIGHT — IN_PROGRESS + REVIEW, sorted by priorityRank asc.
- *   • BACKLOG — BACKLOG status, sorted by statusEnteredAt desc (newest first).
+ *   • BACKLOG — BACKLOG status, sorted by priorityRank asc (recency breaks ties).
  *   • RECENTLY DONE — COMPLETE within RECENTLY_DONE_WINDOW_DAYS, newest first.
  *
  * Summary tasks are always excluded — phases never appear as queue rows.
@@ -133,12 +133,7 @@ export function groupTasksForQueue(tasks: Task[], now: Date = new Date()): Queue
 
   nextUp.sort(comparePriority);
   inFlight.sort(comparePriority);
-  backlog.sort((a, b) => {
-    const at = a.statusEnteredAt ?? '';
-    const bt = b.statusEnteredAt ?? '';
-    if (at === bt) return a.name.localeCompare(b.name);
-    return at < bt ? 1 : -1;
-  });
+  backlog.sort(comparePriority);
   recentlyDone.sort(compareFinishDesc);
 
   return (['nextUp', 'inFlight', 'backlog', 'recentlyDone'] as QueueGroupKey[]).map((k) => ({
@@ -611,7 +606,8 @@ export interface QueueLayoutProps {
 }
 
 /** Groups the queue priority-sorts and therefore lets the user promote/demote
-    within. Backlog sorts by recency and Recently done is immutable order. */
+    within. Backlog is priority-sorted too but is not reorderable here (it has no
+    queue-reorder slot); Recently done is immutable order. */
 const REORDERABLE_GROUPS = new Set<QueueGroupKey>(['nextUp', 'inFlight']);
 
 export function QueueLayout({

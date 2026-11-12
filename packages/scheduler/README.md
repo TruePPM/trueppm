@@ -769,11 +769,7 @@ release it is scheduled for:
 - **API contract / errors** — the derivation vocabulary
   (`DerivationContribution.kind`, `Derivation.quantity`/`pass_`) is still an
   open string, not a published enum
-  ([#4291](https://gitlab.com/trueppm/trueppm/-/issues/4291)), and exported
-  dataclasses document their fields in source comments rather than
-  Google-style `Attributes:` sections, so they do not render in a generated
-  API reference
-  ([#4471](https://gitlab.com/trueppm/trueppm/-/issues/4471)).
+  ([#4291](https://gitlab.com/trueppm/trueppm/-/issues/4291)).
 - **WASM engine** — `wasm-scheduler` errors are untyped strings at 17 call
   sites rather than a structured error type
   ([#4474](https://gitlab.com/trueppm/trueppm/-/issues/4474)), and the CPM

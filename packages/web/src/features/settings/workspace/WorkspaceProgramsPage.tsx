@@ -127,7 +127,7 @@ export function WorkspaceProgramsPage() {
         </div>
 
         {isLoading && (
-          <div aria-label="Loading programs" className="space-y-2 mt-4">
+          <div role="status" aria-label="Loading programs" className="space-y-2 mt-4">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}

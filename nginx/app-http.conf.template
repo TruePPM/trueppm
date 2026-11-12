@@ -107,6 +107,13 @@ server {
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
     }
 
+    # Build-specific readiness sentinel (#4359): `=404`, never the SPA
+    # fallback below — a build missing its manifest must fail a probe, not
+    # answer 200 with index.html. Parity with the Helm configmap (#4392).
+    location = /asset-manifest.json {
+        try_files $uri =404;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
