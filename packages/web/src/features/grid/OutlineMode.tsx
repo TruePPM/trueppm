@@ -381,7 +381,7 @@ export function OutlineMode({
         <span className="w-4 flex-shrink-0" />
         <span className="w-14 flex-shrink-0 text-right pr-3">WBS</span>
         <span className="flex-1 min-w-0">Name</span>
-        <span className="w-12 flex-shrink-0 text-center">Owner</span>
+        <span className="w-16 flex-shrink-0 text-center">Owner</span>
         <span className="w-24 flex-shrink-0 pr-2">% Done</span>
         <span className="w-20 flex-shrink-0 text-right pr-2">Start</span>
         <span className="w-20 flex-shrink-0 text-right pr-2">Finish</span>

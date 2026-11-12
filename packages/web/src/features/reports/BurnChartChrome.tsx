@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiSprint } from '@/types';
+import { DateFormatEcho } from '@/components/DateFormatEcho';
 import type { BurnVariant, BurnMetric } from './hooks/useBurnChart';
 import { BURN_MAX_SPAN_DAYS, burnMaxUntil, shiftIsoDate, utcTodayIso } from './burnWindow';
 import { CHART_COLORS, type ScopeChange } from './burnChartData';
@@ -159,6 +160,7 @@ export function BurnChartControls({
             min={minSince}
             max={until}
           />
+          <DateFormatEcho value={since} />
           <span aria-hidden="true">→</span>
           <input
             type="date"
@@ -169,6 +171,7 @@ export function BurnChartControls({
             min={since}
             max={maxUntil}
           />
+          <DateFormatEcho value={until} />
           {windowClamped && (
             <span role="status" className="ml-1 text-semantic-at-risk">
               Showing the most recent {BURN_MAX_SPAN_DAYS} days

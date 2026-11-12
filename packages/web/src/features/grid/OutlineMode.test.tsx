@@ -234,6 +234,12 @@ describe('OutlineMode — rendering', () => {
     expect(screen.getByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
   });
 
+  it('gives the Owner header room so it cannot collide with % Done (#3623)', () => {
+    renderOutline();
+    expect(screen.getByText('Owner', { exact: true }).className).toMatch(/\bw-16\b/);
+    expect(screen.getByText('% Done', { exact: true })).toBeInTheDocument();
+  });
+
   it('renders the filtered-empty state when filters yield zero matches', () => {
     render(
       <OutlineMode

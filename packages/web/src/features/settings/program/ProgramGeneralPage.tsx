@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { DateFormatEcho } from '@/components/DateFormatEcho';
 import { MemberPicker } from '../components/MemberPicker';
 import { ReadOnlyFieldset } from '../components/ReadOnlyFieldset';
 import { DangerZoneLink } from '../components/DangerZoneLink';
@@ -727,13 +728,16 @@ export function ProgramGeneralPage() {
             label="Target date"
             hint="The program's headline finish date — shows on its card and Projects tab. Optional."
           >
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              aria-label="Program target date"
-              className="w-[160px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            />
+            <div className="flex items-center gap-2.5">
+              <input
+                type="date"
+                value={targetDate}
+                onChange={(e) => setTargetDate(e.target.value)}
+                aria-label="Program target date"
+                className="w-[160px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              />
+              <DateFormatEcho value={targetDate} />
+            </div>
           </FieldRow>
 
           {/* "Program lead", not "Program manager" (#3513). The program-scoped role

@@ -557,6 +557,8 @@ describe('ProgramGeneralPage (settings)', () => {
     const input = screen.getByLabelText('Program target date');
     expect(input).toHaveValue('2026-09-30'); // seeded from the API
     expect(useSettingsSaveStore.getState().dirty).toBe(false);
+    // The same date is echoed in the user's date-format preference (#3623).
+    expect(screen.getByTestId('date-format-echo')).toHaveTextContent(/2026/);
 
     await user.clear(input);
     await user.type(input, '2026-12-31');

@@ -366,7 +366,7 @@ export function OutlineRow({
           onCancelRename={onCancelRename}
         />
 
-        <span role="gridcell" className="flex-shrink-0 flex items-center justify-center md:w-12">
+        <span role="gridcell" className="flex-shrink-0 flex items-center justify-center md:w-16">
           {firstAssignee ? <OwnerAvatar name={firstAssignee.name} /> : null}
         </span>
       </div>

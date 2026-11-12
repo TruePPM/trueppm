@@ -86,7 +86,7 @@ here affect every project in the program.
 | Program key | The program's short name in its link, such as `/programs/atlas-platform-launch/overview`: lowercase letters, digits and hyphens, up to 40 characters, unique across the workspace. The **New program** dialog suggests one from the name and checks that it's available. When you rename it, links that use the old key keep working and switch to the new one, and the old key stays reserved for this program. A program can be renamed at most 10 times. |
 | Accent color | Program accent swatch used in nav and health chrome. |
 | Description | Free-text summary of the program's purpose. |
-| Target date | The program's headline target finish date. |
+| Target date | The program's headline target finish date. The date picker follows your browser's locale; the chosen date is also shown beside it in your account's date format. |
 | Program lead | The one person named as accountable for the program. A display field only — it grants no access. Permissions come from a member's program role (Program Admin, Program Manager, Resource Manager, Team Member, Viewer), set under **Access**. |
 | Health | Manual health override (On track / At risk / Critical), or **Auto** to let the [rollup](#rollup-kpis) compute it. |
 | Methodology | Planning model new projects created in this program start with. It seeds new projects only — projects already in the program keep their own. See [Methodology presets](/features/methodology-preset/). |
