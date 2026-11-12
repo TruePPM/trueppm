@@ -128,7 +128,9 @@
      sage-600's 4.06:1 fails AA for text). Dark reverses to
      sage-400 #66B998 ("sage holds in both modes"). Vivid sage-500 FILLS (with
      navy text) are an explicit recipe applied to primary buttons in Stage 3,
-     not this token. brand-accent (amber) stays static in tailwind.config.ts.   */
+     not this token. brand-accent (amber) is static in both themes: its
+     value lives in tailwind.config.ts (hex) AND --brand-accent below (RGB
+     channels) — keep the two in sync.   */
   :root,
   .theme-light {
     /* sage-700 (not sage-600): the WCAG re-validation found sage-600 is 4.06:1

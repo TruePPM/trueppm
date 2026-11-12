@@ -574,6 +574,38 @@ test.describe('Wave 10 — Sprints backlog table', () => {
     expect(metrics.wrapScroll).toBeGreaterThanOrEqual(metrics.wrapClient);
   });
 
+  test('the trailing remove-x touch overhang adds no phantom scroll width at 375px (#3519)', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(BASE_URL);
+
+    const backlog = page.getByRole('region', { name: /Sprint Backlog/i });
+    await expect(backlog.getByText('Calibrate sensors')).toBeVisible();
+    // Guard against a vacuous pass: the Remove column must actually be rendered.
+    await expect(backlog.getByRole('columnheader', { name: 'Remove' }).first()).toBeVisible();
+
+    // A ::before overhang is invisible to boundingBox() but counts toward the scroll
+    // container's scrollWidth. The wrapper may only scroll as far as the table itself is
+    // wide. Also measured with the 14px right padding removed to show the guard bites.
+    const m = await backlog
+      .getByRole('table')
+      .first()
+      .evaluate((tbl) => {
+        const wrap = tbl.parentElement as HTMLElement;
+        const phantom = () => wrap.scrollWidth - Math.ceil(tbl.getBoundingClientRect().width);
+        const withFix = phantom();
+        const cells = Array.from(tbl.querySelectorAll<HTMLElement>('td.max-md\\:pr-\\[14px\\]'));
+        cells.forEach((c) => c.classList.remove('max-md:pr-[14px]'));
+        const withoutFix = phantom();
+        return { withFix, withoutFix, cells: cells.length };
+      });
+    console.log(`[3519] phantom scrollWidth: with fix ${m.withFix}px, without ${m.withoutFix}px`);
+    expect(m.cells).toBeGreaterThan(0);
+    expect(m.withFix).toBeLessThanOrEqual(0);
+  });
+
   test('group toggle hides rows and re-shows on second click', async ({ page }) => {
     await setupCommon(page);
     await page.goto(BASE_URL);

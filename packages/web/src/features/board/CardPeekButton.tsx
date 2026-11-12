@@ -61,6 +61,9 @@ interface Props {
   /** The trigger carries a 1px border: its absolute `::before` resolves offsets against the
    *  padding box (inside the border), so the pad needs 1px more per side to reach 44px. */
   bordered?: boolean;
+  /** The trigger is a short (~14px) icon-only chip: widen the vertical pad to 16px per side
+   *  (12px padding box + 32px = 44px). Horizontal stays at the bordered 13px (18 + 26 = 44). */
+  shortTrigger?: boolean;
 }
 
 /** Popover geometry — the same constants as the rule-253 reference. Height is a
@@ -77,6 +80,7 @@ export function CardPeekButton({
   children,
   closeLabel = 'Got it',
   bordered = false,
+  shortTrigger = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -179,9 +183,11 @@ export function CardPeekButton({
           'relative z-10 inline-flex items-center',
           triggerClassName ?? '',
           // Invisible ≥44px touch target without visually enlarging the trigger.
-          bordered
-            ? "before:absolute before:inset-[-13px] before:content-['']"
-            : "before:absolute before:inset-[-12px] before:content-['']",
+          shortTrigger
+            ? "before:absolute before:inset-x-[-13px] before:inset-y-[-16px] before:content-['']"
+            : bordered
+              ? "before:absolute before:inset-[-13px] before:content-['']"
+              : "before:absolute before:inset-[-12px] before:content-['']",
           'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
         ].join(' ')}
       >

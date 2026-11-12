@@ -145,4 +145,11 @@ describe('PendingAcceptanceChip interactive disclosure (#1472)', () => {
     expect(trigger.className).toContain('before:inset-[-13px]');
     expect(trigger.className).not.toContain('before:inset-[-12px]');
   });
+
+  it('widens the vertical pad of the icon-only compact trigger to reach 44px (14px box)', () => {
+    render(<PendingAcceptanceChip compact explainer="Someone on the team accepts it." />);
+    const trigger = screen.getByRole('button', { name: /pending acceptance/i });
+    expect(trigger.className).toContain('before:inset-y-[-16px]');
+    expect(trigger.className).toContain('before:inset-x-[-13px]');
+  });
 });

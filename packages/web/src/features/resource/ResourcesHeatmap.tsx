@@ -213,7 +213,7 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
                     <div
                       key={i}
                       className="w-4 h-4 rounded-chip"
-                      style={{ backgroundColor: u === 0 ? 'var(--neutral-surface-sunken)' : bg }}
+                      style={{ backgroundColor: bg }}
                     />
                   );
                 })}

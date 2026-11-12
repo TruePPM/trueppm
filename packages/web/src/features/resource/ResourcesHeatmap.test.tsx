@@ -257,8 +257,8 @@ describe('ResourcesHeatmap', () => {
     it('renders an idle week as the sunken surface rather than a utilization color', () => {
       renderHeatmap({ resources: [resource({ util: [0, 40] })] });
       const squares = mobileRows()[0].querySelectorAll<HTMLElement>('.rounded-chip');
-      expect(squares[0].style.backgroundColor).toBe('var(--neutral-surface-sunken)');
-      expect(squares[1].style.backgroundColor).not.toBe('var(--neutral-surface-sunken)');
+      expect(squares[0].style.backgroundColor).toBe('rgb(var(--neutral-surface-sunken))');
+      expect(squares[1].style.backgroundColor).not.toBe('rgb(var(--neutral-surface-sunken))');
     });
   });
 });

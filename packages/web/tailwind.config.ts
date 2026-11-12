@@ -28,6 +28,7 @@ const config: Config = {
           'primary-dark': 'rgb(var(--brand-primary-dark) / <alpha-value>)',
           'primary-light': 'rgb(var(--brand-primary-light) / <alpha-value>)',
           // Secondary accent (amber) — dark handled per-class (rule 86).
+          // Must stay in sync with `--brand-accent` (232 160 32) in styles/globals.css.
           accent: '#E8A020',
           // `accent-dark` (#C17A10) is a FILL/BORDER weight — only ~3.5:1 as text
           // on white and 3.13:1 on the accent-light tint, so it FAILS WCAG 1.4.3
