@@ -304,7 +304,7 @@ def test_converted_action_item_promotes_to_backlog(project: Project, member: Any
     promote = _client(member).post(
         f"/api/v1/sprints/{s.pk}/retrospective/action-items/{action_id}/promote/"
     )
-    assert promote.status_code in (200, 201), promote.data
+    assert promote.status_code == 201, promote.data
     RetroActionItem.objects.get(pk=action_id).refresh_from_db()
     assert RetroActionItem.objects.get(pk=action_id).promoted_task_id is not None
 
