@@ -367,6 +367,7 @@ class NotificationViewSet(
 
     @extend_schema(
         summary="Mark all unread notifications read",
+        request=None,
         # Without this, drf-spectacular infers the viewset's NotificationSerializer;
         # the action returns a small ``{updated: N}`` counter instead (#2127).
         responses={

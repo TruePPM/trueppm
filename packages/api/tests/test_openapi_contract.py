@@ -343,7 +343,10 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("post", "/api/v1/projects/{id}/restore/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/indent/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/outdent/"),
+        ("post", "/api/v1/sprints/{id}/activate/"),
+        ("post", "/api/v1/sprints/{id}/cancel/"),
         ("post", "/api/v1/slip-conflicts/{id}/acknowledge/"),
+        ("post", "/api/v1/tasks/{id}/approve-estimates/"),
         # #4830: restoring a task whose parent has since gained an SS/SF link would
         # make that parent a summary (ADR-0370); `restore` refuses with a literal
         # `{code, detail, blocking_dependencies}` body.

@@ -527,6 +527,35 @@ declaration correction, not a change taken without a window.
 | Announced | 0.4 |
 | Migration | regenerate clients; send the retro fields the endpoint documents |
 
+### No-body actions no longer declare a request body (#2870)
+
+Eighteen `POST` actions that never read the request body (archive/unarchive a project,
+close/reopen/remove-sample a program, activate/cancel/unbind-milestone a sprint,
+promote a retro action item, mark-all-read, approve-estimates, auto-rank, comment
+acknowledge, webhook test ping on both routes, accept/decline/revoke a suggested assignee) were published with the viewset's whole
+write serializer as a *required* request body. They now declare no body, and the
+request-validation `400` that was injected only because a body was declared is gone
+(`activate`, `cancel` and `approve-estimates` still declare a `400`, now for a refused
+state rather than a bad request). Actions that do read a body now declare the small
+payload they read instead of a whole sprint, task, program or project:
+`POST /sprints/{id}/close/` (`carry_over_to`/`pending_disposition`), the bulk
+scope-change accept/reject (`ids`), `POST /tasks/{id}/split/` (`name`), retro-board
+sticky create, retro pulse, pull-to-sprint, promote-to-milestone, load-sample, program
+split and sponsorship transfer, project transfer, product-backlog and queue reorder,
+and the program rollup-config and risk-policy `PATCH`. Fields those handlers already
+required are now declared required. No request that worked before is refused. This is a
+schema-declaration correction, recorded here because the schema diff reports it as
+removed media types, statuses and properties.
+
+The project and sponsorship transfer actions declare their user ids (`new_owner_user_id`,
+`new_lead_user_id`) as `integer`, matching the roster ids below; the server also still
+accepts a numeric string such as `"42"` for backward compatibility.
+
+| | |
+|---|---|
+| Announced | 0.5 |
+| Migration | regenerate clients; call these actions with an empty body |
+
 ### User ids declared as integers (#4293)
 
 The four mention-group roster request bodies (`add-member` and `remove-member`, on both

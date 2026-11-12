@@ -410,6 +410,29 @@ NO_BODY_PATHS = [
     "/api/v1/projects/{project_pk}/mention-groups/{id}/unmute/",
     "/api/v1/programs/{program_pk}/mention-groups/{id}/mute/",
     "/api/v1/programs/{program_pk}/mention-groups/{id}/unmute/",
+    # Annotated actions that carried a responses= but no request=, so the viewset's
+    # write serializer was published as a required body.
+    "/api/v1/me/notifications/mark-all-read/",
+    "/api/v1/programs/{id}/close/",
+    "/api/v1/programs/{id}/reopen/",
+    "/api/v1/programs/{id}/remove-sample/",
+    "/api/v1/projects/{id}/archive/",
+    "/api/v1/projects/{id}/unarchive/",
+    "/api/v1/projects/{id}/product-backlog/auto-rank/",
+    "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/acknowledge/",
+    "/api/v1/sprints/{id}/activate/",
+    "/api/v1/sprints/{id}/cancel/",
+    "/api/v1/sprints/{id}/unbind-milestone/",
+    "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/",
+    "/api/v1/scope-changes/{id}/accept/",
+    "/api/v1/scope-changes/{id}/reject/",
+    "/api/v1/tasks/{id}/approve-estimates/",
+    "/api/v1/projects/{project_pk}/task-runs/{id}/cancel/",
+    "/api/v1/projects/{project_pk}/webhooks/{id}/test/",
+    "/api/v1/programs/{program_pk}/webhooks/{id}/test/",
+    "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/",
+    "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/",
+    "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/",
 ]
 
 
@@ -558,3 +581,391 @@ def test_documented_roster_body_example_matches_the_declared_type(schema: dict[s
     declared = _request_schema(schema, _operation(schema, PROJECT_ADD))["properties"]["user"]
     assert declared["type"] == "integer"
     assert isinstance(example["user"], int), example
+
+
+# ---------------------------------------------------------------------------
+# Actions that DO read a body: the declared shape must be the one they validate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_properties"),
+    [
+        ("/api/v1/sprints/{id}/close/", {"carry_over_to", "pending_disposition"}),
+        ("/api/v1/sprints/{id}/scope-changes/accept/", {"ids"}),
+        ("/api/v1/sprints/{id}/scope-changes/reject/", {"ids"}),
+        ("/api/v1/tasks/{id}/split/", {"name"}),
+    ],
+)
+def test_body_reading_actions_declare_the_body_they_validate(
+    schema: dict[str, Any], path: str, expected_properties: set[str]
+) -> None:
+    """These fell back to a whole-object write serializer (``SprintRequest`` etc.)."""
+    declared = _request_schema(schema, _operation(schema, path))
+    assert set(declared["properties"]) == expected_properties
+    # Every field has a default or is optional, so none of the old whole-object
+    # required fields (name, start_date, ...) may leak back in.
+    assert not set(declared.get("required", [])) - expected_properties
+
+
+@pytest.mark.django_db
+def test_archive_and_unarchive_succeed_with_an_empty_body(
+    project: Project, admin_user: Any
+) -> None:
+    client = _client(admin_user)
+
+    archived = client.post(f"/api/v1/projects/{project.id}/archive/")
+    assert archived.status_code == 200, archived.data
+    unarchived = client.post(f"/api/v1/projects/{project.id}/unarchive/")
+    assert unarchived.status_code == 200, unarchived.data
+
+
+@pytest.mark.django_db
+def test_mark_all_read_succeeds_with_an_empty_body(admin_user: Any) -> None:
+    response = _client(admin_user).post("/api/v1/me/notifications/mark-all-read/")
+
+    assert response.status_code == 200, response.data
+    assert response.data == {"updated": 0}
+
+
+# Empty-body smoke over the remaining corrected no-body endpoints. Each case builds the
+# cheapest real object so the request reaches the handler; "not rejected for the body"
+# means no 415 and no 400 that names a missing field. A 400/409 for a refused *state*
+# (a sprint with nothing to activate) is a handler decision, not a body rejection.
+def _fake_id_urls(project: Project) -> list[str]:
+    fake = "00000000-0000-0000-0000-000000000001"
+    return [
+        f"/api/v1/projects/{project.id}/tasks/{fake}/comments/{fake}/acknowledge/",
+        f"/api/v1/sprints/{fake}/retrospective/action-items/{fake}/promote/",
+        f"/api/v1/projects/{project.id}/task-runs/{fake}/cancel/",
+        f"/api/v1/projects/{project.id}/webhooks/{fake}/test/",
+    ]
+
+
+def _sprint(project: Project, state: str) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=state,
+    )
+
+
+def _live_empty_body_urls(project: Project, program: Program) -> dict[str, str]:
+    from trueppm_api.apps.projects.models import TaskSuggestedAssignee
+
+    suggested = User.objects.create_user(username="contract_suggested", password="pw")
+    ProjectMembership.objects.create(project=project, user=suggested, role=Role.MEMBER)
+    task = Task.objects.create(project=project, name="T", duration=1)
+    urls: dict[str, str] = {}
+    for verb in ("accept", "decline", "revoke"):
+        # One task per suggestion: a PENDING (task, user) pair is unique.
+        sug_task = Task.objects.create(project=project, name=f"S-{verb}", duration=1)
+        sug = TaskSuggestedAssignee.objects.create(task=sug_task, suggested_user=suggested)
+        urls[f"suggestion-{verb}"] = f"/api/v1/tasks/{sug_task.id}/suggestions/{sug.id}/{verb}/"
+    urls["sprint-activate"] = (
+        f"/api/v1/sprints/{_sprint(project, SprintState.PLANNED).id}/activate/"
+    )
+    urls["sprint-cancel"] = f"/api/v1/sprints/{_sprint(project, SprintState.PLANNED).id}/cancel/"
+    urls["sprint-unbind-milestone"] = (
+        f"/api/v1/sprints/{_sprint(project, SprintState.PLANNED).id}/unbind-milestone/"
+    )
+    urls["program-close"] = f"/api/v1/programs/{program.id}/close/"
+    urls["program-reopen"] = f"/api/v1/programs/{program.id}/reopen/"
+    urls["program-remove-sample"] = f"/api/v1/programs/{program.id}/remove-sample/"
+    urls["auto-rank"] = f"/api/v1/projects/{project.id}/product-backlog/auto-rank/"
+    urls["approve-estimates"] = f"/api/v1/tasks/{task.id}/approve-estimates/"
+    return urls
+
+
+def _assert_not_body_rejected(response: Any, url: str) -> None:
+    assert response.status_code != 415, f"{url} rejected the empty body's media type"
+    if response.status_code == 400:
+        assert "required" not in json.dumps(response.data).lower(), (
+            f"{url} 400 names a missing field for an empty body: {response.data}"
+        )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "key",
+    [
+        "suggestion-accept",
+        "suggestion-decline",
+        "suggestion-revoke",
+        "sprint-activate",
+        "sprint-cancel",
+        "sprint-unbind-milestone",
+        "program-close",
+        "program-reopen",
+        "program-remove-sample",
+        "auto-rank",
+        "approve-estimates",
+    ],
+)
+def test_no_body_endpoints_are_not_rejected_for_an_empty_body(
+    key: str, project: Project, program: Program, admin_user: Any
+) -> None:
+    """Live setup, real object: the empty-body POST reaches the handler."""
+    url = _live_empty_body_urls(project, program)[key]
+    response = _client(admin_user).post(url)
+
+    _assert_not_body_rejected(response, url)
+    # A body rejection would be a 400; these all have a happy path or a state refusal.
+    assert response.status_code < 500, response.data
+
+
+@pytest.mark.django_db
+def test_suggestion_routes_return_2xx_with_an_empty_body(
+    project: Project, program: Program, admin_user: Any
+) -> None:
+    """Accept, decline and revoke each succeed live (not merely 'not 400')."""
+    urls = _live_empty_body_urls(project, program)
+    # Accept and decline are the suggested user's alone; revoke is the manager's.
+    suggested = User.objects.get(username="contract_suggested")
+    for verb, actor in (("accept", suggested), ("decline", suggested), ("revoke", admin_user)):
+        response = _client(actor).post(urls[f"suggestion-{verb}"])
+        assert response.status_code == 200, (verb, response.data)
+
+
+@pytest.mark.django_db
+def test_remaining_no_body_routes_resolve_and_are_not_body_rejected(
+    project: Project, admin_user: Any
+) -> None:
+    """Heavy-setup endpoints (comment acknowledge, retro promote, task-run cancel,
+    webhook test ping): an unknown id answers 404, which proves routing and the
+    absence of a 415 only — body validation is not exercised there. The schema half
+    (``NO_BODY_PATHS``) is what pins those four."""
+    client = _client(admin_user)
+    for url in _fake_id_urls(project):
+        response = client.post(url)
+        assert response.status_code in (404, 403), (url, response.status_code)
+        assert response.status_code != 415
+
+
+# ---------------------------------------------------------------------------
+# estimate_status: '' is not a value the published contract admits
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_blank_estimate_status_is_rejected_by_the_model(project: Project) -> None:
+    """The model no longer allows ``''``; the read-only field has no path that writes it."""
+    from django.core.exceptions import ValidationError
+
+    task = Task.objects.create(project=project, name="T", duration=1)
+    task.estimate_status = ""
+    with pytest.raises(ValidationError) as excinfo:
+        task.full_clean(exclude=["project", "wbs_path"])
+    assert "estimate_status" in excinfo.value.message_dict
+
+
+def test_estimate_status_is_not_client_writable() -> None:
+    """No serializer path can store ``''``: the field is read-only on the task serializer.
+
+    The other writers (MS Project/Jira import, the seed importer and replay, the
+    approve-estimates action) assign ``ACCEPTED``/``None`` literals, never client input.
+    """
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    assert TaskSerializer().fields["estimate_status"].read_only
+
+
+@pytest.mark.django_db
+def test_repair_normalizes_blank_estimate_status_without_touching_versions(
+    project: Project,
+) -> None:
+    """The #2600 data repair clears ``''`` on Task and HistoricalTask rows.
+
+    It must not bump ``server_version`` or write a history row: the column is derived
+    governance state, so a repair that looked like a user edit would re-sync every
+    repaired task to offline clients.
+    """
+    from trueppm_api.apps.projects.estimate_status_repair import normalize_blank_estimate_status
+    from trueppm_api.apps.projects.models import HistoricalTask
+
+    task = Task.objects.create(project=project, name="T", duration=1)
+    untouched = Task.objects.create(
+        project=project, name="Pending", duration=1, estimate_status="pending"
+    )
+    # queryset.update() bypasses validation, which is how legacy rows got here.
+    Task.objects.filter(pk=task.pk).update(estimate_status="")
+    HistoricalTask.objects.filter(id=task.pk).update(estimate_status="")
+    version_before = Task.objects.get(pk=task.pk).server_version
+    history_before = HistoricalTask.objects.filter(id=task.pk).count()
+
+    repaired = normalize_blank_estimate_status(Task, HistoricalTask)
+
+    assert repaired >= 2
+    task.refresh_from_db()
+    assert task.estimate_status is None
+    assert not HistoricalTask.objects.filter(estimate_status="").exists()
+    assert task.server_version == version_before
+    assert HistoricalTask.objects.filter(id=task.pk).count() == history_before
+    untouched.refresh_from_db()
+    assert untouched.estimate_status == "pending"
+
+
+@pytest.mark.django_db
+def test_full_clean_accepts_null_estimate_status_and_rejects_blank(project: Project) -> None:
+    """NULL ("not tracked") must stay valid while ``''`` is refused (#2600).
+
+    Dropping ``blank=True`` alone also rejects NULL, because Django's blank check fires
+    for every value in ``empty_values`` and NULL is the normal state of the column.
+    """
+    from django.core.exceptions import ValidationError
+
+    task = Task.objects.create(project=project, name="T", duration=1)
+    assert task.estimate_status is None
+    task.full_clean()
+
+    task.estimate_status = "accepted"
+    task.full_clean()
+
+    task.estimate_status = ""
+    with pytest.raises(ValidationError) as exc:
+        task.full_clean()
+    assert "estimate_status" in exc.value.message_dict
+
+
+# ---------------------------------------------------------------------------
+# Body-reading actions declare the body they read, not the viewset's whole object
+# ---------------------------------------------------------------------------
+
+# (method, path, body component, required fields, a property that must be present)
+DECLARED_BODIES = [
+    (
+        "post",
+        "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/",
+        "PullActionItemToSprintBodyRequest",
+        {"target_sprint_id"},
+        "target_sprint_id",
+    ),
+    (
+        "post",
+        "/api/v1/sprints/{id}/retro-board/",
+        "RetroBoardItemCreateBodyRequest",
+        {"text"},
+        "column",
+    ),
+    ("put", "/api/v1/sprints/{id}/pulse/", "PulseBodyRequest", {"mood", "energy"}, "confidence"),
+    (
+        "post",
+        "/api/v1/sprints/{id}/promote-to-milestone/",
+        "PromoteToMilestoneRequestRequest",
+        set(),
+        "milestone_id",
+    ),
+    ("post", "/api/v1/programs/load-sample/", "LoadSampleBodyRequest", set(), "sample"),
+    ("post", "/api/v1/programs/{id}/split/", "ProgramSplitBodyRequest", {"splits"}, "splits"),
+    (
+        "post",
+        "/api/v1/programs/{id}/transfer-sponsorship/",
+        "SponsorshipTransferBodyRequest",
+        {"new_owner_user_id"},
+        "new_lead_user_id",
+    ),
+    (
+        "post",
+        "/api/v1/projects/{id}/transfer/",
+        "OwnershipTransferBodyRequest",
+        {"new_owner_user_id"},
+        "new_owner_user_id",
+    ),
+    (
+        "post",
+        "/api/v1/projects/{id}/product-backlog/reorder/",
+        "ProductBacklogReorderBodyRequest",
+        {"stories"},
+        "stories",
+    ),
+    ("post", "/api/v1/projects/{id}/queue/reorder/", "QueueReorderBodyRequest", {"tasks"}, "tasks"),
+    (
+        "patch",
+        "/api/v1/programs/{id}/risk-policy/",
+        "PatchedProgramRiskPolicyRequest",
+        set(),
+        None,
+    ),
+    (
+        "patch",
+        "/api/v1/programs/{id}/rollup-config/",
+        "PatchedProgramRollupConfigRequest",
+        set(),
+        None,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "component", "required", "prop"),
+    DECLARED_BODIES,
+    ids=[f"{m}:{p}" for m, p, *_ in DECLARED_BODIES],
+)
+def test_body_reading_actions_declare_the_body_they_read(
+    schema: dict[str, Any],
+    method: str,
+    path: str,
+    component: str,
+    required: set[str],
+    prop: str | None,
+) -> None:
+    """Each fell back to ``SprintRequest``/``ProgramRequest``/``ProjectRequest``.
+
+    That published a whole-object payload (name, start_date, ...) for an endpoint that
+    reads one or two fields, so a generated SDK demanded fields the handler ignores and
+    never mentioned the one it needs.
+    """
+    op = _operation(schema, path, method)
+    ref = op["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    assert ref.rsplit("/", 1)[-1] == component
+    body = schema["components"]["schemas"][component]
+    assert set(body.get("required", [])) == required
+    if prop is not None:
+        assert prop in body["properties"]
+    assert "name" not in body["properties"] or component.startswith("PromoteToMilestone")
+
+
+@pytest.mark.django_db
+def test_pulse_put_accepts_the_declared_body(project: Project, teammate: Any) -> None:
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=SprintState.ACTIVE,
+    )
+
+    response = _client(teammate).put(
+        f"/api/v1/sprints/{sprint.id}/pulse/", {"mood": 4, "energy": 3}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["mood"] == 4
+
+
+@pytest.mark.django_db
+def test_pull_to_sprint_requires_the_declared_target_sprint_id(
+    project: Project, admin_user: Any
+) -> None:
+    from trueppm_api.apps.projects.models import RetroActionItem, SprintRetro
+
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=SprintState.COMPLETED,
+    )
+    retro = SprintRetro.objects.create(sprint=sprint)
+    item = RetroActionItem.objects.create(retro=retro, text="Fix CI")
+
+    response = _client(admin_user).post(
+        f"/api/v1/sprints/{sprint.id}/retrospective/action-items/{item.id}/pull-to-sprint/",
+        {},
+        format="json",
+    )
+
+    assert response.status_code == 400, response.data
+    assert "target_sprint_id" in response.data

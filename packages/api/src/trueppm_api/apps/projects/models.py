@@ -1041,7 +1041,7 @@ class Program(VersionedModel):
     # which the card renders as a health-tinted neutral — distinct from "" so
     # the General settings swatch picker can show "no color chosen". Mirrors
     # the ``Task.color`` phase-accent pattern below.
-    color = models.CharField(  # noqa: DJ001 — null distinguishes "unset" from ""
+    color = models.CharField(  # noqa: DJ001 — null is the only "unset" value; blank is not admissible
         max_length=7,
         null=True,
         blank=True,
@@ -3936,7 +3936,6 @@ class Task(VersionedModel):
         max_length=12,
         choices=EstimateStatus.choices,
         null=True,
-        blank=True,
         db_index=True,
         help_text="Approval state for three-point estimates (suggest_approve mode only).",
     )
@@ -4408,6 +4407,19 @@ class Task(VersionedModel):
                 old_status=old_status,
                 new_status=self.status,
             )
+
+    def clean_fields(self, exclude: Collection[str] | None = None) -> None:
+        """Validate fields, keeping NULL ``estimate_status`` valid while ``''`` is not.
+
+        ``estimate_status`` drops ``blank=True`` so ``''`` — a third state the
+        published contract declares impossible — fails validation. But Django's blank
+        check fires for every value in ``empty_values``, NULL included, and NULL
+        ("not tracked") is the column's normal state. Skipping the field only when it
+        is NULL restores that case without readmitting ``''``.
+        """
+        if self.estimate_status is None:
+            exclude = {*(exclude or ()), "estimate_status"}
+        super().clean_fields(exclude=exclude)
 
     @staticmethod
     def _also_write(kwargs: dict[str, Any], *names: str) -> dict[str, Any]:

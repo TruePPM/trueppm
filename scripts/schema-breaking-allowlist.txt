@@ -36,3 +36,66 @@ property-removed | response #/ImportRequestProvenance.initiated_by | import-prov
 # Declaration correction, wire behavior unchanged.
 param-removed | * query:search | search--ordering-no-longer-declared-where-they-were-ignored-3452 | parameter was documented but ignored by the server
 param-removed | * query:ordering | search--ordering-no-longer-declared-where-they-were-ignored-3452 | parameter was documented but ignored by the server
+
+# #2870 - annotated @actions that read no body stopped publishing the viewset's write
+# serializer as a required request body; the ones that do read a body now declare it.
+# Declaration correction, wire behavior unchanged. One line per endpoint on purpose:
+# fnmatch's '*' crosses '/', so a '/api/v1/*' glob here would silently allow any future
+# POST to lose its body.
+became-required | request POST /api/v1/programs/{id}/split/ body [[]ProgramRequest->ProgramSplitBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous whole-object schema did not say so
+became-required | request POST /api/v1/programs/{id}/transfer-sponsorship/ body [[]ProgramRequest->SponsorshipTransferBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous whole-object schema did not say so
+became-required | request POST /api/v1/projects/{id}/product-backlog/reorder/ body [[]ProjectRequest->ProductBacklogReorderBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous whole-object schema did not say so
+became-required | request POST /api/v1/projects/{id}/queue/reorder/ body [[]ProjectRequest->QueueReorderBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous whole-object schema did not say so
+became-required | request POST /api/v1/projects/{id}/transfer/ body [[]ProjectRequest->OwnershipTransferBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous whole-object schema did not say so
+became-required | request POST /api/v1/sprints/{id}/retro-board/ body [[]SprintRequest->RetroBoardItemCreateBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous whole-object schema did not say so
+became-required | request POST /api/v1/sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/ body [[]SprintRequest->PullActionItemToSprintBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous whole-object schema did not say so
+became-required | request PUT /api/v1/sprints/{id}/pulse/ body [[]SprintRequest->PulseBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous whole-object schema did not say so
+media-type-removed | POST /api/v1/me/notifications/mark-all-read/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/programs/{id}/close/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/programs/{id}/remove-sample/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/programs/{id}/reopen/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/programs/{program_pk}/webhooks/{id}/test/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/projects/{id}/archive/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/projects/{id}/product-backlog/auto-rank/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/projects/{id}/unarchive/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/acknowledge/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/projects/{project_pk}/webhooks/{id}/test/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/sprints/{id}/activate/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/sprints/{id}/cancel/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/sprints/{id}/unbind-milestone/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/tasks/{id}/approve-estimates/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+media-type-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/ body * | no-body-actions-no-longer-declare-a-request-body-2870 | endpoint reads no request body
+property-removed | request PATCH /api/v1/programs/{id}/risk-policy/ body [[]PatchedProgramRequest->PatchedProgramRiskPolicyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request PATCH /api/v1/programs/{id}/rollup-config/ body [[]PatchedProgramRequest->PatchedProgramRollupConfigRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/programs/load-sample/ body [[]ProgramRequest->LoadSampleBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/programs/{id}/split/ body [[]ProgramRequest->ProgramSplitBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/programs/{id}/transfer-sponsorship/ body [[]ProgramRequest->SponsorshipTransferBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/projects/{id}/product-backlog/reorder/ body [[]ProjectRequest->ProductBacklogReorderBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/projects/{id}/queue/reorder/ body [[]ProjectRequest->QueueReorderBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/projects/{id}/transfer/ body [[]ProjectRequest->OwnershipTransferBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/sprints/{id}/close/ body [[]SprintRequest->SprintCloseRequestRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/sprints/{id}/promote-to-milestone/ body [[]SprintRequest->PromoteToMilestoneRequestRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/sprints/{id}/retro-board/ body [[]SprintRequest->RetroBoardItemCreateBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/ body [[]SprintRequest->PullActionItemToSprintBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/sprints/{id}/scope-changes/accept/ body [[]SprintRequest->ScopeChangeBulkRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/sprints/{id}/scope-changes/reject/ body [[]SprintRequest->ScopeChangeBulkRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request POST /api/v1/tasks/{id}/split/ body [[]TaskRequest->TaskSplitRequestRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request PUT /api/v1/sprints/{id}/pulse/ body [[]SprintRequest->PulseBodyRequest[]].* | no-body-actions-no-longer-declare-a-request-body-2870 | request body re-pointed at the schema the endpoint actually reads
+status-removed | POST /api/v1/me/notifications/mark-all-read/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/programs/{id}/close/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/programs/{id}/remove-sample/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/programs/{id}/reopen/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/programs/{program_pk}/webhooks/{id}/test/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/projects/{id}/archive/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/projects/{id}/product-backlog/auto-rank/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/projects/{id}/unarchive/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/acknowledge/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/projects/{project_pk}/webhooks/{id}/test/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/sprints/{id}/unbind-milestone/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError

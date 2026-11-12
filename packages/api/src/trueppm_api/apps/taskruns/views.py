@@ -64,6 +64,7 @@ class ProjectTaskRunViewSet(
 
     @extend_schema(
         summary="Cancel a task run",
+        request=None,
         responses={
             202: OpenApiResponse(description="Cancellation requested. Body: {'detail': str}."),
             409: OpenApiResponse(description="Task run is not active (not PENDING or RUNNING)."),
