@@ -200,7 +200,7 @@ def pull_carryover_item_to_sprint(
         SprintState,
         Task,
     )
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.sync.broadcast import defer_task_updated
 
     with transaction.atomic():
         locked = (
@@ -232,32 +232,21 @@ def pull_carryover_item_to_sprint(
         task.sprint = target_locked
         task.save(update_fields=["sprint", "server_version"])
 
-        project_id = str(source_project_id)
         task_id = str(task.pk)
         sprint_id = str(target_locked.pk)
 
-        def _broadcast_carryover() -> None:
-            # ``id`` is the task identity every other ``task_updated`` site emits and
-            # the only one websockets.md documents (#2843). This was the single site
-            # in the tree using ``task_id``, which made the frontend's
-            # ``typeof payload.id === 'string' ? payload.id : null`` resolve to null:
-            # the ADR-0152 per-task version dedup was skipped and the history
-            # invalidation widened from one task to the whole project.
-            #
-            # ``task_id`` is kept alongside for one release in case anything reads
-            # it; drop it after 0.5.
-            broadcast_board_event(
-                project_id,
-                "task_updated",
-                {
-                    "id": task_id,
-                    "task_id": task_id,
-                    "sprint_id": sprint_id,
-                    "source": "retro_carryover",
-                },
-            )
-
-        transaction.on_commit(_broadcast_carryover)
+        # Through the ADR-0152 helper so the frame carries ``changed_fields`` and the
+        # post-save ``version`` (the ``save`` above bumped it). Unattributed: the
+        # pull-to-sprint hook does not refresh the actor's ``['tasks']`` cache, so the
+        # actor's own client must refetch rather than skip the frame as a self-echo.
+        # ``task_id`` / ``sprint_id`` / ``source`` are the keys this site already
+        # published (``task_id`` predates the ``id`` fix in #2843); ``extra`` keeps
+        # them without letting them override the standard keys.
+        defer_task_updated(
+            task,
+            changed_fields=["sprint"],
+            extra={"task_id": task_id, "sprint_id": sprint_id, "source": "retro_carryover"},
+        )
 
     return task
 

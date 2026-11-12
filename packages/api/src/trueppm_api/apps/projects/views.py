@@ -5908,7 +5908,9 @@ def _next_root_wbs_path(project: Any) -> str:
     return str(highest + 1)
 
 
-def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
+def _record_subtask_spawn(
+    parent: Task, instance: Task, by: Any, *, refresh_version: bool = False
+) -> None:
     """Bump the parent's ``server_version`` and log the sprint scope change, if any.
 
     The version bump is what makes sync clients notice the parent's new
@@ -5916,6 +5918,13 @@ def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
     already-committed parent for the drawer chip with ``flag_pending=False`` — the
     parent stays in the commitment; flagging it pending would wrongly drop the whole
     parent from the burndown.
+
+    ``refresh_version=True`` re-reads the bumped ``server_version`` / ``sync_seq`` into
+    ``parent``. Only the single-create path passes it, because only that path emits a
+    per-task ``task_updated`` frame carrying the parent's version. The bulk endpoint
+    broadcasts one ``tasks_bulk_mutated`` frame of ids and never reads the version, so
+    refreshing there would cost one SELECT per subtask (up to
+    ``TASK_BULK_MAX_OPERATIONS``) for a value nothing uses.
     """
     # The cursor is what actually carries the change to an offline client: this is
     # a bulk .update() (deliberately — it must not re-run the parent's save side
@@ -5930,7 +5939,8 @@ def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
     # ``.update()`` leaves the in-memory row at the pre-bump version; the parent's
     # ``task_updated`` frame must carry the version the row now holds, or a client
     # that already saw N drops the N+1 change as a replay (ADR-0152).
-    parent.refresh_from_db(fields=["server_version", "sync_seq"])
+    if refresh_version:
+        parent.refresh_from_db(fields=["server_version", "sync_seq"])
     if parent.sprint_id is None:
         return
 
@@ -6936,7 +6946,7 @@ class TaskViewSet(
                 instance = serializer.save(is_subtask=is_subtask)
 
             if is_subtask and parent is not None:
-                _record_subtask_spawn(parent, instance, self.request.user)
+                _record_subtask_spawn(parent, instance, self.request.user, refresh_version=True)
 
             # A structural create can push its parent over the container line
             # (#2950): the parent has just gained its first child, so its own

@@ -45,9 +45,8 @@ from trueppm_api.apps.projects.product_backlog_services import mark_ready, send_
 User = get_user_model()
 SRC = Path(__file__).resolve().parents[3] / "src" / "trueppm_api"
 
-# retro_services carries extra keys (sprint_id, source) the helper has no slot for;
-# it already sends a string ``id`` and is tracked separately from #4600's site list.
-ALLOWED_LITERAL_EMITTERS = {"apps/sync/broadcast.py", "apps/projects/retro_services.py"}
+# The helper module itself is the only file allowed to pass the literal event type.
+ALLOWED_LITERAL_EMITTERS = {"apps/sync/broadcast.py"}
 
 
 @pytest.fixture
@@ -96,7 +95,7 @@ def test_approve_estimates_emits_versioned_actor_frame(
     assert frame["actor_id"] == str(user.pk)
 
 
-def test_acceptance_criterion_edit_emits_actor_frame_without_stale_version(
+def test_acceptance_criterion_edit_emits_unattributed_frame_without_stale_version(
     client: APIClient, project: Project, user: object, django_capture_on_commit_callbacks: Any
 ) -> None:
     """The criterion row changes, not the Task row, so ``version`` is None — a task
@@ -117,7 +116,7 @@ def test_acceptance_criterion_edit_emits_actor_frame_without_stale_version(
     assert frame["actor_id"] is None
 
 
-def test_mark_ready_emits_versioned_actor_frame(
+def test_mark_ready_emits_versioned_unattributed_frame(
     project: Project, user: object, django_capture_on_commit_callbacks: Any
 ) -> None:
     task = Task.objects.create(
@@ -146,9 +145,15 @@ def test_no_literal_task_updated_emit_outside_the_helper() -> None:
     (``broadcast_board_event``, ``functools.partial`` ...) is a bare emit that bypasses
     ADR-0152. Go through ``broadcast_task_updated`` / ``defer_task_updated``.
 
+    Intentional exception: ``projects/inbound_sync.py`` emits ``{"id", "source"}``
+    with the event type held in a variable (``task_created`` or ``task_updated``). It
+    stays bare on purpose — it is a token-authenticated system write with no actor to
+    attribute, and an unversioned, unattributed frame makes every client refetch the
+    task, which is the behavior that write needs.
+
     Blind spots — it sees only a string constant passed directly as a positional call
-    argument. It does not see the event type held in a variable (``et`` in
-    ``integrations/inbound_sync.py``), carried in a tuple or list and unpacked later
+    argument. It does not see the event type held in a variable (the inbound_sync
+    exception above), carried in a tuple or list and unpacked later
     (``sync/upload.py``), or passed as a keyword. A green run is therefore not "no bare
     emit exists"; it is "no new emit of the common literal shape"."""
     offenders: list[str] = []
@@ -333,3 +338,64 @@ def test_ci_acceptance_ingest_frame_is_not_attributed_to_token_creator(
     assert frame["changed_fields"] == ["acceptance_criteria"]
     assert frame["version"] is None
     assert frame["actor_id"] is None
+
+
+def test_retro_carryover_pull_emits_versioned_unattributed_frame_with_context_keys(
+    project: Project, user: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Pull-to-sprint goes through the helper: the standard keys plus the context keys
+    this site already published. The pull hook does not refresh ``['tasks']``, so the
+    frame is unattributed and the actor's own client refetches."""
+    from trueppm_api.apps.projects.models import (
+        RetroActionItem,
+        Sprint,
+        SprintRetro,
+        SprintState,
+    )
+    from trueppm_api.apps.projects.retro_services import pull_carryover_item_to_sprint
+
+    done = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.COMPLETED,
+    )
+    item = RetroActionItem.objects.create(
+        retro=SprintRetro.objects.create(sprint=done, notes="r"), text="Probe"
+    )
+    target = Sprint.objects.create(
+        project=project,
+        name="S2",
+        start_date=date(2026, 4, 15),
+        finish_date=date(2026, 4, 28),
+        state=SprintState.PLANNED,
+    )
+    with _mock_events() as m, django_capture_on_commit_callbacks(execute=True):
+        task = pull_carryover_item_to_sprint(item, target, user)
+    task.refresh_from_db()
+    frame = next(f for f in _frames(m) if f.get("source") == "retro_carryover")
+    assert frame["id"] == frame["task_id"] == str(task.pk)
+    assert frame["sprint_id"] == str(target.pk)
+    assert frame["changed_fields"] == ["sprint"]
+    assert frame["version"] == task.server_version
+    assert frame["actor_id"] is None
+
+
+def test_extra_keys_cannot_override_the_standard_keys() -> None:
+    """``extra`` is merged under the standard keys: a colliding key never reaches the
+    client's dedupe / echo gates."""
+    from trueppm_api.apps.sync.broadcast import broadcast_task_updated
+
+    with _mock_events() as m:
+        broadcast_task_updated(
+            "p",
+            task_id="t",
+            changed_fields=["sprint"],
+            version=7,
+            actor_id=None,
+            extra={"id": "other", "version": 1, "actor_id": "u", "source": "s"},
+        )
+    (frame,) = _frames(m)
+    assert (frame["id"], frame["version"], frame["actor_id"]) == ("t", 7, None)
+    assert frame["source"] == "s"

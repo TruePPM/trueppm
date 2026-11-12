@@ -8,6 +8,7 @@ that was subsequently rolled back.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC
 from typing import Any
 
@@ -177,6 +178,7 @@ def broadcast_task_updated(
     changed_fields: list[str],
     version: int | None,
     actor_id: str | None,
+    extra: Mapping[str, Any] | None = None,
 ) -> None:
     """Broadcast a field-level ``task_updated`` delta (ADR-0152, #327).
 
@@ -193,16 +195,41 @@ def broadcast_task_updated(
     Like :func:`broadcast_board_event`, this is best-effort and must be wrapped in
     ``transaction.on_commit`` by the caller. The ``id`` key is retained for
     backward compatibility with consumers that only read it.
+
+    ``extra`` carries site-specific context keys (``source``, ``sprint_id`` ...) that a
+    caller already published. It is merged *under* the standard keys, so it can add to
+    the frame but never override ``id`` / ``changed_fields`` / ``version`` /
+    ``actor_id`` / ``ts`` — the keys the client's dedupe and echo gates read.
     """
+    fields = sorted(changed_fields)
+    ts = _utcnow_iso()
+    if extra:
+        # ``**extra`` first, so a colliding key is overwritten by the standard one.
+        # The spread makes this one call opaque to the payload-shape conformance scan
+        # (``tests/apps/sync/test_broadcast_payload_shape.py``); the literal call below
+        # keeps the standard shape visible to it.
+        broadcast_board_event(
+            project_id,
+            "task_updated",
+            {
+                **extra,
+                "id": task_id,
+                "changed_fields": fields,
+                "version": version,
+                "actor_id": actor_id,
+                "ts": ts,
+            },
+        )
+        return
     broadcast_board_event(
         project_id,
         "task_updated",
         {
             "id": task_id,
-            "changed_fields": sorted(changed_fields),
+            "changed_fields": fields,
             "version": version,
             "actor_id": actor_id,
-            "ts": _utcnow_iso(),
+            "ts": ts,
         },
     )
 
@@ -213,6 +240,7 @@ def defer_task_updated(
     changed_fields: list[str],
     actor: Any = None,
     task_row_bumped: bool = True,
+    extra: Mapping[str, Any] | None = None,
 ) -> None:
     """Queue a post-commit :func:`broadcast_task_updated` for ``task`` (ADR-0152, #4600).
 
@@ -231,6 +259,7 @@ def defer_task_updated(
     skips a self-echo entirely, so naming the actor on a write whose hook refreshes a
     different cache leaves the actor's own task list stale. Non-interactive writes
     (CI ingest, token paths) pass ``None`` for the same reason.
+    ``extra`` is forwarded to :func:`broadcast_task_updated` (snapshotted here).
     """
     from django.db import transaction
 
@@ -239,6 +268,7 @@ def defer_task_updated(
     version = task.server_version if task_row_bumped else None
     actor_id = str(actor.pk) if actor is not None and getattr(actor, "pk", None) else None
     fields = list(changed_fields)
+    extra_keys = dict(extra) if extra else None
     transaction.on_commit(
         lambda: broadcast_task_updated(
             project_id,
@@ -246,6 +276,7 @@ def defer_task_updated(
             changed_fields=fields,
             version=version,
             actor_id=actor_id,
+            extra=extra_keys,
         )
     )
 

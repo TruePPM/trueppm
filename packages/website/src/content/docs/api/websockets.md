@@ -358,8 +358,9 @@ rather than re-fetching over its optimistic update. The `id` key is retained for
 backward compatibility.
 
 `version` is `null` when the write changed a row that belongs to the task but not
-the task row itself — an acceptance criterion, or a suggested-assignee accept that
-found the task already assigned. Treat a `null` version as unversioned: skip the
+the task row itself — an acceptance criterion, a suggested-assignee accept that
+found the task already assigned, or a recurrence-rule create or delete that did not
+flip the task's `is_recurring` flag. Treat a `null` version as unversioned: skip the
 replay check and refetch. `actor_id` is likewise `null` for writes that are not
 interactive (a CI acceptance-result ingest) and for writes whose originating client
 does not update its own task list, so that client still refetches.
