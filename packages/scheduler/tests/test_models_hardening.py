@@ -1030,9 +1030,6 @@ def _date_annotated_task_fields() -> list[str]:
     Read from the dataclass itself, independently of the validator's own field list,
     so a date field added to ``Task`` without a guard fails here (#2866).
     """
-    import dataclasses
-    import typing
-
     hints = typing.get_type_hints(Task)
     return [
         f.name
@@ -1065,7 +1062,7 @@ class _Respelled:
 
 
 def _string_matched(cls: type) -> tuple[str, ...]:
-    """The pre-#2866-fix derivation: match the annotation source string."""
+    """A hypothetical string-matching derivation: match the annotation source string."""
     return tuple(
         f.name
         for f in dataclasses.fields(cls)
