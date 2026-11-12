@@ -2745,6 +2745,7 @@ def cascade_project_children_soft_delete(project: Project | uuid.UUID | str) -> 
     # gone, and bulk .update() bypasses save() — without an explicit cursor they sit
     # below every checkpoint and the client keeps showing deleted rows forever
     # (ADR-0686). One value for the whole cascade: it is one logical operation.
+    # TODO(#4959): project-then-sprint order can cycle with an in-flight retro carryover.
     seq = _allocate_cascade_seq(project_id)
 
     # Edges before tasks is not required for correctness — soft-delete leaves each
