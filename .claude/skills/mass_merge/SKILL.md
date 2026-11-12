@@ -30,6 +30,16 @@ Arguments: a list of MR IIDs, in the order you want them landed. Accepts
 - `--dry-run` — run Phase A (the simulation) only; never push or merge. Use
   this first when you are unsure the batch is composable.
 
+**Batch size: land when ~5 MRs are ready; do not wait for the WIP cap.**
+Conflicts scale with *pairs* of unmerged MRs (5 MRs = 10 pairs, 10 = 45, 15 =
+105), not with their count, and Phase B is serial by construction, so a larger
+batch only buys more hand-resolved conflicts. Total merge work is unchanged by
+splitting. The `scripts/wt` WIP cap stays at 10 (it measures work in flight, not
+batch size). These numbers come from a 2026-09-13 audit; once the structural
+hotspots are gone (generated-file regeneration below, the `pre-push-checks`
+Makefile split, the `packages/web/CLAUDE.md` restructure), re-measure against
+observed conflict counts before changing either number.
+
 ### Who invokes this — user only
 
 `/mass_merge` is **user-invoked only** (`disable-model-invocation: true`). It
@@ -452,12 +462,33 @@ if git -C "$WT" merge-base --is-ancestor origin/main "$BR"; then
   SHA=$(git -C "$WT" rev-parse HEAD)      # its existing MR pipeline for this sha is the gate
 else
   git -C "$WT" merge --no-edit origin/main   # lands the tree Phase A validated
-  # conflict → git -C "$WT" merge --abort, stop, report: needs a manual resolution
+  # conflict → see "Generated-file-only conflicts" below; otherwise
+  #   git -C "$WT" merge --abort, stop, report: needs a manual resolution
   SHA=$(git -C "$WT" rev-parse HEAD)      # the EXACT sha we are about to push — poll on this, not the branch tip
   git -C "$WT" push --no-verify origin "$BR"     # fast-forward; no force needed
 fi
 ```
 
+- **Generated-file-only conflicts are resolved by regenerating, never by merging
+  text.** A textual conflict in a generated file carries no information (these two
+  files are touched by 21% and 9% of merges). If `git -C "$WT" diff --name-only
+  --diff-filter=U` lists *only* these paths, take either side, regenerate from the
+  merged tree, stage, and complete the merge:
+  - `docs/api/openapi.json` → `(cd "$WT" && scripts/export-openapi.sh)`
+  - `packages/website/docs-declaration-baseline.txt` →
+    `(cd "$WT" && bash scripts/check-version-status.sh --update-baseline)`
+
+  ```bash
+  git -C "$WT" checkout --ours -- <generated paths>   # either side; it is overwritten
+  # ...run the regenerator(s) above, then:
+  git -C "$WT" add <generated paths>
+  test -z "$(git -C "$WT" diff --name-only --diff-filter=U)" || { echo "UNRESOLVED → STOP"; exit 1; }
+  git -C "$WT" commit --no-edit
+  ```
+
+  If **any** conflicted path is not in that list, the whole conflict stays
+  manual: abort and report. Always assert the unmerged set is empty before
+  continuing; a piped `rebase | tail` prints OK on a conflict.
 - `--no-verify` skips the local pre-push hook: Phase A already ran the full gate
   suite on the combined tree, so re-running `make pre-push` on every push is pure
   latency, and the hook is what stalls on a VS Code/askpass credential prompt.
