@@ -33,6 +33,7 @@ use it in place of ``self.captureOnCommitCallbacks``.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -64,16 +65,26 @@ def capture_on_commit_callbacks(
     # itself rolls back a savepoint (a raising receiver under an in-atomic dispatch)
     # then loops forever.
     seen_entries: list[Any] = list(connection.run_on_commit)
-    seen_ids: set[int] = {id(entry[1]) for entry in seen_entries}
+    # Multiplicity matters: two registrations of the same callable object are two
+    # runs. ``handled`` counts how many entries per callable were already taken, so
+    # a rebuilt list (same callables, same counts) yields nothing new, while a second
+    # registration of an already-seen callable still does.
+    handled: Counter[int] = Counter(id(entry[1]) for entry in seen_entries)
     try:
         yield callbacks
     finally:
         while True:
-            new_entries = [e for e in connection.run_on_commit if id(e[1]) not in seen_ids]
+            position: Counter[int] = Counter()
+            new_entries = []
+            for e in connection.run_on_commit:
+                key = id(e[1])
+                if position[key] >= handled[key]:
+                    new_entries.append(e)
+                position[key] += 1
             if not new_entries:
                 break
             seen_entries.extend(new_entries)
-            seen_ids.update(id(entry[1]) for entry in new_entries)
+            handled.update(id(entry[1]) for entry in new_entries)
             for entry in new_entries:
                 # Django 5.2 entries are (savepoint_ids, callback, robust).
                 callback, robust = entry[1], entry[2]
