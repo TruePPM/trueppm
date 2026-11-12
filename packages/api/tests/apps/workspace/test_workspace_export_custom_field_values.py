@@ -6,6 +6,7 @@ import io
 import json
 import tarfile
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from django.core.files.storage import default_storage
@@ -48,3 +49,14 @@ def test_archive_contains_custom_field_values() -> None:
     assert rows[0]["task_id"] == str(task.pk)
     assert rows[0]["field_id"] == str(field.pk)
     assert rows[0]["value_text"] == "ABC-123"
+
+
+def test_archive_serializes_non_text_value_columns() -> None:
+    project = Project.objects.create(name="Apollo", start_date=date(2026, 1, 1))
+    task = Task.objects.create(project=project, name="Budget", duration=1)
+    field = ProjectCustomField.objects.create(project=project, name="Cost", field_type="number")
+    TaskCustomFieldValue.objects.create(task=task, field=field, value_number=Decimal("12.5"))
+
+    rows = json.loads(_members()["projects/task_custom_field_values.json"])
+    assert len(rows) == 1
+    assert Decimal(str(rows[0]["value_number"])) == Decimal("12.5")
