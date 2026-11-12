@@ -499,7 +499,7 @@ alerts:
     release: kube-prometheus-stack   # so the operator's ruleSelector picks it up
   thresholds:
     outboxDepth: 500
-    outboxOldestAgeSeconds: 900
+    outboxOldestAge: 15m
 ```
 
 The dashboard (**TruePPM — Async & Outbox Health**) charts outbox depth and oldest

@@ -468,13 +468,13 @@ later. With `alerts.enabled=true`, enabling backups also renders:
 | Alert | Fires when |
 |---|---|
 | `TruePPMBackupJobFailed` | a backup Job exhausted its `backoffLimit` |
-| `TruePPMBackupStale` | no **successful** backup within `alerts.thresholds.backup.staleAfterSeconds` (default 48h — two missed daily runs) |
+| `TruePPMBackupStale` | no **successful** backup within `alerts.thresholds.backup.staleAfter` (default 48h — two missed daily runs) |
 | `TruePPMBackupNeverSucceeded` | backups are enabled and **no** success has ever been recorded. Catches a suspended CronJob, Jobs that never schedule, and kube-state-metrics not being scraped — in which case `TruePPMBackupStale` cannot fire either |
 
 `TruePPMVolumeFillingUp` covers every claim in the namespace, including the
 backup PVC: a full one turns every subsequent run into a failure.
 
-**Raise `staleAfterSeconds` if you lengthen `backup.schedule`.** The default is
+**Raise `staleAfter` if you lengthen `backup.schedule`.** The default is
 2x a daily schedule; a weekly schedule under a 48h window alerts every week by
 construction.
 

@@ -1066,8 +1066,14 @@
               "type": "string"
             },
             "outboxOldestAgeSeconds": {
+              "description": "Deprecated: use outboxOldestAge. Still honored for one minor.",
               "type": "integer",
               "minimum": 0
+            },
+            "outboxOldestAge": {
+              "description": "Age of the oldest pending outbox row that starts the outboxOldestAgeFor clock, as a Prometheus duration string such as \"15m\".",
+              "type": "string",
+              "pattern": "^([0-9]+(y|w|d|h|m|s))+$"
             },
             "outboxOldestAgeFor": {
               "type": "string"
@@ -1104,8 +1110,14 @@
                   "type": "string"
                 },
                 "staleAfterSeconds": {
+                  "description": "Deprecated: use staleAfter. Still honored for one minor.",
                   "type": "integer",
                   "exclusiveMinimum": 0
+                },
+                "staleAfter": {
+                  "description": "Age of the last successful run that fires the Stale alert, as a Prometheus duration string such as \"48h\". Must be greater than zero.",
+                  "type": "string",
+                  "pattern": "^([0-9]+(y|w|d|h|m|s))+$"
                 },
                 "staleFor": {
                   "type": "string"
@@ -1123,8 +1135,14 @@
                   "type": "string"
                 },
                 "staleAfterSeconds": {
+                  "description": "Deprecated: use staleAfter. Still honored for one minor.",
                   "type": "integer",
                   "exclusiveMinimum": 0
+                },
+                "staleAfter": {
+                  "description": "Age of the last successful run that fires the Stale alert, as a Prometheus duration string such as \"48h\". Must be greater than zero.",
+                  "type": "string",
+                  "pattern": "^([0-9]+(y|w|d|h|m|s))+$"
                 },
                 "staleFor": {
                   "type": "string"
