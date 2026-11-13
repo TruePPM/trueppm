@@ -370,6 +370,14 @@ def _duration_sensitivity(
     (deterministic, completed, or milestone) cannot move the finish and are
     omitted; if the finish itself has zero variance (fully deterministic project)
     the result is empty.
+
+    ``cap`` bounds the **output**, not the compute (#4530). Each task's index needs
+    its own rank pass over the sampled duration column, and no cheaper exact
+    pre-filter says which columns can reach the top ``cap`` without computing them,
+    so every non-constant task is scored before the list is cut. Selecting the top
+    ``cap`` with ``heapq.nlargest`` instead of sorting would not help: the final
+    sort is a negligible share of the cost, the per-column ranking is the rest. The
+    cost is bounded by ``MC_SENSITIVITY_SUBSAMPLE`` runs per task, not by ``cap``.
     """
     runs = completion_offsets.shape[0]
     if runs < 2:

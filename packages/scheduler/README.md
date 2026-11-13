@@ -579,6 +579,19 @@ threads that only read it is fine, but mutating it (reassigning `working_days` o
 `exceptions`) while another thread schedules against it is unsupported. Build a new
 `Calendar` per change.
 
+**Pickling.** `Project`, `Task`, `Dependency`, `Calendar`, `DateRange`,
+`ScheduleResult`, `MonteCarloResult` and `Derivation` pickle and unpickle equal to
+the original, under every pickle protocol, so they cross `multiprocessing`, Dask
+and Ray process boundaries. An unpickled `Project` schedules to the same result as
+the original. A `Calendar` rebuilds its internal exception index on first use after
+unpickling.
+
+**`monte_carlo(sensitivity_cap=...)` bounds output, not compute.** The duration
+sensitivity tornado scores every task whose sampled duration varies, then keeps the
+top `sensitivity_cap`; lowering the cap shortens the returned list but does not make
+the call faster. Its cost is bounded by `MC_SENSITIVITY_SUBSAMPLE` (2,000) runs per
+task regardless of `runs`.
+
 **`monte_carlo()` default run count.** `monte_carlo(project)` runs **10,000**
 simulations unless you pass `runs=`, and the `trueppm-scheduler monte-carlo`
 command's `--runs` defaults to the same 10,000. (Before this default was unified the

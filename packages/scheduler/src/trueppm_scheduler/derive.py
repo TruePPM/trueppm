@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
+from trueppm_scheduler._slots import pickle_as_field_dict
 from trueppm_scheduler.engine import (
     _START_ANCHORED,
     InvalidScheduleInput,
@@ -117,7 +118,8 @@ _PASS_FOR_QUANTITY: dict[Quantity, str] = {
 }
 
 
-@dataclass
+@pickle_as_field_dict
+@dataclass(slots=True)
 class DerivationContribution:
     """One candidate constraint that participated in computing a value.
 
@@ -201,7 +203,8 @@ class DerivationContribution:
         }
 
 
-@dataclass
+@pickle_as_field_dict
+@dataclass(slots=True)
 class Derivation:
     """The server-computed *why* behind one computed schedule value.
 

@@ -26,6 +26,21 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **The public dataclasses now use `slots=True`
+  ([#4548](https://gitlab.com/trueppm/trueppm/-/issues/4548)).** `Task`,
+  `Dependency`, `Calendar`, `Project`, `DateRange`, `Derivation`,
+  `DerivationContribution`, `DrivingEdge`, `Percentile`, `TaskSensitivity`,
+  `SummaryExpansion` and `CycleCheck` no longer carry a per-instance `__dict__`, so
+  a project uses about 10% less memory and `schedule()` is faster. You can no longer
+  attach ad-hoc attributes to an instance. Pickles written by earlier releases
+  still load, and new ones keep the same field-dict format. `ScheduleResult` and
+  `MonteCarloResult` are unchanged: `ScheduleResult` keeps a private replay cache
+  on the instance, and there is one of each per run.
+- **`monte_carlo(sensitivity_cap=...)` is documented as bounding output, not
+  compute
+  ([#4530](https://gitlab.com/trueppm/trueppm/-/issues/4530)).** Every task
+  with a varying duration is still ranked; selecting the top N instead of sorting
+  saves about 0.2% of the tornado's cost. No behavior changed.
 - **`Project`, `ScheduleResult` and `MonteCarloResult` now have a summarizing
   `__repr__`
   ([#4547](https://gitlab.com/trueppm/trueppm/-/issues/4547)).** The repr shows

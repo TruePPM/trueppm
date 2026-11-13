@@ -12,6 +12,7 @@ from typing import (
     Any,
 )
 
+from trueppm_scheduler._slots import pickle_as_field_dict
 from trueppm_scheduler.engine.errors import (
     CyclicDependencyError,
     InvalidScheduleInput,
@@ -30,7 +31,8 @@ from trueppm_scheduler.models import (
 )
 
 
-@dataclass
+@pickle_as_field_dict
+@dataclass(slots=True)
 class SummaryExpansion:
     """Result of expanding summary-task dependencies (see :func:`expand_summary_dependencies`).
 
