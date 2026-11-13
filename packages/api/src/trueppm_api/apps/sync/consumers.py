@@ -277,9 +277,6 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             metrics.record_ws_connection_closed()
             self._ws_counted = False
 
-        if hasattr(self, "group_name"):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
-
         # Stop the keepalive before releasing presence, so a tick in flight cannot
         # re-arm the TTL on a key the leave below is about to clean up.
         task = getattr(self, "_presence_task", None)
@@ -288,6 +285,12 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             with contextlib.suppress(BaseException):
                 await task
             self._presence_task = None
+
+        # Discard only after the keepalive is fully stopped: an in-flight
+        # _refresh_group_membership could otherwise re-add the member after the discard
+        # and leave it in the group for up to group_expiry (#4604).
+        if hasattr(self, "group_name"):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
         if hasattr(self, "_user"):
             await self._presence_leave()

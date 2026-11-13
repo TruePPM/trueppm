@@ -13002,20 +13002,22 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
         """Enforce single-level reply nesting and same-task scoping."""
         if value is None:
             return value
+        # The viewset has already established the task from the URL; the view
+        # passes `task` into save(), so the parent must match. This runs BEFORE the
+        # depth check: any parent not on THIS task (including a reply on another task)
+        # must look exactly like a nonexistent one, or the depth error becomes the oracle.
+        view = self.context.get("view")
+        task_pk = getattr(view, "kwargs", {}).get("task_pk") if view else None
+        if (task_pk and str(value.task_id) != str(task_pk)) or value.is_deleted:
+            # Same message and code as the "does not exist" error DRF raises for an
+            # unknown pk: a distinct error would confirm that a comment UUID exists on
+            # another task (existence oracle, #4010).
+            self.fields["parent"].fail("does_not_exist", pk_value=value.pk)
         if value.parent_id is not None:
             raise serializers.ValidationError(
                 "Replies cannot themselves be replied to (one level only).",
                 code="comment_reply_depth",
             )
-        # The viewset has already established the task from the URL; the view
-        # passes `task` into save(), so the parent must match.
-        view = self.context.get("view")
-        task_pk = getattr(view, "kwargs", {}).get("task_pk") if view else None
-        if task_pk and str(value.task_id) != str(task_pk):
-            # Same message and code as the "does not exist" error DRF raises for an
-            # unknown pk: a distinct error would confirm that a comment UUID exists on
-            # another task (existence oracle, #4010).
-            self.fields["parent"].fail("does_not_exist", pk_value=value.pk)
         return value
 
     def update(self, instance: TaskComment, validated_data: dict[str, Any]) -> TaskComment:

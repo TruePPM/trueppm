@@ -86,6 +86,9 @@ def test_reorder_malformed_body_is_field_keyed_400(
 ) -> None:
     resp = _reorder(client, project, body)
     assert resp.status_code == status.HTTP_400_BAD_REQUEST
+    # Field-keyed (or non_field_errors for a non-object body), never a flat detail.
+    assert "detail" not in resp.json()
+    assert "phases" in resp.json() or "non_field_errors" in resp.json()
 
 
 @pytest.mark.django_db
@@ -121,6 +124,19 @@ def test_comment_parent_on_other_task_matches_not_found(
     missing = client.post(
         base2, {"body": "reply", "parent": "22222222-2222-2222-2222-222222222222"}, format="json"
     )
+    # A REPLY on another task must not leak via comment_reply_depth either.
+    reply = client.post(base1, {"body": "r", "parent": pid}, format="json")
+    assert reply.status_code == status.HTTP_201_CREATED, reply.data
+    cross_reply = client.post(base2, {"body": "x", "parent": reply.data["id"]}, format="json")
+    assert cross_reply.status_code == status.HTTP_400_BAD_REQUEST
+    assert cross_reply.data["parent"][0].code == "does_not_exist"
+    assert str(cross_reply.data["parent"][0]).replace(reply.data["id"], "X") == str(
+        missing.data["parent"][0]
+    ).replace("22222222-2222-2222-2222-222222222222", "X")
+    # Same-task reply-to-reply still gets the depth error.
+    same = client.post(base1, {"body": "x", "parent": reply.data["id"]}, format="json")
+    assert same.data["parent"][0].code == "comment_reply_depth"
+
     assert cross.status_code == missing.status_code == status.HTTP_400_BAD_REQUEST
     # Identical apart from the echoed pk: the response must not distinguish
     # "exists on another task" from "does not exist".
