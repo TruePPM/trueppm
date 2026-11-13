@@ -5,6 +5,8 @@ import { RouterProvider } from 'react-router/dom';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
+import { ToastHost } from '@/components/Toast';
+import { useToastStore } from '@/components/Toast/toastStore';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useWbsStore } from '@/stores/wbsStore';
@@ -282,7 +284,14 @@ vi.mock('@tanstack/react-virtual', () => ({
 
 async function renderGrid(initialEntries?: string[]) {
   const { GridView } = await import('./GridView');
-  return renderWithRouter(<GridView />, initialEntries ? { initialEntries } : undefined);
+  useToastStore.setState(useToastStore.getInitialState());
+  return renderWithRouter(
+    <>
+      <GridView />
+      <ToastHost />
+    </>,
+    initialEntries ? { initialEntries } : undefined,
+  );
 }
 
 /**
@@ -1491,7 +1500,7 @@ describe('GridView — confirm strip focus handoff (#3445, web rule 368)', () =>
   });
 });
 
-describe('GridView — toast dwell (#2078)', () => {
+describe('GridView — delete toast goes through the global host (#2063)', () => {
   beforeEach(() => {
     projectMethodology = 'AGILE'; // flat — where bulk delete lives
     scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
@@ -1499,96 +1508,30 @@ describe('GridView — toast dwell (#2078)', () => {
     bulkRestoreMutate.mockReset();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('keeps the undoable delete toast for its longer dwell, then dismisses it', async () => {
+  it('announces the undoable delete via the shared ToastHost, with an Undo action', async () => {
     bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
       opts?.onSuccess?.();
     });
     await renderGrid();
-    const box = await screen.findByLabelText('Select Design');
-    vi.useFakeTimers();
-    fireEvent.click(box);
+    fireEvent.click(await screen.findByLabelText('Select Design'));
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
     fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
-    // Exactly one row selected ⇒ singular copy.
+    // Exactly one row selected => singular copy. The dwell and the hover/focus
+    // pause are ToastHost's contract (ToastHost.test.tsx), not re-tested here.
     expect(screen.getByText(/^1 task deleted\.$/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^undo$/i })).toBeInTheDocument();
-    // Still up at 4s — the Undo affordance earns the longer dwell.
-    act(() => {
-      vi.advanceTimersByTime(4_500);
-    });
-    expect(screen.getByText(/^1 task deleted\.$/)).toBeInTheDocument();
-    act(() => {
-      vi.advanceTimersByTime(4_000);
-    });
-    expect(screen.queryByText(/^1 task deleted\.$/)).not.toBeInTheDocument();
   });
 
-  it('never times out the undoable toast while it holds focus (rule 378, WCAG 2.2.1)', async () => {
-    // The bulk-delete Undo is the only route back, so a keyboard user traversing
-    // toward it must not have it removed out from under the focus ring (#3356).
-    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
-      opts?.onSuccess?.();
-    });
-    await renderGrid();
-    const box = await screen.findByLabelText('Select Design');
-    vi.useFakeTimers();
-    fireEvent.click(box);
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
-    const undo = screen.getByRole('button', { name: /^undo$/i });
-    fireEvent.focus(undo);
-    act(() => {
-      vi.advanceTimersByTime(60_000);
-    });
-    expect(screen.getByText(/^1 task deleted\.$/)).toBeInTheDocument();
-    // Leaving resumes it — without this the assertion above would also pass against
-    // a toast whose timer was simply broken.
-    fireEvent.blur(undo);
-    act(() => {
-      vi.advanceTimersByTime(8_000);
-    });
-    expect(screen.queryByText(/^1 task deleted\.$/)).not.toBeInTheDocument();
-  });
-
-  it('suspends the dwell while the pointer rests on the toast', async () => {
-    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
-      opts?.onSuccess?.();
-    });
-    await renderGrid();
-    const box = await screen.findByLabelText('Select Design');
-    vi.useFakeTimers();
-    fireEvent.click(box);
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
-    const toast = screen.getByText(/^1 task deleted\.$/).closest('[role="status"]') as HTMLElement;
-    fireEvent.mouseEnter(toast);
-    act(() => {
-      vi.advanceTimersByTime(60_000);
-    });
-    expect(screen.getByText(/^1 task deleted\.$/)).toBeInTheDocument();
-  });
-
-  it('dismisses the plain failure toast after the shorter dwell', async () => {
+  it('reports a failed delete as an error toast with no Undo', async () => {
     bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onError?: () => void }) => {
       opts?.onError?.();
     });
     await renderGrid();
-    const box = await screen.findByLabelText('Select Design');
-    vi.useFakeTimers();
-    fireEvent.click(box);
+    fireEvent.click(await screen.findByLabelText('Select Design'));
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
     fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
-    const failure = screen.getByRole('alert');
-    expect(failure).toHaveTextContent("Couldn't delete tasks — try again.");
-    // No Undo on a failure, so it gets the 4s dwell rather than 8s.
-    act(() => {
-      vi.advanceTimersByTime(4_500);
-    });
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText("Couldn't delete tasks — try again.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^undo$/i })).not.toBeInTheDocument();
   });
 });
 

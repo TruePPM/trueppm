@@ -90,7 +90,7 @@ export function StandupMode({ projectId, onClose, onOpenTask }: Props) {
       ) : isError ? (
         <CenteredMessage
           title="Couldn't load the standup"
-          body="Something went wrong fetching the walk."
+          body="Check your connection and try again."
         />
       ) : !data?.active ? (
         <EmptyState reason={data?.reason ?? null} projectId={projectId} />

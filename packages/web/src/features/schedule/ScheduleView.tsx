@@ -4517,6 +4517,7 @@ export function ScheduleView() {
           {Array.from({ length: 8 }).map((_, i) => (
             <div
               key={i}
+              aria-hidden="true"
               className="h-7 rounded-card motion-safe:animate-pulse bg-brand-primary/10"
             />
           ))}

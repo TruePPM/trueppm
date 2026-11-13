@@ -142,7 +142,7 @@ export function MobileSchedule({
         className="h-full bg-neutral-surface"
         icon={WarningIcon}
         title="Couldn't load the schedule"
-        description="Something went wrong fetching this project's tasks. Check your connection and try again."
+        description="Check your connection and try again."
         action={
           <Button
             variant="secondary"

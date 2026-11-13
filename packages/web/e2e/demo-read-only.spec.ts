@@ -257,12 +257,13 @@ test.describe('Read-only demo — the refusal and the preview (ADR-1197 D3/D4)',
     const bar = page.getByRole('complementary', { name: 'Demo mode' });
     await expect(bar).toBeVisible();
     await expect(bar).toContainText('Read-only demo');
-    // Since #4050 A1 the consequence rides on the chip's `title` rather than a
+    // Since #4050 A1 the consequence rides on the chip's Tooltip rather than a
     // second line of chrome: the bar absorbed four other strips and is a fixed
     // 44px, so the sentence is one hover or focus away instead of permanently
     // occupying a band of the Gantt. It is NOT deleted, which is what this
     // asserts — the demo still says what read-only means.
-    await expect(bar.getByTitle(/nothing you change here is saved/i)).toBeVisible();
+    await bar.getByText('Read-only demo', { exact: true }).focus();
+    await expect(page.getByRole('tooltip')).toContainText(/nothing you change here is saved/i);
   });
 
   test('states the reset cadence when the server publishes a schedule (#4152)', async ({

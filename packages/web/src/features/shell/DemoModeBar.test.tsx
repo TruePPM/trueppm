@@ -1,4 +1,5 @@
 import { screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProvidersAndRouter as render } from '@/test/utils';
 import { DemoModeBar } from './DemoModeBar';
@@ -54,14 +55,21 @@ describe('DemoModeBar', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('states the mode, and carries the consequence without spending a line on it', () => {
+  it('states the mode, and carries the consequence without spending a line on it', async () => {
     asDemo();
     render(<DemoModeBar />);
     const bar = screen.getByRole('complementary', { name: 'Demo mode' });
     expect(bar).toHaveTextContent('Read-only demo');
     // The sentence that used to occupy a whole second line of chrome. It is not
     // deleted — it is one hover or focus away, which is the trade #4050 makes.
-    expect(screen.getByTitle(/nothing you change here is saved/i)).toBeInTheDocument();
+    // Reachable by keyboard focus through the shared Tooltip, never a bare title.
+    const chip = screen.getByText('Read-only demo');
+    expect(chip).not.toHaveAttribute('title');
+    await userEvent.setup().tab();
+    expect(chip).toHaveFocus();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      /nothing you change here is saved/i,
+    );
   });
 
   it('is one row — the five strips are gone, not stacked inside it', () => {

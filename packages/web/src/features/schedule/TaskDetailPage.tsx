@@ -1,3 +1,5 @@
+import { EmptyState } from '@/components/EmptyState';
+import { SearchIcon } from '@/components/Icons';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
@@ -137,10 +139,28 @@ export function TaskDetailPage() {
         </Link>
         {error && !isLoading ? (
           <QueryErrorState message="Couldn't load this task." className="mt-8" />
-        ) : (
+        ) : isLoading ? (
           <p role="status" className="mt-8 text-center text-sm text-neutral-text-secondary">
-            {isLoading ? 'Loading task…' : 'Task not found.'}
+            Loading task…
           </p>
+        ) : (
+          // Warm not-found (rule 177). The page reads the whole project task list,
+          // so there is no per-task 403/404 to branch on — the copy names both
+          // causes (removed/moved, or no access) rather than guessing one.
+          <EmptyState
+            className="mt-8"
+            icon={SearchIcon}
+            title="This task may have been deleted or moved"
+            description="It may have been removed, moved to another project, or you may no longer have access to it."
+            action={
+              <Link
+                to={backLink}
+                className="inline-flex h-9 items-center rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse hover:bg-brand-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                Go to the schedule
+              </Link>
+            }
+          />
         )}
       </div>
     );

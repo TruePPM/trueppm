@@ -622,6 +622,15 @@ describe('AttachmentSection — delete flow states', () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
+  it('seats focus on Cancel when Delete swaps to confirm, and returns it to Delete on cancel (#2186)', () => {
+    useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByLabelText('Delete doomed.pdf'));
+    expect(screen.getByText('Cancel')).toHaveFocus();
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.getByLabelText('Delete doomed.pdf')).toHaveFocus();
+  });
+
   it('collapses the confirm row back to Delete once the mutation settles', () => {
     const mutate = vi.fn((_vars: unknown, opts?: { onSettled?: () => void }) => {
       opts?.onSettled?.();

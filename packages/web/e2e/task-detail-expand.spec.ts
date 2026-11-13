@@ -77,7 +77,7 @@ test.describe('Task detail expand-to-full-page', () => {
     await expect(page.getByRole('link', { name: /Back to schedule/ })).toBeVisible();
   });
 
-  test('a failed tasks fetch shows the error state with Retry, not "Task not found." (#4619)', async ({
+  test('a failed tasks fetch shows the error state with Retry, not the not-found state (#4619)', async ({
     page,
   }) => {
     // Registered after setupApiMocks so it wins (last route registered matches first).
@@ -95,7 +95,7 @@ test.describe('Task detail expand-to-full-page', () => {
     await page.goto(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`);
     await expect(page.getByText("Couldn't load this task.")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: /retry/i })).toBeVisible();
-    await expect(page.getByText('Task not found.')).toHaveCount(0);
+    await expect(page.getByText('This task may have been deleted or moved')).toHaveCount(0);
   });
 
   test('the full page is reachable directly by URL', async ({ page }) => {

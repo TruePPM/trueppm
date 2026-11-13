@@ -31,7 +31,7 @@ export interface PausableAutoDismissOptions {
 
 /**
  * Spread onto the element that owns the dwell. Named so a component that PAINTS a
- * surface whose timer lives in its parent (`GridToast`) can take it as a prop.
+ * surface whose timer lives in its parent can take it as a prop.
  */
 export interface PauseHandlers {
   onMouseEnter: () => void;
@@ -60,7 +60,7 @@ export interface PausableAutoDismissResult {
    *
    * **Opt-in by call, not by option.** A caller that never invokes this is byte-for-byte
    * unchanged — the flag it reads can only be set here — which is why adding it did not
-   * touch `ToastHost`, `ScheduleView`, `GridView` or `RetroBoardSurface`.
+   * touch `ToastHost`, `ScheduleView` or `RetroBoardSurface`.
    */
   runWithoutPausing: (fn: () => void) => void;
 }

@@ -206,7 +206,7 @@ describe('RiskRegisterView', () => {
     useRisksState.risks = [];
     useRisksState.error = new Error('boom');
     renderWithProviders(<RiskRegisterView />);
-    expect(screen.getByRole('alert')).toHaveTextContent('Failed to load risks.');
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load risks.");
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 

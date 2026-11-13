@@ -224,7 +224,7 @@ export function TimesheetPage() {
       {/* Body */}
       {isLoading || assignments.isLoading ? (
         <div role="status"
-          className="h-64 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
+          className="h-64 motion-safe:animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
           aria-label="Loading timesheet"
         />
       ) : isError ||

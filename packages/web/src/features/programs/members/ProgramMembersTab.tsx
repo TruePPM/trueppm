@@ -62,6 +62,15 @@ export function ProgramMembersTab() {
           </span>
         </h2>
 
+        {/* Invite control sits in the tab header, directly under the title and
+            member count, so adding a member never requires scrolling past every
+            existing row (#3617). Same owner/open-program gate as before. */}
+        {isOwnerRole && !isClosed && (
+          <div role="group" aria-label="Add a member" className="mb-4">
+            <ProgramInviteForm programId={programId} />
+          </div>
+        )}
+
         {isLoading && (
           <div className="space-y-px">
             {Array.from({ length: 3 }, (_, i) => (
@@ -82,7 +91,7 @@ export function ProgramMembersTab() {
 
         {!isLoading && !isError && members.length === 0 && (
           <p className="py-4 text-sm text-neutral-text-secondary">
-            No members yet. Add someone below.
+            No members yet.{isOwnerRole && !isClosed ? ' Add someone above.' : ''}
           </p>
         )}
 
@@ -109,18 +118,6 @@ export function ProgramMembersTab() {
           </ul>
         )}
       </section>
-
-      {isOwnerRole && !isClosed && (
-        <section aria-labelledby="program-invite-heading">
-          <h2
-            id="program-invite-heading"
-            className="mb-3 text-base font-semibold text-neutral-text-primary"
-          >
-            Add a member
-          </h2>
-          <ProgramInviteForm programId={programId} />
-        </section>
-      )}
     </div>
   );
 }

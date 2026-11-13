@@ -76,17 +76,23 @@ describe('TaskDetailPage', () => {
   it('shows a not-found state when the task is absent', () => {
     TASKS = [];
     renderPage();
-    expect(screen.getByText('Task not found.')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'This task may have been deleted or moved' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to the schedule' })).toHaveAttribute(
+      'href',
+      '/projects/p1/schedule',
+    );
     expect(screen.queryByTestId('section-list')).not.toBeInTheDocument();
   });
 
-  it('shows an error state with Retry, not "Task not found.", when the tasks fetch fails', () => {
+  it('shows an error state with Retry, not the not-found state, when the tasks fetch fails', () => {
     TASKS = [];
     ERROR = new Error('boom');
     renderPage();
     expect(screen.getByText("Couldn't load this task.")).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-    expect(screen.queryByText('Task not found.')).not.toBeInTheDocument();
+    expect(screen.queryByText('This task may have been deleted or moved')).not.toBeInTheDocument();
   });
 
   it('shows a loading state while tasks resolve', () => {
@@ -198,7 +204,9 @@ describe('TaskDetailPage', () => {
   it('shows the task-not-found state for an unknown reference inside the project', () => {
     TASKS = [{ id: 't1', name: 'Foundation', shortIdDisplay: 'T-10' }];
     renderAt('/projects/PLAT/tasks/T-999');
-    expect(screen.getByText('Task not found.')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'This task may have been deleted or moved' }),
+    ).toBeInTheDocument();
   });
 
   it('matches only server-formatted values — it never decodes a reference', () => {

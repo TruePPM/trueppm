@@ -11,8 +11,6 @@
 
 import type { ComponentProps, Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
 import type { Task, TaskStatus } from '@/types';
-import { CheckIcon } from '@/components/Icons';
-import type { PauseHandlers } from '@/components/Toast/usePausableAutoDismiss';
 import { LabelFacet } from '@/components/filters/LabelFacet';
 import { OwnerFacet } from '@/components/filters/OwnerFacet';
 import { StatusFacet } from '@/components/filters/StatusFacet';
@@ -77,61 +75,6 @@ export function GridModeBody({
       onOpenDetail={onOpenDetail}
       canEdit={canEdit}
     />
-  );
-}
-
-export interface GridToastState {
-  text: string;
-  isError: boolean;
-  onUndo?: () => void;
-}
-
-/**
- * The bottom-center confirmation / error toast.
- *
- * `role` is `alert` for an error and `status` otherwise, so a failure interrupts a
- * screen reader and a routine confirmation does not.
- */
-export function GridToast({
-  toast,
-  pauseHandlers,
-}: {
-  toast: GridToastState | null;
-  /**
-   * Hover/focus-within pause for the dwell (web rule 378). Owned by `GridView`,
-   * which holds the timer, because the toast state lives there — this component
-   * only paints it. Optional so a caller that renders a toast with no Undo need
-   * not thread it, though `GridView` always does.
-   */
-  pauseHandlers?: PauseHandlers;
-}) {
-  if (!toast) return null;
-  return (
-    <div
-      role={toast.isError ? 'alert' : 'status'}
-      {...pauseHandlers}
-      className="absolute bottom-3 left-1/2 -translate-x-1/2 z-50
-        flex items-center gap-2 px-4 py-2 rounded
-        bg-neutral-surface-raised border border-neutral-border
-        text-xs text-neutral-text-primary whitespace-nowrap"
-    >
-      {!toast.isError && (
-        <CheckIcon
-          className="text-semantic-on-track inline-block h-3 w-3 align-[-0.125em]"
-          aria-hidden="true"
-        />
-      )}
-      {toast.text}
-      {toast.onUndo && (
-        <button
-          type="button"
-          onClick={toast.onUndo}
-          className="ml-1 font-semibold text-brand-primary underline underline-offset-2 hover:no-underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control"
-        >
-          Undo
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -221,6 +164,7 @@ export function GridLoadingSkeleton({ outline }: { outline: boolean }) {
       {Array.from({ length: 10 }).map((_, i) => (
         <div
           key={i}
+          aria-hidden="true"
           className="h-11 rounded motion-safe:animate-pulse bg-neutral-surface-sunken"
           style={{ marginLeft: outline ? `${(i % 3) * 16}px` : 0 }}
         />

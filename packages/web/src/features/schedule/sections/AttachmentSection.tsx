@@ -6,7 +6,7 @@
  * link-pin modal) lands in phase 2 alongside the offline IndexedDB queue.
  */
 
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import {
   BanIcon,
@@ -139,6 +139,20 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
   const signedUrl = useSignedDownloadUrl();
   const deleteAttachment = useDeleteAttachment();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // The Delete -> Confirm/Cancel swap unmounts the focused button, which would
+  // drop focus to <body> (WCAG 2.4.3). Seat focus on Cancel — the non-destructive
+  // choice first (rule 245) — and hand it back to Delete when the swap reverses.
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreDeleteFocus = useRef(false);
+  useEffect(() => {
+    if (confirmingDelete) {
+      cancelButtonRef.current?.focus();
+    } else if (restoreDeleteFocus.current) {
+      restoreDeleteFocus.current = false;
+      deleteButtonRef.current?.focus();
+    }
+  }, [confirmingDelete]);
 
   const isExternal = !!attachment.external_url;
   const displayName = isExternal
@@ -244,6 +258,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
         {canEdit &&
           (!confirmingDelete ? (
             <button
+              ref={deleteButtonRef}
               type="button"
               onClick={() => setConfirmingDelete(true)}
               className="text-xs text-neutral-text-secondary hover:text-semantic-critical
@@ -269,8 +284,12 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
                 {deleteAttachment.isPending ? 'Deleting…' : 'Confirm'}
               </button>
               <button
+                ref={cancelButtonRef}
                 type="button"
-                onClick={() => setConfirmingDelete(false)}
+                onClick={() => {
+                  restoreDeleteFocus.current = true;
+                  setConfirmingDelete(false);
+                }}
                 className="text-xs text-neutral-text-secondary rounded-control px-2 min-h-11 md:min-h-7
                 hover:bg-neutral-surface
                 focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
