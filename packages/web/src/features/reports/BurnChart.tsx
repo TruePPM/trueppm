@@ -224,7 +224,9 @@ function BurnChartFooter({
           {scopeCaption}
         </p>
       )}
-      {showLegend && <BurnLegend variant={variant} scopeChanges={scopeChanges} hasIdeal={hasIdeal} />}
+      {showLegend && (
+        <BurnLegend variant={variant} scopeChanges={scopeChanges} hasIdeal={hasIdeal} />
+      )}
     </>
   );
 }
