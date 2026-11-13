@@ -22,8 +22,10 @@ static, so it needs no Django, no database, and no dependency install.
 
 The rule
 --------
-An ``AddConstraint`` whose ``model_name`` is not created in the same migration must
-either be preceded by a data repair (``RunPython``) in the same migration, or carry an
+An ``AddConstraint`` -- or an ``AlterField`` whose new field carries ``unique=True``,
+or an ``AlterUniqueTogether`` that sets a non-empty set (#4109; both emit the same
+validating unique-index DDL against existing rows) -- whose model is not created in
+the same migration must either be preceded by a data repair (``RunPython``) in the same migration, or carry an
 explicit ``# safe-constraint: <reason>`` comment saying why existing rows cannot
 violate it.
 
@@ -35,7 +37,8 @@ provably cannot fail on data that is already there:
   already applied and validated by the migrations it stands in for;
 * the same migration runs ``AlterUniqueTogether`` for that model — a ``unique_together``
   being converted to a ``UniqueConstraint`` over the same columns is already enforced
-  by the index it replaces;
+  by the index it replaces (``AddConstraint`` only; it launders nothing for an
+  ``AlterField`` or a non-empty ``AlterUniqueTogether``);
 * a ``RunPython`` appears earlier in the operations list — the repair-first pattern
   (``projects.0121``, and ``projects.0148`` after #3068).
 
@@ -98,6 +101,60 @@ class _Operation:
         """``model_name=`` for AddConstraint/AlterUniqueTogether, ``name=`` for CreateModel."""
         value = self.kwarg("model_name") or self.kwarg("name") or self.first_arg()
         return value.lower() if value else None
+
+
+def _is_unique_alter_field(op: _Operation) -> bool:
+    """Is this ``AlterField(..., field=models.X(..., unique=True))``?
+
+    Compares nothing against the prior state: an ``AlterField`` that re-states an
+    already-unique column also matches, and the author states why with the marker.
+    Over-flagging costs one comment; under-flagging is the #3068 crash-loop.
+    """
+    if op.name != "AlterField":
+        return False
+    field = next((kw.value for kw in op.node.keywords if kw.arg == "field"), None)
+    if field is None and len(op.node.args) >= 3:
+        field = op.node.args[2]
+    if not isinstance(field, ast.Call):
+        return False
+    return any(
+        kw.arg == "unique"
+        and isinstance(kw.value, ast.Constant)
+        and kw.value.value is True
+        for kw in field.keywords
+    )
+
+
+def _sets_unique_together(op: _Operation) -> bool:
+    """Is this an ``AlterUniqueTogether`` that installs at least one column set?
+
+    ``set()`` / ``{}`` / ``()`` only retire a constraint, which cannot fail on existing rows.
+    """
+    if op.name != "AlterUniqueTogether":
+        return False
+    value = next(
+        (kw.value for kw in op.node.keywords if kw.arg == "unique_together"), None
+    )
+    if value is None and len(op.node.args) >= 2:
+        value = op.node.args[1]
+    if value is None:
+        return False
+    if isinstance(value, ast.Call) and not value.args and not value.keywords:
+        return False
+    if isinstance(value, ast.Constant | ast.Dict | ast.Set | ast.Tuple | ast.List):
+        elts = getattr(value, "elts", None)
+        if elts is None:
+            elts = getattr(value, "keys", [])
+        return bool(elts)
+    return True
+
+
+def _is_constraint_op(op: _Operation) -> bool:
+    return (
+        op.name == "AddConstraint"
+        or _is_unique_alter_field(op)
+        or _sets_unique_together(op)
+    )
 
 
 def _call_name(node: ast.Call) -> str:
@@ -167,7 +224,9 @@ def _has_marker(lines: list[str], op: _Operation) -> bool:
 def _scan(path: Path) -> tuple[list[str], list[str]]:
     """Return (violations, safe-descriptions) for one migration file."""
     source = path.read_text(encoding="utf-8")
-    if "AddConstraint" not in source:
+    if not any(
+        n in source for n in ("AddConstraint", "AlterField", "AlterUniqueTogether")
+    ):
         return [], []
 
     lines = source.splitlines()
@@ -192,7 +251,7 @@ def _scan(path: Path) -> tuple[list[str], list[str]]:
         return [], [
             f"{rel}:{op.lineno} ({op.model_name()}): squash (replaces=), already applied upstream"
             for op in ops
-            if op.name == "AddConstraint"
+            if _is_constraint_op(op)
         ]
 
     created = {op.model_name() for op in ops if op.name == "CreateModel"}
@@ -203,13 +262,13 @@ def _scan(path: Path) -> tuple[list[str], list[str]]:
     violations: list[str] = []
     safe: list[str] = []
     for index, op in enumerate(ops):
-        if op.name != "AddConstraint":
+        if not _is_constraint_op(op):
             continue
         model = op.model_name() or "<unknown>"
-        where = f"{rel}:{op.lineno} ({model})"
+        where = f"{rel}:{op.lineno} ({model}) {op.name}"
         if model in created:
             safe.append(f"{where}: table created in this migration")
-        elif model in retired_unique_together:
+        elif op.name == "AddConstraint" and model in retired_unique_together:
             safe.append(
                 f"{where}: unique_together → UniqueConstraint, already enforced"
             )
@@ -404,6 +463,82 @@ def _self_test_cases() -> list[_Case]:
                 "        ),\n"
             ),
         ),
+        # --- #4109: unique-index DDL by another name. -----------------------
+        _Case(
+            name="an unguarded AlterField(unique=True)",
+            expect=1,
+            operations=(
+                "        migrations.AlterField(\n"
+                '            model_name="task",\n'
+                '            name="code",\n'
+                "            field=models.CharField(max_length=20, unique=True),\n"
+                "        ),\n"
+            ),
+            mentions=("0002_thing.py", "(task)", "AlterField"),
+        ),
+        _Case(
+            name="an AlterField(unique=True) with # safe-constraint:",
+            expect=0,
+            operations=(
+                "        # safe-constraint: column was already unique at CreateModel.\n"
+                "        migrations.AlterField(\n"
+                '            model_name="task",\n'
+                '            name="code",\n'
+                "            field=models.CharField(max_length=20, unique=True),\n"
+                "        ),\n"
+            ),
+        ),
+        _Case(
+            name="an AlterField(unique=True) after a RunPython repair",
+            expect=0,
+            prelude=_REPAIR_DEF,
+            operations=(
+                "        migrations.RunPython(_repair, migrations.RunPython.noop),\n"
+                "        migrations.AlterField(\n"
+                '            model_name="task",\n'
+                '            name="code",\n'
+                "            field=models.CharField(max_length=20, unique=True),\n"
+                "        ),\n"
+            ),
+        ),
+        _Case(
+            name="an AlterField without unique=True",
+            expect=0,
+            operations=(
+                "        migrations.AlterField(\n"
+                '            model_name="task",\n'
+                '            name="code",\n'
+                "            field=models.CharField(max_length=40),\n"
+                "        ),\n"
+            ),
+        ),
+        _Case(
+            name="an unguarded AlterUniqueTogether that sets columns",
+            expect=1,
+            operations=(
+                "        migrations.AlterUniqueTogether(\n"
+                '            name="task", unique_together={("project", "code")}\n'
+                "        ),\n"
+            ),
+            mentions=("(task)", "AlterUniqueTogether"),
+        ),
+        _Case(
+            name="an AlterUniqueTogether that sets columns with # safe-constraint:",
+            expect=0,
+            operations=(
+                "        # safe-constraint: code is added in this release, every row is NULL.\n"
+                "        migrations.AlterUniqueTogether(\n"
+                '            name="task", unique_together={("project", "code")}\n'
+                "        ),\n"
+            ),
+        ),
+        _Case(
+            name="an AlterUniqueTogether that only retires (set())",
+            expect=0,
+            operations=(
+                '        migrations.AlterUniqueTogether(name="task", unique_together=set()),\n'
+            ),
+        ),
         # --- REJECT: a comment that merely reads safe is not the marker. --
         _Case(
             name="a comment missing the marker's colon form",
@@ -516,10 +651,14 @@ def main(argv: list[str]) -> int:
             print(f"  safe   {line}")
 
     if not violations:
-        print(f"✓ All AddConstraint operations accounted for ({len(safe)} checked).")
+        print(
+            f"✓ All unique-constraint operations accounted for ({len(safe)} checked)."
+        )
         return 0
 
-    print("✗ AddConstraint on a table that may already hold violating rows:\n")
+    print(
+        "✗ AddConstraint / AlterField(unique=True) / AlterUniqueTogether on a table that may already hold violating rows:\n"
+    )
     for line in violations:
         print(f"  {line}")
     print(

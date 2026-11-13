@@ -9,6 +9,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # safe-constraint: `key` was already unique=True in
+        # 0001_squashed_0003 (CreateModel); this AlterField only edits `choices`,
+        # so no new unique index is built over existing rows.
         migrations.AlterField(
             model_name="retentionpolicy",
             name="key",

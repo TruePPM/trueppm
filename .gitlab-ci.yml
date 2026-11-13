@@ -1050,8 +1050,9 @@ lint:todo-grep:
   # every lookup. That is the same "a bad auth header is worse than none"
   # failure this gate's fix was about, reintroduced by documentation.
   #
-  # An issue-state lookup that fails (network error, private project with no
-  # token) fails the job — TODO_GREP_ALLOW_UNRESOLVED=1 is the explicit,
+  # An issue-state lookup that fails (401, private project with no
+  # token) fails the job; a transient outage (5/429/timeout after retries) fails
+  # OPEN with a warning in diff mode (#3953). TODO_GREP_ALLOW_UNRESOLVED=1 is the explicit,
   # opt-out escape hatch, not set here.
   #
   # Issue states resolve in one batched call with 429 retry; ISSUES_API_TOKEN
@@ -3031,18 +3032,28 @@ nginx:headers:
   # *rendered* configs. Same shape both times — a fix applied at its instances,
   # with nothing enumerating the instances as a set.
   #
-  # Rules are deliberately unconditional rather than *rules-helm: the five halves
-  # of this contract live in three different trees (nginx/, packages/web/,
-  # packages/helm/), so the drift can be introduced from any of them and a
-  # change-gated job would miss the direction it was not scoped to. bash + awk
+  # Rules are path-scoped to the UNION of the trees the five halves live in
+  # (nginx/, packages/web/nginx.conf, packages/helm/) plus the script and the
+  # render-provenance lib it sources (#3955). A narrower scope (just *rules-helm)
+  # would miss the direction the drift came from, which is why this once ran
+  # unconditionally; an unconditional run, though, put a gate with a known
+  # render-flake history (#3331) on every unrelated diff. Every file the script
+  # reads is listed below — if check-nginx-security-headers.sh grows an input,
+  # add it here or the gate goes silent for edits to that input. bash + awk
   # over four files plus two `helm template` renders; seconds, no cluster.
   stage: lint
   image:
     name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
     entrypoint: [""]
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - nginx/**/*
+        - packages/web/nginx.conf
+        - packages/helm/**/*
+        - scripts/check-nginx-security-headers.sh
+        - scripts/lib/helm-render-provenance.sh
+        - .gitlab-ci.yml
   before_script:
     # yq is only used by the #3146 provenance dump on the FAILURE path — it reads
     # the on-disk values.yaml flags that select each nginx branch, so a rendered
@@ -3081,10 +3092,10 @@ nginx:syntax:
   # one nginx gate that needs a real docker daemon, so it gets the docker:27 +
   # docker:27-dind image/service pair ci:build-api-image already uses, with
   # helm + yq added via apk (docker:27 is Alpine-based). Rules are
-  # unconditional for the same reason nginx:headers' are: the drift this gate
-  # catches can be introduced from packages/helm/ alone, and a change-gated job
-  # would miss it. A few seconds of container startup plus four `nginx -t`
-  # calls (~1s each, measured locally).
+  # path-scoped (#3955) to what the script renders and runs: the drift this gate
+  # catches can only be introduced from packages/helm/ or the script itself. A
+  # few seconds of container startup plus four `nginx -t` calls (~1s each,
+  # measured locally).
   stage: lint
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
@@ -3092,8 +3103,11 @@ nginx:syntax:
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/helm/**/*
+        - scripts/check-helm-nginx-syntax.sh
+        - .gitlab-ci.yml
   before_script:
     - apk add --no-cache bash helm yq
   script:
@@ -7321,8 +7335,8 @@ renovate:
     - renovate
 
 license:check:py:
-  # Verify no copyleft-licensed Python dependency has been introduced.
-  # LGPL is permitted (library-linking exemption applies).
+  # Verify every Python dependency's license is on the allow-list (#4108).
+  # LGPL/MPL exceptions are per-package, in scripts/ci/check-python-licenses.sh.
   #
   # Scope is packages/scheduler + packages/api. packages/mcp is audited by
   # license:check:mcp in its own venv (#2603) — see that job for why it is not a
@@ -7355,6 +7369,7 @@ license:check:py:
       changes:
         - packages/scheduler/pyproject.toml
         - packages/api/pyproject.toml
+        - scripts/ci/check-python-licenses.sh
         - .gitlab-ci.yml
   before_script:
     # Image already has scheduler[dev] + api[dev] dev-dep wheels resident;
@@ -7364,11 +7379,10 @@ license:check:py:
     - pip install -e packages/api --quiet
   script:
     - pip-licenses --order=license --format=plain-vertical
-    - >-
-      pip-licenses
-      --fail-on="GNU General Public License v2 (GPLv2);
-                 GNU General Public License v3 (GPLv3);
-                 GNU Affero General Public License v3 (AGPLv3)"
+    # Allow-list, not a GPL block-list (#4108): scripts/ci/check-python-licenses.sh
+    # holds the list and the per-package exceptions (psycopg LGPL-3.0, certifi MPL-2.0).
+    - bash scripts/ci/check-python-licenses.sh pip-licenses
+    - bash scripts/ci/check-python-licenses.sh --self-test pip-licenses
 
 license:check:web:
   # Verify no copyleft-licensed npm dependency has been introduced.
@@ -7518,6 +7532,7 @@ license:check:mcp:
       changes:
         - packages/mcp/pyproject.toml
         - packages/mcp/uv.lock
+        - scripts/ci/check-python-licenses.sh
         - .gitlab-ci.yml
   before_script:
     - python -m venv /tmp/mcp-venv
@@ -7529,11 +7544,7 @@ license:check:mcp:
     - /tmp/mcp-venv/bin/pip install --quiet ./packages/mcp
   script:
     - /tmp/mcp-venv/bin/pip-licenses --order=license --format=plain-vertical
-    - >-
-      /tmp/mcp-venv/bin/pip-licenses
-      --fail-on="GNU General Public License v2 (GPLv2);
-                 GNU General Public License v3 (GPLv3);
-                 GNU Affero General Public License v3 (AGPLv3)"
+    - bash scripts/ci/check-python-licenses.sh /tmp/mcp-venv/bin/pip-licenses
 
 wasm:license-check:
   # Verify no copyleft-licensed Rust dependency has been introduced, and that no

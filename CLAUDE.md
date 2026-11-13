@@ -286,7 +286,7 @@ short enough to be signal. Eight rules:
    non-regenerable operations below and would force every existing database to be
    dropped.
 7. **Repair the data before you add a constraint to a populated table.**
-   `AddConstraint` builds and *validates* its index against every existing row, and
+   `AddConstraint` (and `AlterField(unique=True)` and a non-empty `AlterUniqueTogether`, which emit the same validating DDL, #4109) builds and *validates* its index against every existing row, and
    migrations run on container start — so one violating row is an upgrade
    crash-loop, not a failed deploy you can roll back at leisure (#3068). Precede it
    with a `RunPython` repair, as `projects.0121` and `projects.0148` do. Where

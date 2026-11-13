@@ -69,7 +69,14 @@
 #      confidential)
 #   2  invocation / error unrelated to a specific reference (no roots exist)
 #   3  the tracker or the diff base could not be read (fail closed) and
-#      TODO_GREP_ALLOW_UNRESOLVED was not set
+#      TODO_GREP_ALLOW_UNRESOLVED was not set. Exception (#3953): in diff mode
+#      a TRANSIENT outage (429/5xx/timeout that outlasted the retry-with-backoff
+#      in gitlab-issues.sh) fails OPEN — WARN and skip rule 2, exit 0 — because
+#      an outage of the tracker is not evidence of a stale TODO and used to red
+#      main with no code cause. A 401/other 4xx, an unresolvable diff base, and
+#      drift mode (tracker-drift-report.sh must not close its tracking issue on
+#      an incomplete read) still fail closed. TODO_GREP_FAIL_CLOSED_ON_OUTAGE=1
+#      restores fail-closed everywhere.
 #
 # Modes:
 #   bash scripts/check-todo-grep.sh             # scan default ROOTS
@@ -112,6 +119,10 @@ PY
   cat >"$tmp/bin/curl" <<'CURLMOCK'
 #!/usr/bin/env bash
 url="${*: -1}"
+if [ "${TODO_GREP_MOCK_MODE:-}" = "outage" ]; then
+  printf '{"message":"503 Service Unavailable"}\n503 '
+  exit 0
+fi
 if [ "${TODO_GREP_MOCK_MODE:-}" = "fail" ]; then
   printf '{"message":"401 Unauthorized"}\n401 '
   exit 0
@@ -229,6 +240,28 @@ PY
     echo "SELF-TEST FAILED: [diff] an unreadable tracker on an added TODO did not fail closed with exit 3 (got ${rc})." >&2; exit 1
   fi
   echo "SELF-TEST OK: [diff] an unreadable tracker on an added TODO fails closed (exit 3)."
+  # --- transient outage (#3953): 5xx outlasting the retries fails OPEN in diff mode ---
+  if ! GITLAB_ISSUES_MAX_ATTEMPTS=2 drun "" outage >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] a tracker outage (HTTP 503 after retries) failed the job instead of failing open." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] a tracker outage (503 after retries) fails open with a warning (#3953)."
+  rc=0
+  GITLAB_ISSUES_MAX_ATTEMPTS=2 TODO_GREP_FAIL_CLOSED_ON_OUTAGE=1 drun "" outage >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -ne 3 ]; then
+    echo "SELF-TEST FAILED: [diff] TODO_GREP_FAIL_CLOSED_ON_OUTAGE=1 did not restore fail-closed (got ${rc})." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] TODO_GREP_FAIL_CLOSED_ON_OUTAGE=1 restores fail-closed on an outage."
+  if GITLAB_ISSUES_MAX_ATTEMPTS=2 drun "2" outage >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: [diff] an outage masked a real finding (TODO(#2) names an issue the change closes)." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [diff] a real stale-TODO finding still fails during a tracker outage."
+  rc=0
+  (cd "$tmp/repo" && GITLAB_ISSUES_MAX_ATTEMPTS=2 PATH="$tmp/bin:$PATH" CI_PROJECT_ID=999999 TODO_GREP_MOCK_MODE=outage \
+    TRACKER_GATE_MODE=drift bash "$SELF" "$tmp/repo/src") >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -ne 3 ]; then
+    echo "SELF-TEST FAILED: [drift] an outage did not fail closed for the nightly report (got ${rc})." >&2; exit 1
+  fi
+  echo "SELF-TEST OK: [drift] an outage still fails closed so tracker:drift-report never closes its issue on a partial read."
 
   exit 0
 fi
@@ -324,6 +357,7 @@ if [ -n "$upstream_refs" ]; then
 fi
 
 ALLOW_UNRESOLVED="${TODO_GREP_ALLOW_UNRESOLVED:-0}"
+outage_skipped=0
 
 if [ -n "$todo_refs" ]; then
   API="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
@@ -348,10 +382,19 @@ if [ -n "$todo_refs" ]; then
       base=$(tracker_gate_base) || base_ok=0
       closing=""
       if [ "$base_ok" = 1 ]; then
-        closing=$(tracker_gate_closing_ids "$API" "$PROJECT" "$TOKEN" "$base") || base_ok=0
+        closing_rc=0
+        closing=$(tracker_gate_closing_ids "$API" "$PROJECT" "$TOKEN" "$base") || closing_rc=$?
+        if [ "$closing_rc" -ne 0 ]; then
+          base_ok=0
+          [ "$closing_rc" = 3 ] && transient=1
+        fi
       fi
       if [ "$base_ok" != 1 ]; then
-        if [ "$ALLOW_UNRESOLVED" = "1" ]; then
+        if [ "${transient:-0}" = 1 ] && [ "${TODO_GREP_FAIL_CLOSED_ON_OUTAGE:-0}" != 1 ]; then
+          echo "WARN: GitLab issues API unavailable after retries (transient) — failing open, skipping TODO(#NNN) check (#3953)." >&2
+          lookup_iids=""
+          outage_skipped=1
+        elif [ "$ALLOW_UNRESOLVED" = "1" ]; then
           echo "WARN: could not resolve the diff base or the closing set — skipping TODO(#NNN) (TODO_GREP_ALLOW_UNRESOLVED=1)." >&2
           lookup_iids=""
         else
@@ -383,7 +426,16 @@ if [ -n "$todo_refs" ]; then
     states=""
     if [ -n "$lookup_iids" ]; then
       # shellcheck disable=SC2086  # one iid per word is the intent
-      states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $lookup_iids) || states_ok=0
+      states_rc=0
+      states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $lookup_iids) || states_rc=$?
+      if [ "$states_rc" -ne 0 ]; then
+        states_ok=0
+        if [ "$states_rc" = 3 ] && [ "$MODE" = diff ] && [ "${TODO_GREP_FAIL_CLOSED_ON_OUTAGE:-0}" != 1 ]; then
+          echo "WARN: GitLab issues API unavailable after retries (transient) — failing open, skipping TODO(#NNN) state check (#3953)." >&2
+          lookup_iids=""
+          outage_skipped=1
+        fi
+      fi
     fi
     for iid in $lookup_iids; do
       if [ "$states_ok" -ne 1 ]; then
