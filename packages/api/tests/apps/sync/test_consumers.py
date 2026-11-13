@@ -1482,6 +1482,46 @@ async def test_presence_keepalive_rearms_the_ttl_while_the_socket_is_idle() -> N
     assert ttl == consumers_mod._PRESENCE_TTL
 
 
+@pytest.mark.asyncio
+async def test_presence_keepalive_re_adds_the_group_membership() -> None:
+    """Each tick re-stamps the channel in its group so ``group_expiry`` keeps it (#4604)."""
+    from trueppm_api.apps.sync import consumers as consumers_mod
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.project_pk = "11111111-1111-1111-1111-111111111111"
+    consumer.group_name = "project_x"
+    consumer.channel_name = "chan-1"
+    consumer.channel_layer = AsyncMock()
+
+    with (
+        patch.object(consumers_mod, "_PRESENCE_REFRESH_INTERVAL", 0.01),
+        patch(
+            "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+            new=AsyncMock(return_value=AsyncMock()),
+        ),
+    ):
+        task = asyncio.create_task(consumer._presence_keepalive())
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert consumer.channel_layer.group_add.await_count >= 2
+    consumer.channel_layer.group_add.assert_awaited_with("project_x", "chan-1")
+
+
+def test_channel_layer_group_expiry_exceeds_the_keepalive_interval() -> None:
+    """group_expiry must be set (not the 24 h default) yet outlast several keepalive ticks."""
+    from django.conf import settings
+
+    from trueppm_api.apps.sync import consumers as consumers_mod
+
+    expiry = settings.CHANNEL_LAYERS["default"]["CONFIG"]["group_expiry"]
+    assert expiry <= 600
+    assert expiry >= 3 * consumers_mod._PRESENCE_REFRESH_INTERVAL
+
+
 def test_presence_refresh_interval_is_below_the_ttl() -> None:
     """A refresh interval at or above the TTL reintroduces the bug silently.
 

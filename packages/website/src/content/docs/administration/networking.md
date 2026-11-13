@@ -694,7 +694,11 @@ replica can serve any socket:
   same Valkey every replica shares. There is no in-memory layer anywhere in the
   settings tree.
 - Group names derive from the project UUID (`project_<uuid>`), not from pod
-  identity, so a broadcast reaches subscribers on every replica.
+  identity, so a broadcast reaches subscribers on every replica. Each socket
+  re-stamps its group membership every 30 seconds and the channel layer prunes
+  members older than `group_expiry` (180 seconds), so a pod killed without a
+  clean disconnect stops receiving broadcast copies within about three minutes
+  rather than the `channels_redis` default of 24 hours.
 - The WebSocket ticket is written to Valkey and consumed with `GETDEL`, so a
   ticket minted by the pod that answered `POST /api/v1/ws/ticket/` is redeemable
   on any other pod — and exactly once.

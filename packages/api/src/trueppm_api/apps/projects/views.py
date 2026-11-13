@@ -941,6 +941,37 @@ class TaskBulkResponseSerializer(serializers.Serializer[Any]):
     )
 
 
+class PhaseReorderEntrySerializer(serializers.Serializer[Any]):
+    """One ``{id, server_version}`` pair in a phase-reorder request."""
+
+    id = serializers.UUIDField()
+    server_version = serializers.IntegerField()
+
+
+class PhaseReorderSerializer(serializers.Serializer[Any]):
+    """Request body for ``PATCH /projects/{pk}/phases/reorder/``.
+
+    ``phases`` is the desired column order. Duplicates are rejected here because a
+    repeated id would be assigned two priority ranks and silently keep the last.
+    Membership (non-deleted root tasks of this project) is checked by the view under
+    the row lock, where the rows are actually read.
+    """
+
+    phases = serializers.ListField(child=PhaseReorderEntrySerializer(), min_length=1)
+
+    def validate_phases(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        dupes: list[str] = []
+        for entry in value:
+            key = str(entry["id"])
+            if key in seen and key not in dupes:
+                dupes.append(key)
+            seen.add(key)
+        if dupes:
+            raise serializers.ValidationError(f"Duplicate phase IDs: {', '.join(dupes)}")
+        return value
+
+
 class PhaseReorderResponseSerializer(serializers.Serializer[Any]):
     """Response for the phase-reorder endpoint — count of rows re-ranked."""
 
@@ -15902,20 +15933,7 @@ class TaskBaselineDetailView(APIView):
 @extend_schema_view(
     patch=extend_schema(
         summary="Reorder phase columns (root-level WBS tasks)",
-        request=inline_serializer(
-            name="PhaseReorderRequest",
-            fields={
-                "phases": serializers.ListField(
-                    child=inline_serializer(
-                        name="PhaseReorderEntry",
-                        fields={
-                            "id": serializers.UUIDField(),
-                            "server_version": serializers.IntegerField(),
-                        },
-                    )
-                )
-            },
-        ),
+        request=PhaseReorderSerializer,
         responses={
             200: PhaseReorderResponseSerializer,
             409: OpenApiResponse(
@@ -15967,41 +15985,14 @@ class PhaseReorderView(IdempotencyMixin, APIView):
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
-        # A non-object JSON body (list, string) has no ``.get`` — treat it as
-        # empty so the non-empty-list branch returns 400, not a 500.
-        body = request.data if isinstance(request.data, dict) else {}
-        phases_data = body.get("phases")
-        if not isinstance(phases_data, list) or not phases_data:
-            return Response(
-                {"phases": [_NON_EMPTY_LIST_REQUIRED]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Validate each entry: must be a dict with a UUID id and integer server_version.
-        invalid: list[str] = []
-        parsed: list[tuple[str, int]] = []
-        for entry in phases_data:
-            if not isinstance(entry, dict):
-                invalid.append(repr(entry))
-                continue
-            tid = entry.get("id")
-            sv = entry.get("server_version")
-            if not isinstance(tid, str) or not isinstance(sv, int):
-                invalid.append(repr(entry))
-                continue
-            try:
-                uuid.UUID(tid)
-            except ValueError:
-                invalid.append(tid)
-                continue
-            parsed.append((tid, sv))
-
-        if invalid:
-            bad = ", ".join(invalid)
-            return Response(
-                {"phases": [f"Invalid entries (expected {{id, server_version}}): {bad}"]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # The serializer owns shape validation (non-object body, entry types, UUID
+        # format, duplicates). Membership in the project's root phases needs the locked
+        # rows, so it stays below inside the transaction.
+        body = PhaseReorderSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        parsed: list[tuple[str, int]] = [
+            (str(e["id"]), e["server_version"]) for e in body.validated_data["phases"]
+        ]
 
         project_id_str = str(project.pk)
         with transaction.atomic():

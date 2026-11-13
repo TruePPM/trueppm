@@ -13012,9 +13012,12 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
         view = self.context.get("view")
         task_pk = getattr(view, "kwargs", {}).get("task_pk") if view else None
         if task_pk and str(value.task_id) != str(task_pk):
+            # Same message and code as the "does not exist" error DRF raises for an
+            # unknown pk: a distinct error would confirm that a comment UUID exists on
+            # another task (existence oracle, #4010).
             raise serializers.ValidationError(
-                "Parent comment must belong to the same task.",
-                code="comment_parent_cross_task",
+                self.fields["parent"].error_messages["does_not_exist"].format(pk_value=value.pk),
+                code="does_not_exist",
             )
         return value
 

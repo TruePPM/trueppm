@@ -565,6 +565,30 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                     getattr(self, "project_pk", "?"),
                     exc_info=True,
                 )
+            await self._refresh_group_membership()
+
+    async def _refresh_group_membership(self) -> None:
+        """Re-stamp this channel in its project group so ``group_expiry`` keeps it.
+
+        channels_redis scores each group member with its join time and prunes members
+        older than ``group_expiry`` at send time. ``group_add`` is idempotent and
+        re-scores the member, so a live socket calls it every tick while a socket
+        that died without ``disconnect`` (OOM, SIGKILL, node loss) stops, ages out,
+        and stops receiving payload copies (#4604). Never allowed to kill the socket.
+        """
+        group = getattr(self, "group_name", None)
+        if group is None:
+            return
+        try:
+            await self.channel_layer.group_add(group, self.channel_name)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "group membership refresh failed for project %s",
+                getattr(self, "project_pk", "?"),
+                exc_info=True,
+            )
 
     async def _get_redis(self) -> Any:
         """Return this consumer's async Redis client, creating it once and caching it.

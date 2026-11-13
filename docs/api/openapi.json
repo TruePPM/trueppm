@@ -21575,17 +21575,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedPhaseReorderRequestRequest"
+                                "$ref": "#/components/schemas/PatchedPhaseReorderRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedPhaseReorderRequestRequest"
+                                "$ref": "#/components/schemas/PatchedPhaseReorderRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedPhaseReorderRequestRequest"
+                                "$ref": "#/components/schemas/PatchedPhaseReorderRequest"
                             }
                         }
                     }
@@ -63087,14 +63087,16 @@
                     }
                 }
             },
-            "PatchedPhaseReorderRequestRequest": {
+            "PatchedPhaseReorderRequest": {
                 "type": "object",
+                "description": "Request body for ``PATCH /projects/{pk}/phases/reorder/``.\n\n``phases`` is the desired column order. Duplicates are rejected here because a\nrepeated id would be assigned two priority ranks and silently keep the last.\nMembership (non-deleted root tasks of this project) is checked by the view under\nthe row lock, where the rows are actually read.",
                 "properties": {
                     "phases": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/PhaseReorderEntryRequest"
-                        }
+                        },
+                        "minItems": 1
                     }
                 }
             },
@@ -65082,6 +65084,7 @@
             },
             "PhaseReorderEntryRequest": {
                 "type": "object",
+                "description": "One ``{id, server_version}`` pair in a phase-reorder request.",
                 "properties": {
                     "id": {
                         "type": "string",
