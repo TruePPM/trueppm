@@ -230,6 +230,24 @@ password is unchanged, so your existing database volume will keep working. If yo
 ran the demo stack on a reachable host before 0.5, treat the old public key as
 exposed and restart it on 0.5 so the key is replaced.
 
+### New API tokens carry `api:full` (`projects.0170`)
+
+From 0.5, a token minted without `scopes` will carry `["api:full"]` instead of
+`["legacy:full"]`. Both names mean the same scope, existing tokens keep
+`legacy:full` and keep working, and no data is rewritten. The migration only
+changes the allowed values and runs no SQL against the token table.
+
+Two windows cannot understand the new name, because a 0.4 API pod only knows
+`legacy:full`:
+
+- **During a rolling update**, a full-access token minted on a 0.5 pod is refused
+  (`401` on the general API, `403` on task sync) by any 0.4 pod still serving.
+  It works once the rollout completes. To avoid this, do not mint tokens until
+  every API pod runs 0.5.
+- **After a rollback to 0.4**, every token minted on 0.5 without an explicit
+  scope stops working until you re-mint it on 0.4. Tokens minted with
+  `{"scopes": ["legacy:full"]}` are unaffected.
+
 ---
 
 ## Upgrading to 0.4

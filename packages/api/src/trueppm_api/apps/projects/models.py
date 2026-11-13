@@ -7565,19 +7565,30 @@ class PokerVote(models.Model):
 
 # API-token scopes (ADR-0186 §E — minimal read-only-MCP slice, issue #601).
 #
-# ``legacy:full`` is the historical, unrestricted scope: every token minted
-# before scopes existed is backfilled to this, and it acts as a superset that
-# satisfies any read scope. Inbound task-sync writes require it explicitly.
+# ``api:full`` is the unrestricted scope: it acts as a superset that satisfies
+# any read scope, and inbound task-sync writes require it explicitly. It is the
+# default for every newly minted token (#4388).
 #
-# ``mcp:read`` is the single new scope introduced for the read-only MCP server:
-# it grants safe-method access to the read viewsets the MCP wraps and is
+# ``legacy:full`` is the *same scope under its original name*. Every token minted
+# before scopes existed was backfilled to it, and until #4388 it was also the mint
+# default — so rows and integrator scripts carry it. It stays accepted on mint and
+# on every read; nothing compares against either literal directly. All checks go
+# through :func:`has_full_scope`, which normalizes the two names to one, so a
+# future taxonomy (0.6) can retire ``legacy:full`` with a data migration and no
+# behavior change, instead of inheriting it as the name of the default.
+#
+# ``mcp:read`` grants safe-method access to the read viewsets the MCP wraps and is
 # rejected at every write path. The full scope taxonomy is deferred to 0.6.
+SCOPE_API_FULL = "api:full"
 SCOPE_LEGACY_FULL = "legacy:full"
 SCOPE_MCP_READ = "mcp:read"
 
+#: Every spelling of the unrestricted scope. Order is irrelevant; membership is all.
+FULL_SCOPE_ALIASES: frozenset[str] = frozenset({SCOPE_API_FULL, SCOPE_LEGACY_FULL})
+
 # Allowed scopes, in the order surfaced to API clients. Any scope a caller
 # requests at token-creation time is validated against this tuple.
-API_TOKEN_SCOPES: tuple[str, ...] = (SCOPE_LEGACY_FULL, SCOPE_MCP_READ)
+API_TOKEN_SCOPES: tuple[str, ...] = (SCOPE_API_FULL, SCOPE_LEGACY_FULL, SCOPE_MCP_READ)
 API_TOKEN_SCOPE_CHOICES = [(scope, scope) for scope in API_TOKEN_SCOPES]
 
 # Upper bound (days) on ``expires_at`` for a token carrying the ``mcp:read``
@@ -7603,11 +7614,26 @@ def _default_api_token_scopes() -> list[str]:
     """Default scope set for a newly minted token.
 
     A callable (not a literal list) so the default survives a migration squash
-    and no two tokens share a mutable list instance. Defaults to the legacy
-    full scope, preserving the pre-scopes behavior for any caller that does not
-    opt into a narrower scope.
+    and no two tokens share a mutable list instance. Defaults to the full
+    scope under its non-legacy name (#4388), preserving the pre-scopes behavior
+    for any caller that does not opt into a narrower scope.
     """
-    return [SCOPE_LEGACY_FULL]
+    return [SCOPE_API_FULL]
+
+
+def normalize_token_scopes(scopes: Iterable[str] | None) -> frozenset[str]:
+    """Return a token's scopes with ``legacy:full`` read as ``api:full``.
+
+    The normalization happens on read rather than in the stored column so that
+    backfilled rows and tokens minted by scripts that still send ``legacy:full``
+    keep working unchanged, and so the API echoes back exactly what was minted.
+    """
+    return frozenset(SCOPE_API_FULL if s == SCOPE_LEGACY_FULL else s for s in scopes or ())
+
+
+def has_full_scope(scopes: Iterable[str] | None) -> bool:
+    """Whether a scope list grants the unrestricted scope, under either name."""
+    return SCOPE_API_FULL in normalize_token_scopes(scopes)
 
 
 class ApiToken(VersionedModel):
@@ -7699,9 +7725,10 @@ class ApiToken(VersionedModel):
         models.CharField(max_length=64, choices=API_TOKEN_SCOPE_CHOICES),
         default=_default_api_token_scopes,
         blank=True,
-        help_text="Capabilities this token grants. 'legacy:full' is the "
-        "historical unrestricted scope (and a superset satisfying any read "
-        "scope); 'mcp:read' grants read-only access to the MCP-wrapped viewsets "
+        help_text="Capabilities this token grants. 'api:full' is the "
+        "unrestricted scope (and a superset satisfying any read scope); "
+        "'legacy:full' is the same scope under its original name, still accepted; "
+        "'mcp:read' grants read-only access to the MCP-wrapped viewsets "
         "and is rejected at every write path.",
     )
     owner = models.ForeignKey(
@@ -7841,7 +7868,8 @@ def is_agent_token(auth: object) -> TypeGuard[ApiToken]:
     reads to ``count: 0`` (#2877). This predicate is the one place that
     distinction is made, so the guards cannot drift apart from each other.
 
-    The test is *"does this token carry ``legacy:full``?"*, negated — deliberately
+    The test is *"does this token carry the full scope?"* (``api:full``, or its
+    original spelling ``legacy:full`` — :func:`has_full_scope`), negated — deliberately
     **not** *"does it carry ``mcp:read``?"* — so it fails **closed**: a token with
     no scopes, or carrying some future narrower scope, is treated as an agent and
     stays confined to the read-only surface. Only the explicit full-authority
@@ -7872,7 +7900,7 @@ def is_agent_token(auth: object) -> TypeGuard[ApiToken]:
     """
     if not isinstance(auth, ApiToken):
         return False
-    return SCOPE_LEGACY_FULL not in (auth.scopes or [])
+    return not has_full_scope(auth.scopes)
 
 
 class InboundTaskLink(VersionedModel):

@@ -1,8 +1,11 @@
 # Token-reachable write surface — pinned inventory (#2772).
 #
 # Every route in this file accepts POST/PUT/PATCH/DELETE from a personal access
-# token carrying the `legacy:full` scope, which is the DEFAULT scope for a newly
-# minted token (apps/projects/models.py, _default_api_token_scopes). The scope
+# token carrying the full scope — `api:full`, the DEFAULT scope for a newly minted
+# token since #4388 (apps/projects/models.py, _default_api_token_scopes), or
+# `legacy:full`, the same scope under its original name, which every token minted
+# before #4388 carries. Both names authorize exactly the same routes
+# (`has_full_scope`), so this inventory is the same for either. The scope
 # taxonomy that would let a write be withheld is 0.6 work (#2661); until then,
 # "has a token" means "can write here".
 #

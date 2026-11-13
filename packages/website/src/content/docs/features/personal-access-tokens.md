@@ -69,7 +69,8 @@ hash. If you lose it, revoke the token and create a new one.
 A personal token is minted with one of two scopes:
 
 - **Full access (`legacy:full`)** — the default. Reads and writes everything your
-  account can, for scripts, notebooks, or CI tooling that acts as you.
+  account can, for scripts, notebooks, or CI tooling that acts as you. From 0.5
+  this scope will be named `api:full` (see the note below).
 - **Read-only for AI assistants (`mcp:read`)** — grants safe-method (`GET`) access
   only and is rejected at every write path. This is the scope the
   [MCP server](/features/mcp-server) accepts: the MCP read surface admits **only**
@@ -77,6 +78,16 @@ A personal token is minted with one of two scopes:
   Desktop, Cursor, or Zed at your instance. A read-only AI token **must** carry an
   expiry no more than 365 days out, so a leaked read credential is self-limiting
   and cannot be minted as effectively non-expiring.
+
+:::note[Ships in 0.5]
+From 0.5 the full-access scope is named **`api:full`**, and a token minted without
+`scopes` will carry `["api:full"]`. **`legacy:full`** is the same scope under its
+original name: every token minted before 0.5 carries it, it stays accepted when you
+mint, it is echoed back exactly as sent, and it authorizes exactly the same routes.
+Nothing needs re-minting. New scripts should send `api:full`, so that a later
+release can retire the `legacy:` name without breaking them. In 0.4 the only name
+is `legacy:full`.
+:::
 
 When you create a read-only AI token, the one-time reveal also shows the two
 steps to connect: the `pip install trueppm-mcp` command that puts the server on

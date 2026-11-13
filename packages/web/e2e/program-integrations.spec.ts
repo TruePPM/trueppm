@@ -15,11 +15,11 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * confused-deputy read #1712 forbids, and #2890 found the assertion still pinning
  * the affordance in place: the API mints such a token with a null `owner`, and
  * `TokenIsOwnerScoped` 401s it on the entire MCP read surface. Program tokens are
- * `legacy:full` inbound-sync credentials only.
+ * `api:full` inbound-sync credentials only.
  *
  * Covers:
  *   - golden path: mint a token at program scope → POST carries scopes:
- *     ['legacy:full'] against the PROGRAM endpoint → one-time reveal
+ *     ['api:full'] against the PROGRAM endpoint → one-time reveal
  *   - no MCP connect snippet is offered here (#2890)
  *   - the program-scoped token list renders (heading "Program API tokens")
  *   - empty state when there are no tokens
@@ -184,7 +184,7 @@ test.describe('Program Integrations — MCP token surface', () => {
     );
     await dialog.getByRole('button', { name: 'Create token' }).click();
     const req = await postReq;
-    expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ scopes: ['legacy:full'] });
+    expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ scopes: ['api:full'] });
 
     // The one-time token is revealed. #2890: no MCP config snippet here — a
     // program token's owner is null, and the MCP read surface 401s exactly those

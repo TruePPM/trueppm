@@ -435,7 +435,7 @@ describe('PersonalAccessTokensPage', () => {
       expect.objectContaining({
         name: 'timed',
         expires_at: new Date('2027-03-04T23:59:59').toISOString(),
-        scopes: ['legacy:full'],
+        scopes: ['api:full'],
       }),
       expect.any(Object),
     );

@@ -2326,25 +2326,34 @@ def TokenHasScope(required_scope: str) -> type[BasePermission]:
       * If ``request.auth`` is not one of our API tokens (human JWT/Session
         request), the permission PASSES — scope enforcement only constrains
         token-authenticated callers; RBAC classes still gate the human path.
-      * ``legacy:full`` is a superset: a token carrying it satisfies any read
-        scope, preserving pre-scopes behavior for every backfilled token.
+      * The full scope (``api:full``, or its original name ``legacy:full``) is
+        a superset: a token carrying it satisfies any read scope, preserving
+        pre-scopes behavior for every backfilled token.
+      * When the full scope is itself required, either spelling satisfies it
+        (#4388) — both names are compared after normalization.
       * Otherwise the token must list ``required_scope`` explicitly.
     """
 
     class _TokenHasScope(BasePermission):
         def has_permission(self, request: Request, view: APIView) -> bool:
-            from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken
+            from trueppm_api.apps.projects.models import (
+                SCOPE_API_FULL,
+                ApiToken,
+                normalize_token_scopes,
+            )
 
             token = getattr(request, "auth", None)
             if not isinstance(token, ApiToken):
                 return True  # Non-token auth path; RBAC classes handle it.
 
-            token_scopes = token.scopes or []
-            if required_scope in token_scopes:
+            token_scopes = normalize_token_scopes(token.scopes)
+            required = next(iter(normalize_token_scopes([required_scope])))
+            if required in token_scopes:
                 return True
-            # legacy:full is the historical unrestricted superset — it satisfies
-            # any read scope, but never substitutes for itself being required.
-            return required_scope != SCOPE_LEGACY_FULL and SCOPE_LEGACY_FULL in token_scopes
+            # The full scope is the unrestricted superset — it satisfies any read
+            # scope. When it is itself required, the membership test above is the
+            # whole answer.
+            return required != SCOPE_API_FULL and SCOPE_API_FULL in token_scopes
 
     _TokenHasScope.__name__ = f"TokenHasScope[{required_scope}]"
     _TokenHasScope.__qualname__ = _TokenHasScope.__name__

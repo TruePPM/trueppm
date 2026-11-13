@@ -112,8 +112,8 @@ async function setup(page: Page, initial: TokenRow[] = []) {
         token_prefix: 'tppm_new',
         expires_at: body.expires_at ?? null,
         // Echo the requested scope so the reveal picks the right panel
-        // (mcp:read → McpConnectPanel; legacy:full → plain reveal).
-        scopes: Array.isArray(body.scopes) && body.scopes.length ? body.scopes : ['legacy:full'],
+        // (mcp:read → McpConnectPanel; api:full → plain reveal).
+        scopes: Array.isArray(body.scopes) && body.scopes.length ? body.scopes : ['api:full'],
       });
       state.push(row);
       return route.fulfill({

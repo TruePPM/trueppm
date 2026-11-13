@@ -125,7 +125,7 @@ from trueppm_api.apps.projects.metric_provenance import (
 )
 from trueppm_api.apps.projects.models import (
     _HISTORY_EXCLUDED_TASK,
-    SCOPE_LEGACY_FULL,
+    SCOPE_API_FULL,
     AcceptanceCriterion,
     ApiToken,
     BacklogItem,
@@ -20588,7 +20588,7 @@ class TaskSyncView(IdempotencyMixin, APIView):
     permission_classes = [
         IsAuthenticated,
         IsTokenForProject,
-        TokenHasScope(SCOPE_LEGACY_FULL),
+        TokenHasScope(SCOPE_API_FULL),
         IsProjectNotArchived,
     ]
     throttle_classes = [TaskSyncThrottle]
@@ -20773,7 +20773,7 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
     permission_classes = [
         IsAuthenticated,
         IsTokenForProject,
-        TokenHasScope(SCOPE_LEGACY_FULL),
+        TokenHasScope(SCOPE_API_FULL),
         IsProjectNotArchived,
     ]
     throttle_classes = [AcceptanceResultThrottle]
@@ -21060,7 +21060,7 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         token_prefix = raw_token[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8]
 
         with transaction.atomic():
-            token_scopes = write_serializer.validated_data.get("scopes", [SCOPE_LEGACY_FULL])
+            token_scopes = write_serializer.validated_data.get("scopes", [SCOPE_API_FULL])
             token = ProjectApiToken.objects.create(
                 **scope_kwargs,
                 name=write_serializer.validated_data["name"],
@@ -21326,7 +21326,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             sha256_hex,
         )
         from trueppm_api.apps.projects.models import (
-            SCOPE_LEGACY_FULL,
+            SCOPE_API_FULL,
             ApiToken,
             ApiTokenAuditAction,
             ApiTokenAuditEntry,
@@ -21369,7 +21369,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 # PATs default to full-access (acts as you); mcp:read is accepted so
                 # a personal token can drive the owner-scoped MCP read surface
                 # (#1712/#1713). An mcp:read PAT must expire (serializer-validated).
-                scopes=write_serializer.validated_data.get("scopes", [SCOPE_LEGACY_FULL]),
+                scopes=write_serializer.validated_data.get("scopes", [SCOPE_API_FULL]),
                 expires_at=write_serializer.validated_data.get("expires_at"),
                 token_prefix=token_prefix,
                 token_hash=sha256_hex(raw_token),

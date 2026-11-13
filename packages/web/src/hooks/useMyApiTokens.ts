@@ -58,7 +58,7 @@ export interface MyApiTokenCreateBody {
   /** ISO-8601 timestamp; omit for a non-expiring token. */
   expires_at?: string | null;
   /**
-   * Capability scopes to grant. Omit for the default `['legacy:full']` (a
+   * Capability scopes to grant. Omit for the default `['api:full']` (a
    * full-access PAT that acts as you). Send `['mcp:read']` to mint a read-only
    * token for the MCP server — the read surface accepts only owner-scoped
    * (personal) tokens, and an `mcp:read` token requires a non-null `expires_at`.

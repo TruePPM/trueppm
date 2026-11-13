@@ -412,13 +412,14 @@ def test_declared_kwarg_routes_keep_their_in_body_check() -> None:
 
 
 def _token_reachable_write_routes() -> set[str]:
-    """Every write route a ``legacy:full`` personal access token can reach.
+    """Every write route a full-scope personal access token can reach.
 
     ``OwnerScopedApiTokenAuthentication`` is first in
-    ``DEFAULT_AUTHENTICATION_CLASSES`` (`settings/base.py:1225-1228`) and admits any
-    ``legacy:full`` token — the **default** scope for a newly minted one
-    (`apps/projects/models.py:5733-5739`). The scope taxonomy that would let a
-    write be withheld is 0.6 work (#2661). So a route is reachable unless it opts
+    ``DEFAULT_AUTHENTICATION_CLASSES`` and admits any full-scope token —
+    ``api:full`` (the **default** for a newly minted one since #4388,
+    ``_default_api_token_scopes``) or its original name ``legacy:full``. The
+    scope taxonomy that would let a write be withheld is 0.6 work (#2661). So a
+    route is reachable unless it opts
     out of that authenticator or carries ``IsNotTokenAuthenticated``.
 
     **The exclusion used to be ``TokenReadOnlyMethods``, and that was wrong in a way

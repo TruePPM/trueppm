@@ -7,7 +7,7 @@
  * see this again" warning. After the modal closes it is unrecoverable.
  *
  * A token is minted with a capability scope (issue 601, ADR-0186 §F). At project
- * and program scope the only scope on offer is `legacy:full` (read + write, for CI
+ * and program scope the only scope on offer is `api:full` (read + write, for CI
  * / inbound sync).
  *
  * `mcp:read` is deliberately NOT offered here (#2890). A token minted at project
@@ -228,7 +228,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
     }
     setError(null);
     create.mutate(
-      { name: name.trim(), scopes: ['legacy:full'] },
+      { name: name.trim(), scopes: ['api:full'] },
       {
         onSuccess: (data) => setCreated(data),
         onError: (e) => setError(extractError(e)),
@@ -342,7 +342,7 @@ function TokenPurposeNote() {
   );
 }
 
-/** The existing plain one-time reveal for a `legacy:full` token, unchanged. */
+/** The existing plain one-time reveal for a full-scope (`api:full` / `legacy:full`) token, unchanged. */
 function PlainTokenReveal({ token, onClose }: { token: string; onClose: () => void }) {
   return (
     <>
