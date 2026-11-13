@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SchedulePulse } from './SchedulePulse';
 
@@ -121,6 +121,40 @@ describe('SchedulePulse', () => {
     expect(bar).toHaveAttribute('aria-valuenow', '50');
     expect(screen.getByTestId('pulse-sprint')).toHaveTextContent('Sprint 14');
     expect(screen.getByTestId('pulse-sprint')).toHaveTextContent('2/4 done');
+    // One progress slot (#3210): the percentage is in the bar's name, not drawn as a numeral.
+    expect(bar).toHaveAttribute('aria-label', expect.stringContaining('50% complete'));
+    expect(screen.getByTestId('pulse-sprint')).not.toHaveTextContent('50%');
+  });
+
+  it('sprint bar is a tab stop, shows its tooltip on keyboard focus, and does not duplicate its name via aria-describedby (#3210)', () => {
+    useScheduleTasks.mockReturnValue({
+      tasks: [task({ id: 't1', status: 'COMPLETE' }), task({ id: 't2', status: 'NOT_STARTED' })],
+      isLoading: false,
+    });
+    render(<SchedulePulse projectId="p1" />);
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('tabindex', '0');
+    act(() => bar.focus());
+    expect(screen.getByRole('tooltip', { hidden: true })).toHaveTextContent('50% complete · 1 of 2 tasks');
+    expect(bar).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('marks a 100% sprint with the completion outline, not color alone (#3210)', () => {
+    useScheduleTasks.mockReturnValue({
+      tasks: [task({ id: 't1', status: 'COMPLETE' }), task({ id: 't2', status: 'COMPLETE' })],
+      isLoading: false,
+    });
+    render(<SchedulePulse projectId="p1" />);
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-valuenow', '100');
+    expect(bar).toHaveClass('outline');
+  });
+
+  it('a sprint with no committed tasks renders no progressbar (#3210)', () => {
+    useScheduleTasks.mockReturnValue({ tasks: [], isLoading: false });
+    render(<SchedulePulse projectId="p1" />);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByText('No committed tasks yet')).toBeInTheDocument();
   });
 
   it('shows a "No active sprint" state when none is active', () => {

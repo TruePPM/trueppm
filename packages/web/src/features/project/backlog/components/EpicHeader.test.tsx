@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Task } from '@/types';
 import type { EpicGroup } from '../types';
@@ -91,6 +91,57 @@ describe('EpicHeader edit affordance (#1346)', () => {
 
     rerender(<EpicHeader group={makeGroup()} projectId="p1" selected onOpen={vi.fn()} />);
     expect(row.className).toContain('ring-navy-700');
+  });
+});
+
+describe('EpicHeader progress slot (#3210)', () => {
+  it('draws the proportion once: bar named with the percentage, no numeral beside it', () => {
+    render(
+      <EpicHeader
+        group={makeGroup({}, { storyCount: 2, pointsTotal: 8, pointsDone: 2 })}
+        projectId="p1"
+        onOpen={vi.fn()}
+      />,
+    );
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-label', 'Epic Platform Core: 2 of 8 points complete (25%)');
+    expect(screen.getByText('2/8 pts')).toBeInTheDocument();
+    expect(screen.queryByText(/25%/)).toBeNull();
+  });
+
+  it('bar is a tab stop, shows its tooltip on keyboard focus, and has no duplicate aria-describedby', () => {
+    render(
+      <EpicHeader
+        group={makeGroup({}, { storyCount: 2, pointsTotal: 8, pointsDone: 2 })}
+        projectId="p1"
+        onOpen={vi.fn()}
+      />,
+    );
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('tabindex', '0');
+    act(() => bar.focus());
+    // aria-hidden panel (describe={false}): the bar's own name already says it.
+    expect(screen.getByRole('tooltip', { hidden: true })).toHaveTextContent('25% complete · 2 of 8 pts');
+    expect(bar).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('marks a 100% epic with the completion outline, not color alone', () => {
+    render(
+      <EpicHeader
+        group={makeGroup({}, { storyCount: 2, pointsTotal: 8, pointsDone: 8 })}
+        projectId="p1"
+        onOpen={vi.fn()}
+      />,
+    );
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-label', expect.stringContaining('(100%)'));
+    expect(bar.innerHTML + bar.className).toMatch(/outline/);
+  });
+
+  it('renders no progressbar at all when nothing is estimated', () => {
+    render(<EpicHeader group={makeGroup()} projectId="p1" onOpen={vi.fn()} />);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByRole('img', { name: 'No points estimated' })).toBeInTheDocument();
   });
 });
 

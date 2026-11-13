@@ -68,6 +68,13 @@ describe('MoveProgramDialog', () => {
     expect(onConfirm).toHaveBeenCalledWith('prog-a');
   });
 
+  it('warning card body copy uses the primary text token for contrast on the tint (#1620)', () => {
+    setup();
+    expect(screen.getByText(/Moving this project changes which program/)).toHaveClass(
+      'text-neutral-text-primary',
+    );
+  });
+
   it('offers Standalone as null and disables it when already standalone', async () => {
     const user = userEvent.setup();
     // Currently in Apollo → Standalone is a valid target.

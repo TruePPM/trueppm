@@ -187,15 +187,19 @@ function SkillGroupedOptions({
     <>
       {groups.map((group) => (
         <li key={group.label} role="presentation">
-          {/* Group header — not a listbox option */}
+          {/* Group header — not a listbox option. Names the role=group below via
+              aria-labelledby so a screen reader announces the fit band (#3219). */}
           <div
-            role="presentation"
+            id={`${listboxId}-group-${group.label.replace(/\s+/g, '-').toLowerCase()}`}
             className="px-2 py-1 text-xs font-semibold tracking-widest uppercase
               text-neutral-text-disabled bg-neutral-surface-raised border-b border-neutral-border"
           >
             {group.label}
           </div>
-          <ul role="presentation">
+          <ul
+            role="group"
+            aria-labelledby={`${listboxId}-group-${group.label.replace(/\s+/g, '-').toLowerCase()}`}
+          >
             {group.items.map((r) => {
               const idx = flatItems.indexOf(r);
               const isActive = idx === activeIndex;

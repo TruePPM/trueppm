@@ -347,6 +347,23 @@ describe('ResourceSearchCombobox — skill-fit mode', () => {
     expect(screen.getAllByRole('option')).toHaveLength(3);
   });
 
+  it('exposes each fit band as a named group so options are announced with it (#3219)', async () => {
+    mockResources(graded);
+    renderCombobox({ taskId: 'task-1' });
+
+    await screen.findByRole('option', { name: /Alice/ });
+    const best = screen.getByRole('group', { name: /^Best fit$/ });
+    expect(within(best).getByRole('option', { name: /Alice/ })).toBeInTheDocument();
+    expect(within(best).queryByRole('option', { name: /Bob/ })).toBeNull();
+    const partial = screen.getByRole('group', { name: /^Partial fit$/ });
+    expect(within(partial).getByRole('option', { name: /Bob/ })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: /^No skill match$/ })).getByRole('option', {
+        name: /Cara/,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('renders every option when the server withheld email (#3661)', async () => {
     // The catalog serializer pops `email` entirely for every caller below
     // workspace ADMIN, which is what most callers are. The picker must render

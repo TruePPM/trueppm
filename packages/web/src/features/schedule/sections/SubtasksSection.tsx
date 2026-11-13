@@ -172,6 +172,9 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
                 style={{ width: `${rollupProgress}%` }}
               />
             </div>
+            {/* Deliberately keeps bar + numeral (#3210): this is a drawer READING
+                surface — the user opened it to read the rollup, so the "% complete"
+                line is the statement, not a duplicate of a glance-surface bar. */}
             <p className="mt-1 text-xs text-neutral-text-secondary">
               {allComplete ? 'All complete' : `${rollupProgress}% complete`}
             </p>

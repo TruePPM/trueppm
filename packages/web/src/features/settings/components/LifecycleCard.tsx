@@ -51,10 +51,10 @@ export function LifecycleCard({
       ].join(' ')}
     >
       <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-1">{title}</h2>
-      <p className="text-[12px] text-neutral-text-secondary mb-2 leading-relaxed">{description}</p>
+      <p className="text-[12px] text-neutral-text-primary mb-2 leading-relaxed">{description}</p>
       <ul className="list-disc pl-4 mb-3 space-y-0.5">
         {notes.map((n) => (
-          <li key={n} className="text-[11px] text-neutral-text-secondary">
+          <li key={n} className="text-[11px] text-neutral-text-primary">
             {n}
           </li>
         ))}

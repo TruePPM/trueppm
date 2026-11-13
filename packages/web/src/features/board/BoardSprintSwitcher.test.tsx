@@ -1,4 +1,4 @@
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, within } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BoardSprintSwitcher } from './BoardSprintSwitcher';
@@ -145,6 +145,13 @@ describe('BoardSprintSwitcher pruning (#1141)', () => {
     expect(screen.queryByText('Atlas 1')).toBeNull();
     expect(screen.getByRole('menuitem', { name: /Show all sprints \(2\)/ })).toBeInTheDocument();
     expect(screen.getByText('Recent')).toBeInTheDocument();
+  });
+
+  it('names the sprint list with its visible header via role=group (#3219)', () => {
+    open();
+    const group = screen.getByRole('group', { name: 'Recent' });
+    expect(within(group).getByRole('menuitemradio', { name: /Atlas 5/ })).toBeInTheDocument();
+    expect(within(group).queryByRole('menuitem')).toBeNull();
   });
 
   it('Show all expands the rest and toggles to Show fewer', () => {
