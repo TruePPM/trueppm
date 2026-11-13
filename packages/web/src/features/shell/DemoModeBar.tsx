@@ -1,3 +1,4 @@
+import { Tooltip } from '@/components/Tooltip';
 import { useDemoMode } from '@/hooks/useDemoMode';
 import { parseDemoResetLine } from './demoResetSchedule';
 import { DemoForecastChip } from './DemoForecastChip';
@@ -62,17 +63,18 @@ export function DemoModeBar() {
         border-b border-brand-primary/30 bg-brand-primary/10 px-3 text-xs
         text-brand-primary sm:px-4"
     >
-      {/* The mode, stated first and never abbreviated. `title` carries the
-          consequence — the sentence the two-line banner used to spend a whole
-          line on — so it is one hover/focus away rather than permanently
-          occupying 44px of the schedule. */}
-      <span
-        className="flex-shrink-0 rounded-chip border border-brand-primary/40 px-2 py-0.5
-          font-semibold uppercase tracking-wide"
-        title="Read-only demo — nothing you change here is saved, and the data resets regularly."
-      >
-        Read-only demo
-      </span>
+      {/* The mode, stated first and never abbreviated. The shared Tooltip carries
+          the consequence — the sentence the two-line banner used to spend a whole
+          line on — reachable by hover, keyboard focus AND touch (rule 287), so it
+          costs no permanent chrome and is never a bare `title`. */}
+      <Tooltip content="Nothing you change here is saved, and the data resets regularly.">
+        <span
+          className="flex-shrink-0 rounded-chip border border-brand-primary/40 px-2 py-0.5
+            font-semibold uppercase tracking-wide"
+        >
+          Read-only demo
+        </span>
+      </Tooltip>
 
       {/* Edition disclosure (#3968). Hidden below `sm` VISUALLY only — `sr-only`,
           never `hidden`: `display:none` takes it out of the accessibility tree
