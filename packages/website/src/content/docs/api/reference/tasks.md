@@ -240,7 +240,7 @@ exceed the OSS simulation cap or the request returns `402`. See
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET / POST | `/api/v1/task-relations/` | List / create an informational task-to-task relation |
+| GET / POST | `/api/v1/task-relations/` | List (requires `?task=` or `?project=`; 400 otherwise) / create an informational task-to-task relation |
 | GET / PUT / PATCH / DELETE | `/api/v1/task-relations/{id}/` | Retrieve, update, or remove one relation |
 
 A relation (`relates_to` / `blocks` / `duplicates`, ADR-0455) is a
