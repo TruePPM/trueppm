@@ -244,3 +244,7 @@ schema:RoleEnum
 
 # Only consumer was POST /me/notifications/mark-all-read/, which reads no body.
 schema:NotificationRequest
+
+# #264: PhaseReorderView now declares PhaseReorderSerializer, so spectacular names the
+# PATCH body PatchedPhaseReorderRequest; the old inline name had a doubled suffix. Wire shape is unchanged.
+schema:PatchedPhaseReorderRequestRequest
