@@ -36,7 +36,6 @@ attachment_unsupported_scheme	`ValidationError("...", code=...)` — plain-strin
 comment_body_too_long	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
 comment_count_cap	`ValidationError({"detail": "..."}, code=...)` — single string-valued key, #2550 shape.
 comment_edit_window_closed	`ValidationError({"detail": "..."}, code=...)` — single string-valued key, #2550 shape.
-comment_parent_cross_task	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
 comment_reply_depth	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
 
 # Task-note validation (ADR-0143) and reaction validation.

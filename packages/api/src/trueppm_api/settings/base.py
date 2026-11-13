@@ -496,6 +496,12 @@ CHANNEL_LAYERS = {
             "hosts": [_CHANNEL_HOST],
             "capacity": 1500,
             "expiry": 10,
+            # channels_redis defaults group_expiry to 86400 s. A socket killed without
+            # running ``disconnect`` (OOM, SIGKILL, node loss) would otherwise keep
+            # receiving a copy of every project broadcast for a day. Live sockets
+            # re-stamp membership on the 30 s presence keepalive (ProjectConsumer), so
+            # 180 s is six missed ticks of margin before a live member could age out.
+            "group_expiry": 180,
         },
     },
 }

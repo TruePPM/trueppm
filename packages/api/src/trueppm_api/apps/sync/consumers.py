@@ -277,9 +277,6 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             metrics.record_ws_connection_closed()
             self._ws_counted = False
 
-        if hasattr(self, "group_name"):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
-
         # Stop the keepalive before releasing presence, so a tick in flight cannot
         # re-arm the TTL on a key the leave below is about to clean up.
         task = getattr(self, "_presence_task", None)
@@ -288,6 +285,12 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             with contextlib.suppress(BaseException):
                 await task
             self._presence_task = None
+
+        # Discard only after the keepalive is fully stopped: an in-flight
+        # _refresh_group_membership could otherwise re-add the member after the discard
+        # and leave it in the group for up to group_expiry (#4604).
+        if hasattr(self, "group_name"):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
         if hasattr(self, "_user"):
             await self._presence_leave()
@@ -565,6 +568,30 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                     getattr(self, "project_pk", "?"),
                     exc_info=True,
                 )
+            await self._refresh_group_membership()
+
+    async def _refresh_group_membership(self) -> None:
+        """Re-stamp this channel in its project group so ``group_expiry`` keeps it.
+
+        channels_redis scores each group member with its join time and prunes members
+        older than ``group_expiry`` at send time. ``group_add`` is idempotent and
+        re-scores the member, so a live socket calls it every tick while a socket
+        that died without ``disconnect`` (OOM, SIGKILL, node loss) stops, ages out,
+        and stops receiving payload copies (#4604). Never allowed to kill the socket.
+        """
+        group = getattr(self, "group_name", None)
+        if group is None:
+            return
+        try:
+            await self.channel_layer.group_add(group, self.channel_name)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "group membership refresh failed for project %s",
+                getattr(self, "project_pk", "?"),
+                exc_info=True,
+            )
 
     async def _get_redis(self) -> Any:
         """Return this consumer's async Redis client, creating it once and caching it.
