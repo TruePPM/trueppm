@@ -10,6 +10,7 @@ multi-million-iteration spin, an uncaught ``OverflowError``, or a
 from __future__ import annotations
 
 import contextlib
+import os
 import random
 import time
 from datetime import date, timedelta
@@ -319,7 +320,14 @@ class TestProjectSpan:
         started = time.perf_counter()
         result = schedule(p)
         assert len(result.tasks) == n + 2
-        assert time.perf_counter() - started < 5
+        # The ceiling proves this shape is not pathological, on uninstrumented code.
+        # Under scheduler:mutation every models.py call goes through mutmut's
+        # trampoline, and the stats pass runs with -x: one overrun there (5.15 s on a
+        # loaded runner) killed the whole measurement and reported "no scoreable
+        # mutants". A wall-clock budget carries no kill signal (mutmut has its own
+        # per-mutant timeouts), which is why test_bench.py is excluded outright.
+        if "MUTANT_UNDER_TEST" not in os.environ:
+            assert time.perf_counter() - started < 5
 
     def test_cycle_falls_back_to_serial_sum_and_is_refused_not_crashed(self) -> None:
         # No longest path exists on a cycle, so the span bound falls back to the

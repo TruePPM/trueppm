@@ -15,6 +15,8 @@ from typing import (
 
 from trueppm_scheduler.models import (
     Task,
+    _date_repr,
+    _summary_repr,
 )
 
 # ---------------------------------------------------------------------------
@@ -180,6 +182,21 @@ class ScheduleResult:
     # zero (#2095, #4704). Order is
     # deterministic (sorted) so the two engines' snapshots stay comparable.
     driving_edges: list[DrivingEdge] = field(default_factory=list)
+
+    def __repr__(self) -> str:
+        """Summarize the result: finish date, counts and the first few ids.
+
+        A display form, bounded however many tasks were scheduled; not a constructor
+        expression. Use :meth:`to_dict` for the full-fidelity form.
+        """
+        return (
+            f"ScheduleResult(project_id={self.project_id!r}, "
+            f"project_start={_date_repr(self.project_start)}, "
+            f"project_finish={_date_repr(self.project_finish)}, "
+            f"tasks={_summary_repr(self.tasks)}, "
+            f"critical_path={_summary_repr(self.critical_path)}, "
+            f"driving_edges={_summary_repr(self.driving_edges)})"
+        )
 
     def __post_init__(self) -> None:
         """Copy the sequence fields and sort ``driving_edges`` deterministically."""
@@ -411,6 +428,29 @@ class MonteCarloResult:
         self.sensitivity = [] if sensitivity is None else sensitivity
         self.percentiles = levels
         self.velocity_saturated_runs = velocity_saturated_runs
+
+    def __repr__(self) -> str:
+        """Summarize the result: run count, the confidence-level dates, a few ids.
+
+        A display form, bounded however many runs were simulated (``distribution``
+        holds one date per run); not a constructor expression. Use :meth:`to_dict`
+        for the full-fidelity form.
+        """
+        levels = ", ".join(
+            f"{level}: {p.date.isoformat()}" for level, p in sorted(self.percentiles.items())
+        )
+        dates = (
+            f"{self.distribution[0].isoformat()}..{self.distribution[-1].isoformat()}"
+            if self.distribution
+            else "none"
+        )
+        return (
+            f"MonteCarloResult(project_id={self.project_id!r}, runs={self.runs}, "
+            f"percentiles={{{levels}}}, "
+            f"distribution=<{len(self.distribution)} dates: {dates}>, "
+            f"sensitivity={_summary_repr([s.task_id for s in self.sensitivity])}, "
+            f"velocity_saturated_runs={self.velocity_saturated_runs})"
+        )
 
     @property
     def velocity_tail_truncated(self) -> bool:
