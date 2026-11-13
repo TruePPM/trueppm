@@ -221,6 +221,46 @@ describe('BoardViewDropdown', () => {
     expect(deleteButton.className).toContain('opacity-0');
     expect(deleteButton.className).toContain('group-hover:opacity-100');
     expect(deleteButton.className).toContain('focus:opacity-100');
+    // Touch has no hover: the × must be revealed below md (#4620).
+    expect(deleteButton.className).toContain('max-md:opacity-100');
+  });
+
+  it('confirms before deleting a saved view (#4620)', () => {
+    const mutate = vi.fn();
+    vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
+      views: [
+        {
+          id: 'sv-1',
+          name: 'Sprint 7',
+          config: DEFAULT_CONFIG,
+          schemaVersion: 1,
+          createdBy: 7,
+          serverVersion: 1,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+      isLoading: false,
+      create: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['create'],
+      update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['update'],
+      remove: { mutate, isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['remove'],
+    });
+    renderDropdown({ currentUserId: '7' });
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    fireEvent.click(screen.getByLabelText('Delete view "Sprint 7"'));
+    expect(mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    fireEvent.click(screen.getByLabelText('Delete view "Sprint 7"'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete view' }));
+    expect(mutate).toHaveBeenCalledWith('sv-1', expect.any(Object));
   });
 
   it('matches the integer createdBy against the string /auth/me id, and hides delete for another user (#4290)', () => {

@@ -71,11 +71,9 @@ export function MemberRow({
   const [confirmLeave, setConfirmLeave] = useState(false);
 
   function handleRemoveClick() {
-    if (isSelf) {
-      setConfirmLeave(true);
-    } else {
-      onRemove(membership.id);
-    }
+    // Removing someone else revokes their access just as irreversibly as
+    // leaving does — both confirm inline (#4620).
+    setConfirmLeave(true);
   }
 
   return (
@@ -167,7 +165,9 @@ export function MemberRow({
       {/* Leave confirmation inline */}
       {confirmLeave && (
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-neutral-text-secondary">Leave project?</span>
+          <span className="text-xs text-neutral-text-secondary">
+            {isSelf ? 'Leave project?' : `Remove ${user_detail.username}?`}
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -182,7 +182,7 @@ export function MemberRow({
               'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
             ].join(' ')}
           >
-            Leave
+            {isSelf ? 'Leave' : 'Remove'}
           </button>
           <button
             type="button"

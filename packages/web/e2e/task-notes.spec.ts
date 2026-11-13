@@ -246,6 +246,38 @@ test.describe('Task notes — detail page section (#740)', () => {
     await expect(page.getByText('Morgan Lee').first()).toBeVisible();
   });
 
+  test('deleting a note asks for confirmation first; Cancel keeps it (#4620)', async ({ page }) => {
+    await setup(page, { role: 300 });
+    let deletes = 0;
+    await page.route('**/api/v1/projects/*/tasks/*/notes/**', async (route) => {
+      if (route.request().method() === 'DELETE') {
+        deletes += 1;
+        return route.fulfill({ status: 204 });
+      }
+      return route.fallback();
+    });
+    await openNotesSection(page);
+
+    await page.getByRole('textbox', { name: 'Note body' }).fill('Throwaway note for delete.');
+    await page.getByRole('button', { name: 'Add note' }).click();
+    const notesList = page.getByRole('list', { name: /^Notes — / });
+    await expect(notesList.getByText('Throwaway note for delete.')).toBeVisible({ timeout: 5_000 });
+
+    await page.getByRole('button', { name: 'Delete this note' }).first().click();
+    const dialog = page.getByRole('alertdialog', { name: 'Delete note?' });
+    await expect(dialog).toBeVisible();
+    expect(deletes).toBe(0);
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(notesList.getByText('Throwaway note for delete.')).toBeVisible();
+    expect(deletes).toBe(0);
+
+    await page.getByRole('button', { name: 'Delete this note' }).first().click();
+    await page.getByRole('alertdialog', { name: 'Delete note?' }).getByRole('button', { name: 'Delete note' }).click();
+    await expect.poll(() => deletes).toBe(1);
+  });
+
   test('a failed create surfaces an inline error and keeps the draft (#1514)', async ({ page }) => {
     await setup(page, { role: 300 });
     // Override the notes POST with a 500 AFTER setup so it wins (last-registered).

@@ -27,6 +27,7 @@ import {
   type BoardViewConfig,
 } from '@/hooks/useBoardSavedViews';
 import { CheckIcon } from '@/components/Icons';
+import { ConfirmDialog } from '@/features/settings/components/integrations/WebhooksManager';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canCreateSavedView, canEditSavedView } from './savedViewPermissions';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
@@ -202,6 +203,7 @@ export function BoardViewDropdown({
 }: BoardViewDropdownProps) {
   const [open, setOpen] = useState(false);
   const [showSave, setShowSave] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<BoardSavedView | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { views, create, remove } = useBoardSavedViews(projectId || null);
   const { role, isError: roleIsError = false } = useCurrentUserRole(projectId || undefined);
@@ -251,8 +253,17 @@ export function BoardViewDropdown({
 
   function handleDelete(e: MouseEvent, sv: BoardSavedView) {
     e.stopPropagation();
+    // Irreversible and one tap away on touch (the × is revealed there) — confirm
+    // first; the menu closes so the dialog is the only modal surface.
+    setPendingDelete(sv);
+    setOpen(false);
+  }
+
+  function confirmDelete() {
+    if (!pendingDelete) return;
+    const sv = pendingDelete;
     if (activeViewId === sv.id) onApply({}, null);
-    remove.mutate(sv.id);
+    remove.mutate(sv.id, { onSettled: () => setPendingDelete(null) });
   }
 
   // Portal + fixed-position + flip/clamp so both popovers escape any
@@ -412,7 +423,7 @@ export function BoardViewDropdown({
                         type="button"
                         onClick={(e) => handleDelete(e, sv)}
                         aria-label={`Delete view "${sv.name}"`}
-                        className="px-2 py-1.5 text-neutral-text-disabled opacity-0 group-hover:opacity-100
+                        className="px-2 py-1.5 text-neutral-text-disabled opacity-0 max-md:opacity-100 group-hover:opacity-100
                         hover:text-semantic-critical focus:opacity-100
                         focus:ring-2 focus:ring-brand-primary focus:outline-none
                         transition-opacity"
@@ -457,6 +468,17 @@ export function BoardViewDropdown({
           />,
           document.body,
         )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete saved view?"
+          body={`"${pendingDelete.name}" will be deleted for everyone on this board. This can't be undone.`}
+          confirmLabel="Delete view"
+          pending={remove.isPending}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   );
 }

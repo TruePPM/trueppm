@@ -7,7 +7,7 @@
  * client-side validation, or renders the delivery log. These tests mock the
  * hooks and exercise the real events catalog.
  */
-import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
 import type { ApiWebhook } from '@/hooks/useWebhooks';
@@ -345,12 +345,13 @@ describe('WebhookEditorModal — format picker', () => {
     expect(body.format).toBe('generic');
   });
 
-  it('marks the active format pressed and leaves Enterprise formats disabled', () => {
+  it('marks the active format pressed and shows no Enterprise badge on outbound formats (#4617)', () => {
     render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(screen.getByRole('button', { name: /^Slack$/ })).toHaveAttribute('aria-pressed', 'true');
-    const discord = screen.getByRole('button', { name: 'DiscordEnterprise' });
-    expect(discord).toBeDisabled();
-    expect(within(discord).getByText('Enterprise')).toBeInTheDocument();
+    expect(screen.queryByText('Enterprise')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^(Discord|PagerDuty)$/)).not.toBeInTheDocument();
+    expect(screen.getByText('Generic (JSON)').closest('button')).toBeEnabled();
+    expect(screen.getByText('Slack', { selector: 'button' })).toBeEnabled();
   });
 
   it('starts on the saved format when editing a generic webhook', () => {
