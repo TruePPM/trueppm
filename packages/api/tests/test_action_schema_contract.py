@@ -881,6 +881,15 @@ DECLARED_BODIES = [
         "stories",
     ),
     ("post", "/api/v1/projects/{id}/queue/reorder/", "QueueReorderBodyRequest", {"tasks"}, "tasks"),
+    ("post", "/api/v1/sprints/{id}/reorder/", "SprintReorderBodyRequest", {"tasks"}, "tasks"),
+    (
+        "post",
+        "/api/v1/sprints/{id}/demo-list/reorder/",
+        "SprintDemoListReorderBodyRequest",
+        {"outcome_ids"},
+        "outcome_ids",
+    ),
+    ("post", "/api/v1/tasks/{id}/reorder/", "TaskAnchorReorderBodyRequest", set(), "before_id"),
     (
         "patch",
         "/api/v1/programs/{id}/risk-policy/",

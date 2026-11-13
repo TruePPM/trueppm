@@ -11033,6 +11033,34 @@ class QueueReorderBodySerializer(serializers.Serializer[dict[str, Any]]):
     tasks = ReorderEntrySerializer(many=True)
 
 
+class SprintReorderBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /sprints/{id}/reorder/`` (complete sprint set, 1-2000)."""
+
+    tasks = ReorderEntrySerializer(many=True)
+
+
+class SprintDemoListReorderBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /sprints/{id}/demo-list/reorder/`` (complete demo set, 1-500).
+
+    Demo outcomes are ordered by id alone — unlike the task reorders there is no
+    per-row ``server_version`` lock; the handler detects a changed set instead.
+    """
+
+    outcome_ids = serializers.ListField(child=serializers.UUIDField())
+
+
+class TaskAnchorReorderBodySerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of ``POST /tasks/{id}/reorder/`` — exactly one anchor.
+
+    All three fields are optional in the schema; the handler requires exactly one
+    of ``before_id``, ``after_id`` or ``to_end: true`` and answers 400 otherwise.
+    """
+
+    before_id = serializers.UUIDField(required=False)
+    after_id = serializers.UUIDField(required=False)
+    to_end = serializers.BooleanField(required=False)
+
+
 class OwnershipTransferBodySerializer(serializers.Serializer[dict[str, Any]]):
     """Body of ``POST /projects/{id}/transfer/``.
 
