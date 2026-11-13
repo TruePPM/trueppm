@@ -144,3 +144,25 @@ def test_comment_parent_on_other_task_matches_not_found(
     assert str(cross.data["parent"][0]).replace(pid, "X") == str(missing.data["parent"][0]).replace(
         "22222222-2222-2222-2222-222222222222", "X"
     )
+
+
+@pytest.mark.django_db
+def test_comment_parent_soft_deleted_matches_not_found(client: APIClient, project: Project) -> None:
+    from trueppm_api.apps.projects.models import TaskComment
+
+    t1 = Task.objects.create(project=project, name="T1", duration=1)
+    base = f"/api/v1/projects/{project.pk}/tasks/{t1.pk}/comments/"
+    parent = client.post(base, {"body": "root"}, format="json")
+    assert parent.status_code == status.HTTP_201_CREATED, parent.data
+    pid = parent.data["id"]
+    TaskComment.objects.filter(pk=pid).update(is_deleted=True)
+
+    gone = client.post(base, {"body": "reply", "parent": pid}, format="json")
+    missing_id = "22222222-2222-2222-2222-222222222222"
+    missing = client.post(base, {"body": "reply", "parent": missing_id}, format="json")
+    assert gone.status_code == missing.status_code == status.HTTP_400_BAD_REQUEST
+    assert list(gone.data) == list(missing.data) == ["parent"]
+    assert gone.data["parent"][0].code == missing.data["parent"][0].code == "does_not_exist"
+    assert str(gone.data["parent"][0]).replace(pid, "X") == str(missing.data["parent"][0]).replace(
+        missing_id, "X"
+    )
