@@ -40,7 +40,7 @@ export function ProjectLabelsPage() {
   const canManage = canManageLabels(role);
   const canCreate = canCreateLabel(role);
 
-  const { data: labels = [], isLoading, isError, refetch } = useLabels(projectId);
+  const { data: labels = [], isLoading, isError, error, refetch } = useLabels(projectId);
   const createLabel = useCreateLabel(projectId);
   const updateLabel = useUpdateLabel(projectId);
   const deleteLabel = useDeleteLabel(projectId);
@@ -96,6 +96,7 @@ export function ProjectLabelsPage() {
           <QueryErrorState
             variant="inline"
             message="Couldn't load labels."
+            error={error}
             onRetry={() => void refetch()}
           />
         )}

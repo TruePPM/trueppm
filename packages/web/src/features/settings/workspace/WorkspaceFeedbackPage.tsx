@@ -21,7 +21,7 @@ import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings'
 import { DEFAULT_FEEDBACK_URL } from '@/lib/feedbackContext';
 
 export function WorkspaceFeedbackPage() {
-  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, error, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
 
   const [enabled, setEnabled] = useState(true);
@@ -61,6 +61,7 @@ export function WorkspaceFeedbackPage() {
           <QueryErrorState
             variant="inline"
             message="Couldn't load feedback settings."
+            error={error}
             onRetry={() => void refetch()}
           />
         </div>

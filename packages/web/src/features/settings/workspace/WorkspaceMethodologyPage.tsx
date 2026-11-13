@@ -100,7 +100,7 @@ const METHODS: Array<{
 ];
 
 export function WorkspaceMethodologyPage() {
-  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, error, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
 
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
@@ -173,6 +173,7 @@ export function WorkspaceMethodologyPage() {
           <QueryErrorState
             variant="inline"
             message="Couldn't load workspace settings."
+            error={error}
             onRetry={() => void refetch()}
           />
         </div>

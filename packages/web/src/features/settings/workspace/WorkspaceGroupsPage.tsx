@@ -241,7 +241,7 @@ function GroupCard({ group, onDelete, onManage, hasError }: GroupCardProps) {
 
 /** Workspace > Groups & teams page. */
 export function WorkspaceGroupsPage() {
-  const { data: groups = [], isLoading, isError, refetch } = useWorkspaceGroups();
+  const { data: groups = [], isLoading, isError, error, refetch } = useWorkspaceGroups();
   const createGroup = useCreateGroup();
   const deleteGroup = useDeleteGroup();
 
@@ -412,6 +412,7 @@ export function WorkspaceGroupsPage() {
           <QueryErrorState
             variant="inline"
             message="Couldn't load groups."
+            error={error}
             onRetry={() => void refetch()}
           />
         ) : isLoading ? (

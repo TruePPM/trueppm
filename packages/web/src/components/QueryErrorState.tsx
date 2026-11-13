@@ -1,6 +1,7 @@
 import { FOCUS_RING } from './page2/classes';
 import { TYPE } from './page2/typeScale';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { classifyQueryError } from '@/lib/queryErrorKind';
 
 interface BaseQueryErrorStateProps {
   /** Short failure message — defaults to a generic load error. */
@@ -19,6 +20,12 @@ interface BaseQueryErrorStateProps {
   variant?: 'fill' | 'inline';
   /** Extra container classes. */
   className?: string;
+  /**
+   * The query's `error`. When given, the state tells a permission refusal (403 —
+   * no Retry, it would fail identically forever) and a throttle (429 — counts
+   * down and retries itself) apart from a generic failure (#3874, #3621).
+   */
+  error?: unknown;
 }
 
 interface PageQueryErrorStateProps {
@@ -40,9 +47,44 @@ interface PageQueryErrorStateProps {
   supportCode: string;
   onRetry?: () => void;
   className?: string;
+  /** See {@link BaseQueryErrorStateProps.error}. */
+  error?: unknown;
 }
 
 export type QueryErrorStateProps = BaseQueryErrorStateProps | PageQueryErrorStateProps;
+
+/** Copy for the two server verdicts that are not "something broke". */
+const FORBIDDEN_MESSAGE = "You don't have access to this.";
+const FORBIDDEN_HELP = 'Your access may have changed. Ask a workspace admin if you need it back.';
+
+/**
+ * Counts down a 429's wait and fires `retry` once at zero. One automatic retry
+ * per mount of the error state: if it throttles again the query re-renders this
+ * component with a fresh error and the countdown restarts, so a sustained
+ * throttle backs off at the server's pace instead of hammering it.
+ */
+function useThrottleCountdown(seconds: number | null, retry: () => void): number | null {
+  const [remaining, setRemaining] = useState(seconds);
+  const retryRef = useRef(retry);
+  retryRef.current = retry;
+  useEffect(() => {
+    if (seconds === null) return;
+    setRemaining(seconds);
+    const id = window.setInterval(() => {
+      setRemaining((r) => {
+        if (r === null) return r;
+        if (r <= 1) {
+          window.clearInterval(id);
+          retryRef.current();
+          return 0;
+        }
+        return r - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [seconds]);
+  return seconds === null ? null : remaining;
+}
 
 /**
  * Shared "couldn't load — Retry" state for TanStack Query fetch failures
@@ -67,8 +109,16 @@ function BaseQueryErrorState({
   onRetry,
   variant = 'fill',
   className = '',
+  error,
 }: BaseQueryErrorStateProps) {
   const retry = onRetry ?? (() => window.location.reload());
+  const { kind, retryAfterSeconds } = classifyQueryError(error);
+  // Auto-retry only through a caller-supplied refetch: the default retry is a full
+  // page reload, which must never fire on a timer.
+  const remaining = useThrottleCountdown(
+    kind === 'throttled' && onRetry ? retryAfterSeconds : null,
+    retry,
+  );
   const isFill = variant === 'fill';
 
   // `fill` is the whole surface the user navigated to — a dead page is an
@@ -93,14 +143,28 @@ function BaseQueryErrorState({
   return (
     <div role={isFill ? 'alert' : 'status'} className={container}>
       <p className="text-sm text-semantic-critical">
-        {message}{' '}
-        <button
-          type="button"
-          className={`underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${offset}`}
-          onClick={retry}
-        >
-          Retry
-        </button>
+        {kind === 'forbidden' ? (
+          <>
+            {FORBIDDEN_MESSAGE} {FORBIDDEN_HELP}
+          </>
+        ) : kind === 'throttled' ? (
+          <>
+            {remaining !== null
+              ? `Too many requests. Retrying in ${remaining}s.`
+              : 'Too many requests. Wait a moment, then retry.'}{' '}
+          </>
+        ) : (
+          <>{message} </>
+        )}
+        {kind !== 'forbidden' && (
+          <button
+            type="button"
+            className={`underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${offset}`}
+            onClick={retry}
+          >
+            {kind === 'throttled' && remaining !== null ? 'Retry now' : 'Retry'}
+          </button>
+        )}
       </p>
     </div>
   );
@@ -117,8 +181,14 @@ function PageQueryErrorState({
   supportCode,
   onRetry,
   className = '',
+  error,
 }: PageQueryErrorStateProps) {
   const retry = onRetry ?? (() => window.location.reload());
+  const { kind, retryAfterSeconds } = classifyQueryError(error);
+  const remaining = useThrottleCountdown(
+    kind === 'throttled' && onRetry ? retryAfterSeconds : null,
+    retry,
+  );
   return (
     <div
       role="alert"
@@ -126,16 +196,30 @@ function PageQueryErrorState({
       data-variant="page"
       className={`flex flex-col items-start gap-2 border-t border-p1-hairline py-8 text-left ${className}`}
     >
-      <p className={`${TYPE.section} text-p1-text-1`}>{message}</p>
-      <p className={`max-w-[480px] ${TYPE.body} text-p1-text-2`}>{stillWorks}</p>
+      <p className={`${TYPE.section} text-p1-text-1`}>
+        {kind === 'forbidden'
+          ? FORBIDDEN_MESSAGE
+          : kind === 'throttled'
+            ? 'Too many requests.'
+            : message}
+      </p>
+      <p className={`max-w-[480px] ${TYPE.body} text-p1-text-2`}>
+        {kind === 'forbidden'
+          ? `${FORBIDDEN_HELP} ${stillWorks}`
+          : kind === 'throttled'
+            ? `${remaining !== null ? `Retrying in ${remaining}s. ` : 'Wait a moment, then retry. '}${stillWorks}`
+            : stillWorks}
+      </p>
       <div className="mt-2 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={retry}
-          className={`inline-flex h-8 items-center rounded-md border border-p1-hairline-strong bg-p1-surface-1 px-3 font-medium text-p1-text-1 hover:bg-p1-surface-2 [@media(pointer:coarse)]:h-11 max-md:h-11 ${TYPE.body} ${FOCUS_RING}`}
-        >
-          Retry
-        </button>
+        {kind !== 'forbidden' && (
+          <button
+            type="button"
+            onClick={retry}
+            className={`inline-flex h-8 items-center rounded-md border border-p1-hairline-strong bg-p1-surface-1 px-3 font-medium text-p1-text-1 hover:bg-p1-surface-2 [@media(pointer:coarse)]:h-11 max-md:h-11 ${TYPE.body} ${FOCUS_RING}`}
+          >
+            {kind === 'throttled' && remaining !== null ? 'Retry now' : 'Retry'}
+          </button>
+        )}
         <span className="text-xs text-p1-text-3">
           Support code <span className="font-mono tabular-nums text-p1-text-2">{supportCode}</span>
         </span>

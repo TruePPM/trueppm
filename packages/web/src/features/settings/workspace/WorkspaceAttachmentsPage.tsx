@@ -25,6 +25,7 @@ export function WorkspaceAttachmentsPage() {
     data: ws,
     isLoading,
     isError,
+    error,
     refetch,
   } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
@@ -92,6 +93,7 @@ export function WorkspaceAttachmentsPage() {
           <QueryErrorState
             variant="inline"
             message="Couldn't load attachment settings."
+            error={error}
             onRetry={() => void refetch()}
           />
         </div>
