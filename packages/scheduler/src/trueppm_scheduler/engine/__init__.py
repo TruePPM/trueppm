@@ -238,6 +238,9 @@ from trueppm_scheduler.engine.backward import (
     _free_float_days as _free_float_days,
 )
 from trueppm_scheduler.engine.backward import (
+    _held_at_actual_start as _held_at_actual_start,
+)
+from trueppm_scheduler.engine.backward import (
     _late_refs as _late_refs,
 )
 from trueppm_scheduler.engine.backward import (

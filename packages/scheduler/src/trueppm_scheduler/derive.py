@@ -45,6 +45,7 @@ from trueppm_scheduler.engine import (
     _float_late_instant,
     _floor_above_start,
     _free_start_ref,
+    _held_at_actual_start,
     _inheriting_paths,
     _Inheritors,
     _Instant,
@@ -1380,12 +1381,17 @@ def _milestone_context(
         start_ref = _milestone_refs(late)[0]
         pf = result.project_finish
         is_milestone = own is not None
-        return (
+        capped = (
             _link_start_ref(
                 start_ref, dep_type, lag, is_milestone, succ_cal, pf, inherited(succ.id)
             ),
             _link_finish_ref(late, dep_type, succ_cal, pf),
         )
+        # ...and the floor at the successor's recorded start those caps never go
+        # below (#4960): without it, a successor milestone whose actual_start is a
+        # non-working day of its own calendar is inverted from the capped reading,
+        # and the derivation names a bound below the one the engine applied.
+        return _held_at_actual_start(capped, succ, late)
 
     def early_refs(succ: Task, dep_type: DependencyType, lag: timedelta) -> tuple[date, date]:
         assert succ.early_start is not None and succ.early_finish is not None

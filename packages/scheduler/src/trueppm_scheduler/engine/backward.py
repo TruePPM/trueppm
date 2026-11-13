@@ -222,12 +222,24 @@ def _late_refs(
             ),
             _link_finish_ref(late, dep.dep_type, succ_cal, project_finish),
         )
-        if succ.actual_start is None:
-            return capped
-        held = _milestone_refs(min(succ.actual_start, late))
-        return max(capped[0], held[0]), max(capped[1], held[1])
+        return _held_at_actual_start(capped, succ, late)
     assert succ.late_start is not None and succ.late_finish is not None
     return succ.late_start, succ.late_finish
+
+
+def _held_at_actual_start(capped: tuple[date, date], succ: Task, late: date) -> tuple[date, date]:
+    """Floor a live milestone successor's capped references at its ``actual_start``.
+
+    The floor :func:`_late_refs` documents, factored out so that
+    :mod:`trueppm_scheduler.derive` applies the same one: a derivation that inverts a
+    link against the capped references alone cites a bound the engine never imposed
+    (#4960) — a non-working ``actual_start`` on the successor's own calendar is where
+    the two part.
+    """
+    if succ.actual_start is None:
+        return capped
+    held = _milestone_refs(min(succ.actual_start, late))
+    return max(capped[0], held[0]), max(capped[1], held[1])
 
 
 def _apply_milestone_late_date(
