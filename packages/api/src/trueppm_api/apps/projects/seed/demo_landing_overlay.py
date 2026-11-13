@@ -57,6 +57,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from trueppm_api.apps.projects.models import Health, Program, Project, Task, TaskStatus
+from trueppm_api.apps.projects.wbs_paths import wbs_order
 from trueppm_api.apps.scheduling.models import MonteCarloRun
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -185,7 +186,7 @@ def landing_project_for_demo_visitor(user: Any) -> Project | None:
 
 
 def _live_tasks(project: Project) -> list[Task]:
-    return list(Task.objects.filter(project=project, is_deleted=False).order_by("wbs_path"))
+    return list(Task.objects.filter(project=project, is_deleted=False).order_by(wbs_order()))
 
 
 def _summary_ids(tasks: Iterable[Task]) -> set[object]:

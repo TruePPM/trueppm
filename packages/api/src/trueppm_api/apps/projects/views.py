@@ -337,6 +337,7 @@ from trueppm_api.apps.projects.summary_link_guard import (
 from trueppm_api.apps.projects.task_bulk import (
     BulkOutcome,
 )
+from trueppm_api.apps.projects.wbs_paths import wbs_order
 from trueppm_api.apps.scheduling.finish_reading import FINISH_READING_FIELDS
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
@@ -4214,7 +4215,7 @@ class ProjectViewSet(
                 total_float__isnull=False,
                 total_float__lte=5,
             )
-            .order_by("total_float", "wbs_path")
+            .order_by("total_float", wbs_order())
             .values("id", "name", "wbs_path")[:5]
         )
         at_risk_tasks = [
@@ -4223,7 +4224,7 @@ class ProjectViewSet(
 
         critical_qs = (
             incomplete_tasks.filter(is_critical=True)
-            .order_by("wbs_path")
+            .order_by(wbs_order())
             .values("id", "name", "wbs_path")[:5]
         )
         critical_tasks = [
@@ -5944,6 +5945,13 @@ def _next_root_wbs_path(project: Any) -> str:
     has always claimed was not a property the query had. ``test_next_root_wbs_path_locks``
     pins it.
     """
+    # Lock the Project row first. ``FOR UPDATE`` on the root tasks locks only rows
+    # that already exist, so two creates into an *empty* project both read "no roots"
+    # and both write ``1`` — the loser then dies on the live-path unique constraint
+    # (#3074). ``serializer.save`` takes this same row lock a moment later when it
+    # draws the ``short_id``, so taking it here only moves that serialization point
+    # ahead of the read instead of adding a second lock to order against.
+    list(Project.objects.select_for_update().filter(pk=project.pk).values_list("pk", flat=True))
     highest = 0
     for path in (
         Task.objects.select_for_update()
@@ -6495,6 +6503,25 @@ class TaskListPagination(ScheduleFetchPagination):
         return list(self.page)
 
 
+class _NumericWbsOrderingFilter(filters.OrderingFilter):
+    """``OrderingFilter`` that sorts ``wbs_path`` numerically per label (#4854).
+
+    DRF would emit ``ORDER BY wbs_path``, which compares ltree labels as text so
+    "10" sorts before "2" once a level has ten siblings. Swapping in the
+    ``wbs_sort_key`` expression keeps the query on ``task_proj_wbs_sort_idx``.
+    """
+
+    def filter_queryset(self, request: Request, queryset: Any, view: Any) -> Any:
+        ordering = self.get_ordering(request, queryset, view)
+        if not ordering:
+            return queryset
+        terms = [
+            wbs_order(descending=term.startswith("-")) if term.lstrip("-") == "wbs_path" else term
+            for term in ordering
+        ]
+        return queryset.order_by(*terms)
+
+
 @extend_schema_view(
     update=extend_schema(
         # TaskWriteResponse, not Task: a successful write can carry a ``warnings`` array
@@ -6805,7 +6832,7 @@ class TaskViewSet(
     # queryset instead of the fully annotated one — see its docstring and
     # `list()`/`get_queryset()` below.
     pagination_class = TaskListPagination
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [filters.SearchFilter, _NumericWbsOrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
     # No `ordering = [...]` override (#2814, removes the #2807 workaround). #2807
@@ -16206,7 +16233,7 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 wbs_path__regex=_ROOT_WBS_RE,
             )
             .select_related("project", "assignee")
-            .order_by("priority_rank", "wbs_path", "name")
+            .order_by("priority_rank", wbs_order(), "name")
         )
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:

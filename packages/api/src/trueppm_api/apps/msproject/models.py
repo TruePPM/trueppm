@@ -67,6 +67,8 @@ class ImportRequest(models.Model):
     requested_at = models.DateTimeField(auto_now_add=True)
     dispatched_at = models.DateTimeField(null=True, blank=True)
     celery_task_id = models.CharField(max_length=255, blank=True, default="")
+    # Terminal outcome detail; a DEAD row carries ``{"error": "<human reason>"}``.
+    result_summary = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["requested_at"]

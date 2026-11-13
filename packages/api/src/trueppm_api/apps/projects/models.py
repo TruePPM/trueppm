@@ -20,6 +20,7 @@ from django.db.models.functions import Lower, Upper
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
+from trueppm_api.apps.projects.wbs_paths import WbsSortKey
 from trueppm_api.apps.scheduling.models import MCAttributionAudience
 from trueppm_api.fields import LtreeField
 
@@ -4185,9 +4186,12 @@ class Task(VersionedModel):
 
     class Meta:
         db_table = "projects_task"
-        ordering = ["wbs_path", "name"]
+        # Numeric-aware: a bare "wbs_path" sorts labels as text, so "10" lands before "2"
+        # (#4854). ``task_proj_wbs_sort_idx`` below serves this order.
+        ordering = [WbsSortKey("wbs_path"), "name"]
         indexes = [
             models.Index(fields=["project"]),
+            models.Index("project", WbsSortKey("wbs_path"), "name", name="task_proj_wbs_sort_idx"),
             # Covers the default list ordering (`Meta.ordering` above), which
             # `GET /api/v1/tasks/` now actually reaches (#2814 removed the GROUP BY
             # that used to sit between this queryset and its ORDER BY, sinking the

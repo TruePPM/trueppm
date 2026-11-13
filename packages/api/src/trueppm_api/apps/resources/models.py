@@ -83,6 +83,11 @@ class Resource(VersionedModel):
     name = models.CharField(max_length=255)
     email = models.EmailField(blank=True)
     job_role = models.CharField(max_length=120, blank=True)
+    # The organization's own reference for this person (payroll/employee ID, badge
+    # number, directory username). Free text and deliberately not unique: it is an
+    # OSS-side seam that an enterprise HRIS connector matches against, not an
+    # identity this install enforces. Treated like ``email`` for exposure (HR data).
+    employee_id = models.CharField(max_length=64, blank=True, default="")
     calendar = models.ForeignKey(
         Calendar,
         on_delete=models.PROTECT,

@@ -59,6 +59,7 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
     TaskRelation,
 )
+from trueppm_api.apps.projects.wbs_paths import wbs_order
 from trueppm_api.apps.resources.models import (
     ProjectResource,
     Resource,
@@ -811,7 +812,7 @@ class _Exporter:
         # dropped rather than emitting an invalid "None" path.
         tasks = list(
             Task.objects.filter(project=project, is_deleted=False, wbs_path__isnull=False).order_by(
-                "wbs_path", "pk"
+                wbs_order(), "pk"
             )
         )
         self._project_tasks[project.pk] = tasks

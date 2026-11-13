@@ -23,6 +23,34 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from django.db.models import Func, TextField
+from django.db.models.expressions import OrderBy
+
+
+class WbsSortKey(Func):
+    """``wbs_sort_key(wbs_path)`` — the numeric-aware sort key for a WBS path (#4854).
+
+    ``ltree`` compares label by label as *text*, so with ten or more siblings "10"
+    and "11" sort before "2" wherever a bare ``order_by("wbs_path")`` is displayed or
+    exported. The SQL function (created by ``projects.0170``) pads every all-digit
+    label to a fixed width and returns ``text[]``, which compares element-wise, so
+    ``1.2`` < ``1.10``. Non-numeric labels pass through unchanged. The function is
+    IMMUTABLE, which is what lets ``task_proj_wbs_sort_idx`` serve ``Task.Meta.ordering``
+    exactly as ``task_proj_wbs_name_idx`` served the text order.
+
+    Use :func:`wbs_order` rather than ``order_by("wbs_path")`` for anything a person
+    reads or a file carries. Lock-ordering queries (``select_for_update``) only need
+    a consistent order, not a numeric one, and may keep the bare column.
+    """
+
+    function = "wbs_sort_key"
+    output_field = TextField()  # type: ignore[assignment]  # text[]; only ever ordered on
+
+
+def wbs_order(field: str = "wbs_path", *, descending: bool = False) -> OrderBy:
+    """An ``order_by`` term that sorts ``field`` numerically per label (#4854)."""
+    return WbsSortKey(field).desc() if descending else WbsSortKey(field).asc()
+
 
 def min_root_ordinal(paths: Iterable[str | None]) -> int | None:
     """The smallest numeric root label in ``paths``, or ``None`` if there is none.

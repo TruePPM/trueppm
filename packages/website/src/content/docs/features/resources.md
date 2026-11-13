@@ -1,6 +1,7 @@
 ---
 title: Resources & Skills
 description: Maintain a Workspace resource catalog with skills and proficiency, build per-project rosters, and assign people to tasks with fractional capacity — with skill-fit and overallocation warnings.
+documentedFor: "0.5"
 ---
 
 This is for a resource manager or PM who staffs projects and wants to see who's available and who's overloaded. TruePPM models the people who do the work as **resources**. Resources live in a
@@ -21,6 +22,17 @@ A **resource** has a name, email, job role, an optional calendar (to model indiv
 availability), and a **max units** value expressing capacity — `1.0` is a full-time
 equivalent, `0.5` is half-time. Resources are Workspace-level: create them once and use
 them across projects.
+
+A resource can also carry an **employee ID** — your organization's own reference for the
+person (a payroll or HR number, a badge number, a directory username). It is free text of
+up to 64 characters, optional, and not required to be unique. Like `email`, it is HR data:
+only a workspace Admin can read or set it, and it is omitted from every other caller's
+responses. It is the field an HR-system integration matches resources against.
+
+:::note[Ships in 0.5]
+The employee ID field lands in 0.5. In the current release a resource has no field for your
+organization's own reference.
+:::
 
 ### Deactivating a resource
 
