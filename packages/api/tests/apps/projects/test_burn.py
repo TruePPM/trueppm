@@ -15,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
@@ -115,7 +116,9 @@ def test_default_window_is_project_start_to_today(project: Project, member: obje
     # wall clock passes that date by MAX_BURN_WINDOW_DAYS the defaulted window is
     # clamped (#3566) and this assertion would start failing on a calendar date
     # rather than on a code change.
-    Project.objects.filter(pk=project.pk).update(start_date=date.today() - timedelta(days=30))
+    Project.objects.filter(pk=project.pk).update(
+        start_date=timezone.localdate() - timedelta(days=30)
+    )
     project.refresh_from_db()
     _create_tasks(project, 1)
     c = _client(member)
@@ -138,7 +141,7 @@ def test_burndown_actual_is_remaining(project: Project, member: object) -> None:
     tasks[1].status = TaskStatus.COMPLETE
     tasks[1].save()
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"chart_type": "burndown", "since": today, "until": today},
@@ -155,7 +158,7 @@ def test_burnup_actual_is_completed(project: Project, member: object) -> None:
     tasks[0].status = TaskStatus.COMPLETE
     tasks[0].save()
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"chart_type": "burnup", "since": today, "until": today},
@@ -175,7 +178,7 @@ def test_burnup_actual_is_completed(project: Project, member: object) -> None:
 def test_burndown_ideal_starts_at_scope_ends_at_zero(project: Project, member: object) -> None:
     _create_tasks(project, 10)
     c = _client(member)
-    today = date.today()
+    today = timezone.localdate()
     since = (today - timedelta(days=4)).isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
@@ -190,7 +193,7 @@ def test_burndown_ideal_starts_at_scope_ends_at_zero(project: Project, member: o
 def test_burnup_ideal_starts_at_zero_ends_at_scope(project: Project, member: object) -> None:
     _create_tasks(project, 10)
     c = _client(member)
-    today = date.today()
+    today = timezone.localdate()
     since = (today - timedelta(days=4)).isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
@@ -212,7 +215,7 @@ def test_metric_points_sums_story_points(project: Project, member: object) -> No
     tasks[0].status = TaskStatus.COMPLETE
     tasks[0].save()
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"metric": "points", "since": today, "until": today},
@@ -233,7 +236,7 @@ def test_baseline_series_present_only_when_active_baseline(
 ) -> None:
     _create_tasks(project, 2)
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(f"/api/v1/projects/{project.pk}/burn/", {"since": today, "until": today})
     assert "baseline_series" not in resp.data
 
@@ -245,7 +248,7 @@ def test_baseline_series_present_only_when_active_baseline(
         baseline=baseline,
         task_id=Task.objects.first().pk,
         task_name="T0",
-        finish=date.today() + timedelta(days=2),
+        finish=timezone.localdate() + timedelta(days=2),
         duration=1,
     )
     resp = c.get(f"/api/v1/projects/{project.pk}/burn/", {"since": today, "until": today})
@@ -270,7 +273,7 @@ def test_baseline_series_omitted_when_baseline_lacks_cpm_dates(
     same shape as having no active baseline at all.
     """
     tasks = _create_tasks(project, 2)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     baseline = Baseline.objects.create(
         project=project, name="Pre-CPM", is_active=True, has_cpm_dates=False
     )
@@ -285,7 +288,7 @@ def test_baseline_series_omitted_when_baseline_lacks_cpm_dates(
         baseline=baseline,
         task_id=tasks[1].pk,
         task_name=tasks[1].name,
-        finish=date.today() + timedelta(days=2),
+        finish=timezone.localdate() + timedelta(days=2),
         duration=1,
     )
     c = _client(member)
@@ -305,7 +308,7 @@ def test_baseline_series_omitted_when_baseline_lacks_cpm_dates_points_metric(
     story_points) is separate code from the tasks-metric path above.
     """
     tasks = _create_tasks(project, 2, points=5)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     baseline = Baseline.objects.create(
         project=project, name="Pre-CPM", is_active=True, has_cpm_dates=False
     )
@@ -320,7 +323,7 @@ def test_baseline_series_omitted_when_baseline_lacks_cpm_dates_points_metric(
         baseline=baseline,
         task_id=tasks[1].pk,
         task_name=tasks[1].name,
-        finish=date.today() + timedelta(days=2),
+        finish=timezone.localdate() + timedelta(days=2),
         duration=1,
     )
     c = _client(member)
@@ -340,7 +343,7 @@ def test_baseline_series_omitted_when_baseline_lacks_cpm_dates_points_metric(
 @pytest.mark.django_db
 def test_invalid_chart_type_returns_400(project: Project, member: object) -> None:
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"chart_type": "spaghetti", "since": today, "until": today},
@@ -351,7 +354,7 @@ def test_invalid_chart_type_returns_400(project: Project, member: object) -> Non
 @pytest.mark.django_db
 def test_invalid_metric_returns_400(project: Project, member: object) -> None:
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"metric": "biscuits", "since": today, "until": today},
@@ -395,12 +398,12 @@ def test_far_future_until_returns_400_naming_the_bound(project: Project, member:
     c = _client(member)
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
-        {"since": date.today().isoformat(), "until": "9999-12-31"},
+        {"since": timezone.localdate().isoformat(), "until": "9999-12-31"},
     )
     assert resp.status_code == 400
     detail = resp.data["detail"]
     assert str(MAX_BURN_HORIZON_DAYS) in detail
-    latest_allowed = (date.today() + timedelta(days=MAX_BURN_HORIZON_DAYS)).isoformat()
+    latest_allowed = (timezone.localdate() + timedelta(days=MAX_BURN_HORIZON_DAYS)).isoformat()
     assert latest_allowed in detail
 
 
@@ -417,7 +420,7 @@ def test_far_future_since_and_until_returns_400(project: Project, member: object
 
 @pytest.mark.django_db
 def test_span_over_limit_returns_400_naming_the_limit(project: Project, member: object) -> None:
-    until = date.today()
+    until = timezone.localdate()
     since = until - timedelta(days=MAX_BURN_WINDOW_DAYS + 1)
     c = _client(member)
     resp = c.get(
@@ -430,7 +433,7 @@ def test_span_over_limit_returns_400_naming_the_limit(project: Project, member: 
 
 @pytest.mark.django_db
 def test_span_exactly_at_limit_returns_200(project: Project, member: object) -> None:
-    until = date.today()
+    until = timezone.localdate()
     since = until - timedelta(days=MAX_BURN_WINDOW_DAYS)
     c = _client(member)
     resp = c.get(
@@ -449,7 +452,9 @@ def test_defaulted_window_is_clamped_not_rejected(project: Project, member: obje
     response echoes the window it actually used.
     """
     # .update() rather than .save() so no project-edit side effects fire here.
-    Project.objects.filter(pk=project.pk).update(start_date=date.today() - timedelta(days=900))
+    Project.objects.filter(pk=project.pk).update(
+        start_date=timezone.localdate() - timedelta(days=900)
+    )
     c = _client(member)
     resp = c.get(f"/api/v1/projects/{project.pk}/burn/")
     assert resp.status_code == 200
@@ -467,7 +472,9 @@ def test_empty_since_is_clamped_not_rejected(project: Project, member: object) -
     UI, which drops the empty value — but a client serializing an empty date
     field sends exactly this.
     """
-    Project.objects.filter(pk=project.pk).update(start_date=date.today() - timedelta(days=900))
+    Project.objects.filter(pk=project.pk).update(
+        start_date=timezone.localdate() - timedelta(days=900)
+    )
     c = _client(member)
     resp = c.get(f"/api/v1/projects/{project.pk}/burn/?since=")
     assert resp.status_code == 200
@@ -481,7 +488,9 @@ def test_empty_since_is_clamped_not_rejected(project: Project, member: object) -
 def test_clamped_flag_true_when_defaulted_window_shortened(
     project: Project, member: object, chart_type: str
 ) -> None:
-    Project.objects.filter(pk=project.pk).update(start_date=date.today() - timedelta(days=900))
+    Project.objects.filter(pk=project.pk).update(
+        start_date=timezone.localdate() - timedelta(days=900)
+    )
     resp = _client(member).get(f"/api/v1/projects/{project.pk}/burn/", {"chart_type": chart_type})
     assert resp.status_code == 200
     assert resp.data["clamped"] is True
@@ -494,7 +503,7 @@ def test_clamped_flag_false_for_exactly_max_window_project(
     """A project exactly MAX_BURN_WINDOW_DAYS old echoes the same span a clamp does,
     but nothing was dropped, so ``clamped`` must be False (#4965)."""
     Project.objects.filter(pk=project.pk).update(
-        start_date=date.today() - timedelta(days=MAX_BURN_WINDOW_DAYS)
+        start_date=timezone.localdate() - timedelta(days=MAX_BURN_WINDOW_DAYS)
     )
     resp = _client(member).get(f"/api/v1/projects/{project.pk}/burn/")
     assert resp.status_code == 200
@@ -511,7 +520,7 @@ def test_clamped_flag_false_for_short_and_explicit_windows(
     c = _client(member)
     resp = c.get(f"/api/v1/projects/{project.pk}/burn/")
     assert resp.data["clamped"] is False
-    until = date.today()
+    until = timezone.localdate()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"since": (until - timedelta(days=MAX_BURN_WINDOW_DAYS)).isoformat()},
@@ -568,7 +577,7 @@ def test_combined_returns_correct_shape(project: Project, member: object) -> Non
     tasks[0].status = TaskStatus.COMPLETE
     tasks[0].save()
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"chart_type": "combined", "since": today, "until": today},
@@ -588,7 +597,7 @@ def test_combined_remaining_plus_completed_equals_total(project: Project, member
         t.status = TaskStatus.COMPLETE
         t.save()
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"chart_type": "combined", "since": today, "until": today},
@@ -602,7 +611,7 @@ def test_combined_remaining_plus_completed_equals_total(project: Project, member
 def test_combined_invalid_metric_returns_400(project: Project, member: object) -> None:
     """Invalid metric with combined chart_type must return 400, not 500 (security-review fix)."""
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"chart_type": "combined", "metric": "biscuits", "since": today, "until": today},
@@ -617,7 +626,7 @@ def test_combined_metric_points(project: Project, member: object) -> None:
     tasks[0].status = TaskStatus.COMPLETE
     tasks[0].save()
     c = _client(member)
-    today = date.today().isoformat()
+    today = timezone.localdate().isoformat()
     resp = c.get(
         f"/api/v1/projects/{project.pk}/burn/",
         {"chart_type": "combined", "metric": "points", "since": today, "until": today},
@@ -641,8 +650,8 @@ def test_combined_replays_history_once(project: Project, member: object) -> None
     """
     _create_tasks(project, 3)
     c = _client(member)
-    since = (date.today() - timedelta(days=5)).isoformat()
-    until = date.today().isoformat()
+    since = (timezone.localdate() - timedelta(days=5)).isoformat()
+    until = timezone.localdate().isoformat()
     with CaptureQueriesContext(connection) as ctx:
         resp = c.get(
             f"/api/v1/projects/{project.pk}/burn/",
@@ -661,7 +670,7 @@ def test_baseline_series_uses_story_points_when_metric_is_points(
 ) -> None:
     """Baseline overlay must sum story_points, not task count, when metric=points (#395)."""
     tasks = _create_tasks(project, 3, points=5)
-    today = date.today()
+    today = timezone.localdate()
     baseline = Baseline.objects.create(
         project=project, name="B", is_active=True, has_cpm_dates=True
     )

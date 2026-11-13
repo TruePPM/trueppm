@@ -146,6 +146,7 @@ export function BurnChart({
         scopeCaption={d.scopeCaption}
         variant={variant}
         scopeChanges={d.scopeChanges}
+        hasIdeal={d.points?.some((p) => p.ideal !== null) ?? false}
       />
     </section>
   );
@@ -183,6 +184,7 @@ interface BurnChartFooterProps {
   scopeCaption: string | null;
   variant: BurnVariant;
   scopeChanges: Parameters<typeof BurnLegend>[0]['scopeChanges'];
+  hasIdeal: boolean;
 }
 
 /**
@@ -202,6 +204,7 @@ function BurnChartFooter({
   scopeCaption,
   variant,
   scopeChanges,
+  hasIdeal,
 }: BurnChartFooterProps) {
   const showTrend = isSprintCtx && trendAhead !== null && !isEmpty && !isLoading;
   const showCaption = isSprintCtx && scopeCaption && !isLoading;
@@ -221,7 +224,7 @@ function BurnChartFooter({
           {scopeCaption}
         </p>
       )}
-      {showLegend && <BurnLegend variant={variant} scopeChanges={scopeChanges} />}
+      {showLegend && <BurnLegend variant={variant} scopeChanges={scopeChanges} hasIdeal={hasIdeal} />}
     </>
   );
 }

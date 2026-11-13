@@ -104,7 +104,7 @@ function projectEmpty() {
   );
 }
 
-function sprintWithData() {
+function sprintWithData(sprintOverrides: Record<string, unknown> = {}) {
   mockUseBurnChart.mockReturnValue(
     asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
   );
@@ -136,6 +136,7 @@ function sprintWithData() {
           closed_at: null,
           created_at: '2026-04-01T00:00:00Z',
           updated_at: '2026-04-01T00:00:00Z',
+          ...sprintOverrides,
         },
         snapshots: [
           {
@@ -700,6 +701,25 @@ describe('BurnChart — date range controls', () => {
     fireEvent.change(toInput, { target: { value: '2026-04-14' } });
     expect(fromInput).toHaveValue('2026-04-01');
     expect(toInput).toHaveValue('2026-04-14');
+  });
+});
+
+describe('BurnChart — Ideal legend follows the commitment (#4964)', () => {
+  // jsdom gives Recharts no layout, so we assert at the legend, which is driven by
+  // the same normalized points handed to the <Line dataKey="ideal"> series: it is
+  // shown only when some point carries a non-null ideal (null y-values are skipped
+  // by Recharts, so an uncommitted sprint draws no line and must advertise none).
+  it('shows the Ideal legend item for a committed sprint', () => {
+    sprintWithData();
+    renderWithProviders(<BurnChart sprintId="sp-1" />);
+    expect(screen.getByText('Ideal', { exact: true })).toBeInTheDocument();
+  });
+
+  it('hides the Ideal legend item when the sprint has no commitment', () => {
+    sprintWithData({ committed_points: null, committed_task_count: null });
+    renderWithProviders(<BurnChart sprintId="sp-1" />);
+    expect(screen.getByText('Actual', { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText('Ideal', { exact: true })).not.toBeInTheDocument();
   });
 });
 
