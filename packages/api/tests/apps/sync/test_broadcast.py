@@ -360,12 +360,10 @@ def test_seed_board_event_sequences_starts_counters_above_old_global_ids(
     from django.db import connection
 
     from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.sync.backfill import seed_board_event_sequences
     from trueppm_api.apps.sync.broadcast import _persist_board_event
     from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
-    from trueppm_api.apps.sync.sequence import (
-        BOARD_EVENT_SEQ_UPGRADE_OFFSET,
-        seed_board_event_sequences,
-    )
+    from trueppm_api.apps.sync.sequence import BOARD_EVENT_SEQ_UPGRADE_OFFSET
 
     other = Project.objects.create(
         name="Other", start_date=date(2026, 1, 1), calendar=replay_project.calendar
@@ -1045,3 +1043,30 @@ def test_every_waived_event_is_in_the_frozen_set() -> None:
     """
     unknown = sorted(set(LEDGER.unhandled) - FROZEN_WS_EVENT_TYPES)
     assert not unknown, f"waived events absent from FROZEN_WS_EVENT_TYPES: {unknown}"
+
+
+@pytest.mark.django_db
+def test_seed_board_event_sequences_floor_is_zero_when_identity_never_called(
+    replay_project: Any,
+) -> None:
+    """A never-called identity sequence (``is_called = false``) must give a floor of 0,
+    so a project with no events is seeded at exactly ``0 + OFFSET``."""
+    from django.db import connection
+
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.sync.backfill import seed_board_event_sequences
+    from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
+    from trueppm_api.apps.sync.sequence import BOARD_EVENT_SEQ_UPGRADE_OFFSET
+
+    assert not BoardEvent.objects.exists()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_get_serial_sequence(%s, 'id')", [BoardEvent._meta.db_table])
+        seq_name = cursor.fetchone()[0]
+        cursor.execute("SELECT setval(%s, 1, false)", [seq_name])
+
+    seed_board_event_sequences(BoardEvent, BoardEventSequence, Project, connection)
+
+    assert (
+        BoardEventSequence.objects.get(project=replay_project).value
+        == BOARD_EVENT_SEQ_UPGRADE_OFFSET
+    )

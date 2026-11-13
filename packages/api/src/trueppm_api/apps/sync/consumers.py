@@ -392,7 +392,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
           ``latest_seq`` re-baselines it.
         - A global-id cursor from before or during the #4386 upgrade, for a project
           that existed at the upgrade, is below the project's seed
-          (``seed_board_event_sequences``, offset by
+          (``backfill.seed_board_event_sequences``, offset by
           ``BOARD_EVENT_SEQ_UPGRADE_OFFSET``). It is owed more events than carry a
           ``seq``, so it falls into the "fewer rows than owed" case below and
           resyncs.

@@ -147,7 +147,7 @@ class BoardEvent(models.Model):
     leaked instance-wide event volume to every project member.
 
     ``seq`` is NULL on two kinds of row: those written before the #4386 migration,
-    which deliberately did not renumber them (``seed_board_event_sequences``), and
+    which deliberately did not renumber them (``backfill.seed_board_event_sequences``), and
     those a pod still running the old code INSERTs during a rolling update. Both are
     live-only. The replay query filters ``seq`` non-null and the allocator never
     counted them, so they neither create a false gap nor get replayed. Rows are reaped past

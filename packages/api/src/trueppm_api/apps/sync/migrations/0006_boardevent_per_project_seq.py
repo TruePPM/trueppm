@@ -22,7 +22,7 @@ from django.db import migrations, models
 
 
 def _seed(apps: Any, schema_editor: Any) -> None:
-    from trueppm_api.apps.sync.sequence import seed_board_event_sequences
+    from trueppm_api.apps.sync.backfill import seed_board_event_sequences
 
     seed_board_event_sequences(
         apps.get_model("sync", "BoardEvent"),
