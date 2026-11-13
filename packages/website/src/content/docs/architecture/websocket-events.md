@@ -95,8 +95,9 @@ WebSocket `event_type` values follow one pattern:
 Examples: `task_created`, `task_updated`, `task_deleted`, `dependency_accepted`,
 `baseline_activated`, `roster_changed`, `sprint_retro_updated`,
 `task_run_started`, `slip_conflicts_updated`. The `task_run_*` family
-(`task_run_started`, `task_run_progress`, `task_run_completed`, `task_run_failed`,
-`task_run_cancelled`) follows the same rule with a two-word resource. New events
+(`task_run_started`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`)
+follows the same rule with a two-word resource; `task_run_progress` is the exception
+and is grandfathered below. New events
 **must** conform to this shape.
 
 Two deliberate qualifiers:
@@ -110,11 +111,16 @@ Two deliberate qualifiers:
 - **A handful of shipped strings predate the rule.** Bulk and collection events use
   a plural or non-`<resource>_<verb>` form — `tasks_bulk_mutated`,
   `tasks_reordered`, `tasks_restructured`, `phases_reordered`, `backlog_reranked`,
-  `risks_imported`. These are **grandfathered**: they are part of the frozen
-  contract and will not be renamed mid-line. New events do not get the same
-  latitude — conform to `<resource>_<past-tense-verb>`. The grandfathered strings
-  are normalized only at the 1.0 wire-freeze, where a one-time breaking rename is
-  acceptable.
+  `risks_imported`. Four more break the grammar in a different way:
+  `presence_join` and `presence_leave` (present tense, not past; shipped in 0.2)
+  and `cpm_complete` and `cpm_error` (no verb at all; shipped in 0.1). Three more
+  shipped in 0.3 and break the grammar too: `comment_created` (no resource noun
+  before the verb), `flagged_for_backlog` (no past-tense verb), and
+  `task_run_progress` (a noun, not a past-tense verb). These are
+  **grandfathered**: they predate the rule, are part of the frozen contract, and
+  will not be renamed mid-line. New events do not get the same latitude — conform
+  to `<resource>_<past-tense-verb>`. The grandfathered strings are normalized only
+  at the 1.0 wire-freeze, where a one-time breaking rename is acceptable.
 
 ## The frozen contract
 

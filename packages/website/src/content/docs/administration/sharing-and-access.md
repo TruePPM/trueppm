@@ -1,7 +1,6 @@
 ---
 title: Sharing & Access Inheritance
 description: How public sharing and guest access inherit from the workspace down to programs and projects, who can override each scope, and which General settings live at which scope.
-documentedFor: "0.4"
 ---
 
 Two access settings — **public sharing** and **guest access** — are set once at the

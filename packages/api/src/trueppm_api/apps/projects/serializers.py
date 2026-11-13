@@ -1475,8 +1475,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         Prefers the viewset's ``_my_role`` annotation (one scalar per row, no N+1) and
         falls back to the request-scoped role lookup when it is absent, like
-        ``can_author``. Fails closed without a request. No workspace-admin bypass:
-        project content has none (``live_member_project_ids``).
+        ``can_author``. Fails closed without a request. No implicit workspace-admin bypass:
+        a workspace Admin must hold a membership, which they can confer on
+        themselves through a group link (``live_member_project_ids``).
         """
         # ``hasattr``, not ``is None``: on an annotated list a NULL ``_my_role`` means
         # "no membership" and is final. Treating it as "annotation absent" would run

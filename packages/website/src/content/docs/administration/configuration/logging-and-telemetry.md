@@ -1,7 +1,6 @@
 ---
 title: "Logging, telemetry and retention"
 description: "Log output, OpenTelemetry export, and data-retention settings."
-documentedFor: "0.4"
 ---
 
 ## Logging

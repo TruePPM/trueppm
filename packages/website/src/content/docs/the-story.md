@@ -1,7 +1,6 @@
 ---
 title: "The story — bridging two worlds"
 description: How TruePPM bridges agile sprint cadence and waterfall schedule rigor on a single data model.
-documentedFor: "0.4"
 sidebar:
   order: 1
 ---

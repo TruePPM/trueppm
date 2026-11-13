@@ -601,6 +601,20 @@ A group can never confer the **Owner** project role. The conferred role is
 validated to reject `Owner` at write time. This preserves the project last-Owner
 guard — ownership must always be explicitly granted to an individual.
 
+### Workspace Admins can grant themselves project access
+
+A workspace **Admin** has no implicit access to a project's content: reading a
+project still requires a project membership. But group management is a workspace
+Admin action, and it is not scoped to projects the Admin belongs to. An Admin can
+add themselves to a group, then link that group to **any** project with a
+conferred role up to **Admin**. The cascade then gives them that project role
+without the project Owner's consent. Treat the workspace **Admin** role as
+*effective project Admin on every project*, and grant it accordingly. The
+[Owner cap](#owner-cap) is the only ceiling: a group can never confer Owner.
+
+The group link records the Admin who created it, and the resulting memberships
+are tagged with their source group, so an auditor can trace the grant.
+
 ### Group endpoints
 
 | Method | Path | Access | Description |

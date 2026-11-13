@@ -1,7 +1,6 @@
 ---
 title: Task Labels
 description: Colored, filterable labels that categorize tasks across the board and schedule, independent of status, sprint, or WBS.
-documentedFor: "0.4"
 ---
 
 **Labels** are colored tags you attach to tasks to categorize work however your team finds useful — `bug`, `tech-debt`, `blocked-external`, `frontend` — completely independent of a task's status column, sprint, or place in the project outline. A task can carry several labels, and the board can be filtered to any of them.

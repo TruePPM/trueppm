@@ -1,7 +1,6 @@
 ---
 title: Valkey High Availability
 description: Why Valkey is load-bearing for real-time, async, and caching at once, which HA topologies TruePPM actually supports, and how to run it highly available without a commercial Redis license.
-documentedFor: "0.4"
 ---
 
 TruePPM uses **Valkey** — the BSD-3-Clause, Linux Foundation fork of Redis — for

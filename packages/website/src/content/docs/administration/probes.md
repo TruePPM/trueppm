@@ -1,7 +1,6 @@
 ---
 title: Startup, Readiness, and Liveness Probes
 description: What each TruePPM component's health probe actually checks, why it is shaped that way, and what to do when it fails.
-documentedFor: "0.4"
 ---
 
 Every TruePPM component ships with a probe that answers one of three questions,

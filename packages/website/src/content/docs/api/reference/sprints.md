@@ -1,7 +1,6 @@
 ---
 title: "Sprints and estimation API"
 description: "Sprint cadence generation, sprint–milestone binding, scope and duration changes, estimation poker, retro items and velocity suggestions."
-documentedFor: "0.4"
 ---
 
 ## Create a single sprint

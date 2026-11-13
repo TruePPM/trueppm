@@ -1,7 +1,6 @@
 ---
 title: Multi-team Sprints lens
 description: Aggregated sprint health across every project where the user has open assignments.
-documentedFor: "0.4"
 ---
 
 :::note[0.1]

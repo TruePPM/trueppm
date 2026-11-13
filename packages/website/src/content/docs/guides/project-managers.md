@@ -1,7 +1,6 @@
 ---
 title: For Project Managers
 description: How TruePPM helps project managers build reliable schedules, track the critical path, run probabilistic risk analysis, and stay in sync with agile delivery teams.
-documentedFor: "0.4"
 ---
 
 You manage schedules, track progress against commitments, and need to give stakeholders delivery dates they can trust. TruePPM gives you real scheduling math — not just bars on a timeline — and connects that schedule to your team's actual agile delivery without any manual reconciliation.

@@ -1,7 +1,6 @@
 ---
 title: Program schedule — the cross-project critical path
 description: One read-only timeline across a program's projects, with the program-true critical path highlighted across project lanes and cross-project dependencies drawn between them.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]

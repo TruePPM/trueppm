@@ -1,7 +1,6 @@
 ---
 title: Management Commands
 description: Django management commands for bootstrapping an admin account and seeding demo data, plus the maintenance commands that ship with TruePPM.
-documentedFor: "0.4"
 ---
 
 TruePPM ships a small set of **Django management commands** — one-off scripts you

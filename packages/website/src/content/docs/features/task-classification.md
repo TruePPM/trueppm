@@ -1,7 +1,6 @@
 ---
 title: Task classification
 description: Set a task's type, governance class, and delivery mode — what each field means, which of them the product reads today, and how the defaults follow your project's methodology.
-documentedFor: "0.4"
 ---
 
 Every task can be classified along three axes — its **Type**, its **Governance class**, and its **Delivery mode** — that describe *what kind of work it is*, *which governance model applies to it*, and *how it executes and rolls up*. This is for anyone setting up how a task is planned and tracked: a PM laying out a phase-gated plan, a Scrum team running sprints, or a hybrid team mixing both. These three fields have always been part of TruePPM's [unified data model](/features/unified-data-model/) and are set automatically by the demo seeds, but until now there was no way to change them yourself from the task editor.

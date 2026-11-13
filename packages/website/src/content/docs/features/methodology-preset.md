@@ -1,7 +1,6 @@
 ---
 title: Project methodology preset
 description: Tab visibility per planning model (Waterfall / Agile / Hybrid).
-documentedFor: "0.4"
 ---
 
 A project-level preset that tells TruePPM which planning model the team uses, and hides the irrelevant tabs by default. The API surface is unchanged — methodology hides tabs but does not gate routes.

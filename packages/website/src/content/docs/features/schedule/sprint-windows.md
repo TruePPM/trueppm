@@ -1,7 +1,6 @@
 ---
 title: "Sprint windows on the schedule"
 description: "How sprint windows are drawn on the Schedule, and what they tell a PM and a Scrum Master."
-documentedFor: "0.4"
 ---
 
 ## Sprint windows

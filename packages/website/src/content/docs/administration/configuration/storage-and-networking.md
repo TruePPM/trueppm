@@ -1,7 +1,6 @@
 ---
 title: "Object storage, TLS and split-origin deploys"
 description: "S3-compatible object storage (MinIO, SeaweedFS, and others), the TLS redirect posture, and the settings for deploys that split the web and API origins."
-documentedFor: "0.4"
 ---
 
 ## Object storage (S3-compatible)

@@ -1,7 +1,6 @@
 ---
 title: Audit log
 description: Review the workspace operational audit log — what administration events are recorded, who can read it, and how the OSS log relates to the Enterprise immutable audit trail.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3 (alpha)]

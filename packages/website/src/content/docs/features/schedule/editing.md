@@ -1,7 +1,6 @@
 ---
 title: "Editing the schedule"
 description: "The task detail drawer, dependency types, creating dependencies, and moving unscheduled tasks and backlog ideas onto the timeline."
-documentedFor: "0.4"
 ---
 
 ## Task detail drawer

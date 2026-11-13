@@ -1,7 +1,6 @@
 ---
 title: OpenShift Deployment
 description: Running the TruePPM Helm chart on OpenShift — what already satisfies the restricted-v2 SCC, the values you must override, Ingress-to-Route conversion, and what does not work today.
-documentedFor: "0.4"
 ---
 
 This page audits the TruePPM Helm chart (`packages/helm/`) against OpenShift's

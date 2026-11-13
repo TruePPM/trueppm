@@ -1,7 +1,6 @@
 ---
 title: Connect your MCP client
 description: Wire Claude Desktop, Cursor, or Zed to your self-hosted TruePPM MCP server — mint a read-only token, drop in the config snippet, and ask your assistant real questions of the live schedule.
-documentedFor: "0.4"
 ---
 
 This page is the client-side companion to the

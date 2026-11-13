@@ -1,5 +1,4 @@
 ---
-documentedFor: "0.4"
 title: View focus
 description: A per-user lens that organizes each project around the hat you're wearing — PM, Scrum Master, or both — without changing anyone's access.
 ---

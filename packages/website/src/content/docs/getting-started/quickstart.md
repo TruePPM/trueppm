@@ -1,7 +1,6 @@
 ---
 title: Quickstart
 description: Get from a fresh clone to a populated workspace in five minutes.
-documentedFor: "0.4"
 ---
 
 The fastest path from `git clone` to a workspace you can actually click around. Two routes: the **demo seed** — a ready-made sample program you load with one command, so you have realistic data to explore instead of an empty install — (recommended for evaluation), and the **API tutorial** (recommended for learning the data model).

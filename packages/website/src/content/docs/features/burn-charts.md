@@ -1,7 +1,6 @@
 ---
 title: Burn charts
 description: Project-level burn down, burn up, and combined progress charts in the Reports tab.
-documentedFor: "0.4"
 ---
 
 Burn charts help a PM, Scrum Master, or executive answer "are we still on track?" at a glance. TruePPM offers three standard progress charts for a single project: burn down (remaining work over time), burn up (completed work measured against how much scope you've taken on), and a combined view overlaying both. All three let you choose the unit on the vertical axis — story points or task count — so you can read them in the unit that matches your planning cadence.

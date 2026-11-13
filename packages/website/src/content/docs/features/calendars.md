@@ -1,7 +1,6 @@
 ---
 title: Calendars
 description: Working-day calendars define which days count toward task durations, so the schedule reflects real availability — weekends and holidays included — and record the hours per day that drive resource capacity.
-documentedFor: "0.4"
 ---
 
 This page is for a PM or scheduler who wants finish dates that reflect real availability,

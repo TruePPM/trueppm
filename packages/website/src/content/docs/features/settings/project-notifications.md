@@ -1,7 +1,6 @@
 ---
 title: Project notifications
 description: Per-project notification routing — pick which events reach you on which channel, set quiet hours, or pause everything for one project.
-documentedFor: "0.4"
 ---
 
 The **Project Settings → Notifications** page controls how a single project's events reach *you*. Every project member owns their own copy of this page: the toggles you set apply only to your account on this project, and there is no admin surface for editing another member's routing. Open it at **Project → Settings → Notifications**.

@@ -1,7 +1,6 @@
 ---
 title: How TruePPM Compares
 description: Named, dated comparison against the open-source PPM field and the commercial scheduling tools — including the head-to-heads TruePPM loses.
-documentedFor: "0.4"
 ---
 
 This page names competitors and cites sources. It also names the comparisons TruePPM

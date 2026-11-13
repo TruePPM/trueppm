@@ -1,7 +1,6 @@
 ---
 title: Risk Register
 description: Standards-aligned risk tracking with probability × impact scoring, task links, and real-time board integration.
-documentedFor: "0.4"
 ---
 
 :::note[0.1]

@@ -1,7 +1,6 @@
 ---
 title: For Product Owners
 description: How TruePPM helps Product Owners manage the backlog, forecast releases with velocity, and protect sprint scope — without losing sight of the program schedule.
-documentedFor: "0.4"
 ---
 
 You own the backlog and the release forecast. You make prioritization calls, protect the team's sprint capacity, and answer the executive question: "When does this feature ship?" TruePPM connects your backlog directly to the program schedule so those answers are data-driven, not guesswork.

@@ -1,7 +1,6 @@
 ---
 title: Change History
 description: Every change to a task, project, or dependency is recorded with a field-level diff, so you can see what changed, when, and (as an admin) who changed it.
-documentedFor: "0.4"
 ---
 
 :::note[Shipped in 0.2 (alpha)]

@@ -1,7 +1,6 @@
 ---
 title: Why now
 description: The ground under project management is shifting — incumbents are winding down self-hosting and bolting on AI that guesses. TruePPM's answer is self-hostable, computed-not-guessed, and built for the team.
-documentedFor: "0.4"
 ---
 
 Three shifts are happening at once under the project-management market. Each one, on its

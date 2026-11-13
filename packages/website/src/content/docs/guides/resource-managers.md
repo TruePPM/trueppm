@@ -1,7 +1,6 @@
 ---
 title: For Resource Managers
 description: How TruePPM helps resource managers track allocations, assign people to tasks, and plan capacity.
-documentedFor: "0.4"
 ---
 
 You allocate people across projects and need to spot conflicts before they become problems. TruePPM gives you per-task resource assignment within projects today, with cross-project visibility on the enterprise roadmap.

@@ -1,7 +1,6 @@
 ---
 title: Git-event automation
 description: Move task cards automatically when a linked pull/merge request opens or merges. Set up the per-project webhook, signing secret, task link, and provider configuration from Project → Settings → Integrations.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3 (alpha)]

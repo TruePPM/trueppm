@@ -1,7 +1,6 @@
 ---
 title: MCP server
 description: Operate the read-only TruePPM MCP server — transports (stdio, HTTP, SSE), Docker deployment, token scopes, and the security posture.
-documentedFor: "0.4"
 ---
 
 This is the operator's reference for `trueppm-mcp`, the read-only

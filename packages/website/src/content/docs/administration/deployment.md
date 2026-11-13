@@ -1,7 +1,6 @@
 ---
 title: Deployment
 description: Deploy TruePPM with Docker Compose, the Kubernetes Helm chart, or a single server managed by systemd — plus how to verify image and chart signatures.
-documentedFor: "0.4"
 ---
 
 :::caution[Pre-GA]

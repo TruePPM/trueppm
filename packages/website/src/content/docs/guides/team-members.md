@@ -1,7 +1,6 @@
 ---
 title: For Team Members
 description: How TruePPM keeps you focused on your work — board, sprints, tasks, and updates — without PM overhead.
-documentedFor: "0.4"
 ---
 
 You want to know what you're working on, move things forward, and stay in sync with your team. TruePPM is designed to minimize the overhead of project management for people doing the actual work.

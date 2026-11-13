@@ -1,7 +1,6 @@
 ---
 title: Baselines
 description: Capture an immutable snapshot of your schedule and compare planned dates against where the project actually stands.
-documentedFor: "0.4"
 ---
 
 A **baseline** is a frozen snapshot of your project's schedule at a point in time. Capture

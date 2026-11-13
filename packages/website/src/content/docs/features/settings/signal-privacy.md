@@ -1,7 +1,6 @@
 ---
 title: Signal privacy
 description: Govern how far each team signal — velocity, throughput rollup, and the retro pulse — may travel, on a team-owned ladder with an authorized ceiling.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]
