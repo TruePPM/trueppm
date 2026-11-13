@@ -296,7 +296,10 @@ short enough to be signal. Eight rules:
    four shapes without a comment: the model is created in the same migration (empty
    table), the migration declares `replaces=`, the same migration runs
    `AlterUniqueTogether` for that model (a `unique_together` conversion is already
-   enforced), or a `RunPython` precedes the constraint.
+   enforced), or a `RunPython` precedes the constraint. `AddField(unique=True)` is
+   not scanned: a new column has no pre-existing duplicate values unless a default is
+   supplied — a default-valued unique `AddField` on a populated table must carry a
+   repair or be rejected in review.
 
    Be honest about what that buys: an opt-out comment is a rubber stamp, exactly like
    `--update-baseline` on the docs gate, and it cannot stop a wrong answer. What it

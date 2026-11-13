@@ -42,6 +42,11 @@ provably cannot fail on data that is already there:
 * a ``RunPython`` appears earlier in the operations list — the repair-first pattern
   (``projects.0121``, and ``projects.0148`` after #3068).
 
+Not scanned: ``AddField(..., unique=True)``. A new column has no pre-existing
+duplicate values unless a default is supplied; a default-valued unique ``AddField``
+on a populated table fills every row with the same value and must carry a repair or
+be rejected in review.
+
 Be honest about the ceiling
 ---------------------------
 ``# safe-constraint:`` is an opt-out comment, and an opt-out comment is a rubber

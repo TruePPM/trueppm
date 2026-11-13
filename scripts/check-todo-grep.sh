@@ -502,6 +502,9 @@ fi
 
 if [ "${MODE:-drift}" = diff ]; then
   echo "OK: no STUB:/WIP: markers; no TODO(#NNN) this change adds or closes points at a closed issue."
+  if [ "$outage_skipped" = 1 ]; then
+    echo "NOTE: skipped rule 2 (closed-issue check): issues API unavailable."
+  fi
 else
   echo "OK: no STUB:/WIP: markers; TODO(#NNN) references all point at open issues."
 fi
