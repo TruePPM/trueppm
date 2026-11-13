@@ -713,7 +713,8 @@ def sprint_health(project_id: str | uuid.UUID) -> dict[str, Any]:
     from django.db.models import BooleanField, IntegerField, TextField
     from django.db.models.expressions import RawSQL
 
-    from trueppm_api.apps.projects.models import Sprint, SprintState, Task
+    from trueppm_api.apps.projects.models import Sprint, SprintState, Task, TaskStatus
+    from trueppm_api.apps.projects.serializers import evaluate_sprint_guardrails
 
     active_sprint_id = (
         Sprint.objects.filter(project_id=project_id, state=SprintState.ACTIVE, is_deleted=False)
@@ -758,7 +759,22 @@ def sprint_health(project_id: str | uuid.UUID) -> dict[str, Any]:
             # nosemgrep: avoid-raw-sql
             _l1=RawSQL(l1_sql, [], output_field=TextField()),  # nosec B611
         )
-        .values("is_milestone", "sprint_id", "_has_child", "_depth", "_l1")
+        .values(
+            "is_milestone",
+            "sprint_id",
+            "_has_child",
+            "_depth",
+            "_l1",
+            # Window-drift inputs (#1780): same effective window the assignment-time
+            # guardrail evaluates, joined in this one query so the signal adds no N+1.
+            "status",
+            "planned_start",
+            "early_start",
+            "early_finish",
+            "sprint__state",
+            "sprint__start_date",
+            "sprint__finish_date",
+        )
     )
 
     # Orphan: a leaf, non-milestone task with no sprint and no phase ancestor
@@ -782,6 +798,31 @@ def sprint_health(project_id: str | uuid.UUID) -> dict[str, Any]:
             and r["sprint_id"] == active_sprint_id
             and r["_l1"] is not None
         }
+    )
+
+    # Window drift: a task still open in a planned/active sprint whose scheduled
+    # window no longer overlaps the sprint. The assignment-time guardrail
+    # (``task_outside_sprint_window``) is one-shot, so a later Gantt drag or a
+    # CPM push past the sprint end was silent; this is the read-time half. Uses the
+    # exact predicate of ``evaluate_sprint_guardrails`` (the sole rule definition)
+    # and the same effective window (planned_start ?? early_start .. early_finish).
+    window_drift = sum(
+        1
+        for r in rows
+        if r["sprint_id"] is not None
+        and r["sprint__state"] in (SprintState.PLANNED, SprintState.ACTIVE)
+        and r["status"] != TaskStatus.COMPLETE
+        and not r["_has_child"]
+        and "task_outside_sprint_window"
+        in evaluate_sprint_guardrails(
+            has_children=False,
+            is_phase=False,
+            is_recurring=False,
+            task_start=r["planned_start"] or r["early_start"],
+            task_finish=r["early_finish"],
+            sprint_start=r["sprint__start_date"],
+            sprint_finish=r["sprint__finish_date"],
+        )
     )
 
     signals: list[dict[str, Any]] = []
@@ -816,6 +857,18 @@ def sprint_health(project_id: str | uuid.UUID) -> dict[str, Any]:
                 "detail": (
                     f"{summary_in_sprint} parent task"
                     f"{'' if summary_in_sprint == 1 else 's'} in a sprint"
+                ),
+            }
+        )
+    if window_drift > 0:
+        signals.append(
+            {
+                "key": "outside_sprint_window",
+                "count": window_drift,
+                "tone": "warn",
+                "detail": (
+                    f"{window_drift} task{'' if window_drift == 1 else 's'} "
+                    "scheduled outside the sprint's dates"
                 ),
             }
         )

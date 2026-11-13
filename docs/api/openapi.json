@@ -59216,7 +59216,7 @@
             },
             "MeWorkTask": {
                 "type": "object",
-                "description": "Flat, contributor-facing task row for ``GET /me/work/``.\n\nDeliberately omits every CPM field (``early_start``, ``late_finish``,\n``total_float``, ``wbs_path``, ``phase_id``) so the response carries no\nproject-management vocabulary into a contributor's surface. ``is_critical``\nis the one CPM-derived signal exposed — but as a single boolean the UI\nrenders as an icon with a plain-English tooltip (\"delays here delay the\nproject end date\"), not as the words \"critical path\".\n\n``due`` follows the ADR-0065 cascade:\n    actual_finish → planned_start → early_finish → sprint.finish_date.\n``due_source`` labels which step of the cascade produced the date so the\nUI can render \"Due May 30 (planned)\" vs \"Ends with Sprint 12\" — pure dates\nwithout their provenance erode contributor trust within a sprint.\n\n``scheduled_start`` / ``scheduled_finish`` are the task's SPAN (ADR-0752),\nexposed so a client can ask \"is this task scheduled during week W?\" — the\ntimesheet's zero-row rule (#4783). ``due`` cannot answer that: it is one\nend-ish date. They are the span, not the CPM remaining-work window\n(``early_start``), so they carry no float/criticality vocabulary.",
+                "description": "Flat, contributor-facing task row for ``GET /me/work/``.\n\nDeliberately omits every CPM field (``early_start``, ``late_finish``,\n``total_float``, ``wbs_path``, ``phase_id``) so the response carries no\nproject-management vocabulary into a contributor's surface. ``is_critical``\nis the one CPM-derived signal exposed — but as a single boolean the UI\nrenders as an icon with a plain-English tooltip (\"delays here delay the\nproject end date\"), not as the words \"critical path\".\n\n``due`` follows the ADR-0065 cascade:\n    actual_finish → planned_start → sprint.finish_date → early_finish.\n``due_source`` labels which step of the cascade produced the date so the\nUI can render \"Due May 30 (planned)\" vs \"Ends with Sprint 12\" — pure dates\nwithout their provenance erode contributor trust within a sprint.\n\n``scheduled_start`` / ``scheduled_finish`` are the task's SPAN (ADR-0752),\nexposed so a client can ask \"is this task scheduled during week W?\" — the\ntimesheet's zero-row rule (#4783). ``due`` cannot answer that: it is one\nend-ish date. They are the span, not the CPM remaining-work window\n(``early_start``), so they carry no float/criticality vocabulary.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -71634,10 +71634,11 @@
                 "enum": [
                     "orphan",
                     "phase_span",
-                    "summary_in_sprint"
+                    "summary_in_sprint",
+                    "outside_sprint_window"
                 ],
                 "type": "string",
-                "description": "* `orphan` - orphan\n* `phase_span` - phase_span\n* `summary_in_sprint` - summary_in_sprint",
+                "description": "* `orphan` - orphan\n* `phase_span` - phase_span\n* `summary_in_sprint` - summary_in_sprint\n* `outside_sprint_window` - outside_sprint_window",
                 "x-trueppm-enum": "open"
             },
             "ProjectStatusSummary": {

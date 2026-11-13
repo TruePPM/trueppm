@@ -19277,8 +19277,8 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                 _due=Coalesce(
                     "actual_finish",
                     "planned_start",
-                    "early_finish",
                     "sprint__finish_date",
+                    "early_finish",
                     output_field=DateField(),
                 ),
                 # Blocked-first ordering within a group (#484): the human blocker
@@ -19648,8 +19648,8 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                 _due=Coalesce(
                     "actual_finish",
                     "planned_start",
-                    "early_finish",
                     "sprint__finish_date",
+                    "early_finish",
                     output_field=DateField(),
                 )
             )
