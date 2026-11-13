@@ -171,6 +171,22 @@ describe('ProgramOverviewPage (#713)', () => {
     const reason = await screen.findByText('Needs a saved Monte Carlo run');
     expect(reason.className).toMatch(/text-neutral-text-secondary/);
     expect(reason.className).not.toMatch(/text-neutral-text-disabled/);
+    // Wraps instead of clipping to "Needs a saved M…" (#3609).
+    expect(reason.className).not.toMatch(/(^|\s)truncate(\s|$)/);
+  });
+
+  it('wraps KPI titles and uses four columns at lg, six at 2xl (#3609)', async () => {
+    mockApi(rollup({ kpis: { critical_tasks: { available: true, value: 12 } } }));
+    renderPage();
+    await screen.findByText('12');
+    const grid = screen.getByRole('region', { name: 'Program KPIs' }).firstElementChild as HTMLElement;
+    expect(grid.className).toMatch(/lg:grid-cols-4/);
+    expect(grid.className).toMatch(/2xl:grid-cols-6/);
+    expect(grid.className).not.toMatch(/lg:grid-cols-6/);
+    const card = screen.getByText('12').parentElement as HTMLElement;
+    const title = card.firstElementChild as HTMLElement;
+    expect(title.className).toMatch(/break-words/);
+    expect(title.className).not.toMatch(/(^|\s)truncate(\s|$)/);
   });
 
   it('says why the program health is unknown (rule 119, #4779)', async () => {

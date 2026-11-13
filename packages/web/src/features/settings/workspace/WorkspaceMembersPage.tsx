@@ -15,9 +15,21 @@ import { toast } from '@/components/Toast';
 import { FieldHelp } from '@/components/FieldHelp';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 import { filterMembers } from './filterMembers';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { CheckIcon, CloseIcon } from '@/components/Icons';
 import { escapeField } from '@/utils/exportCsv';
 import { useDownloadAnnouncer } from '@/hooks/useDownloadAnnouncer';
+
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T/;
+
+/** The API sends `last_active` as a raw ISO timestamp; render the calendar date instead. */
+function formatLastActive(value: string | null, fmtDateLong: (iso: string) => string): string {
+  if (!value) return '—';
+  if (!ISO_TIMESTAMP.test(value)) return value;
+  // An unparseable timestamp must never leak "Invalid Date" into the cell.
+  if (Number.isNaN(new Date(value).getTime())) return '—';
+  return fmtDateLong(value);
+}
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string; style?: CSSProperties }> = {
   // Admin is a distinct identity hue, not a status — the single-sourced violet
@@ -128,6 +140,7 @@ interface MemberTableRowProps {
 }
 
 function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTableRowProps) {
+  const { fmtDateLong } = useUserDateFormat();
   // Two-step destructive confirm: the ✕ reveals an inline "Remove? · Confirm ·
   // Cancel" control rather than firing the DELETE immediately, so a misclick
   // does not silently strip a member's workspace access.
@@ -186,9 +199,16 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
         )}
       </span>
       {/* Projects */}
-      <span className="tppm-mono text-[12px] text-neutral-text-secondary">{m.projectCount}</span>
+      <span className="tppm-mono text-[12px] text-neutral-text-secondary">
+        <span aria-hidden="true">{m.projectCount}</span>
+        <span className="sr-only">
+          {m.projectCount} {m.projectCount === 1 ? 'project' : 'projects'}
+        </span>
+      </span>
       {/* Last active */}
-      <span className="text-[12px] text-neutral-text-secondary">{m.lastActive ?? '—'}</span>
+      <span className="text-[12px] text-neutral-text-secondary">
+        {formatLastActive(m.lastActive, fmtDateLong)}
+      </span>
       {/* Status */}
       <span className="flex items-center gap-1.5">
         <span
@@ -625,10 +645,10 @@ export function WorkspaceMembersPage() {
 
       {/* Table */}
       <div className="px-6 pt-4 pb-8">
-        <div className="rounded-card border border-neutral-border overflow-hidden">
-          {/* Header */}
+        <div className="rounded-card border border-neutral-border overflow-clip">
+          {/* Header — sticky so column names stay in view on the long page */}
           <div
-            className="grid gap-2.5 px-3.5 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+            className="sticky top-0 z-10 grid gap-2.5 px-3.5 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px' }}
           >
             <span

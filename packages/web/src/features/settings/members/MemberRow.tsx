@@ -12,7 +12,7 @@ import { roleLabel } from '@/lib/roleLabels';
  * access and since when" — needs the calendar date a reviewer can screenshot,
  * including the year, since memberships span years.
  */
-function formatAccessDate(iso: string): string {
+export function formatAccessDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',

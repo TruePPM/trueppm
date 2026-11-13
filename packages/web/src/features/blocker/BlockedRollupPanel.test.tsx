@@ -107,6 +107,10 @@ describe('BlockedRollupPanel — project scope', () => {
     projectResult = { data: { count: 0, blocked: [], truncated: false }, isLoading: false };
     renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
     expect(screen.getByText(/No blocked tasks/)).toBeInTheDocument();
+    // The icon sits before the sentence, never inside it (#3623).
+    const msg = screen.getByText(/No blocked tasks/);
+    expect(msg.firstElementChild?.tagName.toLowerCase()).toBe('svg');
+    expect(msg.textContent).toMatch(/^No blocked tasks — when/);
   });
 });
 

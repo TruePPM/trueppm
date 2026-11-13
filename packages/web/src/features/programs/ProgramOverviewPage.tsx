@@ -227,7 +227,7 @@ function KpiCard({
 
   const body = (
     <>
-      <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary truncate">
+      <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary break-words">
         {label}
       </span>
       <span
@@ -239,7 +239,7 @@ function KpiCard({
           readable copy — a deferred KPI's plain-language reason, or a
           variance card's "vs baseline" — never an inert control, and
           `-disabled` falls below the WCAG AA contrast floor for text. */}
-      {sub && <span className="text-xs text-neutral-text-secondary tppm-mono truncate">{sub}</span>}
+      {sub && <span className="text-xs text-neutral-text-secondary tppm-mono break-words">{sub}</span>}
     </>
   );
 
@@ -266,7 +266,7 @@ function KpiCard({
 
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-4">
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
@@ -616,7 +616,7 @@ export function ProgramOverviewPage() {
             </div>
           ) : (
             <section aria-label="Program KPIs">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-4">
                 {kpiEntries.map(([key, entry]) => {
                   const k = renderKpi(key, entry);
                   const drill = programId ? kpiDrillTarget(key, entry, programId) : undefined;

@@ -2,7 +2,11 @@ import { screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { LandingContextHint, resolveLandingHint } from './LandingContextHint';
-import { LANDING_HINT_SEEN_KEY, LANDING_FALLBACK_NOTICE_SEEN_KEY } from './landing';
+import {
+  LANDING_HINT_SEEN_KEY,
+  LANDING_FALLBACK_NOTICE_SEEN_KEY,
+  LANDING_PROMPT_SEEN_KEY,
+} from './landing';
 
 const useCurrentUser = vi.fn();
 
@@ -25,6 +29,8 @@ function userWith(resolvedBy: string, intent: string, defaultLanding: string) {
 
 beforeEach(() => {
   localStorage.clear();
+  // The first-login picker has been seen, so the hint is free to render.
+  localStorage.setItem(LANDING_PROMPT_SEEN_KEY, '1');
   useCurrentUser.mockReset();
 });
 
@@ -55,6 +61,15 @@ describe('resolveLandingHint — seen-key gating (ADR-0129, #1181)', () => {
 
   it('shows nothing for a preference-resolved landing', () => {
     expect(resolveLandingHint('preference', 'my_work', 'my_work')).toBeNull();
+  });
+});
+
+describe('LandingContextHint — yields to the home picker (rule 363, #3616)', () => {
+  it('renders nothing while the first-login picker is eligible', () => {
+    localStorage.removeItem(LANDING_PROMPT_SEEN_KEY);
+    useCurrentUser.mockReturnValue(userWith('role_policy', 'my_work', 'auto'));
+    renderWithRouter(<LandingContextHint />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });
 
