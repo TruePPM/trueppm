@@ -607,7 +607,9 @@ def monte_carlo(
         max_tasks: Maximum number of tasks allowed, or ``None`` for no cap.
                    Default ``None`` (see ``max_runs``).
         sensitivity_cap: Maximum number of tasks returned in the duration
-                   sensitivity tornado. Default ``MC_SENSITIVITY_CAP``. The tornado
+                   sensitivity tornado. Default ``MC_SENSITIVITY_CAP``. This
+                   bounds the output only: every non-constant task is still ranked,
+                   so lowering it does not make the call faster. The tornado
                    is ranked over the first ``MC_SENSITIVITY_SUBSAMPLE`` runs, so
                    its cost stays flat as ``runs`` grows; P50/P80/P95 always use
                    every run.

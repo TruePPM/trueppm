@@ -12,6 +12,7 @@ from typing import (
 
 import networkx as nx
 
+from trueppm_scheduler._slots import pickle_as_field_dict
 from trueppm_scheduler.engine.errors import (
     CyclicDependencyError,
     InvalidScheduleInput,
@@ -152,7 +153,8 @@ def _canonical_cycle(g: nx.DiGraph[str]) -> list[str]:
     return [*path, start]
 
 
-@dataclass
+@pickle_as_field_dict
+@dataclass(slots=True)
 class CycleCheck:
     """Result of a dependency-graph cycle check (see :func:`find_cycle`).
 

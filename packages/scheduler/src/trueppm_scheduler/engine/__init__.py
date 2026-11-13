@@ -259,6 +259,9 @@ from trueppm_scheduler.engine.calendar_math import (
     _MIN_ORDINAL as _MIN_ORDINAL,
 )
 from trueppm_scheduler.engine.calendar_math import (
+    WorkingDayCounter as WorkingDayCounter,
+)
+from trueppm_scheduler.engine.calendar_math import (
     _advance_calendar_days as _advance_calendar_days,
 )
 from trueppm_scheduler.engine.calendar_math import (
@@ -776,6 +779,9 @@ from trueppm_scheduler.engine.summary import (
 )
 from trueppm_scheduler.engine.summary import (
     _resolve_endpoint_leaves as _resolve_endpoint_leaves,
+)
+from trueppm_scheduler.engine.summary import (
+    collect_leaves as collect_leaves,
 )
 from trueppm_scheduler.engine.summary import (
     expand_summary_dependencies as expand_summary_dependencies,

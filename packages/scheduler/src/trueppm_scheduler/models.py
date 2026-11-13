@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta
 from typing import Any, NoReturn, Self, get_args, get_type_hints
 
+from trueppm_scheduler._slots import pickle_as_field_dict
+
 _REPR_LIMIT = 200
 
 
@@ -112,7 +114,8 @@ class DeliveryMode(enum.Enum):
     SCRUM = "scrum"
 
 
-@dataclass(frozen=True)
+@pickle_as_field_dict
+@dataclass(frozen=True, slots=True)
 class DateRange:
     """A contiguous range of dates (inclusive on both ends).
 
@@ -182,7 +185,8 @@ class DateRange:
             raise InvalidScheduleInput(f"Invalid date range: {err}") from err
 
 
-@dataclass
+@pickle_as_field_dict
+@dataclass(slots=True)
 class Task:
     """A schedulable unit of work.
 
@@ -624,7 +628,8 @@ def _coerce_delivery_mode(d: dict[str, Any]) -> None:
         ) from err
 
 
-@dataclass
+@pickle_as_field_dict
+@dataclass(slots=True)
 class Dependency:
     """A precedence relationship between two tasks.
 
@@ -745,7 +750,8 @@ def _mask_days_between(lo: int, hi: int, mask: int) -> int:
     return count
 
 
-@dataclass
+@pickle_as_field_dict
+@dataclass(slots=True)
 class Calendar:
     """Defines working time for scheduling calculations.
 
@@ -845,7 +851,9 @@ class Calendar:
         # that list would be silently stale all over again (#2462).
         if name == "exceptions" and not isinstance(value, tuple):
             value = tuple(value)
-        super().__setattr__(name, value)
+        # object.__setattr__, not zero-arg super(): slots=True rebuilds the class, which
+        # leaves super()'s __class__ cell pointing at the discarded original.
+        object.__setattr__(self, name, value)
 
     def is_working_day(self, d: date) -> bool:
         """Return whether ``d`` is a working day under this calendar.
@@ -1149,7 +1157,10 @@ class Calendar:
         )
 
 
-@dataclass
+# weakref_slot: schedule() keeps a weak reference to the Project for derive_value's
+# milestone replay cache (#4524); slots=True would otherwise drop __weakref__.
+@pickle_as_field_dict
+@dataclass(slots=True, weakref_slot=True)
 class Project:
     """Top-level container for a scheduled project.
 

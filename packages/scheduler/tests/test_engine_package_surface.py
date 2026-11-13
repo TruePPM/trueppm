@@ -330,9 +330,21 @@ def test_the_snapshot_is_the_whole_04_surface() -> None:
     assert len(set(_ENGINE_04_NAMES)) == len(_ENGINE_04_NAMES)
 
 
-def test_package_all_is_unchanged() -> None:
-    """``trueppm_scheduler.__all__`` is the same list, in the same order, as on 0.4."""
-    assert list(trueppm_scheduler.__all__) == list(_ALL_04)
+# Names promoted to the public surface after 0.4, in ``__all__`` order (#4158).
+_ALL_ADDED_IN_05 = ("WorkingDayCounter", "collect_leaves")
+
+
+def test_package_all_is_the_04_list_plus_announced_additions() -> None:
+    """``__all__`` is the 0.4 list, in order, plus only the announced 0.5 additions."""
+    added = set(_ALL_ADDED_IN_05)
+    assert [n for n in trueppm_scheduler.__all__ if n not in added] == list(_ALL_04)
+    assert set(trueppm_scheduler.__all__) - set(_ALL_04) == added
+
+
+def test_private_aliases_of_promoted_names_still_resolve() -> None:
+    """``_WorkingDayCounter`` / ``_collect_leaves`` stay aliases for one release (#4158)."""
+    assert engine._WorkingDayCounter is trueppm_scheduler.WorkingDayCounter
+    assert engine._collect_leaves is trueppm_scheduler.collect_leaves
 
 
 def test_a_04_pickle_of_a_result_type_still_loads() -> None:

@@ -13,6 +13,7 @@ from typing import (
     Any,
 )
 
+from trueppm_scheduler._slots import pickle_as_field_dict
 from trueppm_scheduler.models import (
     Task,
     _date_repr,
@@ -24,7 +25,8 @@ from trueppm_scheduler.models import (
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@pickle_as_field_dict
+@dataclass(frozen=True, slots=True)
 class DrivingEdge:
     """A dependency that binds its successor or has zero relationship free float (#2095, #4704).
 
@@ -241,7 +243,8 @@ class ScheduleResult:
         }
 
 
-@dataclass
+@pickle_as_field_dict
+@dataclass(slots=True)
 class TaskSensitivity:
     """How strongly one task's duration drives the project finish.
 
@@ -274,7 +277,8 @@ class TaskSensitivity:
 _Date = date  # ``Percentile.date`` shadows the name inside its own class body
 
 
-@dataclass(frozen=True)
+@pickle_as_field_dict
+@dataclass(frozen=True, slots=True)
 class Percentile:
     """One computed confidence level of a Monte Carlo finish distribution.
 

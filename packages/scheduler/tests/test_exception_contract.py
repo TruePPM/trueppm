@@ -196,6 +196,7 @@ def test_public_entry_point_arguments_conform(name: str, value: Any) -> None:
 _SWEEP_EXEMPT: dict[str, str] = {
     "find_cycle": "edge-list helper with its own contract; not a Project entry point",
     "expand_summary_dependencies": "list-argument helper with its own contract",
+    "collect_leaves": "children-map helper with its own contract; not a Project entry point",
 }
 
 
