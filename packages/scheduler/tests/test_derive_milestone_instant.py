@@ -49,6 +49,7 @@ read the diff, because that diff is the semantic change.
 
 from __future__ import annotations
 
+import random
 from datetime import date, timedelta
 
 import pytest
@@ -1209,3 +1210,134 @@ def test_tied_non_working_actual_start_is_the_binding_term(case: int, quantity: 
         # FF: the engine shows the verbatim Sunday, so only the actual start names it.
         assert d.value == "2026-03-08"
         assert d.binding.kind == "actual_start"
+
+
+# ---------------------------------------------------------------------------
+# #4960 — a successor milestone held at a non-working actual_start
+# ---------------------------------------------------------------------------
+
+#: Mon-Thu: Friday is not a working day of this calendar.
+MON_THU_CAL = Calendar(working_days=0b0001111)
+
+
+def _held_successor_project() -> Project:
+    t1 = _task("T1", 0, actual_start=date(2026, 3, 3))
+    t2 = _task("T2", 0, actual_start=date(2026, 3, 20), calendar_id="c4")
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[_task("T0", 6), t1, t2],
+        dependencies=[_dep("T1", "T2", DependencyType.SS, 4)],
+        calendars={"c4": MON_THU_CAL},
+    )
+
+
+@pytest.mark.parametrize("quantity", [Quantity.LATE_START, Quantity.LATE_FINISH])
+def test_successor_held_at_a_non_working_actual_start_is_inverted_from_it(
+    quantity: Quantity,
+) -> None:
+    """The SS term inverts from the Friday ``actual_start`` the engine holds T2 at.
+
+    T2's Friday ``actual_start`` is not a working day of its Mon-Thu calendar, so
+    the capped start reading of its late instant is the Thursday before it. The
+    engine never lets that reading go below the recorded start
+    (``engine._late_refs``) and inverts SS+4 from Friday: T1's late date is Monday
+    2026-03-16. The derivation used to invert from the capped reading and name
+    ``successor_ss`` at Friday 2026-03-13, a date no term produces.
+    """
+    p = _held_successor_project()
+    result = schedule(p)
+    t1 = next(t for t in result.tasks if t.id == "T1")
+    # The ScheduleResult is the oracle and is unchanged by #4960.
+    assert t1.late_start == t1.late_finish == date(2026, 3, 16)
+    d = derive_value(p, "T1", quantity, result=result)
+    assert d.value == "2026-03-16"
+    assert [c for c in d.contributions if c.is_binding] == [d.binding]
+    assert d.binding is not None
+    assert d.binding.kind == "successor_ss"
+    assert d.binding.source_task_id == "T2"
+    assert d.binding.imposed_date == date(2026, 3, 16)
+
+
+_HELD_START = date(2026, 3, 2)
+_HELD_CALENDARS = {
+    "c4": MON_THU_CAL,
+    "tue": Calendar(working_days=0b0011110),  # Tue-Fri
+    "six": SAT_CAL,
+    "seven": Calendar(working_days=0b1111111),
+}
+_HELD_NETWORKS = 3000
+
+
+def _held_successor_network(seed: int) -> Project:
+    """A small random network of milestones and work with recorded starts.
+
+    Every dependency type with leads and lags, per-task calendars whose working
+    weeks differ (so an ``actual_start`` is often a non-working day of its own
+    calendar), SNETs and an optional data date: the input space where a live
+    milestone successor's ``actual_start`` floor decides a backward bound.
+    """
+    r = random.Random(seed)
+    n = r.randint(2, 6)
+    tasks: list[Task] = []
+    for i in range(n):
+        days = r.choice([0, 0, 0, 1, 2, 3, 6])
+        t = _task(f"T{i}", days)
+        if r.random() < 0.5:
+            t.actual_start = _HELD_START + timedelta(days=r.randint(0, 20))
+            if days and r.random() < 0.5:
+                t.percent_complete = r.choice([10.0, 50.0])
+        if r.random() < 0.5:
+            t.calendar_id = r.choice(sorted(_HELD_CALENDARS))
+        if r.random() < 0.15:
+            t.planned_start = _HELD_START + timedelta(days=r.randint(0, 15))
+        tasks.append(t)
+    deps = [
+        _dep(f"T{i}", f"T{j}", r.choice(list(DependencyType)), r.randint(-3, 5))
+        for j in range(1, n)
+        for i in range(j)
+        if r.random() < 0.4
+    ]
+    return Project(
+        id="p",
+        name="p",
+        start_date=_HELD_START,
+        tasks=tasks,
+        dependencies=deps,
+        calendars=_HELD_CALENDARS,
+        status_date=_HELD_START + timedelta(days=r.randint(0, 10)) if r.random() < 0.3 else None,
+    )
+
+
+def test_every_date_derivation_cites_the_engines_value_with_held_successors() -> None:
+    """ADR-0218 faithfulness, both passes, over mixed-calendar recorded starts (#4960).
+
+    Before #4960 this search found 16 date derivations on 7 of the 3,000 networks
+    whose binding term's ``imposed_date`` was not the value — late dates of
+    milestones, through SS, SF and FF links into a milestone held at its
+    ``actual_start``. The 1-in-200 rate is why the hypothesis oracle above, which
+    draws no recorded starts or second calendar, never met it.
+    """
+    misses = []
+    for seed in range(_HELD_NETWORKS):
+        p = _held_successor_network(seed)
+        result = schedule(p)
+        for t in result.tasks:
+            for q in (
+                Quantity.EARLY_START,
+                Quantity.EARLY_FINISH,
+                Quantity.LATE_START,
+                Quantity.LATE_FINISH,
+            ):
+                d = derive_value(p, t.id, q, result)
+                binding = d.binding
+                if (
+                    d.value != getattr(t, q.value).isoformat()
+                    or [c for c in d.contributions if c.is_binding] != [binding]
+                    or binding is None
+                    or binding.imposed_date is None
+                    or binding.imposed_date.isoformat() != d.value
+                ):
+                    misses.append((seed, t.id, q.value, d.value, binding))
+    assert misses == []
