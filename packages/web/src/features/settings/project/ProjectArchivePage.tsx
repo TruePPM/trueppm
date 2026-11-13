@@ -182,7 +182,7 @@ function DeleteProjectCard({
       <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
         Delete project — permanent
       </h2>
-      <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
+      <p className="text-[12px] text-neutral-text-primary mb-3 leading-relaxed">
         Removes this project and everything in it: tasks, baselines, time entries, attachments.
         Audit-log entries are retained for 365 days for compliance, then purged.{' '}
         <strong className="text-neutral-text-primary">

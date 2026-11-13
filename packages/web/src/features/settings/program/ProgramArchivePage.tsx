@@ -48,7 +48,7 @@ function DeleteProgramCard({
       <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
         Delete program — permanent
       </h2>
-      <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
+      <p className="text-[12px] text-neutral-text-primary mb-3 leading-relaxed">
         Removes this program record. Member projects are{' '}
         <strong className="text-neutral-text-primary">not</strong> deleted — they revert to
         unaffiliated projects. Program-level baselines, rollup KPIs, and audit entries are
