@@ -44,10 +44,16 @@ export function BoardCardPopover({
   const titleId = `card-popover-title-${task.id}`;
 
   // Resolve sprint name when the task is sprint-committed. Loading state
-  // renders a placeholder chip ("Sprint: …") to avoid layout shift.
-  const { sprints, error: sprintsError } = useSprints(task.sprintId ? projectId : null);
+  // renders a placeholder chip ("Sprint: …") to avoid layout shift. A settled read
+  // (failed, or resolved without this id) is never "…" — that would be permanent.
+  const {
+    sprints,
+    isLoading: sprintsLoading,
+    error: sprintsError,
+  } = useSprints(task.sprintId ? projectId : null);
   const sprintName = task.sprintId
-    ? (sprints.find((s) => s.id === task.sprintId)?.name ?? (sprintsError ? 'unavailable' : '…'))
+    ? (sprints.find((s) => s.id === task.sprintId)?.name ??
+      (sprintsError || !sprintsLoading ? 'unavailable' : '…'))
     : null;
 
   // Move focus to the primary CTA on open so keyboard users land on the

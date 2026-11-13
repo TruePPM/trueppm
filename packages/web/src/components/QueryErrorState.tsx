@@ -63,7 +63,11 @@ const FORBIDDEN_HELP = 'Your access may have changed. Ask a workspace admin if y
  * component with a fresh error and the countdown restarts, so a sustained
  * throttle backs off at the server's pace instead of hammering it.
  */
-function useThrottleCountdown(seconds: number | null, retry: () => void): number | null {
+function useThrottleCountdown(
+  seconds: number | null,
+  retry: () => void,
+  error: unknown,
+): number | null {
   const [remaining, setRemaining] = useState(seconds);
   const retryRef = useRef(retry);
   retryRef.current = retry;
@@ -82,7 +86,9 @@ function useThrottleCountdown(seconds: number | null, retry: () => void): number
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, [seconds]);
+    // `error` identity, not just `seconds`: a repeat 429 carries the same Retry-After,
+    // so `seconds` alone never changes and the countdown would stall at 0.
+  }, [seconds, error]);
   return seconds === null ? null : remaining;
 }
 
@@ -118,6 +124,7 @@ function BaseQueryErrorState({
   const remaining = useThrottleCountdown(
     kind === 'throttled' && onRetry ? retryAfterSeconds : null,
     retry,
+    error,
   );
   const isFill = variant === 'fill';
 
@@ -188,6 +195,7 @@ function PageQueryErrorState({
   const remaining = useThrottleCountdown(
     kind === 'throttled' && onRetry ? retryAfterSeconds : null,
     retry,
+    error,
   );
   return (
     <div

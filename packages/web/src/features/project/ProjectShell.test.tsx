@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AxiosError } from 'axios';
+import { axiosRefusal } from '@/test/axiosError';
 import { renderWithRouter } from '@/test/utils';
 import { ProjectShell } from './ProjectShell';
 
@@ -30,7 +31,14 @@ vi.mock('@/hooks/useDemoMode', () => ({
 }));
 
 const mockUseProject =
-  vi.fn<() => { error: unknown; data?: { can_subscribe_live?: boolean }; isPending?: boolean }>();
+  vi.fn<
+    () => {
+      error: unknown;
+      data?: { can_subscribe_live?: boolean };
+      isPending?: boolean;
+      refetch?: () => void;
+    }
+  >();
 vi.mock('@/hooks/useProject', () => ({ useProject: () => mockUseProject() }));
 
 function axiosStatus(statusCode: number): AxiosError {
@@ -56,6 +64,17 @@ describe('ProjectShell availability gate (#1111, #2040)', () => {
     mockUseProject.mockReturnValue({ error: axiosStatus(403) });
     renderWithRouter(<ProjectShell />);
     expect(screen.getByRole('heading', { name: /isn.t available/i })).toBeInTheDocument();
+  });
+
+  it('429 on the project read with no cached detail: throttle copy and Retry now, not an empty frame (#3621)', () => {
+    mockUseProject.mockReturnValue({
+      data: undefined,
+      error: axiosRefusal(429, {}),
+      refetch: vi.fn(),
+    });
+    renderWithRouter(<ProjectShell />);
+    expect(screen.getByText(/Too many requests/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry now' })).toBeInTheDocument();
   });
 
   it('renders the project layout (not the unavailable state) when the project resolves', () => {

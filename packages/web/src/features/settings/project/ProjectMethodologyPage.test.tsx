@@ -1,3 +1,4 @@
+import { axiosRefusal } from '@/test/axiosError';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -717,9 +718,9 @@ describe('ProjectMethodologyPage', () => {
       // The consolidated settings page mounts every section at once, so an
       // unconditional read fires three counts on every project settings route.
       expect(useMethodologyFlipImpact).toHaveBeenCalled();
-      expect(
-        useMethodologyFlipImpact.mock.calls.every(([, enabled]) => enabled === false),
-      ).toBe(true);
+      expect(useMethodologyFlipImpact.mock.calls.every(([, enabled]) => enabled === false)).toBe(
+        true,
+      );
 
       await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
       expect(useMethodologyFlipImpact).toHaveBeenLastCalledWith('p-1', true);
@@ -767,9 +768,7 @@ describe('ProjectMethodologyPage', () => {
       });
 
       const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
-      expect(
-        within(dialog).getByText(/may have items in the product backlog/),
-      ).toBeInTheDocument();
+      expect(within(dialog).getByText(/may have items in the product backlog/)).toBeInTheDocument();
       expect(mutateAsync).not.toHaveBeenCalled();
 
       await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
@@ -779,6 +778,19 @@ describe('ProjectMethodologyPage', () => {
   // #3298. Both reads gate the skeleton, so either failing used to strand the page
   // on pulsing placeholders with no error and no retry (rule 246).
   describe('when a read fails', () => {
+    it('a 403 on the project GET says so and offers no Retry (#3874)', () => {
+      useProject.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: axiosRefusal(403, {}),
+        refetch: vi.fn(),
+      });
+      renderPage();
+      expect(screen.getByText(/don't have access/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    });
+
     it('renders the query-error state when the project GET fails', async () => {
       const user = userEvent.setup();
       const refetch = vi.fn();

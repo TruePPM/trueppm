@@ -1,3 +1,4 @@
+import { axiosRefusal } from '@/test/axiosError';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -176,6 +177,18 @@ describe('ProgramListPage', () => {
     expect(alert).toHaveTextContent(/Couldn't load programs/i);
     await userEvent.click(within(alert).getByRole('button', { name: /retry/i }));
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 403 says so and offers no Retry (#3874)', () => {
+    usePrograms.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: axiosRefusal(403, {}),
+      refetch: vi.fn(),
+    });
+    renderPage();
+    expect(screen.getByText(/don't have access/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
   });
 
   it('renders a card per program with counts and role chip', () => {

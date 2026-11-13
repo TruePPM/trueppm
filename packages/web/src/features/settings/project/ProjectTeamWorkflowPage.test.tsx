@@ -1,3 +1,4 @@
+import { axiosRefusal } from '@/test/axiosError';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -48,6 +49,7 @@ const state = vi.hoisted(() => ({
   project: undefined as Record<string, unknown> | undefined,
   isLoading: false,
   isError: false,
+  error: undefined as unknown,
   refetch: vi.fn(),
   /** The project's own word for an iteration — relabelled in the ADR-0111 tests. */
   label: { singular: 'Sprint', plural: 'Sprints', lower: 'sprint' },
@@ -59,6 +61,7 @@ vi.mock('@/hooks/useProject', () => ({
     data: state.project,
     isLoading: state.isLoading,
     isError: state.isError,
+    error: state.error,
     refetch: state.refetch,
   }),
 }));
@@ -233,6 +236,17 @@ describe('<ProjectTeamWorkflowPage> preset restatement', () => {
     expect(screen.getByText(/Couldn’t load this project’s setup/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(state.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 403 on the project read says so and offers no Retry (#3874)', () => {
+    state.project = undefined;
+    state.isLoading = false;
+    state.isError = true;
+    state.error = axiosRefusal(403, {});
+    renderPage();
+    expect(screen.getByText(/don't have access/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    state.error = undefined;
   });
 
   it('announces itself politely, since the control that changes it is off-screen', () => {

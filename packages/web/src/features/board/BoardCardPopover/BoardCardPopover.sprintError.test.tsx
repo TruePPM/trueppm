@@ -5,9 +5,9 @@ import { BoardCardPopover } from './index';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Task } from '@/types';
 
-const sprintsState = vi.hoisted(() => ({ error: null as Error | null }));
+const sprintsState = vi.hoisted(() => ({ error: null as Error | null, isLoading: false }));
 vi.mock('@/hooks/useSprints', () => ({
-  useSprints: () => ({ sprints: [], isLoading: false, error: sprintsState.error }),
+  useSprints: () => ({ sprints: [], isLoading: sprintsState.isLoading, error: sprintsState.error }),
 }));
 
 function renderIt() {
@@ -36,8 +36,16 @@ describe('BoardCardPopover sprint chip on a failed read (#3517)', () => {
     expect(screen.getByTitle('Sprint: unavailable')).toBeInTheDocument();
   });
 
-  it('keeps the in-flight "…" placeholder when there is no error', () => {
+  it('shows "unavailable" when the read resolved without this sprint id', () => {
     sprintsState.error = null;
+    sprintsState.isLoading = false;
+    renderIt();
+    expect(screen.getByTitle('Sprint: unavailable')).toBeInTheDocument();
+  });
+
+  it('keeps the in-flight "…" placeholder while the read is loading', () => {
+    sprintsState.error = null;
+    sprintsState.isLoading = true;
     renderIt();
     expect(screen.getByTitle('Sprint: …')).toBeInTheDocument();
   });

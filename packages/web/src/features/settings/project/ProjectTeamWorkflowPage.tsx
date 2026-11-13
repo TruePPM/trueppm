@@ -93,7 +93,7 @@ const METHOD_SUMMARY: Record<Methodology, { label: string; gives: (iteration: st
  */
 function PresetSummary() {
   const projectId = useProjectId();
-  const { data: project, isLoading, isError, refetch } = useProject(projectId);
+  const { data: project, isLoading, isError, error, refetch } = useProject(projectId);
   const itl = useIterationLabel(projectId);
 
   // Say nothing rather than assert a default. `?? 'HYBRID'` would state
@@ -111,6 +111,7 @@ function PresetSummary() {
         variant="inline"
         message="Couldn’t load this project’s setup."
         onRetry={() => void refetch()}
+        error={error}
       />
     );
   }

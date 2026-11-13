@@ -85,7 +85,7 @@ const SELECT_STYLE = {
 
 /** Workspace > General settings page. */
 export function WorkspaceGeneralPage() {
-  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, error, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
   const timezoneId = useId();
   const defaultViewId = useId();
@@ -315,6 +315,7 @@ export function WorkspaceGeneralPage() {
         <QueryErrorState
           message="Couldn't load workspace settings."
           onRetry={() => void refetch()}
+          error={error}
         />
       </div>
     );

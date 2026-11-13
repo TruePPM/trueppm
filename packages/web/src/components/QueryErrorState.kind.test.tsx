@@ -85,6 +85,37 @@ describe('QueryErrorState status-aware variants (#3874, #3621)', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['fill', 'page'] as const)(
+    '429 (%s): a repeat 429 with the same Retry-After restarts the countdown',
+    (variant) => {
+      vi.useFakeTimers();
+      const onRetry = vi.fn();
+      const props =
+        variant === 'page'
+          ? ({ variant: 'page', stillWorks: 'Other pages work.', supportCode: 'ABC' } as const)
+          : ({ variant: 'fill' } as const);
+      const { rerender } = render(
+        <QueryErrorState
+          {...props}
+          error={httpError(429, { 'retry-after': '1' })}
+          onRetry={onRetry}
+        />,
+      );
+      act(() => void vi.advanceTimersByTime(1000));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+      rerender(
+        <QueryErrorState
+          {...props}
+          error={httpError(429, { 'retry-after': '1' })}
+          onRetry={onRetry}
+        />,
+      );
+      expect(screen.getByText(/Retrying in 1s/)).toBeInTheDocument();
+      act(() => void vi.advanceTimersByTime(1000));
+      expect(onRetry).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it('429 without an onRetry never auto-reloads the page', () => {
     vi.useFakeTimers();
     render(<QueryErrorState error={httpError(429, { 'retry-after': '1' })} />);
