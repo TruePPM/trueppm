@@ -53,11 +53,12 @@ grants safe-method (`GET`) access to the viewsets the MCP wraps and is **rejecte
 at every write path**, and the token acts as *you*: it reads only what your role
 permits, cannot write, and cannot outlive its expiry.
 
-**Mint `mcp:read`, not `legacy:full`.** A full-access personal token also
-authenticates here — `legacy:full` is a read superset — but it is not an *agent*
+**Mint `mcp:read`, not a full-access token.** A full-access personal token (`legacy:full`
+on 0.4 tokens; the mint form will give `api:full` from 0.5, and `legacy:full` stays an accepted
+synonym) also authenticates here — it is a read superset — but it is not an *agent*
 credential, and the two agent-access controls below deliberately do not apply to
 it: it is your own credential, governed exactly as your browser session is. Point
-an MCP client at a `legacy:full` token and neither the instance kill switch nor a
+an MCP client at a full-access token and neither the instance kill switch nor a
 team's read opt-out will restrain it, and its reads leave no rows in the
 [agent-action audit log](#agent-action-audit-log). Choosing the read-only scope is
 what makes an agent an agent.
@@ -370,7 +371,7 @@ may follow in a later release.
 - **Fail-closed boot.** A token that does not authenticate fails startup with a
   clear message, so a misconfigured client never silently runs against the wrong
   instance. A token that *does* authenticate but is not an agent credential —
-  `legacy:full` rather than `mcp:read` — also fails startup: neither the kill
+  a full-access scope (`api:full` or `legacy:full`) rather than `mcp:read` — also fails startup: neither the kill
   switch below nor a team's opt-out binds that scope, so booting on it would run
   unprotected rather than loudly refuse.
 - **Self-hosted.** All traffic stays between your AI client, the server, and your
@@ -433,14 +434,14 @@ the [agent-action audit log](#agent-action-audit-log) as a `policy` refusal.
 
 Only agent (`mcp:read` token) traffic. **People are never affected** — your team,
 anyone signed in through the web or mobile app, and anyone running a script on
-their own full-access (`legacy:full`) personal token read exactly what they always
+their own full-access (`api:full` / `legacy:full`) personal token read exactly what they always
 did. Blocking agent access does not hide anything from a human being.
 
 ### What it cannot do
 
 It binds **agent credentials**, not people. A member who holds a full-access
 personal token can still read the project's data and paste it wherever they like —
-including into an AI client, by pointing that client at a `legacy:full` token
+including into an AI client, by pointing that client at a full-access token
 instead of an `mcp:read` one. That is the same trust model as a person copying a
 task list into a chat window, and no server-side switch reaches it: the credential
 carries their own authority, so restraining it would mean restraining them.
@@ -449,7 +450,7 @@ What the control does guarantee is that a credential minted *as an agent* is
 bound, always, by whichever scope objects. Treat it as the answer to "may an agent
 be pointed at this team's data," not as a data-loss-prevention boundary.
 
-`trueppm-mcp` itself refuses to boot on a `legacy:full` token (see
+`trueppm-mcp` itself refuses to boot on a full-access token (see
 [Fail-closed boot](#security-posture)), which closes the *honest-mistake* version
 of this gap — pointing our own client at your own PAT by accident. It does not
 close the deliberate one: nothing server-side can stop a member from writing (or
@@ -491,7 +492,7 @@ to answer. An operator is the person running the server, not a scope above the t
 inside it, so the switch lives in deployment configuration.
 :::
 
-Today `trueppm-mcp` will start on a `legacy:full` token without complaint, because
+Today `trueppm-mcp` will start on a full-access token without complaint, because
 `GET /api/v1/auth/me/` does not report the token's scope back to it. A later
 release makes that boot fail with an explanation instead, so the *accidental* case
 — someone using the default-scope token they already had — becomes a loud refusal
@@ -564,7 +565,7 @@ own mint and revoke history is at
 |---------|--------------|
 | Exit code `2`, "Configuration error" on stderr | `TRUEPPM_API_URL` or `TRUEPPM_API_TOKEN` is unset or blank. |
 | Boot fails with "the TruePPM API rejected the configured token (HTTP 401)" | The token is missing, malformed, or revoked. Mint a fresh `mcp:read` token. |
-| Boot fails with "this token is a full-access personal credential ... not an agent credential" | `TRUEPPM_API_TOKEN` holds a `legacy:full` personal access token, not an `mcp:read` one — the default scope the token mint form gives you unless you pick "Read-only for AI assistants". It authenticates, but neither the [instance kill switch](#security-posture) nor a [team's agent opt-out](#team-level-opt-out) governs it, so the server refuses to boot on it rather than run unprotected. Mint an `mcp:read` token instead. |
+| Boot fails with "this token is a full-access personal credential ... not an agent credential" | `TRUEPPM_API_TOKEN` holds a full-access personal access token, not an `mcp:read` one. From 0.5 that will be an `api:full` token (the boot error will print `scopes: ['api:full']`), the default scope the token mint form will give you unless you pick "Read-only for AI assistants"; `legacy:full` is an accepted synonym and is what 0.4 tokens carry. It authenticates, but neither the [instance kill switch](#security-posture) nor a [team's agent opt-out](#team-level-opt-out) governs it, so the server refuses to boot on it rather than run unprotected. Mint an `mcp:read` token instead. |
 | HTTP/SSE requests fail with `421 Invalid Host header` or `403 Invalid Origin header` (often right after upgrading a server bound to `0.0.0.0`) | DNS-rebinding protection only accepts loopback names and the host you bind. A client reaching the server by a LAN IP, a Kubernetes Service name, `host.docker.internal` or a proxy hostname now sends a `Host` that is not allowed. Add it with `--allowed-host <name>` (repeatable) or `TRUEPPM_MCP_ALLOWED_HOSTS=<name>,<name>`; the name is matched with or without a port, and `http`/`https` origins on it are accepted. |
 | A tool returns a 404 for a resource you expect to see | The token's role on its project/program does not permit reading that resource — 404 is the deliberate existence oracle, identical to the web client. |
 | A tool that used to work now errors on a write | An `mcp:read` token is refused at write paths by design; this server issues no writes, so this indicates a misrouted call, not a permission gap to widen. |
