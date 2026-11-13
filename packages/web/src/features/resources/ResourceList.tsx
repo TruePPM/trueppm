@@ -41,7 +41,9 @@ function ResourceRow({ resource, isSelected, onSelect }: RowProps) {
       <button
         type="button"
         aria-pressed={isSelected}
-        aria-label={`${resource.name}${resource.jobRole ? `, ${resource.jobRole}` : ''}, ${skillCount} skill${skillCount !== 1 ? 's' : ''}${resource.isDeleted ? ', deactivated' : ''}`}
+        // No aria-label: it would REPLACE the name and drop the visible email (#3220).
+        // The accessible name computes from the visible text — name, Deactivated badge,
+        // role · email line, skill count — so spoken and drawn strings share one source.
         onClick={() => onSelect(resource.id)}
         className={[
           'w-full text-left px-3 py-2.5 flex items-start gap-3 transition-colors',
