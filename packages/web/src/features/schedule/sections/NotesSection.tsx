@@ -30,6 +30,7 @@ import { useNotesSearch } from '@/hooks/useNotesSearch';
 import { formatRelative } from '@/lib/formatRelative';
 import type { TaskNote } from '@/types';
 import { NotesComposer } from './NotesComposer';
+import { ConfirmDialog } from '@/features/settings/components/integrations/WebhooksManager';
 
 /** ADR-0143 — the author's self-edit window (mirrors NOTE_EDIT_WINDOW_SECONDS). */
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -95,6 +96,7 @@ function NoteRow({
   const del = useDeleteNote();
   const update = useUpdateNote();
   const [isEditing, setIsEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(note.body);
 
   const author = note.author?.display_name ?? 'Unknown';
@@ -260,7 +262,7 @@ function NoteRow({
           {canDelete && (
             <button
               type="button"
-              onClick={() => del.mutate({ projectId, taskId, noteId: note.id })}
+              onClick={() => setConfirmingDelete(true)}
               disabled={del.isPending}
               className="text-xs border border-neutral-border rounded-control px-2 min-h-11 md:min-h-7 font-medium
                 text-neutral-text-secondary hover:bg-semantic-critical-bg hover:text-semantic-critical hover:border-semantic-critical/40
@@ -272,6 +274,21 @@ function NoteRow({
             </button>
           )}
         </div>
+      )}
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete note?"
+          body="This removes the note from the log."
+          confirmLabel="Delete note"
+          pending={del.isPending}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() =>
+            del.mutate(
+              { projectId, taskId, noteId: note.id },
+              { onSuccess: () => setConfirmingDelete(false), onError: () => setConfirmingDelete(false) },
+            )
+          }
+        />
       )}
     </li>
   );

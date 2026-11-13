@@ -100,7 +100,7 @@ export const ALL_WEBHOOK_EVENT_IDS: string[] = WEBHOOK_EVENT_CATALOG.flatMap((g)
 export interface WebhookFormatDef {
   value: string;
   label: string;
-  /** Only `slack` and `generic` ship in OSS; others are Enterprise. */
+  /** Every listed format ships in OSS; one-way outbound delivery is not the Enterprise integration hub (#4617). */
   available: boolean;
   hint: string;
 }
@@ -116,8 +116,10 @@ export const WEBHOOK_FORMATS: WebhookFormatDef[] = [
     // Claiming Block Kit set an expectation the payload does not meet.
     hint: 'Slack message with an attachment (also works with Discord & Mattermost).',
   },
-  { value: 'discord', label: 'Discord', available: false, hint: 'Enterprise.' },
-  { value: 'pagerduty', label: 'PagerDuty', available: false, hint: 'Enterprise.' },
+  // Discord and PagerDuty are deliberately absent: the API has no renderer for
+  // them (Discord incoming webhooks accept the Slack-compatible payload above),
+  // and listing them as disabled "Enterprise" chips is an upsell teaser in the
+  // OSS daily path (web rule 231). Add one here only when a renderer ships.
 ];
 
 /** Human label for an event id (falls back to the id). */

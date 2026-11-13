@@ -426,6 +426,19 @@ describe('ScheduleAriaOverlay focus-ring geometry', () => {
     expect(cellFor('Design').style.left).toBe('0px');
   });
 
+  it('never writes NaN geometry for a task with no scheduled dates (#4961)', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const undated = makeTask('u1', 'Undated', {
+      start: '' as unknown as string,
+      finish: '' as unknown as string,
+    });
+    mount({ tasks: [undated], engine: makeEngine({ scales }).engine });
+    expect(cellFor('Undated').style.left).toBe('0px');
+    expect(cellFor('Undated').style.width).toBe('0px');
+    expect(err.mock.calls.flat().join(' ')).not.toMatch(/NaN/);
+    err.mockRestore();
+  });
+
   it('frames a bar across its INCLUSIVE finish date (#950)', () => {
     mount({ engine: makeEngine({ scales }).engine });
     // Apr 6 → Apr 10 inclusive = 5 days at the week tier's 12 px/day.

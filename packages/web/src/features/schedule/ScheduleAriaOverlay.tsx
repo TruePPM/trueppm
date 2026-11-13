@@ -690,6 +690,13 @@ export function ScheduleAriaOverlay({
                 ? barLeft
                 : dateToRight(task.finish, scales) - (engine?.scrollLeft ?? 0);
               barWidth = Math.max(2, barRight - barLeft);
+              // A task with no scheduled dates yields NaN from the date math; React
+              // would write `left: NaN`. Collapse the focus ring to an empty box
+              // instead — the row's option stays in the listbox for AT (#4961).
+              if (!Number.isFinite(barLeft) || !Number.isFinite(barWidth)) {
+                barLeft = 0;
+                barWidth = 0;
+              }
             }
 
             const depDesc = depDescriptions.get(task.id);

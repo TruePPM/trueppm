@@ -150,11 +150,23 @@ describe('MembersTab', () => {
     expect(mockUpdateRole).toHaveBeenCalledWith({ membershipId: 'mem-bob', role: 200 });
   });
 
-  it('calls removeMember when Remove is clicked', async () => {
+  it('asks to confirm before removing another member, then calls removeMember (#4620)', async () => {
     render();
     const bobRow = screen.getByText('bob').closest('li')!;
     await userEvent.click(within(bobRow).getByRole('button', { name: /remove bob/i }));
+    expect(mockRemoveMember).not.toHaveBeenCalled();
+    expect(within(bobRow).getByText('Remove bob?')).toBeInTheDocument();
+    await userEvent.click(within(bobRow).getByRole('button', { name: 'Remove' }));
     expect(mockRemoveMember).toHaveBeenCalledWith('mem-bob');
+  });
+
+  it('Cancel on the remove confirmation does not remove the member (#4620)', async () => {
+    render();
+    const bobRow = screen.getByText('bob').closest('li')!;
+    await userEvent.click(within(bobRow).getByRole('button', { name: /remove bob/i }));
+    await userEvent.click(within(bobRow).getByRole('button', { name: 'Cancel' }));
+    expect(mockRemoveMember).not.toHaveBeenCalled();
+    expect(within(bobRow).queryByText('Remove bob?')).not.toBeInTheDocument();
   });
 
   it('shows leave confirmation when Leave is clicked for self', async () => {

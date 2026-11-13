@@ -286,6 +286,9 @@ test.describe('Members Settings — remove member', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
     const bobRow = page.locator('li').filter({ hasText: 'bob' }).first();
     await bobRow.getByRole('button', { name: /remove bob/i }).click();
+    await expect(bobRow.getByText('Remove bob?')).toBeVisible();
+    expect(deleteDispatched).toBe(false);
+    await bobRow.getByRole('button', { name: 'Remove', exact: true }).click();
 
     await expect.poll(() => deleteDispatched).toBe(true);
   });

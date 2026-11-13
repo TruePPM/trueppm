@@ -5,8 +5,8 @@
  * Right: an example of the Slack render when format=slack, plus the recent
  * delivery log when editing an existing webhook.
  *
- * Only `slack` and `generic` formats are selectable — the others are shown
- * disabled (Enterprise). The event picker lists every event the backend can fire
+ * Only `slack` and `generic` formats are offered (Discord accepts the Slack
+ * payload). The event picker lists every event the backend can fire
  * (see `events.ts`, which a pytest gate binds to `WebhookEventType`).
  *
  * Two invariants this file exists to hold (#2883 / #2885):
@@ -264,7 +264,6 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                           ].join(' ')}
                         >
                           {f.label}
-                          {!f.available && <span className="ml-1 text-[11px]">Enterprise</span>}
                         </button>
                       );
                     })}

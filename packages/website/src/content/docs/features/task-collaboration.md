@@ -70,7 +70,7 @@ edit window — you can pin a note long after it has locked.
 
 A note's **author**, or a **Project Manager or Project Admin**, can remove a note. The
 removal is a soft delete: the entry leaves the visible log but is not
-hard-erased. Everyone else sees no delete control on notes they didn't write.
+hard-erased. Removing a note asks you to confirm first. Everyone else sees no delete control on notes they didn't write.
 
 ### Searching the log
 

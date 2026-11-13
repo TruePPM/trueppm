@@ -284,6 +284,31 @@ describe('NotesSection — delete visibility', () => {
     expect(screen.getByLabelText('Delete this note')).toBeTruthy();
   });
 
+  it('requires confirmation before deleting a note (#4620)', () => {
+    const mutate = vi.fn();
+    useDeleteMock.mockReturnValue({ mutate, isPending: false });
+    useCurrentUserMock.mockReturnValue({
+      user: { id: 'u1', username: 'alice', display_name: 'Alice' },
+      isLoading: false,
+    });
+    useNotesMock.mockReturnValue({
+      notes: [note({ id: 'n9', author: { id: 'u1', username: 'alice', display_name: 'Alice' } })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByLabelText('Delete this note'));
+    expect(mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText('Delete this note'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete note' }));
+    expect(mutate).toHaveBeenCalledWith(
+      { projectId: 'p1', taskId: 't1', noteId: 'n9' },
+      expect.any(Object),
+    );
+  });
+
   it("shows Delete on someone else's note for an ADMIN", () => {
     useCurrentUserMock.mockReturnValue({
       user: { id: 'u1', username: 'alice', display_name: 'Alice' },
@@ -470,7 +495,7 @@ describe('NotesSection — editable fallback', () => {
 
 describe('NotesSection — write actions', () => {
   it('calls the delete mutation with the note id', () => {
-    const mutate = vi.fn<(vars: { noteId: string }) => void>();
+    const mutate = vi.fn<(vars: { noteId: string }, opts?: unknown) => void>();
     useDeleteMock.mockReturnValue({ mutate, isPending: false });
     useNotesMock.mockReturnValue({
       notes: [note({ id: 'n7' })],
@@ -479,8 +504,10 @@ describe('NotesSection — write actions', () => {
     });
     render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
     fireEvent.click(screen.getByLabelText('Delete this note'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete note' }));
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'p1', taskId: 't1', noteId: 'n7' }),
+      expect.anything(),
     );
   });
 
