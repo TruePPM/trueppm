@@ -9284,6 +9284,27 @@ class TaskRelationViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRelati
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMemberWriteOrOwn(), IsProjectNotArchived()]
 
+    @extend_schema(
+        # A method docstring replaces the class docstring as the operation
+        # description, so restate the ADR-0455 permission model here.
+        description=(
+            "List informational task-to-task relations (ADR-0455). A relation "
+            "(`relates_to` / `blocks` / `duplicates`) is a cross-reference, not a "
+            "scheduling dependency: it has no CPM effect and writes do not trigger "
+            "a schedule recompute. Reads need project membership (Viewer+) on "
+            "either endpoint's project; writes need write authority on the source "
+            "task (Member-may-relate-own, Resource Manager read-only, PM+ any). "
+            "The response is a bare array (not paginated), so a `task` or "
+            "`project` query parameter is required to bound it."
+        ),
+        responses={
+            200: TaskRelationSerializer(many=True),
+            400: inline_serializer(
+                name="TaskRelationListFilterRequired",
+                fields={"detail": serializers.CharField()},
+            ),
+        },
+    )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List relations; ``task`` or ``project`` is required.
 

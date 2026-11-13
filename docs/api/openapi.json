@@ -43847,7 +43847,7 @@
         "/api/v1/task-relations/": {
             "get": {
                 "operationId": "v1_task_relations_list",
-                "description": "List relations; ``task`` or ``project`` is required.\n\n``pagination_class`` is ``None`` (bare array, #2321), so an unfiltered list\nwould return every relation across every member project in one response.\nBounding by a filter keeps the array \"a handful per task\" as the comment\nabove assumes. Retrieve/update/destroy resolve by pk and are unaffected.",
+                "description": "List informational task-to-task relations (ADR-0455). A relation (`relates_to` / `blocks` / `duplicates`) is a cross-reference, not a scheduling dependency: it has no CPM effect and writes do not trigger a schedule recompute. Reads need project membership (Viewer+) on either endpoint's project; writes need write authority on the source task (Member-may-relate-own, Resource Manager read-only, PM+ any). The response is a bare array (not paginated), so a `task` or `project` query parameter is required to bound it.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -43882,6 +43882,16 @@
                                     "items": {
                                         "$ref": "#/components/schemas/TaskRelation"
                                     }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRelationListFilterRequired"
                                 }
                             }
                         },
@@ -80802,6 +80812,17 @@
                     "source_card",
                     "target",
                     "target_card"
+                ]
+            },
+            "TaskRelationListFilterRequired": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "detail"
                 ]
             },
             "TaskRelationRequest": {
