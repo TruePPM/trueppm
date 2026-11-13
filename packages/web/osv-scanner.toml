@@ -47,7 +47,7 @@
 # The real fix is dropping tailwindcss@3 (and with it chokidar/micromatch@3)
 # entirely via the v3->v4 migration tracked on #4261 (milestone 0.5) — not
 # something to pull forward just to clear this gate. Re-evaluate when braces
-# ships any release past 3.0.3, or when #4261 lands. Tracked in #4262.
+# ships any release past 3.0.3, or when #4261 lands. Tracked in #4261.
 
 [[PackageOverrides]]
 name = "braces"

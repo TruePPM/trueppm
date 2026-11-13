@@ -228,6 +228,9 @@ helm:install:
     DOCKER_CERT_PATH: "/certs/client"
     KIND_VERSION: "0.24.0"
     KUBECTL_VERSION: "1.31.2"
+    # sha256 of the pinned linux-amd64 binaries (kind publishes <asset>.sha256sum, kubectl <asset>.sha256); bump with the version (#4077)
+    KIND_SHA256: "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    KUBECTL_SHA256: "399e9d1995da80b64d2ef3606c1a239018660d8b35209fba3f7b0bc11c631c68"
     HELM_VERSION: "3.16.3"
     RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
     APISERVER_HOST: "docker"
@@ -246,8 +249,9 @@ helm:install:
         - .gitlab/ci/deploy-drills.yml
   before_script:
     - apk add --no-cache bash curl
-    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
-    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && echo "${KIND_SHA256}  /usr/local/bin/kind" | sha256sum -c - && chmod +x /usr/local/bin/kind && kind version
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && echo "${KUBECTL_SHA256}  /usr/local/bin/kubectl" | sha256sum -c - && chmod +x /usr/local/bin/kubectl && kubectl version --client
+    # Not checksum-verified (unlike kind/kubectl): tar -xz fails loudly on a non-gzip body, so an HTTP error page cannot be installed as helm.
     - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
     - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
   script:
@@ -305,6 +309,9 @@ helm:upgrade:
     DOCKER_CERT_PATH: "/certs/client"
     KIND_VERSION: "0.24.0"
     KUBECTL_VERSION: "1.31.2"
+    # sha256 of the pinned linux-amd64 binaries (kind publishes <asset>.sha256sum, kubectl <asset>.sha256); bump with the version (#4077)
+    KIND_SHA256: "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    KUBECTL_SHA256: "399e9d1995da80b64d2ef3606c1a239018660d8b35209fba3f7b0bc11c631c68"
     HELM_VERSION: "3.16.3"
     RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
     APISERVER_HOST: "docker"
@@ -329,8 +336,9 @@ helm:upgrade:
         - .gitlab/ci/deploy-drills.yml
   before_script:
     - apk add --no-cache bash curl
-    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
-    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && echo "${KIND_SHA256}  /usr/local/bin/kind" | sha256sum -c - && chmod +x /usr/local/bin/kind && kind version
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && echo "${KUBECTL_SHA256}  /usr/local/bin/kubectl" | sha256sum -c - && chmod +x /usr/local/bin/kubectl && kubectl version --client
+    # Not checksum-verified (unlike kind/kubectl): tar -xz fails loudly on a non-gzip body, so an HTTP error page cannot be installed as helm.
     - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
     - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
   script:
@@ -391,6 +399,9 @@ helm:demo:
     DOCKER_CERT_PATH: "/certs/client"
     KIND_VERSION: "0.24.0"
     KUBECTL_VERSION: "1.31.2"
+    # sha256 of the pinned linux-amd64 binaries (kind publishes <asset>.sha256sum, kubectl <asset>.sha256); bump with the version (#4077)
+    KIND_SHA256: "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    KUBECTL_SHA256: "399e9d1995da80b64d2ef3606c1a239018660d8b35209fba3f7b0bc11c631c68"
     HELM_VERSION: "3.16.3"
     RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
     APISERVER_HOST: "docker"
@@ -412,8 +423,9 @@ helm:demo:
         - .gitlab/ci/deploy-drills.yml
   before_script:
     - apk add --no-cache bash curl
-    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
-    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && echo "${KIND_SHA256}  /usr/local/bin/kind" | sha256sum -c - && chmod +x /usr/local/bin/kind && kind version
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && echo "${KUBECTL_SHA256}  /usr/local/bin/kubectl" | sha256sum -c - && chmod +x /usr/local/bin/kubectl && kubectl version --client
+    # Not checksum-verified (unlike kind/kubectl): tar -xz fails loudly on a non-gzip body, so an HTTP error page cannot be installed as helm.
     - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
     - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
   script:
@@ -484,6 +496,9 @@ helm:demo-upgrade:
     DOCKER_CERT_PATH: "/certs/client"
     KIND_VERSION: "0.24.0"
     KUBECTL_VERSION: "1.31.2"
+    # sha256 of the pinned linux-amd64 binaries (kind publishes <asset>.sha256sum, kubectl <asset>.sha256); bump with the version (#4077)
+    KIND_SHA256: "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    KUBECTL_SHA256: "399e9d1995da80b64d2ef3606c1a239018660d8b35209fba3f7b0bc11c631c68"
     HELM_VERSION: "3.16.3"
     RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
     APISERVER_HOST: "docker"
@@ -503,8 +518,9 @@ helm:demo-upgrade:
         - .gitlab/ci/deploy-drills.yml
   before_script:
     - apk add --no-cache bash curl
-    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
-    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && echo "${KIND_SHA256}  /usr/local/bin/kind" | sha256sum -c - && chmod +x /usr/local/bin/kind && kind version
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && echo "${KUBECTL_SHA256}  /usr/local/bin/kubectl" | sha256sum -c - && chmod +x /usr/local/bin/kubectl && kubectl version --client
+    # Not checksum-verified (unlike kind/kubectl): tar -xz fails loudly on a non-gzip body, so an HTTP error page cannot be installed as helm.
     - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
     - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
   script:
@@ -561,6 +577,9 @@ helm:walkthrough:
     DOCKER_CERT_PATH: "/certs/client"
     KIND_VERSION: "0.24.0"
     KUBECTL_VERSION: "1.31.2"
+    # sha256 of the pinned linux-amd64 binaries (kind publishes <asset>.sha256sum, kubectl <asset>.sha256); bump with the version (#4077)
+    KIND_SHA256: "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    KUBECTL_SHA256: "399e9d1995da80b64d2ef3606c1a239018660d8b35209fba3f7b0bc11c631c68"
     HELM_VERSION: "3.16.3"
     RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
     APISERVER_HOST: "docker"
@@ -584,8 +603,9 @@ helm:walkthrough:
     # legs, which generate it a different way specifically because this image
     # does not carry python3 by default.
     - apk add --no-cache bash curl openssl python3
-    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
-    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && echo "${KIND_SHA256}  /usr/local/bin/kind" | sha256sum -c - && chmod +x /usr/local/bin/kind && kind version
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && echo "${KUBECTL_SHA256}  /usr/local/bin/kubectl" | sha256sum -c - && chmod +x /usr/local/bin/kubectl && kubectl version --client
+    # Not checksum-verified (unlike kind/kubectl): tar -xz fails loudly on a non-gzip body, so an HTTP error page cannot be installed as helm.
     - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
     - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
   script:
@@ -836,6 +856,9 @@ helm:netpol:
     DOCKER_CERT_PATH: "/certs/client"
     KIND_VERSION: "0.24.0"
     KUBECTL_VERSION: "1.31.2"
+    # sha256 of the pinned linux-amd64 binaries (kind publishes <asset>.sha256sum, kubectl <asset>.sha256); bump with the version (#4077)
+    KIND_SHA256: "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    KUBECTL_SHA256: "399e9d1995da80b64d2ef3606c1a239018660d8b35209fba3f7b0bc11c631c68"
     HELM_VERSION: "3.16.3"
     CALICO_VERSION: "v3.32.1"
     RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
@@ -862,8 +885,9 @@ helm:netpol:
         - .gitlab/ci/deploy-drills.yml
   before_script:
     - apk add --no-cache bash curl
-    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
-    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && echo "${KIND_SHA256}  /usr/local/bin/kind" | sha256sum -c - && chmod +x /usr/local/bin/kind && kind version
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && echo "${KUBECTL_SHA256}  /usr/local/bin/kubectl" | sha256sum -c - && chmod +x /usr/local/bin/kubectl && kubectl version --client
+    # Not checksum-verified (unlike kind/kubectl): tar -xz fails loudly on a non-gzip body, so an HTTP error page cannot be installed as helm.
     - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
     - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
   script:
@@ -931,6 +955,7 @@ backup:restore-drill:
     # inline command. Pinned like every other tool version in this file.
     HELM_VERSION: "3.16.3"
     YQ_VERSION: "4.44.3"
+    YQ_SHA256: "a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -1089,8 +1114,9 @@ backup:restore-drill:
     # and the same restore.sh. No cluster needed: the command is a POSIX shell
     # script whose only inputs are env vars, and this job's image is the same
     # postgres:16 family the CronJob uses.
+    # Not checksum-verified (unlike kind/kubectl): tar -xz fails loudly on a non-gzip body, so an HTTP error page cannot be installed as helm.
     - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
-    - curl -sSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64" && chmod +x /usr/local/bin/yq
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64" && echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c - && chmod +x /usr/local/bin/yq
     # Assert both landed, on their own lines. `set -e` exempts a command that
     # is not the last in an `&&` list, so a failed fetch above does not stop
     # the script — it surfaces further down as a `command not found` naming a

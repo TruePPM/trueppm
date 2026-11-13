@@ -193,8 +193,8 @@ worse of the pair: a gate that runs on every applicable MR, always reports clean
 therefore looks maximally compliant while contributing nothing. Skip-rate is blind to it
 by construction — the gate is never skipped.
 
-The `/mr` skill emits a machine-readable `## Gates` section (one `gate: <name> — <N>
-findings` line per gate run). Parse it across recent MRs:
+The `/mr` skill emits a machine-readable `## Gates` section (one `- gate: <name> — <N>
+findings` bullet per gate run; the regex below still accepts an unbulleted line, because 8 of 45 MRs were written that way before the template was pinned, #4118). Parse it across recent MRs:
 
 ```bash
 glab mr list -R trueppm/trueppm -M -P 50 -F json 2>/dev/null \
@@ -203,7 +203,7 @@ import json, re, sys
 from collections import defaultdict
 stats = defaultdict(lambda: {'ran': 0, 'found': 0, 'findings': 0, 'na': 0, 'skipped': 0})
 for mr in json.load(sys.stdin):
-    for name, outcome in re.findall(r'^\s*[-*]\s*gate:\s*([a-z][a-z/-]*)\s+[—-]\s*(.+)$',
+    for name, outcome in re.findall(r'^\s*(?:[-*]\s*)?gate:\s*([a-zA-Z0-9_/-]+)\s+[—-]\s*(.+)$',
                                     mr.get('description') or '', re.M):
         o = outcome.strip().lower()
         if name == 'completeness-check' and 'round 2' in o:

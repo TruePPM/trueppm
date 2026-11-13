@@ -56,7 +56,7 @@ Wait for both agents to return. Then evaluate:
   - If the title matches the current commits, report the URL and stop.
   - If the title does **not** match, **stop and tell the user** with a clear conflict description.
 
-**Exempt from changelog fragment**: `chore/*`, `ci/*`, `docs/*` branches; dependency bumps; test-only changes with no behavior change.
+**Exempt from changelog fragment**: `chore/*`, `ci/*`, `docs/*`, `test/*` branches; dependency bumps; test-only changes with no behavior change.
 
 ---
 
@@ -87,7 +87,7 @@ Using the research results from Step 1, analyse the commits and diff to produce:
 - [ ] Confirm CI pipeline is green
 
 ## Gates
-<!-- machine-readable; one line per gate. Format: `gate: <name> — <outcome>` -->
+<!-- machine-readable; one bulleted line per gate, exactly `- gate: <name> — <outcome>`; no unbulleted form -->
 - gate: <name> — <N> findings
 - gate: <name> — 0 findings
 - gate: <name> — n/a (<why this gate does not apply to this diff>)
@@ -140,9 +140,9 @@ against the current HEAD, record it and retry the same command:
 
 - `.claude/hooks/pre-mr-security-gate.sh record ran` — write the findings count per gate.
 - `.claude/hooks/pre-mr-security-gate.sh record na` — the gate does not apply (e.g. the resource is
-  not board-scoped); write `gate: <name> — n/a (<why>)`.
+  not board-scoped); write `- gate: <name> — n/a (<why>)`.
 - `.claude/hooks/pre-mr-security-gate.sh record skipped` — the gate applied and the user said to
-  skip it; write `gate: <name> — skipped (<reason>)`.
+  skip it; write `- gate: <name> — skipped (<reason>)`.
 
 Never write `skipped` for a gate that does not apply. Committing or editing after the record
 invalidates it.
@@ -268,8 +268,7 @@ Rules:
   parenthetical.** The fix-diff re-check (`.claude/skills/completeness-check/SKILL.md`
   § Fix-diff re-check) is the current example:
   `- gate: completeness-check/fix-diff — <N> findings`. `/kaizen`'s `gate:` regex
-  (`.claude/skills/kaizen/SKILL.md`) requires at least one whitespace character before the
-  dash and accepts `/` and `-` inside the name; a label written as
+  (`.claude/skills/kaizen/SKILL.md`) accepts `/`, `_` and `-` inside the name and an optional bullet, but still requires whitespace before the dash (without it `completeness-check (fix-diff) — 9` parses as a phantom gate named `completeness`); a label written as
   `completeness-check (fix-diff) — 9 findings` does not parse as a second gate at all —
   the parenthesis breaks the match on the internal hyphen of "completeness-check" and the
   whole line is silently dropped from the yield table. Always use `/<mode>`, never

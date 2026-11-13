@@ -255,7 +255,7 @@ Every agent finishes the code itself by, in order:
 
 1. Tests and docs in the **same commit** as the code change.
 2. A changelog fragment at `changelog.d/<issue>.<type>.md`, unless the change is
-   exempt (chore/ci/docs, or the MR carries `no-changelog`).
+   exempt (chore/ci/docs/test, or the MR carries `no-changelog`).
 3. `make pre-push` green. Log it to a **file** — piping it through `tail` loses
    the diagnostic and an OOM kill reads as a bare `exit 144`.
 4. **Stop and report back** — commit SHA, worktree path, which gates from the

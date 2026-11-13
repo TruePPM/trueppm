@@ -563,7 +563,7 @@ changelog:check:
   # Fragments are assembled into CHANGELOG.md at release time by
   # scripts/assemble-changelog.sh. See changelog.d/README.md for details.
   #
-  # Exempt branches: chore/*, ci/*, docs/* carry no user-visible change.
+  # Exempt branches: chore/*, ci/*, docs/*, test/* carry no user-visible change.
   # Exempt MRs: add the ~no-changelog label in GitLab to skip this check.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
@@ -573,7 +573,7 @@ changelog:check:
     # this job whenever a branch had >20 commits since branching from main.
     GIT_DEPTH: "0"
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(chore|ci|docs)\//i'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(chore|ci|docs|test)\//i'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
@@ -1505,6 +1505,9 @@ lint:package-licenses:
   # declared `license = "Apache-2.0"` and shipped no LICENSE file.
   #
   # Pure filesystem comparison, no network, no toolchain. ~1s.
+  #
+  # Also checks packages/{api,mcp}/NOTICES + licenses/ against the root NOTICES
+  # (#4413); see the THIRD-PARTY NOTICES block in the script header.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
@@ -3279,10 +3282,13 @@ helm:template:
   variables:
     KUBECONFORM_VERSION: "0.6.7"
     YQ_VERSION: "4.44.3"
+    YQ_SHA256: "a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7"
   before_script:
     - apk add --no-cache bash curl tar
+    # Not checksum-verified: tar -xz fails loudly on a non-gzip body, so an HTTP error page cannot be installed as kubeconform.
     - curl -sSL "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C /usr/local/bin kubeconform
-    - curl -sSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64"
+    - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64"
+    - echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c -
     - chmod +x /usr/local/bin/yq
   script:
     # Render the full chart the way a real deploy is shaped (a released image tag
@@ -5347,6 +5353,7 @@ perf:load:
     # Install the pinned k6 binary (single static Go binary). Extract to a
     # writable dir and add it to PATH — the ci-integration image runs as a
     # non-root user, so a write to /usr/local/bin would be denied.
+    # Not checksum-verified: curl -f fails on HTTP errors and tar -xzf fails loudly on a non-gzip body, so an error page cannot be installed as k6.
     - >
       retry curl -sfL
       "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz"
@@ -6850,6 +6857,8 @@ security:osv:
   before_script:
     # jq: the severity gate classifies OSV's JSON output by CVSS band.
     - apk add --no-cache wget jq
+    # Not checksum-verified: wget exits non-zero on 4xx/5xx and each script line is its own
+    # step, so a failed download aborts the job before chmod; an error page is never made executable.
     - wget -q -O /usr/local/bin/osv-scanner "https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64"
     - chmod +x /usr/local/bin/osv-scanner
   script:

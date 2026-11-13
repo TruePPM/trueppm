@@ -35,6 +35,25 @@
 # package therefore forces a deliberate decision instead of silently defaulting to
 # unchecked.
 #
+# THIRD-PARTY NOTICES (#4413)
+#
+# The root NOTICES file (plus licenses/*.txt) is the source of truth for the
+# copyleft/weak-copyleft components TruePPM redistributes. The packages that ship
+# in an image or sdist carry their own copy, and nothing used to notice one going
+# stale when a component was added or reworded at the root. NOTICES_SPEC below
+# classifies each such package:
+#   identical  byte-identical NOTICES and licenses/ to the root (packages/api)
+#   subset     a deliberate subset (packages/mcp has no psycopg dependency, so
+#              copying the root verbatim would misstate what it ships). Every
+#              root component must be listed as `required` or `excluded` so a new
+#              root entry forces a decision; each required one must appear in the
+#              package's NOTICES under the same heading with the same License:
+#              line, and every licenses/*.txt the root entry cites must exist in
+#              the package, byte-identical. Wording of the entry body may differ.
+# This checks entry presence and license text, not the package's actual
+# dependency closure (no network or lockfile read); `required`/`excluded` encode
+# that judgement and must be updated when a package gains or drops a dependency.
+#
 # Usage:  scripts/check-package-licenses.sh [ROOT] | --self-test
 #
 # ROOT defaults to the repository root and exists so --self-test can drive the real
@@ -87,6 +106,105 @@ NOTICE_REQUIRED=(
   wasm-scheduler
 )
 
+# <pkg>|<mode>|<required components, comma-separated>|<excluded components>
+NOTICES_SPEC=(
+  "api|identical||"
+  "mcp|subset|certifi|psycopg"
+)
+
+# Component names of a NOTICES file: a line underlined by a row of dashes, cut at
+# " — " (the "=" underline of the file title is deliberately not a component).
+notice_components() { # <file>
+  awk 'prev != "" && $0 ~ /^-+$/ { i = index(prev, " — "); print (i ? substr(prev, 1, i - 1) : prev) } { prev = $0 }' "$1"
+}
+
+# The body of one component's entry: heading through the line before the next one.
+notice_entry() { # <file> <component>
+  awk -v want="$2" '
+    { line[NR] = $0 }
+    END {
+      for (i = 1; i < NR; i++) if (line[i + 1] ~ /^-+$/ && line[i] != "") {
+        j = index(line[i], " — "); name = (j ? substr(line[i], 1, j - 1) : line[i])
+        if (name == want) { on = 1; print line[i]; i++; continue } else if (on) break
+      } else if (on) print line[i]
+      if (on && i == NR && line[NR] != "") print line[NR]
+    }' "$1"
+}
+
+in_csv() { # <needle> <comma-list>
+  case ",$2," in *",$1,"*) return 0 ;; *) return 1 ;; esac
+}
+
+check_notices() { # <pkg> <mode> <required> <excluded>; sets fail=1 on a problem
+  local pkg="$1" mode="$2" required="$3" excluded="$4" comp ref
+  if [[ ! -f "packages/$pkg/NOTICES" ]]; then
+    echo "ERROR: packages/$pkg ships third-party notices but has no NOTICES file." >&2
+    fail=1; return
+  fi
+  if [[ "$mode" == "identical" ]]; then
+    if ! diff -q NOTICES "packages/$pkg/NOTICES" >/dev/null 2>&1; then
+      echo "ERROR: packages/$pkg/NOTICES differs from the root NOTICES." >&2
+      echo "       Fix: cp NOTICES packages/$pkg/NOTICES" >&2
+      fail=1
+    fi
+    if ! diff -rq licenses "packages/$pkg/licenses" >/dev/null 2>&1; then
+      echo "ERROR: packages/$pkg/licenses differs from the root licenses/." >&2
+      echo "       Fix: cp licenses/*.txt packages/$pkg/licenses/" >&2
+      fail=1
+    fi
+    return
+  fi
+  # subset: classify every root component, then verify each required one.
+  while IFS= read -r comp; do
+    if ! in_csv "$comp" "$required" && ! in_csv "$comp" "$excluded"; then
+      echo "ERROR: root NOTICES component '$comp' is neither required nor excluded for packages/$pkg." >&2
+      echo "       Decide whether $pkg's dependency closure includes it and update NOTICES_SPEC in $0." >&2
+      fail=1
+    fi
+  done < <(notice_components NOTICES)
+  local pkg_comps root_comps
+  pkg_comps="$(notice_components "packages/$pkg/NOTICES")"
+  root_comps="$(notice_components NOTICES)"
+  while IFS= read -r comp; do
+    [[ -z "$comp" ]] && continue
+    if ! grep -qxF "$comp" <<<"$root_comps"; then
+      echo "ERROR: packages/$pkg/NOTICES has component '$comp' that the root NOTICES does not." >&2
+      fail=1
+    elif in_csv "$comp" "$excluded"; then
+      echo "ERROR: packages/$pkg/NOTICES lists '$comp', which NOTICES_SPEC excludes for $pkg." >&2
+      fail=1
+    fi
+  done <<<"$pkg_comps"
+  local IFS=','
+  for comp in $required; do
+    IFS=$' \t\n'
+    if ! grep -qxF "$comp" <<<"$root_comps"; then
+      echo "ERROR: NOTICES_SPEC requires '$comp' for $pkg but the root NOTICES has no such entry." >&2
+      fail=1; continue
+    fi
+    if ! grep -qxF "$comp" <<<"$pkg_comps"; then
+      echo "ERROR: packages/$pkg/NOTICES is missing the '$comp' entry its dependency closure requires." >&2
+      echo "       Copy the entry from the root NOTICES (wording may be package-scoped)." >&2
+      fail=1; continue
+    fi
+    if [[ "$(notice_entry NOTICES "$comp" | awk '/^  License:/ && !n { print; n = 1 }')" != \
+          "$(notice_entry "packages/$pkg/NOTICES" "$comp" | awk '/^  License:/ && !n { print; n = 1 }')" ]]; then
+      echo "ERROR: packages/$pkg/NOTICES '$comp' License: line differs from the root NOTICES." >&2
+      fail=1
+    fi
+    for ref in $(notice_entry NOTICES "$comp" | grep -oE 'licenses/[A-Za-z0-9.+-]+\.txt' | sort -u); do
+      if [[ ! -f "packages/$pkg/$ref" ]]; then
+        echo "ERROR: packages/$pkg is missing $ref, cited by its '$comp' notice." >&2
+        fail=1
+      elif ! diff -q "$ref" "packages/$pkg/$ref" >/dev/null 2>&1; then
+        echo "ERROR: packages/$pkg/$ref differs from the root $ref." >&2
+        fail=1
+      fi
+    done
+    IFS=','
+  done
+}
+
 if [[ "${1:-}" == "--self-test" ]]; then
   # Prove the gate can still fail, in this job's own image, before it is trusted
   # to pass (#3195). Detection here was verified once by hand during the #3194
@@ -132,6 +250,41 @@ if [[ "${1:-}" == "--self-test" ]]; then
     for pkg in "${BUNDLED[@]}"; do
       mkdir -p "$root/packages/$pkg"
     done
+    # Third-party notices (#4413): two components, api identical, mcp a subset.
+    mkdir -p "$root/licenses" "$root/packages/api/licenses" "$root/packages/mcp/licenses"
+    printf 'GPL text\n' > "$root/licenses/GPL-3.0.txt"
+    printf 'LGPL text\n' > "$root/licenses/LGPL-3.0.txt"
+    printf 'MPL text\n' > "$root/licenses/MPL-2.0.txt"
+    cat > "$root/NOTICES" <<'NOTICES_EOF'
+Fixture — Third-Party Notices
+=============================
+
+psycopg — database adapter
+--------------------------
+
+  License:     LGPL-3.0-only
+  License text: licenses/LGPL-3.0.txt (and licenses/GPL-3.0.txt)
+
+certifi — CA bundle
+-------------------
+
+  License:     MPL-2.0
+  License text: licenses/MPL-2.0.txt
+NOTICES_EOF
+    cp "$root/NOTICES" "$root/packages/api/NOTICES"
+    cp "$root"/licenses/*.txt "$root/packages/api/licenses/"
+    cat > "$root/packages/mcp/NOTICES" <<'NOTICES_EOF'
+Fixture MCP — Third-Party Notices
+=================================
+
+certifi — CA bundle
+-------------------
+
+  License:     MPL-2.0
+  License text: licenses/MPL-2.0.txt
+  (package-scoped wording is allowed to differ from the root)
+NOTICES_EOF
+    cp "$root/licenses/MPL-2.0.txt" "$root/packages/mcp/licenses/"
   }
 
   d="$st_tmp/clean"; mkdir -p "$d"; st_fixture "$d"
@@ -178,6 +331,41 @@ if [[ "${1:-}" == "--self-test" ]]; then
   d="$st_tmp/distributed-not-notice-required"; mkdir -p "$d"; st_fixture "$d"
   st_probe "distributed non-PyPI package with no NOTICE of its own" expect-pass "$d"
 
+  # THIRD-PARTY NOTICES (#4413).
+  d="$st_tmp/mcp-subset-ok"; mkdir -p "$d"; st_fixture "$d"
+  st_probe "mcp NOTICES as a deliberate subset of the root" expect-pass "$d"
+
+  # The negative control from the issue: an entry the package's closure still
+  # requires is removed from its NOTICES.
+  d="$st_tmp/mcp-entry-removed"; mkdir -p "$d"; st_fixture "$d"
+  printf 'Fixture MCP — Third-Party Notices\n=================================\n' > "$d/packages/mcp/NOTICES"
+  st_probe "mcp NOTICES with the required certifi entry removed" expect-fail "$d"
+
+  d="$st_tmp/api-notices-drift"; mkdir -p "$d"; st_fixture "$d"
+  printf '\nextra\n' >> "$d/packages/api/NOTICES"
+  st_probe "api NOTICES that drifted from the root" expect-fail "$d"
+
+  d="$st_tmp/api-entry-removed"; mkdir -p "$d"; st_fixture "$d"
+  printf 'Fixture — Third-Party Notices\n=============================\n' > "$d/packages/api/NOTICES"
+  st_probe "api NOTICES with an entry removed" expect-fail "$d"
+
+  d="$st_tmp/mcp-license-text-missing"; mkdir -p "$d"; st_fixture "$d"
+  rm -f "$d/packages/mcp/licenses/MPL-2.0.txt"
+  st_probe "mcp missing the license text its certifi entry cites" expect-fail "$d"
+
+  d="$st_tmp/mcp-license-text-diverged"; mkdir -p "$d"; st_fixture "$d"
+  printf 'other\n' > "$d/packages/mcp/licenses/MPL-2.0.txt"
+  st_probe "mcp license text diverging from the root" expect-fail "$d"
+
+  d="$st_tmp/mcp-license-line-diverged"; mkdir -p "$d"; st_fixture "$d"
+  sed 's/^  License:     MPL-2.0/  License:     GPL-2.0/' "$d/packages/mcp/NOTICES" > "$d/n" && mv "$d/n" "$d/packages/mcp/NOTICES"
+  st_probe "mcp certifi License: line diverging from the root" expect-fail "$d"
+
+  d="$st_tmp/root-component-unclassified"; mkdir -p "$d"; st_fixture "$d"
+  printf '\nnewlib — new thing\n------------------\n\n  License:     MPL-2.0\n' >> "$d/NOTICES"
+  cp "$d/NOTICES" "$d/packages/api/NOTICES"
+  st_probe "new root NOTICES component not classified for mcp" expect-fail "$d"
+
   [[ $st_rc -eq 0 ]] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
 fi
@@ -223,6 +411,13 @@ for pkg in "${NOTICE_REQUIRED[@]}"; do
   fi
 done
 
+# Third-party notices (#4413).
+for spec in "${NOTICES_SPEC[@]}"; do
+  IFS='|' read -r n_pkg n_mode n_req n_exc <<<"$spec"
+  check_notices "$n_pkg" "$n_mode" "$n_req" "$n_exc"
+done
+IFS=$' \t\n'
+
 # Drift guard: a package classified as neither is an unmade decision, not a pass.
 for dir in packages/*/; do
   pkg="$(basename "$dir")"
@@ -244,4 +439,4 @@ if [[ $fail -ne 0 ]]; then
   exit 1
 fi
 
-echo "package-license check passed (${#DISTRIBUTED[@]} distributed packages carry their own LICENSE, ${#NOTICE_REQUIRED[@]} published packages carry their own NOTICE)"
+echo "package-license check passed (${#NOTICES_SPEC[@]} NOTICES files in step with the root, ${#DISTRIBUTED[@]} distributed packages carry their own LICENSE, ${#NOTICE_REQUIRED[@]} published packages carry their own NOTICE)"
