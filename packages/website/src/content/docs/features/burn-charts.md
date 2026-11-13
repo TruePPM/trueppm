@@ -26,6 +26,7 @@ Plots remaining work from the project start date to today. The ideal burn line r
 - **Ideal line (dashed):** straight diagonal from total scope to zero
 - **Actual line (solid):** cumulative remaining work per day
 - A line above the ideal means you're behind; below means ahead.
+- A sprint with no commitment set (null, as opposed to a commitment of 0) has no ideal line, ahead/behind trend or scope line, because there is no starting scope to draw them from. The remaining line still draws from the daily snapshots.
 
 ### Burn Up
 
@@ -44,7 +45,7 @@ From 0.5 the Reports tab changes in four ways:
 
 - A project with no sprints shows a **No sprints yet** card instead of the project burn chart; the chart appears once the project has a sprint.
 - The **From** / **To** pickers carry the server's limits (no `To` more than 31 days ahead, no span over 366 days), so the date pickers will not offer an out-of-range window. A date typed by hand can still go past them, and the server then refuses it with an explanation shown in the chart.
-- When the server shortened the window to its most recent 366 days, the chart says **Showing the most recent 366 days**. A project whose history is exactly 366 days long gets the same message, because the response cannot tell the two cases apart.
+- When the server shortened the window to its most recent 366 days, the chart says **Showing the most recent 366 days**. A project whose history is exactly 366 days long does not get it: the response carries an explicit `clamped` flag, so nothing is disclosed unless history was actually dropped.
 - If the server rejects the window with a 400, the chart shows the server's explanation in an alert with no **Retry** button, since retrying the same request cannot succeed. Other failures keep **Retry**.
 :::
 
@@ -78,7 +79,7 @@ past that horizon, or an explicit `since` more than 366 days before `until`, is 
 never refused for span; the window is clamped to the 366 days ending at `until`
 instead, and the response echoes the `since` it actually used.
 
-The response echoes `chart_type`, `metric`, `since`, and `until`, plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. For `burndown` / `burnup` only, a project with an active baseline also gets a `baseline_series` planned-remaining overlay (`{date, planned}` rows); `combined` does not carry one. The overlay is omitted (the key is absent, same as having no active baseline) when the active baseline was captured before the CPM engine first ran — its snapshotted finish dates are mostly or entirely missing, so there is no real plan to overlay.
+The response echoes `chart_type`, `metric`, `since`, and `until`, a boolean `clamped` (true only when a defaulted `since` was shortened to the 366-day maximum), plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. For `burndown` / `burnup` only, a project with an active baseline also gets a `baseline_series` planned-remaining overlay (`{date, planned}` rows); `combined` does not carry one. The overlay is omitted (the key is absent, same as having no active baseline) when the active baseline was captured before the CPM engine first ran — its snapshotted finish dates are mostly or entirely missing, so there is no real plan to overlay.
 
 `IsAuthenticated` + project read permission required. Project must be a member of the requesting user's accessible projects.
 

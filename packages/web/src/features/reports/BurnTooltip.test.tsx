@@ -30,6 +30,13 @@ function renderTip(
 }
 
 describe('BurnTooltip', () => {
+  it('prints no Ideal row or delta when the ideal is not computable (#4964)', () => {
+    renderTip({}, point({ ideal: null }));
+    expect(screen.getByText(/Remaining/)).toBeInTheDocument();
+    expect(screen.queryByText(/Ideal/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ahead|behind/)).not.toBeInTheDocument();
+  });
+
   it('renders nothing when inactive or when Recharts hands it no row', () => {
     const { container } = renderTip({ active: false });
     expect(container).toBeEmptyDOMElement();

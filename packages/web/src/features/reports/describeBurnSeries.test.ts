@@ -84,3 +84,17 @@ describe('describeBurnSeries', () => {
     );
   });
 });
+
+describe('describeBurnSeries — null ideal (#4964)', () => {
+  it('omits the "versus an ideal" clause when the ideal is not computable', () => {
+    const text = describeBurnSeries(
+      [{ date: '2026-04-02', remaining: 5, completed: 0, scope: null, ideal: null }],
+      'burndown',
+      'points',
+      [],
+      null,
+    );
+    expect(text).toContain('5 story points remaining');
+    expect(text).not.toMatch(/ideal/);
+  });
+});

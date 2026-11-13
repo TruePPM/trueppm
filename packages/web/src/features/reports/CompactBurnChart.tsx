@@ -2,7 +2,7 @@ import { AreaChart, Area, Line, ResponsiveContainer } from 'recharts';
 import { CHART_INITIAL_DIMENSION } from '@/lib/chartInitialDimension';
 import type { ApiSprint } from '@/types';
 import type { BurnMetric } from './hooks/useBurnChart';
-import { CHART_COLORS, type NormPoint } from './burnChartData';
+import { CHART_COLORS, sprintCommitment, type NormPoint } from './burnChartData';
 
 interface CompactBurnChartProps {
   sprint: ApiSprint | undefined;
@@ -30,10 +30,17 @@ function burnCaption(opts: {
   sprintHasNoRealData: boolean;
   lastRemaining: number;
   committedVal: number;
+  hasCommitment: boolean;
   unit: string;
 }): { lead: string | null; num: string; trail: string } {
-  const { state, sprintHasNoRealData, lastRemaining, committedVal, unit } = opts;
+  const { state, sprintHasNoRealData, lastRemaining, committedVal, hasCommitment, unit } = opts;
   if (state === 'COMPLETED') return { lead: null, num: '', trail: 'Closed' };
+  if (!hasCommitment) {
+    // No commitment set: "0 committed" would read as a plan of nothing.
+    return sprintHasNoRealData
+      ? { lead: 'Not started — ', num: '', trail: 'no commitment set' }
+      : { lead: '', num: `${Math.round(lastRemaining)} ${unit}`, trail: ' left' };
+  }
   if (sprintHasNoRealData) {
     // PLANNED / future sprint with no snapshots yet — a flat baseline.
     return { lead: 'Not started — ', num: `${committedVal} ${unit}`, trail: ' committed' };
@@ -55,8 +62,8 @@ export function CompactBurnChart({
   iterationLabel,
 }: CompactBurnChartProps) {
   const unit = metric === 'points' ? 'pts' : 'tasks';
-  const committedVal =
-    metric === 'points' ? (sprint?.committed_points ?? 0) : (sprint?.committed_task_count ?? 0);
+  const commitment = sprint ? sprintCommitment(sprint, metric) : null;
+  const committedVal = commitment ?? 0;
   // The latest day that actually has a remaining value drives the caption.
   // Grid rows past the last snapshot are now null (issue 1249), so we can't
   // read the final row blindly — walk back to the last non-null remaining,
@@ -73,6 +80,7 @@ export function CompactBurnChart({
     sprintHasNoRealData,
     lastRemaining,
     committedVal,
+    hasCommitment: commitment !== null,
     unit,
   });
 

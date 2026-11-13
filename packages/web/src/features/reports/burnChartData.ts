@@ -77,7 +77,10 @@ export interface NormPoint {
   // `null` after the last snapshot too — the burnup total-scope line shares the
   // completed line's extent and must end with the data, not flat-line (issue 1279).
   scope: number | null;
-  ideal: number;
+  // `null` when the sprint has no commitment for the active metric: an ideal line
+  // needs a day-0 anchor, and a missing commitment is not a commitment of zero
+  // (#4964). Recharts skips null y-values, so the line is simply not drawn.
+  ideal: number | null;
 }
 
 export interface ScopeChange {
@@ -104,7 +107,8 @@ function lastWithValue(
 function remainingClause(points: NormPoint[], unit: string): string | null {
   const p = lastWithValue(points, 'remaining');
   if (!p) return null;
-  return `${Math.round(p.remaining as number)} ${unit} remaining versus an ideal of ${Math.round(p.ideal)}`;
+  const remaining = `${Math.round(p.remaining as number)} ${unit} remaining`;
+  return p.ideal === null ? remaining : `${remaining} versus an ideal of ${Math.round(p.ideal)}`;
 }
 
 /** "N of M completed" clause, or null when either the completed or scope series is empty. */
@@ -240,7 +244,7 @@ function projectedDayValue(
   hasSnap: boolean,
   isFirstDay: boolean,
   isAfterData: boolean,
-  anchor: number,
+  anchor: number | null,
   carried: number,
 ): number | null {
   if (hasSnap) return carried;
@@ -316,6 +320,15 @@ function computeSprintTrend(
   };
 }
 
+/**
+ * The sprint's commitment for the active metric, or `null` when none is set. The
+ * single place the null is preserved, so every derived series agrees on whether
+ * a day-0 anchor exists.
+ */
+export function sprintCommitment(sprint: ApiSprint, metric: BurnMetric): number | null {
+  return (metric === 'points' ? sprint.committed_points : sprint.committed_task_count) ?? null;
+}
+
 export function deriveSprintSeries(
   sprint: ApiSprint,
   snapshots: import('@/hooks/useSprints').SprintBurnSnapshot[],
@@ -326,8 +339,13 @@ export function deriveSprintSeries(
   trendAhead: number | null;
   forecastDate: string | null;
 } {
-  const committedVal =
-    metric === 'points' ? (sprint.committed_points ?? 0) : (sprint.committed_task_count ?? 0);
+  const commitment = sprintCommitment(sprint, metric);
+  // A null commitment is "not set", not zero. Anchoring day 0 / ideal / scope on 0
+  // would draw a flat zero ideal line and a scope line pinned at the baseline, so
+  // those series are omitted instead (#4964; same stance as VelocityPanel's null
+  // committed_points). Snapshot-derived remaining/completed still draw.
+  const hasCommitment = commitment !== null;
+  const committedVal = commitment ?? 0;
   const totalDays = daysBetween(sprint.start_date, sprint.finish_date) + 1;
   const denom = idealSlopeDenominator(sprint.start_date, sprint.finish_date);
   const byDate = new Map(snapshots.map((s) => [s.snapshot_date, s]));
@@ -374,7 +392,7 @@ export function deriveSprintSeries(
       !!snap,
       isFirstDay,
       isAfterData,
-      committedVal,
+      hasCommitment ? committedVal : null,
       carriedRemaining,
     );
     const completed = projectedDayValue(!!snap, isFirstDay, isAfterData, 0, carriedCompleted);
@@ -385,9 +403,9 @@ export function deriveSprintSeries(
     const scopeDelta = snapScopeDelta(snap, metric);
     const curScope = committedVal + scopeDelta;
     if (snap) carriedScope = curScope;
-    const ideal = idealRemainingAt(committedVal, i, denom);
+    const ideal = hasCommitment ? idealRemainingAt(committedVal, i, denom) : null;
 
-    if (snap && scopeDelta !== 0 && curScope !== prevScope) {
+    if (hasCommitment && snap && scopeDelta !== 0 && curScope !== prevScope) {
       changes.push({ date: iso, delta: scopeDelta, newScope: curScope });
       prevScope = curScope;
     }
@@ -397,18 +415,16 @@ export function deriveSprintSeries(
     // scope creep the burnup exists to expose. Shares the completed line's extent
     // (anchored at committed on day 0, carried across gaps, null after the last
     // snapshot so it ends with the data, issue-1249 shape).
-    const scope = projectedDayValue(!!snap, isFirstDay, isAfterData, committedVal, carriedScope);
+    const scope = hasCommitment
+      ? projectedDayValue(!!snap, isFirstDay, isAfterData, committedVal, carriedScope)
+      : null;
 
     points.push({ date: iso, remaining, completed, scope, ideal });
   }
 
-  const { trendAhead, forecastDate } = computeSprintTrend(
-    sprint,
-    committedVal,
-    denom,
-    totalDays,
-    points,
-  );
+  const { trendAhead, forecastDate } = hasCommitment
+    ? computeSprintTrend(sprint, committedVal, denom, totalDays, points)
+    : { trendAhead: null, forecastDate: null };
 
   return { points, scopeChanges: changes, trendAhead, forecastDate };
 }

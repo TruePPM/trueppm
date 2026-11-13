@@ -476,6 +476,50 @@ def test_empty_since_is_clamped_not_rejected(project: Project, member: object) -
     assert (until - since).days == MAX_BURN_WINDOW_DAYS
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize("chart_type", ["burndown", "burnup", "combined"])
+def test_clamped_flag_true_when_defaulted_window_shortened(
+    project: Project, member: object, chart_type: str
+) -> None:
+    Project.objects.filter(pk=project.pk).update(start_date=date.today() - timedelta(days=900))
+    resp = _client(member).get(f"/api/v1/projects/{project.pk}/burn/", {"chart_type": chart_type})
+    assert resp.status_code == 200
+    assert resp.data["clamped"] is True
+
+
+@pytest.mark.django_db
+def test_clamped_flag_false_for_exactly_max_window_project(
+    project: Project, member: object
+) -> None:
+    """A project exactly MAX_BURN_WINDOW_DAYS old echoes the same span a clamp does,
+    but nothing was dropped, so ``clamped`` must be False (#4965)."""
+    Project.objects.filter(pk=project.pk).update(
+        start_date=date.today() - timedelta(days=MAX_BURN_WINDOW_DAYS)
+    )
+    resp = _client(member).get(f"/api/v1/projects/{project.pk}/burn/")
+    assert resp.status_code == 200
+    since = date.fromisoformat(resp.data["since"])
+    until = date.fromisoformat(resp.data["until"])
+    assert (until - since).days == MAX_BURN_WINDOW_DAYS
+    assert resp.data["clamped"] is False
+
+
+@pytest.mark.django_db
+def test_clamped_flag_false_for_short_and_explicit_windows(
+    project: Project, member: object
+) -> None:
+    c = _client(member)
+    resp = c.get(f"/api/v1/projects/{project.pk}/burn/")
+    assert resp.data["clamped"] is False
+    until = date.today()
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"since": (until - timedelta(days=MAX_BURN_WINDOW_DAYS)).isoformat()},
+    )
+    assert resp.status_code == 200
+    assert resp.data["clamped"] is False
+
+
 # ---------------------------------------------------------------------------
 # Permissions
 # ---------------------------------------------------------------------------
