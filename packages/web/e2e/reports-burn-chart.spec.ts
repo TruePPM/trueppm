@@ -51,6 +51,8 @@ const BURN_RESPONSE = {
   // Provenance (ADR-1314): the server sends both on every burn response, so they
   // are in the variant's `required` list and, by the same oneOf rule as
   // `baseline_series` above, the mock must carry them to match its branch.
+  // `clamped` (#4964) is required on every burn response, same oneOf rule.
+  clamped: false,
   as_of: '2026-04-14T12:00:00Z',
   definitions: {
     burn_series: 'Per day, the remaining or completed quantity, replayed from task history.',
