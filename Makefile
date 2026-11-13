@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check schema-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
+        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check schema-check openapi-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -157,6 +157,23 @@ schema-breaking-check: ## Run the api:schema-breaking CI job locally (#4594): Br
 
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
 	bash scripts/export-openapi.sh --check
+
+openapi-check: ## Run the api:openapi-check CI job locally (#3958): spectacular --validate, change-gated to packages/api, packages/scheduler, docs/api/openapi.json
+	@# schema-check proves the committed JSON matches the live schema; it never
+	@# asks whether that schema is VALID OpenAPI 3, which api:openapi-check does
+	@# and which used to be discoverable only a CI round-trip after the push.
+	@# Mirrors CI's `rules-api` scoping (packages/api, packages/scheduler) plus
+	@# the committed schema itself, so a docs-only or web-only push skips it and
+	@# stays inside the pre-push budget. Same env as scripts/export-openapi.sh.
+	@if ! git diff --name-only origin/main...HEAD 2>/dev/null | grep -qE '^(packages/api/|packages/scheduler/|docs/api/openapi\.json)'; then \
+	  echo "→ openapi validity: no api/scheduler/schema changes — skipped"; \
+	else \
+	  echo "→ openapi validity (spectacular --validate)"; \
+	  py="$(CURDIR)/packages/api/.venv/bin/python"; [ -x "$$py" ] || py=python; \
+	  cd packages/api && TRUEPPM_ALLOW_DEV_SETTINGS=1 \
+	    PYTHONPATH="$(CURDIR)/packages/api/src:$(CURDIR)/packages/scheduler/src$${PYTHONPATH:+:$$PYTHONPATH}" \
+	    "$$py" manage.py spectacular --validate --file /dev/null; \
+	fi
 
 api-lint: ## Run the api:lint CI job locally (ruff check + format --check)
 	cd packages/api && ruff check src/ tests/ && ruff format --check src/ tests/
@@ -775,6 +792,7 @@ pre-push-checks: migrations-constraint-safety
 pre-push-checks: bulk-create-server-version-check
 pre-push-checks: app-layering-check
 pre-push-checks: schema-check
+pre-push-checks: openapi-check
 pre-push-checks: schema-breaking-check
 pre-push-checks: sonar-exclusions-check
 pre-push-checks: curl-hardening-check

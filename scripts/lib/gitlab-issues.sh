@@ -32,6 +32,9 @@
 # milestone title (`-` when none) and the comma-joined labels (#4724).
 # Returns 2 when the tracker could not be read after retries; nothing useful
 # is printed in that case, so callers must check the status, not the output.
+# Returns 3 (GITLAB_TRANSIENT_EXIT) when the only cause was a transient outage
+# that outlasted every retry (429 / 5xx / timeout) — a gate may choose to fail
+# open on that and only that (#3953); a 401 or other 4xx stays 2.
 gitlab_issue_states() {
   local api="$1" project="$2" token="$3"
   shift 3
@@ -40,7 +43,7 @@ gitlab_issue_states() {
   [ "${#iids[@]}" -eq 0 ] && return 0
   for ((i = 0; i < ${#iids[@]}; i += 100)); do
     batch=("${iids[@]:i:100}")
-    _gitlab_issue_batch "$api" "$project" "$token" "${batch[@]}" || return 2
+    _gitlab_issue_batch "$api" "$project" "$token" "${batch[@]}" || return $?
   done
 }
 
@@ -90,7 +93,7 @@ _gitlab_issue_batch() {
   shift 3
   local query="per_page=100&${GITLAB_ISSUES_QUERY_OVERRIDE:-state=all}" iid body
   for iid in "$@"; do query+="&iids[]=${iid}"; done
-  body=$(_gitlab_get "${api}/projects/${project}/issues?${query}" "$token") || return 2
+  body=$(_gitlab_get "${api}/projects/${project}/issues?${query}" "$token") || return $?
   if [ "${GITLAB_ISSUES_WITH_PLAN:-0}" = "1" ]; then
     # Opt-in extra columns after the title: milestone title, comma-joined
     # labels. Off by default so every other caller's `cut -f3-` title read
@@ -104,7 +107,8 @@ _gitlab_issue_batch() {
 # _gitlab_get <url> <token-or-empty>
 #
 # One GET with the retry / Retry-After / expired-token policy described at the
-# top of this file. Prints the response body on HTTP 200; returns 2 otherwise.
+# top of this file. Prints the response body on HTTP 200; returns 3 when
+# 429 / 5xx / network errors outlasted every retry (transient), 2 otherwise.
 # The token travels only as a request header and is never echoed.
 _gitlab_get() {
   local url="$1" token="$2" resp status code retry_after body
@@ -146,7 +150,7 @@ _gitlab_get() {
 
     if [ "$attempt" -ge "$max" ]; then
       echo "ERROR: GitLab issues API still failing after ${max} attempts (last HTTP ${code:-000})." >&2
-      return 2
+      return 3
     fi
     if [[ "$retry_after" =~ ^[0-9]+$ ]]; then
       wait="$retry_after"
@@ -286,7 +290,9 @@ closing_ids_from_text() {
 #     policy as the issue reads; the job token is never sent (#3043).
 #   - Otherwise (pre-push, main push): closing keywords in the commit messages
 #     of <base>..HEAD.
-# Returns 2 when the MR endpoint cannot be read; the caller fails closed.
+# Returns 2 when the MR endpoint cannot be read, 3 when it was a transient
+# outage that outlasted the retries (see gitlab_issue_states); the caller
+# decides whether to fail closed.
 tracker_gate_closing_ids() {
   local api="$1" project="$2" token="$3" base="$4" body
   if [ -n "${TRACKER_GATE_CLOSES+x}" ]; then
@@ -295,8 +301,9 @@ tracker_gate_closing_ids() {
   fi
   if [ -n "${CI_MERGE_REQUEST_IID:-}" ]; then
     body=$(_gitlab_get "${api}/projects/${project}/merge_requests/${CI_MERGE_REQUEST_IID}/closes_issues?per_page=100" "$token") || {
+      local rc=$?
       echo "ERROR: could not read this MR's closes_issues from the GitLab API." >&2
-      return 2
+      return "$rc"
     }
     # Only issues in THIS project: a cross-project close cannot stale a local #N.
     printf '%s' "$body" | jq -r --arg p "$project" \

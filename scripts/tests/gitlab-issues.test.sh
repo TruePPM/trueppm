@@ -107,6 +107,16 @@ for code in 401 404; do
 done
 ok
 
+# 8b. A 429 or 5xx that outlasts the retries fails with exit 3 (fail closed).
+for code in 429 503; do
+  reset "$code"
+  rc=0
+  GITLAB_ISSUES_MAX_ATTEMPTS=3 gitlab_issue_states https://api 1 "" 5 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 3 ] || fail "persistent $code did not exit 3 (rc=$rc)"
+  [ "$(calls)" = 3 ] || fail "persistent $code made $(calls) requests, want 3"
+done
+ok
+
 # 9. Never a JOB-TOKEN header (#3043), and the iids[] brackets are not globbed.
 grep -q 'JOB-TOKEN' "$tmp/calls" && fail "a JOB-TOKEN header was sent"
 reset 200

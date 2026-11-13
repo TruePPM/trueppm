@@ -31,7 +31,8 @@ The shared logic lives in `scripts/lib/gitlab-issues.sh`:
 | MR pipeline | `GET /projects/:id/merge_requests/:iid/closes_issues`. This is GitLab's own set: description and commit-message keywords, and negated keywords too, such as the one in !3327's description (see #4883). A regex over the description is not enough. |
 | `make pre-push` / main push | Closing keywords in the commit messages of `base..HEAD`. The parser is deliberately not negation-aware, because GitLab is not either. |
 
-An unreadable `closes_issues` fails closed.
+An unreadable `closes_issues` fails closed, except for a transient outage (see
+"Transient outage" below).
 
 ## The diff base
 
@@ -120,6 +121,19 @@ catches a direct push to main (the release commit) that adds a stale
 reference. It does not catch drift. Nothing is `allow_failure`: a failed
 `allow_failure` job is invisible in the pipeline status, which is the silence
 these gates exist to remove.
+
+## Transient outage: `check-todo-grep.sh` fails open (#3953)
+
+`gitlab-issues.sh` retries 429, 5xx and network errors with backoff. If those
+outlast every attempt it returns `3` (a transient outage), distinct from `2`
+(401 or another 4xx, a private tracker, a bad response). In diff mode
+`check-todo-grep.sh` treats `3` as "the tracker is down, which is not evidence of
+a stale TODO": it warns, skips rule 2 and exits 0. A real finding the change
+itself causes (a TODO naming an issue in the closing set) still fails, and
+STUB:/WIP: still fail. Drift mode, a `2`, and an unresolvable diff base still
+fail closed, so the nightly report never closes its tracking issue on a partial
+read. `TODO_GREP_FAIL_CLOSED_ON_OUTAGE=1` restores fail-closed everywhere. The
+other tracker-reading gates are unchanged and still fail closed.
 
 ## Exit codes
 

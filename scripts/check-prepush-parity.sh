@@ -73,6 +73,7 @@ check-api-wheel-imports.py	installs the built wheel from PyPI into fresh venvs (
 check-dts-camelcase.sh	reads the wasm-pack .d.ts, which exists only after a wasm build; the wasm tree is covered by pre-push-wasm
 check-api-image-lock.py	runs inside a built packages/api/Dockerfile image (docker build, minutes on a cold cache, plus network to pull the base image and the locked packages) — not a repo-only, seconds-scale check; run it by hand with docker build -f packages/api/Dockerfile -t api-lock-check . && docker run --rm -i api-lock-check /venv/bin/python - < scripts/check-api-image-lock.py (#4078)
 check-scheduler-wheel-smoke.sh	mirrored transitively: check-scheduler-sdist.sh (make scheduler-sdist-check, in pre-push-checks) calls it on the wheel it builds; the tag-time scheduler:build call needs the tag job context and adds no extra local coverage (#4544)
+check-python-licenses.sh	audits the installed dependency closure of the CI api/mcp images with pip-licenses, which a local checkout does not have installed at CI's versions (and the self-test needs pip-licenses on PATH); run it by hand: scripts/ci/check-python-licenses.sh --self-test (#4108)
 "
 
 opt_out_reason() {
