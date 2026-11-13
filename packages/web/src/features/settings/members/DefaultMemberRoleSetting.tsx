@@ -21,6 +21,7 @@ export function DefaultMemberRoleSetting({ projectId }: Props) {
     data: project,
     isLoading,
     isError: projectFailed,
+    error: projectError,
     refetch,
   } = useProject(projectId);
   const { mutate, isPending, isError: saveFailed } = useUpdateProject(projectId);
@@ -45,6 +46,7 @@ export function DefaultMemberRoleSetting({ projectId }: Props) {
         <QueryErrorState
           variant="inline"
           message="Couldn't load this setting."
+          error={projectError}
           onRetry={() => void refetch()}
         />
       ) : isLoading || !project ? (

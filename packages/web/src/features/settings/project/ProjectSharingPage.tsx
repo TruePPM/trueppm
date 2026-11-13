@@ -148,7 +148,7 @@ export function ProjectSharingPage() {
     project?.public_sharing === false
       ? 'Public sharing is turned off for this project. Turn it on in Project Settings → General.'
       : 'Public sharing is turned off by the workspace or program policy this project inherits. Change it in Workspace Settings → General or the program’s General settings, or override it for this project in Project Settings → General.';
-  const { data: links, isLoading, isError, refetch } = useShareLinks(projectId);
+  const { data: links, isLoading, isError, error, refetch } = useShareLinks(projectId);
 
   const active = (links ?? []).filter((l) => l.isActive);
   const scheduleLinks = active.filter((l) => l.contentKind === 'schedule');
@@ -207,6 +207,7 @@ export function ProjectSharingPage() {
           <QueryErrorState
             variant="inline"
             message="Couldn't load share links."
+            error={error}
             onRetry={() => void refetch()}
           />
         ) : isLoading ? (

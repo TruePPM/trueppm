@@ -36,6 +36,8 @@ export interface WorkspaceAdminStatus {
    * otherwise terminal. A no-op when the underlying hook is mocked without one.
    */
   refetch: () => void;
+  /** The `/auth/me` failure, when there is one — pass to `QueryErrorState`. */
+  error?: unknown;
 }
 
 /**
@@ -46,14 +48,14 @@ export interface WorkspaceAdminStatus {
  * or any surface that must show a loading or error state rather than guessing.
  */
 export function useWorkspaceAdminStatus(): WorkspaceAdminStatus {
-  const { user, isLoading, isError, refetch } = useCurrentUser();
+  const { user, isLoading, isError, error, refetch } = useCurrentUser();
   const retry = refetch ?? (() => {});
 
   if (isLoading) return { verdict: 'loading', refetch: retry };
-  if ((isError ?? false) || !user) return { verdict: 'unknown', refetch: retry };
+  if ((isError ?? false) || !user) return { verdict: 'unknown', refetch: retry, error };
 
   const role = user.workspace_role;
-  if (typeof role !== 'number') return { verdict: 'unknown', refetch: retry };
+  if (typeof role !== 'number') return { verdict: 'unknown', refetch: retry, error };
   return { verdict: role >= WORKSPACE_ADMIN_ROLE ? 'admin' : 'not-admin', refetch: retry };
 }
 

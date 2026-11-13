@@ -148,6 +148,8 @@ export interface UseCurrentUserResult {
    * never as a third state.
    */
   refetch?: () => void;
+  /** The failure behind `isError`, for `QueryErrorState`'s 403/429 reading. Optional like `isError`. */
+  error?: unknown;
 }
 
 /**
@@ -155,7 +157,7 @@ export interface UseCurrentUserResult {
  * staleTime: 5 min — matches access token lifetime; avoids redundant refetches.
  */
 export function useCurrentUser(): UseCurrentUserResult {
-  const { data, isPending, isError, refetch } = useQuery<CurrentUser, AxiosError>({
+  const { data, isPending, isError, error, refetch } = useQuery<CurrentUser, AxiosError>({
     queryKey: ['current-user'],
     queryFn: async () => {
       const res = await apiClient.get<CurrentUser>('/auth/me/');
@@ -164,5 +166,5 @@ export function useCurrentUser(): UseCurrentUserResult {
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  return { user: data, isLoading: isPending, isError, refetch: () => void refetch() };
+  return { user: data, isLoading: isPending, isError, error, refetch: () => void refetch() };
 }

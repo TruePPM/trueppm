@@ -721,6 +721,18 @@ function SegmentRows({
         />
       );
 
+    case 'sprintUnknown':
+      return (
+        <div
+          data-testid="health-sprint-unknown"
+          className="px-3 py-1.5 text-neutral-text-secondary"
+        >
+          {segment.failed
+            ? `Couldn\u2019t load ${iterationLower}s`
+            : `Loading ${iterationLower}s\u2026`}
+        </div>
+      );
+
     case 'points':
       return <PointsRow segment={segment} />;
 
@@ -1119,7 +1131,11 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   const unavailable = statsError !== null || band === undefined;
   const chip = band !== undefined ? deriveChipState(band) : null;
   const healthBandSource: HealthBandSource | undefined = stats?.healthBandSource;
-  const { sprint: activeSprint } = useActiveSprint(projectId);
+  const {
+    sprint: activeSprint,
+    isLoading: sprintLoading,
+    error: sprintError,
+  } = useActiveSprint(projectId);
   const { data: velocity } = useProjectVelocity(projectId);
   const iteration = useIterationLabel(projectId);
   // Sprint-jump targets (issue 1594) folded into the popover's sprint row (#1680) —
@@ -1305,6 +1321,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     methodology,
     stats,
     activeSprint,
+    sprintRead: sprintError ? 'error' : sprintLoading ? 'loading' : 'ready',
     velocity,
     // P50 for the forecast band comes from the same MC result the drill-through
     // panel renders (issue 1197); P80 stays sourced from the status-summary.

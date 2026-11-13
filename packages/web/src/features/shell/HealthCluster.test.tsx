@@ -62,8 +62,16 @@ const activeSprint = vi.hoisted<{ current: ApiSprint | null }>(() => ({ current:
 const velocity = vi.hoisted<{ current: ProjectVelocity | undefined }>(() => ({
   current: undefined,
 }));
+const sprintRead = vi.hoisted<{ loading: boolean; error: Error | null }>(() => ({
+  loading: false,
+  error: null,
+}));
 vi.mock('@/hooks/useSprints', () => ({
-  useActiveSprint: () => ({ sprint: activeSprint.current, isLoading: false }),
+  useActiveSprint: () => ({
+    sprint: activeSprint.current,
+    isLoading: sprintRead.loading,
+    error: sprintRead.error,
+  }),
   useProjectVelocity: () => ({ data: velocity.current, isLoading: false, error: null }),
 }));
 
@@ -169,6 +177,8 @@ const VELOCITY: ProjectVelocity = {
 };
 
 beforeEach(() => {
+  sprintRead.loading = false;
+  sprintRead.error = null;
   projectId.current = 'test-project-id';
   projectLoaded.current = true;
   projectErrorStatus.current = null;
@@ -811,6 +821,33 @@ describe('HealthCluster degraded / edge reads', () => {
     );
     expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/sprints');
     expect(screen.queryByRole('dialog', { name: 'Project health' })).not.toBeInTheDocument();
+  });
+
+  it('a failed sprints read does not claim "No active sprint" (#3517)', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    activeSprint.current = null;
+    sprintRead.error = new Error('sprints failed');
+    render();
+    const dialog = await openPopover(user);
+    expect(within(dialog).getByTestId('health-sprint-unknown')).toHaveTextContent(
+      'Couldn\u2019t load sprints',
+    );
+    expect(
+      within(dialog).queryByRole('button', { name: 'No active sprint. View sprints.' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('an unresolved sprints read does not claim "No active sprint" (#3517)', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    activeSprint.current = null;
+    sprintRead.loading = true;
+    render();
+    const dialog = await openPopover(user);
+    expect(within(dialog).getByTestId('health-sprint-unknown')).toHaveTextContent(
+      'Loading sprints',
+    );
   });
 });
 

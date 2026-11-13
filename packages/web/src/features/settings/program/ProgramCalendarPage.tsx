@@ -237,10 +237,16 @@ export function ProgramCalendarPage() {
     data: program,
     isLoading: programLoading,
     isError: programFailed,
+    error: programError,
     refetch: refetchProgram,
   } = useProgram(programId);
   const updateProgram = useUpdateProgram();
-  const { data: ws, isError: wsFailed, refetch: refetchWs } = useWorkspaceSettings();
+  const {
+    data: ws,
+    isError: wsFailed,
+    error: wsError,
+    refetch: refetchWs,
+  } = useWorkspaceSettings();
   const { calendars, isLoading: calendarsLoading, error: calendarsError } = useCalendars();
 
   // null = inherit the workspace calendar (ADR-0441).
@@ -312,6 +318,7 @@ export function ProgramCalendarPage() {
               if (programFailed) void refetchProgram();
               if (wsFailed) void refetchWs();
             }}
+            error={programFailed ? programError : wsError}
           />
         </div>
       </div>

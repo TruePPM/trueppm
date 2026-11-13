@@ -1,3 +1,4 @@
+import { axiosRefusal } from '@/test/axiosError';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router';
@@ -8,6 +9,7 @@ import type { WorkspaceAdminVerdict } from '@/hooks/useIsWorkspaceAdmin';
 const mockStatus = vi.hoisted(() => ({
   verdict: 'loading' as WorkspaceAdminVerdict,
   refetch: vi.fn(),
+  error: undefined as unknown,
 }));
 
 vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({
@@ -34,6 +36,17 @@ function renderGuard() {
 
 beforeEach(() => {
   mockStatus.refetch = vi.fn();
+});
+
+describe('403 on the /auth/me read (#3874)', () => {
+  it('says access is denied and offers no Retry', () => {
+    mockStatus.verdict = 'unknown';
+    mockStatus.error = axiosRefusal(403, {});
+    renderGuard();
+    expect(screen.getByText(/don't have access/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    mockStatus.error = undefined;
+  });
 });
 
 describe('RequireWorkspaceAdmin', () => {

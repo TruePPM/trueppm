@@ -49,7 +49,7 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { useAdminSettingsAccess } from '@/hooks/useAdminSettingsAccess';
 
 export function RequireAdminSettings({ children }: { children: ReactNode }) {
-  const { verdict, refetch } = useAdminSettingsAccess();
+  const { verdict, refetch, error } = useAdminSettingsAccess();
 
   switch (verdict) {
     case 'admin':
@@ -62,6 +62,12 @@ export function RequireAdminSettings({ children }: { children: ReactNode }) {
       // between two (rule 248).
       return <LoadingSkeleton label="Loading settings…" variant="shell" rows={4} />;
     case 'unknown':
-      return <QueryErrorState message="Couldn't confirm your settings access." onRetry={refetch} />;
+      return (
+        <QueryErrorState
+          message="Couldn't confirm your settings access."
+          onRetry={refetch}
+          error={error}
+        />
+      );
   }
 }

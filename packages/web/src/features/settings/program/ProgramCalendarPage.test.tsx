@@ -1,3 +1,4 @@
+import { axiosRefusal } from '@/test/axiosError';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -136,11 +137,15 @@ describe('ProgramCalendarPage', () => {
 
     renderPage();
 
-    expect(screen.getByText(/requires every program and project to use its default/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/requires every program and project to use its default/i),
+    ).toBeInTheDocument();
     // No interactive picker — the effective calendar is shown read-only, locked by policy.
     expect(screen.queryByRole('combobox', { name: /Working calendar override/i })).toBeNull();
     expect(
-      screen.getByLabelText('Working calendar: EU Holidays, locked by workspace policy. View only.'),
+      screen.getByLabelText(
+        'Working calendar: EU Holidays, locked by workspace policy. View only.',
+      ),
     ).toBeInTheDocument();
   });
 
@@ -175,9 +180,7 @@ describe('ProgramCalendarPage', () => {
     const { container } = renderPage();
 
     expect(screen.getByRole('status')).toBeInTheDocument();
-    expect(
-      screen.getByText("Couldn't load this program's working calendar."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Couldn't load this program's working calendar.")).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(container.querySelector('[class*="animate-pulse"]')).toBeNull();
     // The section heading must survive the error branch — <SettingsSection
@@ -187,14 +190,25 @@ describe('ProgramCalendarPage', () => {
 
   // The other half of the same guard: `programLoading` settles to false on a 500 but
   // `!program` stays true, so a dead program GET stalled the page identically.
+  it('a 403 on the program GET says so and offers no Retry (#3874)', () => {
+    vi.mocked(useProgram).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: axiosRefusal(403, {}),
+      refetch: refetchProgram,
+    } as unknown as ReturnType<typeof useProgram>);
+    renderPage();
+    expect(screen.getByText(/don't have access/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
   it('renders an error with Retry, not a perpetual skeleton, when the program GET fails', () => {
     setProgramFailed();
 
     const { container } = renderPage();
 
-    expect(
-      screen.getByText("Couldn't load this program's working calendar."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Couldn't load this program's working calendar.")).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(container.querySelector('[class*="animate-pulse"]')).toBeNull();
   });

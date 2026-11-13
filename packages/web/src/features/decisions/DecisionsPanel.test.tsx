@@ -17,6 +17,19 @@ vi.mock('@/hooks/useDecisions', () => ({
 }));
 vi.mock('@/hooks/useSprints', () => ({
   useSprints: useSprintsMock,
+  // Derived from the same mock so every case drives one shape: `{ sprints, isLoading, error }`.
+  useActiveSprint: (projectId: string) => {
+    const r = useSprintsMock(projectId) as {
+      sprints: Array<{ state: string }>;
+      isLoading?: boolean;
+      error?: unknown;
+    };
+    return {
+      sprint: r.sprints.find((x) => x.state === 'ACTIVE') ?? null,
+      isLoading: r.isLoading ?? false,
+      error: r.error ?? null,
+    };
+  },
 }));
 vi.mock('react-router', async (importActual) => ({
   ...(await importActual<typeof import('react-router')>()),
@@ -67,10 +80,7 @@ describe('DecisionsPanel', () => {
   it('groups decisions by sprint with section headers and a state badge', () => {
     useDecisionsMock.mockReturnValue(
       decisionsResult({
-        decisions: [
-          dec('a', { id: 's2', name: 'Sprint 2', state: 'ACTIVE' }),
-          dec('b', null),
-        ],
+        decisions: [dec('a', { id: 's2', name: 'Sprint 2', state: 'ACTIVE' }), dec('b', null)],
       }),
     );
     render(<DecisionsPanel projectId="p1" />);
@@ -105,6 +115,29 @@ describe('DecisionsPanel', () => {
     render(<DecisionsPanel projectId="p1" />);
     const current = screen.getByRole('radio', { name: 'Current sprint' });
     expect(current.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('does not claim "No active sprint" when the sprints read failed (#3517)', () => {
+    useSprintsMock.mockReturnValue({ sprints: [], isLoading: false, error: new Error('boom') });
+    render(<DecisionsPanel projectId="p1" />);
+    const current = screen.getByRole('radio', { name: 'Current sprint' });
+    expect(current).toBeDisabled();
+    expect(current.getAttribute('title')).toBe('Couldn\u2019t load sprints');
+  });
+
+  it('says the read is in flight, not that there is no sprint, while loading (#3517)', () => {
+    useSprintsMock.mockReturnValue({ sprints: [], isLoading: true, error: null });
+    render(<DecisionsPanel projectId="p1" />);
+    expect(screen.getByRole('radio', { name: 'Current sprint' }).getAttribute('title')).toBe(
+      'Loading sprints\u2026',
+    );
+  });
+
+  it('keeps the honest "No active sprint" tooltip when the read resolved empty', () => {
+    render(<DecisionsPanel projectId="p1" />);
+    expect(screen.getByRole('radio', { name: 'Current sprint' }).getAttribute('title')).toBe(
+      'No active sprint',
+    );
   });
 
   it('scopes to the active sprint id when "Current sprint" is selected', () => {

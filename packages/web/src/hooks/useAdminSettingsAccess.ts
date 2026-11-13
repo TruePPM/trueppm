@@ -32,6 +32,8 @@ export interface AdminSettingsAccess {
    * otherwise terminal. A no-op when the underlying hook is mocked without one.
    */
   refetch: () => void;
+  /** The `/auth/me` failure, when there is one — pass to `QueryErrorState`. */
+  error?: unknown;
 }
 
 /**
@@ -47,11 +49,11 @@ export interface AdminSettingsAccess {
  * `/auth/me` is a worse trade than a link that 403s.
  */
 export function useAdminSettingsAccess(): AdminSettingsAccess {
-  const { user, isLoading, isError, refetch } = useCurrentUser();
+  const { user, isLoading, isError, error, refetch } = useCurrentUser();
   const retry = refetch ?? (() => {});
 
   if (isLoading) return { verdict: 'loading', refetch: retry };
-  if ((isError ?? false) || !user) return { verdict: 'unknown', refetch: retry };
+  if ((isError ?? false) || !user) return { verdict: 'unknown', refetch: retry, error };
 
   // Read through `unknown` on purpose. `CurrentUser` declares the field as a
   // required `boolean` — that is an assertion about `MeSerializer`, not about the
@@ -59,6 +61,6 @@ export function useAdminSettingsAccess(): AdminSettingsAccess {
   // guard admitting on any payload that omits it (an older API, or a fixture that
   // was never representable). The verdict has to be derived from what arrived.
   const canAccess: unknown = user.can_access_admin_settings;
-  if (typeof canAccess !== 'boolean') return { verdict: 'unknown', refetch: retry };
+  if (typeof canAccess !== 'boolean') return { verdict: 'unknown', refetch: retry, error };
   return { verdict: canAccess ? 'admin' : 'not-admin', refetch: retry };
 }

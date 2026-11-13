@@ -166,7 +166,7 @@ function CadenceSection({
   projectId: string | undefined;
   canEdit: boolean;
 }) {
-  const { data: project, isLoading, isError, refetch } = useProject(projectId ?? null);
+  const { data: project, isLoading, isError, error, refetch } = useProject(projectId ?? null);
   const update = useUpdateProject(projectId ?? null);
   const { sprint: activeSprint } = useActiveSprint(projectId ?? null);
 
@@ -231,6 +231,7 @@ function CadenceSection({
               <QueryErrorState
                 variant="inline"
                 message="Couldn't load board cadence."
+                error={error}
                 onRetry={() => void refetch()}
               />
             );

@@ -31,7 +31,7 @@ import type { CalendarOverridePolicy } from '@/api/types';
  */
 
 export function WorkspaceCalendarPage() {
-  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, error, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
   const { calendars, isLoading: calendarsLoading, error: calendarsError } = useCalendars();
 
@@ -80,6 +80,7 @@ export function WorkspaceCalendarPage() {
           <QueryErrorState
             variant="inline"
             message="Couldn't load this workspace's working calendar."
+            error={error}
             onRetry={() => void refetch()}
           />
         </div>

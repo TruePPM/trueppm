@@ -1,3 +1,4 @@
+import { axiosRefusal } from '@/test/axiosError';
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
@@ -14,6 +15,7 @@ const mockState = vi.hoisted(() => ({
   isLoading: false,
   isError: false,
   refetch: vi.fn(),
+  error: undefined as unknown,
 }));
 
 // The page is fully hook-backed; mock the data/mutation/dirty-form hooks so it
@@ -58,6 +60,7 @@ vi.mock('../hooks/useWorkspaceSettings', () => ({
     data: mockState.ws,
     isLoading: mockState.isLoading,
     isError: mockState.isError,
+    error: mockState.error,
     refetch: mockState.refetch,
   }),
 }));
@@ -90,6 +93,7 @@ beforeEach(() => {
   mockState.ws = { ...WS };
   mockState.isLoading = false;
   mockState.isError = false;
+  mockState.error = undefined;
   mockState.refetch.mockReset();
 });
 
@@ -110,7 +114,10 @@ describe('WorkspaceGeneralPage — audit log is OSS, not an Enterprise upsell (#
     // the reference docs, not a disabled Enterprise upsell button.
     const historyLink = screen.getByRole('link', { name: /View audit log/i });
     expect(historyLink).not.toHaveAttribute('disabled');
-    expect(historyLink).toHaveAttribute('href', expect.stringContaining('administration/audit-log'));
+    expect(historyLink).toHaveAttribute(
+      'href',
+      expect.stringContaining('administration/audit-log'),
+    );
     expect(historyLink).toHaveAttribute('target', '_blank');
     // No Enterprise badge next to it — the capability it links to is OSS.
     expect(
@@ -118,7 +125,9 @@ describe('WorkspaceGeneralPage — audit log is OSS, not an Enterprise upsell (#
         name: /Available in TruePPM Enterprise/i,
       }),
     ).toBeNull();
-    expect(screen.queryByText(/Workspace change history is available in TruePPM Enterprise/i)).toBeNull();
+    expect(
+      screen.queryByText(/Workspace change history is available in TruePPM Enterprise/i),
+    ).toBeNull();
   });
 
   it('wires the logo Upload control and keeps the deferred calendar stub disabled', () => {
@@ -173,11 +182,14 @@ describe('WorkspaceGeneralPage — audit log is OSS, not an Enterprise upsell (#
 describe('WorkspaceGeneralPage — forecast history', () => {
   it('renders the forecast-history group seeded from the workspace settings', () => {
     renderPage();
-    expect(screen.getByRole('heading', { name: /forecast history/i, level: 3 })).toBeInTheDocument();
-    // The workspace root is non-null: a plain switch, number input, and select.
     expect(
-      screen.getByRole('switch', { name: 'Keep Monte Carlo run history' }),
-    ).toHaveAttribute('aria-checked', 'true');
+      screen.getByRole('heading', { name: /forecast history/i, level: 3 }),
+    ).toBeInTheDocument();
+    // The workspace root is non-null: a plain switch, number input, and select.
+    expect(screen.getByRole('switch', { name: 'Keep Monte Carlo run history' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
     expect(screen.getByRole('spinbutton', { name: 'Run history limit' })).toHaveValue(100);
     expect(screen.getByRole('combobox', { name: 'Run attribution visible to' })).toHaveValue(
       'admin_owner',
@@ -189,7 +201,9 @@ describe('WorkspaceGeneralPage — forecast history', () => {
     const select = screen.getByRole('combobox', { name: /Duration change to percent complete/i });
     expect(select).toHaveValue('prorate');
     // The shared option labels come from durationChangePolicy.ts.
-    expect(within(select).getByRole('option', { name: 'Prorate automatically' })).toBeInTheDocument();
+    expect(
+      within(select).getByRole('option', { name: 'Prorate automatically' }),
+    ).toBeInTheDocument();
   });
 
   it('renders the duration-change Enforce policy as a disabled Enterprise affordance', () => {
@@ -348,12 +362,8 @@ describe('WorkspaceGeneralPage — contextual help', () => {
     expect(
       screen.getByText(/Anchors quiet hours for any project that sets no timezone of its own/i),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByText(/Saved here, but nothing reads it/i),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/Used for due dates and Gantt rendering/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Saved here, but nothing reads it/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Used for due dates and Gantt rendering/i)).not.toBeInTheDocument();
   });
 });
 
@@ -390,6 +400,18 @@ describe('WorkspaceGeneralPage — failed GET (#2656)', () => {
     const retry = screen.getByRole('button', { name: 'Retry' });
     await user.click(retry);
     expect(mockState.refetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('WorkspaceGeneralPage — a 403 on the settings GET (#3874)', () => {
+  it('says access is denied and offers no Retry', () => {
+    mockState.ws = undefined;
+    mockState.isLoading = false;
+    mockState.isError = true;
+    mockState.error = axiosRefusal(403, {});
+    renderPage();
+    expect(screen.getByText(/don't have access/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
   });
 });
 

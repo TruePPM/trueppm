@@ -147,11 +147,17 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
     data: project,
     isLoading: projectLoading,
     isError: projectFailed,
+    error: projectError,
     refetch: refetchProject,
   } = useProject(projectId);
   const updateProject = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
-  const { data: ws, isError: wsFailed, refetch: refetchWs } = useWorkspaceSettings();
+  const {
+    data: ws,
+    isError: wsFailed,
+    error: wsError,
+    refetch: refetchWs,
+  } = useWorkspaceSettings();
   const itl = useIterationLabel(projectId);
   // Existing sprints (any state) this project already carries — the flip-warning
   // check below (issue #2619) needs the count regardless of methodology, so this
@@ -383,6 +389,7 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
               if (projectFailed) void refetchProject();
               if (wsFailed) void refetchWs();
             }}
+            error={projectFailed ? projectError : wsError}
           />
         </div>
       </div>

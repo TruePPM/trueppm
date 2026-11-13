@@ -179,6 +179,7 @@ These rules are enforced at review time. Violations block merge.
 415. **A capability claim that decays with TIME must be REPLACED when it stops being true — not left standing beside a warning that contradicts it — and the freshness fact it branches on is a SERVER field, never a client subtraction.** → [rule](../../docs/design/invariants/415-a-capability-claim-that-decays-with-time-must-be-replaced.md)
 432. **A route/ref boundary that distinguishes "offline, never resolved" from "not found" must render each through its own copy — collapsing both onto one 404 component tells a merely-offline visitor their link is broken.** → [rule](../../docs/design/invariants/432-a-route-ref-boundary-that-distinguishes-offline-never.md)
 443. **A `Suspense` fallback for a `lazy()` component occupies the component's final footprint (fixed width/height incl. caption) — a smaller placeholder reflows the page when the chunk lands and moves hovered/clicked targets (#1536).** → [rule](../../docs/design/invariants/443-a-suspense-fallback-matches-the-lazy-component-footprint.md)
+444. **A failed-read state says WHY it failed — passing the query's `error` to `QueryErrorState` is opt-in per surface (wired surfaces listed in the rule file); once passed: a 403 offers no Retry (it fails identically forever), a 429 counts down and retries itself, everything else keeps the generic message + Retry.** → [rule](../../docs/design/invariants/444-a-failed-read-states-why-it-failed.md)
 
 ## Motion
 

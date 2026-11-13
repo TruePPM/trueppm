@@ -8,6 +8,8 @@ import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
 import { useRecordProjectVisit } from '@/hooks/useRecordProjectVisit';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 import { ProjectNotFound } from './ProjectNotFound';
+import { QueryErrorState } from '@/components/QueryErrorState';
+import { classifyQueryError } from '@/lib/queryErrorKind';
 import { ProjectSampleIndicator } from './ProjectSampleIndicator';
 import { RecalculatingBadge } from './RecalculatingBadge';
 
@@ -75,7 +77,12 @@ export function ProjectShell() {
   // `refused`, which relaxes the fallback poll from 30 s to 5 min (#4375). Same
   // `['project', id]` query the gate above already reads — no extra request.
   const { isDemoReadOnly } = useDemoMode();
-  const { data: projectDetail, isPending: projectPending } = useProject(projectId);
+  const {
+    data: projectDetail,
+    isPending: projectPending,
+    error: projectError,
+    refetch: refetchProject,
+  } = useProject(projectId);
   useProjectWebSocket(projectUnavailable || isDemoReadOnly || projectPending ? null : projectId, {
     liveUpdates: projectDetail?.can_subscribe_live,
   });
@@ -88,6 +95,20 @@ export function ProjectShell() {
 
   if (projectUnavailable) {
     return <ProjectNotFound />;
+  }
+
+  // A 429 on the project read is a verdict about now, not about the project. With
+  // no cached detail the shell would otherwise render its frame around empty data
+  // — indistinguishable from "nothing here" (#3621). Only the throttle is
+  // handled here: a 403/404 on this endpoint is the unavailable state above.
+  if (!projectDetail && classifyQueryError(projectError).kind === 'throttled') {
+    return (
+      <QueryErrorState
+        error={projectError}
+        message="Couldn't load this project."
+        onRetry={() => void refetchProject()}
+      />
+    );
   }
 
   return (

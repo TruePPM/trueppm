@@ -56,7 +56,7 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { useWorkspaceAdminStatus } from '@/hooks/useIsWorkspaceAdmin';
 
 export function RequireWorkspaceAdmin({ children }: { children: ReactNode }) {
-  const { verdict, refetch } = useWorkspaceAdminStatus();
+  const { verdict, refetch, error } = useWorkspaceAdminStatus();
 
   switch (verdict) {
     case 'admin':
@@ -69,6 +69,12 @@ export function RequireWorkspaceAdmin({ children }: { children: ReactNode }) {
       // swapping between two (rule 248).
       return <LoadingSkeleton label="Loading workspace settings…" variant="shell" rows={4} />;
     case 'unknown':
-      return <QueryErrorState message="Couldn't confirm your workspace role." onRetry={refetch} />;
+      return (
+        <QueryErrorState
+          message="Couldn't confirm your workspace role."
+          onRetry={refetch}
+          error={error}
+        />
+      );
   }
 }

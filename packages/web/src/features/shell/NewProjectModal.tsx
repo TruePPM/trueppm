@@ -22,7 +22,7 @@ import { DRAFT_EXCLUSION_SENTENCE } from '@/features/project/draftExclusion';
 import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
 import type { Methodology } from '@/types';
 import { getFocusable } from '@/hooks/useFocusTrap';
-import { extractFieldErrors } from '@/lib/apiError';
+import { extractFieldErrors, extractFormLevelMessage } from '@/lib/apiError';
 import { KeyStatusLine } from '@/features/keys/KeyStatusLine';
 import { useCreateKeyField } from '@/features/keys/useCreateKeyField';
 import { KEY_MAX_LENGTH } from '@/features/keys/keyFormat';
@@ -218,6 +218,17 @@ const WAY_DETAIL: Record<
  *
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
+const CREATE_FIELD_LABELS: Record<string, string> = {
+  program: 'Program',
+  calendar: 'Working calendar',
+  methodology: 'Methodology',
+};
+
+function humanizeField(field: string): string {
+  const spaced = field.replace(/_/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 export function NewProjectModal({
   onClose,
   onCreated,
@@ -297,6 +308,31 @@ export function NewProjectModal({
 
   const queryClient = useQueryClient();
   const createProject = useCreateProject();
+  // Map DRF's field errors back onto the controls that own them (#2921). `name` and
+  // `start_date` get their own inline line + aria-invalid; `code` already has the
+  // key field's status line; every other rejected field (program, calendar, …) and
+  // a form-level `detail` go in one banner, each prefixed with its field so the
+  // reader knows what to change. The generic sentence is only for a failure that
+  // carries nothing readable (transport error, 5xx, HTML body).
+  const createFieldErrors = createProject.isError ? extractFieldErrors(createProject.error) : {};
+  const serverNameError = createFieldErrors.name;
+  const serverStartDateError = createFieldErrors.start_date;
+  const createBannerLines = createProject.isError
+    ? [
+        ...Object.entries(createFieldErrors)
+          .filter(([field]) => !['name', 'start_date', 'code'].includes(field))
+          .map(
+            ([field, message]) =>
+              `${CREATE_FIELD_LABELS[field] ?? humanizeField(field)}: ${message}`,
+          ),
+        ...(extractFormLevelMessage(createProject.error)
+          ? [extractFormLevelMessage(createProject.error) as string]
+          : []),
+      ]
+    : [];
+  const createHasReadableReason =
+    createBannerLines.length > 0 ||
+    Object.keys(createFieldErrors).some((f) => ['name', 'start_date', 'code'].includes(f));
   const applyTemplate = useApplyTemplate();
   // Program picker options (#2673, ADR-0764). Fetched unconditionally — usually
   // already warm in the ['programs'] cache from Sidebar, which mounts on every
@@ -654,11 +690,22 @@ export function NewProjectModal({
                     maxLength={255}
                     required
                     aria-required="true"
+                    aria-invalid={serverNameError ? true : undefined}
+                    aria-describedby={serverNameError ? 'new-project-name-error' : undefined}
                     placeholder="My Project"
                     className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
                     text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
                     focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                   />
+                  {serverNameError && (
+                    <span
+                      id="new-project-name-error"
+                      role="alert"
+                      className="text-xs text-semantic-critical"
+                    >
+                      {serverNameError}
+                    </span>
+                  )}
                 </label>
 
                 {/* Project key (ADR-1237 UX §1). Below Name, above Program; the
@@ -745,15 +792,35 @@ export function NewProjectModal({
                     onChange={(e) => setStartDate(e.target.value)}
                     required
                     aria-required="true"
+                    aria-invalid={serverStartDateError ? true : undefined}
+                    aria-describedby={
+                      serverStartDateError ? 'new-project-start-date-error' : undefined
+                    }
                     className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
                     text-sm text-neutral-text-primary
                     focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                   />
+                  {serverStartDateError && (
+                    <span
+                      id="new-project-start-date-error"
+                      role="alert"
+                      className="text-xs text-semantic-critical"
+                    >
+                      {serverStartDateError}
+                    </span>
+                  )}
                 </label>
               </div>
 
               {/* A key rejection is shown in the key's own status line instead. */}
-              {createProject.isError && !extractFieldErrors(createProject.error).code && (
+              {createBannerLines.length > 0 && (
+                <div role="alert" className="flex flex-col gap-0.5 text-xs text-semantic-critical">
+                  {createBannerLines.map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </div>
+              )}
+              {createProject.isError && !createHasReadableReason && (
                 <p role="alert" className="text-xs text-semantic-critical">
                   Failed to create project. Please try again.
                 </p>

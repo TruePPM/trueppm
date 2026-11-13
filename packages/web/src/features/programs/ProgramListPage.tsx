@@ -237,6 +237,7 @@ export function ProgramListPage() {
           <QueryErrorState
             variant="inline"
             message="Couldn't load programs."
+            error={error}
             onRetry={() => void refetch()}
           />
         )}
