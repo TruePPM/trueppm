@@ -1,7 +1,6 @@
 ---
 title: Sample project tour — history & offline demo
 description: A guided walkthrough of the history-aware sample project, including the go-offline demo.
-documentedFor: "0.4"
 ---
 
 The bundled [sample projects](/getting-started/sample-projects/) load as a

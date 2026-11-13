@@ -1,7 +1,6 @@
 ---
 title: Unified data model
 description: How one task hierarchy powers Waterfall, Agile, and Hybrid workflows without translation layers or duplicate data.
-documentedFor: "0.4"
 ---
 
 This page is for anyone curious why switching a project between Waterfall, Agile, and Hybrid never loses data, and for developers who want to understand the model behind the API. Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Schedule, Board, Sprints, WBS — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.

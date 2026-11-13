@@ -1,7 +1,6 @@
 ---
 title: Admin password setup
 description: Create, retrieve, and rotate the TruePPM admin password.
-documentedFor: "0.4"
 ---
 
 Every fresh TruePPM install needs one administrator account to sign in with before

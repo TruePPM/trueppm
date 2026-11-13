@@ -1,7 +1,6 @@
 ---
 title: Project Settings
 description: Configure a project's identity, membership, board workflow, notifications, and lifecycle from the project settings pages.
-documentedFor: "0.4"
 ---
 
 Every project has a **Settings** area (under `/projects/:id/settings`) where Admins

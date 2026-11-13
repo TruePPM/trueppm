@@ -1,7 +1,6 @@
 ---
 title: Upgrading
 description: How to upgrade TruePPM — Docker Compose, single-server, and Helm paths.
-documentedFor: "0.4"
 ---
 
 This page walks through moving an existing TruePPM instance to a newer version, safely, for whichever way you run it — Docker Compose, a single server, or Helm/Kubernetes. If you are standing up TruePPM for the first time rather than upgrading one, see [Installation](/getting-started/installation/) instead.

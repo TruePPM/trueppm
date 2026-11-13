@@ -1,7 +1,6 @@
 ---
 title: Sprint → milestone rollup
 description: Sprints linked to a Schedule-view milestone now propagate their progress live — the milestone's percent complete and date variance reflect sprint state without a status meeting or spreadsheet reconciliation.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]

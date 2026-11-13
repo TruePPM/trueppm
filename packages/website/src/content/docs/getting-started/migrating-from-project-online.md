@@ -1,7 +1,6 @@
 ---
 title: Migrating from Microsoft Project Online
 description: What carries over from a Project Online plan, what degrades on import and how you will know, what TruePPM does not have yet, and a five-step evaluation you can run before September 30, 2026.
-documentedFor: "0.4"
 ---
 
 Microsoft retires Project Online on **September 30, 2026**. New PWA sites — Project

@@ -1,7 +1,6 @@
 ---
 title: Programs
 description: Lightweight OSS coordination unit for one PM managing several related projects — shared membership, shared backlog, and combined rollup KPIs.
-documentedFor: "0.4"
 ---
 
 

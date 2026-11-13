@@ -1,7 +1,6 @@
 ---
 title: Project templates
 description: Reusable project shapes — phases, gates, dependencies and durations — that never carry owners, dates, or anyone else's progress.
-documentedFor: "0.4"
 ---
 
 A template captures a project's **shape** so the next project like it does not

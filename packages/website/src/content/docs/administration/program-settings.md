@@ -1,7 +1,6 @@
 ---
 title: Program Settings
 description: Configure a program's identity, delivery model, rollup KPIs, cadence, risk policy, and lifecycle — and how each setting inherits from the workspace or is overridden per program.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.2 (alpha)]

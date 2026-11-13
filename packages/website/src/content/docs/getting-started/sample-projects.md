@@ -1,7 +1,6 @@
 ---
 title: Sample projects & JSON import/export
 description: Load a whole program from a JSON seed file, and export any program back out.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]

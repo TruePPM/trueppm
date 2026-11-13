@@ -1,7 +1,6 @@
 ---
 title: Platform Overview
 description: What TruePPM is, who it's for, and how the open-core model works.
-documentedFor: "0.4"
 ---
 
 TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform built for teams that run **waterfall, agile, and hybrid programs** — all from a single data model.

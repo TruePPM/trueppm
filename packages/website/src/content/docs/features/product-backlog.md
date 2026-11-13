@@ -1,7 +1,6 @@
 ---
 title: Product backlog & scoring
 description: The Product Owner's priority-ordered backlog — epics and stories, acceptance criteria, Definition of Ready, and WSJF/RICE prioritization.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]

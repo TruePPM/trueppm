@@ -1,7 +1,6 @@
 ---
 title: Recurring tasks
 description: Repeat a task on a calendar cadence — standups, weekly walks, monthly reviews — without it ever touching the critical path.
-documentedFor: "0.4"
 ---
 
 

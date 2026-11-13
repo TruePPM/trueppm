@@ -1,6 +1,5 @@
 ---
 title: Agent oversight
-documentedFor: "0.4"
 description: A read-only view — per program, and per project on your own Activity tab — of what your team's agents read and which agent calls were refused. Every row is a link in a tamper-evident chain you can verify yourself. Governance of agents, never surveillance of people.
 ---
 

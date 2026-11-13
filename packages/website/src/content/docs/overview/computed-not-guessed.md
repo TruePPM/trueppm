@@ -1,7 +1,6 @@
 ---
 title: Computed, not guessed
 description: Every date and forecast in TruePPM is calculated by a deterministic engine, with the derivation to show for it. One capability with four parts — compute, cite, refuse, reproduce — that a language model can query but never corrupt.
-documentedFor: "0.4"
 ---
 
 > Every date and forecast is calculated by the engine, with the derivation to show for it; a

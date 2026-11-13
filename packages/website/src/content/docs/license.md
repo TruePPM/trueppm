@@ -1,7 +1,6 @@
 ---
 title: License & Third-Party Attribution
 description: TruePPM Community Edition is Apache 2.0. Here is the license, the enterprise boundary, and the CI-enforced policy that keeps every dependency permissively licensed.
-documentedFor: "0.4"
 sidebar:
   order: 100
 ---

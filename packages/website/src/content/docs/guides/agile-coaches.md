@@ -1,7 +1,6 @@
 ---
 title: For Agile Coaches
 description: How to evaluate TruePPM the way a coach does — for team autonomy, low ceremony, and voluntary adoption, not a feature checklist.
-documentedFor: "0.4"
 ---
 
 You don't evaluate tools by feature count. You evaluate them by what they do to a team. Every "hybrid" tool you've tried is really waterfall with a board bolted on, where the PM still controls the sprint and the PMO turns velocity into a pressure gauge — and within a quarter the team fills in the minimum, data quality rots, and the dashboards become fiction.

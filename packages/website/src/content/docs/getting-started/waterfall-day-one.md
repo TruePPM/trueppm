@@ -1,7 +1,6 @@
 ---
 title: Waterfall day one — build your own plan
 description: Create a real waterfall project from scratch in the UI — WBS, milestones, dependencies, a baseline, a status date, and a PDF handoff — no curl required.
-documentedFor: "0.4"
 ---
 
 [Quickstart](/getting-started/quickstart/) gets you a **seeded** program in five

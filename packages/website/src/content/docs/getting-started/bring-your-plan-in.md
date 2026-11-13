@@ -1,7 +1,6 @@
 ---
 title: Bring your existing plan in
 description: A decision table routing an existing MS Project file, spreadsheet, or Jira export to the right importer, with shipped-vs-planned status and the Jira Cloud caveat up front.
-documentedFor: "0.4"
 ---
 
 If your plan already lives somewhere else, you don't have to retype it.

@@ -1,7 +1,6 @@
 ---
 title: Board (Kanban)
 description: Kanban board with a backlog rail, phase swimlanes, and configurable working columns for tracking task execution within a project or sprint.
-documentedFor: "0.4"
 ---
 
 The **Board** tab is where the whole team — PM, Scrum Master, and every contributor

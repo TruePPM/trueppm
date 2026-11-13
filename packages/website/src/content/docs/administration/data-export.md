@@ -1,7 +1,6 @@
 ---
 title: Data export
 description: Export a whole program to a canonical JSON seed file — endpoint, CLI, round-trip guarantee, and limitations.
-documentedFor: "0.4"
 ---
 
 Any program — or a single project — can be exported to a canonical JSON seed

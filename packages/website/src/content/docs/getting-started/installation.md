@@ -1,7 +1,6 @@
 ---
 title: Installation
 description: Run TruePPM locally with Docker Compose in a few minutes. For Helm/Kubernetes, single-server production with systemd, and image/chart signature verification, see Deployment.
-documentedFor: "0.4"
 ---
 
 This page gets you from nothing installed to a running TruePPM instance you can open in a browser, using Docker Compose. If you have never run Docker before, see [Set up a container host](/getting-started/container-host/) first — it explains what a container is and gets one running on your machine.

@@ -1,7 +1,6 @@
 ---
 title: Public sharing (board & schedule)
 description: Generate a public, revocable, read-only link to a project's board or schedule so external stakeholders can view status without a TruePPM login.
-documentedFor: "0.4"
 ---
 
 **Public sharing** lets a project Admin hand a stakeholder — a client, a sponsor,

@@ -1,7 +1,6 @@
 ---
 title: SSO Is Not an Enterprise Feature
 description: Identity federation is table stakes for self-hosting. TruePPM ships OIDC/OAuth2 login in the OSS core — here is how that compares to the open-core competition, and where the enterprise line actually falls.
-documentedFor: "0.4"
 ---
 
 Single sign-on is the most-cited grievance in self-hosted communities: you stand up an

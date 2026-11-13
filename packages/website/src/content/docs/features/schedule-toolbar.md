@@ -1,7 +1,6 @@
 ---
 title: Schedule Toolbar
 description: Reference for the Schedule view toolbar — filter groups, summary chip, column controls, and zoom.
-documentedFor: "0.4"
 ---
 
 This is for anyone working in the Schedule view day to day. The toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the actions for adding to the plan (`+ Item`, `+ Milestone`, `+ Phase`).

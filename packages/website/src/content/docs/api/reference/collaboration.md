@@ -1,7 +1,6 @@
 ---
 title: "Webhooks, sync and sharing API"
 description: "Webhooks, offline sync, integrations, notification preferences, mention groups, assets, public share links, agent actions and user search."
-documentedFor: "0.4"
 ---
 
 ## Webhooks

@@ -1,7 +1,6 @@
 ---
 title: Schedule Build Mode
 description: Keyboard-first surface for laying down and structuring a project plan directly in the Schedule list.
-documentedFor: "0.4"
 ---
 
 This is for a PM or scheduler laying out a project plan on a desktop and wanting to move fast without reaching for the mouse. Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is **on by default** and is a desktop-only experience — mobile continues to use the existing Add Task modal.

@@ -1,7 +1,6 @@
 ---
 title: Known Issues
 description: The maintained list of defects and limitations in what 0.4 ships — each one naming its tracking issue and target release where one exists.
-documentedFor: "0.4"
 ---
 
 This page lists **defects and limitations in what TruePPM already ships**. It is the

@@ -110,11 +110,13 @@ Two deliberate qualifiers:
 - **A handful of shipped strings predate the rule.** Bulk and collection events use
   a plural or non-`<resource>_<verb>` form — `tasks_bulk_mutated`,
   `tasks_reordered`, `tasks_restructured`, `phases_reordered`, `backlog_reranked`,
-  `risks_imported`. These are **grandfathered**: they are part of the frozen
-  contract and will not be renamed mid-line. New events do not get the same
-  latitude — conform to `<resource>_<past-tense-verb>`. The grandfathered strings
-  are normalized only at the 1.0 wire-freeze, where a one-time breaking rename is
-  acceptable.
+  `risks_imported`. Four more break the grammar in a different way:
+  `presence_join` and `presence_leave` (present tense, not past; shipped in 0.2)
+  and `cpm_complete` and `cpm_error` (no verb at all; shipped in 0.1). These are
+  **grandfathered**: they predate the rule, are part of the frozen contract, and
+  will not be renamed mid-line. New events do not get the same latitude — conform
+  to `<resource>_<past-tense-verb>`. The grandfathered strings are normalized only
+  at the 1.0 wire-freeze, where a one-time breaking rename is acceptable.
 
 ## The frozen contract
 

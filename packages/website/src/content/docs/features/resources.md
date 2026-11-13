@@ -1,7 +1,6 @@
 ---
 title: Resources & Skills
 description: Maintain a Workspace resource catalog with skills and proficiency, build per-project rosters, and assign people to tasks with fractional capacity — with skill-fit and overallocation warnings.
-documentedFor: "0.4"
 ---
 
 This is for a resource manager or PM who staffs projects and wants to see who's available and who's overloaded. TruePPM models the people who do the work as **resources**. Resources live in a

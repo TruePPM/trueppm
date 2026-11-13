@@ -1,7 +1,6 @@
 ---
 title: Timezone and date format
 description: Two personal display preferences — your timezone and how dates are written — that re-clock and re-format what you see without changing anyone else's view or any data.
-documentedFor: "0.4"
 ---
 
 **Timezone** and **Date format** are two personal display preferences on your

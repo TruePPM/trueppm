@@ -1,7 +1,6 @@
 ---
 title: WIP-limit overload detection
 description: Three-band column tinting + move-to-over-limit confirmation prompt.
-documentedFor: "0.4"
 ---
 
 This is for teams using the Board who want to catch overload before it becomes a bottleneck. **WIP** stands for **work in progress** — the tasks a team has started but not finished. A **WIP limit** caps how many cards can sit in a column at once, so work doesn't pile up faster than the team can finish it. This feature is the board's silent-overload alarm: a per-column WIP limit drives a three-band visual warning, and moving a task into a column that would push it past its limit triggers a confirmation prompt.

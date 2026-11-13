@@ -1,7 +1,6 @@
 ---
 title: My Work
 description: A contributor's personal task list across every project, with zero project-management vocabulary.
-documentedFor: "0.4"
 ---
 
 :::note[0.1]

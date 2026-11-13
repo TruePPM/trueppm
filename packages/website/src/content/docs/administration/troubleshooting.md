@@ -1,7 +1,6 @@
 ---
 title: Troubleshooting
 description: Symptom-keyed diagnosis for a self-hosted TruePPM install — blank pages, 502s, dead WebSockets, stalled Celery, pending migrations, image-pull failures, false "unhealthy" containers, and unstyled admin pages.
-documentedFor: "0.4"
 ---
 
 Find your symptom, work the causes in the order listed — they are ordered by how

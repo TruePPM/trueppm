@@ -1,7 +1,6 @@
 ---
 title: For Executives
 description: How TruePPM gives executive sponsors confidence-weighted forecasts they can trust — without learning the tool or waiting on a hand-built status report.
-documentedFor: "0.4"
 ---
 
 You want one answer, fast: is the work on track, and can you say so out loud without it coming back to bite you? You don't operate the tool day to day — you need numbers you can trust and a forecast honest enough to admit its own uncertainty. This guide covers what TruePPM gives you today, stated plainly, and what's still on the way.

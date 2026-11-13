@@ -1,7 +1,6 @@
 ---
 title: "API authentication"
 description: "Logging in, refreshing and revoking access tokens, project-scoped API tokens, personal access tokens, and single sign-on."
-documentedFor: "0.4"
 ---
 
 TruePPM uses JWT auth with a split-token model: the short-lived **access** token

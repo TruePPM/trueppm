@@ -1374,8 +1374,14 @@ def live_member_project_ids(user: Any, project_ids: list[Any]) -> set[Any]:
     project's content, so the program-side grant must not be used here.
 
     Mirrors ``_membership_role`` exactly: the membership floor is
-    :meth:`ProjectMembership.live`, and there is no superuser or workspace-admin
-    bypass (project read has none). A ``None``, anonymous, or deactivated user
+    :meth:`ProjectMembership.live`. There is no superuser or *implicit*
+    workspace-admin bypass: a workspace Admin who is not a member reads nothing.
+    But a workspace Admin can confer themselves a ``ProjectMembership`` on any
+    project (up to project Admin, never Owner) by adding themselves to a group and
+    linking the group to that project (``GroupMemberView`` / ``GroupProjectView``,
+    gated only by ``IsWorkspaceAdmin``), so "workspace Admin implies effective
+    project Admin everywhere" holds through the group cascade, and this function
+    then counts that membership like any other. A ``None``, anonymous, or deactivated user
     yields an empty set — fail closed, never an over-permissive result. The check
     is evaluated on each call, so a membership revoked after a request was made
     stops counting once the work that depends on it actually runs.

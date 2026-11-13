@@ -1,7 +1,6 @@
 ---
 title: Durability & Redundancy
 description: What TruePPM keeps, what it rebuilds, and what it throws away — the durability contract, a per-tier redundancy matrix, the step-up ladder from an evaluation install to a redundant one, and what actually happens when each component fails.
-documentedFor: "0.4"
 ---
 
 TruePPM has one authoritative store and a lot of state it can rebuild. Knowing

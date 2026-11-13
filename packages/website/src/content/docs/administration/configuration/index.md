@@ -1,7 +1,6 @@
 ---
 title: Configuration
 description: Environment variables and settings for TruePPM.
-documentedFor: "0.4"
 ---
 
 This page is the reference for every environment variable and Django setting a
