@@ -7545,6 +7545,7 @@ license:check:mcp:
   script:
     - /tmp/mcp-venv/bin/pip-licenses --order=license --format=plain-vertical
     - bash scripts/ci/check-python-licenses.sh /tmp/mcp-venv/bin/pip-licenses
+    - bash scripts/ci/check-python-licenses.sh --self-test /tmp/mcp-venv/bin/pip-licenses
 
 wasm:license-check:
   # Verify no copyleft-licensed Rust dependency has been introduced, and that no
