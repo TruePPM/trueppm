@@ -170,7 +170,7 @@ export function useBurnChartData(opts: {
       ? ((burnErr.response.data as { detail?: unknown } | undefined)?.detail ?? null)
       : null;
   const windowEcho = isSprintCtx ? undefined : burnQuery.data;
-  const windowClamped = isWindowClamped(since, windowEcho);
+  const windowClamped = isWindowClamped(windowEcho);
   const sprintHasNoRealData = hasNoSprintData(isSprintCtx, sprintQuery.data, today);
 
   return {

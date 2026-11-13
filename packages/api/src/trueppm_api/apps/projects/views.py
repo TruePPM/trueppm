@@ -20445,6 +20445,11 @@ class ProjectBurnView(APIView):
         # to the default above, so it must take the clamp branch too, or a caller
         # that serializes an empty date field gets a 400 for a window it never asked
         # for.
+        #
+        # `clamped` is an explicit flag rather than something the client infers from
+        # the echoed window length: a clamped response echoes exactly
+        # MAX_BURN_WINDOW_DAYS, which a project genuinely that old also does (#4965).
+        clamped = False
         if (until - since).days > MAX_BURN_WINDOW_DAYS:
             if since_param:
                 return Response(
@@ -20457,6 +20462,7 @@ class ProjectBurnView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             since = until - datetime.timedelta(days=MAX_BURN_WINDOW_DAYS)
+            clamped = True
 
         # Validate chart_type and metric before dispatching — guards both combined
         # and non-combined paths with a consistent 400 response (security-review finding).
@@ -20492,6 +20498,7 @@ class ProjectBurnView(APIView):
             return Response(
                 {
                     **payload,
+                    "clamped": clamped,
                     "as_of": timezone.now(),
                     "definitions": definitions_for(BURN_COMBINED_DEFINED),
                 },
@@ -20513,7 +20520,12 @@ class ProjectBurnView(APIView):
         # (burnup with the active-baseline overlay) — one series, not a second
         # endpoint computing the same cumulative curve.
         return Response(
-            {**payload, "as_of": timezone.now(), "definitions": definitions_for(BURN_DEFINED)},
+            {
+                **payload,
+                "clamped": clamped,
+                "as_of": timezone.now(),
+                "definitions": definitions_for(BURN_DEFINED),
+            },
             status=status.HTTP_200_OK,
         )
 

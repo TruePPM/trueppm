@@ -24,21 +24,13 @@ export function daysBetween(from: string, to: string): number {
 }
 
 /**
- * True when the server clamped the window: the `since` it echoed differs from
- * the one requested, or (no `since` requested) the window is already at the
- * maximum span, meaning older history was dropped.
+ * True when the server clamped a defaulted `since` to the maximum window and
+ * dropped older history. Reads the server's explicit `clamped` flag (#4965): the
+ * echoed window length cannot tell a clamped response from a project that is
+ * genuinely exactly the maximum span old.
  */
-export function isWindowClamped(
-  requestedSince: string | undefined,
-  echoed: { since: string; until: string } | undefined,
-): boolean {
-  if (!echoed) return false;
-  if (requestedSince) return echoed.since !== requestedSince;
-  // `>=`, not `>`: the server clamps a defaulted since to until minus the max, so
-  // a clamped window echoes EXACTLY the max span. A project whose history is
-  // exactly that long is indistinguishable here (a server-side flag would be
-  // needed) and is conservatively disclosed.
-  return daysBetween(echoed.since, echoed.until) >= BURN_MAX_SPAN_DAYS;
+export function isWindowClamped(echoed: { clamped?: boolean } | undefined): boolean {
+  return echoed?.clamped === true;
 }
 
 /**

@@ -220,9 +220,12 @@ export function SprintTrendCallout({
 export function BurnLegend({
   variant,
   scopeChanges,
+  hasIdeal = true,
 }: {
   variant: BurnVariant;
   scopeChanges: ScopeChange[];
+  /** False when no point carries an ideal value (uncommitted sprint) — the line is not drawn. */
+  hasIdeal?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-4 px-4 pb-4 pt-2 text-xs text-neutral-text-secondary">
@@ -230,7 +233,7 @@ export function BurnLegend({
       {(variant === 'burnup' || variant === 'combined') && (
         <LegendItem color={CHART_COLORS.completed} dashed={false} label="Completed" />
       )}
-      {(variant === 'burndown' || variant === 'combined') && (
+      {hasIdeal && (variant === 'burndown' || variant === 'combined') && (
         <LegendItem color={CHART_COLORS.ideal} dashed label="Ideal" />
       )}
       {(variant === 'burnup' || variant === 'combined') && (

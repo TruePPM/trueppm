@@ -26,6 +26,8 @@ export interface BurnChartResponse {
   metric: string;
   since: string;
   until: string;
+  /** True when a defaulted `since` was shortened to the 366-day maximum (#4965). */
+  clamped?: boolean;
   series: BurnPoint[] | CombinedPoint[];
 }
 

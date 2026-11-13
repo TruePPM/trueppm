@@ -13593,6 +13593,14 @@ class ProjectBurnSeriesSerializer(serializers.Serializer[dict[str, Any]]):
     metric = serializers.ChoiceField(choices=["tasks", "points"], read_only=True)
     since = serializers.DateField(read_only=True)
     until = serializers.DateField(read_only=True)
+    clamped = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when a defaulted since was shortened to the maximum window and older "
+            "history was dropped. False for an explicit since and for a project whose "
+            "history is exactly the maximum window long."
+        ),
+    )
     series = ProjectBurnSeriesPointSerializer(many=True, read_only=True)
     baseline_series = ProjectBurnBaselinePointSerializer(many=True, read_only=True, required=False)
     as_of = serializers.DateTimeField(
@@ -13616,6 +13624,14 @@ class ProjectBurnCombinedSerializer(serializers.Serializer[dict[str, Any]]):
     metric = serializers.ChoiceField(choices=["tasks", "points"], read_only=True)
     since = serializers.DateField(read_only=True)
     until = serializers.DateField(read_only=True)
+    clamped = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when a defaulted since was shortened to the maximum window and older "
+            "history was dropped. False for an explicit since and for a project whose "
+            "history is exactly the maximum window long."
+        ),
+    )
     series = ProjectBurnCombinedPointSerializer(many=True, read_only=True)
     as_of = serializers.DateTimeField(
         read_only=True,

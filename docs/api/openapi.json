@@ -68585,6 +68585,11 @@
                         "format": "date",
                         "readOnly": true
                     },
+                    "clamped": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "True when a defaulted since was shortened to the maximum window and older history was dropped. False for an explicit since and for a project whose history is exactly the maximum window long."
+                    },
                     "series": {
                         "type": "array",
                         "items": {
@@ -68610,6 +68615,7 @@
                 "required": [
                     "as_of",
                     "chart_type",
+                    "clamped",
                     "definitions",
                     "metric",
                     "series",
@@ -68720,6 +68726,11 @@
                         "format": "date",
                         "readOnly": true
                     },
+                    "clamped": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "True when a defaulted since was shortened to the maximum window and older history was dropped. False for an explicit since and for a project whose history is exactly the maximum window long."
+                    },
                     "series": {
                         "type": "array",
                         "items": {
@@ -68753,6 +68764,7 @@
                     "as_of",
                     "baseline_series",
                     "chart_type",
+                    "clamped",
                     "definitions",
                     "metric",
                     "series",

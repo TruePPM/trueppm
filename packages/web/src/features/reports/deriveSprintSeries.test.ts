@@ -119,7 +119,7 @@ describe('deriveSprintSeries — ideal line anchors (issue 1249)', () => {
   it('ideal declines monotonically from committed to zero', () => {
     const { points } = deriveSprintSeries(makeSprint(), [], 'points');
     for (let i = 1; i < points.length; i++) {
-      expect(points[i].ideal).toBeLessThan(points[i - 1].ideal);
+      expect(points[i].ideal as number).toBeLessThan(points[i - 1].ideal as number);
     }
   });
 });
@@ -278,5 +278,43 @@ describe('deriveSprintSeries — single-day sprint edge case', () => {
     expect(points).toHaveLength(1);
     expect(points[0].ideal).toBe(40);
     expect(points[0].remaining).toBe(40);
+  });
+});
+
+describe('deriveSprintSeries — null commitment (#4964)', () => {
+  const sprint = makeSprint({ committed_points: null, committed_task_count: null });
+
+  it('omits the ideal, scope and trend rather than anchoring them at zero', () => {
+    const snaps = [snap({ snapshot_date: '2026-04-01', remaining_points: 5 })];
+    const { points, trendAhead, forecastDate, scopeChanges } = deriveSprintSeries(
+      sprint,
+      snaps,
+      'points',
+    );
+    expect(points.every((p) => p.ideal === null)).toBe(true);
+    expect(points.every((p) => p.scope === null)).toBe(true);
+    expect(trendAhead).toBeNull();
+    expect(forecastDate).toBeNull();
+    expect(scopeChanges).toEqual([]);
+    // Snapshot-derived remaining still draws; the un-snapshotted day 0 has no anchor.
+    expect(points[0].remaining).toBe(5);
+  });
+
+  it('does not invent a day-0 remaining anchor when there are no snapshots', () => {
+    const { points } = deriveSprintSeries(sprint, [], 'points');
+    expect(points[0].remaining).toBeNull();
+    expect(points[0].completed).toBe(0);
+  });
+
+  it('a committed value of 0 is still a commitment and keeps its ideal line', () => {
+    const zero = makeSprint({ committed_points: 0 });
+    const { points } = deriveSprintSeries(zero, [], 'points');
+    expect(points[0].ideal).toBe(0);
+  });
+
+  it('keys the null check on the active metric', () => {
+    const s = makeSprint({ committed_points: null, committed_task_count: 8 });
+    expect(deriveSprintSeries(s, [], 'points').points[0].ideal).toBeNull();
+    expect(deriveSprintSeries(s, [], 'tasks').points[0].ideal).toBe(8);
   });
 });

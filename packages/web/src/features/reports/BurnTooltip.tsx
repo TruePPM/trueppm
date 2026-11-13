@@ -29,13 +29,15 @@ function tooltipValues(
   pt: { ideal?: number | null; remaining?: number | null; completed?: number | null },
   variant: BurnVariant,
 ) {
-  const idealVal = pt.ideal ?? 0;
+  // A null ideal means the sprint has no commitment to anchor it (#4964): there
+  // is no ideal row and no ahead/behind delta to print, not a zero.
+  const idealVal = pt.ideal ?? null;
   const remainingVal = pt.remaining ?? 0;
   return {
     idealVal,
     remainingVal,
     completedVal: pt.completed ?? 0,
-    delta: variant === 'burndown' ? idealVal - remainingVal : 0,
+    delta: variant === 'burndown' && idealVal !== null ? idealVal - remainingVal : null,
   };
 }
 
@@ -99,8 +101,10 @@ export function BurnTooltip({
       </p>
       {variant !== 'burnup' && <MetricRow label="Remaining" value={remainingVal} unit={unit} />}
       {variant !== 'burndown' && <MetricRow label="Completed" value={completedVal} unit={unit} />}
-      {variant === 'burndown' && <MetricRow label="Ideal" value={idealVal} unit={unit} />}
-      {variant === 'burndown' && <DeltaRow delta={delta} unit={unit} />}
+      {variant === 'burndown' && idealVal !== null && (
+        <MetricRow label="Ideal" value={idealVal} unit={unit} />
+      )}
+      {variant === 'burndown' && delta !== null && <DeltaRow delta={delta} unit={unit} />}
       {change && <ScopeChangeRow delta={change.delta} unit={unit} />}
     </div>
   );

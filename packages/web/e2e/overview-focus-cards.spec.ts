@@ -170,6 +170,8 @@ async function setupRoutes(
         until: '2026-06-01',
         series: [],
         baseline_series: [],
+        // Required on every burn response (#4964) — same oneOf rule.
+        clamped: false,
         // Required on every burn response since ADR-1314 — same oneOf rule.
         as_of: '2026-06-01T12:00:00Z',
         definitions: {

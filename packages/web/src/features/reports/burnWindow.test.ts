@@ -46,21 +46,21 @@ describe('utcTodayIso / burnMaxUntil', () => {
 
 describe('isWindowClamped', () => {
   it('is false without an echoed window', () => {
-    expect(isWindowClamped(undefined, undefined)).toBe(false);
+    expect(isWindowClamped(undefined)).toBe(false);
   });
 
-  it('flags a requested since the server moved', () => {
-    expect(isWindowClamped('2025-01-01', { since: '2025-06-01', until: '2026-06-01' })).toBe(true);
-    expect(isWindowClamped('2025-06-01', { since: '2025-06-01', until: '2026-06-01' })).toBe(false);
+  it('reads the explicit server flag', () => {
+    expect(isWindowClamped({ clamped: true })).toBe(true);
+    expect(isWindowClamped({ clamped: false })).toBe(false);
   });
 
-  it('treats a window of exactly the max span as clamped (the server clamps to exactly 366)', () => {
-    const echoed = { since: '2025-01-01', until: '2026-01-02' };
+  it('does not infer a clamp from a window of exactly the max span (#4965)', () => {
+    const echoed = { since: '2025-01-01', until: '2026-01-02', clamped: false };
     expect(daysBetween(echoed.since, echoed.until)).toBe(366);
-    expect(isWindowClamped(undefined, echoed)).toBe(true);
+    expect(isWindowClamped(echoed)).toBe(false);
   });
 
-  it('is not clamped one day under the max span', () => {
-    expect(isWindowClamped(undefined, { since: '2025-01-02', until: '2026-01-02' })).toBe(false);
+  it('treats a missing flag as not clamped', () => {
+    expect(isWindowClamped({})).toBe(false);
   });
 });
