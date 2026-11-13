@@ -18,6 +18,13 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **`Project`, `ScheduleResult` and `MonteCarloResult` now have a summarizing
+  `__repr__`
+  ([#4547](https://gitlab.com/trueppm/trueppm/-/issues/4547)).** The repr shows
+  counts, the finish date and a few ids, so printing a large project no longer
+  emits megabytes. `eval(repr(x))` no longer round-trips for those three types;
+  use `to_dict()` / `from_dict()` instead. `Task`, `Dependency` and the small
+  value types are unchanged.
 - **The project span limit is now measured along the longest dependency chain,
   not the sum of every task's duration
   ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)).** A wide project
