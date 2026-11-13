@@ -99,3 +99,11 @@ status-removed | POST /api/v1/sprints/{id}/unbind-milestone/ 400 | no-body-actio
 status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
 status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
 status-removed | POST /api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/ 400 | no-body-actions-no-longer-declare-a-request-body-2870 | a bodyless write cannot raise a request ValidationError
+
+# #4967 - the sprint reorder actions published a free-form {type: object} body; they now
+# declare the body they already required at runtime (an empty body was always a 400).
+# Declaration correction, wire behavior unchanged.
+became-required | request POST /api/v1/sprints/{id}/reorder/ body.tasks | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous free-form object did not say so
+body-required | POST /api/v1/sprints/{id}/reorder/ body | no-body-actions-no-longer-declare-a-request-body-2870 | an empty body was already rejected with 400
+became-required | request POST /api/v1/sprints/{id}/demo-list/reorder/ body.outcome_ids | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous free-form object did not say so
+body-required | POST /api/v1/sprints/{id}/demo-list/reorder/ body | no-body-actions-no-longer-declare-a-request-body-2870 | an empty body was already rejected with 400

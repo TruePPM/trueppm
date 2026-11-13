@@ -377,6 +377,26 @@ class TestIdor:
         assert r.status_code == 200
         assert rel.pk not in {row["id"] for row in _results(r.data)}
 
+    def test_bare_list_is_rejected(self, member_client: APIClient, memberships: None) -> None:
+        """No ``task``/``project`` filter would return every member-project relation (#4607)."""
+        r = member_client.get(LIST_URL)
+        assert r.status_code == 400, r.data
+
+    def test_project_filter_alone_is_accepted(
+        self, member_client: APIClient, member_task: Task, memberships: None
+    ) -> None:
+        r = member_client.get(LIST_URL, {"project": str(member_task.project_id)})
+        assert r.status_code == 200
+        assert isinstance(r.data, list)
+
+    def test_retrieve_does_not_require_a_filter(
+        self, member_client: APIClient, member_task: Task, other_task: Task, memberships: None
+    ) -> None:
+        rel = TaskRelation.objects.create(
+            source=member_task, target=other_task, relation_type="relates_to"
+        )
+        assert member_client.get(_detail_url(rel.pk)).status_code == 200
+
     def test_cross_project_create_read_target_but_not_edit(
         self,
         calendar: Calendar,

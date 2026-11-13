@@ -41504,23 +41504,21 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/SprintDemoListReorderBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/SprintDemoListReorderBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/SprintDemoListReorderBodyRequest"
                             }
                         }
-                    }
+                    },
+                    "required": true
                 },
                 "security": [
                     {
@@ -42230,23 +42228,21 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/SprintReorderBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/SprintReorderBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/SprintReorderBodyRequest"
                             }
                         }
-                    }
+                    },
+                    "required": true
                 },
                 "security": [
                     {
@@ -43851,7 +43847,7 @@
         "/api/v1/task-relations/": {
             "get": {
                 "operationId": "v1_task_relations_list",
-                "description": "CRUD for informational task-to-task relations (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nNOT a scheduling :class:`Dependency` — it is inert: no CPM effect, no lag, no\ncycle check, and **no schedule recompute** on write (the one deliberate\ndivergence from :class:`DependencyViewSet`, which recalculates). Endpoints may\nsit in the same project or in two projects of the same *program* (ADR-0120 D1);\ncross-*program* is rejected in the serializer.\n\nPermission shape mirrors ``TaskLabelView`` (annotate-my-own-task): reads need\nproject membership (Viewer+); writes need write authority on the **source**\ntask (Member-may-relate-own, Resource Manager read-only, PM+ any). The write\ngate is evaluated against the *source task*, not the relation row (which carries\nno assignee), so the Member-own rule resolves correctly.",
+                "description": "List relations; ``task`` or ``project`` is required.\n\n``pagination_class`` is ``None`` (bare array, #2321), so an unfiltered list\nwould return every relation across every member project in one response.\nBounding by a filter keeps the array \"a handful per task\" as the comment\nabove assumes. Retrieve/update/destroy resolve by pk and are unaffected.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -46436,20 +46432,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/TaskAnchorReorderBodyRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/TaskAnchorReorderBodyRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/TaskAnchorReorderBodyRequest"
                             }
                         }
                     }
@@ -76005,6 +75998,22 @@
                     "until"
                 ]
             },
+            "SprintDemoListReorderBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /sprints/{id}/demo-list/reorder/`` (complete demo set, 1-500).\n\nDemo outcomes are ordered by id alone — unlike the task reorders there is no\nper-row ``server_version`` lock; the handler detects a changed set instead.",
+                "properties": {
+                    "outcome_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                },
+                "required": [
+                    "outcome_ids"
+                ]
+            },
             "SprintDurationChangeEvent": {
                 "type": "object",
                 "description": "One duration-change event in a sprint's changes-log (ADR-0151).",
@@ -76475,6 +76484,21 @@
                     "gated",
                     "my_response",
                     "points"
+                ]
+            },
+            "SprintReorderBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /sprints/{id}/reorder/`` (complete sprint set, 1-2000).",
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReorderEntryRequest"
+                        }
+                    }
+                },
+                "required": [
+                    "tasks"
                 ]
             },
             "SprintReorderResult": {
@@ -78749,6 +78773,23 @@
                     "total_float",
                     "wbs_path"
                 ]
+            },
+            "TaskAnchorReorderBodyRequest": {
+                "type": "object",
+                "description": "Body of ``POST /tasks/{id}/reorder/`` — exactly one anchor.\n\nAll three fields are optional in the schema; the handler requires exactly one\nof ``before_id``, ``after_id`` or ``to_end: true`` and answers 400 otherwise.",
+                "properties": {
+                    "before_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "after_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "to_end": {
+                        "type": "boolean"
+                    }
+                }
             },
             "TaskAnchorReorderRenormalizedRow": {
                 "type": "object",

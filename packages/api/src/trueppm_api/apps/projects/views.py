@@ -278,12 +278,14 @@ from trueppm_api.apps.projects.serializers import (
     SprintCloseRequestSerializer,
     SprintCloseRequestStateSerializer,
     SprintDailyDeltaSerializer,
+    SprintDemoListReorderBodySerializer,
     SprintDurationChangeEventSerializer,
     SprintForecastSerializer,
     SprintGenerateResponseSerializer,
     SprintGenerateSerializer,
     SprintOutcomeSerializer,
     SprintPulseTrendSerializer,
+    SprintReorderBodySerializer,
     SprintReorderResultSerializer,
     SprintRetroSerializer,
     SprintRetroSummarySerializer,
@@ -293,6 +295,7 @@ from trueppm_api.apps.projects.serializers import (
     SprintScopeChangeSingleActionResultSerializer,
     SprintSerializer,
     StructureRoleConflictSerializer,
+    TaskAnchorReorderBodySerializer,
     TaskAttachmentSerializer,
     TaskBulkSerializer,
     TaskClassificationResponseSerializer,
@@ -7139,7 +7142,7 @@ class TaskViewSet(
 
     @extend_schema(
         summary="Reorder a board card relative to an anchor (server-computed rank)",
-        request=OpenApiTypes.OBJECT,
+        request=TaskAnchorReorderBodySerializer,
         responses={
             200: OpenApiResponse(
                 response=inline_serializer(
@@ -9280,6 +9283,21 @@ class TaskRelationViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRelati
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMemberWriteOrOwn(), IsProjectNotArchived()]
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List relations; ``task`` or ``project`` is required.
+
+        ``pagination_class`` is ``None`` (bare array, #2321), so an unfiltered list
+        would return every relation across every member project in one response.
+        Bounding by a filter keeps the array "a handful per task" as the comment
+        above assumes. Retrieve/update/destroy resolve by pk and are unaffected.
+        """
+        if not (request.query_params.get("task") or request.query_params.get("project")):
+            return Response(
+                {"detail": "Provide a 'task' or 'project' query parameter."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().list(request, *args, **kwargs)
 
     def get_queryset(self) -> QuerySet[TaskRelation]:
         # A relation is visible to members of EITHER endpoint's project — a
@@ -17665,7 +17683,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Reorder the Sprint Review demo list (ADR-0118 amend, #1130)",
-        request=OpenApiTypes.OBJECT,
+        request=SprintDemoListReorderBodySerializer,
         responses={
             200: SprintReorderResultSerializer,
             409: OpenApiResponse(
@@ -17740,7 +17758,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Reorder a sprint's within-sprint execution order (#365)",
-        request=OpenApiTypes.OBJECT,
+        request=SprintReorderBodySerializer,
         responses={
             200: SprintReorderResultSerializer,
             409: OpenApiResponse(
