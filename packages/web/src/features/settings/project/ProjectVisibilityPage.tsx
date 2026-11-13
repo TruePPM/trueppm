@@ -169,7 +169,7 @@ export function ProjectVisibilityPage() {
             key={s.field}
             label={s.label}
             hint={s.hint}
-            // Unconditional ⓘ: this page has no StubFieldset, so the trigger is
+            // Unconditional ⓘ: this page has no ReadOnlyFieldset, so the trigger is
             // never inside a disabled fieldset and stays reachable for read-only
             // viewers (matches ProgramRollupPage; the read-only-reachable pattern
             // deferred from #2266 MR3).

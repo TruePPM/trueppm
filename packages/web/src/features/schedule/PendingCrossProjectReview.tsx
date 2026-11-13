@@ -3,6 +3,7 @@ import { toast } from '@/components/Toast/toast';
 import { Button } from '@/components/Button';
 import { CriticalDotIcon } from '@/components/Icons';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { LinkType } from '@/types';
@@ -97,7 +98,11 @@ export function PendingCrossProjectReview({ projectId, currentRole }: Props) {
         </Button>
       </div>
       {open && (
-        <ReviewPanel projectId={projectId} currentRole={currentRole} onClose={() => setOpen(false)} />
+        <ReviewPanel
+          projectId={projectId}
+          currentRole={currentRole}
+          onClose={() => setOpen(false)}
+        />
       )}
     </>
   );
@@ -128,18 +133,7 @@ function ReviewPanel({
 
   // Track connectivity live so the controls re-gate the moment the network drops
   // or returns while the panel is open (web-rule 29), not only on the next render.
-  const [offline, setOffline] = useState(
-    () => typeof navigator !== 'undefined' && !navigator.onLine,
-  );
-  useEffect(() => {
-    const update = () => setOffline(!navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    };
-  }, []);
+  const offline = !useOnlineStatus();
 
   // Close once the last pending item clears (all reviewed). Only a *resolved*
   // empty list means that: a refetch that failed with nothing cached would
@@ -204,8 +198,7 @@ function ReviewPanel({
               Review cross-project links
             </h2>
             <p className="mt-0.5 text-xs text-neutral-text-secondary">
-              Another team proposed{' '}
-              <span className="tppm-mono">{items.length}</span>{' '}
+              Another team proposed <span className="tppm-mono">{items.length}</span>{' '}
               {items.length === 1 ? 'link' : 'links'} to your tasks. Accepting binds the schedule
               across both projects.
             </p>
@@ -250,7 +243,11 @@ function ReviewPanel({
               const upstream = item.predecessorCard?.title ?? 'upstream task';
               return (
                 <li key={item.id} className="px-4 py-3">
-                  <ExternalCardRow card={item.predecessorCard} depType={item.depType} lag={item.lag} />
+                  <ExternalCardRow
+                    card={item.predecessorCard}
+                    depType={item.depType}
+                    lag={item.lag}
+                  />
                   {item.successorCard && (
                     <p className="mt-1.5 text-xs text-neutral-text-secondary">
                       Blocks your task{' '}
@@ -314,9 +311,7 @@ function ExternalCardRow({
   if (!card) {
     // Defensive: a cross-project edge always carries the predecessor card, but
     // never crash the panel if a redaction path returns null.
-    return (
-      <p className="text-sm text-neutral-text-secondary italic">A task in another project</p>
-    );
+    return <p className="text-sm text-neutral-text-secondary italic">A task in another project</p>;
   }
   const initial = (card.project_name || '?').charAt(0).toUpperCase();
   return (

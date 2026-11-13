@@ -248,8 +248,8 @@ describe('ProgramRollupPage (settings)', () => {
     expect(learnMore).toHaveAttribute('href', expect.stringContaining('program-settings'));
   });
 
-  it('keeps the FieldHelp ⓘ reachable for read-only viewers — this page has no StubFieldset (#2266)', () => {
-    // Unlike ProgramGeneralPage (whose StubFieldset disables the ⓘ for
+  it('keeps the FieldHelp ⓘ reachable for read-only viewers — this page has no ReadOnlyFieldset (#2266)', () => {
+    // Unlike ProgramGeneralPage (whose ReadOnlyFieldset disables the ⓘ for
     // non-admins), this page never wraps its controls in a disabled fieldset,
     // so a Viewer/Member still gets contextual help even though every write
     // control is read-only. This is the read-only-reachable help deferred in MR3.

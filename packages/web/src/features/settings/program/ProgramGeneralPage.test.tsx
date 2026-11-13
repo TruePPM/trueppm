@@ -281,7 +281,7 @@ describe('ProgramGeneralPage (settings)', () => {
   });
 
   it('hides the FieldHelp ⓘ for read-only viewers rather than rendering a disabled one (#2266)', () => {
-    // The whole form sits in `<StubFieldset disabled={!canEdit}>` (#1084), whose
+    // The whole form sits in `<ReadOnlyFieldset disabled={!canEdit}>` (#1084), whose
     // `<fieldset disabled>` would disable the ⓘ trigger <button> — a dead, dimmed
     // affordance (ux-review §8 / web-rule 122). Below Admin we render no trigger;
     // the always-visible inline hint still explains the field.

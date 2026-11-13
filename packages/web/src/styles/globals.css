@@ -655,12 +655,12 @@
     animation: scrim-fade 150ms cubic-bezier(.2, .7, .2, 1);
   }
 
-  /* Disabled-form-control styling for settings pages whose API hasn't shipped
-     yet (`apiReady=false`). Wrap the page body in `<StubFieldset>` and every
-     descendant input / select / textarea / button is forced into the same
-     visual state. text-neutral-text-secondary on bg-neutral-surface-sunken
+  /* Disabled-form-control styling for a settings form the viewer cannot edit
+     (`<ReadOnlyFieldset disabled={!canEdit}>`). Every descendant input / select /
+     textarea / button is forced into the same visual state.
+     text-neutral-text-secondary on bg-neutral-surface-sunken
      is 3.12:1 — passes WCAG 1.4.3 at 12px+ per design rule 50. */
-  .settings-stub :disabled {
+  .settings-readonly :disabled {
     background-color: rgb(var(--neutral-surface-sunken));
     color: rgb(var(--neutral-text-secondary));
     border-color: rgb(var(--neutral-border) / 0.55);

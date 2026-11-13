@@ -1,13 +1,13 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { StubFieldset } from './StubFieldset';
+import { ReadOnlyFieldset } from './ReadOnlyFieldset';
 
-describe('<StubFieldset>', () => {
+describe('<ReadOnlyFieldset>', () => {
   it('renders children unchanged when disabled=false', () => {
     render(
-      <StubFieldset disabled={false}>
+      <ReadOnlyFieldset disabled={false}>
         <input data-testid="i" />
-      </StubFieldset>,
+      </ReadOnlyFieldset>,
     );
     const input = screen.getByTestId('i');
     expect(input).not.toBeDisabled();
@@ -16,23 +16,23 @@ describe('<StubFieldset>', () => {
 
   it('wraps children in a disabled fieldset when disabled=true', () => {
     render(
-      <StubFieldset disabled>
+      <ReadOnlyFieldset disabled>
         <input data-testid="i" />
         <button data-testid="b">x</button>
-      </StubFieldset>,
+      </ReadOnlyFieldset>,
     );
     expect(screen.getByTestId('i')).toBeDisabled();
     expect(screen.getByTestId('b')).toBeDisabled();
   });
 
-  it('carries the settings-stub class on the fieldset so globals.css can target descendants', () => {
+  it('carries the settings-readonly class on the fieldset so globals.css can target descendants', () => {
     render(
-      <StubFieldset disabled>
+      <ReadOnlyFieldset disabled>
         <input />
-      </StubFieldset>,
+      </ReadOnlyFieldset>,
     );
     const fieldset = document.querySelector('fieldset');
-    expect(fieldset).toHaveClass('settings-stub');
+    expect(fieldset).toHaveClass('settings-readonly');
     expect(fieldset).toHaveAttribute('disabled');
   });
 });

@@ -97,9 +97,9 @@ export function ProjectAttachmentsPage() {
       />
 
       <div className="px-6 pb-8 max-w-[720px]">
-        {/* This page has no StubFieldset (the Inheritable* controls render their own
+        {/* This page has no ReadOnlyFieldset (the Inheritable* controls render their own
             read-only view below Admin), so the ⓘ stays clickable for every role —
-            it is not gated on canEdit the way the StubFieldset-wrapped pages are. */}
+            it is not gated on canEdit the way the ReadOnlyFieldset-wrapped pages are. */}
         <FieldRow
           label="File attachments"
           hint="Allow uploading files to tasks in this project. Turning this off keeps existing files but hides the upload controls."

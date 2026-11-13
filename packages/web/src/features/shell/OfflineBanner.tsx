@@ -1,5 +1,5 @@
 import { WarningIcon } from '@/components/Icons';
-import { useEffect, useState } from 'react';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 /**
  * Global connectivity indicator (WCAG 4.1.3 status messages).
@@ -16,21 +16,7 @@ import { useEffect, useState } from 'react';
  * `sr-only` (no children, no layout footprint) rather than unmounting.
  */
 export function OfflineBanner() {
-  // Guard for SSR / non-browser test envs where `navigator` may be undefined.
-  const [offline, setOffline] = useState<boolean>(
-    () => typeof navigator !== 'undefined' && !navigator.onLine,
-  );
-
-  useEffect(() => {
-    const update = () => setOffline(!navigator.onLine);
-    update();
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    };
-  }, []);
+  const offline = !useOnlineStatus();
 
   return (
     <div
@@ -48,8 +34,8 @@ export function OfflineBanner() {
           {/* #2028: honest copy. Most offline edits live in an in-memory queue that a
               reload discards, so tell the user to keep the tab open, and name the
               refuse-class (scheduling drags aren't queued at all). */}
-          You&rsquo;re offline — edits sync when you reconnect. Keep this tab open; scheduling changes
-          need a connection.
+          You&rsquo;re offline — edits sync when you reconnect. Keep this tab open; scheduling
+          changes need a connection.
         </>
       )}
     </div>

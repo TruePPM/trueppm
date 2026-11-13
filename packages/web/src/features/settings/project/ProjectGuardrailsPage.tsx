@@ -18,7 +18,7 @@ import {
 import { FieldHelp } from '@/components/FieldHelp';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
-// Sprint guardrails has no StubFieldset (the pills carry their own role-gate), so
+// Sprint guardrails has no ReadOnlyFieldset (the pills carry their own role-gate), so
 // every FieldHelp ⓘ here renders unconditionally and stays clickable for all roles —
 // it is purely informational, never a disabled-fieldset dead affordance (web-rule 122).
 const GUARDRAILS_DOC = 'administration/project-settings/#sprint-guardrails';
