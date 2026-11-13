@@ -1,3 +1,4 @@
+import { Tooltip } from '@/components/Tooltip';
 import { useActiveSprint } from '@/hooks/useSprints';
 import { useProject } from '@/hooks/useProject';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -204,15 +205,19 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
                   <span className="truncate text-[12px] font-semibold text-neutral-text-primary">
                     {sprint.name}
                   </span>
-                  {sprintPct != null && (
-                    <span className="shrink-0 text-[12px] font-semibold tabular-nums text-brand-primary">
-                      {sprintPct}%
-                    </span>
-                  )}
                 </div>
                 {sprintPct != null ? (
+                  /* One progress slot (#3210): the percentage is no longer drawn as a
+                     numeral beside the bar; it lives in the accessible name and the
+                     tooltip (hover and keyboard focus). */
+                  <Tooltip content={`${sprintPct}% complete · ${sprintDone} of ${sprintTotal} tasks`}>
                   <div
-                    className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-surface-sunken"
+                    tabIndex={0}
+                    className={[
+                      'mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-surface-sunken',
+                      'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+                      sprintPct === 100 ? 'outline outline-1 outline-offset-[1.5px] outline-brand-primary' : '',
+                    ].join(' ')}
                     role="progressbar"
                     aria-valuenow={sprintPct}
                     aria-valuemin={0}
@@ -224,6 +229,7 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
                       style={{ width: `${sprintPct}%` }}
                     />
                   </div>
+                  </Tooltip>
                 ) : (
                   <span className="text-xs text-neutral-text-secondary">
                     No committed tasks yet

@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  BuildModeRowMenu,
-  type RowMenuItem,
-} from '@/features/schedule/buildMode/BuildModeRowMenu';
+import { BuildModeRowMenu, type RowMenuItem } from '@/features/schedule/buildMode/BuildModeRowMenu';
 import type { Task } from '@/types';
 import { useDeleteEpic } from '../hooks/useProductBacklog';
 import type { EpicGroup } from '../types';
 import { EpicDeleteConfirmDialog } from './EpicDeleteConfirmDialog';
 import { TrashIcon } from '@/components/Icons';
+import { Tooltip } from '@/components/Tooltip';
 
 /**
  * Epic group header on the Product Backlog grooming view.
@@ -114,21 +112,47 @@ export function EpicHeader({
       ) : (
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs text-neutral-text-secondary">
-            {rollup.pointsDone}/{rollup.pointsTotal} pts · {pct}%
+            {rollup.pointsDone}/{rollup.pointsTotal} pts
           </span>
-          <span
-            role="progressbar"
-            aria-valuenow={rollup.pointsDone}
-            aria-valuemin={0}
-            aria-valuemax={rollup.pointsTotal}
-            aria-label={`Epic ${epic.name}: ${rollup.pointsDone} of ${rollup.pointsTotal} points complete`}
-            className="h-1.5 w-24 overflow-hidden rounded-full bg-neutral-surface"
-          >
+          {/* One progress slot (#3148 pattern, #3210): a bar, or an em-dash for no
+              estimate — never both, never a numeral beside the bar. The percentage lives
+              in the accessible name and the tooltip (hover AND keyboard focus). */}
+          {rollup.pointsTotal > 0 ? (
+            <Tooltip
+              content={`${pct}% complete · ${rollup.pointsDone} of ${rollup.pointsTotal} pts`}
+            >
+              <span
+                role="progressbar"
+                tabIndex={0}
+                aria-valuenow={rollup.pointsDone}
+                aria-valuemin={0}
+                aria-valuemax={rollup.pointsTotal}
+                aria-label={`Epic ${epic.name}: ${rollup.pointsDone} of ${rollup.pointsTotal} points complete (${pct}%)`}
+                className={[
+                  'h-1.5 w-24 overflow-hidden rounded-full bg-neutral-surface',
+                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+                  // 100% told by form (outline, not ring: focus:ring would replace a ring).
+                  pct === 100
+                    ? 'outline outline-1 outline-offset-[1.5px] outline-brand-primary'
+                    : '',
+                ].join(' ')}
+              >
+                <span
+                  className="block h-full rounded-full bg-brand-primary"
+                  style={{ width: `${pct}%` }}
+                />
+              </span>
+            </Tooltip>
+          ) : (
             <span
-              className="block h-full rounded-full bg-brand-primary"
-              style={{ width: `${pct}%` }}
-            />
-          </span>
+              role="img"
+              aria-label="No points estimated"
+              tabIndex={0} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- keyboard path to the explanation (rule 287)
+              className="w-24 text-center text-xs text-neutral-text-secondary focus:outline-none focus:ring-2 focus:ring-brand-primary"
+            >
+              <span aria-hidden="true">—</span>
+            </span>
+          )}
           {items.length > 0 && (
             <button
               ref={menuButtonRef}

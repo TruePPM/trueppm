@@ -94,6 +94,28 @@ describe('EpicHeader edit affordance (#1346)', () => {
   });
 });
 
+describe('EpicHeader progress slot (#3210)', () => {
+  it('draws the proportion once: bar named with the percentage, no numeral beside it', () => {
+    render(
+      <EpicHeader
+        group={makeGroup({}, { storyCount: 2, pointsTotal: 8, pointsDone: 2 })}
+        projectId="p1"
+        onOpen={vi.fn()}
+      />,
+    );
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-label', 'Epic Platform Core: 2 of 8 points complete (25%)');
+    expect(screen.getByText('2/8 pts')).toBeInTheDocument();
+    expect(screen.queryByText(/25%/)).toBeNull();
+  });
+
+  it('renders no progressbar at all when nothing is estimated', () => {
+    render(<EpicHeader group={makeGroup()} projectId="p1" onOpen={vi.fn()} />);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByRole('img', { name: 'No points estimated' })).toBeInTheDocument();
+  });
+});
+
 describe('EpicHeader kebab gating (#1346)', () => {
   it('a manager with canDelete gets a kebab whose only action is Delete', async () => {
     render(<EpicHeader group={makeGroup()} projectId="p1" onOpen={vi.fn()} />);

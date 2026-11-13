@@ -121,6 +121,9 @@ describe('SchedulePulse', () => {
     expect(bar).toHaveAttribute('aria-valuenow', '50');
     expect(screen.getByTestId('pulse-sprint')).toHaveTextContent('Sprint 14');
     expect(screen.getByTestId('pulse-sprint')).toHaveTextContent('2/4 done');
+    // One progress slot (#3210): the percentage is in the bar's name, not drawn as a numeral.
+    expect(bar).toHaveAttribute('aria-label', expect.stringContaining('50% complete'));
+    expect(screen.getByTestId('pulse-sprint')).not.toHaveTextContent('50%');
   });
 
   it('shows a "No active sprint" state when none is active', () => {
