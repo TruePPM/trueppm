@@ -9318,7 +9318,12 @@ class TaskRelationViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRelati
                 {"detail": "Provide a 'task' or 'project' query parameter."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return super().list(request, *args, **kwargs)
+        # Not ``super().list()``: with no pagination the mixin is just these two
+        # lines, and calling filter_queryset() here is what lets the
+        # filter-params-declared-only-where-honored contract see that the published
+        # ``ordering`` parameter is honored.
+        queryset = self.filter_queryset(self.get_queryset())
+        return Response(self.get_serializer(queryset, many=True).data)
 
     def get_queryset(self) -> QuerySet[TaskRelation]:
         # A relation is visible to members of EITHER endpoint's project — a
