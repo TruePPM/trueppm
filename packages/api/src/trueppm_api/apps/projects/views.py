@@ -5945,9 +5945,11 @@ def _next_root_wbs_path(project: Any) -> str:
     has always claimed was not a property the query had. ``test_next_root_wbs_path_locks``
     pins it.
     """
-    # Lock order is task rows, THEN the Project row — the order every other synced
-    # writer takes them in (task writes first, then ``last_sync_version`` on the
-    # Project via ``sync.sequence``). Reversing it here would deadlock a root create
+    # Lock order is task rows, THEN the Project row — the order single-row synced
+    # writers take them in (task writes first, then ``last_sync_version`` on the
+    # Project via ``sync.sequence``); bulk writes via task_bulk.py:450 and the
+    # tombstone reaper in sync/tasks.py:~489 are known exceptions, where Postgres
+    # aborts one side. Reversing it here would deadlock a root create
     # against a root-level renumber/indent. ``FOR UPDATE`` on the roots locks only rows
     # that already exist, so two creates into an *empty* project both see "no roots"
     # and both write ``1`` (#3074); the Project lock closes that: the second creator
