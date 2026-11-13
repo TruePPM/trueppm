@@ -1039,10 +1039,10 @@ def apply_summary_rollups(
     merged ``children_map`` keys are globally-unique task ids, so this works
     unchanged across the per-project and program graphs.
     """
-    from trueppm_scheduler import collect_leaves
+    from trueppm_scheduler.engine import _collect_leaves
 
     for sid in summary_ids:
-        leaves = collect_leaves(sid, children_map)
+        leaves = _collect_leaves(sid, children_map)
         leaf_results = [result_map[lid] for lid in leaves if lid in result_map]
         if not leaf_results:
             continue

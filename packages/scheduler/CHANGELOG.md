@@ -22,7 +22,8 @@ change between releases. Pin an exact version (e.g.
   ([#4158](https://gitlab.com/trueppm/trueppm/-/issues/4158)).** Both are
   exported from `trueppm_scheduler` and listed in `__all__`, with Google-style
   docstrings. The private `engine._WorkingDayCounter` and `engine._collect_leaves`
-  names remain as aliases for one release. Scheduling results are unchanged.
+  names remain as aliases for one release. Scheduling results are unchanged. The
+  API adopts the public names after 0.5 publishes (#4976).
 
 ### Changed
 

@@ -217,3 +217,47 @@ def test_shallow_and_deep_copy_of_slotted_models() -> None:
     cal.exceptions = []  # type: ignore[assignment]
     assert cal.exceptions == ()  # Calendar's __setattr__ normalization still applies to a copy
     assert project.calendar.exceptions != ()
+
+
+# ── User subclasses keep their own state (slots=True must not drop it) ──────────
+
+
+class _MyTask(Task):
+    """A plain subclass; gets a ``__dict__`` for its extra attribute."""
+
+
+def _subclassed_task() -> _MyTask:
+    t = _MyTask(id="t1", name="T", duration=timedelta(days=3))
+    t.extra = "kept"  # type: ignore[attr-defined]
+    return t
+
+
+def test_subclass_extra_attribute_survives_copy_and_deepcopy() -> None:
+    import copy
+
+    t = _subclassed_task()
+    for c in (copy.copy(t), copy.deepcopy(t)):
+        assert type(c) is _MyTask
+        assert c.extra == "kept"  # type: ignore[attr-defined]
+        assert c.id == "t1"
+
+
+@pytest.mark.parametrize("protocol", range(2, pickle.HIGHEST_PROTOCOL + 1))
+def test_subclass_extra_attribute_survives_pickle(protocol: int) -> None:
+    c = pickle.loads(pickle.dumps(_subclassed_task(), protocol))
+    assert type(c) is _MyTask
+    assert c.extra == "kept"  # type: ignore[attr-defined]
+
+
+def test_schedule_preserves_subclass_attribute() -> None:
+    project = Project(
+        id="p",
+        name="P",
+        start_date=date(2026, 3, 2),
+        tasks=[_subclassed_task()],
+        calendar=_calendar(),
+    )
+    result = schedule(project)
+    (out,) = result.tasks
+    assert type(out) is _MyTask
+    assert out.extra == "kept"  # type: ignore[attr-defined]

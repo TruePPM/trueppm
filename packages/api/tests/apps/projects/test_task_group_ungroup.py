@@ -715,7 +715,7 @@ class TestGraphGuard:
         does not. Pinned as a test so a later change to what a container may carry
         breaks here rather than silently in the scheduler.
         """
-        from trueppm_scheduler import collect_leaves
+        from trueppm_scheduler.engine import _collect_leaves
 
         from trueppm_api.apps.projects.serializers import (
             _load_project_tasks_and_children_map,
@@ -727,7 +727,7 @@ class TestGraphGuard:
         three = make_task(project, "Three", "1.3")
 
         _, before_map = _load_project_tasks_and_children_map(project.id)
-        leaves_before = set(collect_leaves(str(phase.id), before_map))
+        leaves_before = set(_collect_leaves(str(phase.id), before_map))
         assert leaves_before == {str(one.id), str(two.id), str(three.id)}
 
         response = client.post(
@@ -738,7 +738,7 @@ class TestGraphGuard:
         assert response.status_code == 200, response.data
 
         _, after_map = _load_project_tasks_and_children_map(project.id)
-        assert set(collect_leaves(str(phase.id), after_map)) == leaves_before
+        assert set(_collect_leaves(str(phase.id), after_map)) == leaves_before
 
 
 # ── RBAC — all five roles, both endpoints ───────────────────────────────────────

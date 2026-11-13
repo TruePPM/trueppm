@@ -583,8 +583,7 @@ threads that only read it is fine, but mutating it (reassigning `working_days` o
 `ScheduleResult`, `MonteCarloResult` and `Derivation` pickle and unpickle equal to
 the original, under every pickle protocol, so they cross `multiprocessing`, Dask
 and Ray process boundaries. An unpickled `Project` schedules to the same result as
-the original. A `Calendar` rebuilds its internal exception index on first use after
-unpickling.
+the original. A `Calendar`'s warm exception index is carried through the pickle and stays valid.
 
 **`monte_carlo(sensitivity_cap=...)` bounds output, not compute.** The duration
 sensitivity tornado scores every task whose sampled duration varies, then keeps the

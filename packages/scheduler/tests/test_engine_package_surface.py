@@ -334,7 +334,7 @@ def test_the_snapshot_is_the_whole_04_surface() -> None:
 _ALL_ADDED_IN_05 = ("WorkingDayCounter", "collect_leaves")
 
 
-def test_package_all_is_unchanged() -> None:
+def test_package_all_is_the_04_list_plus_announced_additions() -> None:
     """``__all__`` is the 0.4 list, in order, plus only the announced 0.5 additions."""
     added = set(_ALL_ADDED_IN_05)
     assert [n for n in trueppm_scheduler.__all__ if n not in added] == list(_ALL_04)

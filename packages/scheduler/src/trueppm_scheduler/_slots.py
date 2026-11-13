@@ -21,6 +21,15 @@ from typing import Any, TypeVar
 _T = TypeVar("_T", bound=type)
 
 
+def _add_subclass_state(obj: Any, state: dict[str, Any]) -> None:
+    """Add a subclass instance's ``__dict__`` and extra slot values to ``state``."""
+    state.update(getattr(obj, "__dict__", {}))
+    for klass in type(obj).__mro__:
+        for slot in getattr(klass, "__slots__", ()):
+            if slot not in state and hasattr(obj, slot):
+                state[slot] = getattr(obj, slot)
+
+
 def pickle_as_field_dict(cls: _T) -> _T:
     """Make ``cls`` (a ``slots=True`` dataclass) pickle as a ``{field: value}`` dict.
 
@@ -38,7 +47,12 @@ def pickle_as_field_dict(cls: _T) -> _T:
     }
 
     def __getstate__(self: Any) -> dict[str, Any]:
-        return {n: getattr(self, n) for n in names if hasattr(self, n)}
+        state = {n: getattr(self, n) for n in names if hasattr(self, n)}
+        if type(self) is not cls:
+            # A user subclass: carry its own state too (its ``__dict__`` and any
+            # slots it declares), which the base field list knows nothing about.
+            _add_subclass_state(self, state)
+        return state
 
     def __setstate__(self: Any, state: Any) -> None:
         # ``object.__getstate__`` (used by a slots class with no override) emits
@@ -51,6 +65,10 @@ def pickle_as_field_dict(cls: _T) -> _T:
             state = merged
         # object.__setattr__: frozen dataclasses refuse ``setattr``, and Calendar's
         # ``__setattr__`` would re-normalize a value that is already normalized.
+        if type(self) is not cls:
+            for k, v in state.items():
+                if k not in names:
+                    object.__setattr__(self, k, v)
         for n in names:
             if n in state:
                 object.__setattr__(self, n, state[n])
@@ -74,8 +92,17 @@ def pickle_as_field_dict(cls: _T) -> _T:
     )
     namespace: dict[str, Any] = {"_new": object.__new__, "_set": object.__setattr__}
     exec(f"def __copy__(s):\n    n = _new(s.__class__)\n{body}\n    return n\n", namespace)
+    fast_copy = namespace["__copy__"]
+
+    def __copy__(self: Any) -> Any:
+        if type(self) is cls:
+            return fast_copy(self)
+        # Subclass: round-trip through the state hooks so its extra attributes survive.
+        n = object.__new__(type(self))
+        n.__setstate__(self.__getstate__())
+        return n
 
     setattr(cls, "__getstate__", __getstate__)  # noqa: B010
     setattr(cls, "__setstate__", __setstate__)  # noqa: B010
-    setattr(cls, "__copy__", namespace["__copy__"])  # noqa: B010
+    setattr(cls, "__copy__", __copy__)  # noqa: B010
     return cls
