@@ -140,7 +140,8 @@ class MissingSkillSerializer(serializers.Serializer[dict[str, Any]]):
 
     skill_id = serializers.UUIDField()
     skill_name = serializers.CharField()
-    required = serializers.IntegerField(help_text="Minimum proficiency the task requires.")
+    # Wire name is fixed by #3588; it shadows ``Field.required: bool`` for mypy only.
+    required = serializers.IntegerField(help_text="Minimum proficiency the task requires.")  # type: ignore[assignment]
     required_label = serializers.CharField()
     actual = serializers.IntegerField(help_text="The resource's proficiency; 0 when not tagged.")
     actual_label = serializers.CharField()

@@ -102,3 +102,33 @@ def test_two_concurrent_root_creates_into_an_empty_project_do_not_overlap(
 
     assert _race(work) == [None, None]
     assert sorted(got) == ["1", "2"]
+
+
+def test_root_create_and_root_renumber_take_locks_in_the_same_order(project: Project) -> None:
+    """A root create racing a root-level renumber must not deadlock (#3074).
+
+    Every synced writer locks task rows first and the Project row second (the second
+    arrives via ``last_sync_version`` on save). ``_next_root_wbs_path`` locking the
+    Project row *first* made this pair a lock-order inversion Postgres resolves by
+    killing one of them with a 500.
+    """
+    from trueppm_api.apps.projects.views import _get_siblings, _renumber_siblings
+
+    Task.objects.create(project=project, name="One", duration=1, wbs_path="1")
+    Task.objects.create(project=project, name="Three", duration=1, wbs_path="3")
+
+    def work(i: int, started: threading.Event) -> None:
+        if i == 0:
+            siblings = _get_siblings(str(project.pk), "", lock=True)
+            started.set()
+            time.sleep(0.5)  # create now runs against the held task-row locks
+            _renumber_siblings(siblings, "")  # "3" -> "2": saves, then touches Project
+        else:
+            path = _next_root_wbs_path(project)
+            Task.objects.create(project=project, name="New", duration=1, wbs_path=path)
+
+    assert _race(work) == [None, None]
+    paths = sorted(
+        str(p) for p in Task.objects.filter(project=project).values_list("wbs_path", flat=True)
+    )
+    assert len(paths) == len(set(paths)) == 3

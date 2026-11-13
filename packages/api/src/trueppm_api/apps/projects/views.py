@@ -5945,18 +5945,23 @@ def _next_root_wbs_path(project: Any) -> str:
     has always claimed was not a property the query had. ``test_next_root_wbs_path_locks``
     pins it.
     """
-    # Lock the Project row first. ``FOR UPDATE`` on the root tasks locks only rows
-    # that already exist, so two creates into an *empty* project both read "no roots"
-    # and both write ``1`` — the loser then dies on the live-path unique constraint
-    # (#3074). ``serializer.save`` takes this same row lock a moment later when it
-    # draws the ``short_id``, so taking it here only moves that serialization point
-    # ahead of the read instead of adding a second lock to order against.
-    list(Project.objects.select_for_update().filter(pk=project.pk).values_list("pk", flat=True))
-    highest = 0
-    for path in (
+    # Lock order is task rows, THEN the Project row — the order every other synced
+    # writer takes them in (task writes first, then ``last_sync_version`` on the
+    # Project via ``sync.sequence``). Reversing it here would deadlock a root create
+    # against a root-level renumber/indent. ``FOR UPDATE`` on the roots locks only rows
+    # that already exist, so two creates into an *empty* project both see "no roots"
+    # and both write ``1`` (#3074); the Project lock closes that: the second creator
+    # blocks on it until the first commits, and the plain re-read below then sees the
+    # first's row.
+    list(
         Task.objects.select_for_update()
         .filter(project=project, wbs_path__regex=_ROOT_WBS_RE)
-        .values_list("wbs_path", flat=True)
+        .values_list("pk", flat=True)
+    )
+    list(Project.objects.select_for_update().filter(pk=project.pk).values_list("pk", flat=True))
+    highest = 0
+    for path in Task.objects.filter(project=project, wbs_path__regex=_ROOT_WBS_RE).values_list(
+        "wbs_path", flat=True
     ):
         label = str(path)
         if label.isdigit():
@@ -6842,11 +6847,11 @@ class TaskViewSet(
     # GROUP BY is present (`if self._meta_ordering: order_by = None`), so the
     # shipped list query paginated with no ORDER BY at all. #2814 converted every
     # aggregate annotation to a correlated `Subquery(...)`, so the outer query has
-    # no GROUP BY any more and `Task.Meta.ordering = ["wbs_path", "name"]` reaches
-    # this endpoint unassisted — the same order the model declares, and the order a
-    # `(project, wbs_path, name)` btree can now actually serve (see that index's
-    # migration for the "why only now" reasoning). Clients that want a different
-    # order still ask for it via `?ordering=`.
+    # no GROUP BY any more and `Task.Meta.ordering = [wbs_sort_key(wbs_path), "name"]` reaches
+    # this endpoint unassisted — the same order the model declares, and the order the
+    # `task_proj_wbs_sort_idx` (project, wbs_sort_key(wbs_path), name) btree can now
+    # actually serve (see that index's migration for the "why only now" reasoning).
+    # Clients that want a different order still ask for it via `?ordering=`.
     queryset = (
         Task.objects.select_related("project", "sprint")
         .prefetch_related("assignments__resource")
@@ -6902,7 +6907,7 @@ class TaskViewSet(
         identically to the annotated one.
 
         ``.order_by().values("pk").distinct()`` — not a bare ``.distinct()`` —
-        because `Task.Meta.ordering = ["wbs_path", "name"]` would otherwise inject
+        because `Task.Meta.ordering = [wbs_sort_key(wbs_path), "name"]` would otherwise inject
         those columns into the SELECT list and silently defeat distinctness for a
         filter that fans out over a to-many join (``_filter_tasks_by_labels``,
         ``_filter_tasks_mine``): two rows that are duplicates on ``pk`` alone can

@@ -26,8 +26,8 @@ them across projects.
 A resource can also carry an **employee ID** — your organization's own reference for the
 person (a payroll or HR number, a badge number, a directory username). It is free text of
 up to 64 characters, optional, and not required to be unique. Like `email`, it is HR data:
-only a workspace Admin can read or set it, and it is omitted from every other caller's
-responses. It is the field an HR-system integration matches resources against.
+only a workspace Admin can read or set it (a person can also see the ID on their own
+resource), and it is omitted from every other caller's responses. It is the field an HR-system integration matches resources against.
 
 :::note[Ships in 0.5]
 The employee ID field lands in 0.5. In the current release a resource has no field for your

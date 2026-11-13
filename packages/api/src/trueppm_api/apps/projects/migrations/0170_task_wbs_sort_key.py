@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
             CREATE FUNCTION wbs_sort_key(p ltree) RETURNS text[]
             LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT AS $$
                 SELECT array_agg(
-                    CASE WHEN l ~ '^[0-9]+$' THEN lpad(l, 12, '0') ELSE l END
+                    CASE WHEN l ~ '^[0-9]+$' THEN lpad(l, 20, '0') ELSE l END
                     ORDER BY n
                 )
                 FROM unnest(string_to_array(p::text, '.')) WITH ORDINALITY AS t(l, n)

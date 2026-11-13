@@ -160,10 +160,10 @@ def _assigned_candidates_by_project(project_ids: Sequence[Any]) -> dict[str, set
     UUIDs over the wire twice. The de-dupe belongs in the database.
 
     **``.order_by()`` is what makes that ``.distinct()`` real, and it is not
-    cosmetic.** ``Task.Meta.ordering`` is ``["wbs_path", "name"]``, and a
+    cosmetic.** ``Task.Meta.ordering`` is ``[wbs_sort_key(wbs_path), "name"]``, and a
     ``.distinct()`` with no ``distinct_fields`` promotes every ORDER BY column
     into the SELECT list — so the statement becomes ``SELECT DISTINCT project_id,
-    assignee_id, wbs_path, name``. ``projects_task`` carries an
+    assignee_id, wbs_sort_key(wbs_path), name``. ``projects_task`` carries an
     ``ExclusionConstraint`` on ``(project, wbs_path)`` over live rows, which makes
     that tuple unique among exactly the rows being scanned, so the DISTINCT
     matches nothing and returns one row per task — the de-dupe silently does not

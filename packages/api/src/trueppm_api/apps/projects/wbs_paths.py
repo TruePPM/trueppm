@@ -44,7 +44,7 @@ class WbsSortKey(Func):
     """
 
     function = "wbs_sort_key"
-    output_field = TextField()  # type: ignore[assignment]  # text[]; only ever ordered on
+    output_field = TextField()  # text[]; only ever ordered on
 
 
 def wbs_order(field: str = "wbs_path", *, descending: bool = False) -> OrderBy:
@@ -106,9 +106,9 @@ def root_ordinal_offset(
         # nosemgrep: avoid-raw-sql
         rows.annotate(root_label=RawSQL("subpath(projects_task.wbs_path, 0, 1)::text", []))  # nosec B611
         .values_list("root_label", flat=True)
-        # Task.Meta.ordering is ["wbs_path", "name"], and Postgres requires every
+        # Task.Meta.ordering is [wbs_order, "name"], and Postgres requires every
         # ORDER BY expression to appear in a SELECT DISTINCT list — so without this
-        # Django widens the DISTINCT key to (root_label, wbs_path, name), which is
+        # Django widens the DISTINCT key to (root_label, wbs_sort_key(wbs_path), name), which is
         # unique per task. The query then streams one row per task, plus a sort, to
         # compute a single integer. Clearing the ordering is what makes the "distinct
         # root labels" this docstring promises actually true.

@@ -76,3 +76,37 @@ def test_share_link_schedule_order_is_numeric(project: Project) -> None:
     link = ShareLink(project=project, show_milestone_dates=True, show_assignees=False)
     payload = serialize_public_schedule(link)
     assert [t["wbs_path"] for t in payload["tasks"]] == NUMERIC
+
+
+def test_tasks_by_label_name_order_is_numeric(project: Project) -> None:
+    from trueppm_api.apps.projects.models import Label, TaskLabel
+    from trueppm_api.apps.projects.program_label_services import tasks_by_label_name
+
+    label = Label.objects.create(project=project, name="Review")
+    for task in Task.objects.filter(project=project):
+        TaskLabel.objects.create(task=task, label=label)
+    got = [
+        str(t.wbs_path) for t in tasks_by_label_name(project_ids=[project.pk], label_name="review")
+    ]
+    assert got == NUMERIC
+
+
+def test_seed_export_task_order_is_numeric(project: Project) -> None:
+    from trueppm_api.apps.projects.seed.exporter import export_project
+
+    doc = export_project(project)
+    tasks = doc["projects"][0]["tasks"]
+    assert [t["wbs_path"] for t in tasks] == NUMERIC
+
+
+def test_phase_list_root_order_is_numeric(project: Project) -> None:
+    from django.contrib.auth import get_user_model
+
+    user = get_user_model().objects.create_user(username="ph", password="pw", is_superuser=True)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    res = client.get(f"/api/v1/projects/{project.pk}/phases/?page_size=50")
+    assert res.status_code == 200
+    rows = res.data["results"] if isinstance(res.data, dict) else res.data
+    assert [r["name"] for r in rows] == [f"T{n}" for n in range(1, 13)]
