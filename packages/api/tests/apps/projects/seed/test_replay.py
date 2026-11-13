@@ -432,6 +432,16 @@ def test_sprint_close_creates_outcome_row_per_member_task(program: Any) -> None:
     assert outcomes[task2.pk].was_pending is False
 
 
+def test_sprint_close_without_outcomes_key_falls_back_to_snapshot(owner: Any) -> None:
+    """A v2 seed whose close beat has no ``outcomes`` key still gets outcome rows (#3740)."""
+    seed = _v2_seed()
+    closes = [e for e in seed["events"] if e["action"] == "sprint.close"]
+    assert closes and all("outcomes" not in e for e in closes)
+    program = import_seed(seed, owner=owner, create_users=True)
+    sprint = Sprint.objects.get(project__program=program, name="Sprint 1")
+    assert SprintTaskOutcome.objects.filter(sprint=sprint).exists()
+
+
 def test_sprint_close_computes_velocity_suggestions_safely(program: Any) -> None:
     """#3488: the close now calls compute_velocity_suggestions; a single closed
     sprint has no history to calibrate from, so it must no-op rather than error."""

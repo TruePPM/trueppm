@@ -3,7 +3,7 @@
  *
  * The backend returns a `due` ISO date plus a `due_source` enum identifying
  * which step of the cascade produced it (`actual_finish → planned_start →
- * early_finish → sprint.finish_date`). Surfacing only a date is ambiguous —
+ * sprint.finish_date → early_finish`). Surfacing only a date is ambiguous —
  * "Due Oct 14" could mean any of four things — so the contributor surface
  * always renders the date alongside its source label.
  *

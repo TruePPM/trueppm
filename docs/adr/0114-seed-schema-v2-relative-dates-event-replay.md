@@ -253,7 +253,9 @@ the v1 default, so there is no API-surface change.
   `was_pending`) holding the sprint's membership at close. A task a close carried to a later
   sprint or returned to the backlog is born in its final sprint, so replay cannot re-derive
   its `SprintTaskOutcome` row from live membership; with `outcomes` present replay restores
-  the rows verbatim, and without it falls back to `snapshot_sprint_task_outcomes`.
+  each row's disposition, final_status, next_sprint and was_pending (the task short id, title
+  and story points are re-derived from the task at replay time, the same fidelity as the
+  replay snapshot), and without it falls back to `snapshot_sprint_task_outcomes`.
 - Two small replay-side changes support the round-trip: `sprint.scope_inject` now backdates
   `SprintScopeChange.added_at` to the beat (so a PENDING injection reconstructs with a
   stable timestamp), and the newly-added `retro.action` / `retro.promote` handlers write

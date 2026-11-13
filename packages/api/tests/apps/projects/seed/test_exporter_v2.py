@@ -201,6 +201,17 @@ def _outcome_view(program: Any) -> set[tuple[Any, ...]]:
     }
 
 
+def _suggestion_view(program: Any) -> set[tuple[Any, ...]]:
+    from trueppm_api.apps.scheduling.models import VelocitySuggestion
+
+    return {
+        (v.sprint.name, v.task.name, v.suggested_duration, str(v.team_velocity_per_day))
+        for v in VelocitySuggestion.objects.filter(sprint__project__program=program).select_related(
+            "sprint", "task"
+        )
+    }
+
+
 def test_reimport_restores_outcomes_for_tasks_a_close_moved_out(owner: Any) -> None:
     """Carried-to-sprint and returned-to-backlog outcome rows survive a re-import (#3740).
 
@@ -254,6 +265,7 @@ def test_reimport_restores_outcomes_for_tasks_a_close_moved_out(owner: Any) -> N
         disposition=SprintTaskDisposition.DROPPED,
     )
     before = _outcome_view(program1)
+    suggestions_before = _suggestion_view(program1)
     assert any(row[2] == "carried" and row[3] == "Next" for row in before)
 
     export1 = export_program(program1, with_events=True)
@@ -262,5 +274,9 @@ def test_reimport_restores_outcomes_for_tasks_a_close_moved_out(owner: Any) -> N
 
     program2 = import_seed(export1, owner=owner, create_users=True, replace=True)
     assert _outcome_view(program2) == before
+    # Velocity suggestions are recomputed by the replayed close; they must match
+    # the source (this fixture has a single closed sprint, so both sides may be
+    # empty -- the assertion pins that restoring outcomes does not perturb them).
+    assert _suggestion_view(program2) == suggestions_before
     # The new field is part of the byte-identical fixpoint.
     assert dump_seed(export_program(program2, with_events=True)) == dump_seed(export1)

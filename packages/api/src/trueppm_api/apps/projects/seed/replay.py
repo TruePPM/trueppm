@@ -936,8 +936,11 @@ def _restore_sprint_outcomes(
     re-import a task the original close carried forward (or returned to the
     backlog) was created in its final sprint, so it is no longer a member here.
     The exporter therefore records membership-at-close on the event, and this
-    restores it verbatim. A reference that no longer resolves (task or sprint
-    absent from the document) is skipped rather than failing the whole import.
+    restores the recorded disposition, final_status, next_sprint and was_pending;
+    the task short id, title and story points are re-derived from the task at
+    replay time (same fidelity as the replay snapshot). A reference that no
+    longer resolves (task or sprint absent from the document) is skipped rather
+    than failing the whole import.
     """
     from trueppm_api.apps.projects.models import SprintTaskOutcome
 
