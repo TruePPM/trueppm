@@ -13015,10 +13015,7 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
             # Same message and code as the "does not exist" error DRF raises for an
             # unknown pk: a distinct error would confirm that a comment UUID exists on
             # another task (existence oracle, #4010).
-            raise serializers.ValidationError(
-                self.fields["parent"].error_messages["does_not_exist"].format(pk_value=value.pk),
-                code="does_not_exist",
-            )
+            self.fields["parent"].fail("does_not_exist", pk_value=value.pk)
         return value
 
     def update(self, instance: TaskComment, validated_data: dict[str, Any]) -> TaskComment:
