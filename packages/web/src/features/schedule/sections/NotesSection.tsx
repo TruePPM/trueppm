@@ -278,7 +278,7 @@ function NoteRow({
       {confirmingDelete && (
         <ConfirmDialog
           title="Delete note?"
-          body="This permanently deletes the note. This can't be undone."
+          body="This removes the note from the log."
           confirmLabel="Delete note"
           pending={del.isPending}
           onCancel={() => setConfirmingDelete(false)}

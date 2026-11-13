@@ -17,7 +17,7 @@ It is the management surface for the [5-role RBAC model](/administration/rbac/):
 | Set the default role for new members | Project Manager (Admin) |
 | Leave the project (remove your own membership) | Any member |
 
-Any project member sees the full member list. The invite form, role picker, and remove controls are shown only to Owners; the API enforces the same gate server-side regardless of what the UI shows.
+Any project member sees the full member list. The invite form, role picker, and remove controls are shown only to Owners. Removing another member asks for inline confirmation before it takes effect; the API enforces the same gate server-side regardless of what the UI shows.
 
 ## Inviting a member
 
