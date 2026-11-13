@@ -661,24 +661,53 @@ mod date_serde_tests {
         assert!(serde_json::from_str::<super::Project>(doc).is_err());
     }
 
+    /// Names of every `Option<NaiveDate>` field declared on `pub struct Task`,
+    /// read from this file's own source so the list cannot be narrower than the
+    /// struct.
+    fn task_date_fields() -> Vec<String> {
+        let src = include_str!("models.rs");
+        let start = src.find("pub struct Task {").expect("Task struct");
+        let body = &src[start..];
+        let body = &body[..body.find("\n}\n").expect("end of Task struct")];
+        body.lines()
+            .filter_map(|l| {
+                let l = l.trim();
+                if l.starts_with("//") || !l.contains("NaiveDate") {
+                    return None;
+                }
+                // Fail loudly rather than skip: any NaiveDate mention that is
+                // not the exact recognised form would silently drop out of the
+                // guard (`chrono::NaiveDate`, an alias, `pub(crate)`, a
+                // multi-line declaration).
+                let parsed = l.strip_prefix("pub ").and_then(|rest| {
+                    let (name, ty) = rest.split_once(':')?;
+                    (ty.trim() == "Option<NaiveDate>,").then(|| name.trim().to_string())
+                });
+                Some(parsed.unwrap_or_else(|| {
+                    panic!(
+                        "unrecognised NaiveDate line in Task struct: `{l}`. Declare date \
+                         fields as a single-line `pub name: Option<NaiveDate>,` or extend \
+                         task_date_fields() to understand the new form."
+                    )
+                }))
+            })
+            .collect()
+    }
+
     /// Every date field must refuse a non-canonical value, so an `Option` field
     /// losing its `deserialize_with` (which falls back to chrono's lenient parse)
     /// is caught here rather than in production.
     #[test]
     fn every_date_field_refuses_a_non_canonical_value() {
         use serde_json::{json, Value};
-        let task_fields = [
-            "planned_start",
-            "planned_finish",
-            "early_start",
-            "early_finish",
-            "late_start",
-            "late_finish",
-            "scheduled_start",
-            "live_day_end_on",
-            "actual_start",
-            "actual_finish",
-        ];
+        // Derived from the struct's own source, not hand-listed, so a new
+        // `Option<NaiveDate>` field on `Task` joins this guard automatically
+        // (and fails it if it lacks `deserialize_with`).
+        let task_fields = task_date_fields();
+        assert!(
+            task_fields.len() >= 10,
+            "scan found only {task_fields:?}; the field-scan helper is broken"
+        );
         let template = || {
             json!({
                 "id": "p", "name": "p", "start_date": "2026-03-02", "status_date": "2026-03-02",
@@ -702,9 +731,9 @@ mod date_serde_tests {
             d["calendar"]["exceptions"][0][f] = json!("2026-3-2");
             docs.push((format!("exception.{f}"), d));
         }
-        for f in task_fields {
+        for f in &task_fields {
             let mut d = template();
-            d["tasks"][0][f] = json!("2026-3-2");
+            d["tasks"][0][f.as_str()] = json!("2026-3-2");
             docs.push((format!("task.{f}"), d));
         }
         for (name, doc) in docs {
@@ -714,9 +743,9 @@ mod date_serde_tests {
             );
         }
         // The same field set with canonical values still parses.
-        for f in task_fields {
+        for f in &task_fields {
             let mut d = template();
-            d["tasks"][0][f] = json!("2026-03-02");
+            d["tasks"][0][f.as_str()] = json!("2026-03-02");
             assert!(
                 serde_json::from_value::<super::Project>(d).is_ok(),
                 "task.{f}"
