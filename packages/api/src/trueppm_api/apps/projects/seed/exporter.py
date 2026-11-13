@@ -51,6 +51,7 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     SprintRetro,
     SprintScopeChange,
+    SprintTaskOutcome,
     Task,
     TaskComment,
     TaskLabel,
@@ -1693,7 +1694,44 @@ class _Exporter:
             data: dict[str, Any] = {"actor": self._fallback_actor_slug}
             if sprint.goal_outcome:
                 data["goal_outcome"] = sprint.goal_outcome
+            outcomes = self._sprint_close_outcomes(sprint, pslug)
+            if outcomes:
+                data["outcomes"] = outcomes
             emit(sprint.closed_at, "sprint.close", target, data)
+
+    def _sprint_close_outcomes(self, sprint: Sprint, pslug: str) -> list[dict[str, Any]]:
+        """Membership-at-close for ``sprint.close`` (#3740).
+
+        The seed file records each task only under its *current* sprint, so a task
+        a close carried to sprint N+1 (or returned to the backlog) is not a member
+        of sprint N on replay and would lose its ``SprintTaskOutcome`` row. Writing
+        the rows into the close event lets replay restore them verbatim instead of
+        re-deriving them from live membership. Rows whose task was hard-deleted or
+        is not in the export (no ``wbs_path``) cannot be referenced and are omitted.
+        """
+        rows = SprintTaskOutcome.objects.filter(sprint=sprint, task__isnull=False).values(
+            "task_id", "disposition", "next_sprint_id", "final_status", "was_pending"
+        )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            ref = self.task_ref.get(row["task_id"])
+            if ref is None or ref[0] != pslug:
+                continue
+            entry: dict[str, Any] = {
+                "task": ref[1],
+                "disposition": row["disposition"],
+                "final_status": row["final_status"],
+            }
+            next_slug = self.sprint_slugs.get(row["next_sprint_id"])
+            if next_slug is not None:
+                entry["next_sprint"] = next_slug
+            if row["was_pending"]:
+                entry["was_pending"] = True
+            out.append(entry)
+        # Ordered by WBS, not by the row's short id or pk: neither survives a
+        # re-import, and the byte-identical round-trip needs a stable order.
+        out.sort(key=lambda e: e["task"])
+        return out
 
     def _emit_scope_injections(self, project: Project, emit: _Emit) -> None:
         """Emit ``sprint.scope_inject`` for still-PENDING scope-change rows.

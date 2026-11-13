@@ -829,6 +829,22 @@
           "description": "On baseline.capture: whether this capture supersedes the project's current active baseline (deactivating it), collapsing the real app's separate capture + activate steps into one beat. Defaults to false — a captured baseline stays superseded unless authored active."
         },
         "goal_outcome": { "enum": ["MET", "PARTIAL", "MISSED"] },
+        "outcomes": {
+          "type": "array",
+          "description": "On sprint.close: the sprint's membership-at-close, one entry per task that was in the sprint when it closed (#3740). A task the close carried to a later sprint or returned to the backlog is born in its final sprint, so replay cannot re-derive it from live membership; these entries let it restore each SprintTaskOutcome row. Optional: a close without it derives rows from the tasks still in the sprint.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["task", "disposition", "final_status"],
+            "properties": {
+              "task": { "type": "string", "maxLength": 255, "description": "WBS path of the task within the sprint's project." },
+              "disposition": { "enum": ["completed", "carried", "dropped"] },
+              "final_status": { "enum": ["BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "ON_HOLD", "COMPLETE"] },
+              "next_sprint": { "$ref": "#/$defs/slug", "description": "Slug of the sprint a `carried` task moved to." },
+              "was_pending": { "type": "boolean" }
+            }
+          }
+        },
         "blocker_type": {
           "enum": ["dependency", "resource", "vendor", "decision", "other"],
           "description": "On task.block: the structured triage classification."

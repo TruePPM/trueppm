@@ -248,6 +248,12 @@ the v1 default, so there is no API-surface change.
   preserved via its fields; only those intermediate audit rows are not round-tripped. A
   task with no `wbs_path` (e.g. a promoted retro action item) is excluded from the export
   entirely, since the schema requires a WBS identity.
+- **Sprint-close membership (#3740).** `sprint.close` carries an optional `outcomes` array
+  (`task` WBS path, `disposition`, `final_status`, optional `next_sprint` slug and
+  `was_pending`) holding the sprint's membership at close. A task a close carried to a later
+  sprint or returned to the backlog is born in its final sprint, so replay cannot re-derive
+  its `SprintTaskOutcome` row from live membership; with `outcomes` present replay restores
+  the rows verbatim, and without it falls back to `snapshot_sprint_task_outcomes`.
 - Two small replay-side changes support the round-trip: `sprint.scope_inject` now backdates
   `SprintScopeChange.added_at` to the beat (so a PENDING injection reconstructs with a
   stable timestamp), and the newly-added `retro.action` / `retro.promote` handlers write
