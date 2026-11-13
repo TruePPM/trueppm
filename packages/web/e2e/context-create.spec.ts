@@ -288,8 +288,9 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
     await page.keyboard.press('Enter');
     await post;
     // The 500 keeps the sheet open, so the assertion is about the submit having
-    // happened at all rather than about where it navigated.
-    await expect(dialog.getByRole('alert')).toHaveText(/failed to create project/i);
+    // happened at all rather than about where it navigated. The banner shows the
+    // server's own `detail`; the generic sentence is only for an unreadable body.
+    await expect(dialog.getByRole('alert')).toHaveText(/internal server error/i);
   });
 
   test('Program context → the picker can be changed to standalone, creating a project with no program (#2673)', async ({ page }) => {
@@ -406,7 +407,7 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
     await dialog.getByRole('textbox', { name: /name/i }).fill('Will Fail');
     await dialog.getByRole('button', { name: /create project/i }).click();
 
-    await expect(dialog.getByRole('alert')).toHaveText(/failed to create project/i);
+    await expect(dialog.getByRole('alert')).toHaveText(/internal server error/i);
     // Dialog stays open — no optimistic navigation on a create that never succeeded.
     await expect(dialog).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/programs/${GID}/overview`));
