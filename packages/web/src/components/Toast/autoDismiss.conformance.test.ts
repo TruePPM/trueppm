@@ -241,7 +241,6 @@ describe('pausable auto-dismiss has exactly one implementation (#3356)', () => {
     for (const file of [
       'components/Toast/ToastHost.tsx',
       'features/schedule/ScheduleView.tsx',
-      'features/grid/GridView.tsx',
       'features/sprints/RetroBoardSurface.tsx',
       // The fifth member, converted in #3394 on an opt-in that keeps its mount
       // autofocus outside the pause. It was the one ALLOWLIST entry naming a

@@ -186,6 +186,13 @@ const ProgramAgentsPage = lazy(() =>
   })),
 );
 
+// ── Redirect-shim retention policy. The `SectionRedirect` legacy-path routes below
+//    (plus `wbs`/`list` -> grid and `IntegrationsRedirect`) exist ONLY for external
+//    bookmarks, emails and old docs links; nothing in the app links to them. They
+//    are removed at 1.0. Before removing, grep `packages/website/src/content/docs`
+//    for each old path so published docs links do not 404. Do not add new shims
+//    without a removal point; a renamed route that no external page ever linked to
+//    needs no shim at all.
 // ── Settings (ADR-0146, #1248) — ONE scrolling page per entity. Each shell
 //    renders every section inline; legacy `…/settings/<slug>` paths redirect to
 //    `…/settings#<slug>` via SectionRedirect. The section components are imported

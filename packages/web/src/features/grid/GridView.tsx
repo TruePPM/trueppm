@@ -7,7 +7,7 @@ import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { QueryErrorState } from '@/components/QueryErrorState';
-import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
+import { toast } from '@/components/Toast';
 import { useProject } from '@/hooks/useProject';
 import { BulkRestoreError, useBulkDeleteTasks, useBulkRestoreTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
@@ -35,7 +35,6 @@ import {
   GridFacetRow,
   GridLoadingSkeleton,
   GridModeBody,
-  GridToast,
 } from './GridViewParts';
 import { emptyFilters, matchesFilters, type GridFilterState } from './filters';
 import { countTasksByLabel, pruneUnknownLabelIds } from '@/components/filters/labelFilter';
@@ -453,24 +452,6 @@ export function GridView() {
 
   // Bulk delete — Flat / Grouped only (Outline keeps single-row select via wbsStore).
   const [deletePhase, setDeletePhase] = useState<DeletePhase>('idle');
-  const [toast, setToast] = useState<{
-    text: string;
-    isError: boolean;
-    onUndo?: () => void;
-  } | null>(null);
-
-  // Give the Undo affordance a longer dwell than a plain confirmation (#2078), and
-  // pause that dwell while the toast is hovered or contains focus (web rule 378) —
-  // the bulk-delete Undo is the only route back and it must not be removed out from
-  // under a keyboard user's focus ring (WCAG 2.2.1, 2.4.3). Same hook as `ToastHost`
-  // and the Schedule's action toast (#3356).
-  const { pauseHandlers: toastPauseHandlers } = usePausableAutoDismiss({
-    active: toast !== null,
-    durationMs: toast?.onUndo ? 8000 : 4000,
-    restartKey: toast,
-    onDismiss: () => setToast(null),
-  });
-
   const handleDeleteClick = useCallback(() => {
     if (selectedIds.size === 0 || !projectId) return;
     setDeletePhase('confirming');
@@ -521,18 +502,13 @@ export function GridView() {
     (ids: string[], count: number) => {
       bulkRestore.mutate(ids, {
         onSuccess: () =>
-          setToast({
-            text: `${count} task${count !== 1 ? 's' : ''} restored.`,
-            isError: false,
-          }),
+          toast.success(`${count} task${count !== 1 ? 's' : ''} restored.`),
         onError: (err) =>
-          setToast({
-            text:
-              err instanceof BulkRestoreError && err.restored.length > 0
-                ? `Restored ${err.restored.length} of ${count} tasks — ${err.failed.length} couldn't be restored.`
-                : "Couldn't restore tasks — try again.",
-            isError: true,
-          }),
+          toast.error(
+            err instanceof BulkRestoreError && err.restored.length > 0
+              ? `Restored ${err.restored.length} of ${count} tasks — ${err.failed.length} couldn't be restored.`
+              : "Couldn't restore tasks — try again.",
+          ),
       });
     },
     [bulkRestore],
@@ -546,15 +522,18 @@ export function GridView() {
       onSuccess: () => {
         clearSelection();
         setDeletePhase('idle');
-        setToast({
-          text: `${count} task${count !== 1 ? 's' : ''} deleted.`,
-          isError: false,
-          onUndo: () => handleUndoBulkDelete(ids, count),
-        });
+        // The global host gives an actionable toast the long dwell and the
+        // hover/focus pause (rule 378), so the Undo is not removed from under a
+        // keyboard user — the same guarantees the local toast hand-rolled.
+        toast.action(
+          `${count} task${count !== 1 ? 's' : ''} deleted.`,
+          { label: 'Undo', onClick: () => handleUndoBulkDelete(ids, count) },
+          { variant: 'success' },
+        );
       },
       onError: () => {
         setDeletePhase('idle');
-        setToast({ text: "Couldn't delete tasks — try again.", isError: true });
+        toast.error("Couldn't delete tasks — try again.");
       },
     });
   }, [selectedIds, bulkDelete, clearSelection, handleUndoBulkDelete]);
@@ -867,7 +846,6 @@ export function GridView() {
         {modeAnnouncement}
       </div>
 
-      <GridToast toast={toast} pauseHandlers={toastPauseHandlers} />
     </div>
   );
 }

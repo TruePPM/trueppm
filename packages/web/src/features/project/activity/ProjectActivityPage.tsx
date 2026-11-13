@@ -341,7 +341,7 @@ function ActivityBody({ entries, isLoading, isError, onNavigate }: ActivityBodyP
       <EmptyState
         icon={ActivityIcon}
         title="Couldn't load activity"
-        description="Something went wrong fetching the changelog. Try refreshing."
+        description="Try refreshing the page."
       />
     );
   }

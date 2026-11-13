@@ -95,7 +95,7 @@ export function RiskTablePanel({
       )}
 
       {/* Error */}
-      {!isLoading && error && <QueryErrorState message="Failed to load risks." />}
+      {!isLoading && error && <QueryErrorState message="Couldn't load risks." />}
 
       {/* Empty — no risks at all */}
       {!isLoading && !error && risks.length === 0 && (
