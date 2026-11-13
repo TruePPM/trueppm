@@ -25,7 +25,14 @@ def _add_subclass_state(obj: Any, state: dict[str, Any]) -> None:
     """Add a subclass instance's ``__dict__`` and extra slot values to ``state``."""
     state.update(getattr(obj, "__dict__", {}))
     for klass in type(obj).__mro__:
-        for slot in getattr(klass, "__slots__", ()):
+        declared = klass.__dict__.get("__slots__", ())
+        for slot in (declared,) if isinstance(declared, str) else declared:
+            # ``__weakref__``/``__dict__`` are slot descriptors, not state: every
+            # instance "has" them, and they are not writable by name.
+            if slot in ("__weakref__", "__dict__"):
+                continue
+            if slot.startswith("__") and not slot.endswith("__"):
+                slot = f"_{klass.__name__.lstrip('_')}{slot}"  # name-mangled storage
             if slot not in state and hasattr(obj, slot):
                 state[slot] = getattr(obj, slot)
 
@@ -67,7 +74,7 @@ def pickle_as_field_dict(cls: _T) -> _T:
         # ``__setattr__`` would re-normalize a value that is already normalized.
         if type(self) is not cls:
             for k, v in state.items():
-                if k not in names:
+                if k not in names and k not in ("__weakref__", "__dict__"):
                     object.__setattr__(self, k, v)
         for n in names:
             if n in state:

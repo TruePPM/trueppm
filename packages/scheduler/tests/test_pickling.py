@@ -261,3 +261,89 @@ def test_schedule_preserves_subclass_attribute() -> None:
     (out,) = result.tasks
     assert type(out) is _MyTask
     assert out.extra == "kept"  # type: ignore[attr-defined]
+
+
+# ── Subclasses across every protocol, slots/weakref/mangling edge cases ─────────
+
+
+class _P(Project):
+    """Subclass of the weakref_slot dataclass; instances get a ``__dict__``."""
+
+
+class _SlotTask(Task):
+    __slots__ = ("__priv", "extra")
+
+
+class _StrSlotTask(Task):
+    __slots__ = "extra"
+
+
+class _Cal(Calendar):
+    pass
+
+
+class _DR(DateRange):
+    pass
+
+
+def _roundtrips(obj: Any) -> list[Any]:
+    import copy
+
+    out = [copy.copy(obj), copy.deepcopy(obj)]
+    out += [pickle.loads(pickle.dumps(obj, p)) for p in _PROTOCOLS]
+    return out
+
+
+def test_project_subclass_survives_copy_and_every_protocol() -> None:
+    p = _P(id="p", name="P", start_date=date(2026, 3, 2), tasks=[], calendar=_calendar())
+    p.extra = "kept"  # type: ignore[attr-defined]
+    for c in _roundtrips(p):
+        assert type(c) is _P
+        assert c.extra == "kept"  # type: ignore[attr-defined]
+        assert c.id == "p"
+
+
+def test_project_subclass_schedules_and_keeps_attribute() -> None:
+    p = _P(
+        id="p",
+        name="P",
+        start_date=date(2026, 3, 2),
+        tasks=[Task(id="A", name="A", duration=timedelta(days=2))],
+        calendar=_calendar(),
+    )
+    p.extra = "kept"  # type: ignore[attr-defined]
+    assert schedule(p).project_finish is not None
+    assert p.extra == "kept"  # type: ignore[attr-defined]
+
+
+def test_task_subclass_with_declared_slots_survives() -> None:
+    t = _SlotTask(id="t", name="T", duration=timedelta(days=1))
+    t.extra = "kept"
+    t._SlotTask__priv = "private"  # type: ignore[attr-defined]
+    for c in _roundtrips(t):
+        assert type(c) is _SlotTask
+        assert c.extra == "kept"
+        assert c._SlotTask__priv == "private"  # type: ignore[attr-defined]
+
+
+def test_task_subclass_with_string_slots_survives() -> None:
+    t = _StrSlotTask(id="t", name="T", duration=timedelta(days=1))
+    t.extra = "kept"
+    for c in _roundtrips(t):
+        assert type(c) is _StrSlotTask
+        assert c.extra == "kept"
+
+
+def test_calendar_and_frozen_daterange_subclasses_survive() -> None:
+    cal = _Cal(working_days=0b0011111, exceptions=[])
+    cal.extra = "kept"  # type: ignore[attr-defined]
+    for c in _roundtrips(cal):
+        assert type(c) is _Cal
+        assert c.extra == "kept"  # type: ignore[attr-defined]
+        assert c.working_days == 0b0011111
+    dr = _DR(date(2026, 1, 1), date(2026, 1, 2))
+    object.__setattr__(dr, "extra", "kept")
+    for c in _roundtrips(dr):
+        assert type(c) is _DR
+        assert c.extra == "kept"  # type: ignore[attr-defined]
+        assert c.start == date(2026, 1, 1)
