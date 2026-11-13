@@ -1201,7 +1201,7 @@ def test_link_that_places_its_successor_is_a_driving_edge(project: _oracle.RefPr
     except SchedulerError:
         return
     problems = _undriven_placing_links(engine_project)
-    assert not problems, "\n".join([repr(project), *problems])
+    assert not problems, "\n".join([repr(project.to_dict()), *problems])
 
 
 @given(project=_plausible_projects(per_task_calendars=True))
@@ -1220,7 +1220,7 @@ def test_link_that_places_its_successor_is_a_driving_edge_on_any_link_type(
     except SchedulerError:
         return
     problems = _undriven_placing_links(project)
-    assert not problems, "\n".join([repr(project), *problems])
+    assert not problems, "\n".join([repr(project.to_dict()), *problems])
 
 
 # ---------------------------------------------------------------------------

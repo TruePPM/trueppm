@@ -31,6 +31,39 @@ def _short_repr(value: object, limit: int = _REPR_LIMIT) -> str:
     return text
 
 
+_REPR_SAMPLE = 3
+_REPR_ID_LIMIT = 40
+
+
+def _summary_repr(items: Sequence[object], sample: int = _REPR_SAMPLE) -> str:
+    """Count plus the first few ids of a collection, for a bounded ``__repr__``.
+
+    The summarizing reprs on :class:`Project` and the result types exist so a stray
+    ``print()`` or REPL echo stays a line long at any project size; the size of the
+    output must not depend on how many items there are. Each id is capped too, since
+    an id is caller-supplied text. ``Task`` and ``Dependency`` items are shown by
+    ``id`` / ``predecessor_id``-``successor_id``; anything else by its own ``repr``.
+    """
+    # A repr must never raise: it is what a failure message shows for a malformed
+    # direct-object Project (``tasks=None``), the input the validators exist to refuse.
+    if not isinstance(items, (list, tuple)):
+        return _short_repr(items, _REPR_ID_LIMIT)
+    shown: list[str] = []
+    for item in items[:sample]:
+        label = getattr(item, "id", None)
+        if label is None and hasattr(item, "predecessor_id"):
+            label = f"{item.predecessor_id}->{item.successor_id}"
+        shown.append(_short_repr(item if label is None else label, _REPR_ID_LIMIT))
+    if len(items) > sample:
+        shown.append("…")
+    return f"<{len(items)}: {', '.join(shown)}>" if shown else "<0>"
+
+
+def _date_repr(value: object) -> str:
+    """ISO form of a date for a summarizing repr; anything else falls back to ``repr``."""
+    return value.isoformat() if isinstance(value, date) else _short_repr(value, _REPR_ID_LIMIT)
+
+
 # Enum value-casing convention (frozen public contract).
 #
 # These string *values* are persisted to disk and round-tripped by PyPI
@@ -1166,6 +1199,23 @@ class Project:
     sprint_length_days: int | None = None
     status_date: date | None = None
     calendars: dict[str, Calendar] | None = None
+
+    def __repr__(self) -> str:
+        """Summarize the project: counts and the first few ids, never every task.
+
+        The dataclass default repr is O(tasks): 26 KB at 50 tasks, megabytes at 50k,
+        which is what a stray ``print(project)`` or REPL echo would emit. This one is
+        a single bounded line. It is a display form, not a constructor expression:
+        ``eval(repr(project))`` does not rebuild the project. Use :meth:`to_dict` for
+        the full-fidelity form, which :meth:`from_dict` reads back.
+        """
+        return (
+            f"Project(id={_short_repr(self.id, _REPR_ID_LIMIT)}, "
+            f"name={_short_repr(self.name, _REPR_ID_LIMIT)}, "
+            f"start_date={_date_repr(self.start_date)}, "
+            f"tasks={_summary_repr(self.tasks)}, "
+            f"dependencies={_summary_repr(self.dependencies)})"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the whole project graph to a JSON-safe dict.

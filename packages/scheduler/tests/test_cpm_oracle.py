@@ -377,7 +377,7 @@ def mismatches(engine: dict[str, EngineTask], ref: RefResult, project: RefProjec
 def assert_matches_reference(engine: dict[str, EngineTask], project: RefProject) -> None:
     ref = reference_schedule(project)
     problems = mismatches(engine, ref, project)
-    assert not problems, "\n".join([repr(project), *problems])
+    assert not problems, "\n".join([repr(project.to_dict()), *problems])
 
 
 # ---------------------------------------------------------------------------
@@ -1164,7 +1164,7 @@ def assert_floats_survive_perturbation(
     project: RefProject, run: Callable[[RefProject], EngineRun]
 ) -> None:
     problems = float_perturbation_violations(project, run)
-    assert not problems, "\n".join([repr(project), *problems])
+    assert not problems, "\n".join([repr(project.to_dict()), *problems])
 
 
 #: #4343 — a 100%-complete task with no actuals between two live ones. ``T0``'s
@@ -1607,7 +1607,7 @@ def test_slipping_a_predecessor_never_moves_work_earlier(project: RefProject) ->
     strict xfails; the ``@example`` keeps the exclusion exercised on every run.
     """
     problems = work_moved_earlier_by_a_slip(project, python_run)
-    assert not problems, "\n".join([repr(project), *problems])
+    assert not problems, "\n".join([repr(project.to_dict()), *problems])
 
 
 @_4883_XFAIL
@@ -2001,7 +2001,7 @@ def test_closing_the_open_predecessor_of_a_milestone_closed_ahead_of_it() -> Non
 @example(CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE)
 def test_python_close_or_start_at_forecast_moves_nothing(project: RefProject) -> None:
     problems = forecast_record_violations(project, python_run)
-    assert not problems, "\n".join([repr(project), *problems])
+    assert not problems, "\n".join([repr(project.to_dict()), *problems])
 
 
 def test_rust_recording_a_milestone_on_its_forecast_moves_nothing(
@@ -2018,7 +2018,7 @@ def test_rust_close_or_start_at_forecast_moves_nothing(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
     problems = forecast_record_violations(project, rust_engine.run)
-    assert not problems, "\n".join([repr(project), *problems])
+    assert not problems, "\n".join([repr(project.to_dict()), *problems])
 
 
 @pytest.mark.fuzz
