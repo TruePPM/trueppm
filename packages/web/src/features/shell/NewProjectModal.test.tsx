@@ -2,16 +2,40 @@ import type { ComponentProps } from 'react';
 import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { renderWithProviders } from '@/test/utils';
 import { NewProjectModal } from './NewProjectModal';
 import type { ProjectTemplate } from '@/hooks/useProjectTemplates';
 
 const mutateMock = vi.fn();
-const mockMutation = {
+const mockMutation: {
+  mutate: typeof mutateMock;
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+} = {
   mutate: mutateMock,
   isPending: false,
   isError: false,
+  error: null,
 };
+
+function drfRejection(data: unknown): AxiosError {
+  const config = { headers: {} } as InternalAxiosRequestConfig;
+  return new AxiosError(
+    'Bad Request',
+    'ERR_BAD_REQUEST',
+    config,
+    {},
+    {
+      status: 400,
+      statusText: 'Bad Request',
+      data,
+      headers: {},
+      config,
+    },
+  );
+}
 vi.mock('@/hooks/useProjectMutations', () => ({
   useCreateProject: () => mockMutation,
 }));
@@ -175,6 +199,7 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     mutateMock.mockReset();
     mockMutation.isPending = false;
     mockMutation.isError = false;
+    mockMutation.error = null;
     programsResult.data = [
       {
         id: 'program-uuid-123',
@@ -1090,5 +1115,46 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(key).toHaveAccessibleDescription(/This key is already in use\./);
     // Nothing else resets.
     expect(screen.getByRole('textbox', { name: /^name/i })).toHaveValue('Platform Migration');
+  });
+
+  describe('server-side create rejections (#2921)', () => {
+    it('puts a name rejection on the name field, not in a generic sentence', () => {
+      mockMutation.isError = true;
+      mockMutation.error = drfRejection({ name: ['A project with this name already exists.'] });
+      renderModal();
+      const name = screen.getByRole('textbox', { name: /^name/i });
+      expect(name).toHaveAttribute('aria-invalid', 'true');
+      expect(name).toHaveAccessibleDescription('A project with this name already exists.');
+      expect(screen.queryByText(/Failed to create project/)).not.toBeInTheDocument();
+    });
+
+    it('puts a start_date rejection on the date field', () => {
+      mockMutation.isError = true;
+      mockMutation.error = drfRejection({ start_date: ['Enter a valid date.'] });
+      renderModal();
+      expect(screen.getByLabelText(/^start date/i)).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText('Enter a valid date.')).toBeInTheDocument();
+    });
+
+    it('labels a program rejection and a form-level detail in one banner', () => {
+      mockMutation.isError = true;
+      mockMutation.error = drfRejection({
+        program: ['You no longer have access to this program.'],
+        non_field_errors: ['Could not create the project.'],
+      });
+      renderModal();
+      expect(
+        screen.getByText('Program: You no longer have access to this program.'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Could not create the project.')).toBeInTheDocument();
+      expect(screen.queryByText(/Failed to create project/)).not.toBeInTheDocument();
+    });
+
+    it('falls back to the generic sentence for an unreadable failure', () => {
+      mockMutation.isError = true;
+      mockMutation.error = new Error('Network Error');
+      renderModal();
+      expect(screen.getByText('Failed to create project. Please try again.')).toBeInTheDocument();
+    });
   });
 });
