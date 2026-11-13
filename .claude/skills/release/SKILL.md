@@ -254,7 +254,7 @@ Pushing the tag triggers the release pipeline. What happens next depends on the 
 **1.0 release checklist — carried debt that must land in the 1.0 cut:**
 
 - [ ] Stop emitting the legacy `X-TruePPM-Signature` (V1) webhook header, per ADR-0837 (`docs/adr/0837-timestamped-webhook-signature.md`); only the timestamped signature header is sent. Update `features/webhooks.md` and add a pytest asserting only the timestamped header is present on a delivery (#4614).
-- [ ] Normalize the grandfathered WebSocket event names (`presence_join`, `presence_leave`, `cpm_complete`, `cpm_error`, and the plural/collection events listed in `architecture/websocket-events.md`) at the one-time 1.0 wire-freeze, or consciously re-freeze them (#3796).
+- [ ] Normalize the grandfathered WebSocket event names (every string on the grandfather list in `architecture/websocket-events.md`) at the one-time 1.0 wire-freeze, or consciously re-freeze them (#3796).
 
 In addition to the GitLab Release (GHCR publish itself is not the delta here — it's already live pre-1.0 per above; check whether multi-arch has actually landed by the time you're reading this, since it's currently slated for 0.5, i.e. still pre-1.0):
 
