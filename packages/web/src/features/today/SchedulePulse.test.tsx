@@ -158,10 +158,24 @@ describe('SchedulePulse', () => {
   });
 
   it('shows a "No active sprint" state when none is active', () => {
-    useActiveSprint.mockReturnValue({ sprint: null, isLoading: false });
+    useActiveSprint.mockReturnValue({ sprint: null, isLoading: false, error: null });
     render(<SchedulePulse projectId="p1" />);
     expect(screen.getByTestId('pulse-no-sprint')).toHaveTextContent('No active sprint');
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('does not say "No active sprint" when the sprints read failed (#3517)', () => {
+    useActiveSprint.mockReturnValue({ sprint: null, isLoading: false, error: new Error('x') });
+    render(<SchedulePulse projectId="p1" />);
+    expect(screen.getByTestId('pulse-sprint-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('pulse-no-sprint')).not.toBeInTheDocument();
+  });
+
+  it('does not say "No active sprint" while the sprints read is in flight (#3517)', () => {
+    useActiveSprint.mockReturnValue({ sprint: null, isLoading: true, error: null });
+    render(<SchedulePulse projectId="p1" />);
+    expect(screen.getByTestId('pulse-sprint-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('pulse-no-sprint')).not.toBeInTheDocument();
   });
 
   it('renders a loading skeleton while the overview is loading', () => {

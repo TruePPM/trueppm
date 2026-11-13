@@ -137,6 +137,17 @@ describe('healthClusterModel', () => {
     expect(segs[0]).toMatchObject({ kind: 'forecast', p50: null, p80: '2026-11-03' });
   });
 
+  it('sprintEmpty is unreachable on an unresolved or failed read (#3517)', () => {
+    const failed = healthClusterModel(
+      input({ methodology: 'AGILE', activeSprint: null, sprintRead: 'error' }),
+    );
+    expect(failed[0]).toEqual({ kind: 'sprintUnknown', failed: true });
+    const loading = healthClusterModel(
+      input({ methodology: 'HYBRID', activeSprint: null, sprintRead: 'loading' }),
+    );
+    expect(loading[0]).toEqual({ kind: 'sprintUnknown', failed: false });
+  });
+
   it('no active sprint → sprintEmpty and the Points slot is omitted (AGILE 2 segments)', () => {
     const segs = healthClusterModel(input({ methodology: 'AGILE', activeSprint: null }));
     expect(segs.map((s) => s.kind)).toEqual(['sprintEmpty', 'velocity']);

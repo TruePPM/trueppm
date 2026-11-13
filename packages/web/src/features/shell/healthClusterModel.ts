@@ -37,10 +37,20 @@ export type HealthSegment =
   | { kind: 'sprint'; name: string; dayN: number; dayM: number }
   /** No active sprint — links to the sprints view. */
   | { kind: 'sprintEmpty' }
+  /** The sprints read has not resolved (`failed: false`) or failed (`failed: true`):
+   *  the cluster does not know whether there is an active sprint, so it must not
+   *  say there is none (#3517). */
+  | { kind: 'sprintUnknown'; failed: boolean }
   | { kind: 'points'; completed: number; committed: number; unit: 'pts' | 'items' }
   /** Velocity is in-audience: avg points per iteration + forecast band + excluded count.
    *  `avg` null = not enough closed-sprint history yet (renders muted "—"). */
-  | { kind: 'velocity'; avg: number | null; low: number | null; high: number | null; excluded: number }
+  | {
+      kind: 'velocity';
+      avg: number | null;
+      low: number | null;
+      high: number | null;
+      excluded: number;
+    }
   /** ADR-0104: requester is below the velocity signal's audience — render the
    *  content-free privacy wall (rule 168), never a number. */
   | { kind: 'velocityGated' }
@@ -55,6 +65,10 @@ export interface HealthClusterInput {
   methodology: Methodology;
   stats: ShellStats | undefined;
   activeSprint: ApiSprint | null;
+  /** State of the sprints read behind `activeSprint`. Passed beside the value, not
+   *  folded into it: `null` alone cannot tell "none" from "unknown". Defaults to
+   *  `'ready'` for callers that have no sprints read. */
+  sprintRead?: 'ready' | 'loading' | 'error';
   velocity: ProjectVelocity | undefined;
   /** Latest Monte Carlo percentiles for the forecast band (issue 1197). P50 is sourced
    *  here from the cached distribution that already drives the drill-through panel;
@@ -81,7 +95,11 @@ const MS_PER_DAY = 86_400_000;
  * Inclusive day index of `now` within `[start, finish]`, 1-based and clamped to
  * `[1, total]`. A sprint spanning Mon→Fri (5 days) on its Wednesday is "Day 3/5".
  */
-export function sprintDay(startIso: string, finishIso: string, now: Date): { dayN: number; dayM: number } {
+export function sprintDay(
+  startIso: string,
+  finishIso: string,
+  now: Date,
+): { dayN: number; dayM: number } {
   const start = parseUTCDate(startIso);
   const finish = parseUTCDate(finishIso);
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -91,7 +109,12 @@ export function sprintDay(startIso: string, finishIso: string, now: Date): { day
   return { dayN, dayM };
 }
 
-function sprintSegment(activeSprint: ApiSprint | null, now: Date): HealthSegment {
+function sprintSegment(
+  activeSprint: ApiSprint | null,
+  now: Date,
+  read: 'ready' | 'loading' | 'error' = 'ready',
+): HealthSegment {
+  if (!activeSprint && read !== 'ready') return { kind: 'sprintUnknown', failed: read === 'error' };
   if (!activeSprint) return { kind: 'sprintEmpty' };
   const { dayN, dayM } = sprintDay(activeSprint.start_date, activeSprint.finish_date, now);
   return { kind: 'sprint', name: activeSprint.name, dayN, dayM };
@@ -168,20 +191,24 @@ function velocitySegment(velocity: ProjectVelocity | undefined): HealthSegment {
 
 /** The methodology's own 2—3 segments, before the methodology-neutral tail. */
 function methodologySegments(input: HealthClusterInput): HealthSegment[] {
-  const { methodology, stats, activeSprint, velocity, mc, now } = input;
+  const { methodology, stats, activeSprint, sprintRead, velocity, mc, now } = input;
 
   if (methodology === 'WATERFALL') {
     return [forecastSegment(stats, mc), atRiskSegment(stats), criticalSegment(stats)];
   }
 
   if (methodology === 'HYBRID') {
-    return [sprintSegment(activeSprint, now), forecastSegment(stats, mc), criticalSegment(stats)];
+    return [
+      sprintSegment(activeSprint, now, sprintRead),
+      forecastSegment(stats, mc),
+      criticalSegment(stats),
+    ];
   }
 
   // AGILE
   const points = pointsSegment(activeSprint);
   return [
-    sprintSegment(activeSprint, now),
+    sprintSegment(activeSprint, now, sprintRead),
     ...(points ? [points] : []),
     velocitySegment(velocity),
   ];

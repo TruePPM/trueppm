@@ -45,9 +45,9 @@ export function BoardCardPopover({
 
   // Resolve sprint name when the task is sprint-committed. Loading state
   // renders a placeholder chip ("Sprint: …") to avoid layout shift.
-  const { sprints } = useSprints(task.sprintId ? projectId : null);
+  const { sprints, error: sprintsError } = useSprints(task.sprintId ? projectId : null);
   const sprintName = task.sprintId
-    ? (sprints.find((s) => s.id === task.sprintId)?.name ?? '…')
+    ? (sprints.find((s) => s.id === task.sprintId)?.name ?? (sprintsError ? 'unavailable' : '…'))
     : null;
 
   // Move focus to the primary CTA on open so keyboard users land on the
@@ -68,12 +68,7 @@ export function BoardCardPopover({
   }, [pathname, onClose]);
 
   return (
-    <CardPopoverShell
-      anchor={anchor}
-      isMobile={isMobile}
-      titleId={titleId}
-      onClose={onClose}
-    >
+    <CardPopoverShell anchor={anchor} isMobile={isMobile} titleId={titleId} onClose={onClose}>
       <CardPopoverBodyA task={task} sprintName={sprintName} />
       <CardPopoverFooter
         onOpenDetail={onOpenDetail}

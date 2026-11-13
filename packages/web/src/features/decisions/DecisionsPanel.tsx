@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router';
 import { useDecisions } from '@/hooks/useDecisions';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex';
-import { useSprints } from '@/hooks/useSprints';
+import { useActiveSprint } from '@/hooks/useSprints';
 import { formatRelative } from '@/lib/formatRelative';
 import { ScaleIcon } from '@/components/Icons';
 import type { DecisionNote } from '@/types';
@@ -100,7 +100,12 @@ function DecisionsPlaceholder({
   }
   if (isLoading) {
     return (
-      <div role="status" className="flex flex-col gap-2" aria-busy="true" aria-label="Loading decisions">
+      <div
+        role="status"
+        className="flex flex-col gap-2"
+        aria-busy="true"
+        aria-label="Loading decisions"
+      >
         {[0, 1, 2].map((i) => (
           <div
             key={i}
@@ -127,8 +132,19 @@ function DecisionsPlaceholder({
 export function DecisionsPanel({ projectId }: { projectId: string }) {
   const itl = useIterationLabel();
   const [scope, setScope] = useState<Scope>('all');
-  const { sprints } = useSprints(projectId);
-  const activeSprint = useMemo(() => sprints.find((s) => s.state === 'ACTIVE') ?? null, [sprints]);
+  const {
+    sprint: activeSprint,
+    isLoading: sprintsLoading,
+    error: sprintsError,
+  } = useActiveSprint(projectId);
+  // The withheld option's tooltip is a claim about the project, so it names the read
+  // state when that is why the option is withheld — never "No active sprint" for a
+  // read that failed or has not answered (#3517).
+  const noSprintReason = sprintsError
+    ? `Couldn\u2019t load ${itl.lower}s`
+    : sprintsLoading
+      ? `Loading ${itl.lower}s\u2026`
+      : `No active ${itl.lower}`;
 
   // "Current sprint" needs an active sprint; without one, force back to "all".
   const sprintId = scope === 'sprint' ? (activeSprint?.id ?? null) : null;
@@ -185,7 +201,7 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
               role="radio"
               aria-checked={selected}
               disabled={disabled}
-              title={disabled ? `No active ${itl.lower}` : undefined}
+              title={disabled ? noSprintReason : undefined}
               onClick={() => setScope(opt.key)}
               tabIndex={i === focusIdx ? 0 : -1}
               className={`rounded px-3 h-7 text-xs font-medium
@@ -203,11 +219,7 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
       </div>
 
       {isLocked || isLoading || error || decisions.length === 0 ? (
-        <DecisionsPlaceholder
-          isLocked={isLocked}
-          isLoading={isLoading}
-          error={error}
-        />
+        <DecisionsPlaceholder isLocked={isLocked} isLoading={isLoading} error={error} />
       ) : (
         <div className="flex flex-col gap-5">
           {groups.map((g) => (

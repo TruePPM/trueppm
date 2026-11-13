@@ -113,7 +113,9 @@ function ScheduleKpiChips({
 
 export function SchedulePulse({ projectId }: { projectId: string }) {
   const { data: overview, isLoading, error } = useProjectScheduleSummary(projectId);
-  const { sprint } = useActiveSprint(projectId);
+  // Three states, not two (#3517): a failed or in-flight sprints read must not
+  // render the "No active sprint" claim — that sentence is a fact about the project.
+  const { sprint, isLoading: sprintLoading, error: sprintError } = useActiveSprint(projectId);
   const { tasks } = useScheduleTasks(projectId);
 
   // Read the server-resolved methodology (ADR-0107), never the raw override. Default to
@@ -244,6 +246,20 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
                   ↳ {sprintDone}/{sprintTotal} done · live from the board
                 </span>
               </div>
+            ) : sprintError ? (
+              <span
+                className="text-[12px] text-neutral-text-secondary"
+                data-testid="pulse-sprint-error"
+              >
+                Couldn&rsquo;t load sprint
+              </span>
+            ) : sprintLoading ? (
+              <span
+                className="text-[12px] text-neutral-text-secondary"
+                data-testid="pulse-sprint-loading"
+              >
+                Loading sprint&hellip;
+              </span>
             ) : (
               <span
                 className="text-[12px] text-neutral-text-secondary"
