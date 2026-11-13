@@ -207,7 +207,7 @@ allocator's `value + 1` (`increment_returning`) and the `(project, seq)` uniquen
 behave on shifted values exactly as on small ones. A project created after the upgrade
 starts its counter at 0, as before.
 
-The seeding lives in `sequence.py::seed_board_event_sequences`, so it is tested
+The seeding lives in `backfill.py::seed_board_event_sequences`, so it is tested
 without importing a migration module (rule 3).
 
 What this publishes: for a project with surviving rows the seed is an id its members

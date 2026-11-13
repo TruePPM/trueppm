@@ -1210,8 +1210,8 @@ def _upgrade_with_old_rows(project: Project, other: Project) -> dict[str, int]:
     """
     from django.db import connection
 
+    from trueppm_api.apps.sync.backfill import seed_board_event_sequences
     from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
-    from trueppm_api.apps.sync.sequence import seed_board_event_sequences
 
     ids = {
         "other": BoardEvent.objects.create(project=other, event_type="x", payload={}).pk,

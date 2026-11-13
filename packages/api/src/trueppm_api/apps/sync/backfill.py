@@ -25,6 +25,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db import models
+
+from trueppm_api.apps.sync.sequence import BOARD_EVENT_SEQ_UPGRADE_OFFSET
+
 # The two join shapes every indirect source uses to reach its project row, and
 # the predicates that bind the target table to the end of that join. Named
 # because the table below is thirteen rows of near-identical SQL otherwise: the
@@ -206,3 +210,65 @@ def unseed_program_sync_seq(apps: Any, schema_editor: Any) -> None:
     """
     for label, name in (("projects", "Program"), ("access", "ProgramMembership")):
         apps.get_model(label, name).objects.update(sync_seq=0)
+
+
+def seed_board_event_sequences(
+    board_event_model: type[models.Model],
+    sequence_model: type[models.Model],
+    project_model: type[models.Model],
+    connection: Any,
+) -> None:
+    """Start every project's replay counter above any cursor an old client can hold.
+
+    Run once by the migration that introduced ``BoardEvent.seq`` (ADR-1285, #4386).
+    It takes the models as arguments so the migration can pass its historical ones,
+    and so the outcome is testable without importing a migration module.
+
+    Before #4386 a client's cursor was a *global* ``BoardEvent`` id. The existing
+    rows are deliberately **not** renumbered: they keep ``seq = NULL`` and stay
+    live-only, so the replay never serves them. Instead each project's counter is
+    seeded at the project's highest old global id plus
+    :data:`BOARD_EVENT_SEQ_UPGRADE_OFFSET`. Every global id, whether it was issued
+    before the upgrade or by an old pod during the rolling update, is then below its
+    project's seed. On reconnect, ``head - since`` exceeds the number of rows that
+    carry a ``seq``, so **every pre-upgrade cursor gets exactly one
+    ``resync_required``** and continues from ``latest_seq``.
+
+    Renumbering the old rows per project, the first design, was wrong. A rank ``r``
+    is at most the old id ``c`` it replaced, so a cursor ``c`` that landed at or
+    below the new head replayed ``(c, head]`` and silently skipped ranks
+    ``r + 1 .. c``.
+
+    A project with no surviving rows still needs a seed: a client may hold a cursor
+    from rows the purge has since removed. Any id ever assigned is at most the
+    table's identity sequence value, so those projects are seeded there, plus the
+    same offset. For their members that one constant reveals how many events the
+    installation had written by the upgrade. It is a single fixed number, not the
+    ongoing per-frame volume the old design leaked.
+    """
+    events = board_event_model._meta.db_table
+    q_events = connection.ops.quote_name(events)
+    q_sequences = connection.ops.quote_name(sequence_model._meta.db_table)
+    q_projects = connection.ops.quote_name(project_model._meta.db_table)
+    with connection.cursor() as cursor:
+        # Fully parameterized: ``pg_sequence_last_value`` is NULL while the identity
+        # sequence has never been called (the old ``is_called`` CASE), and a NULL from
+        # ``pg_get_serial_sequence`` (no identity column) falls through to 0 as well.
+        cursor.execute(
+            "SELECT COALESCE(pg_sequence_last_value("
+            "pg_get_serial_sequence(%s, 'id')::regclass), 0)",
+            [events],
+        )
+        global_floor = int(cursor.fetchone()[0])
+        # Identifiers (not values) cannot be bound; they come from model ``_meta`` and
+        # are quoted with ``quote_name`` (see the pysql2 criterion in sonar-project.properties).
+        # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+        cursor.execute(
+            f"INSERT INTO {q_sequences} (project_id, value) "  # nosec B608 - names from _meta
+            f"SELECT p.id, COALESCE(m.max_id, %s) + %s FROM {q_projects} AS p "
+            f"LEFT JOIN (SELECT project_id, MAX(id) AS max_id FROM {q_events} "
+            f"GROUP BY project_id) AS m ON m.project_id = p.id "
+            f"ON CONFLICT (project_id) DO UPDATE "
+            f"SET value = GREATEST({q_sequences}.value, EXCLUDED.value)",
+            [global_floor, BOARD_EVENT_SEQ_UPGRADE_OFFSET],
+        )
