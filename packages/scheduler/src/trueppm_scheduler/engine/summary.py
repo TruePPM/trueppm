@@ -139,11 +139,14 @@ def _check_children_exist(tasks: list[Task], children_map: dict[str, list[str]])
                 )
 
 
-def _collect_leaves(
+def collect_leaves(
     task_id: str,
     children_map: dict[str, list[str]],
 ) -> list[str]:
     """Collect the distinct leaf task IDs under a summary task, in first-visit order.
+
+    Public API since 0.5 (#4158). ``_collect_leaves`` remains as an alias for one
+    release.
 
     A leaf is a task that has no children in children_map. Traversal is
     iterative with an explicit stack and an active-path set, so a malformed
@@ -158,6 +161,19 @@ def _collect_leaves(
     regardless of how many root-to-leaf paths the DAG has (#4693). The #1822 cap
     still bounds the root-to-leaf *path* count, tracked as a per-node integer
     rather than by materializing one list entry per path.
+
+    Args:
+        task_id: The task whose leaf descendants are collected. A task with no
+            entry (or an empty entry) in ``children_map`` is its own only leaf.
+        children_map: Mapping of summary task ID to its direct child IDs.
+
+    Returns:
+        The distinct leaf task IDs, in first-visit (declared) order.
+
+    Raises:
+        InvalidScheduleInput: ``children_map`` contains a parent-child cycle
+            reachable from ``task_id``, or the subtree fans out to more than
+            ``MAX_EXPANDED_EDGES`` root-to-leaf paths.
     """
     leaves: list[str] = []
     # Number of root-to-leaf paths below each fully expanded node.
@@ -203,6 +219,10 @@ def _collect_leaves(
         for child_id in reversed(children):
             stack.append((child_id, False))
     return leaves
+
+
+# Deprecated alias, kept for one release (#4158): trueppm-api <= 0.4 imports it.
+_collect_leaves = collect_leaves
 
 
 def expand_summary_dependencies(

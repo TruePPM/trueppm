@@ -596,6 +596,10 @@ reference that calendar.
 package** — the names you can import directly from `trueppm_scheduler`
 (`schedule`, `monte_carlo`, `Project`, `Task`, `Dependency`, `DependencyType`,
 `Calendar`, `ScheduleResult`, `MonteCarloResult`, the exception types, etc.).
+Two helpers that API-layer code needs are public as of 0.5 — `WorkingDayCounter`
+(working days in a half-open span for one calendar) and `collect_leaves` (the
+distinct leaf IDs under a summary task); the old `engine._WorkingDayCounter` and
+`engine._collect_leaves` names remain as aliases for one release.
 Everything else — the `trueppm_scheduler.engine` internals, any underscore-
 prefixed helper, and module layout — is **unstable** and may move or change
 without notice.

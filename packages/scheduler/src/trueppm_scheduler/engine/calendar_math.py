@@ -347,32 +347,66 @@ def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
     return count
 
 
-class _WorkingDayCounter:
-    """Working-day span counts for one calendar, as a thin wrapper (#822, #4713).
+class WorkingDayCounter:
+    """Count working days in a half-open span for one calendar.
 
-    This used to precompute the sorted ordinals of every working day in
-    ``[lo, hi]`` with an O(span) Python walk on every :func:`schedule` call, to buy
-    a two-binary-search ``between``. :func:`_working_days_between` has since become
-    arithmetic (mask days minus an O(log E) exception prefix sum, #4161/#4176) and
-    is at least as fast per query, so the build walk was pure cost: 43 ms at a
-    150,000-day span. The class stays only because the API imports it (``build`` and
-    ``between``); ``lo``/``hi`` are accepted for that signature and no longer used.
+    A thin wrapper over the engine's own working-day arithmetic (mask days minus
+    an O(log E) exception prefix sum), so a ``between`` call here returns exactly
+    the span length ``schedule()`` uses. Build one per calendar and reuse it for
+    many queries; constructing it is O(1).
 
-    ``between(start, end)`` is exactly :func:`_working_days_between` — working days
-    in ``[start, end)``, 0 when ``end <= start``.
+    Public API since 0.5 (#4158). ``_WorkingDayCounter`` remains as an alias for
+    one release.
+
+    Example:
+        >>> from datetime import date
+        >>> from trueppm_scheduler import Calendar, WorkingDayCounter
+        >>> counter = WorkingDayCounter.build(date(2026, 1, 1), date(2026, 12, 31), Calendar())
+        >>> counter.between(date(2026, 1, 5), date(2026, 1, 12))
+        5
     """
 
+    __slots__ = ("_calendar",)
+
     def __init__(self, calendar: Calendar) -> None:
+        """Bind the counter to ``calendar``.
+
+        Args:
+            calendar: The calendar whose working days are counted.
+        """
         self._calendar = calendar
 
     @classmethod
-    def build(cls, lo: date, hi: date, calendar: Calendar) -> _WorkingDayCounter:
-        """Return a counter for ``calendar``; ``lo``/``hi`` are kept for compatibility."""
+    def build(cls, lo: date, hi: date, calendar: Calendar) -> WorkingDayCounter:
+        """Return a counter for ``calendar``.
+
+        Args:
+            lo: Start of the span the caller expects to query. Accepted for
+                signature compatibility; not used.
+            hi: End of the span the caller expects to query. Accepted for
+                signature compatibility; not used.
+            calendar: The calendar whose working days are counted.
+
+        Returns:
+            A counter bound to ``calendar``.
+        """
         return cls(calendar)
 
     def between(self, start: date, end: date) -> int:
-        """Working days in ``[start, end)``."""
+        """Return the working days in ``[start, end)``.
+
+        Args:
+            start: First day of the span (inclusive).
+            end: Day the span stops at (exclusive).
+
+        Returns:
+            The number of working days, or 0 when ``end <= start``.
+        """
         return _working_days_between(start, end, self._calendar)
+
+
+# Deprecated alias, kept for one release (#4158): trueppm-api <= 0.4 imports it.
+_WorkingDayCounter = WorkingDayCounter
 
 
 def _advance_calendar_days(d: date, lag: timedelta, calendar: Calendar) -> date:

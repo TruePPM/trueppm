@@ -38,7 +38,7 @@ def _attribute_cross_downstream(graph: ProgramScheduleGraph) -> dict[str, Any]:
     edge id) wins, so the attribution is stable across re-runs regardless of dict
     iteration order — the property the idempotent ``(sprint, task)`` upsert relies on.
     """
-    from trueppm_scheduler.engine import _collect_leaves
+    from trueppm_scheduler import collect_leaves
 
     result_map = graph.result_map
     leaf_ids = graph.leaf_ids
@@ -66,7 +66,7 @@ def _attribute_cross_downstream(graph: ProgramScheduleGraph) -> dict[str, Any]:
             seeds = [successor_id]
         else:
             # A cross edge into a summary constrains that summary's leaves.
-            seeds = [lid for lid in _collect_leaves(successor_id, children_map) if lid in leaf_ids]
+            seeds = [lid for lid in collect_leaves(successor_id, children_map) if lid in leaf_ids]
 
         seen: set[str] = set()
         queue = list(seeds)

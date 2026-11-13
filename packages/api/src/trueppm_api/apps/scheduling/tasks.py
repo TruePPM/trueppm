@@ -966,7 +966,7 @@ def summary_working_day_durations(
 
     WHY a batched pre-pass rather than a call inside the write-back loop: one
     counter per project keeps the calendar lookup out of the per-summary loop.
-    :class:`_WorkingDayCounter` is a thin wrapper (#4713): ``build`` is O(1) and
+    :class:`WorkingDayCounter` is a thin wrapper (#4713): ``build`` is O(1) and
     ``between`` delegates to the arithmetic ``_working_days_between`` (mask days
     minus an O(log E) exception prefix sum), so each span costs microseconds
     whatever its length and a deeply nested WBS no longer re-walks the project span
@@ -998,13 +998,9 @@ def summary_working_day_durations(
         ``{summary_id: working_day_duration}``, omitting any summary the engine did
         not roll up (no scheduled leaves) or whose project has no calendar.
     """
-    # Private engine symbols, same boundary crossing `scheduling.services` already
-    # makes for `_collect_leaves`. `trueppm-scheduler` ships to PyPI on its own
-    # semver, so this couples the API to unexported internals: a change to either
-    # one's signature or complexity breaks the paragraph above, not just this call.
-    # The alternative — a public working-day-count export — is a public-surface
-    # change to an Apache 2.0 package and belongs in that package's own MR.
-    from trueppm_scheduler.engine import _WorkingDayCounter
+    # Public scheduler API since 0.5 (#4158); function-local so a worker that
+    # never rolls up summaries does not pay the import.
+    from trueppm_scheduler import WorkingDayCounter
 
     # One pass: collect each summary's span and, per project, the enclosing range
     # its counter must cover. Grouped as we go rather than re-scanning `spans` per
@@ -1034,7 +1030,7 @@ def summary_working_day_durations(
     for project_key, (lo, hi) in ranges.items():
         cal = calendar_by_project.get(project_key)
         if cal is not None:
-            counters[project_key] = (_WorkingDayCounter.build(lo, hi, cal), cal)
+            counters[project_key] = (WorkingDayCounter.build(lo, hi, cal), cal)
 
     durations: dict[str, int] = {}
     for sid, (project_key, early_start, early_finish) in spans.items():

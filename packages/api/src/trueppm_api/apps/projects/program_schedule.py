@@ -534,7 +534,7 @@ def _lane_working_day_durations(graph: ProgramScheduleGraph) -> dict[str, int]:
         ``{project_id: working_day_duration}``, omitting any project with no
         scheduled leaf task or no composed calendar.
     """
-    from trueppm_scheduler.engine import _WorkingDayCounter
+    from trueppm_scheduler import WorkingDayCounter
 
     ranges: dict[str, tuple[Any, Any]] = {}
     for tid, sched in graph.result_map.items():
@@ -550,7 +550,7 @@ def _lane_working_day_durations(graph: ProgramScheduleGraph) -> dict[str, int]:
         cal = graph.calendars.get(project_key)
         if cal is None:
             continue
-        counter = _WorkingDayCounter.build(lo, hi, cal)
+        counter = WorkingDayCounter.build(lo, hi, cal)
         # Same half-open-plus-conditional-finish correction as
         # `summary_working_day_durations` (#3530): `between` counts
         # `[lo, hi)`, and the finish day is added back only when it is itself
