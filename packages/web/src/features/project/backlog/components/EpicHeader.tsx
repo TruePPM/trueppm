@@ -119,6 +119,7 @@ export function EpicHeader({
               in the accessible name and the tooltip (hover AND keyboard focus). */}
           {rollup.pointsTotal > 0 ? (
             <Tooltip
+              describe={false}
               content={`${pct}% complete · ${rollup.pointsDone} of ${rollup.pointsTotal} pts`}
             >
               <span

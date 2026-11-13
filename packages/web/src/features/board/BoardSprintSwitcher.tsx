@@ -11,7 +11,7 @@
  * from the ADR-0059 *assignment* selector, which excludes COMPLETED). CANCELLED
  * sprints are omitted.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ApiSprint, SprintState } from '@/types';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { CheckIcon } from '@/components/Icons';
@@ -52,6 +52,7 @@ export function BoardSprintSwitcher({
   // Disclosure: when true the full sprint list is expanded inline (#1141).
   const [showAll, setShowAll] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const groupHeaderId = useId();
 
   // Collapse the "show all" disclosure each time the menu closes so it reopens
   // in the pruned state.
@@ -139,14 +140,16 @@ export function BoardSprintSwitcher({
               focus:ring-2 focus:ring-inset focus:ring-brand-primary"
           >
             <span className="font-medium text-neutral-text-primary">All tasks (project)</span>
-            {!selectedSprintId && <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
+            {!selectedSprintId && (
+              <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
+            )}
           </button>
 
           {visibleSprints.length > 0 && <div className="my-1 border-t border-neutral-border" />}
 
           {visibleSprints.length > 0 && (
             <div
-              role="presentation"
+              id={groupHeaderId}
               className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide
                 text-neutral-text-secondary"
             >
@@ -154,39 +157,51 @@ export function BoardSprintSwitcher({
             </div>
           )}
 
-          {visibleSprints.map((s) => {
-            const chip = STATE_CHIP[s.state];
-            const isSel = s.id === selectedSprintId;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={isSel}
-                onClick={() => choose(s.id)}
-                className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-sm
+          <div
+            role={visibleSprints.length > 0 ? 'group' : undefined}
+            aria-labelledby={visibleSprints.length > 0 ? groupHeaderId : undefined}
+          >
+            {visibleSprints.map((s) => {
+              const chip = STATE_CHIP[s.state];
+              const isSel = s.id === selectedSprintId;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={isSel}
+                  onClick={() => choose(s.id)}
+                  className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-sm
                   hover:bg-neutral-surface-raised focus:outline-none focus:bg-neutral-surface-raised
                   focus:ring-2 focus:ring-inset focus:ring-brand-primary"
-              >
-                <span className="min-w-0">
-                  <span className="flex items-center gap-1.5">
-                    <span className="truncate font-medium text-neutral-text-primary">{s.name}</span>
-                    {chip && (
-                      <span
-                        className={`shrink-0 rounded-chip px-1 py-0.5 text-xs font-semibold uppercase tracking-wide ${chip.cls}`}
-                      >
-                        {chip.label}
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate font-medium text-neutral-text-primary">
+                        {s.name}
                       </span>
-                    )}
+                      {chip && (
+                        <span
+                          className={`shrink-0 rounded-chip px-1 py-0.5 text-xs font-semibold uppercase tracking-wide ${chip.cls}`}
+                        >
+                          {chip.label}
+                        </span>
+                      )}
+                    </span>
+                    <span className="tppm-mono text-xs text-neutral-text-secondary">
+                      {dateRange(s)}
+                    </span>
                   </span>
-                  <span className="tppm-mono text-xs text-neutral-text-secondary">
-                    {dateRange(s)}
-                  </span>
-                </span>
-                {isSel && <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
-              </button>
-            );
-          })}
+                  {isSel && (
+                    <CheckIcon
+                      className="inline-block h-3 w-3 align-[-0.125em]"
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
           {/* Disclosure (#1141): expand the remaining sprints inline, or
               collapse back to Recent. Suppressed when nothing is hidden. */}
