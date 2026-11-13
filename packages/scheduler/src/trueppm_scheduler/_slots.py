@@ -98,7 +98,13 @@ def pickle_as_field_dict(cls: _T) -> _T:
         f"    n.{n} = s.{n}" if direct else f"    _set(n, {n!r}, s.{n})" for n in names
     )
     namespace: dict[str, Any] = {"_new": object.__new__, "_set": object.__setattr__}
-    exec(f"def __copy__(s):\n    n = _new(s.__class__)\n{body}\n    return n\n", namespace)
+    # The exec'd source is built only from this class's own dataclass field names
+    # (valid identifiers fixed at class-definition time), never from runtime input,
+    # so there is no injection surface; it exists to unroll the copy into plain STOREs.
+    # nosemgrep: exec-detected
+    exec(  # nosec B102
+        f"def __copy__(s):\n    n = _new(s.__class__)\n{body}\n    return n\n", namespace
+    )
     fast_copy = namespace["__copy__"]
 
     def __copy__(self: Any) -> Any:
