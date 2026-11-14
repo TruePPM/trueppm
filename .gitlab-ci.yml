@@ -7315,7 +7315,13 @@ renovate:
   #      self-reference only reads as if it were the wiring when it is not (#3915).
   #   2. Create a Pipeline Schedule (Settings -> CI/CD -> Pipeline schedules):
   #      daily cron, with a variable RENOVATE = "true". renovate.json restricts
-  #      actual PR creation to Monday mornings, so a daily run is cheap.
+  #      routine PR creation to Monday mornings, so a daily run is cheap; security
+  #      advisories (`vulnerabilityAlerts`) are scheduled "at any time" and ride
+  #      this same daily run, so the cron must stay daily (#4679).
+  #   2b. Add a masked CI/CD variable GITHUB_COM_TOKEN (a fine-grained GitHub token
+  #      with no scopes: public read only). Without it Renovate's github.com lookups
+  #      (changelogs, GHSA data) are rate limited anonymously and advisory lookups
+  #      degrade (#4679). Like RENOVATE_TOKEN it reaches the job on its own.
   #
   #      RENOVATE MUST BE A SCHEDULE-LEVEL VARIABLE, NEVER A PROJECT-LEVEL ONE.
   #      This job's rule can only see `$CI_PIPELINE_SOURCE == "schedule"` — GitLab

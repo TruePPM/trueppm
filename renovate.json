@@ -82,7 +82,7 @@
       "groupSlug": "rust-minor-patch"
     },
     {
-      "description": "Project policy (CLAUDE.md): never auto-merge — every dependency MR goes through review and a green pipeline. Renovate opens PRs only.",
+      "description": "Blanket review-only default: every dependency MR goes through review and a green pipeline. Renovate opens PRs only. (CLAUDE.md does not mandate this; it is a maintainer choice, see #4679 for the open question on patch-level vulnerability fixes.)",
       "matchPackageNames": ["*"],
       "automerge": false
     },
@@ -115,14 +115,6 @@
       "automerge": false
     },
     {
-      "description": "Security updates — short schedule, no grouping",
-      "matchUpdateTypes": ["patch"],
-      "vulnerabilityAlerts": {
-        "enabled": true,
-        "schedule": ["at any time"]
-      }
-    },
-    {
       "description": "Pin all container image digests and keep them current (#904 supply-chain hardening — OpenSSF Scorecard Pinned-Dependencies). Applies to .gitlab-ci.yml image: refs, Dockerfile FROMs, and Helm image values — anything on the docker datasource.",
       "matchDatasources": ["docker"],
       "pinDigests": true
@@ -136,7 +128,11 @@
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["dependencies", "security"]
+    "description": "One block for every advisory (#4679). An advisory fix must not wait for the Monday window or join a group whose own schedule is Monday: groupName null keeps it a standalone MR, prCreation immediate and the at-any-time schedule open it as soon as the daily Renovate run sees the advisory. Routine bumps keep the weekly window.",
+    "schedule": ["at any time"],
+    "groupName": null,
+    "prCreation": "immediate",
+    "labels": ["dependencies", "renovate", "security"]
   },
   "docker": {
     "enabled": true
