@@ -1,6 +1,7 @@
 ---
 title: Burn charts
 description: Project-level burn down, burn up, and combined progress charts in the Reports tab.
+documentedFor: "0.5"
 ---
 
 Burn charts help a PM, Scrum Master, or executive answer "are we still on track?" at a glance. TruePPM offers three standard progress charts for a single project: burn down (remaining work over time), burn up (completed work measured against how much scope you've taken on), and a combined view overlaying both. All three let you choose the unit on the vertical axis — story points or task count — so you can read them in the unit that matches your planning cadence.
@@ -78,7 +79,11 @@ past that horizon, or an explicit `since` more than 366 days before `until`, is 
 never refused for span; the window is clamped to the 366 days ending at `until`
 instead, and the response echoes the `since` it actually used.
 
-The response echoes `chart_type`, `metric`, `since`, and `until`, a boolean `clamped` (true only when a defaulted `since` was shortened to the 366-day maximum), plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. There is no baseline overlay: the response carries no planned curve. (Releases before 0.5 also returned a `baseline_series` key that no client read.)
+The response echoes `chart_type`, `metric`, `since`, and `until`, a boolean `clamped` (true only when a defaulted `since` was shortened to the 366-day maximum), plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. 
+
+:::note[Ships in 0.5]
+In 0.4, a `burndown` or `burnup` response for a project with an active baseline also carries a `baseline_series` array (`{date, planned}` rows) that no TruePPM screen reads. From 0.5 the key is gone, and the response carries no planned curve.
+:::
 
 `IsAuthenticated` + project read permission required. Project must be a member of the requesting user's accessible projects.
 
