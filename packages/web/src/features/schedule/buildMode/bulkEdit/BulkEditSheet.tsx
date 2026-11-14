@@ -79,6 +79,7 @@ const REVIEW_ID = 'bulk-edit-review-block';
 
 /** Rule 335(a) — the seat target's `aria-describedby` points here. */
 const RESULT_PANEL_ID = 'bulk-edit-result-panel';
+const DEMO_NOTE_ID = 'bulk-edit-demo-note';
 
 /** The system default forms, so the sheet renders standalone in a test. */
 const DEFAULT_ITERATION_FORMS = iterationLabelForms(null);
@@ -467,6 +468,7 @@ export function BulkEditSheet({
             <RefusalAlert refusal={error} testId="bulk-edit-error" persistent />
             {demoReadOnly && (
               <p
+                id={DEMO_NOTE_ID}
                 role="note"
                 data-testid="bulk-edit-demo-note"
                 className="leading-snug text-neutral-text-secondary"
@@ -484,7 +486,7 @@ export function BulkEditSheet({
                 variant="primary"
                 size="sm"
                 disabled={!canApply}
-                aria-describedby={REVIEW_ID}
+                aria-describedby={demoReadOnly ? `${REVIEW_ID} ${DEMO_NOTE_ID}` : REVIEW_ID}
                 onClick={submit}
                 data-testid="bulk-edit-apply"
               >

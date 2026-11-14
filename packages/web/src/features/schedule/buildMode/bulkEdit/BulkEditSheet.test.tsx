@@ -682,6 +682,10 @@ describe('BulkEditSheet — read-only demo (#4115)', () => {
     );
     await userEvent.click(screen.getByTestId('bulk_delivery_mode-scrum'));
     expect(screen.getByTestId('bulk-edit-apply')).toBeDisabled();
+    // The reason is announced with the disabled control, not only drawn beside it.
+    expect(screen.getByTestId('bulk-edit-apply').getAttribute('aria-describedby')).toContain(
+      screen.getByTestId('bulk-edit-demo-note').id,
+    );
     await userEvent.keyboard('{Control>}{Enter}{/Control}');
     expect(props.onApply).not.toHaveBeenCalled();
   });

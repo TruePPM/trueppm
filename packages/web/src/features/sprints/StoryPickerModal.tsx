@@ -7,6 +7,8 @@ import {
 } from '@/features/project/backlog/hooks/useProductBacklog';
 import { BacklogTruncatedNotice } from '@/features/project/backlog/components/BacklogTruncatedNotice';
 import { useBulkUpdateTasks } from '@/hooks/useTaskMutations';
+import { useDemoMode } from '@/hooks/useDemoMode';
+import { DEMO_DISABLED_NOTE } from '@/lib/demoReadOnly';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { toast } from '@/components/Toast/toast';
@@ -359,6 +361,8 @@ function StoryPickerPickBody({
   );
 }
 
+const DEMO_NOTE_ID = 'story-picker-demo-note';
+
 /** The pick phase's footer: selection summary + capacity chip, Cancel/Commit. */
 function StoryPickerPickFooter({
   onClose,
@@ -367,6 +371,7 @@ function StoryPickerPickFooter({
   pointsChip,
   iterationLower,
   committing,
+  demoReadOnly,
   onCommit,
 }: {
   onClose: () => void;
@@ -375,6 +380,7 @@ function StoryPickerPickFooter({
   pointsChip: CapacityPointsChip | null;
   iterationLower: string;
   committing: boolean;
+  demoReadOnly: boolean;
   onCommit: () => void;
 }) {
   return (
@@ -409,7 +415,8 @@ function StoryPickerPickFooter({
         <button
           type="button"
           onClick={onCommit}
-          disabled={selectedCount === 0 || committing}
+          disabled={selectedCount === 0 || committing || demoReadOnly}
+          aria-describedby={demoReadOnly ? DEMO_NOTE_ID : undefined}
           className="h-8 px-3 rounded bg-sage-500 text-navy-900 border border-sage-600 text-xs font-medium
                       hover:bg-sage-400 disabled:opacity-50 disabled:cursor-not-allowed
                       dark:bg-sage-400 dark:text-navy-900 dark:border-sage-500 dark:hover:bg-sage-300
@@ -526,6 +533,9 @@ export function StoryPickerModal({
   const backlog = useProductBacklog(projectId);
   const loadMore = useLoadMoreProductBacklog(projectId);
   const commitStories = useBulkUpdateTasks(projectId);
+  // The demo refuses the batch write and, unlike a single-row edit, keeps no
+  // overlay of it, so a commit would fail and leave nothing on screen (#4115).
+  const { isDemoReadOnly } = useDemoMode();
   const queryClient = useQueryClient();
 
   const [readyOnly, setReadyOnly] = useState(readyOnlyDefault);
@@ -735,6 +745,18 @@ export function StoryPickerModal({
             </button>
           </header>
 
+          {isDemoReadOnly && !outcome && (
+            <p
+              id={DEMO_NOTE_ID}
+              role="note"
+              data-testid="story-picker-demo-note"
+              className="px-5 py-2 text-xs leading-snug text-neutral-text-secondary border-b border-neutral-border"
+            >
+              {DEMO_DISABLED_NOTE} Committing stories saves to the server, and the demo refuses
+              every write.
+            </p>
+          )}
+
           {outcome ? (
             <CommitResultPanel outcome={outcome} sprintLabel={sprint.short_id_display} />
           ) : (
@@ -790,6 +812,7 @@ export function StoryPickerModal({
                 pointsChip={pointsChip}
                 iterationLower={itl.lower}
                 committing={committing}
+                demoReadOnly={isDemoReadOnly}
                 onCommit={() => void handleCommit(Array.from(selected))}
               />
             )}
