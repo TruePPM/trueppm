@@ -722,7 +722,11 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
 
 
 def _exhausted_points_ceiling(
-    project: Project, target: Task, lost_elapsed: int, points_per_working_day: float
+    project: Project,
+    target: Task,
+    lost_elapsed: int,
+    points_per_working_day: float,
+    task_days_per_sprint: int,
 ) -> float:
     """Most story points a velocity task may keep once a pull-in exhausts it (#4820).
 
@@ -736,22 +740,24 @@ def _exhausted_points_ceiling(
     pull-in (10d at 40% and 40 points: P80 went from -10 at a 5-day pull-in to -6 at 6).
 
     The ceiling removes enough points to give back the lost days in **every** run,
-    whatever velocity it draws. ``m = ceil(lost_elapsed / sprint_length_days)`` sprints
-    cover those days, and no sprint delivers more than the largest observation
-    ``v_max``. So in any run of velocity draws, cutting ``m * v_max`` points from the
-    target finishes at least ``m`` sprints sooner: the sum through sprint ``K - m``
-    trails the sum through ``K`` by at most ``m * v_max``. The ceiling starts from the
-    points the last pull-in that leaves work open would have kept (a delta of
-    ``1 - remaining``), so the exhausted task's sampled remaining work is never
-    longer than at that delta, which is never longer than the current forecast. The
-    argument holds run by run for a fixed layout of draws (one run's velocity
-    sequence), so the ordering holds in distribution. It does not prove that seeded
-    percentiles are ordered. Three edges fall outside it: a run the sprint-horizon cap
-    clamps (a deep tail); a ceiling at zero points on a task that also carries a
-    three-point estimate, which then leaves the velocity branch for PERT, whose shifted
-    triple can land a band later (TODO(#4909)); and a what-if that changes the points,
-    because ``_sample_velocity_durations`` sizes ``max_sprints`` from ``story_points``
-    and so changes the draw layout (TODO(#4910)).
+    whatever velocity it draws. ``m = ceil(lost_elapsed / task_days_per_sprint)`` sprints
+    cover those days (``lost_elapsed`` counts the task calendar's working days, and one
+    sprint lays out as ``task_days_per_sprint`` of them, #4529), and no sprint
+    delivers more than the largest observation ``v_max``. So in any run of velocity
+    draws, cutting ``m * v_max`` points from the target finishes at least ``m``
+    sprints sooner: the sum through sprint ``K - m`` trails the sum through ``K`` by
+    at most ``m * v_max``. The ceiling starts from the points the last pull-in that
+    leaves work open would have kept (a delta of ``1 - remaining``), so the exhausted
+    task's sampled remaining work is never longer than at that delta, which is never
+    longer than the current forecast. The argument holds run by run for a fixed
+    layout of draws (one run's velocity sequence), so the ordering holds in
+    distribution. It does not prove that seeded percentiles are ordered. Three edges
+    fall outside it: a run the sprint-horizon cap clamps (a deep tail); a ceiling at
+    zero points on a task that also carries a three-point estimate, which then leaves
+    the velocity branch for PERT, whose shifted triple can land a band later
+    (TODO(#4909)); and a what-if that changes the points, because
+    ``_sample_velocity_durations`` sizes ``max_sprints`` from ``story_points`` and so
+    changes the draw layout (TODO(#4910)).
 
     This is a bound and not a conversion at the mean pace, so the bands can jump
     further than the pull-in at exhaustion: the price of a bound that has to hold for
@@ -763,7 +769,7 @@ def _exhausted_points_ceiling(
     assert target.story_points is not None and project.sprint_length_days is not None
     assert project.velocity_samples
     last_open_delta = 1 - _effective_duration_days(target)
-    sprints_lost = -(-lost_elapsed // project.sprint_length_days)
+    sprints_lost = -(-lost_elapsed // task_days_per_sprint)
     fastest_sprint = max(_velocity_observations(project.velocity_samples))
     return (
         target.story_points
@@ -801,10 +807,16 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     * ``story_points``, when the task will take the velocity branch. That branch
       never reads a duration at all — it asks how many sprints burn down the
       committed points — so a day offset has to be converted into the unit it does
-      read, at the team's mean pace (``mean(velocity_samples) / sprint_length_days``
-      points per working day). The band then moves by ``delta_days`` in expectation,
-      quantized to whole sprints, which is what a sprint-delivered task's schedule
-      genuinely does.
+      read, at the team's mean pace: ``mean(velocity_samples)`` points per sprint,
+      over the working days one sprint spans **on the task's own calendar**.
+      ``delta_days`` counts that calendar's days, while ``sprint_length_days`` counts
+      the project calendar the sprints run on, and Monte Carlo lays a sampled sprint
+      count out on the task calendar (see :func:`_velocity_days_on_calendar`). Pacing
+      against ``sprint_length_days`` instead moved a Mon/Wed/Fri story by well under
+      ``delta_days`` (#4529). The band then moves by ``delta_days`` task-calendar
+      working days in expectation, quantized to whole sprints, which is what a
+      sprint-delivered task's schedule genuinely does. On a single-calendar project a
+      sprint spans ``sprint_length_days`` task days, so nothing changes there.
 
     On an **in-progress** task the offset applies to the *remaining* work only
     (#4432). The engine reads ``percent_complete`` against ``duration`` to split a
@@ -923,12 +935,22 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     ):
         mean = _velocity_mean(project)
         if mean is not None:
-            points_per_working_day = mean / project.sprint_length_days
+            # Pace in the unit ``delta_days`` counts: working days of the task's
+            # calendar per sprint, as Monte Carlo lays a sprint out (#4529).
+            task_calendars = _resolve_task_calendars(project)
+            task_days_per_sprint = project.sprint_length_days
+            if task_calendars is not None:
+                task_days_per_sprint = _velocity_days_on_calendar(
+                    project,
+                    task_calendars.get(target.id, project.calendar),
+                    project.sprint_length_days,
+                )
+            points_per_working_day = mean / task_days_per_sprint
             story_points = max(0.0, story_points + sampled_delta * points_per_working_day)
             lost_elapsed = delta_days - sampled_delta
             if lost_elapsed > 0:
                 ceiling = _exhausted_points_ceiling(
-                    project, target, lost_elapsed, points_per_working_day
+                    project, target, lost_elapsed, points_per_working_day, task_days_per_sprint
                 )
                 story_points = max(0.0, min(story_points, ceiling))
 

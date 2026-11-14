@@ -782,6 +782,20 @@ def _task_span_totals(project: Project) -> tuple[int, int, int, dict[str, int]]:
     sweep, so a non-finite ``story_points / mean`` is refused where it always was
     (#1067, #2178).
 
+    The velocity term stays in **sprint-calendar** working days, not the task-calendar
+    days Monte Carlo lays the draw out in (:func:`_velocity_days_on_calendar`, #4529),
+    and that is enough for both checks it feeds. The conversion keeps the calendar
+    span fixed: ``N`` sprint days on the project calendar re-expressed as however many
+    task-calendar days fall inside that same span, so the converted draw ends on the
+    same date the unconverted one would on the project calendar. What the guard bounds
+    is that reach, and ``N`` working days of any valid calendar reach at most
+    ``N * 7`` calendar days plus one snap, which is exactly what the ``* 7 +
+    MAX_CALENDAR_SCAN_DAYS`` overflow check charges for a deterministic task of ``N``
+    days. Converting here would also be unsafe: the conversion walks the project
+    calendar for ``N`` working days, and this guard runs precisely to refuse a hostile
+    ``story_points`` whose ``N`` is too large to walk. :func:`_mc_horizon`, which runs
+    after this guard, uses the converted figure to size the index.
+
     Recorded actuals (ADR-0132/0136) anchor a completed task's full-duration span and
     feed the same calendar walk (``_start_from_finish`` / ``_finish_from_start``) as a
     ``planned_start`` pin, so an actual far from the project start must be bounded the

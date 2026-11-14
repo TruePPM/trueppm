@@ -197,6 +197,29 @@ def _requeue_key(failed: FailedTask) -> str:
 _NOT_FOUND_DETAIL = "Not found."
 _DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date range."
 
+# The engine raises SimulationCapExceeded for several caps but carries no field naming
+# which one fired, so the message prefix is the only discriminator. Pinned by
+# test_monte_carlo.py's sample-cell test against the engine's real message.
+_SAMPLE_CELL_CAP_PREFIX = "Monte Carlo sampled durations would exceed"
+
+
+def _simulation_cap_response(exc: Exception) -> Response:
+    """Map an engine ``SimulationCapExceeded`` to its HTTP response.
+
+    The run and task caps are the OSS tier limits (``max_runs`` / ``max_tasks``), so
+    they answer 402 with ``tier: "team"``. The sampled-duration cell cap (#1829) is a
+    hard memory ceiling no tier raises: answering it with an upsell would sell a
+    remedy that does not exist. It is a request the engine cannot serve at this size,
+    so it is a 400 carrying the engine's message, like the API's own ``MC_CELL_CAP``.
+    """
+    message = str(exc)
+    if message.startswith(_SAMPLE_CELL_CAP_PREFIX):
+        return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(
+        {"error": "simulation_cap_exceeded", "tier": "team", "message": message},
+        status=status.HTTP_402_PAYMENT_REQUIRED,
+    )
+
 
 @extend_schema(
     summary="Trigger a CPM recalculation for a project",
@@ -958,15 +981,8 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
                     **_mc_lag_delta_kwargs(),
                 )
     except SimulationCapExceeded as exc:
-        return Response(
-            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
-            {
-                "error": "simulation_cap_exceeded",
-                "tier": "team",
-                "message": str(exc),
-            },
-            status=status.HTTP_402_PAYMENT_REQUIRED,
-        )
+        # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
+        return _simulation_cap_response(exc)
     except (CyclicDependencyError, ValueError) as exc:
         # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
         return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -1676,11 +1692,8 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                         **_mc_lag_delta_kwargs(),
                     )
         except SimulationCapExceeded as exc:
-            return Response(
-                # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
-                {"error": "simulation_cap_exceeded", "tier": "team", "message": str(exc)},
-                status=status.HTTP_402_PAYMENT_REQUIRED,
-            )
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
+            return _simulation_cap_response(exc)
         except (CyclicDependencyError, ValueError) as exc:
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)

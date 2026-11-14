@@ -174,6 +174,29 @@ class TestMonteCarloEndpoint:
         assert r.data["tier"] == "team"
         assert "message" in r.data
 
+    def test_engine_sample_cell_cap_returns_400_not_an_upsell(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        """The engine's sampled-duration cell cap is a hard ceiling, not a tier limit.
+
+        No tier raises it, so a 402 ``tier: "team"`` body would sell a remedy that
+        does not exist. The engine's real message reaches the client as a 400 detail.
+        """
+        from unittest import mock
+
+        with mock.patch("trueppm_scheduler.engine.montecarlo.run._MAX_SAMPLE_CELLS", 5):
+            r = member_client.post(
+                f"/api/v1/projects/{project.pk}/monte-carlo/",
+                {"n_simulations": 10},
+                format="json",
+            )
+        assert r.status_code == 400
+        assert "tier" not in r.data
+        assert r.data["detail"].startswith("Monte Carlo sampled durations would exceed 5 cells")
+
     def test_task_cap_exceeded_returns_402(
         self,
         member_client: APIClient,
