@@ -10,8 +10,9 @@ interface MobileBacklogNoticeProps {
  * explicit Rail or Drawer (#4305). The rail and drawer are desktop surfaces, so
  * the phone board shows status columns only; without this the backlog just
  * vanishes and reads as lost data. The stored layout is deliberately left alone
- * (#605): the one-tap action switches to Queue by the user's own choice, and
- * only that tap writes a preference. Renders nothing when there is nothing hidden.
+ * (#605): the one-tap action shows Queue for this visit to the board only, so the
+ * stored Rail/Drawer still applies on desktop and on the next visit. Renders
+ * nothing when there is nothing hidden.
  */
 export function MobileBacklogNotice({ count, onSwitchToQueue }: MobileBacklogNoticeProps) {
   if (count <= 0) return null;

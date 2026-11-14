@@ -136,6 +136,7 @@ import {
   resolveBoardLayout,
   type BoardZoom,
   type BoardGroupMode,
+  type BoardLayoutVariant,
 } from '@/hooks/useBoardToolbarPrefs';
 import { buildAssigneeLanes, buildEpicLanes, epicLaneId, primaryAssigneeLaneId } from './grouping';
 import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
@@ -2066,11 +2067,23 @@ export function BoardView() {
   // On a phone the rail / drawer phase-grid layouts are unusable, so default a
   // user who never explicitly picked a layout to the mobile-friendly Queue
   // (issue 605). An explicit desktop choice is preserved across the breakpoint.
-  const effectiveLayout = resolveBoardLayout(
-    toolbarPrefs.layout,
-    toolbarPrefs.layoutExplicit,
-    isMobile,
+  // "Switch to Queue" on the phone's hidden-backlog notice (#4305) is a per-visit
+  // override, never written to the stored preference: the stored Rail/Drawer is the
+  // user's desktop choice and must survive a look at the backlog on a phone. Any
+  // explicit pick from the layout menu drops the override and is stored as usual.
+  const [mobileQueueOverride, setMobileQueueOverride] = useState(false);
+  const { setLayout: storeLayout } = toolbarPrefs;
+  const setLayoutFromMenu = useCallback(
+    (layout: BoardLayoutVariant) => {
+      setMobileQueueOverride(false);
+      storeLayout(layout);
+    },
+    [storeLayout],
   );
+  const effectiveLayout: BoardLayoutVariant =
+    isMobile && mobileQueueOverride
+      ? 'queue'
+      : resolveBoardLayout(toolbarPrefs.layout, toolbarPrefs.layoutExplicit, isMobile);
   // Effective swimlane grouping (324).
   const groupMode: BoardGroupMode = toolbarPrefs.groupBy;
   const { data: projectDetail } = useProject(projectIdOrNull);
@@ -3305,7 +3318,7 @@ export function BoardView() {
             backlogDensity={toolbarPrefs.backlogDensity}
             onBacklogDensityChange={toolbarPrefs.setBacklogDensity}
             layout={effectiveLayout}
-            onLayoutChange={toolbarPrefs.setLayout}
+            onLayoutChange={setLayoutFromMenu}
             myTasksEnabled={myTasksFilter.enabled}
             myTasksLoading={myTasksFilter.isLoading}
             onMyTasksToggle={() => myTasksFilter.setEnabled(!myTasksFilter.enabled)}
@@ -3417,7 +3430,7 @@ export function BoardView() {
             facetZeroMatch={facetZeroMatch}
             effectiveLayout={effectiveLayout}
             isMobile={isMobile}
-            onSwitchToQueue={() => toolbarPrefs.setLayout('queue')}
+            onSwitchToQueue={() => setMobileQueueOverride(true)}
             columns={TRACKS}
             methodology={methodology}
             boardCadence={boardCadence}
