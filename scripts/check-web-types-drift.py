@@ -483,11 +483,36 @@ def self_test() -> int:
     finally:
         WAIVERS, UNMAPPED, ALIASES = saved
 
+    # The possessive-quantifier header regex in parse_types_ts (#4070) must match
+    # exactly the headers the original backtracking pattern did.
+    header_src = (
+        "export interface Plain { a: string }\n"
+        "export interface Generic<T, U extends string> { b: T }\n"
+        "export interface Child extends Base { c: number }\n"
+        "export interface Multi<T> extends A, B<T> { d: boolean }\n"
+        "export interface Tight{e:string}\n"
+        "export interface NoBrace\n"
+        "export type NotAnInterface = string;\n"
+    )
+    parsed, _ = parse_types_ts(header_src)
+    want_headers = {
+        "Plain": {"a"},
+        "Generic": {"b"},
+        "Child": {"c"},
+        "Multi": {"d"},
+        "Tight": {"e"},
+    }
+    got_headers = {k: set(v) for k, v in parsed.items()}
+    if got_headers != want_headers:
+        failures.append(
+            f"interface headers: expected {want_headers}, got {got_headers}"
+        )
+
     if failures:
         print("check-web-types-drift self-test FAILED:", *failures, sep="\n  ")
         return 1
     print(
-        "check-web-types-drift self-test: 10 cases OK (detects top-level + nested drift, ratchets)"
+        "check-web-types-drift self-test: 11 cases OK (detects top-level + nested drift, ratchets, interface headers)"
     )
     return 0
 
