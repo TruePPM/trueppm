@@ -151,7 +151,12 @@ def test_dependency_field_mutation_conforms(field: str, value: Any) -> None:
 # schedule, monte_carlo, derive_value (project/task_id/quantity), perturb_task_duration
 # (project/task_id/delta_days), Calendar.compose, DateRange (start/end).
 
-from trueppm_scheduler import DateRange, derive_value, perturb_task_duration  # noqa: E402
+from trueppm_scheduler import (  # noqa: E402
+    DateRange,
+    derive_value,
+    perturb_task_duration,
+    to_graph,
+)
 
 
 def _entry_points() -> dict[str, Any]:
@@ -174,6 +179,8 @@ def _entry_points() -> dict[str, Any]:
         "Calendar.compose([element])": lambda a: Calendar.compose([a]),
         "DateRange(start)": lambda a: DateRange(a, date(2026, 1, 2)),
         "DateRange(end)": lambda a: DateRange(date(2026, 1, 1), a),
+        "to_graph(result)": lambda a: to_graph(a, p),
+        "to_graph(project)": lambda a: to_graph(schedule(p), a),
     }
 
 

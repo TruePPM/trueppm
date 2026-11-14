@@ -49,6 +49,13 @@ from trueppm_scheduler.engine import (
     perturb_task_duration,
     schedule,
 )
+from trueppm_scheduler.graph_export import (
+    GRAPH_FORMAT_VERSION,
+    GraphEdge,
+    GraphExport,
+    GraphNode,
+    to_graph,
+)
 from trueppm_scheduler.models import (
     Calendar,
     DateRange,
@@ -63,6 +70,7 @@ from trueppm_scheduler.models import (
 # are exported so downstream validators (e.g. the TruePPM API) enforce the *same*
 # bounds as the engine rather than drifting from them.
 __all__ = [
+    "GRAPH_FORMAT_VERSION",
     "MAX_CALENDAR_EXCEPTIONS",
     "MAX_CALENDAR_SCAN_DAYS",
     "MAX_DEPENDENCIES",
@@ -84,6 +92,9 @@ __all__ = [
     "Derivation",
     "DerivationContribution",
     "DrivingEdge",
+    "GraphEdge",
+    "GraphExport",
+    "GraphNode",
     "InvalidScheduleInput",
     "MonteCarloResult",
     "Percentile",
@@ -104,4 +115,5 @@ __all__ = [
     "monte_carlo",
     "perturb_task_duration",
     "schedule",
+    "to_graph",
 ]

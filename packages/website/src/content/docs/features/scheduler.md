@@ -299,6 +299,10 @@ behavior is calendar-day lag, as described above.
 
 On the result itself, `critical_path` lists every critical task id in lexicographic-topological order (a list of tasks, not one chain; it is empty when no task is critical), and `driving_edges` lists the dependencies that bind their successor or have zero relationship free float.
 
+:::note[Ships in 0.5]
+To draw a computed schedule without knowing the engine, `to_graph(result, project)` will return a rendering-neutral `GraphExport` of plain nodes (early/late dates, working-day total float, `is_critical`) and edges (`dep_type`, `lag_days`, `is_driving`). It carries a `format_version` (`GRAPH_FORMAT_VERSION`), serializes to deterministic JSON, and round-trips losslessly through `GraphExport.from_json`. See "Exporting the graph" in the [`trueppm-scheduler` README](https://pypi.org/project/trueppm-scheduler/).
+:::
+
 For example, a 10-day task that began on 2026-01-05 and is 25% complete, scheduled with a `status_date` of 2026-01-12, reports `early_start` 2026-01-12, `early_finish` 2026-01-21, and `scheduled_start` 2026-01-05. Drawing the bar from `early_start` would show 7.5 days of remaining work as the whole task.
 
 :::note

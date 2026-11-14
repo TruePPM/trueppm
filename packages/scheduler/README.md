@@ -205,6 +205,32 @@ This is what lets a UI (or an AI agent) answer "why is this task starting on the
 17th?" with the actual dependency instead of a guess — the value returned is
 computed the same way the engine computed it, not re-derived heuristically.
 
+## Exporting the graph
+
+`to_graph()` flattens a schedule into plain nodes and edges (early/late dates,
+total float, a critical flag, and each link's type, lag and `is_driving` flag)
+that any renderer can draw. It is a pure read of the result: no new scheduling
+math, no graph library, and the same schedule always serializes to the same JSON.
+
+```python
+from trueppm_scheduler import GraphExport, to_graph
+
+graph = to_graph(result, project)          # result = schedule(project)
+for n in graph.nodes:
+    print(n.id, n.early_start, n.total_float_days, n.is_critical)
+for e in graph.edges:
+    print(e.predecessor_id, e.dep_type, e.successor_id, e.lag_days, e.is_driving)
+assert GraphExport.from_json(graph.to_json()) == graph   # lossless round trip
+```
+
+`graph.nodes` holds `GraphNode` objects and `graph.edges` holds `GraphEdge` objects.
+`GRAPH_FORMAT_VERSION` versions the dict/JSON shape; the key set (and the
+three-field `DrivingEdge` that feeds `is_driving`) is frozen under it, and
+`from_dict` refuses another version. A cyclic graph, an edge naming a task that
+is not a node, or a result that does not match the project raises
+(`CyclicDependencyError` or `InvalidScheduleInput`, naming the ids); a partial
+graph is never returned.
+
 ## Mixing agile and waterfall in one schedule
 
 Real programs are rarely pure CPM or pure Scrum. A task can opt into
@@ -611,7 +637,9 @@ package** — the names you can import directly from `trueppm_scheduler`
 Two helpers that API-layer code needs are public as of 0.5 — `WorkingDayCounter`
 (working days in a half-open span for one calendar) and `collect_leaves` (the
 distinct leaf IDs under a summary task); the old `engine._WorkingDayCounter` and
-`engine._collect_leaves` names remain as aliases for one release.
+`engine._collect_leaves` names remain as aliases for one release. The graph export
+(see [Exporting the graph](#exporting-the-graph)) is public in 0.5 too: `to_graph`,
+`GraphExport`, `GraphNode`, `GraphEdge` and `GRAPH_FORMAT_VERSION`.
 Everything else — the `trueppm_scheduler.engine` internals, any underscore-
 prefixed helper, and module layout — is **unstable** and may move or change
 without notice.
