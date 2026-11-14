@@ -422,6 +422,11 @@ membership-live-floor-check: ## Fail if an API module reads *Membership.objects 
 	@python3 scripts/check-membership-live-floor.py --self-test
 	@python3 scripts/check-membership-live-floor.py
 
+pii-exposure-check: ## Fail on a new email-in-a-hand-rolled-dict or unnarrowed User FK write field (#3640)
+	@# Two PII classes closed by hand ten times (#891 #815 #3599 #3641 ...). AST, ~1s.
+	@python3 scripts/check-pii-exposure.py --self-test
+	@python3 scripts/check-pii-exposure.py
+
 demo-readonly-check: ## Fail if a demo manifest enables persona logins (#2773)
 	@# The hosted demo's read-only posture is what makes publishing it safe, and
 	@# it is enforced by the absence of one flag in two YAML files. Grep, ~1s.
@@ -808,6 +813,7 @@ pre-push-checks: artifact-assertions-check
 pre-push-checks: build-system-pins-check
 pre-push-checks: dependency-soft-delete-check
 pre-push-checks: membership-live-floor-check
+pre-push-checks: pii-exposure-check
 pre-push-checks: enterprise-boundary-check
 pre-push-checks: boundary-doc-check
 pre-push-checks: release-labels-check
