@@ -324,6 +324,31 @@ def test_ignored_event_returns_200(
     assert resp.json()["ignored"] == "push"
 
 
+def _github_body_at(updated_at: str) -> bytes:
+    return json.dumps(
+        {
+            "action": "opened",
+            "pull_request": {"id": 7, "html_url": GITHUB_PR_URL, "updated_at": updated_at},
+        }
+    ).encode("utf-8")
+
+
+def test_replay_with_fresh_delivery_header_is_deduped_on_signed_body(
+    project: Project, task: Task, automation: BoardAutomation
+) -> None:
+    """The unsigned X-GitHub-Delivery header must not be part of the de-dupe key (#4384)."""
+    _github_link(task)
+    body = _github_body_at("2026-01-01T00:00:00Z")
+    first = _post(project, body, _github_headers(body, delivery="uuid-1"))
+    assert first.json()["moved"] is True
+    replay = _post(project, body, _github_headers(body, delivery="uuid-2"))
+    assert replay.json()["reason"] == "duplicate"
+    # A genuine second event (new updated_at) is not suppressed.
+    newer = _github_body_at("2026-01-02T00:00:00Z")
+    again = _post(project, newer, _github_headers(newer, delivery="uuid-1"))
+    assert again.json().get("reason") != "duplicate"
+
+
 def test_duplicate_delivery_is_noop(
     project: Project, task: Task, automation: BoardAutomation
 ) -> None:

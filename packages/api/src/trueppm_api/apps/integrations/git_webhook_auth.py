@@ -13,6 +13,11 @@ It has two jobs and nothing else:
    forward-only event (``pr.opened`` / ``pr.merged`` / ``None`` = ignore), the
    PR/MR URL to match against a ``TaskLink``, and an idempotency ``delivery_key``.
 
+**Rule: an idempotency key must come from signed material.** The GitHub HMAC covers
+only the raw body, so the unsigned ``X-GitHub-Delivery`` header is attacker-chosen:
+anyone holding one captured signed delivery could replay it indefinitely under fresh
+header UUIDs. The key is therefore derived from the signed body alone (#4384).
+
 It deliberately does **not** touch the database, mutate any task, or call out to
 a provider — the receiver (``views.GitWebhookIngestView``) and the service
 (``git_automation_services``) own that. Keeping verification pure and side-effect
@@ -24,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -174,10 +180,24 @@ def _github_event(action: str, pr: Any, is_draft: bool) -> tuple[str | None, str
     return None, ""
 
 
+def _github_delivery_key(payload: Any, pr: Any, action: Any) -> str:
+    """Idempotency key from signed body content only (never ``X-GitHub-Delivery``).
+
+    ``(pull_request.id, action, pull_request.updated_at)`` identifies one state change
+    of one PR, so a genuine redelivery dedupes and a genuine second event (new
+    ``updated_at``) does not. When a payload lacks those fields the whole canonicalized
+    body is digested instead, so the key is still a function of signed content.
+    """
+    if isinstance(pr, dict):
+        ident = (pr.get("id"), action, pr.get("updated_at"))
+        if all(isinstance(v, (str, int)) and not isinstance(v, bool) for v in ident):
+            return "github:" + ":".join(str(v) for v in ident)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return "github-body:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _parse_github(headers: Any, payload: dict[str, Any]) -> GitWebhookEnvelope:
     event_name = headers.get("X-GitHub-Event") or ""
-    # X-GitHub-Delivery is a per-delivery UUID — the natural idempotency key.
-    delivery_key = headers.get("X-GitHub-Delivery") or ""
     pr = payload.get("pull_request") if isinstance(payload, dict) else None
     pr_url = pr.get("html_url") if isinstance(pr, dict) else None
     action = payload.get("action") if isinstance(payload, dict) else None
@@ -194,6 +214,7 @@ def _parse_github(headers: Any, payload: dict[str, Any]) -> GitWebhookEnvelope:
 
     return GitWebhookEnvelope(
         provider=PROVIDER_GITHUB,
+        delivery_key=_github_delivery_key(payload, pr, action),
         event=event,
         # Narrowed for the same reason the GitLab arm below narrows: a signed but
         # hostile/garbled payload can put any JSON type in ``html_url``, and every
@@ -201,7 +222,6 @@ def _parse_github(headers: Any, payload: dict[str, Any]) -> GitWebhookEnvelope:
         # ``html_url: 1`` raised AttributeError deep in the service (#2881 §3, the
         # #2795 container-vs-value class).
         pr_url=pr_url if isinstance(pr_url, str) else None,
-        delivery_key=delivery_key,
         raw_event_name=event_name,
         ignored_reason=ignored_reason,
     )
