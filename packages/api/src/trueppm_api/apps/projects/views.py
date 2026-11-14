@@ -1295,6 +1295,11 @@ def _enqueue_calendar_recalc(
     project_id_strs = [str(pid) for pid in project_ids]
 
     actor_label = ""
+    # ``actor_id`` alongside the display ``actor`` (#4088): every other event names
+    # its actor by id, and a label alone cannot be compared against the current
+    # user (self-echo) or resolved by an integrator. Same string encoding as
+    # task_updated's actor_id. ``None`` for a system-originated change.
+    actor_id: str | None = None
     if actor is not None and getattr(actor, "is_authenticated", False):
         from trueppm_api.apps.workspace.models import AuditEventType
         from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
@@ -1302,6 +1307,7 @@ def _enqueue_calendar_recalc(
         # Same label the audit row denormalizes, so the live toast and the log entry
         # a reader finds afterwards name the person identically.
         actor_label = _actor_label(actor)
+        actor_id = str(actor.pk)
 
         record_audit_event(
             event_type=AuditEventType.CALENDAR_CHANGED,
@@ -1330,7 +1336,7 @@ def _enqueue_calendar_recalc(
             broadcast_board_event(
                 pid,
                 "project_calendar_changed",
-                {"id": pid, "actor": actor_label},
+                {"id": pid, "actor": actor_label, "actor_id": actor_id},
             )
 
     transaction.on_commit(_dispatch)
@@ -3065,12 +3071,17 @@ class ProjectViewSet(
             from trueppm_api.apps.workspace.services import _actor_label
 
             actor_label = _actor_label(request.user)
+            actor_id = str(request.user.pk)
 
-            def _dispatch(pid: str = str(project.id), actor: str = actor_label) -> None:
+            def _dispatch(
+                pid: str = str(project.id), actor: str = actor_label, uid: str = actor_id
+            ) -> None:
                 from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
                 _enqueue_recalculate(pid, reason=ScheduleRequestReason.CALENDAR_CHANGE)
-                broadcast_board_event(pid, "project_calendar_changed", {"id": pid, "actor": actor})
+                broadcast_board_event(
+                    pid, "project_calendar_changed", {"id": pid, "actor": actor, "actor_id": uid}
+                )
 
             transaction.on_commit(_dispatch)
 
@@ -12799,7 +12810,9 @@ def _broadcast_retro_updated(sprint: Sprint) -> None:
     def _on_commit() -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        broadcast_board_event(project_id, "sprint_retro_updated", {"sprint_id": sprint_id})
+        broadcast_board_event(
+            project_id, "sprint_retro_updated", {"id": sprint_id, "sprint_id": sprint_id}
+        )
 
     transaction.on_commit(_on_commit)
 

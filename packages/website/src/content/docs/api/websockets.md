@@ -179,6 +179,10 @@ The set is open-ended and grows as features land; current event types include:
   `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `sprint_close_failed`,
   `sprint_reranked`, `sprint_retro_updated`, `milestone_rollup_updated`,
   `milestone_forecast_updated`, `poker_session_updated`, `demo_toggled`.
+  The `sprint_*` events and `demo_reordered` name the sprint as `id`.
+  `sprint_reranked`, `sprint_retro_updated`, `sprint_scope_changed` and
+  `demo_reordered` also keep their older `sprint_id` key with the same value; the `id`
+  key on those four ships in 0.5.
   `sprint_close_failed` is the negative counterpart of `sprint_closed`: closing a
   sprint is asynchronous (the endpoint returns `202` with a `request_id`), and
   this event fires when that request is abandoned and the sprint will stay open.
@@ -225,8 +229,11 @@ The set is open-ended and grows as features land; current event types include:
   `program_closed`, `program_reopened`, `program_deleted`, `program_split`,
   `program_sponsorship_transferred`
 - **Task suggestions**: `suggestion_created`, `suggestion_declined`,
-  `suggestion_revoked` (decline/revoke carry only the suggestion + task id — never
-  the actor — a silent state reconciliation, not a callout)
+  `suggestion_revoked`. All three carry the suggestion as `id` and the task as
+  `task_id`; `suggestion_created` also keeps `suggestion_id` (same value) and adds
+  `suggested_user_id` (its `id` key ships in 0.5). Decline/revoke carry only the
+  suggestion + task id — never the actor — a silent state reconciliation, not a
+  callout
 - **API tokens**: `api_token_minted`, `api_token_revoked` (project-scoped
   tokens only — payload is `{"id": "<token uuid>"}`; the name, secret prefix, raw token and
   hash are never sent, so refetch the token list for details; program-scoped and
@@ -250,7 +257,8 @@ The set is open-ended and grows as features land; current event types include:
   — this trigger ships in 0.5); Calendar
   itself is a shared org-level resource with no channel of its own. The payload
   carries `actor`, the display name of whoever made the edit (empty for a system or
-  unauthenticated write) — a calendar edit can move finish dates on a project whose
+  unauthenticated write), and `actor_id`, the same user's id as a string (`null` for a
+  system write; ships in 0.5) — a calendar edit can move finish dates on a project whose
   own members did nothing, so the event names who did it
 - **Presence**: `presence_join`, `presence_leave`
 
@@ -274,6 +282,17 @@ reaches it. Do not refetch everything on every reconnect, though. Reconnect with
 you missed or tells you, with `resync_required`, that it cannot. Refetch only in
 that case. Event payloads are intentionally minimal (usually `{ "id": "<uuid>" }`
 or a small id set): fetch the resource for its full state.
+
+**Identity keys.** An event whose subject is a row — every `*_created`, `*_updated`
+and `*_deleted` event, and the sprint-family events above — names that row as
+`payload.id`. Key on `id`; a more specific key such as `sprint_id` or
+`suggestion_id` may appear beside it with the same value, kept for older consumers.
+An actor is named as `actor_id`, never by display label alone. The exceptions have
+no single subject row: `board_config_updated` (the project's board configuration),
+`dependencies_bulk_created` (a batch, named by `dependency_ids`) and
+`milestone_forecast_updated` (a computed forecast, named by `milestone_id`). The API
+test suite enforces this rule over every broadcast call site, with those three as
+its only waivers (ships in 0.5).
 
 ### Sequence numbers and reconnect replay
 

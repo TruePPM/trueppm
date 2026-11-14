@@ -388,7 +388,7 @@ def reorder_sprint(sprint: Any, ordered: list[tuple[str, int]], actor: Any) -> i
             sid = str(sprint.id)
             transaction.on_commit(
                 lambda: broadcast_board_event(
-                    pid, "sprint_reranked", {"project_id": pid, "sprint_id": sid}
+                    pid, "sprint_reranked", {"id": sid, "project_id": pid, "sprint_id": sid}
                 )
             )
     return changed
