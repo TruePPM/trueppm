@@ -87,7 +87,7 @@ export function EpicDeleteConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={isPending}
-            className="h-8 rounded-control border-none bg-semantic-critical px-3 text-[13px] font-medium text-white dark:text-navy-900 hover:bg-semantic-critical/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-semantic-critical disabled:opacity-50"
+            className="h-8 rounded-control border-none bg-semantic-critical px-3 text-[13px] font-medium text-semantic-on-critical hover:bg-semantic-critical/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-semantic-critical disabled:opacity-50"
           >
             {isPending ? 'Deleting…' : 'Delete epic'}
           </button>

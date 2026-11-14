@@ -303,7 +303,7 @@ function LabelRow({
               setConfirming(false);
             }}
             data-testid={`label-delete-confirm-${label.id}`}
-            className="ml-auto rounded-control bg-semantic-critical px-2 py-1 text-white dark:text-navy-900 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+            className="ml-auto rounded-control bg-semantic-critical px-2 py-1 text-semantic-on-critical focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Delete
           </button>

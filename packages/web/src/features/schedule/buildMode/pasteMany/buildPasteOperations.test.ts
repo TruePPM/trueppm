@@ -138,14 +138,7 @@ describe('buildPasteOperations', () => {
     // and for a typo alike, so neither could be told apart downstream (#2905).
     const rows = parsePastedText('Task\tOwner\nSurvey\tAna\nDesign\tNobody Here');
     const columns = inferColumns(rows, true);
-    const result = buildPasteOperations(
-      rows,
-      columns,
-      [ANA, ANA_S],
-      null,
-      true,
-      sequentialIds(),
-    );
+    const result = buildPasteOperations(rows, columns, [ANA, ANA_S], null, true, sequentialIds());
 
     expect(result.summary.ambiguousOwnerCount).toBe(1);
     expect(result.summary.unmatchedOwnerCount).toBe(1);
@@ -195,6 +188,7 @@ describe('buildPasteOperations', () => {
 
     expect(result.summary.matchedFields.sort()).toEqual(['duration', 'name']);
     expect(result.summary.ignoredColumnCount).toBe(1);
+    expect(result.summary.ignoredColumnNames).toEqual(['Notes']);
   });
   // #3102 — allocation. `units` was a hard-coded literal 1 here, so a pasted plan
   // committed everyone at 100% no matter what its allocation column said, silently

@@ -83,7 +83,7 @@ export function TaskFlagsSection({ task }: { task: Task }) {
           title={flag.title}
           className={
             flag.severity === 'critical'
-              ? 'inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-semibold text-white dark:text-navy-900 bg-semantic-critical'
+              ? 'inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-semibold text-semantic-on-critical bg-semantic-critical'
               : 'inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-semibold border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk'
           }
         >

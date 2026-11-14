@@ -225,6 +225,57 @@ describe('CalendarGrid', () => {
     expect(screen.getByText(/\+1 more/i)).toBeInTheDocument();
   });
 
+  describe('"+N more" escape hatch (rule 296, #3179)', () => {
+    function crowded(onTaskClick = vi.fn()) {
+      const tasks = Array.from({ length: 6 }, (_, i) =>
+        baseTask({
+          id: `t${i}`,
+          wbs: `1.${i}`,
+          name: `Crowded ${i}`,
+          start: '2026-05-04',
+          finish: '2026-05-08',
+        }),
+      );
+      render(
+        <CalendarGrid anchorIso={ANCHOR} calView="month" tasks={tasks} onTaskClick={onTaskClick} />,
+      );
+      return onTaskClick;
+    }
+
+    it('is a named button that lists exactly the hidden tasks', async () => {
+      const user = userEvent.setup();
+      crowded();
+      const trigger = screen.getByRole('button', { name: /2 more tasks on/i });
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await user.click(trigger);
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      const panel = screen.getByRole('dialog', { name: /Tasks on/i });
+      expect(panel.querySelectorAll('button')).toHaveLength(2);
+    });
+
+    it('opens the task and closes when a hidden task is chosen', async () => {
+      const user = userEvent.setup();
+      const onTaskClick = crowded();
+      await user.click(screen.getByRole('button', { name: /2 more tasks on/i }));
+      const panel = screen.getByRole('dialog');
+      const first = panel.querySelector('button') as HTMLButtonElement;
+      const id = first.textContent?.replace('Crowded ', 't');
+      await user.click(first);
+      expect(onTaskClick).toHaveBeenCalledWith(id);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('Escape closes only the popover and returns focus to the trigger', async () => {
+      const user = userEvent.setup();
+      crowded();
+      const trigger = screen.getByRole('button', { name: /2 more tasks on/i });
+      await user.click(trigger);
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(trigger).toHaveFocus();
+    });
+  });
+
   it('does not show overflow badge with 4 or fewer overlapping tasks', () => {
     const tasks = Array.from({ length: 4 }, (_, i) =>
       baseTask({
@@ -289,8 +340,8 @@ describe('CalendarGrid', () => {
     expect(rows.querySelectorAll('.bg-neutral-surface-sunken').length).toBeGreaterThan(0);
     // The cap still applies: 6 overlapping tasks, 4 lanes, 2 hidden.
     expect(screen.getByText('+2 more')).toBeInTheDocument();
-    // Fixed 4-lane row height, independent of task count.
-    expect((rows.querySelector(':scope > div') as HTMLElement).style.minHeight).toBe('120px');
+    // Fixed 4-lane row height plus the "+N more" strip, independent of task count.
+    expect((rows.querySelector(':scope > div') as HTMLElement).style.minHeight).toBe('144px');
   });
 
   it('week mode renders a single week row, month mode renders several', () => {
@@ -384,8 +435,8 @@ describe('CalendarGrid', () => {
     };
     // 24 + 10*22 + 8 = 252
     expect(rowHeight('week')).toBe('252px');
-    // month is pinned to the 4-lane cell height regardless of task count
-    expect(rowHeight('month')).toBe('120px');
+    // month is pinned to the 4-lane cell height (+ the 24px "+N more" strip) regardless of task count
+    expect(rowHeight('month')).toBe('144px');
   });
 
   it('week mode floors an empty week at the month row height and names it', () => {

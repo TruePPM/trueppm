@@ -119,6 +119,22 @@ test.describe('Calendar week view (#3167)', () => {
     await expect(page.getByRole('button', { name: /Later In March/ })).toBeVisible();
   });
 
+  test('Month "+N more" opens a list of the hidden tasks and Escape closes it (#3179)', async ({
+    page,
+  }) => {
+    await page.goto(url('month'));
+    await expect(page.getByRole('heading', { level: 2, name: 'March 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const more = page.getByRole('button', { name: /4 more tasks on/ });
+    await more.click();
+    const panel = page.getByRole('dialog', { name: /^Tasks on/ });
+    await expect(panel.getByRole('button')).toHaveCount(4);
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+    await expect(more).toBeFocused();
+  });
+
   test('toggling Month → Week swaps the view and the heading', async ({ page }) => {
     await page.goto(url('month'));
     await expect(page.getByRole('heading', { level: 2, name: 'March 2026' })).toBeVisible({

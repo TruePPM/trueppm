@@ -302,7 +302,12 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
     return (
       <div className="space-y-4">
         {!isFlagged ? (
-          <span className="text-sm text-neutral-text-secondary">Not blocked</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-neutral-text-secondary">Not blocked</span>
+            {/* A queued unblock optimistically cleared the row; a viewer has no
+                write control, so this badge is their only sign it is unsynced. */}
+            {pendingUnblock && <BlockerPendingBadge kind="unblock" />}
+          </div>
         ) : (
           <div className="space-y-4">
             <BlockerSignalChips

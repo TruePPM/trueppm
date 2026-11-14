@@ -83,7 +83,7 @@ function DeleteProgramCard({
         disabled={!confirmed || busy}
         onClick={onDelete}
         className={[
-          'px-4 py-2 rounded-control text-[13px] font-semibold text-white dark:text-navy-900 bg-semantic-critical transition-opacity',
+          'px-4 py-2 rounded-control text-[13px] font-semibold text-semantic-on-critical bg-semantic-critical transition-opacity',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
           confirmed && !busy ? 'opacity-100 hover:opacity-90' : 'opacity-40 cursor-not-allowed',
         ].join(' ')}
