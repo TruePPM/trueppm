@@ -235,6 +235,42 @@ check "exits 1 — an entry for one tag never covers another" \
 check "reports the api image at the other tag as MISSING, not SKIP" \
   "$(grep -q "MISSING registry.example.com/trueppm/trueppm/api:v0.9.9" <<<"$OUT" && echo 0 || echo 1)"
 
+echo "check-release-images: GHCR bare-semver mode (#4373)"
+GH_API="ghcr.io/trueppm/api:0.3.0-alpha.3"
+GH_WEB="ghcr.io/trueppm/web:0.3.0-alpha.3"
+present "$GH_API" "$GH_WEB"
+set +e
+OUT="$(
+  env -u CI_REGISTRY_IMAGE RELEASE_IMAGE_BASE="ghcr.io/trueppm" RELEASE_TAG_BARE=1   RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present"   bash "$GATE" "$FIXTURE_TAG" 2>&1
+)"
+RC=$?
+set -e
+check "exits 0 when both bare-semver GHCR images exist, with no CI_REGISTRY_IMAGE" \
+  "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
+present "$GH_API"  # web gone
+set +e
+OUT="$(
+  env -u CI_REGISTRY_IMAGE RELEASE_IMAGE_BASE="ghcr.io/trueppm" RELEASE_TAG_BARE=1   RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present" \
+  bash "$GATE" "$FIXTURE_TAG" 2>&1
+)"
+RC=$?
+set -e
+check "exits 1 when the bare-semver web image is missing" \
+  "$([[ $RC -eq 1 ]] && echo 0 || echo 1)"
+check "names the bare-semver ref, not the v-prefixed one" \
+  "$(grep -q "MISSING $GH_WEB" <<<"$OUT" && echo 0 || echo 1)"
+present "ghcr.io/trueppm/api:v0.3.0-alpha.3" "ghcr.io/trueppm/web:v0.3.0-alpha.3"
+set +e
+OUT="$(
+  env -u CI_REGISTRY_IMAGE RELEASE_IMAGE_BASE="ghcr.io/trueppm" RELEASE_TAG_BARE=1 \
+  RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present" \
+  bash "$GATE" "$FIXTURE_TAG" 2>&1
+)"
+RC=$?
+set -e
+check "a v-prefixed GHCR copy does not satisfy the bare-semver probe" \
+  "$([[ $RC -eq 1 ]] && echo 0 || echo 1)"
+
 echo
 if [[ "$fail" -gt 0 ]]; then
   echo "check-release-images.test.sh: $pass passed, $fail FAILED"

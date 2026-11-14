@@ -9275,6 +9275,36 @@ registry:release-images:
   script:
     - bash scripts/check-release-images.sh
 
+registry:ghcr-release-images:
+  # Nightly proof that the Compose publish path is pullable (#4373).
+  # docker-compose.prod.yml resolves ghcr.io/trueppm/{api,web}:<bare-semver>
+  # (the release pipeline strips the `v`), a ref neither registry:release-images
+  # (GitLab registry, v-prefixed) nor check-compose-image-pins.sh (scopes
+  # first-party images out) ever probes. Same shape and same reasoning as
+  # registry:release-images: an image vanishing is not a diff event. Anonymous
+  # `docker manifest inspect` — the packages are public, and that is also what a
+  # self-hoster's `docker compose pull` does.
+  stage: publish
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    GIT_DEPTH: "0"
+    RELEASE_IMAGE_BASE: "ghcr.io/trueppm"
+    RELEASE_TAG_BARE: "1"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $REGISTRY_NIGHTLY == "true"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - scripts/check-release-images.sh
+        - scripts/tests/check-release-images.test.sh
+        - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache bash git
+  script:
+    - bash scripts/check-release-images.sh
+
 registry:chart-resolution:
   # Nightly proof that the command we tell operators to run installs a chart that
   # can pull its images (#3914). The v0.4.0-beta.1 cut published a chart as plain
