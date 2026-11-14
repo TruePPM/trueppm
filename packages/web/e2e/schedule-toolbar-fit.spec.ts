@@ -175,6 +175,10 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     await expect(exportInBar).toHaveCount(1);
 
     await page.setViewportSize({ width: 800, height: 900 });
+    // Wait for the ladder to concede first: a poll on overflow==0 alone can sample 0 before the re-fit.
+    await expect
+      .poll(async () => (await fitReport(page)).step, { timeout: 5_000 })
+      .toBeGreaterThan(wide);
     await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
     expect((await fitReport(page)).step).toBeGreaterThan(wide);
     await expect(exportInBar).toHaveCount(0);
