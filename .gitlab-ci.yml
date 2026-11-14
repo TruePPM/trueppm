@@ -1337,7 +1337,7 @@ lint:loading-skeleton-role:
 lint:dark-text-white:
   extends: .fast-job
   # Filled semantic/brand surface + text-white with no dark:text-* override is
-  # 2.3-2.8:1 in dark mode (web-rule 445, #4669). See scripts/check-dark-text-white.py.
+  # 2.3-2.8:1 in dark mode (web-rule 456, #4669). See scripts/check-dark-text-white.py.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:

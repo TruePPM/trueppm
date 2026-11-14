@@ -4143,6 +4143,15 @@ describe('working-time shading (#1498)', () => {
     expect(days).not.toContain('2026-04-13');
   });
 
+  it('matches holiday ranges via the expanded-day set, inclusive of both ends', () => {
+    const wt = { mask: 31, exceptions: [{ start: '2026-04-08', end: '2026-04-10' }] };
+    expect(isNonWorkingDay(new Date('2026-04-07T00:00:00Z'), wt)).toBe(false);
+    expect(isNonWorkingDay(new Date('2026-04-08T00:00:00Z'), wt)).toBe(true);
+    expect(isNonWorkingDay(new Date('2026-04-09T12:00:00Z'), wt)).toBe(true);
+    expect(isNonWorkingDay(new Date('2026-04-10T00:00:00Z'), wt)).toBe(true);
+    expect(isNonWorkingDay(new Date('2026-04-13T00:00:00Z'), wt)).toBe(false);
+  });
+
   it('reads the weekday in UTC, never the local getter', () => {
     // 23:30 UTC Friday must stay a Friday for a viewer in any timezone.
     expect(isNonWorkingDay(new Date('2026-04-03T23:30:00Z'), { mask: 31, exceptions: [] })).toBe(false);

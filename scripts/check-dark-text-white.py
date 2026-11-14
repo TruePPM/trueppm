@@ -126,7 +126,7 @@ def main() -> int:
         print(
             f"\nFAIL: {len(hits)} filled semantic/brand surface(s) pair text-white with no dark override "
             "(white on the dark-mode light fills is 2.3-2.8:1). Add `dark:text-navy-900` (as Button does), "
-            'or use <Button variant="danger">. See web-rule 445.',
+            'or use <Button variant="danger">. See web-rule 456.',
             file=sys.stderr,
         )
         return 1

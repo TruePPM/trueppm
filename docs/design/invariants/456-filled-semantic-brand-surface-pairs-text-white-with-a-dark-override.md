@@ -1,4 +1,4 @@
-# Rule 445 — A filled semantic/brand surface that sets `text-white` carries a `dark:text-*` override
+# Rule 456 — A filled semantic/brand surface that sets `text-white` carries a `dark:text-*` override
 
 > **Invariant.** Indexed from [`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), section *Color and tokens*. The index carries the rule's headline; this file carries its full text (#4669). Binding everywhere, not only on the surface that produced it.
 

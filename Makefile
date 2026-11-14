@@ -335,7 +335,7 @@ loading-skeleton-role-check: ## Fail if aria-label="Loading…" sits on a role-l
 	@python3 scripts/check-loading-skeleton-role.py --self-test
 	@python3 scripts/check-loading-skeleton-role.py
 
-dark-text-white-check: ## Fail if a filled semantic/brand surface sets text-white with no dark:text-* override (web-rule 445, #4669)
+dark-text-white-check: ## Fail if a filled semantic/brand surface sets text-white with no dark:text-* override (web-rule 456, #4669)
 	@python3 scripts/check-dark-text-white.py --self-test
 	@python3 scripts/check-dark-text-white.py
 

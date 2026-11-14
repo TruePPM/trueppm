@@ -524,8 +524,37 @@ export function isNonWorkingDay(date: Date, workingTime: WorkingTimeConfig): boo
   const bit = 1 << (dow === 0 ? 6 : dow - 1);
   if ((workingTime.mask & bit) === 0) return true;
   if (workingTime.exceptions.length === 0) return false;
-  const iso = date.toISOString().slice(0, 10);
-  return workingTime.exceptions.some((e) => e.start <= iso && iso <= e.end);
+  return expandedExceptionDays(workingTime.exceptions).has(date.toISOString().slice(0, 10));
+}
+
+/**
+ * Expanded non-working ISO days per exceptions array. Shading asks once per visible
+ * day column per repaint, so a linear range scan over every holiday each time is
+ * wasted work; the array identity changes only when the calendar does, so a WeakMap
+ * keyed on it expands each calendar once. Expansion is capped per range so a
+ * malformed multi-century exception cannot allocate unboundedly.
+ */
+const _exceptionDayCache = new WeakMap<object, ReadonlySet<string>>();
+const MAX_EXCEPTION_RANGE_DAYS = 3660;
+
+function expandedExceptionDays(
+  exceptions: WorkingTimeConfig['exceptions'],
+): ReadonlySet<string> {
+  const cached = _exceptionDayCache.get(exceptions);
+  if (cached) return cached;
+  const days = new Set<string>();
+  const dayMs = 86_400_000;
+  for (const e of exceptions) {
+    const start = Date.parse(`${e.start}T00:00:00Z`);
+    const end = Date.parse(`${e.end}T00:00:00Z`);
+    if (Number.isNaN(start) || Number.isNaN(end)) continue;
+    const last = Math.min(end, start + MAX_EXCEPTION_RANGE_DAYS * dayMs);
+    for (let ms = start; ms <= last; ms += dayMs) {
+      days.add(new Date(ms).toISOString().slice(0, 10));
+    }
+  }
+  _exceptionDayCache.set(exceptions, days);
+  return days;
 }
 
 // ---------------------------------------------------------------------------
