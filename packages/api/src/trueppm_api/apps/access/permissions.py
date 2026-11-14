@@ -854,6 +854,7 @@ class IsProjectMember(BasePermission):
         if project_id is None:
             # Fail closed, like every sibling class (#4581). An object with no
             # project path has no membership to check; granting "authenticated is
+            # time-bound-ok: a safety rationale about hypothetical callers, not a status claim
             # enough" here would let any future viewset that lists this class on a
             # project-less model open its detail routes to every signed-in user.
             # Calendar was the original org-level case; since #3600 it declares its

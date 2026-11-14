@@ -427,6 +427,11 @@ pii-exposure-check: ## Fail on a new email-in-a-hand-rolled-dict or unnarrowed U
 	@python3 scripts/check-pii-exposure.py --self-test
 	@python3 scripts/check-pii-exposure.py
 
+time-bound-comments-check: ## Fail on an unanchored UNRELEASED/Stub/future-viewset/as-of-this-writing comment (#4399)
+	@# Comments asserting a time-bound fact outlive the fact. Phrase grep, ~1s.
+	@python3 scripts/check-time-bound-comments.py --self-test
+	@python3 scripts/check-time-bound-comments.py
+
 demo-readonly-check: ## Fail if a demo manifest enables persona logins (#2773)
 	@# The hosted demo's read-only posture is what makes publishing it safe, and
 	@# it is enforced by the absence of one flag in two YAML files. Grep, ~1s.
@@ -814,6 +819,7 @@ pre-push-checks: build-system-pins-check
 pre-push-checks: dependency-soft-delete-check
 pre-push-checks: membership-live-floor-check
 pre-push-checks: pii-exposure-check
+pre-push-checks: time-bound-comments-check
 pre-push-checks: enterprise-boundary-check
 pre-push-checks: boundary-doc-check
 pre-push-checks: release-labels-check

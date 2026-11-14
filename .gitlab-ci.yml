@@ -2647,6 +2647,24 @@ api:pii-exposure:
     - python3 scripts/check-pii-exposure.py --self-test
     - python3 scripts/check-pii-exposure.py
 
+api:time-bound-comments:
+  # Comments asserting a time-bound fact ("Stub", "UNRELEASED", "as of this writing")
+  # outlive the fact (#4399). Each match needs a TODO(#NNN) or `time-bound-ok:` reason.
+  # An opt-out is a rubber stamp: it removes the silence only.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    # Self-test FIRST (#3195): prove the gate still fails before believing it passed.
+    - python3 scripts/check-time-bound-comments.py --self-test
+    - python3 scripts/check-time-bound-comments.py
+
 demo:readonly-posture:
   extends: .fast-job
   # The hosted demo must stay read-only by construction (#2773, gates #2271).
