@@ -41,6 +41,7 @@ interface WorkspaceSettingsPatchRaw {
   iteration_label_override_policy?: IterationLabelOverridePolicy;
   mc_history_enabled?: boolean;
   mc_history_retention_cap?: number;
+  near_critical_threshold_days?: number;
   mc_history_attribution_audience?: MCAttributionAudience;
   mc_history_override_policy?: MCHistoryOverridePolicy;
   task_duration_change_percent_policy?: DurationChangePercentPolicy;
@@ -77,6 +78,7 @@ const FIELD_MAP: ReadonlyArray<[keyof WorkspaceSettingsPatch, keyof WorkspaceSet
   ['iterationLabelOverridePolicy', 'iteration_label_override_policy'],
   ['mcHistoryEnabled', 'mc_history_enabled'],
   ['mcHistoryRetentionCap', 'mc_history_retention_cap'],
+  ['nearCriticalThresholdDays', 'near_critical_threshold_days'],
   ['mcHistoryAttributionAudience', 'mc_history_attribution_audience'],
   ['mcHistoryOverridePolicy', 'mc_history_override_policy'],
   ['taskDurationChangePercentPolicy', 'task_duration_change_percent_policy'],

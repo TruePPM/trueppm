@@ -25,12 +25,26 @@ import type {
   PublicSharingOverridePolicy,
   TaskDurationChangePercentOverridePolicy,
 } from '@/api/types';
-import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
+import {
+  MC_HISTORY_RETENTION_MAX,
+  MC_HISTORY_RETENTION_MIN,
+  NEAR_CRITICAL_THRESHOLD_MAX,
+  NEAR_CRITICAL_THRESHOLD_MIN,
+} from '@/api/types';
 
 /** Clamp the retention cap into the server-enforced [1, 500] range. */
 function clampRetention(n: number): number {
   if (Number.isNaN(n)) return MC_HISTORY_RETENTION_MIN;
   return Math.min(MC_HISTORY_RETENTION_MAX, Math.max(MC_HISTORY_RETENTION_MIN, Math.round(n)));
+}
+
+/** Clamp the near-critical threshold into the server-enforced [1, 260] working days. */
+function clampThreshold(n: number): number {
+  if (Number.isNaN(n)) return NEAR_CRITICAL_THRESHOLD_MIN;
+  return Math.min(
+    NEAR_CRITICAL_THRESHOLD_MAX,
+    Math.max(NEAR_CRITICAL_THRESHOLD_MIN, Math.round(n)),
+  );
 }
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
@@ -107,6 +121,7 @@ export function WorkspaceGeneralPage() {
   // Forecast-history config (ADR-0144, issue 1232) — workspace is the non-null root.
   const [mcHistoryEnabled, setMcHistoryEnabled] = useState(true);
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState(100);
+  const [nearCriticalThresholdDays, setNearCriticalThresholdDays] = useState(10);
   const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
     useState<MCAttributionAudience>('admin_owner');
   const [mcHistoryOverridePolicy, setMcHistoryOverridePolicy] =
@@ -136,6 +151,7 @@ export function WorkspaceGeneralPage() {
     iterationLabelPolicy: 'suggest' as IterationLabelOverridePolicy,
     mcHistoryEnabled: true,
     mcHistoryRetentionCap: 100,
+    nearCriticalThresholdDays: 10,
     mcHistoryAttributionAudience: 'admin_owner' as MCAttributionAudience,
     mcHistoryOverridePolicy: 'suggest' as MCHistoryOverridePolicy,
     taskDurationChangePercentPolicy: 'keep' as DurationChangePercentPolicy,
@@ -162,6 +178,7 @@ export function WorkspaceGeneralPage() {
       iterationLabelPolicy: ws.iterationLabelOverridePolicy,
       mcHistoryEnabled: ws.mcHistoryEnabled,
       mcHistoryRetentionCap: ws.mcHistoryRetentionCap,
+      nearCriticalThresholdDays: ws.nearCriticalThresholdDays,
       mcHistoryAttributionAudience: ws.mcHistoryAttributionAudience,
       mcHistoryOverridePolicy: ws.mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy: ws.taskDurationChangePercentPolicy,
@@ -181,6 +198,7 @@ export function WorkspaceGeneralPage() {
     setIterationLabelPolicy(snap.iterationLabelPolicy);
     setMcHistoryEnabled(snap.mcHistoryEnabled);
     setMcHistoryRetentionCap(snap.mcHistoryRetentionCap);
+    setNearCriticalThresholdDays(snap.nearCriticalThresholdDays);
     setMcHistoryAttributionAudience(snap.mcHistoryAttributionAudience);
     setMcHistoryOverridePolicy(snap.mcHistoryOverridePolicy);
     setTaskDurationChangePercentPolicy(snap.taskDurationChangePercentPolicy);
@@ -203,6 +221,7 @@ export function WorkspaceGeneralPage() {
     iterationLabelPolicy,
     mcHistoryEnabled,
     mcHistoryRetentionCap,
+    nearCriticalThresholdDays,
     mcHistoryAttributionAudience,
     mcHistoryOverridePolicy,
     taskDurationChangePercentPolicy,
@@ -225,6 +244,7 @@ export function WorkspaceGeneralPage() {
       iterationLabelOverridePolicy: iterationLabelPolicy,
       mcHistoryEnabled,
       mcHistoryRetentionCap: clampRetention(mcHistoryRetentionCap),
+      nearCriticalThresholdDays: clampThreshold(nearCriticalThresholdDays),
       mcHistoryAttributionAudience,
       mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy,
@@ -246,6 +266,7 @@ export function WorkspaceGeneralPage() {
       iterationLabelPolicy,
       mcHistoryEnabled,
       mcHistoryRetentionCap: clampRetention(mcHistoryRetentionCap),
+      nearCriticalThresholdDays: clampThreshold(nearCriticalThresholdDays),
       mcHistoryAttributionAudience,
       mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy,
@@ -266,6 +287,7 @@ export function WorkspaceGeneralPage() {
     iterationLabelPolicy,
     mcHistoryEnabled,
     mcHistoryRetentionCap,
+    nearCriticalThresholdDays,
     mcHistoryAttributionAudience,
     mcHistoryOverridePolicy,
     taskDurationChangePercentPolicy,
@@ -288,6 +310,7 @@ export function WorkspaceGeneralPage() {
     setIterationLabelPolicy(initial.iterationLabelPolicy);
     setMcHistoryEnabled(initial.mcHistoryEnabled);
     setMcHistoryRetentionCap(initial.mcHistoryRetentionCap);
+    setNearCriticalThresholdDays(initial.nearCriticalThresholdDays);
     setMcHistoryAttributionAudience(initial.mcHistoryAttributionAudience);
     setMcHistoryOverridePolicy(initial.mcHistoryOverridePolicy);
     setTaskDurationChangePercentPolicy(initial.taskDurationChangePercentPolicy);
@@ -776,6 +799,32 @@ export function WorkspaceGeneralPage() {
             />
             <span className="text-[12px] text-neutral-text-secondary">
               Between {MC_HISTORY_RETENTION_MIN} and {MC_HISTORY_RETENTION_MAX} runs.
+            </span>
+          </div>
+        </FieldRow>
+
+        <FieldRow
+          label="Near-critical threshold"
+          hint="Tasks with this much float or less are marked near-critical and explained in the task drawer. This is the default for every program and project in the workspace."
+        >
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={NEAR_CRITICAL_THRESHOLD_MIN}
+                max={NEAR_CRITICAL_THRESHOLD_MAX}
+                step={1}
+                value={nearCriticalThresholdDays}
+                aria-label="Near-critical threshold in working days"
+                onChange={(e) =>
+                  setNearCriticalThresholdDays(clampThreshold(e.target.valueAsNumber))
+                }
+                className="w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
+              />
+              <span className="text-[13px] text-neutral-text-secondary">wd</span>
+            </div>
+            <span className="text-[12px] text-neutral-text-secondary">
+              {NEAR_CRITICAL_THRESHOLD_MIN}–{NEAR_CRITICAL_THRESHOLD_MAX} working days
             </span>
           </div>
         </FieldRow>

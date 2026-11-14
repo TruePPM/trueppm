@@ -25,11 +25,7 @@ import {
   type TemplateNameTaken,
 } from '@/hooks/useProjectTemplates';
 import type { ProgramMethodology } from '@/api/types';
-import {
-  TEMPLATE_CARD_CLASS,
-  TemplateCardBody,
-  carriesLine,
-} from '@/features/shell/TemplateCard';
+import { TEMPLATE_CARD_CLASS, TemplateCardBody, carriesLine } from '@/features/shell/TemplateCard';
 
 /** The 409 body, when the failure is a taken name rather than anything else. */
 function nameTaken(err: unknown): TemplateNameTaken | null {
@@ -162,9 +158,7 @@ export function PublishTemplateSheet({
             <label className="mt-3 block">
               <span className="text-xs font-medium text-neutral-text-secondary">
                 Description
-                <span className="ml-1 font-normal">
-                  — say who it is for, not what it contains
-                </span>
+                <span className="ml-1 font-normal">— say who it is for, not what it contains</span>
               </span>
               <textarea
                 value={description}
@@ -177,9 +171,7 @@ export function PublishTemplateSheet({
 
             <div className="mt-3">
               <label className="block">
-                <span className="text-xs font-medium text-neutral-text-secondary">
-                  Methodology
-                </span>
+                <span className="text-xs font-medium text-neutral-text-secondary">Methodology</span>
                 <select
                   value={methodology}
                   onChange={(e) => setMethodology(e.target.value as ProgramMethodology)}
@@ -197,13 +189,10 @@ export function PublishTemplateSheet({
                   announce as "Methodology From this project, and changeable. It
                   also decides where an adopting project lands: an Agile template
                   opens on…". Described, not named. */}
-              <p
-                id="publish-methodology-help"
-                className="mt-1 text-xs text-neutral-text-secondary"
-              >
-                From this project, and changeable. It also decides where an adopting project
-                lands: an <strong>Agile</strong> template opens on a seeded Product Backlog, not
-                on a Schedule of dateless bars.
+              <p id="publish-methodology-help" className="mt-1 text-xs text-neutral-text-secondary">
+                From this project, and changeable. It also decides where an adopting project lands:
+                an <strong>Agile</strong> template opens on a seeded Product Backlog, not on a
+                Schedule of dateless bars.
               </p>
             </div>
 

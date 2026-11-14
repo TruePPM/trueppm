@@ -165,6 +165,7 @@ export interface UpdateProjectPayload {
    *  the project inherits the program/workspace value. Admin+-only server-side. */
   mc_history_enabled?: boolean | null;
   mc_history_retention_cap?: number | null;
+  near_critical_threshold_days?: number | null;
   mc_history_attribution_audience?: MCAttributionAudience | null;
   /** Percent-complete-on-duration-change policy override (ADR-0151, issue 1254).
    *  `null` clears the override so the project inherits the program/workspace value.

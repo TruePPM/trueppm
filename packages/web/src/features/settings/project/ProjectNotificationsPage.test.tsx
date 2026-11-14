@@ -16,9 +16,9 @@ vi.mock('@/hooks/useProjectId', () => ({
 }));
 
 vi.mock('@/hooks/useProjectNotificationPreferences', async () => {
-  const actual = await vi.importActual<
-    typeof import('@/hooks/useProjectNotificationPreferences')
-  >('@/hooks/useProjectNotificationPreferences');
+  const actual = await vi.importActual<typeof import('@/hooks/useProjectNotificationPreferences')>(
+    '@/hooks/useProjectNotificationPreferences',
+  );
   return {
     ...actual,
     useProjectNotificationPreferences: (id: string | undefined) =>
@@ -132,7 +132,9 @@ describe('ProjectNotificationsPage', () => {
     renderPage();
     const overdueEmail = screen.getByRole('switch', { name: /task i own is overdue via email/i });
     expect(overdueEmail).toHaveAttribute('aria-checked', 'true');
-    const statusEmail = screen.getByRole('switch', { name: /task moves to another column via email/i });
+    const statusEmail = screen.getByRole('switch', {
+      name: /task moves to another column via email/i,
+    });
     expect(statusEmail).toHaveAttribute('aria-checked', 'false');
   });
 
@@ -287,11 +289,10 @@ describe('ProjectNotificationsPage', () => {
     });
     renderPage();
 
+    expect(screen.getByRole('heading', { name: /does not deliver on yet/i })).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: /does not deliver on yet/i }),
+      screen.getByText(/does not deliver notifications to mobile push yet/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/does not deliver notifications to mobile push yet/i))
-      .toBeInTheDocument();
     // The webhook pointer is about Slack specifically, so it goes when Slack works.
     expect(screen.queryByText(/project-wide feed/i)).not.toBeInTheDocument();
   });

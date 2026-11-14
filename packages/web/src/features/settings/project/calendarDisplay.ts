@@ -112,7 +112,10 @@ export function summarizeCalendar(calendar: Calendar, role: CalendarRole): strin
   if (n === 0) return 'No dates';
   if (n === 1) {
     const e = calendar.exceptions[0];
-    const range = e.exc_start === e.exc_end ? formatShort(e.exc_start) : `${formatShort(e.exc_start)} – ${formatShort(e.exc_end)}`;
+    const range =
+      e.exc_start === e.exc_end
+        ? formatShort(e.exc_start)
+        : `${formatShort(e.exc_start)} – ${formatShort(e.exc_end)}`;
     return `1 ${noun} · ${range}`;
   }
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
@@ -189,8 +192,18 @@ export interface MonthGrid {
 }
 
 const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 /** Sunday-first weekday header, matching the grid's leading-pad convention. */

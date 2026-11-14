@@ -89,7 +89,10 @@ describe('ProjectLabelsPage', () => {
   it('Admin sees an editable manager row and can rename, reorder and delete', () => {
     useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN });
     useLabels.mockReturnValue({
-      data: [label({ id: 'l-1', name: 'bug', position: 0 }), label({ id: 'l-2', name: 'debt', position: 1 })],
+      data: [
+        label({ id: 'l-1', name: 'bug', position: 0 }),
+        label({ id: 'l-2', name: 'debt', position: 1 }),
+      ],
       isLoading: false,
     });
     renderPage();
@@ -98,7 +101,9 @@ describe('ProjectLabelsPage', () => {
     const nameInput = screen.getByTestId('label-name-l-1');
     fireEvent.change(nameInput, { target: { value: 'defect' } });
     fireEvent.blur(nameInput);
-    expect(updateMutate).toHaveBeenCalledWith(expect.objectContaining({ labelId: 'l-1', name: 'defect' }));
+    expect(updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ labelId: 'l-1', name: 'defect' }),
+    );
 
     // Reorder: first row's move-up is disabled; move-down swaps positions.
     expect(screen.getByRole('button', { name: /Move bug up/ })).toBeDisabled();
@@ -156,7 +161,9 @@ describe('ProjectLabelsPage', () => {
   it('creating a label passes the trimmed name and selected color', () => {
     useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER });
     renderPage();
-    fireEvent.change(screen.getByTestId('label-create-name'), { target: { value: '  frontend  ' } });
+    fireEvent.change(screen.getByTestId('label-create-name'), {
+      target: { value: '  frontend  ' },
+    });
     fireEvent.click(screen.getByTestId('label-create-add'));
     expect(createMutate).toHaveBeenCalledWith({ name: 'frontend', color: LABEL_COLOR_KEYS[0] });
   });
@@ -402,7 +409,9 @@ describe('ProjectLabelsPage', () => {
   it('hides the create form and shows the cap message at the soft limit', () => {
     useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN });
     useLabels.mockReturnValue({
-      data: Array.from({ length: 50 }, (_, i) => label({ id: `l-${i}`, name: `n${i}`, position: i })),
+      data: Array.from({ length: 50 }, (_, i) =>
+        label({ id: `l-${i}`, name: `n${i}`, position: i }),
+      ),
       isLoading: false,
     });
     renderPage();

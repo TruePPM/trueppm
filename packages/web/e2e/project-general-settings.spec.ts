@@ -30,6 +30,9 @@ const FIXTURE_ME = {
 const FIXTURE_PROJECT = {
   id: PROJECT_ID,
   server_version: 1,
+  near_critical_threshold_days: null,
+  effective_near_critical_threshold_days: 10,
+  inherited_near_critical_threshold_days: 10,
   name: 'Atlas Migration',
   description: 'Migrate the data warehouse to the new platform.',
   start_date: '2026-03-02',
@@ -42,7 +45,12 @@ const FIXTURE_PROJECT = {
   // which is the single write surface (ADR-0441, #2009).
   calendar: 'cal-default',
   calendar_source: 'project',
-  effective_calendar: { id: 'cal-default', name: 'Workspace standard', working_days: 31, hours_per_day: 8 },
+  effective_calendar: {
+    id: 'cal-default',
+    name: 'Workspace standard',
+    working_days: 31,
+    hours_per_day: 8,
+  },
   estimation_mode: 'open',
   agile_features: false,
   methodology: 'HYBRID',
@@ -75,7 +83,12 @@ const FIXTURE_PROGRAMS = [
 // Org-level working calendars the override picker (#968) chooses from. Paginated
 // envelope — the endpoint uses the global PageNumberPagination default.
 const FIXTURE_CALENDARS = [
-  { id: 'cal-default', name: 'Workspace standard', working_days: [1, 2, 3, 4, 5], hours_per_day: 8 },
+  {
+    id: 'cal-default',
+    name: 'Workspace standard',
+    working_days: [1, 2, 3, 4, 5],
+    hours_per_day: 8,
+  },
   { id: 'cal-site', name: 'Site 6-day week', working_days: [1, 2, 3, 4, 5, 6], hours_per_day: 10 },
 ];
 
@@ -135,7 +148,12 @@ async function setup(
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ results: FIXTURE_CALENDARS, count: FIXTURE_CALENDARS.length, next: null, previous: null }),
+      body: pj({
+        results: FIXTURE_CALENDARS,
+        count: FIXTURE_CALENDARS.length,
+        next: null,
+        previous: null,
+      }),
     }),
   );
   await page.route('**/api/v1/projects/', (r) =>
@@ -343,9 +361,7 @@ test.describe('Project Settings → General', () => {
     // Resolved calendar name + provenance summary — no editable picker or toggle.
     await expect(section.getByText('Workspace standard')).toBeVisible();
     await expect(section.getByLabel('Working calendar override')).toHaveCount(0);
-    await expect(
-      section.getByRole('button', { name: 'Inherit from workspace' }),
-    ).toHaveCount(0);
+    await expect(section.getByRole('button', { name: 'Inherit from workspace' })).toHaveCount(0);
 
     // The link points at the Working calendars sub-page.
     const link = section.getByRole('link', { name: /Manage in Working calendars/i });
@@ -493,5 +509,22 @@ test.describe('Project Settings → General', () => {
 
     await expect(dialog.getByRole('alert')).toHaveText(message);
     await expect(dialog).toBeVisible();
+  });
+
+  test('near-critical threshold inherits, then Override PATCHes the wd value (#4892)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+    const group = page.getByRole('radiogroup', { name: 'Near-critical threshold in working days' });
+    await expect(group.getByText('Inherit (10 wd)')).toBeVisible();
+    await group.getByText('Override', { exact: true }).click();
+    const input = page.getByRole('spinbutton', { name: 'Near-critical threshold in working days' });
+    await expect(input).toHaveValue('10');
+    await input.fill('6');
+    await page.getByRole('button', { name: /Save changes/i }).click();
+    await expect.poll(() => captures.patch).toBeDefined();
+    expect(captures.patch).toMatchObject({ near_critical_threshold_days: 6 });
   });
 });

@@ -24,7 +24,11 @@ export function ProjectNotificationsPage() {
   const noteId = useId();
   const { preferences, isLoading, error, update } = useProjectNotificationPreferences(projectId);
 
-  function setCell(event: ProjectNotificationEventType, channel: ProjectNotificationChannel, next: boolean) {
+  function setCell(
+    event: ProjectNotificationEventType,
+    channel: ProjectNotificationChannel,
+    next: boolean,
+  ) {
     update.mutate({ matrix: { [event]: { [channel]: next } } });
   }
 
@@ -142,7 +146,9 @@ export function ProjectNotificationsPage() {
         >
           <div
             className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55 text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
-            style={{ gridTemplateColumns: `2fr repeat(${PROJECT_NOTIFICATION_CHANNELS.length}, 110px)` }}
+            style={{
+              gridTemplateColumns: `2fr repeat(${PROJECT_NOTIFICATION_CHANNELS.length}, 110px)`,
+            }}
           >
             <span className="flex items-center gap-1.5">
               Event
@@ -181,9 +187,9 @@ export function ProjectNotificationsPage() {
               set dynamic while its explanation stayed static (web-rule 407(c)). */}
           {(hasDeadEvents || deadChannels.length > 0) && (
             <p className="px-4 py-2 text-[12px] text-neutral-text-secondary border-b border-neutral-border/55">
-              Rows and columns marked <span className="font-medium">not delivered yet</span>{' '}
-              send nothing today, so changing them has no effect. Your choice is saved and
-              applies once delivery ships.
+              Rows and columns marked <span className="font-medium">not delivered yet</span> send
+              nothing today, so changing them has no effect. Your choice is saved and applies once
+              delivery ships.
             </p>
           )}
 
@@ -192,9 +198,13 @@ export function ProjectNotificationsPage() {
               key={evt.type}
               className={[
                 'grid items-center px-4 py-2.5 text-[13px]',
-                ri < PROJECT_NOTIFICATION_EVENTS.length - 1 ? 'border-b border-neutral-border/55' : '',
+                ri < PROJECT_NOTIFICATION_EVENTS.length - 1
+                  ? 'border-b border-neutral-border/55'
+                  : '',
               ].join(' ')}
-              style={{ gridTemplateColumns: `2fr repeat(${PROJECT_NOTIFICATION_CHANNELS.length}, 110px)` }}
+              style={{
+                gridTemplateColumns: `2fr repeat(${PROJECT_NOTIFICATION_CHANNELS.length}, 110px)`,
+              }}
             >
               <span className="flex items-baseline gap-2 flex-wrap min-w-0">
                 <span className="text-neutral-text-primary">{evt.label}</span>
@@ -237,10 +247,9 @@ export function ProjectNotificationsPage() {
             column when there is no dead channel to explain, so Quiet hours takes the
             width rather than sitting beside a hole. */}
         <div
-          className={[
-            'grid gap-3.5',
-            deadChannels.length > 0 ? 'grid-cols-2' : 'grid-cols-1',
-          ].join(' ')}
+          className={['grid gap-3.5', deadChannels.length > 0 ? 'grid-cols-2' : 'grid-cols-1'].join(
+            ' ',
+          )}
         >
           {/* Built from `deadChannels`, heading included, and not rendered at all when
               the set is empty. Hardcoded as "Slack & mobile delivery" over present-tense
@@ -248,27 +257,26 @@ export function ProjectNotificationsPage() {
               delivers on Slack the 10px caption disappears and an <h2> plus a paragraph
               keep asserting the opposite — and the loud half wins (web-rule 407). */}
           {deadChannels.length > 0 && (
-          <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
-            <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">
-              Channels TruePPM does not deliver on yet
-            </h2>
-            <p className="text-[12px] text-neutral-text-secondary leading-snug mb-3">
-              TruePPM does not deliver notifications to {deadChannelNames} yet, and no
-              setting turns {deadChannels.length > 1 ? 'them' : 'it'} on. Those columns are
-              kept so you can record your routing intent now — it applies once delivery
-              ships.
-            </p>
-            {slackIsDead && (
-              <p className="text-[12px] text-neutral-text-secondary leading-snug">
-                To get project events into Slack today, add a Slack-format webhook under{' '}
-                <span className="font-semibold text-neutral-text-primary">
-                  Project Settings → Integrations
-                </span>
-                . That is a project-wide feed on its own event list — it does not read the
-                matrix above, and it is not per-person routing.
+            <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
+              <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">
+                Channels TruePPM does not deliver on yet
+              </h2>
+              <p className="text-[12px] text-neutral-text-secondary leading-snug mb-3">
+                TruePPM does not deliver notifications to {deadChannelNames} yet, and no setting
+                turns {deadChannels.length > 1 ? 'them' : 'it'} on. Those columns are kept so you
+                can record your routing intent now — it applies once delivery ships.
               </p>
-            )}
-          </div>
+              {slackIsDead && (
+                <p className="text-[12px] text-neutral-text-secondary leading-snug">
+                  To get project events into Slack today, add a Slack-format webhook under{' '}
+                  <span className="font-semibold text-neutral-text-primary">
+                    Project Settings → Integrations
+                  </span>
+                  . That is a project-wide feed on its own event list — it does not read the matrix
+                  above, and it is not per-person routing.
+                </p>
+              )}
+            </div>
           )}
 
           <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
@@ -286,7 +294,9 @@ export function ProjectNotificationsPage() {
                 onToggle={toggleQuiet}
                 ariaLabel="Quiet hours"
               />
-              <span className="text-[13px] text-neutral-text-primary">Suppress non-critical notifications</span>
+              <span className="text-[13px] text-neutral-text-primary">
+                Suppress non-critical notifications
+              </span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2.5">
               <QuietHourSelect
@@ -335,7 +345,15 @@ export function formatList(items: string[]): string {
   return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
 }
 
-function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void; ariaLabel: string }) {
+function Toggle({
+  on,
+  onToggle,
+  ariaLabel,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  ariaLabel: string;
+}) {
   return (
     <button
       type="button"
@@ -346,7 +364,9 @@ function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void
       className={[
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-        on ? 'bg-brand-primary border-brand-primary' : 'bg-neutral-surface-sunken border-neutral-border',
+        on
+          ? 'bg-brand-primary border-brand-primary'
+          : 'bg-neutral-surface-sunken border-neutral-border',
       ].join(' ')}
     >
       <span

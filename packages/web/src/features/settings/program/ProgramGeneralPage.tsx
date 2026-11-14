@@ -37,7 +37,12 @@ import type {
   ProgramMethodology,
   ProgramVisibility,
 } from '@/api/types';
-import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
+import {
+  MC_HISTORY_RETENTION_MAX,
+  MC_HISTORY_RETENTION_MIN,
+  NEAR_CRITICAL_THRESHOLD_MAX,
+  NEAR_CRITICAL_THRESHOLD_MIN,
+} from '@/api/types';
 import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/programColor';
 import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 import { useProgramId } from '@/hooks/useProgramId';
@@ -210,6 +215,7 @@ export function ProgramGeneralPage() {
   // null = inherit the workspace value (ADR-0144, issue 1232).
   const [mcHistoryEnabled, setMcHistoryEnabled] = useState<boolean | null>(null);
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState<number | null>(null);
+  const [nearCriticalThresholdDays, setNearCriticalThresholdDays] = useState<number | null>(null);
   const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
   // null = inherit the program/workspace value (ADR-0151, issue 1254).
@@ -263,6 +269,9 @@ export function ProgramGeneralPage() {
   const [initialMcHistoryRetentionCap, setInitialMcHistoryRetentionCap] = useState<number | null>(
     null,
   );
+  const [initialNearCriticalThresholdDays, setInitialNearCriticalThresholdDays] = useState<
+    number | null
+  >(null);
   const [initialMcHistoryAttributionAudience, setInitialMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
   const [initialTaskDurationChangePercentPolicy, setInitialTaskDurationChangePercentPolicy] =
@@ -291,6 +300,7 @@ export function ProgramGeneralPage() {
     setAllowGuests(program.allow_guests ?? null);
     setMcHistoryEnabled(program.mc_history_enabled ?? null);
     setMcHistoryRetentionCap(program.mc_history_retention_cap ?? null);
+    setNearCriticalThresholdDays(program.near_critical_threshold_days ?? null);
     setMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
     setTaskDurationChangePercentPolicy(program.task_duration_change_percent_policy ?? null);
     setEstimationScale(program.estimation_scale ?? null);
@@ -309,6 +319,7 @@ export function ProgramGeneralPage() {
     setInitialAllowGuests(program.allow_guests ?? null);
     setInitialMcHistoryEnabled(program.mc_history_enabled ?? null);
     setInitialMcHistoryRetentionCap(program.mc_history_retention_cap ?? null);
+    setInitialNearCriticalThresholdDays(program.near_critical_threshold_days ?? null);
     setInitialMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
     setInitialTaskDurationChangePercentPolicy(program.task_duration_change_percent_policy ?? null);
     setInitialEstimationScale(program.estimation_scale ?? null);
@@ -331,6 +342,7 @@ export function ProgramGeneralPage() {
       allowGuests,
       mcHistoryEnabled,
       mcHistoryRetentionCap,
+      nearCriticalThresholdDays,
       mcHistoryAttributionAudience,
       taskDurationChangePercentPolicy,
       estimationScale,
@@ -351,6 +363,7 @@ export function ProgramGeneralPage() {
       allowGuests,
       mcHistoryEnabled,
       mcHistoryRetentionCap,
+      nearCriticalThresholdDays,
       mcHistoryAttributionAudience,
       taskDurationChangePercentPolicy,
       estimationScale,
@@ -373,6 +386,7 @@ export function ProgramGeneralPage() {
       allowGuests: initialAllowGuests,
       mcHistoryEnabled: initialMcHistoryEnabled,
       mcHistoryRetentionCap: initialMcHistoryRetentionCap,
+      nearCriticalThresholdDays: initialNearCriticalThresholdDays,
       mcHistoryAttributionAudience: initialMcHistoryAttributionAudience,
       taskDurationChangePercentPolicy: initialTaskDurationChangePercentPolicy,
       estimationScale: initialEstimationScale,
@@ -393,6 +407,7 @@ export function ProgramGeneralPage() {
       initialAllowGuests,
       initialMcHistoryEnabled,
       initialMcHistoryRetentionCap,
+      initialNearCriticalThresholdDays,
       initialMcHistoryAttributionAudience,
       initialTaskDurationChangePercentPolicy,
       initialEstimationScale,
@@ -424,6 +439,7 @@ export function ProgramGeneralPage() {
           // null clears the forecast-history override so the program inherits the workspace value (ADR-0144).
           mc_history_enabled: mcHistoryEnabled,
           mc_history_retention_cap: mcHistoryRetentionCap,
+          near_critical_threshold_days: nearCriticalThresholdDays,
           mc_history_attribution_audience: mcHistoryAttributionAudience,
           // null clears the duration-change override so the program inherits the workspace value (ADR-0151).
           task_duration_change_percent_policy: taskDurationChangePercentPolicy,
@@ -459,6 +475,7 @@ export function ProgramGeneralPage() {
     setInitialAllowGuests(allowGuests);
     setInitialMcHistoryEnabled(mcHistoryEnabled);
     setInitialMcHistoryRetentionCap(mcHistoryRetentionCap);
+    setInitialNearCriticalThresholdDays(nearCriticalThresholdDays);
     setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
     setInitialTaskDurationChangePercentPolicy(taskDurationChangePercentPolicy);
     setInitialEstimationScale(estimationScale);
@@ -487,6 +504,7 @@ export function ProgramGeneralPage() {
     allowGuests,
     mcHistoryEnabled,
     mcHistoryRetentionCap,
+    nearCriticalThresholdDays,
     mcHistoryAttributionAudience,
     taskDurationChangePercentPolicy,
     estimationScale,
@@ -509,6 +527,7 @@ export function ProgramGeneralPage() {
     setAllowGuests(initialAllowGuests);
     setMcHistoryEnabled(initialMcHistoryEnabled);
     setMcHistoryRetentionCap(initialMcHistoryRetentionCap);
+    setNearCriticalThresholdDays(initialNearCriticalThresholdDays);
     setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
     setTaskDurationChangePercentPolicy(initialTaskDurationChangePercentPolicy);
     setEstimationScale(initialEstimationScale);
@@ -528,6 +547,7 @@ export function ProgramGeneralPage() {
     initialAllowGuests,
     initialMcHistoryEnabled,
     initialMcHistoryRetentionCap,
+    initialNearCriticalThresholdDays,
     initialMcHistoryAttributionAudience,
     initialTaskDurationChangePercentPolicy,
     initialEstimationScale,
@@ -1039,6 +1059,25 @@ export function ProgramGeneralPage() {
               max={MC_HISTORY_RETENTION_MAX}
               ariaLabel="Run history limit"
               overrideHint={`Between ${MC_HISTORY_RETENTION_MIN} and ${MC_HISTORY_RETENTION_MAX} runs.`}
+              scopeNoun="program"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Near-critical threshold"
+            hint="Tasks with this much float or less are marked near-critical."
+          >
+            <InheritableNumberField
+              value={nearCriticalThresholdDays}
+              onChange={setNearCriticalThresholdDays}
+              inherited={program?.inherited_near_critical_threshold_days ?? 10}
+              inheritFromLabel="the workspace default"
+              min={NEAR_CRITICAL_THRESHOLD_MIN}
+              max={NEAR_CRITICAL_THRESHOLD_MAX}
+              ariaLabel="Near-critical threshold in working days"
+              unit="wd"
+              overrideHint={`${NEAR_CRITICAL_THRESHOLD_MIN}–${NEAR_CRITICAL_THRESHOLD_MAX} working days.`}
               scopeNoun="program"
               canEdit={canEdit}
             />

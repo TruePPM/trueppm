@@ -52,6 +52,7 @@ export interface UpdateProgramInput {
       | 'allow_guests'
       | 'mc_history_enabled'
       | 'mc_history_retention_cap'
+      | 'near_critical_threshold_days'
       | 'mc_history_attribution_audience'
       | 'task_duration_change_percent_policy'
       | 'estimation_scale'

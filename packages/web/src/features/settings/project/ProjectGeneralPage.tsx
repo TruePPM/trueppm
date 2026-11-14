@@ -22,7 +22,12 @@ import type {
   ProjectHealth,
   ProjectVisibility,
 } from '@/api/types';
-import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
+import {
+  MC_HISTORY_RETENTION_MAX,
+  MC_HISTORY_RETENTION_MIN,
+  NEAR_CRITICAL_THRESHOLD_MAX,
+  NEAR_CRITICAL_THRESHOLD_MIN,
+} from '@/api/types';
 import { InheritableIterationLabelField } from '../components/InheritableIterationLabelField';
 import { InheritableToggleField } from '../components/InheritableToggleField';
 import { InheritableNumberField } from '../components/InheritableNumberField';
@@ -125,7 +130,9 @@ export function ProjectGeneralPage() {
         setMoveDialogOpen(false);
       } catch (err) {
         // Surface the server's actionable dual-Admin message verbatim (ADR-0070).
-        setMoveError(extractValidationMessage(err, 'Could not move the project. Please try again.'));
+        setMoveError(
+          extractValidationMessage(err, 'Could not move the project. Please try again.'),
+        );
       }
     },
     [moveProgram],
@@ -157,6 +164,7 @@ export function ProjectGeneralPage() {
   // null = inherit the program/workspace value (ADR-0144, issue 1232).
   const [mcHistoryEnabled, setMcHistoryEnabled] = useState<boolean | null>(null);
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState<number | null>(null);
+  const [nearCriticalThresholdDays, setNearCriticalThresholdDays] = useState<number | null>(null);
   const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
   // null = inherit the program/workspace value (ADR-0151, issue 1254).
@@ -201,6 +209,9 @@ export function ProjectGeneralPage() {
   const [initialMcHistoryRetentionCap, setInitialMcHistoryRetentionCap] = useState<number | null>(
     null,
   );
+  const [initialNearCriticalThresholdDays, setInitialNearCriticalThresholdDays] = useState<
+    number | null
+  >(null);
   const [initialMcHistoryAttributionAudience, setInitialMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
   const [initialTaskDurationChangePercentPolicy, setInitialTaskDurationChangePercentPolicy] =
@@ -230,6 +241,7 @@ export function ProjectGeneralPage() {
     setAllowGuests(project.allow_guests ?? null);
     setMcHistoryEnabled(project.mc_history_enabled ?? null);
     setMcHistoryRetentionCap(project.mc_history_retention_cap ?? null);
+    setNearCriticalThresholdDays(project.near_critical_threshold_days ?? null);
     setMcHistoryAttributionAudience(project.mc_history_attribution_audience ?? null);
     setTaskDurationChangePercentPolicy(project.task_duration_change_percent_policy ?? null);
     setSprintPickerReadyOnlyDefault(project.sprint_picker_ready_only_default ?? null);
@@ -251,6 +263,7 @@ export function ProjectGeneralPage() {
     setInitialAllowGuests(project.allow_guests ?? null);
     setInitialMcHistoryEnabled(project.mc_history_enabled ?? null);
     setInitialMcHistoryRetentionCap(project.mc_history_retention_cap ?? null);
+    setInitialNearCriticalThresholdDays(project.near_critical_threshold_days ?? null);
     setInitialMcHistoryAttributionAudience(project.mc_history_attribution_audience ?? null);
     setInitialTaskDurationChangePercentPolicy(project.task_duration_change_percent_policy ?? null);
     setInitialSprintPickerReadyOnlyDefault(project.sprint_picker_ready_only_default ?? null);
@@ -276,6 +289,7 @@ export function ProjectGeneralPage() {
       allow_guests: allowGuests,
       mc_history_enabled: mcHistoryEnabled,
       mc_history_retention_cap: mcHistoryRetentionCap,
+      near_critical_threshold_days: nearCriticalThresholdDays,
       mc_history_attribution_audience: mcHistoryAttributionAudience,
       task_duration_change_percent_policy: taskDurationChangePercentPolicy,
       sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
@@ -299,6 +313,7 @@ export function ProjectGeneralPage() {
       allowGuests,
       mcHistoryEnabled,
       mcHistoryRetentionCap,
+      nearCriticalThresholdDays,
       mcHistoryAttributionAudience,
       taskDurationChangePercentPolicy,
       sprintPickerReadyOnlyDefault,
@@ -324,6 +339,7 @@ export function ProjectGeneralPage() {
       allow_guests: initialAllowGuests,
       mc_history_enabled: initialMcHistoryEnabled,
       mc_history_retention_cap: initialMcHistoryRetentionCap,
+      near_critical_threshold_days: initialNearCriticalThresholdDays,
       mc_history_attribution_audience: initialMcHistoryAttributionAudience,
       task_duration_change_percent_policy: initialTaskDurationChangePercentPolicy,
       sprint_picker_ready_only_default: initialSprintPickerReadyOnlyDefault,
@@ -347,6 +363,7 @@ export function ProjectGeneralPage() {
       initialAllowGuests,
       initialMcHistoryEnabled,
       initialMcHistoryRetentionCap,
+      initialNearCriticalThresholdDays,
       initialMcHistoryAttributionAudience,
       initialTaskDurationChangePercentPolicy,
       initialSprintPickerReadyOnlyDefault,
@@ -384,6 +401,7 @@ export function ProjectGeneralPage() {
         // null clears the forecast-history override so the project inherits program/workspace (ADR-0144).
         mc_history_enabled: mcHistoryEnabled,
         mc_history_retention_cap: mcHistoryRetentionCap,
+        near_critical_threshold_days: nearCriticalThresholdDays,
         mc_history_attribution_audience: mcHistoryAttributionAudience,
         // null clears the duration-change override so the project inherits program/workspace (ADR-0151).
         task_duration_change_percent_policy: taskDurationChangePercentPolicy,
@@ -423,6 +441,7 @@ export function ProjectGeneralPage() {
     setInitialAllowGuests(allowGuests);
     setInitialMcHistoryEnabled(mcHistoryEnabled);
     setInitialMcHistoryRetentionCap(mcHistoryRetentionCap);
+    setInitialNearCriticalThresholdDays(nearCriticalThresholdDays);
     setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
     setInitialTaskDurationChangePercentPolicy(taskDurationChangePercentPolicy);
     setInitialSprintPickerReadyOnlyDefault(sprintPickerReadyOnlyDefault);
@@ -447,6 +466,7 @@ export function ProjectGeneralPage() {
     allowGuests,
     mcHistoryEnabled,
     mcHistoryRetentionCap,
+    nearCriticalThresholdDays,
     mcHistoryAttributionAudience,
     taskDurationChangePercentPolicy,
     sprintPickerReadyOnlyDefault,
@@ -472,6 +492,7 @@ export function ProjectGeneralPage() {
     setAllowGuests(initialAllowGuests);
     setMcHistoryEnabled(initialMcHistoryEnabled);
     setMcHistoryRetentionCap(initialMcHistoryRetentionCap);
+    setNearCriticalThresholdDays(initialNearCriticalThresholdDays);
     setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
     setTaskDurationChangePercentPolicy(initialTaskDurationChangePercentPolicy);
     setSprintPickerReadyOnlyDefault(initialSprintPickerReadyOnlyDefault);
@@ -494,6 +515,7 @@ export function ProjectGeneralPage() {
     initialAllowGuests,
     initialMcHistoryEnabled,
     initialMcHistoryRetentionCap,
+    initialNearCriticalThresholdDays,
     initialMcHistoryAttributionAudience,
     initialTaskDurationChangePercentPolicy,
     initialSprintPickerReadyOnlyDefault,
@@ -562,7 +584,6 @@ export function ProjectGeneralPage() {
               className="w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
-
         </ReadOnlyFieldset>
 
         {/* Outside the fieldset on purpose: read-only callers get a copy-link
@@ -583,7 +604,6 @@ export function ProjectGeneralPage() {
         />
 
         <ReadOnlyFieldset disabled={!canEdit}>
-
           <FieldRow label="Description" hint="One paragraph. Shown on the overview page.">
             <textarea
               value={description}
@@ -817,7 +837,7 @@ export function ProjectGeneralPage() {
             hint={`${MC_HISTORY_HINT} Inherits the program or workspace setting unless you override it here.`}
             help={fieldHelp({
               label: 'Keep Monte Carlo run history',
-              body: "Whether this project keeps past Monte Carlo forecast runs, so you can compare how its forecast moved over time. Inherits the program or workspace setting unless you override it here.",
+              body: 'Whether this project keeps past Monte Carlo forecast runs, so you can compare how its forecast moved over time. Inherits the program or workspace setting unless you override it here.',
               docHref: 'features/monte-carlo/#forecast-history',
             })}
           >
@@ -852,6 +872,25 @@ export function ProjectGeneralPage() {
               max={MC_HISTORY_RETENTION_MAX}
               ariaLabel="Run history limit"
               overrideHint={`Between ${MC_HISTORY_RETENTION_MIN} and ${MC_HISTORY_RETENTION_MAX} runs.`}
+              scopeNoun="project"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Near-critical threshold"
+            hint="Tasks with this much float or less are marked near-critical."
+          >
+            <InheritableNumberField
+              value={nearCriticalThresholdDays}
+              onChange={setNearCriticalThresholdDays}
+              inherited={project?.inherited_near_critical_threshold_days ?? 10}
+              inheritFromLabel="the program or workspace default"
+              min={NEAR_CRITICAL_THRESHOLD_MIN}
+              max={NEAR_CRITICAL_THRESHOLD_MAX}
+              ariaLabel="Near-critical threshold in working days"
+              unit="wd"
+              overrideHint={`${NEAR_CRITICAL_THRESHOLD_MIN}–${NEAR_CRITICAL_THRESHOLD_MAX} working days.`}
               scopeNoun="project"
               canEdit={canEdit}
             />
@@ -912,7 +951,8 @@ export function ProjectGeneralPage() {
             help={fieldHelp({
               label: 'Timezone',
               body: "The timezone this project's notification quiet-hours windows are interpreted in, so a 20:00–07:00 window means 20:00–07:00 here. It is not a display timezone — the times you see are always shown in your own personal timezone, and changing this never shifts a task's stored calendar dates. Leave it on Workspace default to follow the workspace setting.",
-              docHref: 'features/settings/project-notifications/#which-timezone-the-window-is-read-in',
+              docHref:
+                'features/settings/project-notifications/#which-timezone-the-window-is-read-in',
             })}
           >
             <div className="relative inline-block w-[280px]">
@@ -1054,7 +1094,7 @@ export function ProjectGeneralPage() {
             hint="Forecasts and % complete are measured as of this date. Leave on Today to always use the current date (ADR-0132)."
             help={fieldHelp({
               label: 'Status date (data date)',
-              body: "The as-of date TruePPM measures forecasts and percent complete from — sometimes called the data date. Leave it on Today (dynamic) to always use the current date, or pin a fixed date to freeze progress reporting to a reporting cutoff.",
+              body: 'The as-of date TruePPM measures forecasts and percent complete from — sometimes called the data date. Leave it on Today (dynamic) to always use the current date, or pin a fixed date to freeze progress reporting to a reporting cutoff.',
               docHref: 'administration/project-settings/#general',
             })}
           >
@@ -1145,7 +1185,7 @@ export function ProjectGeneralPage() {
             hint="Warn when a task's status hasn't changed in this many days. Between 1 and 365."
             help={fieldHelp({
               label: 'Stale-task nudge after',
-              body: "The number of days a task can sit with no status change before TruePPM nudges its assignee. Set it between 1 and 365 to match how quickly work should move in this project.",
+              body: 'The number of days a task can sit with no status change before TruePPM nudges its assignee. Set it between 1 and 365 to match how quickly work should move in this project.',
               docHref: 'administration/project-settings/#stale-task-threshold',
             })}
           >

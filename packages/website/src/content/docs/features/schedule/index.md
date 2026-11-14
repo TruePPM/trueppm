@@ -364,5 +364,5 @@ The header badge (**Critical · 0 wd float** or **Near-critical · 6 wd float**)
 
 Backlog items, uncommitted tasks, summary tasks and tasks without dependency links have no chain, and the section says why instead.
 
-The section appears only in the Schedule view. It does not appear in My Tasks or the board drawer. The near-critical threshold comes from the workspace, program and project settings (1 to 260 working days).
+The section appears only in the Schedule view. It does not appear in My Tasks or the board drawer. The near-critical threshold is set under **Settings → General** at workspace, program and project scope (1 to 260 working days). A program or project inherits the level above until you choose **Override**. Workspace admins set the workspace default; anyone who can edit a program's or project's General settings sets that scope. The section always prints the threshold the server used for that computation, so a settings change shows up after the next schedule recompute.
 

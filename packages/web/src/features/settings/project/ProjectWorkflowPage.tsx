@@ -22,11 +22,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import {
-  SettingsPageTitle,
-  SettingsSubHeading,
-  type SettingsBlockProps,
-} from '../SettingsShell';
+import { SettingsPageTitle, SettingsSubHeading, type SettingsBlockProps } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { Toggle } from '../components/Toggle';
 import { FieldHelp, type FieldHelpOption } from '@/components/FieldHelp';
@@ -208,7 +204,10 @@ function CadenceSection({
       className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
-        <SettingsSubHeading id="cadence-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+        <SettingsSubHeading
+          id="cadence-heading"
+          className="text-[13px] font-semibold text-neutral-text-primary"
+        >
           Board cadence
         </SettingsSubHeading>
         <FieldHelp
@@ -597,11 +596,7 @@ function AgeThresholdCell({
   }
   return (
     <span className="tppm-mono text-[11px] text-neutral-text-secondary">
-      {current != null
-        ? `${current}d`
-        : defaultThreshold != null
-          ? `${defaultThreshold}d`
-          : 'off'}
+      {current != null ? `${current}d` : defaultThreshold != null ? `${defaultThreshold}d` : 'off'}
     </span>
   );
 }
@@ -662,7 +657,10 @@ function PhasesSection({
       className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
-        <SettingsSubHeading id="phases-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+        <SettingsSubHeading
+          id="phases-heading"
+          className="text-[13px] font-semibold text-neutral-text-primary"
+        >
           Phases
         </SettingsSubHeading>
         <span className="text-[12px] text-neutral-text-secondary">
@@ -682,8 +680,8 @@ function PhasesSection({
         <LoadingSkeleton label="Loading phases…" rows={3} className="px-4 py-6" />
       ) : orderedPhases.length === 0 ? (
         <div className="px-4 py-6 text-[12px] text-neutral-text-secondary">
-          No phases yet. Phases group tasks into swim-lanes on the board and summary rows on
-          the schedule — they are created on the{' '}
+          No phases yet. Phases group tasks into swim-lanes on the board and summary rows on the
+          schedule — they are created on the{' '}
           <Link
             to={`/projects/${projectId}/schedule`}
             className="text-brand-primary underline underline-offset-2
@@ -882,7 +880,10 @@ function StatusesSection({
       className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
-        <SettingsSubHeading id="statuses-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+        <SettingsSubHeading
+          id="statuses-heading"
+          className="text-[13px] font-semibold text-neutral-text-primary"
+        >
           Statuses
         </SettingsSubHeading>
         <FieldHelp
@@ -1204,7 +1205,10 @@ function FieldsSection({
       className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
-        <SettingsSubHeading id="fields-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+        <SettingsSubHeading
+          id="fields-heading"
+          className="text-[13px] font-semibold text-neutral-text-primary"
+        >
           Fields
         </SettingsSubHeading>
         <span className="text-[12px] text-neutral-text-secondary">

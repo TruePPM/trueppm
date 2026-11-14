@@ -66,7 +66,9 @@ describe('AddCalendarPicker', () => {
     renderPicker();
     fireEvent.change(screen.getByLabelText('Search calendars'), { target: { value: 'UK' } });
     expect(screen.getByRole('option', { name: /UK Bank Holidays 2026/ })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: /Engineering 4-day week/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: /Engineering 4-day week/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('shows a loading row while the library query is resolving', () => {

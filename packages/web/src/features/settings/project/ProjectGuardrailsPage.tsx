@@ -10,11 +10,7 @@ import {
   type GuardrailRule,
   type GuardrailLevel,
 } from '@/hooks/useProjectGuardrailPolicy';
-import {
-  SettingsPageTitle,
-  SettingsSubHeading,
-  type SettingsBlockProps,
-} from '../SettingsShell';
+import { SettingsPageTitle, SettingsSubHeading, type SettingsBlockProps } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
@@ -159,17 +155,19 @@ export function ProjectGuardrailsPage({ embedded, docsHref }: SettingsBlockProps
 
         {inertExternalCompBlock && (
           <p className="text-[12px] text-neutral-text-secondary italic">
-            Composition rules currently configured as Block are shown below as
-            Warn — they activate once the policy is acknowledged.
+            Composition rules currently configured as Block are shown below as Warn — they activate
+            once the policy is acknowledged.
           </p>
         )}
 
         {/* Rule matrix. Each row exposes Warn / Block as a two-button choice;
             the advisory-only rule shows a fixed Warn pill (no Block path). */}
         <div className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden">
-          <div className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55
+          <div
+            className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55
               text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
-            style={{ gridTemplateColumns: '2fr 220px' }}>
+            style={{ gridTemplateColumns: '2fr 220px' }}
+          >
             <span>Rule</span>
             <span className="flex items-center justify-end gap-1.5">
               Enforcement
@@ -249,8 +247,8 @@ export function ProjectGuardrailsPage({ embedded, docsHref }: SettingsBlockProps
 
         {!canEscalate && (
           <p className="text-[12px] text-neutral-text-secondary italic">
-            Only a project Owner can change a sprint-composition rule from
-            Warn to Block. Any project member can lower a Block back to Warn.
+            Only a project Owner can change a sprint-composition rule from Warn to Block. Any
+            project member can lower a Block back to Warn.
           </p>
         )}
       </div>

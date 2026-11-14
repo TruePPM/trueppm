@@ -35,7 +35,9 @@ describe('IterationLabelField', () => {
   it('emits typed custom text', () => {
     const onChange = vi.fn();
     render(<IterationLabelField value="Cycle" onChange={onChange} />);
-    fireEvent.change(screen.getByLabelText('Custom iteration label'), { target: { value: 'Wave' } });
+    fireEvent.change(screen.getByLabelText('Custom iteration label'), {
+      target: { value: 'Wave' },
+    });
     expect(onChange).toHaveBeenCalledWith('Wave');
   });
 

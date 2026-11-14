@@ -44,9 +44,8 @@ function SymmetryNote() {
       <strong className="font-medium text-neutral-text-primary">
         Everyone on this project sees exactly this page
       </strong>{' '}
-      — Viewers included — and there is no fuller version of it anywhere else. It is a
-      signal, never a gate: nothing here approves, rejects, queues, or scores what this
-      team decided.
+      — Viewers included — and there is no fuller version of it anywhere else. It is a signal, never
+      a gate: nothing here approves, rejects, queues, or scores what this team decided.
     </p>
   );
 }
@@ -84,21 +83,13 @@ function Adopted({ digest }: { digest: TemplateDivergence }) {
             label="Unchanged"
             hint="Still exactly as the template wrote them."
           />
-          <Stat
-            value={digest.adapted}
-            label="Adapted"
-            hint="Someone on this team edited them."
-          />
+          <Stat value={digest.adapted} label="Adapted" hint="Someone on this team edited them." />
           <Stat
             value={digest.removed}
             label="Removed"
             hint="Deleted since the template wrote them."
           />
-          <Stat
-            value={digest.added}
-            label="Added"
-            hint="Rows here that no template wrote."
-          />
+          <Stat value={digest.added} label="Added" hint="Rows here that no template wrote." />
         </dl>
 
         <p className="mt-4 text-xs text-neutral-text-secondary">
@@ -108,10 +99,9 @@ function Adopted({ digest }: { digest: TemplateDivergence }) {
       </div>
 
       <p className="max-w-prose text-sm leading-relaxed text-neutral-text-secondary">
-        Adapting a template is the expected outcome. A skeleton is a starting point that
-        somebody else&rsquo;s project made sense of first; the parts of it this team changed
-        are the parts that did not fit, and that is information about the template as much
-        as about the project.
+        Adapting a template is the expected outcome. A skeleton is a starting point that somebody
+        else&rsquo;s project made sense of first; the parts of it this team changed are the parts
+        that did not fit, and that is information about the template as much as about the project.
       </p>
 
       <SymmetryNote />
@@ -127,9 +117,9 @@ function NotAdopted({ digest }: { digest: TemplateDivergence }) {
           This project wasn&rsquo;t created from a template
         </p>
         <p className="mt-1 max-w-prose text-sm leading-relaxed text-neutral-text-secondary">
-          Its {digest.added} row{digest.added === 1 ? '' : 's'} were all authored here, so there
-          is no divergence to report. If a template is ever applied to this project, the
-          summary appears on this page — and this is where it appears first.
+          Its {digest.added} row{digest.added === 1 ? '' : 's'} were all authored here, so there is
+          no divergence to report. If a template is ever applied to this project, the summary
+          appears on this page — and this is where it appears first.
         </p>
       </div>
       <SymmetryNote />
@@ -153,11 +143,15 @@ export function ProjectTemplateDivergencePage() {
         // failed request would tell a team nothing is being said about them at
         // the exact moment we cannot see what is.
         <p role="alert" className="text-sm text-semantic-critical">
-          Couldn&rsquo;t load this project&rsquo;s divergence summary. This is a failed
-          request, not an empty report — reload to try again.
+          Couldn&rsquo;t load this project&rsquo;s divergence summary. This is a failed request, not
+          an empty report — reload to try again.
         </p>
       ) : isLoading || !digest ? (
-        <div role="status" aria-label="Loading template divergence…" className="flex flex-col gap-3">
+        <div
+          role="status"
+          aria-label="Loading template divergence…"
+          className="flex flex-col gap-3"
+        >
           <div
             aria-hidden="true"
             className="h-24 rounded-card bg-neutral-surface-sunken motion-safe:animate-pulse"

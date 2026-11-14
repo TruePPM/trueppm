@@ -254,7 +254,10 @@ describe('ProjectWorkflowPage — phase reordering', () => {
     expect(phaseNamesInOrder()).toEqual(['Launch', 'Discovery', 'Build']);
 
     // A concurrent delete removes p2 before the reorder settles.
-    setPhases([makePhase({ id: 'p1', name: 'Discovery' }), makePhase({ id: 'p3', name: 'Launch' })]);
+    setPhases([
+      makePhase({ id: 'p1', name: 'Discovery' }),
+      makePhase({ id: 'p3', name: 'Launch' }),
+    ]);
     act(() => {
       replay();
     });

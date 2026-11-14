@@ -84,6 +84,7 @@ On the General page the ⓘ appears on these fields:
 | Keep Monte Carlo run history | [Forecast history](/features/monte-carlo/#forecast-history) |
 | Run history limit | [Forecast history](/features/monte-carlo/#forecast-history) |
 | Run attribution visible to | [Forecast history](/features/monte-carlo/#forecast-history) |
+| Near-critical threshold *(ships in 0.5)* | [Why a task is critical](/features/schedule/#why-a-task-is-critical) |
 | Story picker shows Ready stories only, by default | [Sprint backlog table](/features/sprint-backlog/#story-picker) |
 | Duration change → percent complete | This page |
 | Program & project overrides | This page |

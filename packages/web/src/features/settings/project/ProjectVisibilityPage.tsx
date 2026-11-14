@@ -146,7 +146,13 @@ export function ProjectVisibilityPage() {
     setValues(initialValues);
   }, [initialValues]);
 
-  useDirtyForm({ values, initialValues, onSave: handleSave, onReset: handleReset, apiReady: !!project });
+  useDirtyForm({
+    values,
+    initialValues,
+    onSave: handleSave,
+    onReset: handleReset,
+    apiReady: !!project,
+  });
 
   // Admin+ may edit; reads are open. Gate pessimistically while the role loads
   // (mirrors ProjectAttachmentsPage's gate, ADR-0133).

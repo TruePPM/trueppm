@@ -105,9 +105,17 @@ export function AddCalendarPicker({
 
   const count = selected.size;
   const list = (
-    <div className="max-h-[280px] overflow-auto p-1.5" role="listbox" aria-label="Calendar library" aria-multiselectable="true">
+    <div
+      className="max-h-[280px] overflow-auto p-1.5"
+      role="listbox"
+      aria-label="Calendar library"
+      aria-multiselectable="true"
+    >
       {loading && (
-        <p className="px-3 py-6 text-center text-[12px] text-neutral-text-secondary" aria-live="polite">
+        <p
+          className="px-3 py-6 text-center text-[12px] text-neutral-text-secondary"
+          aria-live="polite"
+        >
           Loading calendars…
         </p>
       )}
@@ -251,7 +259,10 @@ export function AddCalendarPicker({
             tabIndex={-1}
             className="relative flex max-h-[88%] flex-col overflow-hidden rounded-t-[20px] bg-neutral-surface shadow-pop focus:outline-none"
           >
-            <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-neutral-border" aria-hidden="true" />
+            <div
+              className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-neutral-border"
+              aria-hidden="true"
+            />
             <div className="flex items-center gap-2 px-4 pb-2 pt-1.5">
               <h2 className="flex-1 text-[15px] font-semibold text-neutral-text-primary">
                 Add calendars to this project

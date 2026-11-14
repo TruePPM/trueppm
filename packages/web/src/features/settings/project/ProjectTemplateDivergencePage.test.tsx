@@ -155,7 +155,9 @@ describe('ProjectTemplateDivergencePage', () => {
     h.query = { data: undefined, isLoading: true, isError: false };
     render(<ProjectTemplateDivergencePage />);
 
-    expect(screen.getByRole('status', { name: /Loading template divergence/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('status', { name: /Loading template divergence/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Unchanged/)).not.toBeInTheDocument();
   });
 

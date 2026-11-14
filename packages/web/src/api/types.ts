@@ -282,6 +282,9 @@ export type MCHistoryOverridePolicy = 'inherit' | 'suggest' | 'enforce';
 
 /** Hard ceiling on the retained-run count, enforced server-side (ADR-0144). */
 export const MC_HISTORY_RETENTION_MIN = 1;
+/** Server-enforced bounds of the near-critical float threshold, in working days (#4907). */
+export const NEAR_CRITICAL_THRESHOLD_MIN = 1;
+export const NEAR_CRITICAL_THRESHOLD_MAX = 260;
 export const MC_HISTORY_RETENTION_MAX = 500;
 
 /**

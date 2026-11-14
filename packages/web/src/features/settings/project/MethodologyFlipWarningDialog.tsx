@@ -204,9 +204,7 @@ export function MethodologyFlipWarningDialog({
               starting would be announced to nobody (#3298). */}
           {pending && <>Switching to {label} now. </>}
           {known.length > 0 && (
-            <>
-              This project has {joinAnd(known.map((i) => knownClause(i.kind, i.count, itl)))}.{' '}
-            </>
+            <>This project has {joinAnd(known.map((i) => knownClause(i.kind, i.count, itl)))}. </>
           )}
           {unknown.length > 0 && (
             <>
