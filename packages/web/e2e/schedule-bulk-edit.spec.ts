@@ -13,6 +13,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { modeChip, toggleAuthorMode } from './fixtures/schedule-mode';
 import { setupTaskStore, type TaskStoreHandle } from './fixtures/task-store';
 
 const PROJECT_ID = 'e2e-bulk-0000-0000-0000-000000002756';
@@ -90,13 +91,20 @@ const ROSTER = [
   },
 ];
 
-async function setup(page: Page): Promise<TaskStoreHandle> {
+async function setup(
+  page: Page,
+  opts: { demoReadOnly?: boolean } = {},
+): Promise<TaskStoreHandle> {
   await setupAuth(page);
   await setupCatchAll(page);
   // No `tasks:` — setupTaskStore owns every /tasks/ read below, and leaving the
   // stateless default registered too would put two sources of truth for the
   // same list one route-precedence change apart.
-  await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID });
+  await setupApiMocks(page, {
+    projects: PROJECTS,
+    projectId: PROJECT_ID,
+    demoReadOnly: opts.demoReadOnly ?? false,
+  });
 
   await page.route('**/api/v1/project-resources/**', (route) =>
     route.fulfill({
@@ -182,6 +190,8 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
     await expect(sheet.getByRole('heading', { name: 'Edit 3 items' })).toBeVisible();
     // The scope promise: this sheet never touches descendants.
     await expect(sheet).toContainText('no cascade');
+    // A normal install carries no demo notice.
+    await expect(page.getByTestId('bulk-edit-demo-note')).toHaveCount(0);
   });
 
   test('⌘⇧K on a single focused row treats it as a selection of one', async ({ page }) => {
@@ -460,5 +470,36 @@ test.describe('Bulk-edit sheet — a refused batch (#3332)', () => {
 
     await expect(page.getByTestId('bulk-edit-error')).toHaveText('Couldn’t apply the changes.');
     await expect(page.getByTestId('bulk-edit-apply')).toHaveText('Retry');
+  });
+});
+
+test.describe('Bulk-edit sheet — read-only demo (#4115)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setup(page, { demoReadOnly: true });
+  });
+
+  test('opens with an up-front explanation and Apply stays disabled', async ({ page }) => {
+    // The demo refuses the batch write and, unlike a single-row edit, keeps no
+    // overlay of it, so applying would leave nothing on screen. The sheet says so
+    // before the visitor invests in filling it in.
+    await page.goto(BASE_URL);
+    // The demo lands in Read mode; the sheet is an Author-mode surface.
+    await toggleAuthorMode(page);
+    await expect(modeChip(page)).toContainText(/Author/i);
+    await selectRows(page, ['t1', 't2', 't3']);
+    await page.keyboard.press('ControlOrMeta+Shift+KeyK');
+
+    const sheet = page.getByTestId('bulk-edit-sheet');
+    await expect(sheet).toBeVisible();
+    await expect(page.getByTestId('bulk-edit-demo-note')).toContainText(
+      'Not available in the read-only demo.',
+    );
+
+    await page.getByTestId('bulk_delivery_mode-scrum').click();
+    await expect(page.getByTestId('bulk-edit-apply')).toBeDisabled();
+    // The chord is guarded too: it must not send a write the demo refuses.
+    await page.keyboard.press('ControlOrMeta+Enter');
+    await expect(page.getByTestId('bulk-edit-error')).toBeEmpty();
+    await expect(page.getByTestId('bulk-edit-result')).toHaveCount(0);
   });
 });

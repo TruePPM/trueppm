@@ -673,3 +673,21 @@ describe('BulkEditSheet — refusal presentation (#3332, web-rule 372)', () => {
     expect(region).toBeEmptyDOMElement();
   });
 });
+
+describe('BulkEditSheet — read-only demo (#4115)', () => {
+  it('says up front that bulk edit is unavailable and keeps Apply disabled', async () => {
+    const props = renderSheet({ demoReadOnly: true });
+    expect(screen.getByTestId('bulk-edit-demo-note')).toHaveTextContent(
+      'Not available in the read-only demo.',
+    );
+    await userEvent.click(screen.getByTestId('bulk_delivery_mode-scrum'));
+    expect(screen.getByTestId('bulk-edit-apply')).toBeDisabled();
+    await userEvent.keyboard('{Control>}{Enter}{/Control}');
+    expect(props.onApply).not.toHaveBeenCalled();
+  });
+
+  it('shows no demo note on a normal install', () => {
+    renderSheet();
+    expect(screen.queryByTestId('bulk-edit-demo-note')).toBeNull();
+  });
+});
