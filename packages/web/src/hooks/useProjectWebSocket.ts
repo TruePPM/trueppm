@@ -109,6 +109,7 @@ import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
 import type { CpmError } from '@/stores/schedulerStore';
 import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
+import { isSameUser } from '@/lib/userId';
 import {
   addHandler,
   dispatchHandlers,
@@ -380,16 +381,29 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
   });
 
   // --- Working-time calendar changed (#4170; the event is #2845's) ---
-  on('project_calendar_changed', () => {
+  on('project_calendar_changed', (payload) => {
     // Fired for every project whose EFFECTIVE calendar changed — a Calendar row
     // edit, a holiday added or removed, or an upstream program/workspace
     // reassignment, by anyone. The project detail carries `scheduling_calendar`,
     // which the Schedule's drag preview steps on, so a stale copy would preview on
     // last week's holidays until the 60 s staleTime ran out. The calendar
-    // settings caches read the same rows. Dates themselves arrive separately via
-    // task_dates_updated. Surfacing the event's `actor` is #3245's remainder.
+    // settings caches (library, applied set, preview, detail) all key under
+    // ['calendars']. Dates themselves arrive separately via task_dates_updated.
     void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
     void queryClient.invalidateQueries({ queryKey: ['calendars'] });
+    // #3245: a shared-calendar edit moves finish dates on projects whose own
+    // members did nothing, so name who did it rather than let dates move by
+    // themselves. Skipped for the editor's own echo (they know) and for a
+    // system-originated change, which carries no actor to name.
+    const actor = typeof payload.actor === 'string' ? payload.actor.trim() : '';
+    const actorId =
+      typeof payload.actor_id === 'string' || typeof payload.actor_id === 'number'
+        ? payload.actor_id
+        : null;
+    const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
+    if (actor !== '' && !isSameUser(actorId, currentUserId)) {
+      toast.info(`${actor} changed this project's working-time calendar. Dates may move.`);
+    }
   });
 
   // --- Per-task CPM date deltas (ADR-0091) ---

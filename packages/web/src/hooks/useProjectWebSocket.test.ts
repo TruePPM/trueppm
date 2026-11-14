@@ -325,6 +325,50 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['calendars'] });
   });
 
+  // #3245: the payload names the editor so dates do not move by themselves.
+  function dispatchCalendarChanged(payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'project_calendar_changed', payload }),
+      });
+    });
+  }
+
+  it("names a peer's shared-calendar edit in a toast on project_calendar_changed", () => {
+    toastMock.info.mockClear();
+    qc.setQueryData(['current-user'], { id: '7' });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchCalendarChanged({ id: 'proj-1', actor: 'Dana Ortiz', actor_id: '42' });
+
+    expect(toastMock.info).toHaveBeenCalledTimes(1);
+    expect(toastMock.info).toHaveBeenCalledWith(
+      "Dana Ortiz changed this project's working-time calendar. Dates may move.",
+    );
+  });
+
+  it('does not toast the editor their own calendar change, across id encodings', () => {
+    toastMock.info.mockClear();
+    // /auth/me/ carries the id as a string; compare through isSameUser, never ===.
+    qc.setQueryData(['current-user'], { id: '42' });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchCalendarChanged({ id: 'proj-1', actor: 'Dana Ortiz', actor_id: 42 });
+
+    expect(toastMock.info).not.toHaveBeenCalled();
+  });
+
+  it('does not toast a system-originated calendar change, but still refetches', () => {
+    toastMock.info.mockClear();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchCalendarChanged({ id: 'proj-1', actor: '', actor_id: null });
+
+    expect(toastMock.info).not.toHaveBeenCalled();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['calendars'] });
+  });
+
   it('refreshes shellStats on project_updated so the health chip follows the report', () => {
     // #3501: the top bar's chip word is the server's `health_band`, which folds
     // in the manual `Project.health` report. A PM filing a status emits

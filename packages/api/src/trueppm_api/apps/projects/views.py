@@ -1234,11 +1234,42 @@ class CalendarViewSet(
         # PUT that re-sends the same values under a different field set.
         old_working_days = serializer.instance.working_days if serializer.instance else None
         old_hours_per_day = serializer.instance.hours_per_day if serializer.instance else None
+        old_name = serializer.instance.name if serializer.instance else None
+        old_timezone = serializer.instance.timezone if serializer.instance else None
 
         instance = serializer.save()
 
         if instance.working_days != old_working_days or instance.hours_per_day != old_hours_per_day:
             _recalc_projects_for_calendar(instance.pk, actor=self.request.user)
+            return
+
+        # A metadata-only edit (rename, timezone) moves no dates, so it fans out no
+        # recompute and no broadcast — but it is still an edit to a SHARED calendar
+        # every bound project reads, and the CALENDAR_CHANGED verb promises a record
+        # of it (#3245). Written synchronously so it rolls back with the edit.
+        changed_fields = [
+            field
+            for field, old in (("name", old_name), ("timezone", old_timezone))
+            if getattr(instance, field) != old
+        ]
+        if changed_fields and getattr(self.request.user, "is_authenticated", False):
+            from trueppm_api.apps.workspace.models import AuditEventType
+            from trueppm_api.apps.workspace.services import record_audit_event
+
+            record_audit_event(
+                event_type=AuditEventType.CALENDAR_CHANGED,
+                actor=self.request.user,
+                target_type="calendar",
+                target_id=instance.pk,
+                target_label=instance.name,
+                metadata={
+                    "changed_fields": changed_fields,
+                    "previous_name": old_name,
+                    "affected_project_count": 0,
+                    "affected_project_ids": [],
+                    "affected_project_ids_truncated": False,
+                },
+            )
 
 
 def _enqueue_calendar_recalc(
@@ -1287,10 +1318,12 @@ def _enqueue_calendar_recalc(
     The audit row is written here, synchronously, rather than in the callback: it
     must roll back with a failed edit (``record_audit_event``'s contract), and the
     ``on_commit`` callback runs after the point where that is still possible.
-    """
-    if not project_ids:
-        return
 
+    The row is written even when no project is bound (#3245): the edit to the
+    calendar itself still happened, and a later binding inherits it, so "nothing
+    was affected" is a fact the log records (``affected_project_count: 0``), not a
+    reason to record nothing. Only the recompute/broadcast fan-out is skipped.
+    """
     # Snapshot to plain strings before the closure (broadcast-check H-1).
     project_id_strs = [str(pid) for pid in project_ids]
 
@@ -1325,6 +1358,9 @@ def _enqueue_calendar_recalc(
                 "affected_project_ids_truncated": len(project_id_strs) > 50,
             },
         )
+
+    if not project_id_strs:
+        return
 
     def _dispatch() -> None:
         # Imported inside the callback, as every other broadcast site in this module

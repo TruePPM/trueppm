@@ -9,7 +9,8 @@ moved from the self-grantable ``IsOrgAdmin`` derivation to ``IsWorkspaceAdminStr
 That raises who may trigger the fan-out and narrows nothing about its reach, so the
 attribution half these tests pin is not made redundant by it — one ``CALENDAR_CHANGED``
 audit row per edit naming the actor and the affected set, and an actor label on the
-live broadcast.
+live broadcast. #3245 widened the record to a rename and to an edit with no bound
+project.
 """
 
 from __future__ import annotations
@@ -131,18 +132,73 @@ def test_working_days_edit_is_also_attributed(
     assert AuditEvent.objects.filter(event_type=AuditEventType.CALENDAR_CHANGED).count() == 1
 
 
-@pytest.mark.django_db
-def test_a_metadata_only_edit_records_nothing(
+@pytest.mark.django_db(transaction=True)
+def test_a_rename_is_recorded_without_claiming_a_schedule_change(
     actor: Any, shared_calendar: Calendar, outsider_project: Project
 ) -> None:
-    """Renaming a calendar moves no dates, so it must not fan out or claim it did.
+    """A rename moves no dates, but it is still an edit to a shared calendar (#3245).
 
-    Guards the over-triggering direction: an audit log that records a no-op edit as a
-    schedule change is noise that trains readers to ignore the verb.
+    The verb ``calendar_changed`` promises a record of edits to a shared calendar, and
+    before #3245 a rename wrote none. The row must not claim a schedule change it did
+    not cause, though — an audit log that reports a no-op edit as rescheduling trains
+    readers to ignore the verb — so it names the changed field and an affected count
+    of 0, and no recompute or broadcast fans out. ``transaction=True`` so the deferred
+    broadcast would actually run if one were registered.
     """
-    with patch(BROADCAST):
+    with patch(BROADCAST) as broadcast:
         resp = _client(actor).patch(
             f"/api/v1/calendars/{shared_calendar.pk}/", {"name": "Renamed"}, format="json"
         )
     assert resp.status_code == 200
+    (row,) = AuditEvent.objects.filter(event_type=AuditEventType.CALENDAR_CHANGED)
+    assert row.actor_id == actor.pk
+    assert row.target_label == "Renamed"
+    assert row.metadata["changed_fields"] == ["name"]
+    assert row.metadata["previous_name"] == "Corporate"
+    assert row.metadata["affected_project_count"] == 0
+    assert not [c for c in broadcast.call_args_list if c.args[1] == "project_calendar_changed"]
+
+
+@pytest.mark.django_db
+def test_a_resave_with_no_change_records_nothing(
+    actor: Any, shared_calendar: Calendar, outsider_project: Project
+) -> None:
+    """A PUT that re-sends today's values is not an edit and must not write a row."""
+    with patch(BROADCAST):
+        resp = _client(actor).patch(
+            f"/api/v1/calendars/{shared_calendar.pk}/", {"name": "Corporate"}, format="json"
+        )
+    assert resp.status_code == 200
     assert not AuditEvent.objects.filter(event_type=AuditEventType.CALENDAR_CHANGED).exists()
+
+
+@pytest.mark.django_db
+def test_an_edit_to_a_calendar_with_no_bound_project_is_still_recorded(
+    db: object, grant_workspace_admin: Any
+) -> None:
+    """Zero bound projects means nothing to recompute, not nothing to record (#3245).
+
+    ``_enqueue_calendar_recalc`` used to return before the audit write when the
+    affected set was empty, so a working-days or holiday edit to an unbound calendar
+    left no trace — and a project bound to it later silently inherits the edit.
+    """
+    lonely = Calendar.objects.create(name="Unbound", working_days=31, hours_per_day=8.0)
+    admin = grant_workspace_admin(
+        User.objects.create_user(username="solo", email="solo@example.com", password="pw")
+    )
+    with patch(BROADCAST) as broadcast:
+        resp = _client(admin).patch(
+            f"/api/v1/calendars/{lonely.pk}/", {"working_days": 15}, format="json"
+        )
+        exc = _client(admin).post(
+            f"/api/v1/calendars/{lonely.pk}/exceptions/",
+            {"exc_start": "2026-07-04", "exc_end": "2026-07-04", "name": "Holiday"},
+            format="json",
+        )
+    assert resp.status_code == 200
+    assert exc.status_code == 201
+    rows = list(AuditEvent.objects.filter(event_type=AuditEventType.CALENDAR_CHANGED))
+    assert len(rows) == 2
+    assert all(r.actor_id == admin.pk for r in rows)
+    assert all(r.metadata["affected_project_count"] == 0 for r in rows)
+    assert not broadcast.called
