@@ -226,7 +226,7 @@ M0 late_finish = 2026-01-05
     successor_ss B SS 2 2026-01-05 0 - B
 M0 total_float = 0
     early_start - - - 2026-01-05 - 0 B
-    late_start - - - 2026-01-05 - - B
+    late_start - - - 2026-01-05 - - .
 M0 free_float = 0
     successor_free_slack A FS 0 2026-01-05 - 0 .
     successor_free_slack B SS 2 2026-01-05 - 0 B
@@ -246,7 +246,7 @@ A late_finish = 2026-01-08
     project_finish - - - 2026-01-08 - - B
 A total_float = 1
     early_start - - - 2026-01-05 - 1 B
-    late_start - - - 2026-01-06 - - B
+    late_start - - - 2026-01-06 - - .
 A free_float = 1
     total_float - - - - - 1 B
 A scheduled_start = 2026-01-05
@@ -265,7 +265,7 @@ B late_finish = 2026-01-08
     project_finish - - - 2026-01-08 - - B
 B total_float = 0
     early_start - - - 2026-01-07 - 0 B
-    late_start - - - 2026-01-07 - - B
+    late_start - - - 2026-01-07 - - .
 B free_float = 0
     total_float - - - - - 0 B
 B scheduled_start = 2026-01-07
@@ -287,7 +287,7 @@ A late_finish = 2026-01-08
     successor_fs M1 FS 0 2026-01-08 0 - B
 A total_float = 0
     early_start - - - 2026-01-05 - 0 B
-    late_start - - - 2026-01-05 - - B
+    late_start - - - 2026-01-05 - - .
 A free_float = 0
     successor_free_slack M1 FS 0 2026-01-08 - 0 B
 A scheduled_start = 2026-01-05
@@ -306,7 +306,7 @@ M1 late_finish = 2026-01-08
     successor_fs M2 FS 0 2026-01-08 -1 - B
 M1 total_float = 0
     early_start - - - 2026-01-08 - 0 B
-    late_start - - - 2026-01-08 - - B
+    late_start - - - 2026-01-08 - - .
 M1 free_float = 0
     successor_free_slack M2 FS 0 2026-01-08 - 0 B
 M1 scheduled_start = 2026-01-08
@@ -325,7 +325,7 @@ M2 late_finish = 2026-01-08
     successor_ss B SS 0 2026-01-08 -1 - B
 M2 total_float = 0
     early_start - - - 2026-01-08 - 0 B
-    late_start - - - 2026-01-08 - - B
+    late_start - - - 2026-01-08 - - .
 M2 free_float = 0
     successor_free_slack B SS 0 2026-01-08 - 0 B
 M2 scheduled_start = 2026-01-08
@@ -344,7 +344,7 @@ B late_finish = 2026-01-13
     project_finish - - - 2026-01-13 - - B
 B total_float = 0
     early_start - - - 2026-01-09 - 0 B
-    late_start - - - 2026-01-09 - - B
+    late_start - - - 2026-01-09 - - .
 B free_float = 0
     total_float - - - - - 0 B
 B scheduled_start = 2026-01-09
@@ -366,7 +366,7 @@ A late_finish = 2026-01-09
     successor_fs M FS 0 2026-01-09 -2 - B
 A total_float = 0
     early_start - - - 2026-01-05 - 0 B
-    late_start - - - 2026-01-05 - - B
+    late_start - - - 2026-01-05 - - .
 A free_float = 0
     successor_free_slack M FS 0 2026-01-09 - 0 B
 A scheduled_start = 2026-01-05
@@ -385,7 +385,7 @@ C late_finish = 2026-01-12
     duration_from_late_start M SS 4 2026-01-12 - 3 B
 C total_float = 3
     early_start - - - 2026-01-05 - 3 B
-    late_start - - - 2026-01-08 - - B
+    late_start - - - 2026-01-08 - - .
 C free_float = 0
     successor_free_slack M SS 4 2026-01-05 - 0 B
 C scheduled_start = 2026-01-05
@@ -406,7 +406,7 @@ M late_finish = 2026-01-09
     successor_fs B FS 0 2026-01-09 -3 - B
 M total_float = 0
     early_start - - - 2026-01-09 - 0 B
-    late_start - - - 2026-01-09 - - B
+    late_start - - - 2026-01-09 - - .
 M free_float = 0
     successor_free_slack B FS 0 2026-01-09 - 0 B
 M scheduled_start = 2026-01-09
@@ -425,7 +425,7 @@ B late_finish = 2026-01-13
     project_finish - - - 2026-01-13 - - B
 B total_float = 0
     early_start - - - 2026-01-12 - 0 B
-    late_start - - - 2026-01-12 - - B
+    late_start - - - 2026-01-12 - - .
 B free_float = 0
     total_float - - - - - 0 B
 B scheduled_start = 2026-01-12
@@ -447,7 +447,7 @@ A late_finish = 2026-01-09
     successor_ff M FF 0 2026-01-09 -2 - B
 A total_float = 0
     early_start - - - 2026-01-05 - 0 B
-    late_start - - - 2026-01-05 - - B
+    late_start - - - 2026-01-05 - - .
 A free_float = 0
     successor_free_slack M FF 0 2026-01-09 - 0 B
 A scheduled_start = 2026-01-05
@@ -466,7 +466,7 @@ C late_finish = 2026-01-12
     duration_from_late_start M SF 1 2026-01-12 - 2 B
 C total_float = 4
     early_start - - - 2026-01-05 - 4 B
-    late_start - - - 2026-01-09 - - B
+    late_start - - - 2026-01-09 - - .
 C free_float = 4
     successor_free_slack M SF 1 2026-01-09 - 4 B
 C scheduled_start = 2026-01-05
@@ -485,7 +485,7 @@ M late_finish = 2026-01-09
     successor_fs B FS 0 2026-01-09 -3 - B
 M total_float = 0
     early_start - - - 2026-01-09 - 0 B
-    late_start - - - 2026-01-09 - - B
+    late_start - - - 2026-01-09 - - .
 M free_float = 0
     successor_free_slack B FS 0 2026-01-09 - 0 B
 M scheduled_start = 2026-01-09
@@ -504,7 +504,7 @@ B late_finish = 2026-01-14
     project_finish - - - 2026-01-14 - - B
 B total_float = 0
     early_start - - - 2026-01-12 - 0 B
-    late_start - - - 2026-01-12 - - B
+    late_start - - - 2026-01-12 - - .
 B free_float = 0
     total_float - - - - - 0 B
 B scheduled_start = 2026-01-12
@@ -526,7 +526,7 @@ A late_finish = 2026-01-09
     successor_fs M FS 1 2026-01-09 -2 - B
 A total_float = 0
     early_start - - - 2026-01-05 - 0 B
-    late_start - - - 2026-01-05 - - B
+    late_start - - - 2026-01-05 - - .
 A free_float = 0
     successor_free_slack M FS 1 2026-01-09 - 0 B
 A scheduled_start = 2026-01-05
@@ -545,7 +545,7 @@ C late_finish = 2026-01-12
     successor_ff M FF 0 2026-01-12 0 - B
 C total_float = 4
     early_start - - - 2026-01-05 - 4 B
-    late_start - - - 2026-01-09 - - B
+    late_start - - - 2026-01-09 - - .
 C free_float = 3
     successor_free_slack M FF 0 2026-01-09 - 3 B
 C scheduled_start = 2026-01-05
@@ -566,7 +566,7 @@ M late_finish = 2026-01-12
     successor_ff B FF 0 2026-01-12 0 - B
 M total_float = 1
     early_start - - - 2026-01-10 - 1 B
-    late_start - - - 2026-01-12 - - B
+    late_start - - - 2026-01-12 - - .
 M free_float = 1
     successor_free_slack B FF 0 2026-01-12 - 1 B
 M scheduled_start = 2026-01-10
@@ -585,7 +585,7 @@ B late_finish = 2026-01-12
     project_finish - - - 2026-01-12 - - B
 B total_float = 0
     early_start - - - 2026-01-09 - 0 B
-    late_start - - - 2026-01-09 - - B
+    late_start - - - 2026-01-09 - - .
 B free_float = 0
     total_float - - - - - 0 B
 B scheduled_start = 2026-01-09
@@ -605,7 +605,7 @@ L late_finish = 2026-01-16
     project_finish - - - 2026-01-16 - - B
 L total_float = 0
     early_start - - - 2026-01-05 - 0 B
-    late_start - - - 2026-01-05 - - B
+    late_start - - - 2026-01-05 - - .
 L free_float = 0
     total_float - - - - - 0 B
 L scheduled_start = 2026-01-05
@@ -624,7 +624,7 @@ A late_finish = 2026-01-14
     successor_fs M FS 0 2026-01-14 0 - B
 A total_float = 6
     early_start - - - 2026-01-05 - 6 B
-    late_start - - - 2026-01-13 - - B
+    late_start - - - 2026-01-13 - - .
 A free_float = 0
     successor_free_slack M FS 0 2026-01-06 - 0 B
 A scheduled_start = 2026-01-05
@@ -643,7 +643,7 @@ M late_finish = 2026-01-14
     successor_fs B FS 0 2026-01-14 -1 - B
 M total_float = 7
     early_start - - - 2026-01-06 - 7 B
-    late_start - - - 2026-01-14 - - B
+    late_start - - - 2026-01-14 - - .
 M free_float = 0
     successor_free_slack B FS 0 2026-01-06 - 0 B
 M scheduled_start = 2026-01-06
@@ -662,7 +662,7 @@ B late_finish = 2026-01-16
     project_finish - - - 2026-01-16 - - B
 B total_float = 6
     early_start - - - 2026-01-07 - 6 B
-    late_start - - - 2026-01-15 - - B
+    late_start - - - 2026-01-15 - - .
 B free_float = 6
     total_float - - - - - 6 B
 B scheduled_start = 2026-01-07
@@ -686,7 +686,7 @@ X late_finish = 2026-01-12
     successor_fs M FS 0 2026-01-12 0 - B
 X total_float = 4
     early_start - - - 2026-01-06 - 4 B
-    late_start - - - 2026-01-12 - - B
+    late_start - - - 2026-01-12 - - .
 X free_float = 3
     successor_free_slack M FS 0 2026-01-09 - 3 B
 X scheduled_start = 2026-01-06
@@ -705,7 +705,7 @@ L late_finish = 2026-01-15
     project_finish - - - 2026-01-15 - - B
 L total_float = 0
     early_start - - - 2026-01-06 - 0 B
-    late_start - - - 2026-01-06 - - B
+    late_start - - - 2026-01-06 - - .
 L free_float = 0
     total_float - - - - - 0 B
 L scheduled_start = 2026-01-06
@@ -728,7 +728,7 @@ M late_finish = 2026-01-13
     successor_ss Z SS 1 2026-01-13 0 - B
 M total_float = 1
     early_start - - - 2026-01-12 - 1 B
-    late_start - - - 2026-01-13 - - B
+    late_start - - - 2026-01-13 - - .
 M free_float = 0
     successor_free_slack Z SS 1 2026-01-12 - 0 B
 M scheduled_start = 2026-01-12
@@ -749,7 +749,7 @@ Z late_finish = 2026-01-15
     project_finish - - - 2026-01-15 - - B
 Z total_float = 1
     early_start - - - 2026-01-13 - 1 B
-    late_start - - - 2026-01-14 - - B
+    late_start - - - 2026-01-14 - - .
 Z free_float = 1
     total_float - - - - - 1 B
 Z scheduled_start = 2026-01-13
@@ -769,7 +769,7 @@ L late_finish = 2026-01-14
     project_finish - - - 2026-01-14 - - B
 L total_float = 0
     early_start - - - 2026-01-05 - 0 B
-    late_start - - - 2026-01-05 - - B
+    late_start - - - 2026-01-05 - - .
 L free_float = 0
     total_float - - - - - 0 B
 L scheduled_start = 2026-01-05
@@ -789,7 +789,7 @@ M late_finish = 2026-01-13
     successor_fs Z FS 0 2026-01-13 0 - B
 M total_float = 1
     early_start - - - 2026-01-10 - 1 B
-    late_start - - - 2026-01-13 - - B
+    late_start - - - 2026-01-13 - - .
 M free_float = 0
     successor_free_slack Z FS 0 2026-01-10 - 0 B
 M scheduled_start = 2026-01-10
@@ -808,7 +808,7 @@ Z late_finish = 2026-01-14
     project_finish - - - 2026-01-14 - - B
 Z total_float = 1
     early_start - - - 2026-01-12 - 1 B
-    late_start - - - 2026-01-13 - - B
+    late_start - - - 2026-01-13 - - .
 Z free_float = 1
     total_float - - - - - 1 B
 Z scheduled_start = 2026-01-12
@@ -830,7 +830,7 @@ L late_finish = 2026-01-09
     successor_fs M FS 0 2026-01-09 -2 - B
 L total_float = 2
     early_start - - - 2026-01-05 - 2 B
-    late_start - - - 2026-01-07 - - B
+    late_start - - - 2026-01-07 - - .
 L free_float = 2
     successor_free_slack M FS 0 2026-01-09 - 2 B
 L scheduled_start = 2026-01-05
@@ -849,7 +849,7 @@ M late_finish = 2026-01-12
     project_finish - - - 2026-01-12 - - B
 M total_float = 0
     early_start - - - 2026-01-12 - 0 B
-    late_start - - - 2026-01-12 - - B
+    late_start - - - 2026-01-12 - - .
 M free_float = 0
     total_float - - - - - 0 B
 M scheduled_start = 2026-01-12
@@ -871,7 +871,7 @@ A late_finish = 2026-01-12
     successor_fs M FS 0 2026-01-12 0 - B
 A total_float = 0
     early_start - - - 2026-01-05 - 0 B
-    late_start - - - 2026-01-05 - - B
+    late_start - - - 2026-01-05 - - .
 A free_float = 0
     successor_free_slack M FS 0 2026-01-12 - 0 B
 A scheduled_start = 2026-01-05
@@ -890,7 +890,7 @@ C late_finish = 2026-01-06
     duration_from_late_start M SS 7 2026-01-06 - 1 B
 C total_float = 1
     early_start - - - 2026-01-05 - 1 B
-    late_start - - - 2026-01-06 - - B
+    late_start - - - 2026-01-06 - - .
 C free_float = 0
     successor_free_slack M SS 7 2026-01-05 - 0 B
 C scheduled_start = 2026-01-05
@@ -911,7 +911,7 @@ M late_finish = 2026-01-12
     successor_fs B FS 0 2026-01-12 -1 - B
 M total_float = 0
     early_start - - - 2026-01-12 - 0 B
-    late_start - - - 2026-01-12 - - B
+    late_start - - - 2026-01-12 - - .
 M free_float = 0
     successor_free_slack B FS 0 2026-01-12 - 0 B
 M scheduled_start = 2026-01-12
@@ -930,7 +930,7 @@ B late_finish = 2026-01-14
     project_finish - - - 2026-01-14 - - B
 B total_float = 0
     early_start - - - 2026-01-13 - 0 B
-    late_start - - - 2026-01-13 - - B
+    late_start - - - 2026-01-13 - - .
 B free_float = 0
     total_float - - - - - 0 B
 B scheduled_start = 2026-01-13
@@ -1018,10 +1018,9 @@ def test_exactly_one_term_binds_each_date_quantity(network: str) -> None:
 def test_total_float_of_a_milestone_on_a_non_working_day_cites_both_ends() -> None:
     """``M`` is pinned to a Saturday actual, so its instant sits on a non-working day.
 
-    Total float is a span, so the derivation marks *both* ends binding — that is
-    the one quantity where ``Derivation.binding`` is not the whole story, and the
-    pair has to be the milestone's own early and late positions rather than a
-    neighbouring task's.
+    Total float is a span, so the derivation cites *both* ends (early_start the
+    binding one, #2181), and the pair has to be the milestone's own early and late
+    positions rather than a neighbouring task's.
 
     Note on what this does not pin: the engine measures a milestone's float
     between its instants, and on *this* network the instant span and the
@@ -1039,8 +1038,9 @@ def test_total_float_of_a_milestone_on_a_non_working_day_cites_both_ends() -> No
 
     derivation = derive_value(project, "M", Quantity.TOTAL_FLOAT, result)
     assert derivation.value == 1
-    span = [c for c in derivation.contributions if c.is_binding]
+    span = derivation.contributions
     assert [c.kind for c in span] == ["early_start", "late_start"]
+    assert [c.is_binding for c in span] == [True, False]
     assert [c.imposed_date for c in span] == [date(2026, 1, 10), date(2026, 1, 13)]
     assert [c.source_task_id for c in span] == [None, None]
 

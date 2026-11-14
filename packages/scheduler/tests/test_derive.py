@@ -116,11 +116,9 @@ class TestFaithfulness:
             for q in Quantity:
                 d = derive_value(project, t.id, q, result=result)
                 binding = [c for c in d.contributions if c.is_binding]
-                # total_float legitimately flags both its endpoint terms.
-                if q is Quantity.TOTAL_FLOAT:
-                    assert len(binding) >= 1
-                else:
-                    assert len(binding) == 1, (t.id, q, len(binding))
+                # Every quantity, total_float included (#2181), flags exactly one.
+                assert len(binding) == 1, (t.id, q, len(binding))
+                assert d.binding is binding[0], (t.id, q)
 
     def test_late_finish_ss_pullback_binds_duration_from_late_start(self) -> None:
         """#1857: when an SS successor pulls late_start back, the engine
