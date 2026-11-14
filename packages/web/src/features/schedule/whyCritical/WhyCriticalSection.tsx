@@ -237,7 +237,7 @@ export function WhyCriticalSection({
           ? `Couldn't update. Showing the schedule computed ${view?.provenanceShort.replace('Schedule computed ', '') ?? ''}.`
           : "Couldn't load why this task is critical.";
     return (
-      <div className="flex flex-wrap items-center gap-2" role={throttled ? undefined : 'alert'}>
+      <div className="flex flex-wrap items-center gap-2" role={throttled ? 'status' : 'alert'}>
         <p className="text-sm text-neutral-text-secondary">{message}</p>
         {retryButton}
         {throttled && (

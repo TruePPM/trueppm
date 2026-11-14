@@ -51,6 +51,7 @@ export function WhyCriticalNetworkDialog({ chain, view, copyText, onClose, onOpe
   }, [view, hopsById]);
   const selfKey = view.cards.find((c) => c.kind === 'self')?.key ?? '';
   const [focused, setFocused] = useState(selfKey);
+  const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const nameOf = (c: ChainCard) => (c.kind === 'self' ? view.self.name : c.title);
 
@@ -139,15 +140,41 @@ export function WhyCriticalNetworkDialog({ chain, view, copyText, onClose, onOpe
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => void navigator.clipboard?.writeText(copyText)}
+              onClick={() => {
+                navigator.clipboard
+                  .writeText(copyText)
+                  .then(() => setCopied('copied'))
+                  .catch(() => setCopied('failed'));
+              }}
             >
-              Copy as text
+              {copied === 'copied' ? '✓ Copied' : 'Copy as text'}
             </Button>
             <Button variant="ghost" size="sm" aria-label="Close network view" onClick={onClose}>
               ×
             </Button>
           </div>
         </div>
+        <p role="status" className="sr-only">
+          {copied === 'copied' ? 'Copied to clipboard as plain text.' : ''}
+        </p>
+        {copied === 'failed' && (
+          <div className="mt-3 space-y-1">
+            <p className="text-sm text-neutral-text-secondary">
+              {"Couldn't copy. Select the text below and copy it."}
+            </p>
+            <label className="sr-only" htmlFor="why-critical-network-copy-fallback">
+              Why critical as text
+            </label>
+            <textarea
+              id="why-critical-network-copy-fallback"
+              readOnly
+              value={copyText}
+              rows={6}
+              ref={(el) => el?.select()}
+              className="w-full tppm-mono text-xs rounded-control border border-neutral-border p-2"
+            />
+          </div>
+        )}
         <div
           role="group"
           aria-label="Driving chain diagram. Use arrow keys to move between tasks."
@@ -184,9 +211,7 @@ export function WhyCriticalNetworkDialog({ chain, view, copyText, onClose, onOpe
                         ? 'border-[2.5px] border-neutral-text-primary'
                         : 'border border-neutral-border',
                       card.nonDriving ? 'border-dashed' : '',
-                      card.band === 'near_critical'
-                        ? 'border-semantic-at-risk'
-                        : '',
+                      card.band === 'near_critical' ? 'border-semantic-at-risk' : '',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2',
                     ].join(' ')}
                   >

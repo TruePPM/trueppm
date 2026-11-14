@@ -33,7 +33,9 @@ export function WhyCriticalBadge({ band, float, onActivate }: Props) {
       onClick={onActivate}
       aria-label={aria}
       className={[
-        'min-h-6 text-xs font-semibold px-1.5 py-0.5 rounded-chip',
+        // 44 px on the touch-primary PWA (house rule 5); 24 px (WCAG 2.5.8) beside the
+        // desktop header chips.
+        'min-h-11 md:min-h-6 text-xs font-semibold px-1.5 py-0.5 rounded-chip',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2',
         critical
           ? 'text-white bg-semantic-critical'
