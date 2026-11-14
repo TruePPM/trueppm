@@ -325,6 +325,50 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['calendars'] });
   });
 
+  // #3245: the payload names the editor so dates do not move by themselves.
+  function dispatchCalendarChanged(payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'project_calendar_changed', payload }),
+      });
+    });
+  }
+
+  it("names a peer's shared-calendar edit in a toast on project_calendar_changed", () => {
+    toastMock.info.mockClear();
+    qc.setQueryData(['current-user'], { id: '7' });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchCalendarChanged({ id: 'proj-1', actor: 'Dana Ortiz', actor_id: '42' });
+
+    expect(toastMock.info).toHaveBeenCalledTimes(1);
+    expect(toastMock.info).toHaveBeenCalledWith(
+      "Dana Ortiz changed this project's working-time calendar. Dates may move.",
+    );
+  });
+
+  it('does not toast the editor their own calendar change, across id encodings', () => {
+    toastMock.info.mockClear();
+    // /auth/me/ carries the id as a string; compare through isSameUser, never ===.
+    qc.setQueryData(['current-user'], { id: '42' });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchCalendarChanged({ id: 'proj-1', actor: 'Dana Ortiz', actor_id: 42 });
+
+    expect(toastMock.info).not.toHaveBeenCalled();
+  });
+
+  it('does not toast a system-originated calendar change, but still refetches', () => {
+    toastMock.info.mockClear();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchCalendarChanged({ id: 'proj-1', actor: '', actor_id: null });
+
+    expect(toastMock.info).not.toHaveBeenCalled();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['calendars'] });
+  });
+
   it('refreshes shellStats on project_updated so the health chip follows the report', () => {
     // #3501: the top bar's chip word is the server's `health_band`, which folds
     // in the manual `Project.health` report. A PM filing a status emits
@@ -2491,6 +2535,38 @@ describe('useProjectWebSocket — presence and CPM handlers', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  // #4659: the arming run's refetch nudge — and only that — refreshes the tasks cache.
+  it('invalidates the tasks cache when cpm_complete carries dates_changed: true', () => {
+    vi.useFakeTimers(); // this describe runs on real timers; the debounce needs fake ones
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('cpm_complete', { project_finish: '2026-12-01', dates_changed: true });
+    act(() => {
+      vi.advanceTimersByTime(400); // flush the trailing scheduleInvalidate debounce
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    vi.useRealTimers();
+  });
+
+  it.each([false, 'true', 1])(
+    'leaves the tasks cache alone when dates_changed is %p (only a literal true counts)',
+    (value) => {
+      vi.useFakeTimers();
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch('cpm_complete', { project_finish: '2026-12-01', dates_changed: value });
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+      vi.useRealTimers();
+    },
+  );
+
   it('falls back to a generated timestamp when cpm_complete omits project_finish', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
@@ -3939,9 +4015,62 @@ describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-rela
     },
   );
 
-  // --- #3774: task-relation lifecycle (task_relation_created also closes the
-  // task_relation_* portion of #2847, which stays open for its other event
-  // types: label_*, sprint_reranked, project_restored) ---
+  // --- #2847: label catalog, sprint backlog rerank, project restore ---
+  function flushCoalesced() {
+    act(() => {
+      vi.advanceTimersByTime(400); // the trailing scheduleInvalidate debounce window
+    });
+  }
+
+  it('refreshes only the label catalog on label_created', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('label_created', { id: 'lbl-1' });
+    flushCoalesced();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['labels', 'proj-1'] });
+    // A new label sits on no task yet, so no task row's chips can have changed.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it.each(['label_updated', 'label_deleted'])(
+    'refreshes the label catalog and the task chips on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { id: 'lbl-1' });
+      flushCoalesced();
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['labels', 'proj-1'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    },
+  );
+
+  it('refreshes the named sprint backlog and the tasks cache on sprint_reranked', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('sprint_reranked', { id: 'spr-1', sprint_id: 'spr-1', project_id: 'proj-1' });
+    flushCoalesced();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['sprint-backlog', 'proj-1', 'spr-1'],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('falls back to every sprint backlog of the project when sprint_reranked names no sprint', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('sprint_reranked', {});
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint-backlog', 'proj-1'] });
+  });
+
+  // --- #3774: task-relation lifecycle ---
   it.each(['task_relation_created', 'task_relation_updated', 'task_relation_deleted'])(
     'invalidates every mounted task-relations query on %s',
     (eventType) => {

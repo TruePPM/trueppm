@@ -131,10 +131,33 @@ class TestStatusDateFloorArming:
         # Not suppressed: cpm_complete still fires, and echoes the resolved date.
         cpm_complete_payload = _payload_for(broadcast_mock, "cpm_complete")
         assert cpm_complete_payload["status_date"] == _FROZEN_TODAY.isoformat()
+        # #4659: with the delta withheld, cpm_complete is a live peer's only signal
+        # that its task cache is stale. The nudge names no task and no date — it
+        # must not leak the movement §7 withholds.
+        assert cpm_complete_payload["dates_changed"] is True
+        assert set(cpm_complete_payload) == {
+            "project_finish",
+            "critical_path",
+            "status_date",
+            "dates_changed",
+        }
 
         # The one-shot flag is now set, so the project never arms again.
         project.refresh_from_db()
         assert project.status_date_floor_armed_at is not None
+
+    def test_arming_run_that_moves_nothing_sends_no_refetch_nudge(
+        self, project: Project, chain: tuple[Task, Task, Task]
+    ) -> None:
+        """An arming run whose floor shifts no date leaves every client correct, so
+        it must not make every peer re-read the whole task list (#4659)."""
+        _run(str(project.pk))
+        Project.objects.filter(pk=project.pk).update(status_date_floor_armed_at=None)
+
+        broadcast_mock, _ = _run(str(project.pk))
+
+        assert "task_dates_updated" not in _event_types(broadcast_mock)
+        assert "dates_changed" not in _payload_for(broadcast_mock, "cpm_complete")
 
     def test_second_recalculation_after_arming_reports_movement_normally(
         self, project: Project, chain: tuple[Task, Task, Task]
@@ -156,6 +179,9 @@ class TestStatusDateFloorArming:
 
         assert TaskActivityEvent.objects.filter(event_type="cpm_recalculated").count() > armed_count
         assert "task_dates_updated" in _event_types(broadcast_mock)
+        # A non-arming run keeps today's cpm_complete shape: the delta above is the
+        # cache signal, so no refetch nudge rides along (#4659).
+        assert "dates_changed" not in _payload_for(broadcast_mock, "cpm_complete")
 
     def test_project_with_explicit_status_date_never_treated_as_arming(
         self, project: Project, chain: tuple[Task, Task, Task]
@@ -187,6 +213,7 @@ class TestStatusDateFloorArming:
         broadcast_mock, _ = _run(str(project.pk))
 
         assert "task_dates_updated" in _event_types(broadcast_mock)
+        assert "dates_changed" not in _payload_for(broadcast_mock, "cpm_complete")
         assert TaskActivityEvent.objects.filter(event_type="cpm_recalculated").count() == 3
         # The flag is still armed by this pass, so a *later* null-status_date
         # recalculation on this project is never treated as arming again.

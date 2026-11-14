@@ -580,7 +580,12 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             lambda: broadcast_board_event(
                 project_id,
                 "member_added",
-                {"membership_id": membership_id, "user_id": user_id, "role": new_role},
+                {
+                    "id": membership_id,
+                    "membership_id": membership_id,
+                    "user_id": user_id,
+                    "role": new_role,
+                },
             )
         )
 
@@ -735,7 +740,12 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             lambda: broadcast_board_event(
                 project_id,
                 "member_role_changed",
-                {"membership_id": membership_id, "user_id": user_id, "role": role_val},
+                {
+                    "id": membership_id,
+                    "membership_id": membership_id,
+                    "user_id": user_id,
+                    "role": role_val,
+                },
             )
         )
 
@@ -824,7 +834,9 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
 
         transaction.on_commit(
             lambda: broadcast_board_event(
-                project_id, "member_removed", {"membership_id": membership_id, "user_id": user_id}
+                project_id,
+                "member_removed",
+                {"id": membership_id, "membership_id": membership_id, "user_id": user_id},
             )
         )
 
@@ -913,7 +925,7 @@ class UserDefinedMentionGroupViewSet(
             lambda: broadcast_board_event(
                 project_id,
                 "mention_group_changed",
-                {"group_id": group_id, "change": change},
+                {"id": group_id, "group_id": group_id, "change": change},
             )
         )
 
@@ -1202,6 +1214,7 @@ class ProgramUserDefinedMentionGroupViewSet(
                     str(project_id),
                     "mention_group_changed",
                     {
+                        "id": group_id,
                         "group_id": group_id,
                         "change": change,
                         "scope": "program",

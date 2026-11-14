@@ -7,7 +7,8 @@
  *   task_run_completed → taskRunStore.completeRun(); for scheduling tasks also setCpmComplete()
  *   task_run_failed   → taskRunStore.failRun(); for scheduling tasks also setCpmError()
  *   task_run_cancelled → taskRunStore.cancelRun()
- *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated)
+ *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated,
+ *                       except `dates_changed: true` on the data-date arming run, which invalidates tasks)
  *   task_dates_updated → splice per-task CPM date deltas into the tasks cache; truncated payload → invalidate (ADR-0091)
  *                        and record the moved count for the reforecast panel (#3158)
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
@@ -109,6 +110,7 @@ import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
 import type { CpmError } from '@/stores/schedulerStore';
 import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
+import { isSameUser } from '@/lib/userId';
 import {
   addHandler,
   dispatchHandlers,
@@ -377,19 +379,38 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
     // The tasks cache is maintained by task_dates_updated (ADR-0091); the
     // coarse compat event no longer invalidates it. Pill + stats only.
     void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
+    // #4659: the one exception. The data-date arming run (ADR-0752 §7) moves task
+    // dates but withholds the per-task task_dates_updated delta, and the fallback
+    // poll only runs while the socket is down — so without this a live peer's
+    // Gantt keeps the pre-correction dates and may commit a drag against them.
+    // The flag names no task; the re-read goes through REST.
+    if (payload.dates_changed === true) scheduleInvalidate('tasks');
   });
 
   // --- Working-time calendar changed (#4170; the event is #2845's) ---
-  on('project_calendar_changed', () => {
+  on('project_calendar_changed', (payload) => {
     // Fired for every project whose EFFECTIVE calendar changed — a Calendar row
     // edit, a holiday added or removed, or an upstream program/workspace
     // reassignment, by anyone. The project detail carries `scheduling_calendar`,
     // which the Schedule's drag preview steps on, so a stale copy would preview on
     // last week's holidays until the 60 s staleTime ran out. The calendar
-    // settings caches read the same rows. Dates themselves arrive separately via
-    // task_dates_updated. Surfacing the event's `actor` is #3245's remainder.
+    // settings caches (library, applied set, preview, detail) all key under
+    // ['calendars']. Dates themselves arrive separately via task_dates_updated.
     void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
     void queryClient.invalidateQueries({ queryKey: ['calendars'] });
+    // #3245: a shared-calendar edit moves finish dates on projects whose own
+    // members did nothing, so name who did it rather than let dates move by
+    // themselves. Skipped for the editor's own echo (they know) and for a
+    // system-originated change, which carries no actor to name.
+    const actor = typeof payload.actor === 'string' ? payload.actor.trim() : '';
+    const actorId =
+      typeof payload.actor_id === 'string' || typeof payload.actor_id === 'number'
+        ? payload.actor_id
+        : null;
+    const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
+    if (actor !== '' && !isSameUser(actorId, currentUserId)) {
+      toast.info(`${actor} changed this project's working-time calendar. Dates may move.`);
+    }
   });
 
   // --- Per-task CPM date deltas (ADR-0091) ---
@@ -594,13 +615,15 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
       scheduleInvalidate('dependencies', 'tasks', ...OVERVIEW_KEYS);
     },
   );
-  // task_duration_changed is intentionally unregistered (no-op, issue 1323): the
-  // duration delta is already delivered by the task_updated event broadcast in the
-  // same commit batch, which refreshes the tasks cache *with* ADR-0152 self-echo
-  // suppression. Re-invalidating tasks here — the event carries no actor_id to
-  // suppress on — would clobber the editor's in-flight optimistic edit, the exact
-  // regression ADR-0152 prevents. The event's only extra payload is the inline
-  // "Recalc %?" affordance hint (ADR-0151), consumed locally by the editing client.
+  // task_duration_changed is intentionally unregistered here (no-op, issue 1323).
+  // The backend emits it as a live record of the duration/percent change. The
+  // *editing* client's inline "Recalc %?" confirm affordance (ADR-0151) is built
+  // locally by the edited row from the values it just submitted
+  // (recalcPercentPrompt.ts), not from this event, so no client needs it. For peers, the duration delta already
+  // arrives on the task_updated broadcast in the same commit batch, which refreshes
+  // the tasks cache *with* ADR-0152 self-echo suppression. Re-invalidating tasks
+  // here — the event carries no actor_id to suppress on — would clobber the
+  // editor's in-flight optimistic edit, the exact regression ADR-0152 prevents.
   on(['slip_conflict_acknowledged', 'slip_conflicts_updated'], () => {
     // A downstream scope manager acknowledged a cross-project slip conflict
     // (ADR-0120 D4), or the program CPM pass detected/auto-resolved conflicts
@@ -670,6 +693,23 @@ function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
     // and the tasks cache (the board/schedule may order by priority_rank).
     void queryClient.invalidateQueries({
       queryKey: ['product-backlog', projectIdRef.current],
+    });
+    scheduleInvalidate('tasks');
+  });
+
+  // --- Sprint backlog reorder (#2847) ---
+  on('sprint_reranked', (payload) => {
+    // A peer dragged a story within a sprint's backlog, rewriting Task.sprint_rank.
+    // Refresh that sprint's planning list (useSprintBacklog's key) and the tasks
+    // cache, which carries sprintRank for the board's in-sprint order. The payload
+    // names the sprint as `id` (#4088); without one, every mounted sprint backlog
+    // for this project is refreshed instead.
+    const sprintId = typeof payload.id === 'string' ? payload.id : null;
+    void queryClient.invalidateQueries({
+      queryKey:
+        sprintId !== null
+          ? ['sprint-backlog', projectIdRef.current, sprintId]
+          : ['sprint-backlog', projectIdRef.current],
     });
     scheduleInvalidate('tasks');
   });
@@ -771,11 +811,7 @@ function registerCollaborationHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // ['task-relations', taskId] cache the way task_link's handler above does.
   // Invalidate every mounted relations query instead; RelatedLinksSection only
   // ever mounts the one for the task detail drawer that is open, so this is a
-  // single refetch in practice. task_relation_created is included here even
-  // though #2847 (open, 0.5) also tracks it, because the stated preferred
-  // disposition is registering all three task_relation_* names together —
-  // #2847's remaining scope (label_*, sprint_reranked, project_restored) is
-  // untouched by this handler.
+  // single refetch in practice.
   on(['task_relation_created', 'task_relation_updated', 'task_relation_deleted'], () => {
     void queryClient.invalidateQueries({
       predicate: (q) => q.queryKey[0] === 'task-relations',
@@ -1091,6 +1127,16 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
   });
   on(['board_view_created', 'board_view_updated', 'board_view_deleted'], () => {
     void queryClient.invalidateQueries({ queryKey: ['boardViews', projectIdRef.current] });
+  });
+
+  // --- Project label catalog (#2847) ---
+  // Keyed to useLabels' ['labels', projectId]. A rename/recolor or delete also
+  // changes the chips every task row renders, so those two refresh the tasks cache
+  // too, mirroring useUpdateLabel/useDeleteLabel's own onSuccess. A create adds an
+  // unused catalog entry, which no task row shows yet.
+  on(['label_created', 'label_updated', 'label_deleted'], (_payload, event_type) => {
+    void queryClient.invalidateQueries({ queryKey: ['labels', projectIdRef.current] });
+    if (event_type !== 'label_created') scheduleInvalidate('tasks');
   });
 
   // --- Guardrail policy events (#3773) ---

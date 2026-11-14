@@ -220,6 +220,10 @@ def promote_retro_action_item(
                     project_id,
                     "suggestion_created",
                     {
+                        # ``id`` is the subject row (the suggestion), as on
+                        # suggestion_declined/_revoked (#4088); suggestion_id stays
+                        # for consumers that already read it.
+                        "id": suggestion_id,
                         "task_id": task_id,
                         "suggestion_id": suggestion_id,
                         "suggested_user_id": suggested_user_id,

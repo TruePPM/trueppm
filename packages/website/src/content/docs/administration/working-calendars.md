@@ -94,6 +94,12 @@ projects. Recomputes are dispatched asynchronously through the existing scheduli
 queue, so a large workspace change enqueues many jobs rather than blocking the request
 that made it.
 
+Every edit to a shared calendar is recorded as a `calendar_changed` row in the
+[audit log](/administration/audit-log/), naming who made it and how many projects it
+rescheduled. From 0.5, anyone with an affected project open also gets a notice naming
+that person, so finish dates do not appear to move by themselves. From 0.5 the audit
+log also records a rename and an edit to a calendar no project uses yet.
+
 A project's own [calendar overlays](/features/calendars/#composable-working-calendars)
 (holiday and shutdown calendars applied on top) are a separate, orthogonal mechanism —
 inheritance picks the **base** calendar; overlays still compose on top of whichever base

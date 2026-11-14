@@ -1234,11 +1234,53 @@ class CalendarViewSet(
         # PUT that re-sends the same values under a different field set.
         old_working_days = serializer.instance.working_days if serializer.instance else None
         old_hours_per_day = serializer.instance.hours_per_day if serializer.instance else None
+        old_name = serializer.instance.name if serializer.instance else None
+        old_timezone = serializer.instance.timezone if serializer.instance else None
 
         instance = serializer.save()
 
+        changed_fields = [
+            field
+            for field, old in (("name", old_name), ("timezone", old_timezone))
+            if getattr(instance, field) != old
+        ]
+
         if instance.working_days != old_working_days or instance.hours_per_day != old_hours_per_day:
-            _recalc_projects_for_calendar(instance.pk, actor=self.request.user)
+            # A combined rename + working-days edit still writes ONE audit row (the
+            # recalc one); hand it the metadata changes so the rename is not lost.
+            _recalc_projects_for_calendar(
+                instance.pk,
+                actor=self.request.user,
+                extra_metadata=(
+                    {"changed_fields": changed_fields, "previous_name": old_name}
+                    if changed_fields
+                    else None
+                ),
+            )
+            return
+
+        # A metadata-only edit (rename, timezone) moves no dates, so it fans out no
+        # recompute and no broadcast — but it is still an edit to a SHARED calendar
+        # every bound project reads, and the CALENDAR_CHANGED verb promises a record
+        # of it (#3245). Written synchronously so it rolls back with the edit.
+        if changed_fields and getattr(self.request.user, "is_authenticated", False):
+            from trueppm_api.apps.workspace.models import AuditEventType
+            from trueppm_api.apps.workspace.services import record_audit_event
+
+            record_audit_event(
+                event_type=AuditEventType.CALENDAR_CHANGED,
+                actor=self.request.user,
+                target_type="calendar",
+                target_id=instance.pk,
+                target_label=instance.name,
+                metadata={
+                    "changed_fields": changed_fields,
+                    "previous_name": old_name,
+                    "affected_project_count": 0,
+                    "affected_project_ids": [],
+                    "affected_project_ids_truncated": False,
+                },
+            )
 
 
 def _enqueue_calendar_recalc(
@@ -1247,6 +1289,7 @@ def _enqueue_calendar_recalc(
     actor: Any = None,
     calendar_label: str = "",
     calendar_id: Any = None,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> None:
     """Defer a CALENDAR_CHANGE recompute for each project to ``transaction.on_commit``.
 
@@ -1287,14 +1330,21 @@ def _enqueue_calendar_recalc(
     The audit row is written here, synchronously, rather than in the callback: it
     must roll back with a failed edit (``record_audit_event``'s contract), and the
     ``on_commit`` callback runs after the point where that is still possible.
-    """
-    if not project_ids:
-        return
 
+    The row is written even when no project is bound (#3245): the edit to the
+    calendar itself still happened, and a later binding inherits it, so "nothing
+    was affected" is a fact the log records (``affected_project_count: 0``), not a
+    reason to record nothing. Only the recompute/broadcast fan-out is skipped.
+    """
     # Snapshot to plain strings before the closure (broadcast-check H-1).
     project_id_strs = [str(pid) for pid in project_ids]
 
     actor_label = ""
+    # ``actor_id`` alongside the display ``actor`` (#4088): every other event names
+    # its actor by id, and a label alone cannot be compared against the current
+    # user (self-echo) or resolved by an integrator. Same string encoding as
+    # task_updated's actor_id. ``None`` for a system-originated change.
+    actor_id: str | None = None
     if actor is not None and getattr(actor, "is_authenticated", False):
         from trueppm_api.apps.workspace.models import AuditEventType
         from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
@@ -1302,6 +1352,7 @@ def _enqueue_calendar_recalc(
         # Same label the audit row denormalizes, so the live toast and the log entry
         # a reader finds afterwards name the person identically.
         actor_label = _actor_label(actor)
+        actor_id = str(actor.pk)
 
         record_audit_event(
             event_type=AuditEventType.CALENDAR_CHANGED,
@@ -1317,8 +1368,14 @@ def _enqueue_calendar_recalc(
                 "affected_project_count": len(project_id_strs),
                 "affected_project_ids": project_id_strs[:50],
                 "affected_project_ids_truncated": len(project_id_strs) > 50,
+                # Metadata edits (rename/timezone) made in the same request as a
+                # working-time edit: one audit row, not two (see calendar perform_update).
+                **(extra_metadata or {}),
             },
         )
+
+    if not project_id_strs:
+        return
 
     def _dispatch() -> None:
         # Imported inside the callback, as every other broadcast site in this module
@@ -1330,13 +1387,18 @@ def _enqueue_calendar_recalc(
             broadcast_board_event(
                 pid,
                 "project_calendar_changed",
-                {"id": pid, "actor": actor_label},
+                {"id": pid, "actor": actor_label, "actor_id": actor_id},
             )
 
     transaction.on_commit(_dispatch)
 
 
-def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str, *, actor: Any = None) -> None:
+def _recalc_projects_for_calendar(
+    calendar_id: uuid.UUID | str,
+    *,
+    actor: Any = None,
+    extra_metadata: dict[str, Any] | None = None,
+) -> None:
     """Enqueue a CPM recompute for every live project this calendar's edit affects.
 
     Calendar (and calendar-exception) edits are workspace-Admin writes (#3600) that
@@ -1380,6 +1442,7 @@ def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str, *, actor: Any = 
         actor=actor,
         calendar_label=calendar.name if calendar else "",
         calendar_id=calendar_id,
+        extra_metadata=extra_metadata,
     )
 
 
@@ -3065,12 +3128,17 @@ class ProjectViewSet(
             from trueppm_api.apps.workspace.services import _actor_label
 
             actor_label = _actor_label(request.user)
+            actor_id = str(request.user.pk)
 
-            def _dispatch(pid: str = str(project.id), actor: str = actor_label) -> None:
+            def _dispatch(
+                pid: str = str(project.id), actor: str = actor_label, uid: str = actor_id
+            ) -> None:
                 from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
                 _enqueue_recalculate(pid, reason=ScheduleRequestReason.CALENDAR_CHANGE)
-                broadcast_board_event(pid, "project_calendar_changed", {"id": pid, "actor": actor})
+                broadcast_board_event(
+                    pid, "project_calendar_changed", {"id": pid, "actor": actor, "actor_id": uid}
+                )
 
             transaction.on_commit(_dispatch)
 
@@ -6196,11 +6264,13 @@ def _defer_task_update_broadcasts(
             lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
         )
     # ADR-0151 (#414): a user edit changed this task's duration on a task with
-    # progress. Broadcast the WS-only task_duration_changed event so the desktop
-    # client can render the inline "Recalc %?" / confirm affordance without a
-    # refetch. WS-only (no webhook): external consumers already see the new
-    # duration via task.updated, and the OSS webhook set is at its cap (ADR-0147).
-    # The event row is already persisted by the serializer; this is the live hint.
+    # progress. Broadcast the WS-only task_duration_changed event as a live
+    # record of the old/new duration and percent. The web client registers no
+    # handler for it: the editing row builds its inline "Recalc %?" prompt locally
+    # from the values it just submitted (recalcPercentPrompt.ts), and peers get the
+    # duration via task_updated. WS-only (no webhook): external consumers already
+    # see the new duration via task.updated, and the OSS webhook set is at its cap
+    # (ADR-0147). The event row is already persisted by the serializer.
     duration_event: dict[str, Any] | None = getattr(instance, "_duration_change_event", None)
     if duration_event is not None:
         event_payload = duration_event
@@ -12799,7 +12869,9 @@ def _broadcast_retro_updated(sprint: Sprint) -> None:
     def _on_commit() -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        broadcast_board_event(project_id, "sprint_retro_updated", {"sprint_id": sprint_id})
+        broadcast_board_event(
+            project_id, "sprint_retro_updated", {"id": sprint_id, "sprint_id": sprint_id}
+        )
 
     transaction.on_commit(_on_commit)
 
@@ -22248,7 +22320,7 @@ class TaskCommentViewSet(
                 lambda: broadcast_board_event(
                     str(project_pk),
                     "task_comment_ack_changed",
-                    {"comment_id": str(pk), "task_id": str(task_pk)},
+                    {"id": str(pk), "comment_id": str(pk), "task_id": str(task_pk)},
                 )
             )
 

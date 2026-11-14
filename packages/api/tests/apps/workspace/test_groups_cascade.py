@@ -327,6 +327,8 @@ def test_cascade_broadcasts_member_added_on_commit(
     assert any(
         c.args[0] == str(project.pk) and c.args[2].get("user_id") == str(teammate.pk) for c in added
     )
+    # Identity-key contract (#4088): `id` is the membership pk, same as membership_id.
+    assert all(c.args[2]["id"] == c.args[2]["membership_id"] for c in added)
 
 
 @pytest.mark.django_db
@@ -352,3 +354,4 @@ def test_cascade_broadcasts_member_removed_on_commit(
         c.args[0] == str(project.pk) and c.args[2].get("user_id") == str(teammate.pk)
         for c in removed
     )
+    assert all(c.args[2]["id"] == c.args[2]["membership_id"] for c in removed)

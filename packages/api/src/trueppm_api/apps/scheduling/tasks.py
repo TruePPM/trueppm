@@ -1794,6 +1794,7 @@ def _broadcast_cpm_complete(
     project_finish: str | None,
     critical_path: list[str],
     status_date: str | None,
+    dates_changed: bool = False,
 ) -> None:
     """Emit ``cpm_complete`` with the one payload shape shared by both CPM passes.
 
@@ -1821,9 +1822,31 @@ def _broadcast_cpm_complete(
     program view shows the earliest honest schedule, not a data-date floor.
     Echoing ``None`` states that plainly rather than fabricating a value or
     silently dropping the key.
+
+    ``dates_changed`` (#4659) is set only by the data-date arming run (ADR-0752
+    §7), which moves task dates but withholds the per-task ``task_dates_updated``
+    delta. Without it a live peer gets no signal that its task cache is stale
+    (the fallback poll only runs while the socket is down). It is a bare
+    "re-read the tasks" nudge: it names no task and carries no before/after date,
+    so it publishes no movement — the client re-reads through REST, which
+    re-applies the serializer's gating. The key is present only when true, so
+    every other run's payload is unchanged. Both branches are literal dicts so
+    the payload-shape scan still reads this call site.
     """
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+    if dates_changed:
+        broadcast_board_event(
+            project_id=project_id,
+            event_type="cpm_complete",
+            payload={
+                "project_finish": project_finish,
+                "critical_path": critical_path,
+                "status_date": status_date,
+                "dates_changed": True,
+            },
+        )
+        return
     broadcast_board_event(
         project_id=project_id,
         event_type="cpm_complete",
@@ -1900,6 +1923,10 @@ def _finalize_status_date_floor_arming(
             project_finish=cast("str", cpm_payload["project_finish"]),
             critical_path=cast("list[str]", cpm_payload["critical_path"]),
             status_date=cast("str", cpm_payload["status_date"]),
+            # The arming run withholds the delta below; tell peers to re-read
+            # instead (#4659). Only when something actually moved — an arming run
+            # that changed no dates leaves every client's cache correct.
+            dates_changed=is_arming_status_date_floor and bool(delta_payload.get("count")),
         )
     )
 

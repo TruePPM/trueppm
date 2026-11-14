@@ -1,6 +1,7 @@
 ---
 title: Audit log
 description: Review the workspace operational audit log — what administration events are recorded, who can read it, and how the OSS log relates to the Enterprise immutable audit trail.
+documentedFor: "0.5"
 ---
 
 :::note[Added in 0.3 (alpha)]
@@ -24,6 +25,13 @@ Every entry captures an actor, an event type, an optional target, and a
 structured `metadata` object. The following workspace administration events are
 recorded:
 
+:::note[Ships in 0.5]
+Rows marked *(0.5)* below are not in the 0.4 release. In 0.4, renaming a shared
+calendar, or editing one that no project uses, writes no `calendar_changed` row;
+those edits are recorded from 0.5. `resource_rate_changed` and
+`sso_provider_test_connection` also ship in 0.5.
+:::
+
 | Event type | When it fires | Target | Metadata |
 |---|---|---|---|
 | `member_added` | A user accepts an invite and joins the workspace | The new member | `role`, `source` |
@@ -40,13 +48,15 @@ recorded:
 | `invite_sent` *(0.4)* | An Owner/Admin invites an email address | The invite | `role` |
 | `invite_accepted` *(0.4)* | An invited person joins the workspace | The invite | `role`, `invited_by`, `invited_by_id`, `invited_at` |
 | `invite_revoked` *(0.4)* | An Owner/Admin revokes a pending invite | The invite | `role`, `invited_by` |
-| `calendar_changed` | A shared working-time calendar is edited | The calendar | `fields` |
+| `calendar_changed` | A shared working-time calendar's working days, hours per day or holiday exceptions are edited, or a program or workspace default calendar is reassigned — including a calendar no project uses yet *(0.5)* | The calendar | `affected_project_count`, `affected_project_ids` (the first 50), `affected_project_ids_truncated`; when the same request also renames the calendar or changes its time zone, also `changed_fields` and `previous_name` |
+| `calendar_changed` *(0.5)* | A shared calendar is renamed or its time zone changes (no dates move, so no project is rescheduled) | The calendar | `changed_fields`, `previous_name`, and `affected_project_count` of `0` |
 | `sso_provider_created` *(0.4)* | An Admin adds a single sign-on provider | The provider | `config`, `secret_set`, `actor_kind` |
 | `sso_provider_updated` *(0.4)* | An Admin changes a provider's configuration | The provider | `changed` (per-field before/after), `actor_kind` |
 | `sso_provider_deleted` *(0.4)* | An Admin removes a provider | The provider | `linked_accounts`, `locked_out_accounts`, `confirmed_lockout`, `config`, `actor_kind` |
 | `sso_secret_rotated` *(0.4)* | An Admin supplies a new client secret for a provider | The provider | `actor_kind` |
 | `sso_provider_test_connection` *(0.5)* | An Admin runs **Test connection** on a provider, whether the probe passes or fails | The provider | `result` (`ok`/`failed`), `client_auth` (`verified`/`rejected`/`unverified`/`unreachable`), `error` and `reason` (failure codes only), `actor_kind` |
 | `sso_account_linked` *(0.4)* | A single sign-on identity binds to an **existing** local account | The user | `via`, `provider`, `issuer`, `subject`, `role` |
+| `resource_rate_changed` *(0.5)* | A resource's hourly cost rate is changed, which re-costs that resource's past time entries | The resource | `cost_rate_before`, `cost_rate_after`, `projects_recosted` |
 
 :::note[Why `invite_accepted` exists alongside `member_added`]
 They look redundant and are not. The invite-accept endpoint is **unauthenticated** —

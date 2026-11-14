@@ -342,7 +342,7 @@ def test_post_broadcasts_sprint_retro_updated(
             format="json",
         )
     assert resp.status_code == 200
-    assert ("sprint_retro_updated", {"sprint_id": str(s.pk)}) in events
+    assert ("sprint_retro_updated", {"id": str(s.pk), "sprint_id": str(s.pk)}) in events
 
 
 @pytest.mark.django_db
@@ -365,7 +365,7 @@ def test_patch_visibility_broadcasts_sprint_retro_updated(
             format="json",
         )
     assert resp.status_code == 200
-    assert ("sprint_retro_updated", {"sprint_id": str(s.pk)}) in events
+    assert ("sprint_retro_updated", {"id": str(s.pk), "sprint_id": str(s.pk)}) in events
 
 
 # ---------------------------------------------------------------------------

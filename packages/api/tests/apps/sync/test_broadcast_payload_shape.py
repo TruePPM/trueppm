@@ -173,18 +173,94 @@ def test_signal_only_events_really_carry_no_payload() -> None:
     )
 
 
-def test_task_identity_events_all_carry_id() -> None:
-    """``task_created`` / ``task_updated`` must name the task as ``id``.
+# Row-subject lifecycle events that are deliberately NOT keyed on ``id`` (#4088).
+# Each reason says why the event has no single subject row; adding an entry is a
+# visible, reviewed act, and an entry whose event starts carrying ``id`` fails the
+# staleness check below.
+_ID_WAIVERS: dict[str, str] = {
+    "board_config_updated": "Subject is the project's board configuration (a JSON "
+    "field on Project), not a row of its own; the project is the channel.",
+    "dependencies_bulk_created": "Aggregate of up to 500 edges from one POST "
+    "/tasks/bulk/; names them as the plural dependency_ids (#3770), so no single id.",
+    "roster_changed": "Fanned out from allocation-row writes (ProjectResource create/"
+    "update/delete) and resource-level writes alike; the one stable subject is the "
+    "resource, named as resource_id, and an `id` would be ambiguous between the two rows.",
+    "milestone_forecast_updated": "Subject is a server-computed forecast, not a "
+    "persisted row write; milestone_id names the milestone task it describes.",
+}
 
-    ``websockets.md`` documents the task identity key as ``id`` and the frontend
-    reads ``payload.id``. This is the specific pin under the general rule above —
-    two sites could share some *other* key and still both be unreadable by the
-    real client.
+# Events whose subject is a row but whose name does not end in a lifecycle suffix.
+# The sprint family names the sprint as ``id`` like every ``sprint_*`` lifecycle
+# event, and project_calendar_changed names the project whose calendar changed.
+_ID_REQUIRED_EXTRA = frozenset(
+    {
+        "demo_reordered",
+        "member_added",
+        "member_removed",
+        "member_role_changed",
+        "mention_group_changed",
+        "project_calendar_changed",
+        "sprint_reranked",
+        "sprint_retro_updated",
+        "sprint_scope_changed",
+        "task_comment_ack_changed",
+    }
+)
+
+_LIFECYCLE_SUFFIXES = ("_created", "_updated", "_deleted")
+
+
+def _id_required(event_type: str) -> bool:
+    return event_type in _ID_REQUIRED_EXTRA or event_type.endswith(_LIFECYCLE_SUFFIXES)
+
+
+def test_row_subject_events_all_carry_id() -> None:
+    """Every row-subject event must name its subject as ``id`` (#4088, #2843).
+
+    ``websockets.md`` tells consumers to key on ``payload.id``, and the frontend's
+    dedup/history scoping reads it. The shared-key rule above only requires one
+    event's sites to agree with *each other* — ``suggestion_created`` shipped as
+    ``{task_id, suggestion_id, suggested_user_id}`` and passed it, while an MCP or
+    integrator consumer had no way to find the suggestion it announced.
     """
     by_event, _ = _scan()
     missing: list[str] = []
-    for event_type in ("task_created", "task_updated"):
-        for keys, loc in by_event.get(event_type, []):
+    for event_type, sites in sorted(by_event.items()):
+        if event_type in _SIGNAL_ONLY_EVENTS or event_type in _ID_WAIVERS:
+            continue
+        if not _id_required(event_type):
+            continue
+        for keys, loc in sites:
             if keys and "id" not in keys:
                 missing.append(f"  {event_type} @ {loc} emits {sorted(keys)} with no 'id'")
-    assert not missing, "Task events must carry 'id':\n" + "\n".join(missing)
+    assert not missing, (
+        "Row-subject events must carry 'id' (or take a reasoned _ID_WAIVERS entry):\n"
+        + "\n".join(missing)
+    )
+
+
+def test_task_identity_events_are_scanned() -> None:
+    """The rule above must actually reach the task events it was first written for."""
+    by_event, _ = _scan()
+    for event_type in ("task_created", "task_updated", *sorted(_ID_REQUIRED_EXTRA)):
+        assert by_event.get(event_type), f"{event_type} is no longer scannable"
+
+
+def test_id_waivers_are_not_stale() -> None:
+    """A waiver for an event that now carries ``id`` everywhere (or is gone) must go."""
+    by_event, _ = _scan()
+    stale = [
+        event_type
+        for event_type in _ID_WAIVERS
+        if not any(keys and "id" not in keys for keys, _ in by_event.get(event_type, []))
+    ]
+    assert not stale, f"Remove these _ID_WAIVERS entries; they no longer apply: {stale}"
+
+
+def test_project_calendar_changed_names_its_actor_by_id() -> None:
+    """Every other event names its actor as ``actor_id``; the display label is extra."""
+    by_event, _ = _scan()
+    sites = by_event.get("project_calendar_changed", [])
+    assert sites
+    for keys, loc in sites:
+        assert {"actor", "actor_id"} <= keys, f"project_calendar_changed @ {loc}: {sorted(keys)}"

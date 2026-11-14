@@ -2761,7 +2761,7 @@ def reorder_demo_list(sprint: Any, ordered_ids: list[str]) -> int:
             pid = str(sprint.project_id)
             sid = str(sprint.pk)
             transaction.on_commit(
-                lambda: broadcast_board_event(pid, "demo_reordered", {"sprint_id": sid})
+                lambda: broadcast_board_event(pid, "demo_reordered", {"id": sid, "sprint_id": sid})
             )
     return changed
 
@@ -3553,7 +3553,9 @@ def accept_scope_change(
             payload: dict[str, Any] = scope_payload,
         ) -> None:
             upsert_burndown_for_sprint(Sprint.objects.get(pk=spk))
-            broadcast_board_event(pid, "sprint_scope_changed", {"sprint_id": sid, "task_id": tid})
+            broadcast_board_event(
+                pid, "sprint_scope_changed", {"id": sid, "sprint_id": sid, "task_id": tid}
+            )
             _dispatch_webhooks(pid, "sprint.scope_changed", payload)
 
         transaction.on_commit(_on_commit)
@@ -3614,7 +3616,9 @@ def reject_scope_change(
             tid: str = task_id_str,
         ) -> None:
             upsert_burndown_for_sprint(Sprint.objects.get(pk=spk))
-            broadcast_board_event(pid, "sprint_scope_changed", {"sprint_id": sid, "task_id": tid})
+            broadcast_board_event(
+                pid, "sprint_scope_changed", {"id": sid, "sprint_id": sid, "task_id": tid}
+            )
 
         transaction.on_commit(_on_commit)
     return locked

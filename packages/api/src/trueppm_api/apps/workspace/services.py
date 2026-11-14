@@ -433,6 +433,7 @@ def _sync_existing_membership(
                 project_id,
                 "member_role_changed",
                 {
+                    "id": str(existing.pk),
                     "membership_id": str(existing.pk),
                     "user_id": str(user_id),
                     "role": existing.role,
@@ -472,7 +473,11 @@ def _reconcile_pair(
                 (
                     project_id,
                     "member_removed",
-                    {"membership_id": str(existing.pk), "user_id": str(user_id)},
+                    {
+                        "id": str(existing.pk),
+                        "membership_id": str(existing.pk),
+                        "user_id": str(user_id),
+                    },
                 )
             )
         return
@@ -488,7 +493,12 @@ def _reconcile_pair(
             (
                 project_id,
                 "member_added",
-                {"membership_id": str(pm.pk), "user_id": str(user_id), "role": confer_role},
+                {
+                    "id": str(pm.pk),
+                    "membership_id": str(pm.pk),
+                    "user_id": str(user_id),
+                    "role": confer_role,
+                },
             )
         )
     elif existing.is_deleted:
@@ -504,7 +514,12 @@ def _reconcile_pair(
             (
                 project_id,
                 "member_added",
-                {"membership_id": str(existing.pk), "user_id": str(user_id), "role": confer_role},
+                {
+                    "id": str(existing.pk),
+                    "membership_id": str(existing.pk),
+                    "user_id": str(user_id),
+                    "role": confer_role,
+                },
             )
         )
     else:

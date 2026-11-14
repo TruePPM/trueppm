@@ -190,7 +190,11 @@ def test_put_broadcasts_project_calendar_changed_on_commit(
         (
             str(project.pk),
             "project_calendar_changed",
-            {"id": str(project.pk), "actor": "sched_user"},
+            {
+                "id": str(project.pk),
+                "actor": "sched_user",
+                "actor_id": str(User.objects.get(username="sched_user").pk),
+            },
         )
     ]
 
