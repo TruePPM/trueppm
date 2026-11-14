@@ -46,5 +46,7 @@ describe('date-format guard allowlist', () => {
       filePath: resolve(WEB_ROOT, 'src/features/auth/ssoNext.ts'),
     });
     expect(res.messages.some((m) => m.ruleId === 'no-restricted-properties')).toBe(true);
-  });
+    // A cold type-aware ESLint run (parser program build) costs 5+ s, which is the
+    // default vitest timeout, so the timeout is explicit rather than left to race it.
+  }, 60_000);
 });
