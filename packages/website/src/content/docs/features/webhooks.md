@@ -340,6 +340,16 @@ damage from a receiver that has been decommissioned or has had its URL revoked â
 before it, a revoked endpoint answering `410` was retried for every matching event
 indefinitely.
 
+### Alerting on deactivation (extension point)
+
+When the guard deactivates a webhook, TruePPM sends the `webhook_auto_deactivated` Django signal (`trueppm_api.apps.webhooks.signals`) after the transaction commits. It exists so an add-on, such as an alerting feature in the Enterprise edition, can tell an operator that an integration has gone quiet. Keyword arguments: `sender` (the `Webhook` class), `webhook_id`, `project_id` or `program_id` (exactly one is set), `reason` (the short failure reason also shown on the webhook), `failure_count`, and `deactivated_at` (ISO 8601). Receivers run synchronously and an exception in one cannot fail the delivery. The signal is not sent when an admin disables a webhook.
+
+:::note[Ships in 0.5]
+The extension signal lands in 0.5. Earlier releases record the deactivation on the webhook row only.
+:::
+
+The guard still has one residual risk: a project member who can cause `403` responses from the receiver can trip deactivation with two bursts of terminal failures at least 5 minutes apart, if no delivery succeeds between them.
+
 :::note[Ships in 0.5]
 The 5-minute floor is introduced by 0.5. In 0.4, a webhook is deactivated after 5
 consecutive terminal failures over any span of time, so a short receiver outage on

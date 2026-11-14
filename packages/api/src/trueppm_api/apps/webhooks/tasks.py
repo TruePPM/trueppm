@@ -26,6 +26,7 @@ from trueppm_api.apps.integrations.http import (
     assert_url_allowed,
     build_guarded_opener,
 )
+from trueppm_api.core.extension_signals import dispatch_extension_signal
 from trueppm_api.core.idempotent import idempotent_task
 
 logger = logging.getLogger(__name__)
@@ -172,6 +173,32 @@ def _dead_letter_delivery(
         logger.exception("deliver_webhook: could not dead-letter delivery %s", delivery_id)
 
 
+def _emit_auto_deactivated(webhook: Webhook, reason: str) -> None:
+    """Fire ``webhook_auto_deactivated`` after commit (#4962).
+
+    Values are captured now and the dispatch is deferred, so a receiver reads
+    committed state and the payload cannot go stale or leak the instance. ``reason``
+    is the curated failure string, not ``operator_reason``, which may carry deployment
+    detail.
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.webhooks.models import Webhook as WebhookModel
+    from trueppm_api.apps.webhooks.signals import webhook_auto_deactivated
+
+    payload = {
+        "webhook_id": str(webhook.pk),
+        "project_id": str(webhook.project_id) if webhook.project_id else None,
+        "program_id": str(webhook.program_id) if webhook.program_id else None,
+        "reason": reason[:255],
+        "failure_count": webhook.consecutive_failures,
+        "deactivated_at": (webhook.disabled_at or timezone.now()).isoformat(),
+    }
+    transaction.on_commit(
+        lambda: dispatch_extension_signal(webhook_auto_deactivated, sender=WebhookModel, **payload)
+    )
+
+
 def _fail_delivery(
     task: object,
     delivery: WebhookDelivery,
@@ -223,6 +250,7 @@ def _fail_delivery(
             webhook.consecutive_failures,
             reason,
         )
+        _emit_auto_deactivated(webhook, reason)
 
     # The deactivation is folded into the dead-letter reason rather than only logged.
     # Once a subscription is inactive the `not is_active` branch above deliberately
