@@ -114,6 +114,9 @@ REGISTRY="${CI_REGISTRY:-registry.gitlab.com}"
 IMAGE_REPO="${IMAGE_REPO:-${REGISTRY}/trueppm/trueppm}"
 RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
 
+# Authenticate Docker Hub pulls for both legs (#4202); no-op without DOCKERHUB_* vars.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/dockerhub-auth.sh"  # optional Docker Hub auth (#4202)
+dockerhub_login
 if [ "${DRILL_MODE}" = "dev" ]; then
   COMPOSE_FILE="docker-compose.yml"
   export COMPOSE_PROJECT_NAME="trueppm-dev-drill"
@@ -353,8 +356,6 @@ else # DRILL_MODE=demo
   # Same retag as scripts/prod-compose-drill.sh step 0: pulls this commit's
   # already-built images under the names docker-compose.demo.yml resolves, so
   # the drill exercises HEAD code and touches GHCR not at all.
-  . "$(dirname "${BASH_SOURCE[0]}")/lib/dockerhub-auth.sh"  # optional Docker Hub auth (#4202)
-  dockerhub_login
   if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
     echo "${CI_REGISTRY_PASSWORD}" | docker login -u "${CI_REGISTRY_USER}" --password-stdin "${REGISTRY}"
   fi

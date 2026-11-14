@@ -119,6 +119,22 @@ schedule under **CI/CD → Schedules** on `main` with:
 
 Without that variable the schedule creates no pipeline at all, by design.
 
+### GHCR release images (`registry:ghcr-release-images`)
+
+A second nightly job, gated on the same `REGISTRY_NIGHTLY` schedule, probes
+`ghcr.io/trueppm/api:<version>` and `ghcr.io/trueppm/web:<version>` for the
+newest `v*` tag. GHCR tags carry the bare semver (the `v` is stripped at
+publish), which is the reference `docker-compose.prod.yml` resolves. The probe is
+anonymous, so it assumes the GHCR packages are public.
+
+### Docker Hub authentication for the drills (optional)
+
+Anonymous Docker Hub pulls share one quota across the self-hosted runners. If
+you add masked CI/CD variables `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`, the
+compose and kind drills log in to Docker Hub (and give each kind node's
+containerd the same credentials). Without them the drills pull anonymously, as
+before. The tag-only publish jobs are not covered.
+
 ### When it fails
 
 1. Confirm the tag really is gone — list the registry repositories and their
