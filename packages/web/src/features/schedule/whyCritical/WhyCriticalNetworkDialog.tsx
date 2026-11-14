@@ -120,7 +120,7 @@ export function WhyCriticalNetworkDialog({ chain, view, copyText, onClose, onOpe
         role="dialog"
         aria-modal="true"
         aria-labelledby="why-critical-network-title"
-        className="w-[min(1000px,calc(100vw-2rem))] max-h-[min(680px,calc(100vh-2rem))] overflow-auto rounded-card bg-neutral-surface p-5 shadow-lg"
+        className="w-[min(1000px,calc(100vw-2rem))] max-h-[min(680px,calc(100vh-2rem))] overflow-auto rounded-card bg-neutral-surface p-5 shadow-pop"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
