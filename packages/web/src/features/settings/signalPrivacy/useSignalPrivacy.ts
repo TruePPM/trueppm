@@ -32,7 +32,7 @@ export const AUDIENCE_RUNG_LABEL_FULL: Record<SignalAudience, string> = {
   program_shared: 'Program',
 };
 
-/** The three governed signals, in display order, with their human copy. */
+/** The governed signals, in display order, with their human copy (mirrors SIGNAL_DEFAULTS). */
 export const SIGNALS = [
   {
     key: 'velocity',
@@ -50,8 +50,31 @@ export const SIGNALS = [
     title: 'Retro pulse',
     description: 'Per-sprint mood/energy trend from the retro board. Most private.',
   },
+  {
+    key: 'flow_metrics',
+    title: 'Flow metrics',
+    description:
+      'Cycle and lead-time distributions, the cumulative flow series, weekly throughput.',
+  },
+  {
+    key: 'capacity',
+    title: 'Sprint capacity per person',
+    description:
+      "Each member's committed and available sprint hours, by name. Totals stay visible to everyone.",
+  },
 ] as const;
 export type SignalKey = (typeof SIGNALS)[number]['key'];
+
+/**
+ * The SIGNALS this policy actually carries. A server older than this bundle (a rolling
+ * upgrade) omits the newer keys; rendering those would dereference an absent pair, so
+ * they are left out rather than shown with an invented posture.
+ */
+export function signalsInPolicy(
+  signals: Partial<Record<SignalKey, SignalPair>>,
+): ReadonlyArray<(typeof SIGNALS)[number]> {
+  return SIGNALS.filter(({ key }) => signals[key] !== undefined);
+}
 
 export interface SignalPair {
   audience: SignalAudience;

@@ -9,7 +9,7 @@ import {
   AUDIENCE_RUNG_LABEL,
   AUDIENCE_RUNG_LABEL_FULL,
   SIGNAL_AUDIENCE_LADDER,
-  SIGNALS,
+  signalsInPolicy,
   audienceRank,
   type SignalKey,
   type SignalPair,
@@ -45,7 +45,7 @@ export function SignalMatrixLens({ signals }: SignalMatrixLensProps) {
           </tr>
         </thead>
         <tbody>
-          {SIGNALS.map(({ key, title }) => {
+          {signalsInPolicy(signals).map(({ key, title }) => {
             const pair = signals[key];
             const audienceIdx = audienceRank(pair.audience);
             const ceilingIdx = audienceRank(pair.ceiling);

@@ -218,11 +218,20 @@ export interface UpdateSprintPayload {
   exclude_from_velocity?: boolean;
 }
 
+/**
+ * One over-capacity warning from the activate response. Member identity and hours
+ * are the ADR-0104 `capacity` signal: outside its audience (the PM/Admin band by
+ * default) the server sends only `{ type, detail_suppressed: true }`, one per
+ * over-allocated member, so the count still renders but no name or hours do.
+ */
 export interface CapacityWarning {
-  resource_id: string;
-  resource_name: string;
-  load_factor: number;
-  message: string;
+  type: 'over_capacity';
+  detail_suppressed?: boolean;
+  member_id?: string;
+  member_name?: string;
+  committed_hours?: number;
+  available_hours?: number;
+  suggested_commitment_points?: number;
 }
 
 /**
@@ -614,6 +623,11 @@ export interface SprintCapacity {
   };
   working_days: number;
   hours_per_day: number;
+  /**
+   * True when the reader is outside the project's `capacity` signal audience
+   * (ADR-0104, #2854): `members` is empty and only `totals` is real.
+   */
+  capacity_suppressed: boolean;
 }
 
 /** GET /api/v1/sprints/{id}/capacity/ — per-person + aggregate capacity (#228). */

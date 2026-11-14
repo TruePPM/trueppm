@@ -994,6 +994,10 @@ ARCHIVED_BODY_ENTRIES: frozenset[str] = frozenset(
         # The archived check follows the same successor project.
         "api/v1/^dependencies/(?P<pk>[^/.]+)/accept/$::accept",
         "api/v1/^dependencies/(?P<pk>[^/.]+)/reject/$::reject",
+        # Flat routes with no project in the URL; `_act` resolves the scope change's
+        # task project and refuses an archived one before the role gate (#4650).
+        "api/v1/scope-changes/<pk>/accept/::accept",
+        "api/v1/scope-changes/<pk>/reject/::reject",
     }
 )
 

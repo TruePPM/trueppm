@@ -528,6 +528,39 @@ test.describe('Wave 10 — Sprints backlog table', () => {
     await expect(backlog.getByRole('button', { name: /Pull from backlog/i })).toHaveCount(0);
   });
 
+  test('a reader outside the capacity audience sees the team-private note, not names (#2854)', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    // Registered after setupCommon, so it outranks the shared capacity mock.
+    await page.route(`**/api/v1/sprints/${ACTIVE_SPRINT.id}/capacity/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          members: [],
+          capacity_suppressed: true,
+          totals: {
+            committed_hours: 64,
+            available_hours: 80,
+            ratio: 0.8,
+            buffer_hours: 16,
+            label: 'on_track',
+            pto_days: 0,
+          },
+          working_days: 10,
+          hours_per_day: 8,
+        }),
+      }),
+    );
+    await page.goto(BASE_URL);
+
+    const list = page.getByRole('list', { name: 'Per-person capacity' });
+    await expect(list).toBeVisible();
+    await expect(list).toContainText('Per-person capacity is team-private.');
+    await expect(list.getByText(/No assignments yet/)).toHaveCount(0);
+  });
+
   test('clicking a backlog task name opens the task detail drawer', async ({ page }) => {
     await setupCommon(page);
     await page.goto(BASE_URL);

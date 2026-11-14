@@ -226,113 +226,51 @@ def test_metric_points_sums_story_points(project: Project, member: object) -> No
 
 
 # ---------------------------------------------------------------------------
-# Baseline overlay
+# No baseline overlay (#3246)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-def test_baseline_series_present_only_when_active_baseline(
-    project: Project, member: object
+@pytest.mark.parametrize("chart_type", ["burndown", "burnup", "combined"])
+@pytest.mark.parametrize("metric", ["tasks", "points"])
+def test_burn_never_carries_a_baseline_overlay(
+    project: Project, member: object, chart_type: str, metric: str
 ) -> None:
-    _create_tasks(project, 2)
-    c = _client(member)
-    today = timezone.localdate().isoformat()
-    resp = c.get(f"/api/v1/projects/{project.pk}/burn/", {"since": today, "until": today})
-    assert "baseline_series" not in resp.data
-
-    # Activate a baseline; baseline_series should appear.
+    """``baseline_series`` was removed: no consumer, and a baseline replay per request."""
+    tasks = _create_tasks(project, 2, points=5)
     baseline = Baseline.objects.create(
         project=project, name="B1", is_active=True, has_cpm_dates=True
     )
-    BaselineTask.objects.create(
-        baseline=baseline,
-        task_id=Task.objects.first().pk,
-        task_name="T0",
-        finish=timezone.localdate() + timedelta(days=2),
-        duration=1,
-    )
-    resp = c.get(f"/api/v1/projects/{project.pk}/burn/", {"since": today, "until": today})
-    assert "baseline_series" in resp.data
-    assert len(resp.data["baseline_series"]) == 1
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("chart_type", ["burndown", "burnup"])
-def test_baseline_series_omitted_when_baseline_lacks_cpm_dates(
-    project: Project, member: object, chart_type: str
-) -> None:
-    """A pre-CPM baseline must not produce a misleading overlay (#4257).
-
-    ``has_cpm_dates=False`` means the snapshot was taken before CPM first ran, so
-    ``BaselineTask.finish`` is mostly-or-entirely null — one task here still
-    carries a real date (has_cpm_dates only requires at least one null, not all).
-    Before the fix, summing every baselined task's weight into ``total`` while
-    only subtracting the rare non-null ``finish <= day`` rows into ``done``
-    produced a planned curve that never reached zero (burndown) or plateaued
-    below total (burnup). The overlay must instead be omitted entirely — the
-    same shape as having no active baseline at all.
-    """
-    tasks = _create_tasks(project, 2)
+    for t in tasks:
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=t.pk,
+            task_name=t.name,
+            finish=timezone.localdate() + timedelta(days=2),
+            duration=1,
+        )
     today = timezone.localdate().isoformat()
-    baseline = Baseline.objects.create(
-        project=project, name="Pre-CPM", is_active=True, has_cpm_dates=False
-    )
-    BaselineTask.objects.create(
-        baseline=baseline,
-        task_id=tasks[0].pk,
-        task_name=tasks[0].name,
-        finish=None,
-        duration=1,
-    )
-    BaselineTask.objects.create(
-        baseline=baseline,
-        task_id=tasks[1].pk,
-        task_name=tasks[1].name,
-        finish=timezone.localdate() + timedelta(days=2),
-        duration=1,
-    )
-    c = _client(member)
-    resp = c.get(
+    resp = _client(member).get(
         f"/api/v1/projects/{project.pk}/burn/",
-        {"chart_type": chart_type, "since": today, "until": today},
+        {"chart_type": chart_type, "metric": metric, "since": today, "until": today},
     )
     assert resp.status_code == 200
     assert "baseline_series" not in resp.data
+    assert "burn_baseline_series" not in resp.data["definitions"]
 
 
 @pytest.mark.django_db
-def test_baseline_series_omitted_when_baseline_lacks_cpm_dates_points_metric(
-    project: Project, member: object
-) -> None:
-    """Same omission for metric=points (#4257), whose join path (via live Task
-    story_points) is separate code from the tasks-metric path above.
-    """
-    tasks = _create_tasks(project, 2, points=5)
+def test_burn_does_not_read_baseline_tables(project: Project, member: object) -> None:
+    """The cost half of #3246: no Baseline/BaselineTask query on a burn request."""
+    _create_tasks(project, 2)
+    Baseline.objects.create(project=project, name="B1", is_active=True, has_cpm_dates=True)
     today = timezone.localdate().isoformat()
-    baseline = Baseline.objects.create(
-        project=project, name="Pre-CPM", is_active=True, has_cpm_dates=False
-    )
-    BaselineTask.objects.create(
-        baseline=baseline,
-        task_id=tasks[0].pk,
-        task_name=tasks[0].name,
-        finish=None,
-        duration=1,
-    )
-    BaselineTask.objects.create(
-        baseline=baseline,
-        task_id=tasks[1].pk,
-        task_name=tasks[1].name,
-        finish=timezone.localdate() + timedelta(days=2),
-        duration=1,
-    )
-    c = _client(member)
-    resp = c.get(
-        f"/api/v1/projects/{project.pk}/burn/",
-        {"metric": "points", "since": today, "until": today},
-    )
+    with CaptureQueriesContext(connection) as ctx:
+        resp = _client(member).get(
+            f"/api/v1/projects/{project.pk}/burn/", {"since": today, "until": today}
+        )
     assert resp.status_code == 200
-    assert "baseline_series" not in resp.data
+    assert not [q for q in ctx.captured_queries if "projects_baseline" in q["sql"].lower()]
 
 
 # ---------------------------------------------------------------------------
@@ -662,40 +600,6 @@ def test_combined_replays_history_once(project: Project, member: object) -> None
     # One replay = the window read plus the per-task carry-in read (#3579); two
     # full replays (one per curve) would be four.
     assert len(history_queries) == 2, history_queries
-
-
-@pytest.mark.django_db
-def test_baseline_series_uses_story_points_when_metric_is_points(
-    project: Project, member: object
-) -> None:
-    """Baseline overlay must sum story_points, not task count, when metric=points (#395)."""
-    tasks = _create_tasks(project, 3, points=5)
-    today = timezone.localdate()
-    baseline = Baseline.objects.create(
-        project=project, name="B", is_active=True, has_cpm_dates=True
-    )
-    # All 3 tasks planned to finish by today.
-    for t in tasks:
-        BaselineTask.objects.create(
-            baseline=baseline,
-            task_id=t.pk,
-            task_name=t.name,
-            finish=today,
-            duration=1,
-        )
-    c = _client(member)
-    resp = c.get(
-        f"/api/v1/projects/{project.pk}/burn/",
-        {"metric": "points", "since": today.isoformat(), "until": today.isoformat()},
-    )
-    assert resp.status_code == 200
-    assert "baseline_series" in resp.data
-    point = resp.data["baseline_series"][0]
-    # Burndown: planned = total_points - done_points = 15 - 15 = 0
-    # (all tasks planned to finish by today → all counted as done).
-    # The key assertion is that planned is NOT 3 (the task count).
-    assert point["planned"] != 3, "baseline overlay must use story_points, not task count"
-    assert point["planned"] == 0  # 3 tasks × 5 pts all finish ≤ today
 
 
 # ---------------------------------------------------------------------------

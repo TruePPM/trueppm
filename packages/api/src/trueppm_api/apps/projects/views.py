@@ -16495,7 +16495,11 @@ class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Proj
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by sprint state (PLANNED, ACTIVE, CLOSED, CANCELED).",
+                enum=SprintState.values,
+                description=(
+                    "Filter by sprint state. Exact and case-sensitive; an unknown value "
+                    "is a 400, not an empty list."
+                ),
             ),
         ],
     ),
@@ -16710,6 +16714,17 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         if self.action == "list":
             state_filter = self.request.query_params.get("state")
             if state_filter:
+                # An exact filter that silently returned [] for a value it does not
+                # know (the old docs said CLOSED/CANCELED) read as "no past sprints".
+                if state_filter not in SprintState.values:
+                    raise DRFValidationError(
+                        {
+                            "state": (
+                                "Unknown sprint state. Valid values: "
+                                f"{', '.join(SprintState.values)}."
+                            )
+                        }
+                    )
                 qs = qs.filter(state=state_filter)
         # ADR-0102 §5/§8: annotate pending_count so SprintSerializer reads it
         # without an N+1 COUNT per row (the serializer falls back to a single
@@ -17000,7 +17015,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         backlog. Enforces the single-active-sprint-per-project soft constraint
         (409 with conflicting sprint id). Returns the updated sprint plus a
         non-blocking ``warnings`` array for over-allocated members
-        (ADR-0037 Q2 amendment).
+        (ADR-0037 Q2 amendment). Outside the ADR-0104 ``capacity`` audience each
+        warning is ``{"type": "over_capacity", "detail_suppressed": true}`` with no
+        member identity or hours.
         """
         from trueppm_api.apps.projects.product_backlog_services import seed_sprint_rank
         from trueppm_api.apps.projects.services import (
@@ -17083,6 +17100,17 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             # sprint has no target milestone.
             if sprint.target_milestone_id is not None:
                 recompute_milestone_rollup(sprint.target_milestone_id)
+
+        # ADR-0104 ``capacity`` signal: the over-capacity warnings name members and carry
+        # their committed/available hours — the same per-person data the /capacity/
+        # endpoint suppresses outside the signal's audience. A caller outside it (the
+        # PM/Admin band by default) keeps one entry per over-allocated member, so the
+        # activation flow still says how many warnings there are, but each entry is
+        # reduced to an identity-free marker.
+        from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
+
+        if warnings and not can_read_signal(request, sprint.project_id, "capacity"):
+            warnings = [{"type": "over_capacity", "detail_suppressed": True} for _ in warnings]
 
         data = SprintSerializer(sprint).data
         data["warnings"] = warnings
@@ -17981,14 +18009,18 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         Exposes every assigned member (not only over-allocated ones) plus
         aggregate totals — what the wave/10 capacity preflight panel
-        renders. The activate endpoint still returns the warnings-only
+        renders. The per-member breakdown is the ADR-0104 ``capacity`` signal: a
+        reader outside its audience gets ``members: []`` and
+        ``capacity_suppressed: true``. The activate endpoint still returns the warnings-only
         slice via ``capacity_check``.
         """
-        from trueppm_api.apps.projects.services import capacity_summary
+        from trueppm_api.apps.projects.signal_privacy_services import capacity_summary_for
 
         sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
-        return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
+        # ADR-0104 ``capacity`` signal (#2854): a reader outside the audience gets the
+        # aggregate totals but no per-member names/hours.
+        return Response(capacity_summary_for(request, sprint), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Incoming carryover preview for a PLANNED sprint",
@@ -18518,6 +18550,12 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     # and is recorded in ADR-0184.
     permission_classes = [IsAuthenticated]
 
+    # Class-level ``queryset`` exists only so the route-table archived invariant can
+    # see, through ``SprintScopeChange.task -> Project``, that these flat routes touch a
+    # project (#4650). ``get_queryset`` below always overrides it; never read this
+    # attribute for data, it is deliberately unscoped.
+    queryset = SprintScopeChange.objects.none()
+
     def get_queryset(self) -> QuerySet[Any]:
         from typing import cast
 
@@ -18549,6 +18587,12 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         )
 
         scope_change = get_object_or_404(self.get_queryset(), pk=pk)
+        # Archived is lifecycle state, not authority (#530, #4650): refuse before the
+        # role gate so the answer matches every other archived write. These flat routes
+        # carry no project in the URL, so no permission class can do it for them; the
+        # sibling bulk routes under ``sprints/{id}/scope-changes/`` get it from
+        # ``IsProjectNotArchived``.
+        assert_project_not_archived(scope_change.task.project_id)
         service = accept_scope_change if accept else reject_scope_change
         try:
             result = service(scope_change, request.user)
@@ -20389,8 +20433,8 @@ class ProjectBurnView(APIView):
 
     Reconstructs daily task counts (or story-point sums) from
     ``HistoricalTask`` snapshots and returns the actual / scope / linear
-    ideal curves needed to render burn charts. Includes a planned overlay
-    derived from the project's active baseline when one exists.
+    ideal curves needed to render burn charts. There is no baseline overlay: the
+    ``baseline_series`` key had no consumer and was removed (#3246).
 
     Query params:
       ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``
@@ -20614,7 +20658,7 @@ class ProjectBurnView(APIView):
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         # Provenance (ADR-1314): this endpoint owns the burn series and the S-curve
-        # (burnup with the active-baseline overlay) — one series, not a second
+        # (the burnup curve) — one series, not a second
         # endpoint computing the same cumulative curve.
         return Response(
             {

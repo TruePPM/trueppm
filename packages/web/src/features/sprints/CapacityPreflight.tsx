@@ -62,6 +62,7 @@ function pointsFooterClass(over: number, pointsAllZero: boolean): string {
 export function CapacityPreflight({ capacity, points }: Props) {
   const itl = useIterationLabel();
   const { totals, members } = capacity;
+  const membersSuppressed = capacity.capacity_suppressed === true;
   // Rule 119: `available_hours === 0` means no one has capacity configured
   // for this {itl} at all — the ratio is 0/0, undefined, not "0% on track"
   // (#3477). A real capacity (nonzero available_hours) with zero committed
@@ -188,7 +189,12 @@ export function CapacityPreflight({ capacity, points }: Props) {
         aria-label="Per-person capacity"
         className="flex flex-col gap-1.5 max-h-44 overflow-y-auto pr-1"
       >
-        {members.length === 0 ? (
+        {membersSuppressed ? (
+          <li className="text-xs italic text-neutral-text-secondary">
+            Per-person capacity is team-private. Your team can share it in Settings → Signal
+            privacy.
+          </li>
+        ) : members.length === 0 ? (
           <li className="text-xs italic text-neutral-text-secondary">
             No assignments yet for this {itl.lower}.
           </li>

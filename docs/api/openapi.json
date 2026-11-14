@@ -19455,7 +19455,7 @@
         "/api/v1/projects/{id}/burn/": {
             "get": {
                 "operationId": "v1_projects_burn_retrieve",
-                "description": "``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).\n\nReconstructs daily task counts (or story-point sums) from\n``HistoricalTask`` snapshots and returns the actual / scope / linear\nideal curves needed to render burn charts. Includes a planned overlay\nderived from the project's active baseline when one exists.\n\nQuery params:\n  ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``\n  ``metric``     — ``tasks`` (default) or ``points``\n  ``since``      — window start, ISO date; defaults to project start\n  ``until``      — window end, ISO date; defaults to today\n\nThe window is bounded on both axes — a maximum span, and a short horizon past\ntoday; see the ``since`` / ``until`` parameter descriptions for the limits. A\nwindow outside either bound is a 400.",
+                "description": "``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).\n\nReconstructs daily task counts (or story-point sums) from\n``HistoricalTask`` snapshots and returns the actual / scope / linear\nideal curves needed to render burn charts. There is no baseline overlay: the\n``baseline_series`` key had no consumer and was removed (#3246).\n\nQuery params:\n  ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``\n  ``metric``     — ``tasks`` (default) or ``points``\n  ``since``      — window start, ISO date; defaults to project start\n  ``until``      — window end, ISO date; defaults to today\n\nThe window is bounded on both axes — a maximum span, and a short horizon past\ntoday; see the ``since`` / ``until`` parameter descriptions for the limits. A\nwindow outside either bound is a 400.",
                 "parameters": [
                     {
                         "in": "query",
@@ -32031,9 +32031,16 @@
                         "in": "query",
                         "name": "state",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "enum": [
+                                "ACTIVE",
+                                "CANCELLED",
+                                "COMPLETED",
+                                "PLANNED"
+                            ],
+                            "x-trueppm-enum": "open"
                         },
-                        "description": "Filter by sprint state (PLANNED, ACTIVE, CLOSED, CANCELED)."
+                        "description": "Filter by sprint state. Exact and case-sensitive; an unknown value is a 400, not an empty list."
                     }
                 ],
                 "tags": [
@@ -39126,8 +39133,10 @@
                         "in": "path",
                         "name": "id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
+                        "description": "A UUID string identifying this sprint scope change.",
                         "required": true
                     }
                 ],
@@ -39188,8 +39197,10 @@
                         "in": "path",
                         "name": "id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
+                        "description": "A UUID string identifying this sprint scope change.",
                         "required": true
                     }
                 ],
@@ -40907,7 +40918,7 @@
         "/api/v1/sprints/{id}/activate/": {
             "post": {
                 "operationId": "v1_sprints_activate_create",
-                "description": "Transition PLANNED → ACTIVE.\n\nSnapshots committed_points and committed_task_count from the current\nbacklog. Enforces the single-active-sprint-per-project soft constraint\n(409 with conflicting sprint id). Returns the updated sprint plus a\nnon-blocking ``warnings`` array for over-allocated members\n(ADR-0037 Q2 amendment).",
+                "description": "Transition PLANNED → ACTIVE.\n\nSnapshots committed_points and committed_task_count from the current\nbacklog. Enforces the single-active-sprint-per-project soft constraint\n(409 with conflicting sprint id). Returns the updated sprint plus a\nnon-blocking ``warnings`` array for over-allocated members\n(ADR-0037 Q2 amendment). Outside the ADR-0104 ``capacity`` audience each\nwarning is ``{\"type\": \"over_capacity\", \"detail_suppressed\": true}`` with no\nmember identity or hours.",
                 "summary": "Activate a sprint",
                 "parameters": [
                     {
@@ -41206,7 +41217,7 @@
         "/api/v1/sprints/{id}/capacity/": {
             "get": {
                 "operationId": "v1_sprints_capacity_retrieve",
-                "description": "Return per-person and aggregate capacity for a sprint (#228).\n\nExposes every assigned member (not only over-allocated ones) plus\naggregate totals — what the wave/10 capacity preflight panel\nrenders. The activate endpoint still returns the warnings-only\nslice via ``capacity_check``.",
+                "description": "Return per-person and aggregate capacity for a sprint (#228).\n\nExposes every assigned member (not only over-allocated ones) plus\naggregate totals — what the wave/10 capacity preflight panel\nrenders. The per-member breakdown is the ADR-0104 ``capacity`` signal: a\nreader outside its audience gets ``members: []`` and\n``capacity_suppressed: true``. The activate endpoint still returns the warnings-only\nslice via ``capacity_check``.",
                 "summary": "Get a sprint's capacity summary",
                 "parameters": [
                     {
@@ -47784,6 +47795,16 @@
             "get": {
                 "operationId": "v1_users_search_list",
                 "description": "GET /api/v1/users/search/?q=<term> — workspace user typeahead for member invite.\n\nReturns up to 10 active users matching username or email (case-insensitive).\nThe email is matched but never returned (#815, ADR-0061 amended): the previous\nserializer echoed every matched user's email, so a single authenticated account\ncould paginate the typeahead to harvest the whole workspace's email list. The\nsubstantive fix is dropping ``email`` from the payload + a per-user throttle.\nDefense in depth:\n\n- ``IsWorkspaceMember`` — a deactivated membership (or, once explicit\n  memberships/multi-workspace land, a non-member) is denied. In a single-\n  workspace OSS deploy every active account is an implicit member, so this is\n  the semantically-correct gate rather than an added restriction today; and\n- a per-user 60/min throttle (``user_search`` scope) bounds bulk scraping.\n\nEmail matches only on the full address (``iexact``); a fragment matches usernames\nonly (#3639).\n\nReturns an empty list when q is fewer than 2 characters.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Search term: a username fragment, or a full email address. Fewer than 2 characters returns an empty list."
+                    }
+                ],
                 "tags": [
                     "workspace"
                 ],
@@ -68616,28 +68637,9 @@
                     "truncated"
                 ]
             },
-            "ProjectBurnBaselinePoint": {
-                "type": "object",
-                "description": "One day of the baseline overlay curve (:func:`services._burn_baseline_series`, #3679).",
-                "properties": {
-                    "date": {
-                        "type": "string",
-                        "format": "date",
-                        "readOnly": true
-                    },
-                    "planned": {
-                        "type": "integer",
-                        "readOnly": true
-                    }
-                },
-                "required": [
-                    "date",
-                    "planned"
-                ]
-            },
             "ProjectBurnCombined": {
                 "type": "object",
-                "description": "Response for ``?chart_type=combined`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series_combined` (#3679). Never carries\n``baseline_series``.",
+                "description": "Response for ``?chart_type=combined`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series_combined` (#3679).",
                 "properties": {
                     "chart_type": {
                         "allOf": [
@@ -68778,7 +68780,7 @@
             },
             "ProjectBurnSeries": {
                 "type": "object",
-                "description": "Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series` (#3679). ``baseline_series`` is absent when\nthe project has no active baseline, or when the active baseline has\n``has_cpm_dates=False`` (#4257) — a pre-CPM baseline whose overlay would\notherwise never reach zero (burndown) or plateau below total (burnup).",
+                "description": "Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series` (#3679). The ``baseline_series`` overlay\nwas removed in #3246: it had no consumer.",
                 "properties": {
                     "chart_type": {
                         "allOf": [
@@ -68818,13 +68820,6 @@
                         },
                         "readOnly": true
                     },
-                    "baseline_series": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ProjectBurnBaselinePoint"
-                        },
-                        "readOnly": true
-                    },
                     "as_of": {
                         "type": "string",
                         "format": "date-time",
@@ -68842,7 +68837,6 @@
                 },
                 "required": [
                     "as_of",
-                    "baseline_series",
                     "chart_type",
                     "clamped",
                     "definitions",
@@ -68867,14 +68861,9 @@
                     "burn_series": {
                         "type": "string",
                         "description": "Per day, the remaining (burndown) or completed (burnup) task count or story points, replayed from task history."
-                    },
-                    "burn_baseline_series": {
-                        "type": "string",
-                        "description": "Per day, the same quantity as planned by the active baseline; absent when the project has no active baseline with dates."
                     }
                 },
                 "required": [
-                    "burn_baseline_series",
                     "burn_series"
                 ]
             },
@@ -75134,10 +75123,11 @@
                     "velocity",
                     "throughput_rollup",
                     "pulse",
-                    "flow_metrics"
+                    "flow_metrics",
+                    "capacity"
                 ],
                 "type": "string",
-                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse\n* `flow_metrics` - flow_metrics",
+                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse\n* `flow_metrics` - flow_metrics\n* `capacity` - capacity",
                 "x-trueppm-enum": "open"
             },
             "SignalPrivacyPolicy": {
@@ -75823,9 +75813,15 @@
                         "type": "number",
                         "format": "double",
                         "readOnly": true
+                    },
+                    "capacity_suppressed": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "True when the requester is outside the project's `capacity` signal audience (ADR-0104): `members` is then empty and only `totals` is real."
                     }
                 },
                 "required": [
+                    "capacity_suppressed",
                     "hours_per_day",
                     "members",
                     "totals",

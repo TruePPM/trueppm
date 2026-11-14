@@ -313,6 +313,39 @@ def velocity_summary_for(request: Request, project_id: Any) -> dict[str, Any]:
     return summary
 
 
+# Serializers that carry a per-person metric, mapped to the governed signal that gates
+# them (ADR-0104). A completeness test (tests/apps/projects/test_signal_privacy_capacity.py)
+# fails when a serializer in apps/projects declares a per-person identity field
+# (``member_id`` / ``member_name``) and is not listed here, so a new per-person
+# surface cannot ship without either a SIGNAL_DEFAULTS entry or a written
+# reason it is not a team signal (#2854).
+PER_PERSON_METRIC_SERIALIZERS: dict[str, str] = {
+    "SprintCapacityMemberSerializer": "capacity",
+}
+
+
+def suppress_capacity_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of a capacity summary with the per-person breakdown stripped.
+
+    Empties ``members`` (names plus committed/available hours) and sets
+    ``capacity_suppressed=True`` so the client can render a team-private state rather
+    than a blank panel. The aggregate ``totals`` block, ``working_days`` and
+    ``hours_per_day`` are kept: they name no one, and the preflight donut still reads
+    them (ADR-0104 section 2.1, suppress don't 403).
+    """
+    return {**summary, "members": [], "capacity_suppressed": True}
+
+
+def capacity_summary_for(request: Request, sprint: Any) -> dict[str, Any]:
+    """Capacity summary for a response, with the ADR-0104 ``capacity`` gate applied."""
+    from trueppm_api.apps.projects.services import capacity_summary
+
+    summary = capacity_summary(sprint)
+    if not can_read_signal(request, sprint.project_id, "capacity"):
+        return suppress_capacity_summary(summary)
+    return {**summary, "capacity_suppressed": False}
+
+
 # flow_metrics arrays that are team-private historical performance detail
 # (cycle/lead distributions, the CFD series, the weekly throughput series).
 # Emptied for a below-tier reader; the keys themselves and the aggregate-only

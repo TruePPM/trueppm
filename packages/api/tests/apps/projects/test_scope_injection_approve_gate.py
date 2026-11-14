@@ -1010,3 +1010,44 @@ def test_gate_verified_for_other_project_does_not_waive_gate(
     sc = _inject(_task(project, "A", story_points=1), sprint, owner)
     with pytest.raises(ScopeAcceptForbidden):
         accept_scope_change(sc, member, gate_verified_for_project=uuid.uuid4())
+
+
+# --------------------------------------------------------------------------- #
+# Archived-project floor on the flat single-item routes (#4650).
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("verb,expected", [("accept", "ACCEPTED"), ("reject", "REJECTED")])
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_single_scope_change_refused_on_archived_project(
+    _broadcast: object,
+    verb: str,
+    expected: str,
+    owner_client: APIClient,
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+) -> None:
+    """An Admin cannot rewrite a frozen sprint plan; unarchiving restores the route."""
+    task = _task(project, "A", sprint=sprint, story_points=1)
+    sc = _inject(task, sprint, owner)
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+    resp = owner_client.post(f"/api/v1/scope-changes/{sc.pk}/{verb}/", {}, format="json")
+
+    assert resp.status_code == 403
+    assert "archived" in str(resp.data["detail"]).lower()
+    sc.refresh_from_db()
+    task.refresh_from_db()
+    assert sc.status == ScopeChangeStatus.PENDING
+    assert task.sprint_pending is True
+    assert task.sprint_id == sprint.pk
+
+    # Same call succeeds once the project is unarchived: the refusal is the archived
+    # floor, not the role gate.
+    project.is_archived = False
+    project.save(update_fields=["is_archived"])
+    resp = owner_client.post(f"/api/v1/scope-changes/{sc.pk}/{verb}/", {}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["status"] == getattr(ScopeChangeStatus, expected)

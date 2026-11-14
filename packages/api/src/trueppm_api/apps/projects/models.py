@@ -7166,7 +7166,7 @@ def signal_audience_rank(value: str) -> int:
     return SIGNAL_AUDIENCE_LADDER.index(value)
 
 
-# The three governed signals and their coded {audience, ceiling} defaults
+# The governed signals and their coded {audience, ceiling} defaults
 # (ADR-0104 §1). An absent signal — or an absent key — resolves to these. Every
 # audience defaults to TEAM (nothing is exposed upward by default); the ceiling
 # encodes how far the team has authorized a signal *may* go.
@@ -7190,6 +7190,13 @@ SIGNAL_DEFAULTS: dict[str, dict[str, str]] = {
     # Current board state (D2 per-column counts + breach) is operational, not historical,
     # and is NOT gated — it is the same live state the board already shows every member.
     "flow_metrics": {"audience": SignalAudience.TEAM, "ceiling": SignalAudience.TEAM},
+    # capacity (#2854): per-person committed/available sprint hours, served by name.
+    # It is an individual workload figure, the closest shipped surface to "PMO has
+    # real-time visibility into who is working on what", so it takes the strictest
+    # posture, mirroring pulse and flow_metrics (TEAM/TEAM, team-raisable only).
+    # Only the per-member breakdown is gated; the aggregate totals block stays
+    # visible (suppress, don't 403 - ADR-0104 section 2.1).
+    "capacity": {"audience": SignalAudience.TEAM, "ceiling": SignalAudience.TEAM},
 }
 
 

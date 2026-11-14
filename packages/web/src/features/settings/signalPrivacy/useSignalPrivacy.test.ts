@@ -8,6 +8,7 @@ import {
   AUDIENCE_RUNG_LABEL_FULL,
   SIGNAL_AUDIENCE_LADDER,
   SIGNALS,
+  signalsInPolicy,
   audienceRank,
   useCeilingProposals,
   useSignalPrivacy,
@@ -40,7 +41,18 @@ describe('audience ladder', () => {
       expect(AUDIENCE_RUNG_LABEL_FULL[rung]).toBeTruthy();
     }
     expect(AUDIENCE_RUNG_LABEL_FULL.team_sm).toBe('Scrum Master');
-    expect(SIGNALS.map((s) => s.key)).toEqual(['velocity', 'throughput_rollup', 'pulse']);
+    expect(SIGNALS.map((s) => s.key)).toEqual([
+      'velocity',
+      'throughput_rollup',
+      'pulse',
+      'flow_metrics',
+      'capacity',
+    ]);
+    const team = { audience: 'team', ceiling: 'team' } as const;
+    expect(signalsInPolicy({ velocity: team, capacity: team }).map((s) => s.key)).toEqual([
+      'velocity',
+      'capacity',
+    ]);
   });
 });
 

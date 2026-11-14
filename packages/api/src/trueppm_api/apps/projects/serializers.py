@@ -10464,6 +10464,13 @@ class SprintCapacitySerializer(serializers.Serializer[dict[str, Any]]):
     totals = SprintCapacityTotalsSerializer(read_only=True)
     working_days = serializers.IntegerField(read_only=True)
     hours_per_day = serializers.FloatField(read_only=True)
+    capacity_suppressed = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when the requester is outside the project's `capacity` signal "
+            "audience (ADR-0104): `members` is then empty and only `totals` is real."
+        ),
+    )
 
 
 class _BlockedUserRefSerializer(serializers.Serializer[dict[str, Any]]):
@@ -13589,20 +13596,11 @@ class ProjectBurnCombinedPointSerializer(serializers.Serializer[dict[str, Any]])
     ideal = serializers.FloatField(read_only=True)
 
 
-class ProjectBurnBaselinePointSerializer(serializers.Serializer[dict[str, Any]]):
-    """One day of the baseline overlay curve (:func:`services._burn_baseline_series`, #3679)."""
-
-    date = serializers.DateField(read_only=True)
-    planned = serializers.IntegerField(read_only=True)
-
-
 class ProjectBurnSeriesSerializer(serializers.Serializer[dict[str, Any]]):
     """Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.
 
-    See :func:`services.burn_series` (#3679). ``baseline_series`` is absent when
-    the project has no active baseline, or when the active baseline has
-    ``has_cpm_dates=False`` (#4257) — a pre-CPM baseline whose overlay would
-    otherwise never reach zero (burndown) or plateau below total (burnup).
+    See :func:`services.burn_series` (#3679). The ``baseline_series`` overlay
+    was removed in #3246: it had no consumer.
     """
 
     chart_type = serializers.ChoiceField(choices=["burndown", "burnup"], read_only=True)
@@ -13618,7 +13616,6 @@ class ProjectBurnSeriesSerializer(serializers.Serializer[dict[str, Any]]):
         ),
     )
     series = ProjectBurnSeriesPointSerializer(many=True, read_only=True)
-    baseline_series = ProjectBurnBaselinePointSerializer(many=True, read_only=True, required=False)
     as_of = serializers.DateTimeField(
         read_only=True,
         help_text=(
@@ -13632,8 +13629,7 @@ class ProjectBurnSeriesSerializer(serializers.Serializer[dict[str, Any]]):
 class ProjectBurnCombinedSerializer(serializers.Serializer[dict[str, Any]]):
     """Response for ``?chart_type=combined`` on ``GET /projects/{id}/burn/``.
 
-    See :func:`services.burn_series_combined` (#3679). Never carries
-    ``baseline_series``.
+    See :func:`services.burn_series_combined` (#3679).
     """
 
     chart_type = serializers.ChoiceField(choices=["combined"], read_only=True)

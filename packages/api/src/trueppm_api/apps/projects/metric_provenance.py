@@ -95,10 +95,6 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "Per day, the remaining (burndown) or completed (burnup) task count or story "
         "points, replayed from task history."
     ),
-    "burn_baseline_series": (
-        "Per day, the same quantity as planned by the active baseline; absent when "
-        "the project has no active baseline with dates."
-    ),
     # ── task rows (slip) ──────────────────────────────────────────────────
     "baseline_finish_variance_days": (
         "A task's slip: its forecast finish minus its active-baseline finish, in "
@@ -201,7 +197,7 @@ STATUS_SUMMARY_DEFINED: list[str] = [
 ]
 OVERVIEW_DEFINED: list[str] = ["schedule_health", "open_risk_count", "team_utilization_pct"]
 UTILIZATION_DEFINED: list[str] = ["load_pct"]
-BURN_DEFINED: list[str] = ["burn_series", "burn_baseline_series"]
+BURN_DEFINED: list[str] = ["burn_series"]
 BURN_COMBINED_DEFINED: list[str] = ["burn_series"]
 FORECAST_DEFINED: list[str] = [
     "p50",

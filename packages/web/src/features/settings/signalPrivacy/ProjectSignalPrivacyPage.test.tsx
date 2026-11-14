@@ -99,6 +99,8 @@ function policy(over: Partial<SignalPrivacyPolicy> = {}): SignalPrivacyPolicy {
       velocity: { audience: 'team', ceiling: 'team' },
       throughput_rollup: { audience: 'team', ceiling: 'program_shared' },
       pulse: { audience: 'team', ceiling: 'team' },
+      flow_metrics: { audience: 'team', ceiling: 'team' },
+      capacity: { audience: 'team', ceiling: 'team' },
     },
     requester_tier: 'team_sm_pm',
     can_set_audience: true,
@@ -121,10 +123,26 @@ beforeEach(() => {
 });
 
 describe('ProjectSignalPrivacyPage', () => {
-  it('renders the three signal ladders', () => {
+  it('renders a ladder for every governed signal, capacity included (#2854)', () => {
     renderWithRouter(<ProjectSignalPrivacyPage />);
     expect(screen.getByRole('radiogroup', { name: 'Velocity audience' })).toBeInTheDocument();
     expect(screen.getByRole('radiogroup', { name: 'Retro pulse audience' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Flow metrics audience' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('radiogroup', { name: 'Sprint capacity per person audience' }),
+    ).toBeInTheDocument();
+  });
+
+  it('omits a signal an older server does not return instead of crashing', () => {
+    const older: Partial<SignalPrivacyPolicy['signals']> = { ...policy().signals };
+    delete older.capacity;
+    delete older.flow_metrics;
+    policyHolder.data = policy({ signals: older as SignalPrivacyPolicy['signals'] });
+    renderWithRouter(<ProjectSignalPrivacyPage />);
+    expect(screen.getByRole('radiogroup', { name: 'Velocity audience' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('radiogroup', { name: 'Sprint capacity per person audience' }),
+    ).not.toBeInTheDocument();
   });
 
   it('spells out the SM/PM rungs as visible text and accessible name (#975)', () => {
@@ -177,6 +195,8 @@ describe('ProjectSignalPrivacyPage', () => {
         velocity: { audience: 'team_sm', ceiling: 'team_sm_pm' },
         throughput_rollup: { audience: 'team', ceiling: 'program_shared' },
         pulse: { audience: 'team', ceiling: 'team' },
+        flow_metrics: { audience: 'team', ceiling: 'team' },
+        capacity: { audience: 'team', ceiling: 'team' },
       },
     });
     renderWithRouter(<ProjectSignalPrivacyPage />);

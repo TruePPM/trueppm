@@ -158,9 +158,6 @@ async function setupRoutes(
     }),
   );
   // Burn-up chart read — GET /projects/{id}/burn/?chart_type=…
-  // baseline_series: [] — see reports-burn-chart.spec.ts's BURN_RESPONSE comment
-  // (#3679): the burn endpoint's PolymorphicProxySerializer oneOf matcher needs
-  // every optional field present to pick the burndown/burnup branch.
   await page.route('**/api/v1/projects/*/burn/**', (route) =>
     route.fulfill(
       json({
@@ -169,14 +166,12 @@ async function setupRoutes(
         since: '2026-01-01',
         until: '2026-06-01',
         series: [],
-        baseline_series: [],
-        // Required on every burn response (#4964) — same oneOf rule.
+        // Required on every burn response (#4964).
         clamped: false,
-        // Required on every burn response since ADR-1314 — same oneOf rule.
+        // Required on every burn response since ADR-1314.
         as_of: '2026-06-01T12:00:00Z',
         definitions: {
           burn_series: 'Per day, the remaining or completed quantity.',
-          burn_baseline_series: 'Per day, the same quantity as planned by the baseline.',
         },
       }),
     ),

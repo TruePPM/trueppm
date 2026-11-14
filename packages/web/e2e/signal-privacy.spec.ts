@@ -27,6 +27,8 @@ function policy(over: Record<string, unknown> = {}) {
       velocity: { audience: 'team', ceiling: 'team' },
       throughput_rollup: { audience: 'team', ceiling: 'program_shared' },
       pulse: { audience: 'team', ceiling: 'team' },
+      flow_metrics: { audience: 'team', ceiling: 'team' },
+      capacity: { audience: 'team', ceiling: 'team' },
     },
     requester_tier: 'team_sm_pm',
     can_set_audience: true,
@@ -108,6 +110,7 @@ test.describe('Signal privacy — golden path', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/signal-privacy`);
     await expect(page.getByRole('radiogroup', { name: 'Velocity audience' })).toBeVisible();
     await expect(page.getByRole('radiogroup', { name: 'Retro pulse audience' })).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'Sprint capacity per person audience' })).toBeVisible();
   });
 
   test('setting an audience dispatches a PATCH', async ({ page }) => {

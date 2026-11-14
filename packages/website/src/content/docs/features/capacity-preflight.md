@@ -1,6 +1,7 @@
 ---
 title: Capacity preflight
 description: Per-person committed/available hours with on-track / at-risk / over-capacity bands.
+documentedFor: "0.5"
 ---
 
 This is the Resource Manager's at-a-glance check of a sprint's workload: a donut chart showing the team's overall committed hours
@@ -26,6 +27,16 @@ Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-mana
   they stand out in the list
 
 ![The Sprints page for Sprint 5: sprint goal, burndown chart, capacity preflight per person, and velocity](../../../assets/screenshots/sprints.webp)
+
+## Who sees the per-person list
+
+:::note[Ships in 0.5]
+In the current release every project member, including a Viewer, sees each person's name and hours. From 0.5 the per-person list is governed by [Signal privacy](/features/settings/signal-privacy/).
+:::
+
+The per-person list is the **capacity** signal. By default it is visible to the team (members, viewers and the Scrum Master) and not to the project-manager band. Someone outside the signal's audience still sees the donut and the team totals, with a note in place of the names: *"Per-person capacity is team-private."* The team can share it upward from **Settings → Signal privacy** (the **Sprint capacity per person** row).
+
+The over-capacity warnings shown when a sprint is activated carry the same names and hours, so they follow the same rule: outside the audience the banner says how many members are over capacity without naming them.
 
 ## Points ceiling (added in 0.3)
 

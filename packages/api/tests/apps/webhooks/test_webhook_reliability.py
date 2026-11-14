@@ -820,3 +820,99 @@ def test_health_fields_are_read_only(
     webhook.refresh_from_db()
     assert webhook.consecutive_failures == 0
     assert webhook.disabled_reason == ""
+
+
+# ---------------------------------------------------------------------------
+# #4962 — webhook_auto_deactivated extension signal
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def deactivation_events() -> Any:
+    """Collect ``webhook_auto_deactivated`` payloads for the duration of a test."""
+    from trueppm_api.apps.webhooks.signals import webhook_auto_deactivated
+
+    received: list[dict[str, Any]] = []
+
+    def _receiver(sender: Any, **kwargs: Any) -> None:
+        received.append({"sender": sender, **kwargs})
+
+    webhook_auto_deactivated.connect(_receiver, weak=False)
+    yield received
+    webhook_auto_deactivated.disconnect(_receiver)
+
+
+@pytest.mark.django_db
+def test_auto_deactivation_emits_the_extension_signal_once(
+    webhook: Webhook,
+    deactivation_events: list[dict[str, Any]],
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """Enterprise alerting hangs off this: one event, plain values, only on the tipping failure."""
+    with django_capture_on_commit_callbacks(execute=True):
+        for _ in range(AUTO_DISABLE_CONSECUTIVE_FAILURES - 1):
+            _deliver(_delivery(webhook), 404)
+        assert deactivation_events == []  # below the threshold: nothing yet
+        _age_failure_streak(webhook)
+        _deliver(_delivery(webhook), 404)
+        # A later failure on the now-inactive webhook must not re-fire.
+        _deliver(_delivery(webhook), 404)
+
+    assert len(deactivation_events) == 1
+    event = deactivation_events[0]
+    assert event["sender"] is Webhook
+    assert event["webhook_id"] == str(webhook.pk)
+    assert event["project_id"] == str(webhook.project_id)
+    assert event["program_id"] is None
+    assert event["failure_count"] == AUTO_DISABLE_CONSECUTIVE_FAILURES
+    assert "404" in event["reason"]
+    assert isinstance(event["deactivated_at"], str)
+    # Plain values only: no model instance, and nothing that carries the URL or secret.
+    assert not any(isinstance(v, Webhook) for k, v in event.items() if k != "sender")
+    assert webhook.url not in str(event)
+    assert VALID_SECRET not in str(event)
+
+
+@pytest.mark.django_db
+def test_extension_signal_is_deferred_until_commit(
+    webhook: Webhook,
+    deactivation_events: list[dict[str, Any]],
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """Dispatched from on_commit: a rolled-back deactivation must not alert anyone."""
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        _fail_until_disabled(webhook)
+    assert deactivation_events == []
+    assert callbacks, "the dispatch must be queued on commit, not fired inline"
+
+
+@pytest.mark.django_db
+def test_extension_signal_not_sent_for_a_ping_or_below_the_floor(
+    webhook: Webhook,
+    deactivation_events: list[dict[str, Any]],
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    with django_capture_on_commit_callbacks(execute=True):
+        for _ in range(AUTO_DISABLE_CONSECUTIVE_FAILURES + 2):
+            _deliver(_delivery(webhook), 404)  # inside the wall-clock floor
+    assert deactivation_events == []
+
+
+@pytest.mark.django_db
+def test_a_raising_receiver_cannot_break_the_delivery_task(
+    webhook: Webhook, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The one-way boundary: enterprise code failing must not fail the OSS task."""
+    from trueppm_api.apps.webhooks.signals import webhook_auto_deactivated
+
+    def _boom(sender: Any, **kwargs: Any) -> None:
+        raise RuntimeError("enterprise receiver bug")
+
+    webhook_auto_deactivated.connect(_boom, weak=False)
+    try:
+        with django_capture_on_commit_callbacks(execute=True):
+            _fail_until_disabled(webhook)
+    finally:
+        webhook_auto_deactivated.disconnect(_boom)
+    webhook.refresh_from_db()
+    assert webhook.is_active is False

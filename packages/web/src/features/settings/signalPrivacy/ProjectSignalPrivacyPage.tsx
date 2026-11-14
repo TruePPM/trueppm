@@ -22,6 +22,7 @@ import { CeilingProposalCard } from './CeilingProposalCard';
 import { CeilingDecisionHistory } from './CeilingDecisionHistory';
 import {
   SIGNALS,
+  signalsInPolicy,
   audienceRank,
   useSignalPrivacy,
   useSignalPrivacyMutations,
@@ -52,7 +53,7 @@ export function ProjectSignalPrivacyPage() {
   const allTeamOnly = useMemo(
     () =>
       policy
-        ? SIGNALS.every(({ key }) => policy.signals[key].audience === 'team')
+        ? signalsInPolicy(policy.signals).every(({ key }) => policy.signals[key].audience === 'team')
         : true,
     [policy],
   );
@@ -99,7 +100,7 @@ export function ProjectSignalPrivacyPage() {
               confirmRatchet ? (
                 <span className="flex items-center gap-2 text-[12px]">
                   <span className="text-neutral-text-secondary">
-                    Set velocity, throughput, and pulse all back to team-only?
+                    Set every signal back to team-only?
                   </span>
                   <button
                     type="button"
@@ -208,7 +209,7 @@ export function ProjectSignalPrivacyPage() {
         {policy && view === 'ladder' && (
           <>
             <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
-              {SIGNALS.map(({ key, title, description }) => {
+              {signalsInPolicy(policy.signals).map(({ key, title, description }) => {
                 const proposal = policy.open_proposals?.[key];
                 return (
                 <SignalLadder

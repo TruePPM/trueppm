@@ -1,6 +1,7 @@
 ---
 title: Signal privacy
 description: Govern how far each team signal — velocity, throughput rollup, and the retro pulse — may travel, on a team-owned ladder with an authorized ceiling.
+documentedFor: "0.5"
 ---
 
 :::note[Added in 0.3]
@@ -13,11 +14,17 @@ Open it at **Project → Settings → Signal privacy** (`/projects/:id/settings/
 
 ## What signals are governed
 
-Three team signals can be gated:
+:::note[Ships in 0.5]
+The capacity signal and the Flow metrics row on this tab land in 0.5. In the current release the per-person list in the Capacity preflight is visible to every project member, and flow metrics can be governed only through the API.
+:::
+
+Team signals that can be gated:
 
 - **Velocity** — the per-sprint velocity series and its forecast range.
 - **Throughput rollup** — the team's per-period throughput (completed work over time).
 - **Retro pulse** — the team-sentiment trend captured at retrospectives.
+- **Flow metrics** *(row on this tab from 0.5)* — cycle and lead-time distributions, the cumulative flow series and weekly throughput.
+- **Sprint capacity per person** *(from 0.5)* — the per-person committed and available hours in the sprint [Capacity preflight](/features/capacity-preflight/). Only the per-person list is gated; the team total stays visible, and a reader outside the audience sees a "team-private" note in place of the names. The over-capacity warnings shown when a sprint is activated follow the same rule: outside the audience they give the number of warnings, not who or how many hours.
 
 These are the team-private *details*. Aggregate, outward-facing readings — milestone health, schedule confidence — are **not** on this tab and stay visible to everyone (see [Suppressed, not blocked](#suppressed-not-blocked) below).
 
@@ -90,7 +97,7 @@ The Scrum Master can pull **every** signal back to **Team only** in one action �
 Gating a signal **suppresses** the team-private detail; it does not blank out the project. When a signal is set to **Team only**:
 
 - **Milestone health and schedule confidence stay visible to everyone** — the aggregate readings the rest of the project depends on are never hidden.
-- Only the team-private detail is gated — the **velocity series** and the **pulse trend** — and only for people above the current audience.
+- Only the team-private detail is gated — the **velocity series**, the **pulse trend** and the **per-person capacity list** — and only for people above the current audience.
 
 A PM who is outside a signal's audience still sees that the schedule is on track; they just do not see the team's raw velocity numbers behind it. The signal is suppressed for them, not the whole view.
 
