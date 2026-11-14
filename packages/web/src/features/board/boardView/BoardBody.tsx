@@ -6,6 +6,7 @@ import type { BacklogDensity, BoardLayoutVariant } from '@/hooks/useBoardToolbar
 import { BacklogBand, type FileUnderTarget } from '../BacklogBand';
 import type { BoardCadence } from '@/types';
 import { BacklogDrawer } from '../BacklogDrawer';
+import { MobileBacklogNotice } from '../MobileBacklogNotice';
 import { QueueLayout } from '../QueueLayout';
 import { MobileBoard } from './MobileBoard';
 import { SprintPanel } from '../SprintPanel';
@@ -33,6 +34,8 @@ interface BoardBodyProps {
   facetZeroMatch: boolean;
   effectiveLayout: BoardLayoutVariant;
   isMobile: boolean;
+  /** Switch to the Queue layout — the phone's way back to the backlog (#4305). */
+  onSwitchToQueue: () => void;
   /** Board tracks in display order (#2967) — one per status column, or one per
    *  named lane of it. Status-level surfaces (the mobile snap board, the
    *  card menu) reduce this back to statuses themselves. */
@@ -128,6 +131,7 @@ export function BoardBody(props: BoardBodyProps) {
     facetZeroMatch,
     effectiveLayout,
     isMobile,
+    onSwitchToQueue,
     columns: COLUMNS,
     methodology,
     boardCadence,
@@ -240,6 +244,9 @@ export function BoardBody(props: BoardBodyProps) {
           phone, and the strip owns the horizontal axis. Queue layout keeps
           its own (already mobile-friendly) flat list above. */}
       {!facetZeroMatch && effectiveLayout !== 'queue' && isMobile && (
+        <MobileBacklogNotice count={backlogTasks.length} onSwitchToQueue={onSwitchToQueue} />
+      )}
+      {!facetZeroMatch && effectiveLayout !== 'queue' && isMobile && (
         <MobileBoard
           // The phone board is a per-STATUS snap page; named lanes (#2967) are a
           // desktop-grid subdivision, so the track list collapses back to one
@@ -317,6 +324,7 @@ type BoardDesktopGridProps = Omit<
   | 'facetZeroMatch'
   | 'effectiveLayout'
   | 'isMobile'
+  | 'onSwitchToQueue'
   | 'queueTasks'
   | 'phaseNameFor'
   | 'canReorder'

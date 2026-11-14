@@ -3417,6 +3417,7 @@ export function BoardView() {
             facetZeroMatch={facetZeroMatch}
             effectiveLayout={effectiveLayout}
             isMobile={isMobile}
+            onSwitchToQueue={() => toolbarPrefs.setLayout('queue')}
             columns={TRACKS}
             methodology={methodology}
             boardCadence={boardCadence}

@@ -220,3 +220,52 @@ test.describe('Board mobile snap-scroll — last card clears the FAB (#4243)', (
     expect(cardBox && fabBox && cardBox.y + cardBox.height <= fabBox.y).toBe(true);
   });
 });
+
+test.describe('Board mobile — hidden backlog is explained (#4305)', () => {
+  const BACKLOG_TASK = {
+    id: 'mbb1', wbs_path: '2', name: 'Parked idea',
+    early_start: '2026-01-05', early_finish: '2026-01-16',
+    duration: 10, percent_complete: 0, is_critical: false,
+    is_milestone: false, is_summary: false, parent_id: null,
+    status: 'BACKLOG', assignees: [], total_float: null,
+    predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
+  };
+
+  async function open(page: import('@playwright/test').Page, tasks: unknown[]) {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm.board.toolbarPrefs.v1',
+        JSON.stringify({ layout: 'rail', backlogDensity: 'comfortable' }),
+      );
+    });
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: tasks as never,
+      statusSummary: { task_count: tasks.length },
+    });
+    await page.goto(`${BASE_URL}/board`);
+  }
+
+  test('an explicit Rail on a phone says the backlog is hidden and one tap reveals it', async ({
+    page,
+  }) => {
+    await open(page, [...FIXTURE_TASKS, BACKLOG_TASK]);
+    const notice = page.getByTestId('mobile-backlog-notice');
+    await expect(notice).toBeVisible({ timeout: 10_000 });
+    await expect(notice).toContainText('Backlog hidden on phone (1 item)');
+    await notice.getByRole('button', { name: 'Switch to Queue' }).click();
+    await expect(page.getByText('Parked idea')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('mobile-backlog-notice')).toHaveCount(0);
+  });
+
+  test('no notice when there is no backlog to hide', async ({ page }) => {
+    await open(page, FIXTURE_TASKS);
+    await expect(page.getByTestId('mobile-column-strip')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('mobile-backlog-notice')).toHaveCount(0);
+  });
+});
