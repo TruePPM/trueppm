@@ -14,8 +14,8 @@ bumps :data:`GRAPH_FORMAT_VERSION`:
 * top level: ``format_version``, ``project_id``, ``project_start``,
   ``project_finish`` (ISO ``YYYY-MM-DD``), ``nodes``, ``edges``.
 * node: ``id``, ``name``, ``early_start``, ``early_finish``, ``late_start``,
-  ``late_finish`` (ISO dates), ``total_float_days`` (float), ``is_critical``
-  (bool), ``milestone_at_day_end`` (bool).
+  ``late_finish`` (ISO dates), ``total_float_days`` (float, working days of the
+  task's calendar), ``is_critical`` (bool), ``milestone_at_day_end`` (bool).
 * edge: ``predecessor_id``, ``successor_id``, ``dep_type`` (``"FS"``, ``"SS"``,
   ``"FF"`` or ``"SF"``), ``lag_days`` (float, calendar days; negative is a lead),
   ``is_driving`` (bool).
@@ -83,8 +83,10 @@ class GraphNode:
         early_finish: Earliest finish.
         late_start: Latest start that does not delay the project finish.
         late_finish: Latest finish that does not delay the project finish.
-        total_float_days: Total float in days.
-        is_critical: ``True`` when the task has no total float.
+        total_float_days: Total float in working days of the task's calendar
+            (not calendar days, unlike ``GraphEdge.lag_days``).
+        is_critical: Mirrors ``ScheduleResult`` ``is_critical``; completed tasks
+            are never critical, even at zero float.
         milestone_at_day_end: For a zero-duration milestone, whether the instant
             is the end (``True``) or the start (``False``) of ``early_finish``.
     """

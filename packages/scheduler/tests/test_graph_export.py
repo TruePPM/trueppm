@@ -117,7 +117,7 @@ class TestDependencyTypesAndCalendar:
         }
 
     def test_float_is_counted_on_the_calendar(self) -> None:
-        # A Wed-Thu holiday: C (1d) could slip Mon..Fri; float spans working days only.
+        # A Wed-Thu holiday: A runs Mon, Tue, Fri; B and C then both start Mon Jan 12.
         cal = Calendar(exceptions=[DateRange(start=date(2026, 1, 7), end=date(2026, 1, 8))])
         project = Project(
             id="p",
@@ -132,8 +132,43 @@ class TestDependencyTypesAndCalendar:
         # A: Mon, Tue, Fri (Wed/Thu are holidays). B, C both start Mon Jan 12.
         assert nodes["A"].early_finish == date(2026, 1, 9)
         assert nodes["B"].early_start == date(2026, 1, 12) == nodes["C"].early_start
-        # Two equal leaves on the critical finish: zero float, none counted over a weekend.
+        # Two equal leaves on the critical finish: both zero float.
         assert nodes["B"].total_float_days == nodes["C"].total_float_days == 0.0
+
+    def test_float_counts_working_days_not_calendar_days(self) -> None:
+        # A (1d) starts Thu Jan 8. B (1d) finishes Fri Jan 9 but may slip to Thu Jan 15
+        # behind the 5-day C: 4 working days, where calendar days would say 6.
+        project = Project(
+            id="p",
+            name="P",
+            start_date=date(2026, 1, 8),
+            tasks=[_task("A", 1), _task("B", 1), _task("C", 5)],
+            dependencies=[_dep("A", "B"), _dep("A", "C")],
+        )
+        b = {n.id: n for n in _export(project).nodes}["B"]
+        assert b.early_finish == date(2026, 1, 9)
+        assert b.late_finish == date(2026, 1, 15)
+        assert b.total_float_days == 4.0
+
+    def test_completed_task_is_never_critical_even_at_zero_float(self) -> None:
+        project = Project(
+            id="p",
+            name="P",
+            start_date=MON,
+            tasks=[
+                Task(
+                    id="A",
+                    name="Task A",
+                    duration=timedelta(days=2),
+                    actual_start=MON,
+                    actual_finish=MON + timedelta(days=1),
+                    percent_complete=100.0,
+                )
+            ],
+        )
+        (a,) = _export(project).nodes
+        assert a.total_float_days == 0.0
+        assert a.is_critical is False
 
 
 class TestRoundTrip:

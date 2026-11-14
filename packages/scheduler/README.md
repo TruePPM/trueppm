@@ -637,7 +637,9 @@ package** — the names you can import directly from `trueppm_scheduler`
 Two helpers that API-layer code needs are public as of 0.5 — `WorkingDayCounter`
 (working days in a half-open span for one calendar) and `collect_leaves` (the
 distinct leaf IDs under a summary task); the old `engine._WorkingDayCounter` and
-`engine._collect_leaves` names remain as aliases for one release.
+`engine._collect_leaves` names remain as aliases for one release. The graph export
+(see [Exporting the graph](#exporting-the-graph)) is public in 0.5 too: `to_graph`,
+`GraphExport`, `GraphNode`, `GraphEdge` and `GRAPH_FORMAT_VERSION`.
 Everything else — the `trueppm_scheduler.engine` internals, any underscore-
 prefixed helper, and module layout — is **unstable** and may move or change
 without notice.
