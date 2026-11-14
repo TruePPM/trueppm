@@ -42,6 +42,12 @@
 # pytest-only gate would be blind to exactly the edit that breaks it. This job
 # runs unconditionally on every MR and on main.
 #
+# KNOWN BLIND SPOT (#4286): the gate only sees events that ARE emitted. A write path
+# with a live frontend consumer but ZERO backend emission produces nothing to
+# compare, so it is invisible here and to every other automated gate -- that is how
+# the #4283 Decisions-policy gap shipped. Review `perform_*` and APIView write
+# methods in files with no broadcast call by hand; a report-only scan is future work.
+#
 # Exit codes:
 #   0  the two halves agree (or every disagreement is waived)
 #   1  at least one conformance violation

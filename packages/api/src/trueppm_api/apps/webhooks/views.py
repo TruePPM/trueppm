@@ -166,6 +166,11 @@ class WebhookViewSet(
     Create/update/delete: requires Admin+ (IsProjectAdmin).
     """
 
+    # No broadcast by design (#4286): perform_create/perform_update/delete emit no board
+    # event and there is no `webhook_*` WS type, because no live shared surface renders
+    # webhook configuration (the settings page refetches on mount). If one ever does,
+    # add the event then; do not treat the absence as an oversight. (A comment, not the
+    # docstring: the docstring is published into the OpenAPI schema.)
     serializer_class = WebhookSerializer
 
     # Exempt from the generic Idempotency-Key path (ADR-0170): the create response
