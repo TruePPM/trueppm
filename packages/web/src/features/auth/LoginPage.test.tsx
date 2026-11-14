@@ -371,7 +371,7 @@ describe('LoginPage', () => {
       initialEntries: ['/login?next=%2Fprojects%2Fp1%2Frisk%23r-7'],
     });
     await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
-    expect(JSON.parse(sessionStorage.getItem('tppm.sso.next') ?? '{}').next).toBe(
+    expect((JSON.parse(sessionStorage.getItem('tppm.sso.next') ?? '{}') as { next?: string }).next).toBe(
       '/projects/p1/risk#r-7',
     );
     unmount();
