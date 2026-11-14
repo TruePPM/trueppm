@@ -1105,7 +1105,7 @@ function CapacityWarningsAlert({
           </ul>
         ) : (
           <p>
-            Per-person detail is visible to the team unless they share it in Settings → Signal
+            Per-person capacity is team-private. Your team can share it in Settings → Signal
             privacy.
           </p>
         )}

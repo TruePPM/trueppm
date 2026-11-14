@@ -1128,7 +1128,9 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     await userEvent.click(screen.getByRole('button', { name: /Activate/i }));
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent(/activated with 2 capacity warnings/i);
-    expect(alert).toHaveTextContent(/Settings → Signal privacy/);
+    expect(alert).toHaveTextContent(
+      /Per-person capacity is team-private\. Your team can share it in Settings → Signal privacy\./,
+    );
     expect(alert.querySelectorAll('li')).toHaveLength(0);
   });
 
