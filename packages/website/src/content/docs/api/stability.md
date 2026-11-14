@@ -323,7 +323,7 @@ deprecation window rather than being removed outright:
    answers `404`, so an integration still calling it finds out at the moment it calls
    rather than inferring it from a response body. The changelog fragment names the removed
    path, and the removal is declared in `scripts/schema-removal-allowlist.txt` so the
-   schema gate treats it as reviewed rather than accidental. the per-task and
+   schema gate treats it as reviewed rather than accidental. The per-task and
    project history views' `_MAX_HISTORY_ROWS` caps, and the unified project
    changelog (ADR-0201), are unaffected — see ADR-0011's dated Superseded note.
 
