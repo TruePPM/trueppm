@@ -3,6 +3,7 @@ import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig 
 import { useAuthStore } from '@/stores/authStore';
 import { useToastStore } from '@/components/Toast/toastStore';
 import { queryClient } from '@/lib/queryClient';
+import * as authBroadcast from '@/lib/authBroadcast';
 
 // Re-import every time so each test gets the module-level interceptors registered
 // by client.ts. Module caching means the same apiClient instance is reused within
@@ -219,6 +220,38 @@ describe('apiClient', () => {
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
     });
 
+    // #4296: only the server's own refusal speaks for the shared cookie.
+    it.each([
+      [
+        'a 5xx',
+        new AxiosError('Bad Gateway', 'ERR_BAD_RESPONSE', undefined, undefined, {
+          status: 502,
+          data: {},
+        } as AxiosResponse),
+      ],
+      ['a network error', new AxiosError('Network Error', 'ERR_NETWORK')],
+      ['a timeout', new AxiosError('timeout', 'ECONNABORTED')],
+    ])('expires this tab but tells no sibling on %s', async (_label, failure) => {
+      const bootstrapAccessToken = await getBootstrap();
+      const post = vi.spyOn(authBroadcast, 'postAuthMessage');
+      vi.spyOn(axios, 'post').mockRejectedValue(failure);
+      await expect(bootstrapAccessToken()).resolves.toBe(false);
+      expect(useAuthStore.getState().sessionExpired).toBe(true);
+      expect(post).not.toHaveBeenCalledWith('expired');
+    });
+
+    it('tells sibling tabs when the refresh endpoint refuses the session with a 401', async () => {
+      const bootstrapAccessToken = await getBootstrap();
+      const post = vi.spyOn(authBroadcast, 'postAuthMessage');
+      const refused = new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 401,
+        data: {},
+      } as AxiosResponse);
+      vi.spyOn(axios, 'post').mockRejectedValue(refused);
+      await expect(bootstrapAccessToken()).resolves.toBe(false);
+      expect(post).toHaveBeenCalledWith('expired');
+    });
+
     it('marks the session expired and returns false when the cookie refresh fails', async () => {
       const bootstrapAccessToken = await getBootstrap();
       vi.spyOn(axios, 'post').mockRejectedValueOnce(new Error('no cookie'));
@@ -406,7 +439,76 @@ describe('apiClient', () => {
           sessionExpired: false,
         });
         sibling.postMessage({ type: 'expired' });
+        // Installed after the sibling's own post, so it sees only what THIS tab sends.
+        const posted = vi.spyOn(BroadcastChannel.prototype, 'postMessage');
         await vi.waitFor(() => expect(useAuthStore.getState().sessionExpired).toBe(true));
+        expect(posted).not.toHaveBeenCalled();
+      });
+
+      it("a sibling sign-out also drops this tab's cached reads", async () => {
+        await getModule();
+        queryClient.setQueryData(['projects'], [{ id: 'p1' }]);
+        useAuthStore.setState({
+          isAuthenticated: true,
+          accessToken: 'live',
+          sessionExpired: false,
+        });
+        sibling.postMessage({ type: 'cleared' });
+        await vi.waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(false));
+        expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+      });
+
+      describe('a sibling signs in as someone else', () => {
+        afterEach(() => queryClient.clear());
+
+        async function restoreWith(me: () => Promise<unknown>) {
+          await getModule();
+          queryClient.setQueryData(['current-user'], { id: '7' });
+          queryClient.setQueryData(['projects'], [{ id: 'p1' }]);
+          vi.spyOn(axios, 'post').mockResolvedValue({ data: { access: 'minted-here' } });
+          const get = vi.spyOn(axios, 'get').mockImplementation(me as never);
+          useAuthStore.setState({
+            isAuthenticated: false,
+            accessToken: null,
+            sessionExpired: true,
+          });
+          sibling.postMessage({ type: 'restored' });
+          await vi.waitFor(() => expect(useAuthStore.getState().accessToken).toBe('minted-here'));
+          return get;
+        }
+
+        it("clears the previous user's cache before the tab goes live", async () => {
+          const get = await restoreWith(() => Promise.resolve({ data: { id: '9' } }));
+          expect(get).toHaveBeenCalledWith(
+            '/api/v1/auth/me/',
+            expect.objectContaining({ headers: { Authorization: 'Bearer minted-here' } }),
+          );
+          expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+        });
+
+        it('keeps the cache when the same user signed back in', async () => {
+          await restoreWith(() => Promise.resolve({ data: { id: '7' } }));
+          expect(queryClient.getQueryData(['projects'])).toEqual([{ id: 'p1' }]);
+        });
+
+        it('clears the cache when there is no cached identity to compare against', async () => {
+          await getModule();
+          queryClient.setQueryData(['projects'], [{ id: 'p1' }]);
+          vi.spyOn(axios, 'post').mockResolvedValue({ data: { access: 'minted-here' } });
+          useAuthStore.setState({
+            isAuthenticated: false,
+            accessToken: null,
+            sessionExpired: true,
+          });
+          sibling.postMessage({ type: 'restored' });
+          await vi.waitFor(() => expect(useAuthStore.getState().accessToken).toBe('minted-here'));
+          expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+        });
+
+        it('clears the cache when the identity cannot be confirmed', async () => {
+          await restoreWith(() => Promise.reject(new Error('network')));
+          expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+        });
       });
 
       it('ignores a sibling expiry when this tab holds no session (e.g. on /login)', async () => {

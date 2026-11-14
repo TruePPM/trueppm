@@ -47,6 +47,21 @@ describe('resolveStatusSlot', () => {
     ).toBe('Offline · 1 change pending');
   });
 
+  // #4296: a sibling tab's refresh holding the lock is named, quietly.
+  it('says "Signing in…" while waiting on a sibling tab, quietly, above demo', () => {
+    const m = resolveStatusSlot({ ...base, waitingOnSiblingTab: true, demoReadOnly: true });
+    expect(m.kind).toBe('signing-in');
+    expect(m.label).toBe('Signing in…');
+    expect(m.tone).toBe('quiet');
+    expect(m.folded).toEqual(['Demo · read-only']);
+  });
+
+  it('drops "Signing in…" once the session has expired, which is the fact to act on', () => {
+    const m = resolveStatusSlot({ ...base, waitingOnSiblingTab: true, sessionExpired: true });
+    expect(m.kind).toBe('session');
+    expect(m.more).toBe(0);
+  });
+
   it('session outranks demo, and the read-only escape is named', () => {
     const m = resolveStatusSlot({
       ...base,

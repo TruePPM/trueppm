@@ -9,6 +9,8 @@ export interface StatusSlotInput {
   online: boolean;
   sessionExpired: boolean;
   sessionReadOnly: boolean;
+  /** This tab has waited over a second on a sibling tab's refresh (#4296). */
+  waitingOnSiblingTab?: boolean;
   demoReadOnly: boolean;
   rateLimitDisabled: boolean;
   sync: SyncStatus;
@@ -21,6 +23,7 @@ export interface StatusSlotModel {
   kind:
     | 'offline'
     | 'session'
+    | 'signing-in'
     | 'demo'
     | 'rate-limit'
     | 'sync-error'
@@ -43,7 +46,7 @@ interface Candidate {
 
 /**
  * Resolve the one pill the shell shows. Priority is fixed and documented in the
- * shell spec: offline › session › demo › rate-limit, then the sync machine's own
+ * shell spec: offline › session › signing-in › demo › rate-limit, then the sync machine's own
  * error/stale/syncing, then a quiet "Synced". Lower-priority active conditions
  * are counted into `more` rather than stacked as banners.
  *
@@ -72,6 +75,11 @@ export function resolveStatusSlot(input: StatusSlotInput): StatusSlotModel {
       label: input.sessionReadOnly ? 'Session expired · read-only' : 'Session expired',
       tone: 'warn',
     });
+  }
+  // Below an expired session (which is the fact to act on), above everything else:
+  // while a sibling tab's refresh holds the lock, every request here is waiting.
+  if (input.waitingOnSiblingTab && !input.sessionExpired) {
+    active.push({ kind: 'signing-in', label: 'Signing in…', tone: 'quiet' });
   }
   if (input.demoReadOnly) {
     active.push({ kind: 'demo', label: 'Demo · read-only', tone: 'warn' });

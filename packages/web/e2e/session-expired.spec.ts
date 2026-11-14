@@ -134,9 +134,7 @@ test.describe('Session expired banner', () => {
     // dialog is still open behind the (now-dismissed) scrim with "On track" still
     // selected, so Save is still armed.
     await statusDialog.getByRole('button', { name: 'Save status' }).click();
-    await expect(page.getByTestId('toast-pill')).toContainText(
-      "That change wasn't saved.",
-    );
+    await expect(page.getByTestId('toast-pill')).toContainText("That change wasn't saved.");
     await expect(gate).not.toBeVisible();
     await expect(readOnlyBanner).toBeVisible();
 
@@ -151,7 +149,7 @@ test.describe('Session expired banner', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('expiry in one tab shows the modal in a sibling tab, and a restore clears both (#4296)', async ({
+  test('expiry in one tab reaches a sibling tab as the quiet banner, and a restore clears both (#4296)', async ({
     context,
   }) => {
     let sessionAlive = false;
@@ -197,7 +195,8 @@ test.describe('Session expired banner', () => {
     await expect(bannerB).toBeVisible({ timeout: 10_000 });
     await expect(modal(tabB)).toHaveCount(0);
 
-    // The session comes back (the user signs in elsewhere) and says so.
+    // The session comes back (the user signs in in a third tab) and says so. The
+    // channel opened here is a separate instance from the app's, so tab A hears it too.
     sessionAlive = true;
     await tabA.evaluate(() => {
       const channel = new BroadcastChannel('trueppm-auth');
@@ -205,6 +204,8 @@ test.describe('Session expired banner', () => {
       channel.close();
     });
     await expect(bannerB).toHaveCount(0, { timeout: 10_000 });
+    await expect(modal(tabA)).toHaveCount(0, { timeout: 10_000 });
+    await expect(tabA.getByRole('status', { name: /Signed out/ })).toHaveCount(0);
   });
 
   test('reload while a sibling tab rotates the refresh cookie restores the session silently (#4247)', async ({
