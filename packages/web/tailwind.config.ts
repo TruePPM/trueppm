@@ -85,6 +85,7 @@ const config: Config = {
         // Semantic status tokens — lighter variants in dark mode (see globals.css).
         semantic: {
           critical:      'rgb(var(--semantic-critical) / <alpha-value>)',
+          'on-critical': 'rgb(var(--semantic-on-critical) / <alpha-value>)',
           warning:       'rgb(var(--semantic-warning) / <alpha-value>)',
           'on-track':    'rgb(var(--semantic-on-track) / <alpha-value>)',
           'at-risk':     'rgb(var(--semantic-at-risk) / <alpha-value>)',

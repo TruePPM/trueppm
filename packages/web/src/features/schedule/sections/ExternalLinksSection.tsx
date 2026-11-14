@@ -414,7 +414,7 @@ function ExternalLinkRow({ link: storedLink, projectId, taskId, canEdit }: Exter
                   type="button"
                   onClick={handleDelete}
                   disabled={remove.isPending}
-                  className="text-xs bg-semantic-critical text-white dark:text-navy-900 rounded-control px-2 h-7 font-medium
+                  className="text-xs bg-semantic-critical text-semantic-on-critical rounded-control px-2 h-7 font-medium
                     hover:opacity-90 disabled:opacity-50
                     focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
                   aria-label={`Confirm delete ${title}`}

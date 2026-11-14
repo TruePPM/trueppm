@@ -351,7 +351,7 @@ function ConfirmRunDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="px-3 py-1.5 rounded-control bg-semantic-critical text-white dark:text-navy-900 text-[13px] font-semibold hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
+            className="px-3 py-1.5 rounded-control bg-semantic-critical text-semantic-on-critical text-[13px] font-semibold hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
           >
             Run purge
           </button>

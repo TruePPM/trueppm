@@ -91,7 +91,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
           {task.readiness && <ReadinessChip readiness={task.readiness} />}
           {showCp && (
             <span
-              className="inline-flex items-center px-1 py-px rounded-chip text-xs text-white dark:text-navy-900 bg-semantic-critical font-bold"
+              className="inline-flex items-center px-1 py-px rounded-chip text-xs text-semantic-on-critical bg-semantic-critical font-bold"
               aria-label="On critical path"
             >
               CP

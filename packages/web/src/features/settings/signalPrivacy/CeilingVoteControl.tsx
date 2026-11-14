@@ -54,7 +54,7 @@ export function CeilingVoteControl({ proposal, voting, onVote }: CeilingVoteCont
           {(
             [
               { choice: 'approve' as const, label: 'Approve', on: 'bg-semantic-on-track text-white dark:text-navy-900' },
-              { choice: 'reject' as const, label: 'Reject', on: 'bg-semantic-critical text-white dark:text-navy-900' },
+              { choice: 'reject' as const, label: 'Reject', on: 'bg-semantic-critical text-semantic-on-critical' },
             ] satisfies { choice: CeilingVoteChoice; label: string; on: string }[]
           ).map(({ choice, label, on }) => {
             const active = your_vote === choice;
