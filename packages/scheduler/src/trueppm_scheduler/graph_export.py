@@ -353,13 +353,20 @@ def to_graph(result: ScheduleResult, project: Project) -> GraphExport:
         dependency, deterministically ordered.
 
     Raises:
-        InvalidScheduleInput: If ``result`` was not computed from ``project`` (a
-            different project id), a task has no computed dates, a task id is
+        InvalidScheduleInput: If ``result`` is not a :class:`ScheduleResult` or
+            ``project`` is not a :class:`Project`, if ``result`` was not computed
+            from ``project`` (a different project id), a task has no computed dates, a task id is
             repeated, or a dependency names a task that is not in ``result``. The
             offending ids are named in the message.
         CyclicDependencyError: If the dependencies contain a cycle; ``cycle``
             names the ids on it. No partial graph is emitted.
     """
+    if not isinstance(project, Project):
+        raise InvalidScheduleInput(f"project must be a Project (got {type(project).__name__}).")
+    if not isinstance(result, ScheduleResult):
+        raise InvalidScheduleInput(
+            f"result must be a ScheduleResult (got {type(result).__name__})."
+        )
     if result.project_id != project.id:
         raise InvalidScheduleInput(
             f"Result is for project {_short_repr(result.project_id)}, "
