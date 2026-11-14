@@ -99,6 +99,31 @@ class TestFieldLevelMerge:
         task.refresh_from_db()
         assert task.name == "Their name"
 
+    def test_gap_over_history_cap_fails_closed_409_without_scanning(
+        self,
+        client: APIClient,
+        task: Task,
+        membership: ProjectMembership,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from trueppm_api.apps.sync import conflict
+
+        base = task.server_version
+        self._simulate_concurrent_write(task, status=TaskStatus.IN_PROGRESS)
+        self._simulate_concurrent_write(task, status=TaskStatus.COMPLETE)
+        monkeypatch.setattr(conflict, "MAX_CONFLICT_HISTORY_GAP", 1)
+
+        r = client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"name": "Design v2"},
+            HTTP_X_BASE_VERSION=str(base),
+        )
+        # The edit is disjoint from the concurrent ones, but the gap is too large to
+        # reconstruct, so it fails closed rather than merging over unknown changes.
+        assert r.status_code == 409, r.data
+        task.refresh_from_db()
+        assert task.name == "Design"
+
     def test_current_base_version_writes_normally(
         self, client: APIClient, task: Task, membership: ProjectMembership
     ) -> None:
