@@ -457,6 +457,16 @@ Also deprecated, outside those four: `detail` and `cycle` on the `cyclic_depende
 (#3800) are replaced by `code` and `offending`. No removal date is set; it was announced
 as "one minor".
 
+### Timer and timesheet-submit paths published with a trailing slash (#3792)
+
+`POST /api/v1/me/timer/start`, `POST /api/v1/me/timer/stop` and
+`POST`/`DELETE /api/v1/me/timesheets/{week_start}/submit` were the only unsafe-method
+paths published without the trailing slash every other endpoint carries. The schema now
+publishes them as `/api/v1/me/timer/start/`, `/api/v1/me/timer/stop/` and
+`/api/v1/me/timesheets/{week_start}/submit/`. This is a declaration change only: the
+server accepts both spellings, so a client still calling the unslashed path keeps
+working. Generated SDKs should regenerate against the slashed paths.
+
 ### Mention-group member email removed (#4578)
 
 `members[]` on the user-defined and program-scoped @mention group payloads no longer
