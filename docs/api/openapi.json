@@ -19455,7 +19455,7 @@
         "/api/v1/projects/{id}/burn/": {
             "get": {
                 "operationId": "v1_projects_burn_retrieve",
-                "description": "``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).\n\nReconstructs daily task counts (or story-point sums) from\n``HistoricalTask`` snapshots and returns the actual / scope / linear\nideal curves needed to render burn charts. Includes a planned overlay\nderived from the project's active baseline when one exists.\n\nQuery params:\n  ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``\n  ``metric``     — ``tasks`` (default) or ``points``\n  ``since``      — window start, ISO date; defaults to project start\n  ``until``      — window end, ISO date; defaults to today\n\nThe window is bounded on both axes — a maximum span, and a short horizon past\ntoday; see the ``since`` / ``until`` parameter descriptions for the limits. A\nwindow outside either bound is a 400.",
+                "description": "``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).\n\nReconstructs daily task counts (or story-point sums) from\n``HistoricalTask`` snapshots and returns the actual / scope / linear\nideal curves needed to render burn charts. There is no baseline overlay: the\n``baseline_series`` key had no consumer and was removed (#3246).\n\nQuery params:\n  ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``\n  ``metric``     — ``tasks`` (default) or ``points``\n  ``since``      — window start, ISO date; defaults to project start\n  ``until``      — window end, ISO date; defaults to today\n\nThe window is bounded on both axes — a maximum span, and a short horizon past\ntoday; see the ``since`` / ``until`` parameter descriptions for the limits. A\nwindow outside either bound is a 400.",
                 "parameters": [
                     {
                         "in": "query",
@@ -68620,28 +68620,9 @@
                     "truncated"
                 ]
             },
-            "ProjectBurnBaselinePoint": {
-                "type": "object",
-                "description": "One day of the baseline overlay curve (:func:`services._burn_baseline_series`, #3679).",
-                "properties": {
-                    "date": {
-                        "type": "string",
-                        "format": "date",
-                        "readOnly": true
-                    },
-                    "planned": {
-                        "type": "integer",
-                        "readOnly": true
-                    }
-                },
-                "required": [
-                    "date",
-                    "planned"
-                ]
-            },
             "ProjectBurnCombined": {
                 "type": "object",
-                "description": "Response for ``?chart_type=combined`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series_combined` (#3679). Never carries\n``baseline_series``.",
+                "description": "Response for ``?chart_type=combined`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series_combined` (#3679).",
                 "properties": {
                     "chart_type": {
                         "allOf": [
@@ -68782,7 +68763,7 @@
             },
             "ProjectBurnSeries": {
                 "type": "object",
-                "description": "Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series` (#3679). ``baseline_series`` is absent when\nthe project has no active baseline, or when the active baseline has\n``has_cpm_dates=False`` (#4257) — a pre-CPM baseline whose overlay would\notherwise never reach zero (burndown) or plateau below total (burnup).",
+                "description": "Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series` (#3679). The ``baseline_series`` overlay\nwas removed in #3246: it had no consumer.",
                 "properties": {
                     "chart_type": {
                         "allOf": [
@@ -68822,13 +68803,6 @@
                         },
                         "readOnly": true
                     },
-                    "baseline_series": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ProjectBurnBaselinePoint"
-                        },
-                        "readOnly": true
-                    },
                     "as_of": {
                         "type": "string",
                         "format": "date-time",
@@ -68846,7 +68820,6 @@
                 },
                 "required": [
                     "as_of",
-                    "baseline_series",
                     "chart_type",
                     "clamped",
                     "definitions",
@@ -68871,14 +68844,9 @@
                     "burn_series": {
                         "type": "string",
                         "description": "Per day, the remaining (burndown) or completed (burnup) task count or story points, replayed from task history."
-                    },
-                    "burn_baseline_series": {
-                        "type": "string",
-                        "description": "Per day, the same quantity as planned by the active baseline; absent when the project has no active baseline with dates."
                     }
                 },
                 "required": [
-                    "burn_baseline_series",
                     "burn_series"
                 ]
             },

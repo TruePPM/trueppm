@@ -61,7 +61,6 @@ from trueppm_api.apps.projects.services import (
     SprintAlreadyBound,
     _apply_ideal_curve,
     _assemble_milestone_rollup,
-    _baseline_planned_series,
     _capacity_label,
     _capacity_summary_from_rows,
     _collect_history_deltas,
@@ -440,27 +439,6 @@ class TestDailyBurnSeries:
         by_task = {"a": self._rows(MONDAY, TaskStatus.NOT_STARTED, None)}
         series = _daily_burn_series(by_task, [MONDAY], chart_type="burndown", metric="points")
         assert series[0]["scope"] == 0
-
-
-class TestBaselinePlannedSeries:
-    def test_burndown_draws_the_outstanding_baselined_weight_down(self) -> None:
-        weights = {"t1": 3, "t2": 5}
-        finishes = [("t1", MONDAY), ("t2", MONDAY + timedelta(days=2))]
-        days = _date_range_inclusive(MONDAY, MONDAY + timedelta(days=2))
-        out = _baseline_planned_series(weights, finishes, days, chart_type="burndown")
-        assert [p["planned"] for p in out] == [5, 5, 0]
-
-    def test_burnup_accumulates_the_same_weight(self) -> None:
-        weights = {"t1": 3, "t2": 5}
-        finishes = [("t1", MONDAY), ("t2", MONDAY + timedelta(days=2))]
-        days = _date_range_inclusive(MONDAY, MONDAY + timedelta(days=2))
-        out = _baseline_planned_series(weights, finishes, days, chart_type="burnup")
-        assert [p["planned"] for p in out] == [3, 3, 8]
-
-    def test_undated_baseline_row_never_counts_as_done(self) -> None:
-        """A baselined task with no snapshot finish stays outstanding all window."""
-        out = _baseline_planned_series({"t1": 4}, [("t1", None)], [MONDAY], chart_type="burndown")
-        assert out[0]["planned"] == 4
 
 
 class TestBurnSeriesArgumentValidation:

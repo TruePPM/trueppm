@@ -248,3 +248,6 @@ schema:NotificationRequest
 # #264: PhaseReorderView now declares PhaseReorderSerializer, so spectacular names the
 # PATCH body PatchedPhaseReorderRequest; the old inline name had a doubled suffix. Wire shape is unchanged.
 schema:PatchedPhaseReorderRequestRequest
+
+# #3246: the burn endpoint no longer computes or returns the unconsumed baseline_series overlay.
+schema:ProjectBurnBaselinePoint

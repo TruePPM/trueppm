@@ -20405,8 +20405,8 @@ class ProjectBurnView(APIView):
 
     Reconstructs daily task counts (or story-point sums) from
     ``HistoricalTask`` snapshots and returns the actual / scope / linear
-    ideal curves needed to render burn charts. Includes a planned overlay
-    derived from the project's active baseline when one exists.
+    ideal curves needed to render burn charts. There is no baseline overlay: the
+    ``baseline_series`` key had no consumer and was removed (#3246).
 
     Query params:
       ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``
@@ -20630,7 +20630,7 @@ class ProjectBurnView(APIView):
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         # Provenance (ADR-1314): this endpoint owns the burn series and the S-curve
-        # (burnup with the active-baseline overlay) — one series, not a second
+        # (the burnup curve) — one series, not a second
         # endpoint computing the same cumulative curve.
         return Response(
             {

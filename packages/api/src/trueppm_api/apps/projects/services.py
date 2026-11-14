@@ -1240,90 +1240,6 @@ def _apply_ideal_curve(
             point["ideal"] = round(final_scope * progress, 2)
 
 
-def _baseline_planned_series(
-    weight_by_task: dict[str, int],
-    finishes: Sequence[tuple[str, Any]],
-    days: Sequence[date],
-    *,
-    chart_type: str,
-) -> list[dict[str, Any]]:
-    """ "Planned remaining" curve from baselined finish dates — not an interpolation.
-
-    ``planned`` for a date is the weight of baselined tasks still outstanding
-    (burndown) or already due (burnup) as of that date.
-    """
-    total = sum(weight_by_task.get(tid, 0) for tid, _ in finishes)
-    out: list[dict[str, Any]] = []
-    for day in days:
-        done = sum(
-            weight_by_task.get(tid, 0)
-            for tid, finish in finishes
-            if finish is not None and finish <= day
-        )
-        planned = (total - done) if chart_type == "burndown" else done
-        out.append({"date": day.isoformat(), "planned": planned})
-    return out
-
-
-def _burn_baseline_series(
-    project_id: str | uuid.UUID,
-    days: Sequence[date],
-    *,
-    chart_type: str,
-    metric: str,
-) -> list[dict[str, Any]] | None:
-    """Baseline overlay for the burn chart, or ``None`` when there is nothing to draw.
-
-    ``None`` covers four cases the caller treats identically — no active baseline,
-    an active baseline with ``has_cpm_dates=False``, an empty baseline task list,
-    and (points metric) a baseline whose live tasks carry no story points at all,
-    where a flat zero line would be misread as "planned nothing".
-
-    ``has_cpm_dates=True`` only (#4257, same exclusion as ``spi_counts_by_project``
-    and friends in ``program_rollup.py``, #4242): a baseline snapshotted before the
-    CPM engine first ran has mostly-or-entirely null ``BaselineTask.finish`` rows.
-    Summing those weights into ``total`` while only subtracting the few non-null
-    ``finish <= day`` rows into ``done`` produces a planned curve that never
-    reaches zero (burndown) or plateaus below total (burnup) — a plan that reads
-    as permanently behind or permanently incomplete. The maintainer decision on
-    #4257 is to omit the overlay entirely for such a baseline, exactly as if the
-    project had no active baseline at all, rather than invent a fallback curve.
-    """
-    from trueppm_api.apps.projects.models import Baseline, BaselineTask, Task
-
-    active_baseline = Baseline.objects.filter(
-        project_id=project_id,
-        is_active=True,
-        is_deleted=False,
-        has_cpm_dates=True,
-    ).first()
-    if active_baseline is None:
-        return None
-
-    if metric == "points":
-        # Join the baseline task list with live tasks to obtain story_points.
-        bt_rows = list(active_baseline.tasks.values("task_id", "finish"))
-        weight_by_task: dict[str, int] = {
-            str(tid): sp or 0
-            for tid, sp in Task.objects.filter(
-                id__in=[r["task_id"] for r in bt_rows], is_deleted=False
-            ).values_list("id", "story_points")
-        }
-        finishes = [(str(r["task_id"]), r["finish"]) for r in bt_rows]
-        if sum(weight_by_task.get(tid, 0) for tid, _ in finishes) <= 0:
-            return None
-    else:
-        rows = list(
-            BaselineTask.objects.filter(baseline=active_baseline).values("task_id", "finish")
-        )
-        if not rows:
-            return None
-        finishes = [(str(r["task_id"]), r["finish"]) for r in rows]
-        weight_by_task = {tid: 1 for tid, _ in finishes}
-
-    return _baseline_planned_series(weight_by_task, finishes, days, chart_type=chart_type)
-
-
 def _windowed_history_by_task(
     project_id: str | uuid.UUID,
     window_start: datetime,
@@ -1510,13 +1426,12 @@ def burn_series(
               "since": "...",
               "until": "...",
               "series": [{"date", "actual", "ideal", "scope"}, ...],
-              "baseline_series": [{"date", "planned"}, ...] | absent,
             }
 
-    The ``baseline_series`` key is only present when the project has an
-    active baseline; ``planned`` for each date is the count (or point sum)
-    of baselined tasks whose snapshot finish date is greater than that
-    date — a proper "planned remaining" curve, not a linear interpolation.
+    There is deliberately no baseline overlay: a ``baseline_series`` key was computed
+    here until #3246 and no client ever read it, so every burn request paid for a
+    baseline lookup and a per-day replay nobody parsed. A planned curve, if the UI
+    ever draws one, should be a new, consumed field rather than this resurrected.
     """
     if chart_type not in ("burndown", "burnup"):
         raise ValueError(f"Invalid chart_type: {chart_type}")
@@ -1545,11 +1460,6 @@ def burn_series(
         "until": until.isoformat(),
         "series": series,
     }
-
-    # Baseline overlay — the key is present only when there is a curve to draw.
-    baseline_series = _burn_baseline_series(project_id, days, chart_type=chart_type, metric=metric)
-    if baseline_series is not None:
-        payload["baseline_series"] = baseline_series
 
     return payload
 
