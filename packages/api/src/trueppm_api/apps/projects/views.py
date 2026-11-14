@@ -18522,6 +18522,12 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     # and is recorded in ADR-0184.
     permission_classes = [IsAuthenticated]
 
+    # Class-level ``queryset`` exists only so the route-table archived invariant can
+    # see, through ``SprintScopeChange.task -> Project``, that these flat routes touch a
+    # project (#4650). ``get_queryset`` below always overrides it; never read this
+    # attribute for data, it is deliberately unscoped.
+    queryset = SprintScopeChange.objects.none()
+
     def get_queryset(self) -> QuerySet[Any]:
         from typing import cast
 
@@ -18553,6 +18559,12 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         )
 
         scope_change = get_object_or_404(self.get_queryset(), pk=pk)
+        # Archived is lifecycle state, not authority (#530, #4650): refuse before the
+        # role gate so the answer matches every other archived write. These flat routes
+        # carry no project in the URL, so no permission class can do it for them; the
+        # sibling bulk routes under ``sprints/{id}/scope-changes/`` get it from
+        # ``IsProjectNotArchived``.
+        assert_project_not_archived(scope_change.task.project_id)
         service = accept_scope_change if accept else reject_scope_change
         try:
             result = service(scope_change, request.user)
