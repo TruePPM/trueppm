@@ -24,6 +24,7 @@ import {
 } from '@/features/project/projectHealth';
 import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { forecastPresentation } from '@/features/schedule/useForecastPresentation';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { formatRelative } from '@/lib/formatRelative';
 import { BurnChart } from '@/features/reports/BurnChart';
@@ -870,6 +871,7 @@ interface MonteCarloWidgetProps {
 
 function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
   const { data: mc, isLoading } = useMonteCarloResult(projectId);
+  const forecast = forecastPresentation(mc);
   const runMutation = useRunMonteCarlo(projectId);
 
   // Persistent rerun affordance — outline secondary, never the primary CTA
@@ -901,32 +903,51 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
           <div className="flex items-end gap-4 flex-wrap">
             <MonteCarloHistogram result={mc} />
             <div className="flex flex-col gap-1">
-              <p className="text-xs text-neutral-text-secondary">
-                8 in 10 simulations finish by{' '}
-                <span className="tppm-mono font-medium text-neutral-text-primary">
-                  {formatIsoDate(mc.p80)}
-                </span>
-              </p>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span
-                  className="bg-transparent border border-semantic-on-track/40 rounded-chip
+              {forecast.state === 'zeroSpread' ? (
+                // A flat run has no percentiles to label; the histogram beside
+                // this carries the reason sentence (#3890).
+                <div className="flex items-center gap-2 flex-wrap">
+                  {forecast.chips.map((chip) => (
+                    <span
+                      key={chip.key}
+                      data-testid="overview-mc-forecast-chip"
+                      className={`bg-transparent border ${chip.border} ${chip.textClass} rounded-chip
+                        px-2 py-0.5 text-xs tppm-mono`}
+                    >
+                      {chip.text}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-neutral-text-secondary">
+                    8 in 10 simulations finish by{' '}
+                    <span className="tppm-mono font-medium text-neutral-text-primary">
+                      {formatIsoDate(mc.p80)}
+                    </span>
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="bg-transparent border border-semantic-on-track/40 rounded-chip
                     px-2 py-0.5 text-xs tppm-mono text-semantic-on-track"
-                >
-                  P50 {formatIsoDate(mc.p50)}
-                </span>
-                <span
-                  className="bg-transparent border border-semantic-at-risk/40 rounded-chip
+                    >
+                      P50 {formatIsoDate(mc.p50)}
+                    </span>
+                    <span
+                      className="bg-transparent border border-semantic-at-risk/40 rounded-chip
                     px-2 py-0.5 text-xs tppm-mono text-semantic-at-risk"
-                >
-                  P80 {formatIsoDate(mc.p80)}
-                </span>
-                <span
-                  className="bg-transparent border border-semantic-critical/40 rounded-chip
+                    >
+                      P80 {formatIsoDate(mc.p80)}
+                    </span>
+                    <span
+                      className="bg-transparent border border-semantic-critical/40 rounded-chip
                     px-2 py-0.5 text-xs tppm-mono text-semantic-critical"
-                >
-                  P95 {formatIsoDate(mc.p95)}
-                </span>
-              </div>
+                    >
+                      P95 {formatIsoDate(mc.p95)}
+                    </span>
+                  </div>
+                </>
+              )}
               {mc.lastRunAt && (
                 <p className="text-xs text-neutral-text-disabled mt-1">
                   Last run:{' '}

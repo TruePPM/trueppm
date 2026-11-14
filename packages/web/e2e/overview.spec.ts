@@ -533,6 +533,32 @@ test.describe('Project overview page', () => {
     await expect(dialog).toBeVisible();
   });
 
+  test('a run with no date spread shows one Forecast chip, not three identical dates (#3890)', async ({
+    page,
+  }) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/latest/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          project_id: PROJECT_ID,
+          runs: 1000,
+          p50: '2026-12-10',
+          p80: '2026-12-10',
+          p95: '2026-12-10',
+          histogram_buckets: [{ date: '2026-12-10', count: 1000 }],
+        }),
+      }),
+    );
+    await page.reload();
+
+    const chip = page.getByTestId('overview-mc-forecast-chip');
+    await expect(chip).toHaveText('Forecast: Dec 10');
+    // The percentile keys are suppressed, not repeated: P80 on one date claims a spread.
+    await expect(page.getByText(/^P(50|80|95) Dec 10$/)).toHaveCount(0);
+    await expect(page.getByText(/8 in 10 simulations finish by/i)).toHaveCount(0);
+  });
+
   test('MC section shows Run forecast CTA when no simulation result', async ({ page }) => {
     await expect(page.getByRole('region', { name: /monte carlo forecast/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /run forecast/i })).toBeVisible();

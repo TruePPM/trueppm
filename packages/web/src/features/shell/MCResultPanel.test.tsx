@@ -26,6 +26,23 @@ describe('MCResultPanel', () => {
     expect(screen.getByText('Monte Carlo confidence')).toBeInTheDocument();
   });
 
+  it('collapses a no-spread run to one Forecast chip instead of three identical dates (#3890)', () => {
+    render(
+      <MCResultPanel
+        result={{ ...FIXTURE_MC_RESULT, p50: '2026-12-10', p80: '2026-12-10', p95: '2026-12-10' }}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByTestId('mc-forecast-chip')).toHaveTextContent(/^Forecast: Dec 10/);
+    expect(screen.queryByLabelText(/^P(50|80|95): /)).toBeNull();
+  });
+
+  it('keeps the three percentile chips when there is a spread (#3890)', () => {
+    render(<MCResultPanel result={FIXTURE_MC_RESULT} onClose={() => {}} />);
+    expect(screen.queryByTestId('mc-forecast-chip')).toBeNull();
+    expect(screen.getAllByLabelText(/^P80: /).length).toBeGreaterThan(0);
+  });
+
   it('shows simulation run count', () => {
     render(<MCResultPanel result={FIXTURE_MC_RESULT} onClose={() => {}} />);
     expect(screen.getByText(/1,000 simulated runs/i)).toBeInTheDocument();

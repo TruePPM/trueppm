@@ -957,6 +957,32 @@ describe('Attention severity dot branches', () => {
   });
 });
 
+describe('Overview Monte Carlo chips with no date spread (#3890)', () => {
+  it('renders one Forecast chip and no percentile chips', async () => {
+    const mc = {
+      p50: '2026-06-01',
+      p80: '2026-06-01',
+      p95: '2026-06-01',
+      runs: 500,
+      distribution: [],
+      histogram_buckets: [{ date: '2026-06-01', count: 500 }],
+    };
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.resolve({ data: mc });
+      return Promise.reject(new Error(url));
+    });
+    renderPage();
+    const chip = await screen.findByTestId('overview-mc-forecast-chip');
+    expect(chip).toHaveTextContent(/^Forecast: Jun 1/);
+    expect(screen.queryByText(/^P(50|80|95) Jun 1, 2026$/)).toBeNull();
+    expect(screen.queryByText(/8 in 10 simulations finish by/i)).toBeNull();
+  });
+});
+
 describe('MC histogram (shared MonteCarloHistogram, #1774)', () => {
   it('renders neutral distribution bars with semantic percentile rule lines (rule 19)', async () => {
     const mc = {
