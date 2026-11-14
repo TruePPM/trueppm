@@ -380,7 +380,7 @@ for num in $CITED; do
       fi
       echo "check-adr-status: FAIL  ADR-${num} is cited by shipped source but Status is '${status}'"
       echo "                        ${file}"
-      echo "                        cited in: $(grep -rl "ADR-${num}" packages/*/src 2>/dev/null | sed -n 1,3p | tr '\n' ' ')"
+      echo "                        cited in: $(grep -rlI "ADR-${num}" packages/*/src 2>/dev/null | sed -n 1,3p | tr '\n' ' ')"
       violations=$((violations + 1))
       ;;
   esac
