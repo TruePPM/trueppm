@@ -1504,7 +1504,7 @@ AUTH_ONLY_BODY_CHECK_ENTRIES: dict[str, str] = {
     "api/v1/tasks/<uuid:task_pk>/time-entries/::post": "timetracking TaskTimeEntryView: task",
     "api/v1/me/time-entries/<uuid:pk>/::patch": "timetracking MeTimeEntryDetailView: entry.task",
     "api/v1/me/time-entries/<uuid:pk>/::delete": "timetracking MeTimeEntryDetailView: entry.task",
-    "api/v1/me/timer/start::post": "timetracking MeTimerStartView: task",
+    "api/v1/^me/timer/start/?$::post": "timetracking MeTimerStartView: task",
 }
 
 
@@ -2036,4 +2036,48 @@ def test_residual_object_hop_call_count_is_fully_parsed() -> None:
     assert starved == [], (
         "check_object_permissions is called with no non-request argument at all on: "
         f"{sorted(set(starved))} — that call can never resolve a project id."
+    )
+
+
+def test_every_token_refusing_write_is_withheld_from_the_schema_security() -> None:
+    """A guard added in ``get_permissions()`` must also reach the OpenAPI auth list (#4665).
+
+    ``TruePPMAutoSchema._token_callers_refused`` has no request to resolve permissions
+    against, so it reads declarations (``permission_classes``, ``token_refused_actions``,
+    ``token_refused_methods``). The runtime tripwire above reads ``get_permissions()``;
+    this one joins the two: any unsafe ``(route, method, action)`` whose runtime chain
+    carries ``IsNotTokenAuthenticated`` must be seen as refusing by the schema hook, or
+    the contract advertises a credential the server turns away (the webhook and
+    share-link writes did exactly that until #4665).
+    """
+    from trueppm_api.core.openapi import TruePPMAutoSchema
+
+    checked = 0
+    missing: list[str] = []
+    for path, entry in _walk():
+        if _FORMAT_SUFFIX.search(path):
+            continue
+        cls = _view_class(entry)
+        if cls is None:
+            continue
+        for method, action in _unsafe_pairs(entry, cls):
+            try:
+                names = _effective_permission_names(cls, action, method)
+            except Exception:
+                continue
+            if "IsNotTokenAuthenticated" not in names:
+                continue
+            checked += 1
+            view = cls()
+            view.action = action
+            schema = TruePPMAutoSchema()
+            schema.view = view
+            schema.method = method
+            if not schema._token_callers_refused():
+                missing.append(f"{method} {path} (action={action}) view={cls.__name__}")
+    assert checked > 10, "the walk found almost no token-refusing writes; the check is vacuous"
+    assert not missing, (
+        "These operations refuse API tokens at runtime but the schema still advertises "
+        "token auth for them. Declare `token_refused_actions` / `token_refused_methods` "
+        "on the view and read it in get_permissions():\n    " + "\n    ".join(missing)
     )

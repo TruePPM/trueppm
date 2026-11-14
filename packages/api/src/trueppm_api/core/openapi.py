@@ -409,6 +409,8 @@ def postprocess_openapi(
 
     _register_validation_error_detail(result)
     _register_demo_read_only_error(result)
+    _register_idempotency_conflict(result)
+    _type_uuid_path_params(result)
     _rewrite_time_format(result)
     # Order matters: the role ordinal stops being an enum before the openness pass
     # runs, so it is never marked as one.
@@ -1104,6 +1106,96 @@ _THROTTLE_RESPONSE = {
 }
 
 
+#: Component name for the key-reuse conflict response (#4665).
+IDEMPOTENCY_CONFLICT = "IdempotencyKeyConflict"
+
+_IDEMPOTENCY_KEY_PARAMETER: dict[str, Any] = {
+    "in": "header",
+    "name": "Idempotency-Key",
+    "required": False,
+    "schema": {"type": "string", "maxLength": 255},
+    "description": (
+        "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of "
+        "this request safe: a retry with the same key and a byte-identical request "
+        "replays the stored response instead of repeating the write. Scoped per "
+        "authenticated user. Reusing a key for a different request is refused with "
+        "``422``. See the Idempotency guide."
+    ),
+}
+
+_IDEMPOTENT_REPLAY_HEADER: dict[str, Any] = {
+    "description": (
+        "``true`` when this response is a replay of the stored response for the "
+        "request's ``Idempotency-Key``; absent on a first execution."
+    ),
+    "schema": {"type": "string", "example": "true"},
+}
+
+_IDEMPOTENCY_CONFLICT_RESPONSE: dict[str, Any] = {
+    "description": (
+        "The ``Idempotency-Key`` was already used for a different request (method, "
+        "path, query string or body differ). Send a new key for a new operation."
+    ),
+    "content": {
+        _JSON_MEDIA_TYPE: {
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string",
+                        "example": "Idempotency-Key was reused with a different request.",
+                    },
+                    "code": {"type": "string", "example": "idempotency_key_conflict"},
+                },
+            }
+        }
+    },
+}
+
+
+def _is_pk_param_name(name: str) -> bool:
+    return name == "id" or name.endswith("_pk")
+
+
+def _type_uuid_path_params(result: dict[str, Any]) -> None:
+    """Declare ``format: uuid`` on path parameters drf-spectacular left as bare strings (#4093).
+
+    Every model PK is a UUID, but spectacular only learns that from a model field or a
+    ``<uuid:...>`` converter. Nested-router kwargs (``project_pk``) and ``APIView``
+    routes carry neither, so ~130 parameters published as free-form strings, which a
+    generated client types as ``string`` and a fuzzer feeds arbitrary text. A parameter
+    that is a bare string and named ``id``/``*_pk`` is, by the all-UUID-PK convention,
+    a UUID; integer-keyed routes already publish ``type: integer`` and are untouched,
+    and any string param that declares its own format, pattern or enum is left alone.
+    ``tests/test_openapi_path_param_hygiene.py`` fails if a new bare one appears.
+    """
+    for path_item in result.get("paths", {}).values():
+        groups = [path_item.get("parameters", [])]
+        groups.extend(
+            op.get("parameters", [])
+            for method, op in path_item.items()
+            if method in _HTTP_METHODS and isinstance(op, dict)
+        )
+        for params in groups:
+            for param in params:
+                if param.get("in") != "path" or not _is_pk_param_name(param.get("name", "")):
+                    continue
+                schema = param.get("schema")
+                if (
+                    isinstance(schema, dict)
+                    and schema.get("type") == "string"
+                    and not ({"format", "pattern", "enum"} & schema.keys())
+                ):
+                    schema["format"] = "uuid"
+
+
+def _register_idempotency_conflict(result: dict[str, Any]) -> None:
+    """Register the shared 422 response once instead of inlining it ~340 times."""
+    result.setdefault("components", {}).setdefault("responses", {})[IDEMPOTENCY_CONFLICT] = dict(
+        _IDEMPOTENCY_CONFLICT_RESPONSE
+    )
+
+
 class TruePPMAutoSchema(AutoSchema):
     """AutoSchema that documents a ``429`` response on rate-limited operations, and
     keeps the ``projectApiTokenAuth`` security scheme honest on MCP-readable views.
@@ -1192,12 +1284,15 @@ class TruePPMAutoSchema(AutoSchema):
         refusal.
 
         Schema generation has no request to resolve ``get_permissions()`` against, so
-        the refusal is read from three declarations instead, each the single source the
+        the refusal is read from four declarations instead, each the single source the
         runtime guard also reads: a static ``permission_classes`` entry; the
         ``SessionOnlyWritesMixin`` (refuses every unsafe method, so this operation's
-        method decides); and a viewset's ``token_refused_actions`` set, which its
-        ``get_permissions`` consults for the same ``action`` (#3847). A refusal built
-        any other way is invisible here and can drift from the schema; the route-table
+        method decides); a viewset's ``token_refused_actions`` set, which its
+        ``get_permissions`` consults for the same ``action`` (#3847); and an
+        ``APIView``'s ``token_refused_methods`` set. A guard added in
+        ``get_permissions()`` WITHOUT one of these is invisible here (the original
+        "every view declares it statically" premise was false for the webhook and
+        share-link writes, #4665) and can drift from the schema; the route-table
         tripwire in ``tests/apps/access/test_route_table_invariants.py`` checks runtime
         reachability, not the schema, so only the structural check tracked in #4929 will
         close that gap.
@@ -1211,6 +1306,8 @@ class TruePPMAutoSchema(AutoSchema):
         if any(cls is IsNotTokenAuthenticated for cls in classes):
             return True
         if isinstance(self.view, SessionOnlyWritesMixin) and self.method not in SAFE_METHODS:
+            return True
+        if self.method in getattr(self.view, "token_refused_methods", ()):
             return True
         action = getattr(self.view, "action", None)
         return action is not None and action in getattr(self.view, "token_refused_actions", ())
@@ -1259,6 +1356,7 @@ class TruePPMAutoSchema(AutoSchema):
         if method not in SAFE_METHODS and "requestBody" in operation:
             responses = operation.setdefault("responses", {})
             responses.setdefault("400", dict(_VALIDATION_RESPONSE))
+        self._declare_idempotency(operation, method)
         if self._token_callers_refused():
             # Declared here rather than by decorating each view for the same reason as
             # the 429 above: the fact lives in a view attribute the schema dict cannot
@@ -1267,6 +1365,35 @@ class TruePPMAutoSchema(AutoSchema):
             responses = operation.setdefault("responses", {})
             responses.setdefault("403", dict(_TOKEN_REFUSED_RESPONSE))
         return operation
+
+    def _declare_idempotency(self, operation: dict[str, Any], method: str) -> None:
+        """Publish the ``Idempotency-Key`` contract on idempotent mutating operations (#4665).
+
+        The behavior lives in ``IdempotencyMixin`` (a dispatch-layer hook), so the
+        schema learns of it the same way it learns of throttles: from the view in hand.
+        Declared only where the mixin is present, not opted out via
+        ``idempotency_exempt`` (one-time-secret mints, own-dedupe uploads), and the
+        method is one the mixin acts on — advertising the header on an exempt view
+        would promise retry safety the server does not give.
+        """
+        from trueppm_api.apps.idempotency.mixins import UNSAFE_METHODS, IdempotencyMixin
+
+        if (
+            not isinstance(self.view, IdempotencyMixin)
+            or self.view.idempotency_exempt
+            or method.upper() not in UNSAFE_METHODS
+        ):
+            return
+        params = operation.setdefault("parameters", [])
+        if not any(p.get("name") == "Idempotency-Key" and p.get("in") == "header" for p in params):
+            params.append(dict(_IDEMPOTENCY_KEY_PARAMETER))
+        responses = operation.setdefault("responses", {})
+        for status, response in responses.items():
+            if str(status).startswith("2") and isinstance(response, dict):
+                response.setdefault("headers", {})["Idempotent-Replay"] = dict(
+                    _IDEMPOTENT_REPLAY_HEADER
+                )
+        responses.setdefault("422", {"$ref": f"#/components/responses/{IDEMPOTENCY_CONFLICT}"})
 
     def _get_paginator(self) -> Any:
         """Return ``None`` for actions marked with :func:`suppress_list_pagination`.

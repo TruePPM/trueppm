@@ -183,6 +183,11 @@ class WebhookViewSet(
     # "returned exactly once" guarantee.
     idempotency_exempt = True
 
+    # Single source for both the runtime guard below and the schema: the OpenAPI
+    # hook reads this set to strip the token security schemes from these actions
+    # (``get_permissions`` is invisible to schema generation, #4665).
+    token_refused_actions = frozenset({"create", "update", "partial_update"})
+
     def get_permissions(self) -> list[BasePermission]:
         # `deliveries` exposes the full event payload (task notes, comment
         # snippets, assignee emails) of every event ever sent (#903). That is
@@ -192,7 +197,7 @@ class WebhookViewSet(
         if self.action == "deliveries":
             # A read. Archived projects stay readable, so no lifecycle gate here.
             return [IsAuthenticated(), IsProjectAdmin()]
-        if self.action in ("create", "update", "partial_update"):
+        if self.action in self.token_refused_actions:
             # IsNotTokenAuthenticated (#4461): create mints a durable HMAC signing
             # secret, and update can repoint the delivery URL or rotate that secret
             # — both are the same "a leaked PAT should not be able to extend itself
@@ -496,7 +501,7 @@ class ProgramWebhookViewSet(WebhookViewSet):
         # outbound flow without reopening the program — the same containment argument
         # as program token revocation. `test_ping` and `deliveries` touch no program
         # state and stay available for diagnosing a still-live webhook.
-        if self.action in ("create", "update", "partial_update"):
+        if self.action in self.token_refused_actions:
             # IsNotTokenAuthenticated (#4461): see WebhookViewSet.get_permissions —
             # same durable-grant shape, mint/repoint/rotate only through a session
             # or JWT.

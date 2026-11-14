@@ -1094,6 +1094,10 @@ class ResourceViewSet(
     #:   (``?include_deleted=true`` is on the same floor) nor deactivate.
     #: * ``rate`` — reads and re-costs a salary proxy across every project the
     #:   person worked on (ADR-1324 §5). Exfiltration and a history rewrite.
+    # Read by the OpenAPI hook as well as get_permissions (schema generation cannot
+    # resolve per-action permissions, #4665).
+    token_refused_actions: frozenset[str] = frozenset({"rate"})
+
     _WORKSPACE_ADMIN_ACTIONS: frozenset[str] = frozenset(
         {"assignments", "destroy", "restore", "rate"}
     )
@@ -1120,7 +1124,7 @@ class ResourceViewSet(
         # IsAuthenticated gate: it carries task/project names across project
         # boundaries, so an open gate is a cross-project IDOR. It sits in the
         # workspace-admin set rather than being special-cased here.
-        if getattr(self, "action", None) == "rate":
+        if getattr(self, "action", None) in self.token_refused_actions:
             # ai-review check 3 (ADR-1324): a rate change silently re-costs history,
             # so it is a human-session act — an API/agent token may not make it.
             return [IsAuthenticated(), IsNotTokenAuthenticated(), IsWorkspaceAdminStrict()]
