@@ -42,6 +42,10 @@ const WORKSPACE = {
   mc_history_retention_cap: 100,
   mc_history_attribution_audience: 'admin_owner',
   mc_history_override_policy: 'suggest',
+  // Near-critical threshold (working days) — the real /workspace/ payload always
+  // carries it; without it the page seeds "undefined", which fails validation and
+  // makes Save a no-op.
+  near_critical_threshold_days: 10,
 };
 
 // The wire spelling of MCAttributionAudience (#2841) — Django TextChoices values,

@@ -24,6 +24,14 @@ export interface InheritableNumberFieldProps {
   overrideHint?: string;
   /** Noun for the read-only "set on this {scopeNoun}" line. */
   scopeNoun?: string;
+  /** Unit suffix printed after every number (e.g. "wd"), so a value never reads bare. */
+  unit?: string;
+  /**
+   * `'default'` words the inherit state as a named default: the chip reads
+   * "Use {inheritFromLabel} (N)" and the line "Inherited from {inheritFromLabel}: N."
+   * The default `'inherit'` keeps "Inherit (N)" / "Using {inheritFromLabel}: N."
+   */
+  inheritPhrasing?: 'inherit' | 'default';
 }
 
 const chipClass = (selected: boolean) =>
@@ -64,7 +72,10 @@ export function InheritableNumberField({
   canEdit,
   overrideHint,
   scopeNoun = 'scope',
+  unit,
+  inheritPhrasing = 'inherit',
 }: InheritableNumberFieldProps) {
+  const u = unit ? ` ${unit}` : '';
   const radioName = useId();
   const inheriting = value === null;
   const effective = value ?? inherited;
@@ -76,10 +87,11 @@ export function InheritableNumberField({
     return (
       <div
         className="flex items-center gap-2 text-[13px]"
-        aria-label={`${ariaLabel}: ${effective}, ${provenance}. View only.`}
+        aria-label={`${ariaLabel}: ${effective}${u}, ${provenance}. View only.`}
       >
         <span className="font-medium text-neutral-text-primary" aria-hidden="true">
           {effective}
+          {u}
         </span>
         <span className="text-neutral-text-secondary" aria-hidden="true">
           · {provenance}
@@ -99,8 +111,12 @@ export function InheritableNumberField({
             checked={inheriting}
             onChange={() => onChange(null)}
           />
-          Inherit
-          <span className="font-normal opacity-80"> ({inherited})</span>
+          {inheritPhrasing === 'default' ? `Use ${inheritFromLabel}` : 'Inherit'}
+          <span className="font-normal opacity-80">
+            {' '}
+            ({inherited}
+            {u})
+          </span>
         </label>
         <label className={chipClass(!inheriting)}>
           <input
@@ -118,8 +134,12 @@ export function InheritableNumberField({
 
       {inheriting ? (
         <p className="text-[12px] text-neutral-text-secondary">
-          Using {inheritFromLabel}:{' '}
-          <span className="font-medium text-neutral-text-primary">{inherited}</span>.
+          {inheritPhrasing === 'default' ? 'Inherited from' : 'Using'} {inheritFromLabel}:{' '}
+          <span className="font-medium text-neutral-text-primary">
+            {inherited}
+            {u}
+          </span>
+          .
         </p>
       ) : (
         <div className="flex flex-col gap-1">

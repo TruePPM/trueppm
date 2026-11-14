@@ -191,6 +191,26 @@ describe('ProjectGeneralPage', () => {
     expect(within(group).getByText(/Keep entered %/)).toBeInTheDocument();
   });
 
+  it('renders the near-critical threshold row inheriting; Override reveals a 1–260 wd input (#4892)', () => {
+    renderPage();
+    const group = screen.getByRole('radiogroup', {
+      name: 'Near-critical threshold in working days',
+    });
+    expect(within(group).getByText(/Use the program or workspace default/)).toHaveTextContent(
+      'Use the program or workspace default (10 wd)',
+    );
+    expect(screen.getByText(/Inherited from the program or workspace default:/)).toHaveTextContent(
+      'Inherited from the program or workspace default: 10 wd.',
+    );
+    fireEvent.click(within(group).getByLabelText(/Override/));
+    const input = screen.getByRole('spinbutton', {
+      name: 'Near-critical threshold in working days',
+    });
+    expect(input).toHaveAttribute('min', '1');
+    expect(input).toHaveAttribute('max', '260');
+    expect(screen.getByText('1–260 working days.')).toBeInTheDocument();
+  });
+
   it('re-seeds the form when the project in the route changes (no remount)', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     // A fresh element each call so React actually re-renders (an identical
@@ -277,7 +297,12 @@ describe('ProjectGeneralPage', () => {
         ...SEED_PROJECT,
         calendar: null,
         calendar_source: 'workspace',
-        effective_calendar: { id: 'cal-ws', name: 'Workspace default', working_days: 31, hours_per_day: 8 },
+        effective_calendar: {
+          id: 'cal-ws',
+          name: 'Workspace default',
+          working_days: 31,
+          hours_per_day: 8,
+        },
       },
     });
     renderPage();
@@ -388,7 +413,9 @@ describe('ProjectGeneralPage', () => {
 
     // Edit each field.
     fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-02-01' } });
-    fireEvent.change(screen.getByLabelText('Fixed status date'), { target: { value: '2026-03-15' } });
+    fireEvent.change(screen.getByLabelText('Fixed status date'), {
+      target: { value: '2026-03-15' },
+    });
     fireEvent.change(screen.getByRole('combobox', { name: 'Backlog scoring model' }), {
       target: { value: 'rice' },
     });
@@ -420,7 +447,9 @@ describe('ProjectGeneralPage', () => {
     expect(screen.getByLabelText('Stale-task nudge after')).toHaveValue(365);
 
     // Arm a fixed status date, then clear it back to Today (dynamic).
-    fireEvent.change(screen.getByLabelText('Fixed status date'), { target: { value: '2026-03-15' } });
+    fireEvent.change(screen.getByLabelText('Fixed status date'), {
+      target: { value: '2026-03-15' },
+    });
     expect(screen.getByRole('button', { name: 'Today (dynamic)' })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -619,7 +648,11 @@ describe('ProjectGeneralPage', () => {
 
     it('names the current program with a Move affordance when assigned', () => {
       useProject.mockReturnValue({
-        data: { ...SEED_PROJECT, program: 'prog-z', program_detail: { id: 'prog-z', name: 'Zephyr' } },
+        data: {
+          ...SEED_PROJECT,
+          program: 'prog-z',
+          program_detail: { id: 'prog-z', name: 'Zephyr' },
+        },
       });
       renderPage();
       expect(screen.getByText('Zephyr')).toBeInTheDocument();
@@ -653,7 +686,11 @@ describe('ProjectGeneralPage', () => {
         isAxiosError: true,
         response: {
           status: 400,
-          data: { program: ['You need at least Program Manager role on ‘Apollo’ to add this project to it.'] },
+          data: {
+            program: [
+              'You need at least Program Manager role on ‘Apollo’ to add this project to it.',
+            ],
+          },
         },
       });
       mutateAsync.mockRejectedValueOnce(err);
@@ -664,7 +701,9 @@ describe('ProjectGeneralPage', () => {
       fireEvent.click(within(dialog).getByRole('radio', { name: /Apollo/ }));
       fireEvent.click(within(dialog).getByRole('button', { name: 'Move project' }));
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(/Program Manager role on ‘Apollo’/);
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        /Program Manager role on ‘Apollo’/,
+      );
       // Dialog stays open so the user can correct or cancel.
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
@@ -775,9 +814,7 @@ describe('ProjectGeneralPage', () => {
 
     // start_date is required — an accidentally-cleared native date input must not
     // 400 the whole batch; it normalizes back to the last saved anchor.
-    expect(mutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ start_date: '2026-01-01' }),
-    );
+    expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-01-01' }));
     expect(screen.getByLabelText('Start date')).toHaveValue('2026-01-01');
   });
 
@@ -853,9 +890,7 @@ describe('ProjectGeneralPage', () => {
       await useSettingsSaveStore.getState().triggerSave();
     });
 
-    expect(mutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ iteration_label: 'Cycle' }),
-    );
+    expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ iteration_label: 'Cycle' }));
   });
 
   it('normalizes a blank custom iteration label back to inherit (null)', async () => {
