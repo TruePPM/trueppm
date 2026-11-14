@@ -1466,18 +1466,27 @@ FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR = RefProject(
 )
 
 
-def _has_a_floor(project: RefProject, m: str) -> bool:
-    """Whether a floor other than the project start can hold milestone ``m``.
+def _floor_ties(project: RefProject, m: str, held_day: date) -> bool:
+    """Whether a floor other than the project start sits on milestone ``m``'s held day.
 
     The floors the engine's ``_equivalent_link`` (#4690) lets a link tie: an SNET
-    (``planned_start``), a recorded ``actual_start`` on live work, and the data date.
+    (``planned_start``), a recorded ``actual_start`` on live work, and the data date,
+    each read as the first working day on or after it on ``m``'s calendar.
+
+    The floor must be *on* ``held_day``, not merely exist. #4883 is a slipped link
+    tying the floor that holds the milestone; a floor on another day cannot be the
+    one tied, and with a data date set every milestone has *some* floor, so mere
+    existence would excuse any earlier move through any start-of-day milestone,
+    whatever caused it.
     """
+    cal = project.calendar_of(m)
     progress = project.progress.get(m)
-    return (
-        m in project.planned_start
-        or (progress is not None and progress.actual_start is not None)
-        or project.status_date is not None
+    floors = (
+        project.planned_start.get(m),
+        progress.actual_start if progress is not None else None,
+        project.status_date,
     )
+    return any(f is not None and first_working_on_or_after(f, cal) == held_day for f in floors)
 
 
 def _behind_a_floor_held_milestone(
@@ -1492,7 +1501,7 @@ def _behind_a_floor_held_milestone(
     """TODO(#4883): the known tie shape, excluded by name until fixed.
 
     ``s`` moved earlier after ``tid`` slipped to ``day``. The move is excused only
-    if it flows through a milestone that a floor held (:func:`_has_a_floor`) on the
+    if it flows through a milestone that a floor held (:func:`_floor_ties`) on the
     same shown position in both runs, at the start of its day: cut every link
     leaving such a held milestone and replay the same slip; if ``s`` no longer moves
     earlier, the milestone was handing it the link's earlier midnight once the
@@ -1513,10 +1522,10 @@ def _behind_a_floor_held_milestone(
         for m, n in project.durations.items()
         if n == 0
         and m != s
-        and _has_a_floor(project, m)
         and not after.tasks[m].milestone_at_day_end
         and _held_at(base.tasks[m], True, project.calendar_of(m))
         == _held_at(after.tasks[m], True, project.calendar_of(m))
+        and _floor_ties(project, m, _held_at(base.tasks[m], True, project.calendar_of(m))[0])
     }
     if not held:
         return False
@@ -1730,6 +1739,17 @@ def test_the_4883_exclusion_reports_a_move_that_survives_cutting_the_milestone()
         return replace(run, tasks=tasks)
 
     assert work_moved_earlier_by_a_slip(p, wrong_run) != []
+
+
+def test_a_failing_slip_property_prints_the_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the #4883 excuse defeated, the live property fails on a pinned shape with
+    an ``AssertionError`` that leads with the ``RefProject`` — not an ``AttributeError``
+    raised while formatting the message, which hid the counterexample (#4981)."""
+    monkeypatch.setitem(globals(), "_behind_a_floor_held_milestone", lambda *_args: False)
+    body = test_slipping_a_predecessor_never_moves_work_earlier.hypothesis.inner_test
+    with pytest.raises(AssertionError) as failure:
+        body(FS_NEGATIVE_LAG_SLIP_INTO_A_TIED_DATA_DATE)
+    assert str(failure.value).startswith("RefProject(")
 
 
 @pytest.mark.fuzz
