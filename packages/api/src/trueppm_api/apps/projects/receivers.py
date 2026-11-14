@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -48,6 +49,8 @@ def _on_task_status_changed(
         return
     try:
         upsert_burndown_for_sprint(sprint)
+    except SoftTimeLimitExceeded:
+        raise
     except Exception:
         logger.exception(
             "task_status_changed: burndown upsert failed for sprint=%s task=%s",
@@ -90,6 +93,8 @@ def _register_task_soft_delete_receiver() -> None:
 
         try:
             reset_promoted_task_on_delete(str(instance.pk))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.exception(
                 "task soft-delete: failed to reset promoted_task_id for task=%s",
@@ -188,6 +193,8 @@ def _register_milestone_rollup_receiver() -> None:
 
         try:
             recompute_milestone_rollup(milestone_id)
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.exception(
                 "milestone rollup: recompute failed for task=%s milestone=%s",
@@ -227,6 +234,8 @@ def _register_backlog_pull_rollback_receiver() -> None:
 
         try:
             reset_pulled_item_on_task_delete(str(instance.pk))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.exception(
                 "backlog rollback: failed to reset BacklogItem for deleted task=%s",
