@@ -377,7 +377,7 @@ def mismatches(engine: dict[str, EngineTask], ref: RefResult, project: RefProjec
 def assert_matches_reference(engine: dict[str, EngineTask], project: RefProject) -> None:
     ref = reference_schedule(project)
     problems = mismatches(engine, ref, project)
-    assert not problems, "\n".join([repr(project.to_dict()), *problems])
+    assert not problems, "\n".join([repr(project), *problems])
 
 
 # ---------------------------------------------------------------------------
@@ -1164,7 +1164,7 @@ def assert_floats_survive_perturbation(
     project: RefProject, run: Callable[[RefProject], EngineRun]
 ) -> None:
     problems = float_perturbation_violations(project, run)
-    assert not problems, "\n".join([repr(project.to_dict()), *problems])
+    assert not problems, "\n".join([repr(project), *problems])
 
 
 #: #4343 — a 100%-complete task with no actuals between two live ones. ``T0``'s
@@ -1466,7 +1466,21 @@ FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR = RefProject(
 )
 
 
-def _behind_a_held_snet_milestone(
+def _has_a_floor(project: RefProject, m: str) -> bool:
+    """Whether a floor other than the project start can hold milestone ``m``.
+
+    The floors the engine's ``_equivalent_link`` (#4690) lets a link tie: an SNET
+    (``planned_start``), a recorded ``actual_start`` on live work, and the data date.
+    """
+    progress = project.progress.get(m)
+    return (
+        m in project.planned_start
+        or (progress is not None and progress.actual_start is not None)
+        or project.status_date is not None
+    )
+
+
+def _behind_a_floor_held_milestone(
     project: RefProject,
     run: Callable[[RefProject], EngineRun],
     tid: str,
@@ -1478,10 +1492,16 @@ def _behind_a_held_snet_milestone(
     """TODO(#4883): the known tie shape, excluded by name until fixed.
 
     ``s`` moved earlier after ``tid`` slipped to ``day``. The move is excused only
-    if it flows through a milestone whose SNET held it on the same shown position in
-    both runs: cut every link leaving such a held milestone and replay the same slip;
-    if ``s`` no longer moves earlier, the milestone was handing it the link's earlier
-    midnight once the slipped link tied the floor (#4690). That is #4883.
+    if it flows through a milestone that a floor held (:func:`_has_a_floor`) on the
+    same shown position in both runs, at the start of its day: cut every link
+    leaving such a held milestone and replay the same slip; if ``s`` no longer moves
+    earlier, the milestone was handing it the link's earlier midnight once the
+    slipped link tied the floor (#4690). That is #4883.
+
+    Any of the floors the tie rule reads, not the SNET alone: the deep fuzz found
+    the same tie against the data date and against a live milestone's recorded
+    ``actual_start`` (#4981). The start of the day, because a tie is only ever read
+    there; a milestone shown at the end of its day cannot be handing on a tie.
 
     A counterfactual rather than path reachability, because a path around the
     milestone from a predecessor that slipped *later* can only push ``s`` later, so
@@ -1493,7 +1513,8 @@ def _behind_a_held_snet_milestone(
         for m, n in project.durations.items()
         if n == 0
         and m != s
-        and m in project.planned_start
+        and _has_a_floor(project, m)
+        and not after.tasks[m].milestone_at_day_end
         and _held_at(base.tasks[m], True, project.calendar_of(m))
         == _held_at(after.tasks[m], True, project.calendar_of(m))
     }
@@ -1527,7 +1548,7 @@ def work_moved_earlier_by_a_slip(
     successors.
 
     ``exclude_4883`` drops the open #4883 tie shape
-    (:func:`_behind_a_held_snet_milestone`); its pinned repros pass ``False``.
+    (:func:`_behind_a_floor_held_milestone`); its pinned repros pass ``False``.
     """
     base = run(project)
     out: list[str] = []
@@ -1549,7 +1570,7 @@ def work_moved_earlier_by_a_slip(
                     _held_at(after.tasks[s], is_ms, s_cal),
                 )
                 if now < was:
-                    if exclude_4883 and _behind_a_held_snet_milestone(
+                    if exclude_4883 and _behind_a_floor_held_milestone(
                         project, run, tid, day, s, base, after
                     ):
                         continue
@@ -1576,6 +1597,55 @@ FS_LAG_SLIP_INTO_A_TIED_SNET_WITH_A_PATH_AROUND = RefProject(
     planned_start={"T1": date(2026, 1, 10)},
 )
 
+#: #4981, found by the deep nightly fuzz: the tie against the **data date**, which
+#: has no SNET. ``T1(1d) -FS-3d-> T2 -FS+1d-> T4``, ``T2`` a milestone floored at
+#: Monday 01-12 by a Saturday data date. ``T1`` on Monday proposes Saturday 00:00,
+#: the end of Friday, so the floor wins and ``T2`` links from Monday 00:00. Slipping
+#: ``T1`` to Tuesday proposes Sunday 00:00, shown at the start of Monday: it ties the
+#: floor, ``T2`` links from Sunday, and ``T4`` moves from the end of Monday to its
+#: start.
+FS_NEGATIVE_LAG_SLIP_INTO_A_TIED_DATA_DATE = RefProject(
+    start=date(2026, 1, 8),
+    durations={"T0": 0, "T1": 1, "T2": 0, "T3": 0, "T4": 0, "T5": 0},
+    links=(
+        RefLink("T1", "T2", "FS", -3),
+        RefLink("T2", "T3", "FS", 0),
+        RefLink("T0", "T4", "FS", 0),
+        RefLink("T2", "T4", "FS", 1),
+        RefLink("T3", "T4", "FS", 0),
+    ),
+    calendar=RefCalendar(working_mask=MON_TO_FRI),
+    status_date=date(2026, 1, 10),
+    planned_start={t: date(2026, 1, 8) for t in ("T0", "T3", "T4", "T5")},
+)
+
+#: #4981, found by the deep nightly fuzz: the tie against a live milestone's
+#: recorded **actual start**. Seven-day week with 01-05..01-09 off; ``T0(1d)
+#: -SF-2d-> T3``, ``T3`` a milestone started (0%) on Saturday 01-10, ``T3 -FS+1d->
+#: T4``. ``T0`` on 01-10 proposes 01-03 00:00, shown on 01-02, so the actual start
+#: wins and ``T3`` links from 01-10 00:00. Slipping ``T0`` to 01-11 proposes 01-09
+#: 00:00, shown at the start of 01-10 after the days off: it ties the actual start,
+#: ``T3`` links from 01-09, and ``T4`` moves from the end of 01-10 to its start.
+SF_NEGATIVE_LAG_SLIP_INTO_A_TIED_ACTUAL_START = RefProject(
+    start=date(2026, 1, 8),
+    durations={"T0": 1, "T1": 0, "T2": 0, "T3": 0, "T4": 0, "T5": 0},
+    links=(
+        RefLink("T0", "T1", "FS", 0),
+        RefLink("T0", "T2", "FS", 0),
+        RefLink("T0", "T3", "SF", -2),
+        RefLink("T3", "T4", "FS", 1),
+        RefLink("T0", "T5", "FS", 0),
+        RefLink("T1", "T5", "FS", 0),
+        RefLink("T2", "T5", "FS", 0),
+        RefLink("T3", "T5", "FS", 0),
+    ),
+    calendar=RefCalendar(
+        working_mask=_SEVEN_DAY, exceptions=((date(2026, 1, 5), date(2026, 1, 9)),)
+    ),
+    planned_start={t: date(2026, 1, 8) for t in ("T0", "T1", "T4", "T5")},
+    progress={"T3": RefProgress(percent_complete=0.0, actual_start=date(2026, 1, 10))},
+)
+
 #: The open #4883 shapes: each moves work earlier when a predecessor slips.
 KNOWN_4883_SHAPES = (
     SS_SLIP_INTO_A_TIED_SNET_MILESTONE,
@@ -1584,6 +1654,8 @@ KNOWN_4883_SHAPES = (
     FF_SLIP_INTO_A_TIED_MONDAY_SNET,
     FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR,
     FS_LAG_SLIP_INTO_A_TIED_SNET_WITH_A_PATH_AROUND,
+    FS_NEGATIVE_LAG_SLIP_INTO_A_TIED_DATA_DATE,
+    SF_NEGATIVE_LAG_SLIP_INTO_A_TIED_ACTUAL_START,
 )
 
 _4883_XFAIL = pytest.mark.xfail(
@@ -1599,15 +1671,17 @@ _4883_XFAIL = pytest.mark.xfail(
 @given(progress_projects())
 @example(FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR)
 @example(FS_LAG_SLIP_INTO_A_TIED_SNET_WITH_A_PATH_AROUND)
+@example(FS_NEGATIVE_LAG_SLIP_INTO_A_TIED_DATA_DATE)
+@example(SF_NEGATIVE_LAG_SLIP_INTO_A_TIED_ACTUAL_START)
 def test_slipping_a_predecessor_never_moves_work_earlier(project: RefProject) -> None:
     """Live: a later predecessor never moves live work downstream of it earlier.
 
-    The deep run reaches #4883's tie shape (#4900), so it is excluded by name
-    (:func:`_behind_a_held_snet_milestone`) and its repros are pinned below as
+    The deep run reaches #4883's tie shape (#4900, #4922, #4981), so it is excluded by name
+    (:func:`_behind_a_floor_held_milestone`) and its repros are pinned below as
     strict xfails; the ``@example`` keeps the exclusion exercised on every run.
     """
     problems = work_moved_earlier_by_a_slip(project, python_run)
-    assert not problems, "\n".join([repr(project.to_dict()), *problems])
+    assert not problems, "\n".join([repr(project), *problems])
 
 
 @_4883_XFAIL
@@ -2001,7 +2075,7 @@ def test_closing_the_open_predecessor_of_a_milestone_closed_ahead_of_it() -> Non
 @example(CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE)
 def test_python_close_or_start_at_forecast_moves_nothing(project: RefProject) -> None:
     problems = forecast_record_violations(project, python_run)
-    assert not problems, "\n".join([repr(project.to_dict()), *problems])
+    assert not problems, "\n".join([repr(project), *problems])
 
 
 def test_rust_recording_a_milestone_on_its_forecast_moves_nothing(
@@ -2018,7 +2092,7 @@ def test_rust_close_or_start_at_forecast_moves_nothing(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
     problems = forecast_record_violations(project, rust_engine.run)
-    assert not problems, "\n".join([repr(project.to_dict()), *problems])
+    assert not problems, "\n".join([repr(project), *problems])
 
 
 @pytest.mark.fuzz
