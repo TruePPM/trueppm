@@ -250,8 +250,13 @@ describe('apiClient', () => {
       let tail: Promise<unknown> = Promise.resolve();
       const requested: string[] = [];
       const locks = {
-        request: (name: string, cb: () => Promise<unknown>) => {
+        request: (
+          name: string,
+          optsOrCb: LockOptions | (() => Promise<unknown>),
+          maybeCb?: () => Promise<unknown>,
+        ) => {
           requested.push(name);
+          const cb = (typeof optsOrCb === 'function' ? optsOrCb : maybeCb)!;
           const run = tail.then(cb, cb);
           tail = run.catch(() => undefined);
           return run;
@@ -333,6 +338,104 @@ describe('apiClient', () => {
       expect(postSpy).toHaveBeenCalledTimes(1);
       expect(requested).toEqual([REFRESH_LOCK_NAME, REFRESH_LOCK_NAME]);
       expect(useAuthStore.getState().accessToken).toBe('after-sibling');
+    });
+
+    // #4296: a hung refresh in a sibling tab must not silence this one for the full
+    // refresh timeout, and the wait must be visible.
+    describe('held lock (#4296)', () => {
+      /** A lock that is held forever, honoring `signal` while a waiter queues. */
+      function installStuckLock() {
+        const locks = {
+          request: (_name: string, opts: LockOptions, cb: () => Promise<unknown>) =>
+            new Promise((resolve, reject) => {
+              void cb;
+              opts.signal?.addEventListener('abort', () =>
+                reject(new DOMException('The request was aborted.', 'AbortError')),
+              );
+              void resolve;
+            }),
+        };
+        Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+      }
+
+      it('shows "waiting on another tab" after 1s and falls through to its own refresh after 6s', async () => {
+        vi.useFakeTimers();
+        installStuckLock();
+        const { bootstrapAccessToken, LOCK_STALL_NOTICE_MS, LOCK_WAIT_MS } = await getModule();
+        const postSpy = vi
+          .spyOn(axios, 'post')
+          .mockResolvedValueOnce({ data: { access: 'own-attempt' } });
+
+        const pending = bootstrapAccessToken();
+        await vi.advanceTimersByTimeAsync(LOCK_STALL_NOTICE_MS - 1);
+        expect(useAuthStore.getState().waitingOnSiblingTab).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(useAuthStore.getState().waitingOnSiblingTab).toBe(true);
+        expect(postSpy).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(LOCK_WAIT_MS - LOCK_STALL_NOTICE_MS);
+        await expect(pending).resolves.toBe(true);
+        expect(postSpy).toHaveBeenCalledTimes(1);
+        expect(useAuthStore.getState().waitingOnSiblingTab).toBe(false);
+        expect(useAuthStore.getState().accessToken).toBe('own-attempt');
+      });
+
+      it('does not flag a wait that resolves inside the notice threshold', async () => {
+        installFakeLocks();
+        const { bootstrapAccessToken } = await getModule();
+        vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: { access: 'quick' } });
+        await expect(bootstrapAccessToken()).resolves.toBe(true);
+        expect(useAuthStore.getState().waitingOnSiblingTab).toBe(false);
+      });
+    });
+
+    // #4296: a sibling tab's session change reaches this tab. A second channel
+    // instance stands in for the sibling; a channel never hears its own posts.
+    describe('sibling tab messages (#4296)', () => {
+      let sibling: BroadcastChannel;
+      beforeEach(() => {
+        sibling = new BroadcastChannel('trueppm-auth');
+      });
+      afterEach(() => sibling.close());
+
+      it('expiry in a sibling tab shows the modal here, without echoing it back', async () => {
+        await getModule();
+        useAuthStore.setState({
+          isAuthenticated: true,
+          accessToken: 'live',
+          sessionExpired: false,
+        });
+        sibling.postMessage({ type: 'expired' });
+        await vi.waitFor(() => expect(useAuthStore.getState().sessionExpired).toBe(true));
+      });
+
+      it('ignores a sibling expiry when this tab holds no session (e.g. on /login)', async () => {
+        await getModule();
+        useAuthStore.setState({ isAuthenticated: false, accessToken: null, sessionExpired: false });
+        sibling.postMessage({ type: 'expired' });
+        await new Promise((r) => setTimeout(r, 30));
+        expect(useAuthStore.getState().sessionExpired).toBe(false);
+      });
+
+      it("a sibling sign-in clears this tab's expired state by minting its own token", async () => {
+        await getModule();
+        vi.spyOn(axios, 'post').mockResolvedValue({ data: { access: 'minted-here' } });
+        useAuthStore.setState({ isAuthenticated: false, accessToken: null, sessionExpired: true });
+        sibling.postMessage({ type: 'restored' });
+        await vi.waitFor(() => expect(useAuthStore.getState().accessToken).toBe('minted-here'));
+        expect(useAuthStore.getState().sessionExpired).toBe(false);
+      });
+
+      it('a sibling sign-out signs this tab out too', async () => {
+        await getModule();
+        useAuthStore.setState({
+          isAuthenticated: true,
+          accessToken: 'live',
+          sessionExpired: false,
+        });
+        sibling.postMessage({ type: 'cleared' });
+        await vi.waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(false));
+      });
     });
 
     // The 401 response interceptor shares `refreshAccessToken()` (client.ts:219)

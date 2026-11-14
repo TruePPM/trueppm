@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate, type Location } from 'react-router';
-import { useAuthStore } from '@/stores/authStore';
+import { READ_ONLY_VIEW_WINDOW_MS, useAuthStore } from '@/stores/authStore';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { WarningIcon } from '@/components/Icons';
 
@@ -43,6 +43,8 @@ function loginHrefWithNext(location: Location): string {
 export function SessionExpiredBanner() {
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const readOnly = useAuthStore((s) => s.sessionExpiredReadOnly);
+  const canView = useAuthStore((s) => s.sessionExpiredCanView);
+  const interrupted = useAuthStore((s) => s.sessionExpiredInterrupted);
   const enterReadOnlyMode = useAuthStore((s) => s.enterReadOnlyMode);
   const clearTokens = useAuthStore((s) => s.clearTokens);
   const navigate = useNavigate();
@@ -87,10 +89,15 @@ export function SessionExpiredBanner() {
         >
           You&apos;ve been signed out
         </h2>
+        {/* Cause-agnostic (#4256), but bound to what the data layer saw (#4316): the
+            "did not go through" sentence appears only when a write was actually
+            interrupted or refused, and the "keep viewing" sentence only when there is
+            loaded content to keep viewing (#4313). aria-live is not needed: the dialog
+            is announced as a whole on open via aria-describedby. */}
         <p id="session-expired-body" className="text-sm text-neutral-text-secondary m-0 mb-5">
-          For your security, your session was ended. Recent unsaved edits may not have been saved.
-          Sign in again to continue, or keep viewing the read-only content already loaded in this
-          tab.
+          For your security, your session was ended.
+          {interrupted ? ' Your last change did not go through.' : ''} Sign in again to continue
+          {canView ? ', or keep viewing the read-only content already loaded in this tab.' : '.'}
         </p>
         <div className="flex justify-end gap-2">
           {/* Touch targets clear the 44px min on mobile (rule 5, where touch is
@@ -103,13 +110,15 @@ export function SessionExpiredBanner() {
           >
             Sign in
           </button>
-          <button
-            type="button"
-            onClick={enterReadOnlyMode}
-            className="h-9 min-h-[44px] md:min-h-0 px-4 rounded-control bg-transparent text-neutral-text-primary text-sm font-medium border border-neutral-border hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
-          >
-            Continue viewing (read-only)
-          </button>
+          {canView && (
+            <button
+              type="button"
+              onClick={() => enterReadOnlyMode()}
+              className="h-9 min-h-[44px] md:min-h-0 px-4 rounded-control bg-transparent text-neutral-text-primary text-sm font-medium border border-neutral-border hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
+            >
+              Continue viewing (read-only)
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -128,13 +137,18 @@ export function SessionExpiredBanner() {
  * fetches are attempted: the apiClient request interceptor short-circuits
  * every request, read or write, while `sessionExpired` is true). Writes are
  * blocked the same way; the query client's global mutation `onError` (see
- * lib/queryClient) re-engages the blocking modal the instant a write is
- * attempted, so a stray mutation can't fail silently or loop.
+ * lib/queryClient) answers a write attempted in this mode: the first gets a
+ * light toast, a repeat re-opens the blocking modal (#4316).
+ * The view is time-boxed to `READ_ONLY_VIEW_WINDOW_MS`, after which the cache is
+ * cleared and only "Sign in" remains (#4313).
  */
 export function SessionExpiredReadOnlyBar() {
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const readOnly = useAuthStore((s) => s.sessionExpiredReadOnly);
   const clearTokens = useAuthStore((s) => s.clearTokens);
+  const focusBar = useAuthStore((s) => s.focusReadOnlyBar);
+  const readOnlySince = useAuthStore((s) => s.readOnlySince);
+  const endReadOnlyViewing = useAuthStore((s) => s.endReadOnlyViewing);
   const navigate = useNavigate();
   const location = useLocation();
   const signInRef = useRef<HTMLButtonElement>(null);
@@ -147,8 +161,29 @@ export function SessionExpiredReadOnlyBar() {
   // modal opened, which could be anywhere in the stale UI behind it — not
   // this banner, which is the only remaining path back to a real session.
   useEffect(() => {
-    if (active) signInRef.current?.focus();
-  }, [active]);
+    if (active && focusBar) signInRef.current?.focus();
+  }, [active, focusBar]);
+
+  // Time-box the read-only view (#4313). Nothing can re-validate against the server
+  // while the session is gone, so cached data from a since-deactivated account would
+  // otherwise stay on screen for the life of the tab. When the window lapses, the
+  // cache is cleared and the blocking modal returns with only "Sign in". Checked on a
+  // timer AND on return to the tab, since a backgrounded tab's timers are throttled.
+  useEffect(() => {
+    if (!active || readOnlySince === null) return;
+    const check = () => {
+      if (Date.now() - readOnlySince >= READ_ONLY_VIEW_WINDOW_MS) endReadOnlyViewing();
+    };
+    const remaining = Math.max(0, READ_ONLY_VIEW_WINDOW_MS - (Date.now() - readOnlySince));
+    const timer = setTimeout(check, remaining);
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('focus', check);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('focus', check);
+    };
+  }, [active, readOnlySince, endReadOnlyViewing]);
 
   if (!active) return null;
 

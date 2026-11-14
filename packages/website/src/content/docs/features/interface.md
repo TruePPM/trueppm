@@ -315,7 +315,9 @@ you onto the login screen with no explanation. From there you can:
 - **Continue viewing (read-only)** to keep looking at whatever the app already
   has loaded in this tab — the schedule, a board, a report — without losing your
   place. This dismisses the blocking prompt in favor of a slim banner pinned to
-  the top of the screen that stays visible while you browse.
+  the top of the screen that stays visible while you browse. The read-only view
+  lasts 15 minutes, after which the cached content is cleared and only **Sign in**
+  remains. If you had not loaded anything yet, only **Sign in** is offered.
 
 Read-only mode never fetches new data (nothing more can load until you sign in
 again) and never sends writes: if you try to save, complete, or otherwise change

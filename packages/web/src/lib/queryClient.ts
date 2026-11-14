@@ -1,7 +1,8 @@
 import { MutationCache, QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { useSyncStatusStore } from '@/stores/syncStatusStore';
-import { useAuthStore } from '@/stores/authStore';
+import { registerSessionBridge, useAuthStore } from '@/stores/authStore';
+import { toast } from '@/components/Toast/toast';
 
 export const queryClient = new QueryClient({
   // Every successful write stamps the session "last synced" time that powers the
@@ -14,13 +15,15 @@ export const queryClient = new QueryClient({
     // A mutation attempted while the user is in the read-only escape hatch
     // (#1922) is always doomed: the apiClient request interceptor rejects it
     // synchronously before anything reaches the network, since `sessionExpired`
-    // is still true underneath. Rather than let that surface as a bare mutation
-    // error (or, worse, let the user retry the same control in a silent loop),
-    // re-engage the blocking re-auth modal so the next action they take is
-    // "sign in", not another doomed write. No-ops once the modal is already
-    // showing (sessionExpiredReadOnly is false) or the session is fine.
+    // is still true underneath. The first one gets a light toast (#4316) so a
+    // misclick on an editable cell does not throw a full-viewport modal over the
+    // screen; a repeat re-engages the blocking re-auth modal so the user is not
+    // left retrying the same control in a silent loop. No-ops once the modal is
+    // already showing or the session is fine.
     onError: () => {
-      useAuthStore.getState().reassertSessionExpired();
+      if (useAuthStore.getState().reassertSessionExpired() === 'cue') {
+        toast.info("That change wasn't saved. Sign in again to make changes.");
+      }
     },
   }),
   defaultOptions: {
@@ -38,4 +41,26 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
     },
   },
+});
+
+// What the auth store needs to know about the data layer when a session ends. The
+// store cannot import this module (it imports the store), so it is registered here.
+registerSessionBridge({
+  inspect: () => ({
+    // `pending` covers paused mutations too (offline-queued writes sit pending).
+    interrupted: queryClient
+      .getMutationCache()
+      .getAll()
+      .some((m) => m.state.status === 'pending'),
+    // Something has loaded, so "Continue viewing" has content to show. A cold load
+    // that dies in RequireAuth's bootstrap has an empty cache, which is the case
+    // #4313 withdraws the escape hatch for. (Coarser than "the current route's
+    // queries": a shell read that succeeded counts, because observer state was too
+    // unstable a signal to key a security-adjacent surface on.)
+    hasContent: queryClient
+      .getQueryCache()
+      .getAll()
+      .some((q) => q.state.status === 'success' && q.state.data !== undefined),
+  }),
+  clearCache: () => queryClient.clear(),
 });

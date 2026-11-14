@@ -59,6 +59,31 @@ pause, which covers a browser without the Locks API. A session that has really
 ended (signed out, revoked, or past its lifetime) is refused again on the retry
 and the client shows the sign-in dialog.
 
+Tabs also tell each other. A `BroadcastChannel` named `trueppm-auth` carries the
+kind of event (session ended, read-only chosen, signed out, session restored),
+never a token: a tab that hears a sibling's sign-in mints its own access token
+from the shared cookie. Where `BroadcastChannel` is missing, a tab finds out on
+its next request instead. A tab that waits more than a second on a sibling's
+refresh lock shows "Signing in…" in the status bar, and stops waiting after six
+seconds and refreshes on its own.
+
+### When the session has ended
+
+What the user sees depends on what was at stake. If a change was in flight, or
+nothing had loaded yet, the blocking dialog appears; its copy says "your last
+change did not go through" only when a write was actually interrupted. If
+nothing was in flight and content is already on screen, the client goes straight
+to a slim read-only banner and leaves focus alone. A tab that lost its session
+before anything loaded offers only **Sign in**.
+
+**Continue viewing (read-only)** keeps the cached content on screen for 15
+minutes. The client cannot ask the server anything while signed out, so an
+account deactivated in the meantime would otherwise stay readable for the life of
+the tab. When the window ends, or when you return to the tab after it has, the
+client clears its cache and shows the dialog with only **Sign in**. In read-only
+mode the first attempted change shows a short notice instead of the dialog; a
+second one re-opens the dialog.
+
 ## Which identifier authenticates
 
 The sign-in form asks for an email address, and Django's `ModelBackend` matches

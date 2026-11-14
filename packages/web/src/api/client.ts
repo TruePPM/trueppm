@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 // pulling a React component into the API client's module graph is a cycle waiting to
 // happen.
 import { toast } from '@/components/Toast/toast';
+import { subscribeAuthMessages } from '@/lib/authBroadcast';
 import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
 import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
 
@@ -141,7 +142,47 @@ function withCrossTabRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
   const locks: LockManager | undefined =
     typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) return fn();
-  return locks.request(REFRESH_LOCK_NAME, fn);
+  return requestRefreshLock(locks, fn);
+}
+
+/** Wait on a sibling's refresh this long before saying so in the status bar (#4296). */
+export const LOCK_STALL_NOTICE_MS = 1_000;
+
+/**
+ * Give up waiting for the lock after this long and refresh anyway (#4296). A hung
+ * refresh in one tab holds the lock for up to `REFRESH_TIMEOUT_MS`, and every other
+ * tab used to sit silent behind it for that whole time. Shorter than the hold, so a
+ * waiter always outlives the stall. The worst case of falling through is the race
+ * the lock exists to prevent, which `postCookieRefreshWithSiblingRetry` already absorbs.
+ */
+export const LOCK_WAIT_MS = 6_000;
+
+async function requestRefreshLock<T>(locks: LockManager, fn: () => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let acquired = false;
+  const setWaiting = useAuthStore.getState().setWaitingOnSiblingTab;
+  const noticeTimer = setTimeout(() => setWaiting(true), LOCK_STALL_NOTICE_MS);
+  const giveUpTimer = setTimeout(() => controller.abort(), LOCK_WAIT_MS);
+  try {
+    return await (locks.request(REFRESH_LOCK_NAME, { signal: controller.signal }, () => {
+      acquired = true;
+      clearTimeout(noticeTimer);
+      clearTimeout(giveUpTimer);
+      setWaiting(false);
+      return fn();
+    }) as Promise<T>);
+  } catch (error: unknown) {
+    // Only an abort of the WAIT falls through; an error from `fn` itself propagates.
+    if (!acquired && error instanceof DOMException && error.name === 'AbortError') {
+      setWaiting(false);
+      return fn();
+    }
+    throw error;
+  } finally {
+    clearTimeout(noticeTimer);
+    clearTimeout(giveUpTimer);
+    setWaiting(false);
+  }
 }
 
 async function refreshAccessToken(): Promise<string> {
@@ -237,3 +278,38 @@ apiClient.interceptors.response.use(
     }
   },
 );
+
+/**
+ * Mirror session changes made in a sibling tab (#4296). Messages carry no token: a
+ * restored tab re-mints its own from the shared refresh cookie. Each branch only
+ * acts when this tab is in a state the message changes, which also ends any
+ * ping-pong between tabs.
+ */
+subscribeAuthMessages((type) => {
+  const state = useAuthStore.getState();
+  switch (type) {
+    case 'expired':
+      // A tab sitting on /login holds no session to lose.
+      if (state.isAuthenticated && !state.sessionExpired)
+        state.markSessionExpired({ broadcast: false });
+      break;
+    case 'readonly':
+      // Honor the choice only where this tab has content to keep viewing.
+      if (state.sessionExpired && state.sessionExpiredCanView)
+        state.enterReadOnlyMode({ broadcast: false });
+      break;
+    case 'cleared':
+      if (state.isAuthenticated || state.sessionExpired) state.clearTokens({ broadcast: false });
+      break;
+    case 'restored':
+      if (state.sessionExpired) {
+        // Failure leaves this tab expired: its own Sign in is still there, and a
+        // failed attempt here must not re-expire the tab that just signed in.
+        refreshPromise ??= refreshAccessToken().finally(() => {
+          refreshPromise = null;
+        });
+        void refreshPromise.catch(() => undefined);
+      }
+      break;
+  }
+});
