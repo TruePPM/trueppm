@@ -262,6 +262,8 @@ export interface CalendarChipData {
   isCritical: boolean;
   isMilestone: boolean;
   isComplete: boolean;
+  /** Task is in REVIEW — the "At risk" amber of the legend and the phone agenda (#3181). */
+  isAtRisk: boolean;
   /** True if this fragment contains the task's true start date */
   isStart: boolean;
   /** True if this fragment contains the task's true finish date */
@@ -344,6 +346,7 @@ function weekFragments(
       isCritical: task.isCritical,
       isMilestone: false,
       isComplete: task.isComplete,
+      isAtRisk: task.status === 'REVIEW',
       isStart: clampStart.getTime() === taskStart.getTime(),
       isEnd: clampEnd.getTime() === taskEnd.getTime(),
     });
