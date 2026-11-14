@@ -3176,9 +3176,19 @@ web:lint:
   # npm content cache (see .web) already makes --prefer-offline effectively
   # free. eslint 9 defaults to --concurrency: off and both config blocks are
   # type-aware, so it built two full TypeScript programs on one core while the
-  # rest of the runner idled. The `lint` script now passes a FIXED
-  # --concurrency=4; the "//lint" key in packages/web/package.json carries the
-  # benchmark and the reason it is fixed rather than `auto`.
+  # rest of the runner idled. #3276 moved it to --concurrency=4.
+  #
+  # Four workers turned out to be a MEMORY problem. Every eslint worker thread
+  # builds its own full src TypeScript program. The dell runners cap the
+  # container at 8 GB, where node 22 caps each isolate's heap at 2096 MB. Four
+  # workers fit under that per-worker heap, but together they peak at about
+  # 8.6-9.6 GB, over the cap. The job failed every time on dell-runner-02/03
+  # (exit 137, "Killed", ~50-90s into eslint) and passed every time on
+  # nuc-runner-2. The `lint` and `lint:fix` scripts now run 2 workers with a
+  # 3072 MB heap each, which peaks at 5.7 GB. The two values are one setting:
+  # 2 workers at the default heap fail with a JS heap OOM instead of a kill.
+  # The "//lint" key in packages/web/package.json carries the measurements.
+  # Retune both together, and never use `auto`.
   #
   # Note for anyone tempted to split this into web:lint + web:lint:e2e to
   # parallelize: measured separately, src/ is 38s and e2e/ is 5s. src is 88% of
