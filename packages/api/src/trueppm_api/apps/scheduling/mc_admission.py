@@ -24,6 +24,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import TypedDict
 
 import trueppm_scheduler
 from django.conf import settings
@@ -165,7 +166,13 @@ _TIME_EXCEEDED: type[Exception] | None = getattr(trueppm_scheduler, "SimulationT
 _ENGINE_TAKES_DEADLINE = "deadline" in inspect.signature(trueppm_scheduler.monte_carlo).parameters
 
 
-def mc_deadline_kwargs() -> dict[str, float]:
+class McDeadlineKwargs(TypedDict, total=False):
+    """The ``deadline`` keyword for ``monte_carlo()``, absent when no budget applies."""
+
+    deadline: float
+
+
+def mc_deadline_kwargs() -> McDeadlineKwargs:
     """``monte_carlo()`` kwargs bounding one request's simulation wall time (#4496).
 
     ``MC_CELL_CAP`` bounds cost only through the cell count; a slow host or a
@@ -177,8 +184,8 @@ def mc_deadline_kwargs() -> dict[str, float]:
     """
     budget = getattr(settings, "MC_WALL_CLOCK_BUDGET_SECONDS", None)
     if budget is None or not _ENGINE_TAKES_DEADLINE:
-        return {}
-    return {"deadline": time.monotonic() + float(budget)}
+        return McDeadlineKwargs()
+    return McDeadlineKwargs(deadline=time.monotonic() + float(budget))
 
 
 def is_time_exceeded(exc: Exception) -> bool:
