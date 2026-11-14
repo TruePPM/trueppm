@@ -237,6 +237,12 @@ Enterprise feature list (non-exhaustive):
   replay protection, OAuth flows, conflict resolution policy, reconciliation loop,
   per-tenant rate-limit budgets, audit trail of every inbound/outbound mutation.
   (OSS has outbound + read-on-demand; this is the durable two-way machinery.)
+  **Narrow inbound ingest is not this row.** A single-purpose, token- or
+  HMAC-authenticated, one-way inbound path with no conflict resolution or
+  reconciliation is **OSS**: project-token inbound task push (ADR-0068, `apps/projects/inbound_sync.py`),
+  inbound CI acceptance-result ingestion (ADR-0148), and the HMAC git-event
+  receiver (ADR-0158, `apps/integrations/git_automation_services.py`, which carves
+  out of ADR-0049). Only the multi-provider, bidirectional hub is Enterprise.
 - Advanced report builder (custom queries, scheduled PDF delivery, executive templates)
 - White-label / custom domain (consulting firms branding the tool for clients)
 - Data retention policy controls (7-year archive, GDPR deletion workflows)
