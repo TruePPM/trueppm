@@ -229,7 +229,10 @@ export function WorkspaceGeneralPage() {
     iterationLabelPolicy,
     mcHistoryEnabled,
     mcHistoryRetentionCap,
-    nearCriticalThresholdDays,
+    // Compared by parsed value so "010" or " 15" is clean after a save that
+    // stores String(parsed); an unparseable entry keeps its raw text (dirty).
+    nearCriticalThresholdDays:
+      thresholdValue === null ? nearCriticalThresholdDays : String(thresholdValue),
     mcHistoryAttributionAudience,
     mcHistoryOverridePolicy,
     taskDurationChangePercentPolicy,
@@ -331,13 +334,14 @@ export function WorkspaceGeneralPage() {
     setSprintPickerReadyOnlyDefault(initial.sprintPickerReadyOnlyDefault);
   }, [initial]);
 
-  // An out-of-range threshold disarms the save bar, as ProgramRiskPolicyPage does.
+  // An invalid threshold must not disarm the bar for the page's other fields:
+  // onSave refuses it and surfaces the error instead.
   useDirtyForm({
     values,
     initialValues: initial,
     onSave,
     onReset,
-    apiReady: !thresholdInvalid,
+    apiReady: true,
   });
 
   function toggleDay(i: number) {
@@ -840,7 +844,10 @@ export function WorkspaceGeneralPage() {
                 aria-describedby={
                   thresholdTouched && thresholdInvalid ? 'near-critical-threshold-error' : undefined
                 }
-                onChange={(e) => setNearCriticalThresholdDays(e.target.value)}
+                onChange={(e) => {
+                  setNearCriticalThresholdDays(e.target.value);
+                  setThresholdTouched(true);
+                }}
                 onBlur={() => setThresholdTouched(true)}
                 className="w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
               />

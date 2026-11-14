@@ -17,7 +17,11 @@ const mockState = vi.hoisted(() => ({
   refetch: vi.fn(),
   error: undefined as unknown,
   mutateAsync: vi.fn(),
-  dirtyForm: null as null | { onSave: () => Promise<void> | void; apiReady: boolean },
+  dirtyForm: null as null | {
+    onSave: () => Promise<void> | void;
+    apiReady: boolean;
+    dirty: boolean;
+  },
 }));
 
 // The page is fully hook-backed; mock the data/mutation/dirty-form hooks so it
@@ -72,8 +76,17 @@ vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
 }));
 // Records the latest options so a test can drive the shell's Save (onSave).
 vi.mock('../hooks/useDirtyForm', () => ({
-  useDirtyForm: (opts: { onSave: () => Promise<void> | void; apiReady: boolean }) => {
-    mockState.dirtyForm = opts;
+  useDirtyForm: (opts: {
+    onSave: () => Promise<void> | void;
+    apiReady: boolean;
+    values: unknown;
+    initialValues: unknown;
+  }) => {
+    mockState.dirtyForm = {
+      onSave: opts.onSave,
+      apiReady: opts.apiReady,
+      dirty: opts.apiReady && JSON.stringify(opts.values) !== JSON.stringify(opts.initialValues),
+    };
   },
 }));
 // Logo control (#969) is hook-backed via react-query mutations; stub them so the
@@ -488,11 +501,38 @@ describe('WorkspaceGeneralPage — near-critical threshold (#4892)', () => {
     expect(field()).toHaveValue(10);
     await user.clear(field());
     expect(field()).toHaveValue(null);
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    await user.tab();
+    // The error shows as soon as the value is invalid, not only after blur.
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number from 1 to 260.');
     expect(field()).toHaveAttribute('aria-invalid', 'true');
-    expect(mockState.dirtyForm?.apiReady).toBe(false);
+    // The save bar stays armed for the rest of the page; save just refuses.
+    expect(mockState.dirtyForm?.apiReady).toBe(true);
+    expect(mockState.dirtyForm?.dirty).toBe(true);
+    await mockState.dirtyForm?.onSave();
+    expect(mockState.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('keeps other fields saveable-looking while the threshold is invalid and sends no PATCH', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.clear(field());
+    await user.type(screen.getByRole('textbox', { name: 'Workspace name' }), ' X');
+    expect(mockState.dirtyForm?.apiReady).toBe(true);
+    expect(mockState.dirtyForm?.dirty).toBe(true);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await mockState.dirtyForm?.onSave();
+    expect(mockState.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('is clean after saving a padded or zero-prefixed value', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.clear(field());
+    await user.type(field(), '010');
+    await mockState.dirtyForm?.onSave();
+    expect(mockState.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ nearCriticalThresholdDays: 10 }),
+    );
+    expect(mockState.dirtyForm?.dirty).toBe(false);
   });
 
   it('never clamps an out-of-range entry: it stays as typed and is refused', async () => {
