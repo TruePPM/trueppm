@@ -330,8 +330,16 @@ def test_the_snapshot_is_the_whole_04_surface() -> None:
     assert len(set(_ENGINE_04_NAMES)) == len(_ENGINE_04_NAMES)
 
 
-# Names promoted to the public surface after 0.4, in ``__all__`` order (#4158).
-_ALL_ADDED_IN_05 = ("WorkingDayCounter", "collect_leaves")
+# Names promoted to the public surface after 0.4, in ``__all__`` order (#4158, #4894).
+_ALL_ADDED_IN_05 = (
+    "GRAPH_FORMAT_VERSION",
+    "GraphEdge",
+    "GraphExport",
+    "GraphNode",
+    "WorkingDayCounter",
+    "collect_leaves",
+    "to_graph",
+)
 
 
 def test_package_all_is_the_04_list_plus_announced_additions() -> None:

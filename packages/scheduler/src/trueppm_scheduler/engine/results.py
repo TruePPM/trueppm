@@ -51,8 +51,13 @@ class DrivingEdge:
 
     Identified by the (predecessor, successor) pair plus ``dep_type`` (the string
     value ``"FS"``/``"SS"``/``"FF"``/``"SF"``), matching the stored dependency row.
-    Purely presentational metadata for the schedule view's link hierarchy — the
-    forward/backward passes and float values are unaffected.
+    Metadata only: the forward/backward passes and float values are unaffected.
+
+    **Public contract (#4894).** The field set is exactly ``predecessor_id``,
+    ``successor_id`` and ``dep_type`` (and :meth:`to_dict` emits exactly those
+    keys). It is frozen: it is the shape
+    :func:`trueppm_scheduler.to_graph` reads to set an edge's ``is_driving``, and
+    adding or removing a field bumps ``GRAPH_FORMAT_VERSION``.
 
     A driving edge does **not** imply ``total_float(predecessor) <=
     total_float(successor)`` in general (#4269). The textbook identity needs the
