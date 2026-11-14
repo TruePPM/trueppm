@@ -411,25 +411,26 @@ export function buildCopyText(chain: ScheduleDrivingChain, view: WhyCriticalView
     const finish = chain.nodes.find((n) => n.task_id === finishCard.taskId);
     lines.push(
       ...wrapText(
-        `Project finish: ${finishCard.title}, ${formatLongDate(finish?.early_finish)} (${view.downstreamGap ?? ''})`,
+        `Project finish: ${finishCard.title}, ${formatLongDate(finish?.early_finish)}${finish ? ` · ${finish.hops} ${plural(finish.hops, 'step', 'steps')} after this task` : ''} (${view.downstreamGap ?? ''})`,
         60,
         ' ',
       ),
     );
   }
   lines.push('Driving chain, nearest first');
-  // Card subtitles in the year form too: the same view built against a far-future
-  // "today" renders every date with its year, keyed back onto the screen's cards.
-  const yearSubtitles = new Map(
-    (buildWhyCriticalView(chain, farFuture)?.cards ?? []).map((c) => [c.key, c.subtitle]),
+  // Card titles and subtitles in the year form too: the same view built against a
+  // far-future "today" renders every date with its year, keyed onto the screen's cards.
+  const yearCards = new Map(
+    (buildWhyCriticalView(chain, farFuture)?.cards ?? []).map((c) => [c.key, c]),
   );
   let index = 1;
   for (const card of view.cards) {
     if (card.kind === 'finish') continue;
     const bw = bandWord(card.band);
     const prefix = card.nonDriving ? '   ' : `${index++}. `;
-    const title = card.kind === 'self' ? `${card.title} (this task)` : card.title;
-    const subtitle = yearSubtitles.get(card.key) ?? card.subtitle;
+    const yearCard = yearCards.get(card.key) ?? card;
+    const title = card.kind === 'self' ? `${yearCard.title} (this task)` : yearCard.title;
+    const subtitle = yearCard.subtitle;
     lines.push(...wrapText(`${prefix}${title} · ${subtitle}`, 60, '   '));
     lines.push(`   · ${floatLabel(card.float)}${bw ? ` · ${bw}` : ''}`);
     for (const e of card.outEdges) {

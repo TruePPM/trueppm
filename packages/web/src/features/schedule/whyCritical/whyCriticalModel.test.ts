@@ -280,12 +280,20 @@ describe('buildCopyText (R4: a superset of the screen)', () => {
   const text = buildCopyText(c, view);
   const flat = text.replace(/\n\s*/g, ' ');
 
-  it('contains every rendered card title, subtitle and edge label', () => {
-    for (const card of view.cards) {
+  it('contains every rendered card title, subtitle and edge label (dates in the year form)', () => {
+    // The same cards with every date carrying its year, which is the copy form.
+    const yearView = buildWhyCriticalView(c, new Date(Date.UTC(9999, 0, 1)))!;
+    expect(yearView.cards.map((card) => card.key)).toEqual(view.cards.map((card) => card.key));
+    for (const card of yearView.cards) {
+      if (card.kind === 'finish') continue;
       expect(flat).toContain(card.title);
       expect(flat).toContain(card.subtitle);
       for (const e of card.outEdges) expect(flat).toContain(e.label);
     }
+    const finish = yearView.cards.find((card) => card.kind === 'finish')!;
+    expect(flat).toContain(
+      `Project finish: ${finish.title}, Jun 2, 2027 · 4 steps after this task`,
+    );
   });
 
   it('prints band words, units, truncation, threshold and provenance', () => {
@@ -303,6 +311,8 @@ describe('buildCopyText (R4: a superset of the screen)', () => {
     const self = view.cards.find((card) => card.kind === 'self')!;
     expect(self.subtitle).toBe('Finishes Mar 21');
     expect(flat).toContain('Finishes Mar 21, 2027');
+    expect(flat).toContain('ends Mar 7, 2027');
+    expect(flat).not.toMatch(/ends Mar 7 ·/);
   });
 
   it('wraps at 60 characters', () => {
