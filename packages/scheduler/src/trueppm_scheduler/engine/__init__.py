@@ -679,6 +679,9 @@ from trueppm_scheduler.engine.montecarlo.sampling import (
     _MAX_RUNS_ABSOLUTE as _MAX_RUNS_ABSOLUTE,
 )
 from trueppm_scheduler.engine.montecarlo.sampling import (
+    _MAX_SAMPLE_CELLS as _MAX_SAMPLE_CELLS,
+)
+from trueppm_scheduler.engine.montecarlo.sampling import (
     _VELOCITY_CHUNK_CELLS as _VELOCITY_CHUNK_CELLS,
 )
 from trueppm_scheduler.engine.montecarlo.sampling import (
@@ -860,6 +863,9 @@ from trueppm_scheduler.engine.validate import (
 )
 from trueppm_scheduler.engine.validate import (
     _validate_unique_task_ids as _validate_unique_task_ids,
+)
+from trueppm_scheduler.engine.validate import (
+    _velocity_days_on_calendar as _velocity_days_on_calendar,
 )
 from trueppm_scheduler.engine.validate import (
     _velocity_mean as _velocity_mean,

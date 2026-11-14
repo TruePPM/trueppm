@@ -733,6 +733,11 @@ Exceeding either cap returns HTTP 402 with a structured error body:
 }
 ```
 
+The engine also has a hard memory ceiling that no setting or edition raises: a run
+whose sampled durations (runs × tasks) would exceed 250,000,000 cells is refused
+with HTTP 400 and a `detail` message naming the sizes, both here and on the what-if
+endpoint. Reduce the number of runs.
+
 ## Interpreting results
 
 **Treat P50 as a midpoint, not a baseline.** On a network of FS and SS links the

@@ -559,7 +559,7 @@ def test_total_float_early_and_late_start_terms() -> None:
     assert d.value == 4
     assert [c.to_dict() for c in d.contributions] == [
         _c("early_start", imposed_date="2026-03-02", slack_days=4, is_binding=True),
-        _c("late_start", imposed_date="2026-03-06", is_binding=True),
+        _c("late_start", imposed_date="2026-03-06", is_binding=False),
     ]
 
 

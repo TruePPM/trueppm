@@ -260,6 +260,15 @@ on the team would stand behind — while every other task in the same run still
 uses its three-point estimate. `DeliveryMode.WATERFALL` (the default) is
 unaffected; mixing modes is opt-in per task.
 
+`sprint_length_days` counts working days of the project `calendar`, the calendar
+the team's sprints run on. A scrum task on its own per-task calendar takes the
+same sprints of calendar time: from 0.5, two 10-day sprints on a Mon/Wed/Fri task
+calendar will end where they end on the project calendar, instead of being laid
+out as 20 Mon/Wed/Fri days. The sprint span is measured from the data date
+(`status_date`, or `start_date`), so a holiday on the project calendar is read
+there rather than at each run's start
+([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)).
+
 ## Interpreting the output
 
 The two entry points answer different questions, and their outputs are not the
@@ -578,6 +587,7 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_VELOCITY_SPRINTS` | `10000` | Per-run sprint horizon the velocity sampler will bootstrap |
 | `MC_SENSITIVITY_CAP` | `20` | Tasks returned by the sensitivity ("tornado") ranking |
 | `_MAX_RUNS_ABSOLUTE` | `100000000` | Hard ceiling on `monte_carlo(runs=…)`, enforced regardless of `max_runs`; over it `monte_carlo()` raises `InvalidScheduleInput`. A caller-supplied `max_runs` below `runs` is checked as well and raises `SimulationCapExceeded` instead. Not exported from the package: it is a private engine constant, listed so the number is documented |
+| `_MAX_SAMPLE_CELLS` | `250000000` | From 0.5, a hard ceiling on `runs x tasks`, the sampled-duration matrix `monte_carlo()` allocates in full (8 bytes a cell, about 2 GB at the ceiling). Over it `monte_carlo()` will raise `SimulationCapExceeded` whatever `max_runs` says, instead of a bare `MemoryError`: 100,000 runs fit a 2,500-task project, 10,000 runs a 25,000-task one. Not exported from the package |
 
 ```python
 from trueppm_scheduler import MAX_DEPENDENCIES, MAX_DURATION_DAYS, MAX_LAG_DAYS
@@ -585,7 +595,9 @@ from trueppm_scheduler import MAX_DEPENDENCIES, MAX_DURATION_DAYS, MAX_LAG_DAYS
 
 The engine has no task-count cap of its own, and its only run-count cap is the
 absolute `100_000_000` ceiling in the table above, which is far past anything a
-request handler should accept. `monte_carlo(max_runs=…, max_tasks=…)` are opt-in,
+request handler should accept. From 0.5 the `runs x tasks` product will also be
+capped at `_MAX_SAMPLE_CELLS`, so a large run count on a large project is refused
+with `SimulationCapExceeded` rather than exhausting memory. `monte_carlo(max_runs=…, max_tasks=…)` are opt-in,
 caller-supplied ceilings that default to `None` (no limit beyond that ceiling).
 That default is correct for a batch script or notebook that owns the whole machine, and wrong for a synchronous web request:
 **`schedule()` and `monte_carlo()` are CPU-bound** (a day-by-day calendar walk,
@@ -776,10 +788,7 @@ release it is scheduled for:
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
   [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)).
-- **Monte Carlo** — a velocity-sampled duration is re-expanded
-  against the task's own calendar rather than the sprint calendar it was
-  sampled against
-  ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); sprint-horizon
+- **Monte Carlo** — sprint-horizon
   clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
   as a lower bound rather than a full forecast. From 0.5 the result will report
   how many runs were clamped (`velocity_saturated_runs`), but the bias itself
@@ -843,8 +852,7 @@ they will ship with 0.5 or that release will slip:
   O(duration)
   ([#1531](https://gitlab.com/trueppm/trueppm/-/issues/1531)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
-  fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
-  calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
+  fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a

@@ -232,7 +232,7 @@ def test_milestone_total_float_is_measured_between_instants() -> None:
         4,
         [
             ("early_start", None, "2026-01-12", 4, True),
-            ("late_start", None, "2026-01-16", None, True),
+            ("late_start", None, "2026-01-16", None, False),
         ],
     )
     assert _rows(project, "M", Quantity.FREE_FLOAT) == (

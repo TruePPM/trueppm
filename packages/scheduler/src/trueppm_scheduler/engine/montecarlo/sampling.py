@@ -34,6 +34,9 @@ from trueppm_scheduler.engine.errors import (
     InvalidScheduleInput,
     SimulationCapExceeded,
 )
+from trueppm_scheduler.engine.graph import (
+    _resolve_task_calendars,
+)
 from trueppm_scheduler.engine.limits import (
     MAX_CALENDAR_SCAN_DAYS,
     MAX_DURATION_DAYS,
@@ -50,6 +53,7 @@ from trueppm_scheduler.engine.results import (
 )
 from trueppm_scheduler.engine.validate import (
     _validate_project_shape,
+    _velocity_days_on_calendar,
     _velocity_mean,
     _velocity_observations,
 )
@@ -432,6 +436,12 @@ def _duration_sensitivity(
 
 
 _MAX_RUNS_ABSOLUTE = 100_000_000  # hard ceiling on ``runs`` independent of the caller's max_runs
+# Hard ceiling on the sampled-duration matrix, ``runs x tasks`` float64 cells (2 GB):
+# the one structure that is allocated in full, column by column, because that is the
+# order the seeded stream is consumed in. The runs ceiling alone does not bound it, so
+# 5M runs on a 200-task project reached ``np.empty`` and died with a bare MemoryError
+# outside the SchedulerError contract (#1829).
+_MAX_SAMPLE_CELLS = 250_000_000
 
 
 def _validate_monte_carlo_args(
@@ -590,6 +600,7 @@ def _sample_duration_matrix(
     column is collapsed to its base duration below, so its draws do not count.
     """
     dur_matrix = np.empty((runs, len(topo_order)), dtype=np.float64)
+    task_calendars = _resolve_task_calendars(project)
     for col, tid in enumerate(topo_order):
         t = task_map[tid]
         base = float(t.duration.days)
@@ -613,6 +624,16 @@ def _sample_duration_matrix(
                 rng,
                 None if _is_complete(t) else velocity_saturated,
             )
+        if velocity_durations is not None and task_calendars is not None:
+            # Sampled in sprint-calendar days; laid out on the task's own calendar
+            # (#4529). Whole sprints only, so the draw takes few distinct values.
+            task_cal = task_calendars.get(tid, project.calendar)
+            values, inverse = np.unique(velocity_durations, return_inverse=True)
+            converted = np.array(
+                [_velocity_days_on_calendar(project, task_cal, int(v)) for v in values],
+                dtype=np.float64,
+            )
+            velocity_durations = converted[inverse]
         if velocity_durations is not None:
             dur_matrix[:, col] = velocity_durations
         elif (
@@ -701,7 +722,11 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
 
 
 def _exhausted_points_ceiling(
-    project: Project, target: Task, lost_elapsed: int, points_per_working_day: float
+    project: Project,
+    target: Task,
+    lost_elapsed: int,
+    points_per_working_day: float,
+    task_calendar: Calendar | None,
 ) -> float:
     """Most story points a velocity task may keep once a pull-in exhausts it (#4820).
 
@@ -715,22 +740,32 @@ def _exhausted_points_ceiling(
     pull-in (10d at 40% and 40 points: P80 went from -10 at a 5-day pull-in to -6 at 6).
 
     The ceiling removes enough points to give back the lost days in **every** run,
-    whatever velocity it draws. ``m = ceil(lost_elapsed / sprint_length_days)`` sprints
-    cover those days, and no sprint delivers more than the largest observation
-    ``v_max``. So in any run of velocity draws, cutting ``m * v_max`` points from the
-    target finishes at least ``m`` sprints sooner: the sum through sprint ``K - m``
-    trails the sum through ``K`` by at most ``m * v_max``. The ceiling starts from the
+    whatever velocity it draws. ``m`` sprints cover those days when dropping any ``m``
+    of a run's ``K`` sprints gives back at least ``lost_elapsed`` working days of the
+    task calendar (``lost_elapsed`` counts those days, #4529), and no sprint delivers
+    more than the largest observation ``v_max``. So in any run of velocity draws,
+    cutting ``m * v_max`` points from the target finishes at least ``m`` sprints
+    sooner: the sum through sprint ``K - m`` trails the sum through ``K`` by at most
+    ``m * v_max``. Monte Carlo converts ``K`` sprints as one span
+    (``_velocity_days_on_calendar(..., K * sprint_length_days)``), and that span is not
+    additive when a sprint is not a whole number of weeks or holidays fall unevenly: a
+    3-day sprint on a Mon-Fri project lays a Mon/Wed/Fri story out as 2, 4, 5, 7 days
+    for 1-4 sprints, so a single sprint can give back one day. ``m`` is therefore the
+    smallest count whose **every** window of ``m`` consecutive sprints, up to the
+    sampler's horizon, spans ``lost_elapsed`` task days; on a single calendar that is
+    ``ceil(lost_elapsed / sprint_length_days)``, as before. The ceiling starts from the
     points the last pull-in that leaves work open would have kept (a delta of
-    ``1 - remaining``), so the exhausted task's sampled remaining work is never
-    longer than at that delta, which is never longer than the current forecast. The
-    argument holds run by run for a fixed layout of draws (one run's velocity
-    sequence), so the ordering holds in distribution. It does not prove that seeded
-    percentiles are ordered. Three edges fall outside it: a run the sprint-horizon cap
-    clamps (a deep tail); a ceiling at zero points on a task that also carries a
-    three-point estimate, which then leaves the velocity branch for PERT, whose shifted
-    triple can land a band later (TODO(#4909)); and a what-if that changes the points,
-    because ``_sample_velocity_durations`` sizes ``max_sprints`` from ``story_points``
-    and so changes the draw layout (TODO(#4910)).
+    ``1 - remaining``), so the exhausted task's sampled remaining work is never longer
+    than at that delta, which is never longer than the current forecast. The argument
+    holds run by run for a fixed layout of draws (one run's velocity sequence), so the
+    ordering holds in distribution. It does not prove that seeded percentiles are
+    ordered. Three edges
+    fall outside it: a run the sprint-horizon cap clamps (a deep tail); a ceiling at
+    zero points on a task that also carries a three-point estimate, which then leaves
+    the velocity branch for PERT, whose shifted triple can land a band later
+    (TODO(#4909)); and a what-if that changes the points, because
+    ``_sample_velocity_durations`` sizes ``max_sprints`` from ``story_points`` and so
+    changes the draw layout (TODO(#4910)).
 
     This is a bound and not a conversion at the mean pace, so the bands can jump
     further than the pull-in at exhaustion: the price of a bound that has to hold for
@@ -742,13 +777,47 @@ def _exhausted_points_ceiling(
     assert target.story_points is not None and project.sprint_length_days is not None
     assert project.velocity_samples
     last_open_delta = 1 - _effective_duration_days(target)
-    sprints_lost = -(-lost_elapsed // project.sprint_length_days)
+    sprints_lost = _sprints_giving_back(project, target, lost_elapsed, task_calendar)
     fastest_sprint = max(_velocity_observations(project.velocity_samples))
     return (
         target.story_points
         + last_open_delta * points_per_working_day
         - sprints_lost * fastest_sprint
     )
+
+
+def _sprints_giving_back(
+    project: Project, target: Task, lost_elapsed: int, task_calendar: Calendar | None
+) -> int:
+    """Fewest sprints whose removal, from any run, returns ``lost_elapsed`` task days.
+
+    See :func:`_exhausted_points_ceiling`. ``spans[K]`` is what Monte Carlo lays ``K``
+    sprints out as on the task calendar, so ``spans[K] - spans[K - m]`` is what dropping
+    ``m`` sprints from a ``K``-sprint run gives back. The horizon is the sampler's
+    ``max_sprints`` at the target's unperturbed points, the largest any what-if on this
+    task draws, so the check covers every sprint count a run can reach. If no count up
+    to the horizon is enough, the whole horizon is returned, which zeroes the ceiling.
+    """
+    sprint_days = project.sprint_length_days
+    assert sprint_days is not None and target.story_points is not None
+    if task_calendar is None:
+        # One calendar: every sprint spans ``sprint_days`` task days, so windows add up.
+        return -(-lost_elapsed // sprint_days)
+    mean = _velocity_mean(project)
+    assert mean is not None and mean > 0
+    horizon = min(int(np.ceil(target.story_points / mean)) * 4 + 10, MAX_VELOCITY_SPRINTS)
+    spans = np.array(
+        [0]
+        + [
+            _velocity_days_on_calendar(project, task_calendar, k * sprint_days)
+            for k in range(1, horizon + 1)
+        ],
+        dtype=np.int64,
+    )
+    for m in range(1, horizon + 1):
+        if int((spans[m:] - spans[:-m]).min()) >= lost_elapsed:
+            return m
+    return horizon
 
 
 def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
@@ -780,10 +849,16 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     * ``story_points``, when the task will take the velocity branch. That branch
       never reads a duration at all — it asks how many sprints burn down the
       committed points — so a day offset has to be converted into the unit it does
-      read, at the team's mean pace (``mean(velocity_samples) / sprint_length_days``
-      points per working day). The band then moves by ``delta_days`` in expectation,
-      quantized to whole sprints, which is what a sprint-delivered task's schedule
-      genuinely does.
+      read, at the team's mean pace: ``mean(velocity_samples)`` points per sprint,
+      over the working days one sprint spans **on the task's own calendar**.
+      ``delta_days`` counts that calendar's days, while ``sprint_length_days`` counts
+      the project calendar the sprints run on, and Monte Carlo lays a sampled sprint
+      count out on the task calendar (see :func:`_velocity_days_on_calendar`). Pacing
+      against ``sprint_length_days`` instead moved a Mon/Wed/Fri story by well under
+      ``delta_days`` (#4529). The band then moves by ``delta_days`` task-calendar
+      working days in expectation, quantized to whole sprints, which is what a
+      sprint-delivered task's schedule genuinely does. On a single-calendar project a
+      sprint spans ``sprint_length_days`` task days, so nothing changes there.
 
     On an **in-progress** task the offset applies to the *remaining* work only
     (#4432). The engine reads ``percent_complete`` against ``duration`` to split a
@@ -902,12 +977,23 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     ):
         mean = _velocity_mean(project)
         if mean is not None:
-            points_per_working_day = mean / project.sprint_length_days
+            # Pace in the unit ``delta_days`` counts: working days of the task's
+            # calendar per sprint, as Monte Carlo lays a sprint out (#4529).
+            task_calendars = _resolve_task_calendars(project)
+            task_calendar = (
+                None if task_calendars is None else task_calendars.get(target.id, project.calendar)
+            )
+            task_days_per_sprint = project.sprint_length_days
+            if task_calendar is not None:
+                task_days_per_sprint = _velocity_days_on_calendar(
+                    project, task_calendar, project.sprint_length_days
+                )
+            points_per_working_day = mean / task_days_per_sprint
             story_points = max(0.0, story_points + sampled_delta * points_per_working_day)
             lost_elapsed = delta_days - sampled_delta
             if lost_elapsed > 0:
                 ceiling = _exhausted_points_ceiling(
-                    project, target, lost_elapsed, points_per_working_day
+                    project, target, lost_elapsed, points_per_working_day, task_calendar
                 )
                 story_points = max(0.0, min(story_points, ceiling))
 

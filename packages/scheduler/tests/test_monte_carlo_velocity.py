@@ -383,3 +383,74 @@ def test_velocity_worst_case_reads_a_precomputed_mean_once(monkeypatch: pytest.M
     monte_carlo(project, runs=20, seed=1)
     # One per task-walking pass (span sweep, horizon walk), never one per task.
     assert 0 < calls <= 3
+
+
+# --- #4529: a velocity draw is expanded on the sprint calendar it was sampled on ---
+
+_MWF = 0b0010101  # Monday, Wednesday, Friday
+_SIX_DAY = 0b0111111  # Monday-Saturday
+
+
+def _two_sprint_story(calendar_id: str | None, *, successor: bool = False) -> Project:
+    """A 20-point story at a constant 10 points / 10-working-day sprint: two sprints."""
+    tasks = [
+        Task(
+            id="s",
+            name="story",
+            duration=timedelta(days=1),
+            delivery_mode=DeliveryMode.SCRUM,
+            story_points=20,
+            calendar_id=calendar_id,
+        )
+    ]
+    deps = []
+    if successor:
+        tasks.append(Task(id="n", name="next", duration=timedelta(days=1)))
+        deps.append(Dependency("s", "n", DependencyType.FS))
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),  # a Monday
+        tasks=tasks,
+        dependencies=deps,
+        velocity_samples=[10.0],
+        sprint_length_days=10,
+        calendars={"mwf": Calendar(working_days=_MWF), "six": Calendar(working_days=_SIX_DAY)},
+    )
+
+
+@pytest.mark.parametrize("calendar_id", [None, "mwf", "six"])
+def test_two_sprints_span_the_same_calendar_days_on_any_task_calendar(
+    calendar_id: str | None,
+) -> None:
+    # Two 10-working-day sprints from Monday 2026-01-05 end Friday 2026-01-30 (25
+    # calendar days). On a Mon/Wed/Fri task calendar the same draw used to be laid out
+    # as 20 MWF days, ending 2026-02-18 (44 days); a six-day week ended it early.
+    result = monte_carlo(_two_sprint_story(calendar_id), runs=50, seed=1)
+    assert result.p50 == result.p95 == date(2026, 1, 30)
+
+
+def test_successor_of_a_sprint_story_on_a_sparse_calendar_follows_the_sprint_end() -> None:
+    result = monte_carlo(_two_sprint_story("mwf", successor=True), runs=50, seed=1)
+    # The story finishes Friday 2026-01-30; its successor takes Monday 2026-02-02.
+    assert result.p50 == date(2026, 2, 2)
+
+
+def test_velocity_days_on_calendar_is_identity_on_the_project_calendar() -> None:
+    project = _two_sprint_story(None)
+    for days in (0, 1, 10, 37):
+        assert engine._velocity_days_on_calendar(project, project.calendar, days) == days
+        same_content = Calendar(working_days=project.calendar.working_days)
+        assert engine._velocity_days_on_calendar(project, same_content, days) == days
+
+
+def test_velocity_days_on_calendar_is_monotone() -> None:
+    # The index sizing converts the worst case and relies on it bounding every draw.
+    project = replace(
+        _two_sprint_story(None),
+        calendar=Calendar(exceptions=[DateRange(date(2026, 2, 2), date(2026, 2, 20))]),
+    )
+    mwf = Calendar(working_days=_MWF)
+    converted = [engine._velocity_days_on_calendar(project, mwf, d) for d in range(0, 120)]
+    assert converted == sorted(converted)
+    assert all(c >= 1 for c in converted[1:])

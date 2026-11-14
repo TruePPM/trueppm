@@ -1144,3 +1144,98 @@ def test_a_growing_pull_in_across_a_start_to_start_link_never_finishes_later(
     ]
     for smaller, bigger in pairwise(finishes):
         assert bigger <= smaller
+
+
+_MON_WED_FRI = 0b0010101
+
+
+def _sprint_story_on(calendar_id: str | None, *, velocity: bool) -> Project:
+    """One task on a per-task calendar: a 20-point story (two 10-day sprints) or not.
+
+    The project calendar is the default Mon-Fri week the sprints run on, so a sprint
+    of 10 project working days spans two weeks and six Mon/Wed/Fri working days.
+    """
+    task = Task(
+        id="s",
+        name="story",
+        duration=timedelta(days=6),
+        delivery_mode=DeliveryMode.SCRUM if velocity else DeliveryMode.WATERFALL,
+        story_points=20 if velocity else None,
+        calendar_id=calendar_id,
+    )
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),  # a Monday
+        tasks=[task],
+        velocity_samples=[10.0],
+        sprint_length_days=10,
+        calendars={"mwf": Calendar(working_days=_MON_WED_FRI)},
+    )
+
+
+@pytest.mark.parametrize("calendar_id", [None, "mwf"])
+def test_velocity_what_if_moves_the_band_by_delta_task_calendar_days(
+    calendar_id: str | None,
+) -> None:
+    """``delta_days`` counts the task calendar's days, so the pace must too (#4529).
+
+    Monte Carlo lays a sampled sprint count out on the task's own calendar, so the
+    points conversion has to price a day of *that* calendar. Pacing at
+    ``mean / sprint_length_days`` priced a Mon/Wed/Fri day as a Mon-Fri one: +18
+    task days added 18 points (four sprints, +28 calendar days) where 18 Mon/Wed/Fri
+    days are six weeks. The velocity band must move exactly as far as the same
+    shift of ``duration`` moves a deterministic task on the same calendar.
+    """
+    delta = 18  # three sprints of six Mon/Wed/Fri days, or 1.8 Mon-Fri sprints
+    story = _sprint_story_on(calendar_id, velocity=True)
+    plain = _sprint_story_on(calendar_id, velocity=False)
+
+    def p50_shift(project: Project) -> int:
+        before = monte_carlo(project, runs=50, seed=SEED).p50
+        after = monte_carlo(perturb_task_duration(project, "s", delta), runs=50, seed=SEED).p50
+        return (after - before).days
+
+    if calendar_id is None:
+        # Single calendar: unchanged pace, +18 points, ceil(38 / 10) = 4 sprints.
+        assert p50_shift(story) == 28
+    else:
+        assert p50_shift(story) == p50_shift(plain) == 42
+
+
+def test_exhaustion_ceiling_counts_sprints_on_a_non_additive_task_calendar() -> None:
+    """A 3-day sprint on a Mon-Fri project lays a Mon/Wed/Fri story out as 2, 4, 5, 7
+    task days for 1-4 sprints, so dropping one sprint can give back a single day.
+
+    The 4-day story at 50% has 2 elapsed days, which a pull-in to exhaustion stops
+    subtracting. Dividing by the 2 days of the first sprint said one sprint gives them
+    back; the third sprint only returns one, so two sprints of the fastest velocity
+    (10) are cut: 35 points at the last open pull-in (-1) less 20, not 10.
+    """
+    task = Task(
+        id="s",
+        name="story",
+        duration=timedelta(days=4),
+        percent_complete=50.0,
+        delivery_mode=DeliveryMode.SCRUM,
+        story_points=40,
+        calendar_id="mwf",
+    )
+    baseline = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),  # a Monday
+        tasks=[task],
+        velocity_samples=[10.0],
+        sprint_length_days=3,
+        calendars={"mwf": Calendar(working_days=_MON_WED_FRI)},
+    )
+    exhausted = perturb_task_duration(baseline, "s", -2)
+    assert exhausted.tasks[0].story_points == pytest.approx(15.0)
+
+    forecasts = [monte_carlo(baseline, runs=50, seed=SEED)] + [
+        monte_carlo(perturb_task_duration(baseline, "s", delta), runs=50, seed=SEED)
+        for delta in (-1, -2, -3, -5)
+    ]
+    for smaller, bigger in pairwise(forecasts):
+        assert bigger.p95 <= smaller.p95

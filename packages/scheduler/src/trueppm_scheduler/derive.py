@@ -1153,11 +1153,14 @@ def _derive_total_float(
     assert task.early_start is not None and task.late_start is not None
     span = instants or (task.early_start, task.late_start)
     tf_days = _working_days_between(span[0], span[1], cal)
+    # The span has two endpoints but only one binding term (the invariant on
+    # DerivationContribution): early_start, which carries the slack and is what
+    # ``Derivation.binding`` already returned when both were flagged (#2181).
     contribs = [
         DerivationContribution(
             kind="early_start", imposed_date=task.early_start, is_binding=True, slack_days=tf_days
         ),
-        DerivationContribution(kind="late_start", imposed_date=task.late_start, is_binding=True),
+        DerivationContribution(kind="late_start", imposed_date=task.late_start, is_binding=False),
     ]
     return tf_days, contribs
 
