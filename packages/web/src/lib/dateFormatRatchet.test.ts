@@ -37,10 +37,13 @@ describe('date-format guard allowlist', () => {
   });
 
   it('the guard rejects a reintroduced en-US toLocaleDateString in a feature file', async () => {
-    const eslint = new ESLint({ cwd: WEB_ROOT });
+    // Probe a real, JSX-free .ts feature file: type-aware parsing needs a file in the
+    // TS project, and probing a JSX-bearing .tsx made CI's react/no-unescaped-entities
+    // visit that file's nodes against this one-line snippet's source lines and throw.
+    const eslint = new ESLint({ cwd: WEB_ROOT, cache: false });
     const code = "export const f = (d: Date) => d.toLocaleDateString('en-US');\n";
     const [res] = await eslint.lintText(code, {
-      filePath: resolve(WEB_ROOT, 'src/features/me/MyWorkEmptyState.tsx'),
+      filePath: resolve(WEB_ROOT, 'src/features/auth/ssoNext.ts'),
     });
     expect(res.messages.some((m) => m.ruleId === 'no-restricted-properties')).toBe(true);
   });
