@@ -19,6 +19,7 @@ unannotated queryset instead. Two things have to hold for that to be safe:
 
 from __future__ import annotations
 
+import secrets
 from datetime import date
 
 import pytest
@@ -28,7 +29,16 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Label, LabelColor, Project, Task
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import (
+    SCOPE_MCP_READ,
+    ApiToken,
+    Calendar,
+    Label,
+    LabelColor,
+    Project,
+    Task,
+)
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
 TASKS_URL = "/api/v1/tasks/"
@@ -229,3 +239,57 @@ class TestCountAgreesWithFilterBackends:
         assert data["count"] == 4
         assert len(data["results"]) == 2
         assert data["next"] is not None
+
+
+@pytest.mark.django_db
+class TestCountAgreesUnderMcpAgentReadScoping:
+    """An ``mcp:read`` token's count and results must agree on the agent-read filter (#2815).
+
+    ``_build_task_count_queryset`` re-runs the *unannotated* base queryset through
+    ``filter_queryset()`` so that ``McpReadableViewMixin``'s row filter applies to the
+    count as well as to the page. If it ever counted the raw queryset, an agent would
+    see ``count`` include rows from a project that opted out of agent reads while
+    ``results`` correctly omitted them.
+    """
+
+    def test_count_excludes_opted_out_project_rows_for_an_mcp_token(
+        self, user: object, project: Project, _membership: ProjectMembership, calendar: Calendar
+    ) -> None:
+        opted_out = Project.objects.create(
+            name="Agent Opted Out", start_date=date(2026, 1, 1), calendar=calendar
+        )
+        ProjectMembership.objects.create(project=opted_out, user=user, role=Role.OWNER)
+        opted_out.mcp_enabled = False
+        opted_out.save(update_fields=["mcp_enabled"])
+        for i in range(3):
+            Task.objects.create(project=project, name=f"visible {i}")
+        for i in range(2):
+            Task.objects.create(project=opted_out, name=f"hidden {i}")
+
+        raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+        ApiToken.objects.create(
+            owner=user,
+            name="agent",
+            token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+            token_hash=sha256_hex(raw),
+            created_by=user,
+            scopes=[SCOPE_MCP_READ],
+        )
+        agent = APIClient()
+        agent.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        resp = agent.get(TASKS_URL, {"page_size": "2"})
+        assert resp.status_code == 200, resp.data
+        data = resp.json()
+        names = {t["name"] for t in data["results"]}
+        # count covers the whole agent-visible set (3), not the page (2) and not
+        # the member's full set (5); the page itself carries no hidden row.
+        assert data["count"] == 3
+        assert len(data["results"]) == 2
+        assert not any(n.startswith("hidden") for n in names)
+
+        # Same queryset, human session: the opt-out is an agent-read gate only.
+        human = APIClient()
+        human.force_authenticate(user=user)
+        human_data = human.get(TASKS_URL, {"page_size": "2"}).json()
+        assert human_data["count"] == 5
