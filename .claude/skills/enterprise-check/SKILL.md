@@ -123,6 +123,14 @@ OSS feature list (non-exhaustive):
   blocks adoption before a prospect can feel value.
 - Real-time collaboration (WebSocket sync within a single project)
 - Offline mobile (WatermelonDB sync)
+- **Offline on-device schedule recompute** — the Rust/WASM CPM engine
+  (`packages/wasm-scheduler`, `license = "Apache-2.0"`) running with no network.
+  ADR-0599 names it one of the three sanctioned OSS non-API paths; the server
+  still has the last word. OSS #26.
+- **Mobile/PWA individual-productivity features** — push-notification foundation
+  (OSS #2132), photo/file capture attached to tasks, and a personal standup
+  digest. One person or team doing their own work; no cross-program or
+  compliance-evidence dimension.
 - REST + WebSocket API
 - MS Project import/export
 - Helm chart, Docker Compose dev environment
@@ -233,16 +241,29 @@ Enterprise feature list (non-exhaustive):
 - White-label / custom domain (consulting firms branding the tool for clients)
 - Data retention policy controls (7-year archive, GDPR deletion workflows)
 - Priority support / SLA tiers (guaranteed response times)
-- Mobile: GPS-verified time entry (location-stamped timesheets for compliance)
-- Mobile: photo and file attachments from camera (attach site photos to tasks)
+- Mobile: GPS-verified time entry (location-stamped timesheets as **compliance
+  evidence**) — Enterprise only for the compliance/audit-evidence layer; plain
+  time entry stays OSS.
+- ~~Mobile: photo and file attachments from camera~~ — **OSS.** Re-audited
+  2026-11-14 (#2629): an individual or team attaching site photos to their own
+  tasks is "needed to run the program", not governance.
 - ~~Mobile: offline CPM simulation (WASM scheduling engine on-device)~~ — **this is
   OSS.** Corrected 2026-08-16 (#2859): `packages/wasm-scheduler/Cargo.toml` reads
   `license = "Apache-2.0"`, and ADR-0599 names offline on-device recompute as one
   of the three sanctioned OSS non-API paths. **Verify an edition from `license =`
   and the ADR, not from this list** — this exact line already produced one wrong
   call in a prior audit.
-- Mobile: smart push notifications with critical path intelligence (CP change, milestone slip, risk review due)
-- Mobile: daily standup digest (auto-generated morning briefing pushed to device)
+- ~~Mobile: smart push notifications with critical path intelligence~~ — **OSS.**
+  The push foundation is OSS (#2132, 0.5) and per-project critical-path change
+  alerts are one team's own schedule. Only org-wide or cross-program alert
+  routing is Enterprise.
+- ~~Mobile: daily standup digest~~ — **OSS.** A personalized briefing of one
+  user's own projects is team-level; only a portfolio digest is Enterprise.
+
+> This whole mobile block predates the boundary doctrine (added 2026-03-24, never
+> re-audited until #2629). Native mobile is also off the roadmap (#3834) — the
+> installable PWA is the mobile story — so classify these by the adoption test,
+> not by their old "mobile premium tier" framing.
 
 ## Boundary Rules
 
