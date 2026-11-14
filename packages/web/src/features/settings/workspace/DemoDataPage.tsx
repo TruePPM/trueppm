@@ -15,6 +15,8 @@
  */
 
 import { useState } from 'react';
+import { useRateLimitCooldown } from '@/hooks/useRateLimitCooldown';
+import { waitPhrase } from '@/lib/rateLimit';
 import { useNavigate } from 'react-router';
 import { EmptyState } from '@/components/EmptyState';
 import { InboxIcon, WarningIcon } from '@/components/Icons';
@@ -202,10 +204,13 @@ export function SampleRow({
   sample,
   onLoad,
   loading,
+  cooldown = false,
 }: {
   sample: SampleInfo;
   onLoad: () => void;
   loading: boolean;
+  /** Holds the Load button while the server's throttle window is open (#2432). */
+  cooldown?: boolean;
 }) {
   const size = formatBytes(sample.size_bytes);
   // `typeof` rather than `!== null` so a response missing the key entirely
@@ -253,7 +258,7 @@ export function SampleRow({
           <button
             type="button"
             onClick={onLoad}
-            disabled={!sample.available || loading}
+            disabled={!sample.available || loading || cooldown}
             className={PRIMARY_ACTION_CLASS}
           >
             {loading ? 'Loading…' : 'Load'}
@@ -314,10 +319,12 @@ export function DemoDataPage() {
   const navigate = useNavigate();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const cooldown = useRateLimitCooldown();
 
   const load = (key: string) => {
     setPendingKey(key);
     setLoadFailed(false);
+    cooldown.clear();
     loadSample.mutate(key, {
       onSuccess: (result) => {
         setPendingKey(null);
@@ -325,9 +332,9 @@ export function DemoDataPage() {
           state: { startExploringSample: result.sample_key },
         });
       },
-      onError: () => {
+      onError: (err) => {
         setPendingKey(null);
-        setLoadFailed(true);
+        if (!cooldown.start(err)) setLoadFailed(true);
       },
     });
   };
@@ -387,6 +394,12 @@ export function DemoDataPage() {
                 Could not load the demo — please try again.
               </p>
             )}
+            {cooldown.active && (
+              <p role="alert" className="mb-3 text-[12px] text-neutral-text-secondary">
+                You&rsquo;ve loaded several demos in a row. Try again{' '}
+                {waitPhrase(cooldown.waitSeconds)}.
+              </p>
+            )}
             <div className="space-y-2.5">
               {samples.map((sample) => (
                 <SampleRow
@@ -394,6 +407,7 @@ export function DemoDataPage() {
                   sample={sample}
                   onLoad={() => load(sample.key)}
                   loading={pendingKey === sample.key}
+                  cooldown={cooldown.active}
                 />
               ))}
             </div>

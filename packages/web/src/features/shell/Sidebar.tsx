@@ -34,6 +34,7 @@ import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
 import type { PinnedItem } from '@/api/types';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { toast } from '@/components/Toast';
+import { isRateLimited, retryAfterSeconds, waitPhrase } from '@/lib/rateLimit';
 import { PinToggle } from '@/components/PinToggle';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { modifierKeyLabel } from '@/lib/platform';
@@ -542,7 +543,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           { state: { startExploringSample: result.sample_key } },
         );
       },
-      onError: () => toast.error("Couldn't load the demo — please try again."),
+      onError: (err) =>
+        toast.error(
+          isRateLimited(err)
+            ? `You've loaded several demos in a row. Try again ${waitPhrase(retryAfterSeconds(err))}.`
+            : "Couldn't load the demo — please try again.",
+        ),
     });
   };
   const closeDrawer = () => {

@@ -33,6 +33,16 @@ describe('rateLimit helpers', () => {
       retryAfterSeconds(err(429, {}, { detail: 'Request was throttled. Expected available in 42 seconds.' })),
     ).toBe(42);
   });
+  it('treats Retry-After 0, empty, or a past date as no wait, so callers fall back', () => {
+    expect(retryAfterSeconds(err(429, { 'retry-after': '0' }))).toBeNull();
+    expect(retryAfterSeconds(err(429, { 'retry-after': '' }))).toBeNull();
+    const past = new Date(Date.now() - 60_000).toUTCString();
+    expect(retryAfterSeconds(err(429, { 'retry-after': past }))).toBeNull();
+  });
+  it('caps an absurd wait', () => {
+    expect(retryAfterSeconds(err(429, { 'retry-after': '86400' }))).toBe(3600);
+    expect(retryAfterSeconds(err(429, {}, { wait: 999999 }))).toBe(3600);
+  });
   it('is null when the server named no wait, or the error is not a 429', () => {
     expect(retryAfterSeconds(err(429))).toBeNull();
     expect(retryAfterSeconds(err(500, { 'retry-after': '3' }))).toBeNull();

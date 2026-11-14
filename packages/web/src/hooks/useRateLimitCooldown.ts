@@ -25,7 +25,7 @@ export function useRateLimitCooldown(fallbackSeconds = 10): {
       if (!isRateLimited(err)) return false;
       const t = Date.now();
       setNow(t);
-      const wait = retryAfterSeconds(err) ?? fallbackSeconds;
+      const wait = Math.max(1, retryAfterSeconds(err) ?? fallbackSeconds);
       setWaitSeconds(wait);
       setUntil(t + wait * 1000);
       return true;

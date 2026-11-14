@@ -414,6 +414,13 @@ export default [
   // formatter and have not been migrated. It can only shrink. A new file must not be
   // added; if a call genuinely needs raw Intl (a month-only label, a timeZoneName),
   // use `// eslint-disable-next-line no-restricted-properties -- <reason>`.
+  // Grandfathered groups: schedule/ (Gantt scale, commit popovers, baseline UI, engine
+  // helpers: month/axis labels and ISO parsing), sprints/ + reports/ (burn and
+  // velocity axis labels), settings/project/calendarDisplay (weekday names), me/ (the
+  // timezone preview itself), shell/ (MC result + demo-reset countdown), and the
+  // calendar/charts/risk utilities. Each is tracked by #4394, which stays open.
+  // `src/lib/dateFormatRatchet.test.ts` fails when a listed file stops hand-rolling
+  // (take it off the list) or when the list grows.
   {
     files: ['src/features/**/*.{ts,tsx}'],
     ignores: [
