@@ -8375,7 +8375,16 @@ ci:arm64-smoke:
       # version deletion needs the delete:packages scope, so treat even these
       # scratch tags as deliberate litter to clean up.
       if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
-        echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping the GHCR scratch push."
+        # Both absent is the expected state on an unprotected ref; exactly one
+        # absent is a partial configuration (#4364) and must name the gap.
+        if [ -z "${GHCR_USER:-}" ] && [ -z "${GHCR_TOKEN:-}" ]; then
+          echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping the GHCR scratch push."
+        else
+          _missing="GHCR_TOKEN"
+          [ -z "${GHCR_USER:-}" ] && _missing="GHCR_USER"
+          echo "WARNING: only one of GHCR_USER/GHCR_TOKEN is set — ${_missing} is missing."
+          echo "This looks like a misconfiguration, not an unprotected ref. skipping the GHCR scratch push."
+        fi
         echo "They are Masked + Protected, so an UNPROTECTED branch does not receive"
         echo "them. This is the same class of failure api:publish documents inline"
         echo "(missing at the 0.4.0-beta.1 cut because v* was not a Protected Tag)."
@@ -8451,7 +8460,16 @@ ci:amd64-smoke:
       # this job must still pass on its own when GHCR creds are absent,
       # exactly like ci:arm64-smoke already does.
       if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
-        echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping the GHCR scratch push."
+        # Both absent is the expected state on an unprotected ref; exactly one
+        # absent is a partial configuration (#4364) and must name the gap.
+        if [ -z "${GHCR_USER:-}" ] && [ -z "${GHCR_TOKEN:-}" ]; then
+          echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping the GHCR scratch push."
+        else
+          _missing="GHCR_TOKEN"
+          [ -z "${GHCR_USER:-}" ] && _missing="GHCR_USER"
+          echo "WARNING: only one of GHCR_USER/GHCR_TOKEN is set — ${_missing} is missing."
+          echo "This looks like a misconfiguration, not an unprotected ref. skipping the GHCR scratch push."
+        fi
         echo "They are Masked + Protected, so an UNPROTECTED branch does not receive"
         echo "them. This is the same class of failure api:publish documents inline"
         echo "(missing at the 0.4.0-beta.1 cut because v* was not a Protected Tag)."
@@ -8508,7 +8526,16 @@ ci:manifest-probe:
     - |
       set -euo pipefail
       if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
-        echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping ci:manifest-probe."
+        # Both absent is the expected state on an unprotected ref; exactly one
+        # absent is a partial configuration (#4364) and must name the gap.
+        if [ -z "${GHCR_USER:-}" ] && [ -z "${GHCR_TOKEN:-}" ]; then
+          echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping ci:manifest-probe."
+        else
+          _missing="GHCR_TOKEN"
+          [ -z "${GHCR_USER:-}" ] && _missing="GHCR_USER"
+          echo "WARNING: only one of GHCR_USER/GHCR_TOKEN is set — ${_missing} is missing."
+          echo "This looks like a misconfiguration, not an unprotected ref. skipping ci:manifest-probe."
+        fi
         echo "They are Masked + Protected, so an UNPROTECTED branch does not"
         echo "receive them (same class as ci:arm64-smoke's own GHCR-push note)."
         exit 0
