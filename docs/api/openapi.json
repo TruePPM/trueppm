@@ -20876,7 +20876,7 @@
                                 }
                             }
                         },
-                        "description": "Cyclic dependency, invalid input, or out-of-range project span; or an explicit n_simulations whose runs x tasks product exceeds MC_CELL_CAP (#2839) — body {error: simulation_cell_cap_exceeded, message, max_runs, task_count}, where max_runs is the largest count this project admits. An omitted n_simulations is never refused for size: it runs max_runs iterations and the 200 body's `runs` reports the count actually simulated."
+                        "description": "Cyclic dependency, invalid input, or out-of-range project span; or an explicit n_simulations whose runs x tasks product exceeds MC_CELL_CAP (#2839) — body {error: simulation_cell_cap_exceeded, message, max_runs, task_count}, where max_runs is the largest count this project admits. An omitted n_simulations is never refused for size: it runs max_runs iterations and the 200 body's `runs` reports the count actually simulated. Also the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
                     },
                     "402": {
                         "content": {
@@ -21189,7 +21189,7 @@
                                 }
                             }
                         },
-                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a completed task (its dates are actuals), a summary (phase) target whose span is rolled up from its children and so cannot be perturbed, a cyclic dependency, or an out-of-range project span; or an explicit n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — body {error: simulation_cell_cap_exceeded, message, max_runs, task_count}."
+                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a completed task (its dates are actuals), a summary (phase) target whose span is rolled up from its children and so cannot be perturbed, a cyclic dependency, or an out-of-range project span; or an explicit n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — body {error: simulation_cell_cap_exceeded, message, max_runs, task_count}; or the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
                     },
                     "402": {
                         "content": {

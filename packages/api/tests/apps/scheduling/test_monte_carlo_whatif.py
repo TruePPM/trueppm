@@ -115,6 +115,29 @@ class TestWhatIfLagDeltaCap:
         assert r.status_code == 400, r.data
         assert "lag-delta table would exceed 10 cells" in str(r.data)
 
+    def test_engine_sample_cell_cap_returns_400_not_an_upsell(
+        self,
+        member_client: APIClient,
+        project: Project,
+        long_task: Task,
+        short_task: Task,
+    ) -> None:
+        """The engine's sampled-duration cell cap is a hard ceiling on the what-if too.
+
+        No tier raises it, so the what-if must not answer with the 402 ``tier``
+        upsell; the engine's own message reaches the client as a 400 detail.
+        """
+        from unittest import mock
+
+        with mock.patch("trueppm_scheduler.engine.montecarlo.run._MAX_SAMPLE_CELLS", 5):
+            r = member_client.get(
+                _url(project),
+                {"task_id": str(long_task.pk), "duration_delta": 1, "n_simulations": 10},
+            )
+        assert r.status_code == 400, r.data
+        assert "tier" not in r.data
+        assert r.data["detail"].startswith("Monte Carlo sampled durations would exceed 5 cells")
+
 
 @pytest.mark.django_db
 class TestWhatIfHappyPath:

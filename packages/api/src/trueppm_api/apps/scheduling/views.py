@@ -672,7 +672,9 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "message, max_runs, task_count}, where max_runs is the largest count "
                 "this project admits. An omitted n_simulations is never refused for "
                 "size: it runs max_runs iterations and the 200 body's `runs` reports "
-                "the count actually simulated."
+                "the count actually simulated. Also the engine's own sampled-duration "
+                "cell cap (body {detail}), reachable only when an operator raises or "
+                "unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
             ),
             examples=[
                 OpenApiExample(
@@ -1477,7 +1479,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "a cyclic dependency, or an out-of-range project span; or an explicit "
                     "n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — "
                     "body {error: simulation_cell_cap_exceeded, message, max_runs, "
-                    "task_count}."
+                    "task_count}; or the engine's own sampled-duration cell cap (body "
+                    "{detail}), reachable only when an operator raises or unsets "
+                    "MC_CELL_CAP; no tier raises it, so it is never a 402."
                 ),
             ),
             402: OpenApiResponse(
