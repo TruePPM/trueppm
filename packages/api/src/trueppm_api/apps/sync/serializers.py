@@ -12,6 +12,7 @@ import uuid
 from collections.abc import Iterator
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
@@ -518,6 +519,7 @@ class SyncTimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_serializer(deprecate_fields=["has_more"])
 class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-arg]
     """Response envelope for the paginated delta pull (#1013).
 
@@ -551,6 +553,7 @@ class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-a
             "next request; `null` when the delta is exhausted."
         ),
     )
+    # TODO(#4990): remove `has_more` (OpenAPI marks it `deprecated`).
     has_more = serializers.BooleanField(
         help_text=(
             "DEPRECATED — removed in 0.5. True while more pages remain for this "

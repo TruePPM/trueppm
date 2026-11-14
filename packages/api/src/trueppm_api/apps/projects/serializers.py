@@ -6600,6 +6600,28 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         """
         return obj.seeded_at is not None and obj.edited_at is None
 
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "format": "uuid"},
+                    "item_name": {"type": "string"},
+                    "subtask_name": {
+                        "type": "string",
+                        "deprecated": True,
+                        "description": "Deprecated alias of `item_name` (ADR-0101); same value.",
+                    },
+                    "added_by_name": {"type": "string", "nullable": True},
+                    "added_at": {"type": "string", "format": "date-time"},
+                    "goal_impact": {"type": "boolean"},
+                    "status": {"type": "string"},
+                },
+                "required": ["id", "item_name", "added_at", "goal_impact", "status"],
+            },
+        }
+    )
     def get_sprint_scope_changes(self, obj: Task) -> list[dict[str, Any]]:
         """Return scope-change audit rows for the sprint-scope indicator chip."""
         rows = getattr(obj, "_prefetched_sprint_scope_changes", None)
@@ -6617,6 +6639,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 # ADR-0101: `item_name` is the forward-looking key; `subtask_name`
                 # is kept as a deprecated alias for one release so existing clients
                 # don't break. Both carry the same value.
+                # TODO(#4992): remove the alias (its OpenAPI entry is `deprecated`).
                 "subtask_name": r.subtask_name,
                 "item_name": r.item_name,
                 "added_by_name": r.added_by.get_full_name() if r.added_by else None,

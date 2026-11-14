@@ -170,8 +170,7 @@ export interface ApiTask {
   sprint_scope_changes?: Array<{
     // ADR-0102 — scope-change row id; targets the single accept/reject endpoints.
     id?: string;
-    subtask_name: string;
-    item_name?: string;
+    item_name: string;
     added_by_name: string | null;
     added_at: string;
     goal_impact?: boolean;
@@ -493,8 +492,8 @@ export function mapTask(t: ApiTask): Task {
     isSubtask: t.is_subtask ?? false,
     sprintScopeChanges: t.sprint_scope_changes?.map((s) => ({
       id: s.id,
-      subtaskName: s.subtask_name,
-      itemName: s.item_name ?? s.subtask_name,
+      subtaskName: s.item_name,
+      itemName: s.item_name,
       addedByName: s.added_by_name,
       addedAt: s.added_at,
       goalImpact: s.goal_impact ?? false,

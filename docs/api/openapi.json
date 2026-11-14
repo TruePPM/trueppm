@@ -84681,7 +84681,8 @@
                     },
                     "has_more": {
                         "type": "boolean",
-                        "description": "DEPRECATED — removed in 0.5. True while more pages remain for this `since` session. Exactly equivalent to `next_cursor is not null`; loop on that instead. Announced here rather than removed in 0.4 (#2842) because a client following the published drain loop would read `undefined`, treat it as false, and silently stop after page one — missing data presented as a complete sync."
+                        "description": "DEPRECATED — removed in 0.5. True while more pages remain for this `since` session. Exactly equivalent to `next_cursor is not null`; loop on that instead. Announced here rather than removed in 0.4 (#2842) because a client following the published drain loop would read `undefined`, treat it as false, and silently stop after page one — missing data presented as a complete sync.",
+                        "deprecated": true
                     },
                     "resync_required": {
                         "type": "boolean",
@@ -85379,9 +85380,42 @@
                         "type": "array",
                         "items": {
                             "type": "object",
-                            "additionalProperties": {}
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "item_name": {
+                                    "type": "string"
+                                },
+                                "subtask_name": {
+                                    "type": "string",
+                                    "deprecated": true,
+                                    "description": "Deprecated alias of `item_name` (ADR-0101); same value."
+                                },
+                                "added_by_name": {
+                                    "type": "string",
+                                    "nullable": true
+                                },
+                                "added_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "goal_impact": {
+                                    "type": "boolean"
+                                },
+                                "status": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "item_name",
+                                "added_at",
+                                "goal_impact",
+                                "status"
+                            ]
                         },
-                        "description": "Return scope-change audit rows for the sprint-scope indicator chip.",
                         "readOnly": true
                     },
                     "milestone_rollup": {
@@ -88964,9 +88998,42 @@
                         "type": "array",
                         "items": {
                             "type": "object",
-                            "additionalProperties": {}
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "item_name": {
+                                    "type": "string"
+                                },
+                                "subtask_name": {
+                                    "type": "string",
+                                    "deprecated": true,
+                                    "description": "Deprecated alias of `item_name` (ADR-0101); same value."
+                                },
+                                "added_by_name": {
+                                    "type": "string",
+                                    "nullable": true
+                                },
+                                "added_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "goal_impact": {
+                                    "type": "boolean"
+                                },
+                                "status": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "item_name",
+                                "added_at",
+                                "goal_impact",
+                                "status"
+                            ]
                         },
-                        "description": "Return scope-change audit rows for the sprint-scope indicator chip.",
                         "readOnly": true
                     },
                     "milestone_rollup": {

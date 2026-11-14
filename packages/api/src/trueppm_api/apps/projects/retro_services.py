@@ -204,6 +204,7 @@ def promote_retro_action_item(
             # every other ``task_created`` site emits ``{"id": ...}``, and a client
             # keying on ``payload.id`` cannot see this one at all. ``task_id`` stays
             # for one release; drop it after 0.5.
+            # TODO(#4991): drop the alias.
             broadcast_board_event(
                 project_id,
                 "task_created",

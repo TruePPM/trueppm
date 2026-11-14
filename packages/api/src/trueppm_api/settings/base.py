@@ -512,6 +512,7 @@ CHANNEL_LAYERS = {
 # #818). The fallback shipped deprecated-but-live for one release; it is now
 # OFF by default and must be explicitly opted into by an operator who still has
 # clients on the old path. It is removed entirely next release.
+# TODO(#4989): remove the setting and the legacy branch.
 TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED: bool = env.bool(
     "TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED", default=False
 )

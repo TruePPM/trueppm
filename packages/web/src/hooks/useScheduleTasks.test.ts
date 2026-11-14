@@ -383,13 +383,13 @@ describe('useScheduleTasks mapper', () => {
     expect(task.milestoneRollup).toBeNull();
   });
 
-  it('maps sprint_scope_changes rows to camelCase, defaulting itemName and goalImpact', () => {
+  it('maps sprint_scope_changes rows to camelCase, defaulting goalImpact', () => {
     const task = mapTask({
       ...base,
       sprint_scope_changes: [
         {
           id: 'sc1',
-          subtask_name: 'Add retry',
+          item_name: 'Add retry',
           added_by_name: 'Alex',
           added_at: '2026-10-06T12:00:00Z',
           status: 'pending',
@@ -400,7 +400,6 @@ describe('useScheduleTasks mapper', () => {
       {
         id: 'sc1',
         subtaskName: 'Add retry',
-        // itemName falls back to subtask_name when item_name is absent.
         itemName: 'Add retry',
         addedByName: 'Alex',
         addedAt: '2026-10-06T12:00:00Z',
@@ -415,7 +414,6 @@ describe('useScheduleTasks mapper', () => {
       ...base,
       sprint_scope_changes: [
         {
-          subtask_name: 'Legacy item',
           item_name: 'Legacy item (full)',
           added_by_name: null,
           added_at: '2026-10-01T00:00:00Z',

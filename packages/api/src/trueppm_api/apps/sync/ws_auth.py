@@ -16,6 +16,7 @@ log (#818); the fix is a short-lived, single-use **ticket** (RFC 6750 §2.3):
   in the URL leaks into every access log, so the fallback is opt-in for one last
   release and removed next. When it is on and used, :func:`warn_if_legacy` logs it
   (never the value) so operators can find stragglers before removal.
+  TODO(#4989): remove the fallback and :func:`warn_if_legacy` entirely.
 
 The ticket carries authentication only. Each consumer still runs its own
 membership/role authorization gate after resolving the user.
@@ -244,6 +245,8 @@ def warn_if_legacy(result: WsAuthResult, *, consumer: str, project_pk: str) -> N
     A WebSocket client cannot read handshake response headers, so a server-side
     log is the dependable deprecation signal — it lets operators find clients
     still on the legacy path before it is removed next release.
+
+    TODO(#4989): delete this with the fallback.
     """
     if result.via == "token":
         # No secret logged: args are the consumer, project pk and user pk. The
