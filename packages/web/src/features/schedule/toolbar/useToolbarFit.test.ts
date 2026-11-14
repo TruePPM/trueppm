@@ -279,4 +279,31 @@ describe('useToolbarFit: ResizeObserver wiring', () => {
     act(() => observers[0].cb());
     expect(result.current.step).toBe(0);
   });
+
+  it('an observer fire restores an adjustment budget the previous pass exhausted', () => {
+    setViewport(1920);
+    // Exhaust the per-pass budget with the oscillating bar, leaving the cap hit.
+    let oscillate = true;
+    let n = 0;
+    const el = document.createElement('div');
+    Object.defineProperty(el, 'clientWidth', {
+      get: () => (oscillate ? (n % 2 === 0 ? 500 : 2000) : 50),
+      configurable: true,
+    });
+    document.body.appendChild(el);
+    measureMock.mockImplementation(() => {
+      n += 1;
+      return 600;
+    });
+    const ref = { current: el };
+    const { result } = renderHook(() => useToolbarFit(ref));
+    const stuck = result.current.step;
+    expect(stuck).toBeLessThan(MAX_LADDER_STEP);
+
+    // The box is now genuinely cramped. Without the observer's budget reset the
+    // spent budget swallows this pass and the bar stays clipped at `stuck`.
+    oscillate = false;
+    act(() => observers[0].cb());
+    expect(result.current.step).toBeGreaterThan(stuck);
+  });
 });
