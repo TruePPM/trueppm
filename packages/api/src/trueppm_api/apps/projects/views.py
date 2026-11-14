@@ -1145,6 +1145,7 @@ class CalendarViewSet(
     previously the self-grantable ``IsOrgAdmin`` derivation.
     """
 
+    # authoritative: get_permissions() below; this list is a shadowed fallback (#4399).
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     # Declares the intent: Calendars are an org-level library with no project FK.
     # This view builds its own queryset in `get_queryset` and never calls the base
@@ -9002,6 +9003,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     (IsProjectScheduler) is required for write operations (issue #11 role matrix).
     """
 
+    # authoritative: get_permissions() below; this list is a shadowed fallback (#4399).
     permission_classes = [IsAuthenticated, IsProjectScheduler, IsProjectNotArchived]
     resolves_scope_in_body = {
         "create": (
@@ -9817,6 +9819,7 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
     and re-trigger a CPM recompute on commit. Reads are open to any project member.
     """
 
+    # authoritative: get_permissions() below; this list is a shadowed fallback (#4399).
     permission_classes = [IsAuthenticated, IsProjectScheduler, IsProjectNotArchived]
     resolves_scope_in_body = {
         "create": (
@@ -14774,8 +14777,8 @@ def _history_fk_label(obj: Any) -> str:
 #
 # NOTE(#1889): this cap intentionally differs from the history app's
 # ``apps.history.views._MAX_HISTORY_ROWS`` (5000). This view backs the wired
-# ``/projects/<pk>/tasks/<pk>/history/`` route (the history app's
-# ``TaskHistoryListView`` is deliberately unwired — see ``apps/history/urls.py``)
+# ``/projects/<pk>/tasks/<pk>/history/`` route
+# (the history app has no per-task view; its former one was deleted, #4399)
 # and serves the task drawer, so it uses the tighter per-task bound. Do not "sync"
 # the two numbers; cross-reference comments live at both constants.
 _MAX_HISTORY_ROWS = 2000
@@ -16967,7 +16970,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         # by value so the callback needs no query to rebuild them — note it is NOT
         # DB-free: broadcast_board_event persists a BoardEvent row per call, so
         # this is N inserts post-commit. `tasks_bulk_mutated` shows the batched
-        # alternative if that ever matters at this row count.
+        # alternative if that ever matters at this row count. The cost is tied to
+        # the config constant: ``test_sprint_cadence_fanout_cap`` fails if the cap
+        # grows past 52, so whoever raises it must revisit this loop (#4286).
         created_ids = [str(sprint.pk) for sprint in created]
 
         def _announce_created() -> None:

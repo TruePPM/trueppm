@@ -854,7 +854,7 @@ class IsProjectMember(BasePermission):
         if project_id is None:
             # Fail closed, like every sibling class (#4581). An object with no
             # project path has no membership to check; granting "authenticated is
-            # enough" here would let any future viewset that lists this class on a
+            # enough" here would let a viewset added later that lists this class on a
             # project-less model open its detail routes to every signed-in user.
             # Calendar was the original org-level case; since #3600 it declares its
             # own IsAuthenticated / IsWorkspaceAdminStrict and no longer needs this.
@@ -2055,7 +2055,8 @@ class IsWorkspaceOperator(BasePermission):
 class CanAssignResource(BasePermission):
     """Allow Resource Manager (2) or above to assign resources to tasks.
 
-    Stub — used by a future ResourceAssignment viewset (issue #14).
+    Live, not a stub: gates ``ProjectResourceViewSet`` and ``TaskResourceViewSet`` in
+    ``resources/views.py``. Removing it would open resource assignment to any Member.
     """
 
     message = "You need at least Resource Manager role to assign resources."

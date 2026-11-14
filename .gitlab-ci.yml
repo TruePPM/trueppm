@@ -2627,6 +2627,44 @@ api:membership-live-floor:
     - python3 scripts/check-membership-live-floor.py --self-test
     - python3 scripts/check-membership-live-floor.py
 
+api:pii-exposure:
+  # Two account-PII exposure classes were closed by hand ten times with no gate (#3640):
+  # (A) a hand-rolled response dict writing an `email` key, bypassing the serializer that
+  # owns the #891 address-harvest policy; (B) a write ModelSerializer exposing an
+  # unnarrowed User FK, which makes the write an account oracle. AST, no Django, no DB.
+  # Opt-outs and the baseline are rubber stamps: they remove the silence only.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    # Self-test FIRST (#3195): prove both classes are still caught before believing none were.
+    - python3 scripts/check-pii-exposure.py --self-test
+    - python3 scripts/check-pii-exposure.py
+
+api:time-bound-comments:
+  # Comments asserting a time-bound fact ("Stub", "UNRELEASED", "as of this writing")
+  # outlive the fact (#4399). Each match needs a TODO(#NNN) or `time-bound-ok:` reason.
+  # An opt-out is a rubber stamp: it removes the silence only.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    # Self-test FIRST (#3195): prove the gate still fails before believing it passed.
+    - python3 scripts/check-time-bound-comments.py --self-test
+    - python3 scripts/check-time-bound-comments.py
+
 demo:readonly-posture:
   extends: .fast-job
   # The hosted demo must stay read-only by construction (#2773, gates #2271).

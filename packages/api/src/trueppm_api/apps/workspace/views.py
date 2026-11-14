@@ -149,6 +149,7 @@ def _build_member_rows(users: list[Any]) -> list[dict[str, Any]]:
                 "name": display_name_for(u.first_name, u.last_name, u.username),
                 "initials": _initials(u),
                 "color": color_for(u.id),
+                # pii-ok: IsWorkspaceAdmin member list; address is the surface subject
                 "email": u.email,
                 "role": WorkspaceRole(role_val).label,
                 "role_value": role_val,
@@ -250,6 +251,7 @@ def _invite_dict(invite: WorkspaceInvite) -> dict[str, Any]:
     accepted_user = invite.accepted_user
     return {
         "id": str(invite.pk),
+        # pii-ok: IsWorkspaceAdminStrict invite list; the address is the surface subject
         "email": invite.email,
         "role": WorkspaceRole(invite.role).label,
         "role_value": invite.role,

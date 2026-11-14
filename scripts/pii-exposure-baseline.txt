@@ -1,0 +1,31 @@
+# Class B baseline for scripts/check-pii-exposure.py (#3640).
+# One `<path>::<Serializer>.<field>  # reason` per line. Stale entries fail the gate.
+#
+# GRANDFATHERED SNAPSHOT, NOT A REVIEW: these were the hits on main the day the gate
+# landed. Nobody verified each is safe; each arms the gate on the NEXT new instance only.
+# Sync* serializers are delta-stream read shapes (no client write path), and several
+# ProjectSerializer-style fields are narrowed in __init__/get_fields, which the static
+# scan cannot see. Fix by declaring an explicit queryset= or read_only, then delete the line.
+trueppm_api/apps/agents/serializers.py::AgentActionSerializer.principal  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::ProjectSerializer.lead  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::ProgramSerializer.lead  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::TaskSerializer.assignee  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::TaskDurationChangeEventSerializer.actor  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::CrossProjectSlipConflictSerializer.acknowledged_by  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::RiskSerializer.owner  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::RetroActionItemSerializer.assignee  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::ApiTokenAuditEntrySerializer.actor  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/scheduling/serializers.py::VelocitySuggestionSerializer.accepted_by  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/scheduling/serializers.py::VelocitySuggestionSerializer.dismissed_by  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncTaskSerializer.assignee  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncMembershipSerializer.user  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncProgramSerializer.lead  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncProgramMembershipSerializer.user  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncSprintRetroSerializer.created_by  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncRetroActionItemSerializer.assignee  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncTaskSuggestedAssigneeSerializer.suggested_by  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncTaskSuggestedAssigneeSerializer.suggested_user  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncRiskSerializer.owner  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/sync/serializers.py::SyncTimeEntrySerializer.user  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/teams/serializers.py::TeamMembershipReadSerializer.user  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/workspace/serializers.py::GroupWriteSerializer.lead  # grandfathered, unreviewed (#3640)
