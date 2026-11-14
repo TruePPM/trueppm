@@ -271,6 +271,29 @@ test.describe('Why critical drawer section', () => {
     await expect(section(page).getByRole('button', { name: 'Try again' })).toBeVisible();
   });
 
+  test('network view: arrow keys move focus, Escape closes only the dialog and restores focus', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => localStorage.setItem('tppm:whyCritical:detailOpen', '1'));
+    await setup(page, chain());
+    await page.goto(`${SCHEDULE_URL}?task=frame`);
+    const open = section(page).getByRole('button', { name: 'Open network view' });
+    await open.click();
+    const dialog = page.getByRole('dialog', { name: 'Why Frame walls is critical' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Solid link: driving, critical or near-critical');
+    const self = dialog.getByRole('button', { name: /^Frame walls\./ });
+    await self.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(dialog.getByRole('button', { name: /^Pour foundation\./ })).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(self).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(section(page)).toBeVisible();
+    await expect(open).toBeFocused();
+  });
+
   test('a near-critical task (float within the threshold) shows the section and badge', async ({
     page,
   }) => {
