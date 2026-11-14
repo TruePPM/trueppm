@@ -22,23 +22,22 @@ describe('critical fill ink (#4984)', () => {
   it('no source pairs bg-semantic-critical with text-white', () => {
     const offenders: string[] = [];
     for (const f of walk(join(HERE, '..'))) {
-      readFileSync(f, 'utf8')
-        .split('\n')
-        .forEach((line, i) => {
-          // Same quoted class string only: a sibling string on the line may
-          // legitimately carry text-white on a neutral fill.
-          const pair =
-            /bg-semantic-critical(?![-/\w])[^'"`]*(?<![\w:-])text-white(?![\w-])/.test(line) ||
-            /(?<![\w:-])text-white(?![\w-])[^'"`]*bg-semantic-critical(?![-/\w])/.test(line);
-          if (
-            pair &&
-            !line.includes('dark:text-navy-900') &&
-            !line.trim().startsWith('*') &&
-            !line.trim().startsWith('//')
-          ) {
-            offenders.push(`${f}:${i + 1}`);
-          }
-        });
+      // Strip comments, then join `'a ' + 'b'` concatenations, so a class list
+      // split across lines or string pieces is still one string. Known limit:
+      // classes assembled from variables or ternary branches are not seen.
+      const src = readFileSync(f, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '')
+        .replace(/(['"`])\s*\+\s*\1/g, '');
+      for (const m of src.matchAll(/(['"`])((?:(?!\1)[^\\])*)\1/g)) {
+        const str = m[2];
+        if (
+          /bg-semantic-critical(?![-/\w])/.test(str) &&
+          /(?<![\w:-])text-white(?![\w-])/.test(str)
+        ) {
+          offenders.push(`${f}: ${str.slice(0, 80)}`);
+        }
+      }
     }
     expect(offenders).toEqual([]);
   });

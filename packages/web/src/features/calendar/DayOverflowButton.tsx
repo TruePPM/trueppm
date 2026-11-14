@@ -82,7 +82,7 @@ export function DayOverflowButton({
         aria-controls={open ? panelId : undefined}
         aria-label={`${hidden.length} more ${hidden.length === 1 ? 'task' : 'tasks'} on ${dayLabel}`}
         onClick={() => setOpen((v) => !v)}
-        className={`absolute bottom-1 left-1 rounded text-xs text-neutral-text-secondary underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${className}`}
+        className={`absolute bottom-0 left-1 flex min-h-6 items-center rounded px-1 text-xs text-neutral-text-secondary underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${className}`}
       >
         +{hidden.length} more
       </button>

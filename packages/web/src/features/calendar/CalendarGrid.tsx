@@ -75,7 +75,7 @@ const CELL_MIN_HEIGHT_PX = DATE_NUMBER_HEIGHT_PX + MAX_LANES * LANE_HEIGHT_PX + 
 // Month rows reserve a strip below the fourth lane for the "+N more" button: the
 // chips are absolutely positioned at z-10, so a button drawn over lane 4 is both
 // hidden and unclickable (#3179). Week mode has no cap and no button.
-const OVERFLOW_ROW_PX = 18;
+const OVERFLOW_ROW_PX = 24; // WCAG 2.5.8 minimum target size
 const MONTH_ROW_MIN_HEIGHT_PX = CELL_MIN_HEIGHT_PX + OVERFLOW_ROW_PX;
 
 /**
@@ -517,9 +517,9 @@ export function CalendarGrid({
   // The 4-lane cap exists because a month packs 4-6 rows into one viewport, so
   // each row can only afford ~4 chips. A week row has that whole budget to
   // itself, so week mode lifts the cap entirely and shows every task touching
-  // the week. The cap is not a display preference — "+N more" is inert text, so
-  // a capped row silently hides most of a busy week, and every project with 10+
-  // tasks has such a week (#3167).
+  // the week. The cap is not a display preference — a capped row hides tasks
+  // behind a "+N more" button, and a week with 10+ tasks would bury most of
+  // them one click away, so week mode shows them all (#3167).
   const maxLanes = isWeek ? Number.POSITIVE_INFINITY : MAX_LANES;
 
   // Group chips by weekStart ISO

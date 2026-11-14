@@ -41,17 +41,14 @@ describe('Button', () => {
     expect(btn.className).not.toContain('bg-sage-500');
   });
 
-  // #2196 — the danger fill is mode-aware (#B91C1C light / #F87171 dark), so
-  // white ink drops to 2.77:1 in dark mode. `dark:text-navy-900` restores AA by
-  // putting dark ink on the light-red dark fill (4.9:1), mirroring the primary
-  // variant; light mode keeps white ink (6.47:1). Sibling of #2041.
-  it('gives the danger variant dark ink in dark mode so it clears WCAG 1.4.3 (#2196)', () => {
+  // #2196/#4984 — the danger fill is mode-aware (#B91C1C light / #F87171 dark),
+  // so the ink uses the --semantic-on-critical token (white light, navy dark).
+  it('inks the danger variant with the on-critical token so it clears WCAG 1.4.3 (#4984)', () => {
     render(<Button variant="danger">Delete</Button>);
     const btn = screen.getByRole('button', { name: 'Delete' });
     expect(btn.className).toContain('bg-semantic-critical');
-    expect(btn.className).toContain('text-white');
-    // the fix: dark mode swaps white ink for navy ink on the lighter dark fill
-    expect(btn.className).toContain('dark:text-navy-900');
+    expect(btn.className).toContain('text-semantic-on-critical');
+    expect(btn.className).not.toContain('text-white');
   });
 
   // #2196 — navy-900 on sage-600 is only 4.46:1 (marginally under the 4.5:1 AA

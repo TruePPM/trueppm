@@ -341,7 +341,7 @@ describe('CalendarGrid', () => {
     // The cap still applies: 6 overlapping tasks, 4 lanes, 2 hidden.
     expect(screen.getByText('+2 more')).toBeInTheDocument();
     // Fixed 4-lane row height plus the "+N more" strip, independent of task count.
-    expect((rows.querySelector(':scope > div') as HTMLElement).style.minHeight).toBe('138px');
+    expect((rows.querySelector(':scope > div') as HTMLElement).style.minHeight).toBe('144px');
   });
 
   it('week mode renders a single week row, month mode renders several', () => {
@@ -435,8 +435,8 @@ describe('CalendarGrid', () => {
     };
     // 24 + 10*22 + 8 = 252
     expect(rowHeight('week')).toBe('252px');
-    // month is pinned to the 4-lane cell height (+ the 18px "+N more" strip) regardless of task count
-    expect(rowHeight('month')).toBe('138px');
+    // month is pinned to the 4-lane cell height (+ the 24px "+N more" strip) regardless of task count
+    expect(rowHeight('month')).toBe('144px');
   });
 
   it('week mode floors an empty week at the month row height and names it', () => {

@@ -40,12 +40,10 @@ const VARIANT: Record<ButtonVariant, string> = {
     'bg-transparent text-brand-primary border border-transparent ' +
     'hover:bg-brand-primary/10',
   // danger — semantic-critical fill. The fill is mode-aware (#B91C1C light /
-  // #F87171 dark via the CSS var), but white ink is not: white on the light-red
-  // dark fill is only 2.77:1. `dark:text-navy-900` puts dark ink on the light
-  // fill (4.9:1), mirroring the primary variant's dark treatment. Light mode is
-  // unchanged (white on #B91C1C = 6.47:1). (WCAG 1.4.3, #2196; sibling of #2041.)
+  // #F87171 dark), so the ink must be too: `text-semantic-on-critical` is white
+  // in light mode and navy in dark mode (>= 4.5:1 both). (WCAG 1.4.3, #2196, #4984.)
   danger:
-    'bg-semantic-critical text-white dark:text-navy-900 ' +
+    'bg-semantic-critical text-semantic-on-critical ' +
     'border border-semantic-critical hover:opacity-90',
 };
 
