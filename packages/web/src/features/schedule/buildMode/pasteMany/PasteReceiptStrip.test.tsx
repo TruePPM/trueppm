@@ -13,6 +13,7 @@ function summary(over: Partial<PasteSummary> = {}): PasteSummary {
     levelCount: 1,
     matchedFields: ['name'],
     ignoredColumnCount: 0,
+    ignoredColumnNames: [],
     needsDurationCount: 0,
     unmatchedOwnerCount: 0,
     ambiguousOwnerCount: 0,
@@ -58,6 +59,37 @@ describe('buildPasteReceiptMessage', () => {
     expect(buildPasteReceiptMessage(summary({ unmatchedOwnerCount: 4 }))).toContain(
       '4 owners were not on the roster, so were not applied',
     );
+  });
+
+  describe('ignored columns (#3159)', () => {
+    it('says nothing when no column was ignored', () => {
+      expect(buildPasteReceiptMessage(summary())).not.toContain('ignored');
+    });
+
+    it('names a single ignored column and gives the only reason that exists', () => {
+      const message = buildPasteReceiptMessage(
+        summary({ ignoredColumnCount: 1, ignoredColumnNames: ['Sprint'] }),
+      );
+      expect(message).toContain('1 column not recognized and ignored: \u201cSprint\u201d');
+      expect(message).not.toMatch(/permission|allowed|role/i);
+    });
+
+    it('names several ignored columns', () => {
+      const message = buildPasteReceiptMessage(
+        summary({ ignoredColumnCount: 2, ignoredColumnNames: ['Owner Email', 'Sprint'] }),
+      );
+      expect(message).toContain(
+        '2 columns not recognized and ignored: \u201cOwner Email\u201d, \u201cSprint\u201d',
+      );
+    });
+
+    it('caps the list at three names and counts the rest', () => {
+      const message = buildPasteReceiptMessage(
+        summary({ ignoredColumnCount: 5, ignoredColumnNames: ['A', 'B', 'C', 'D', 'E'] }),
+      );
+      expect(message).toContain('\u201cA\u201d, \u201cB\u201d, \u201cC\u201d +2 more');
+      expect(message).not.toContain('\u201cD\u201d');
+    });
   });
 
   it('keeps the owner sentences out of the middot statistics run', () => {

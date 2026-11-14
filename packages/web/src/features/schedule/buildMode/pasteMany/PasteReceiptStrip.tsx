@@ -10,7 +10,7 @@ const FIELD_LABEL: Record<string, string> = {
 };
 
 /** Builds the receipt copy — "38 rows pasted. Hierarchy read from leading
- *  indentation — 4 levels. name · duration · owner matched · 2 columns ignored
+ *  indentation — 4 levels. name · duration · owner matched · 2 columns not recognized and ignored: “Owner Email”, “Sprint”
  *  · 3 rows need a duration." Each clause only appears when it has something
  *  to say, so a clean flat paste reads as a short, confident sentence.
  *
@@ -32,9 +32,15 @@ export function buildPasteReceiptMessage(summary: PasteSummary): string {
     clauses.push(`${summary.matchedFields.map((f) => FIELD_LABEL[f] ?? f).join(' · ')} matched`);
   }
   if (summary.ignoredColumnCount > 0) {
-    clauses.push(
-      `${summary.ignoredColumnCount} column${summary.ignoredColumnCount !== 1 ? 's' : ''} ignored`,
-    );
+    // Name the columns: a bare count is a statistic about something the author can
+    // fix. "Not recognized" is the only reason on this path — headers are matched
+    // client-side and no column is refused for role reasons (#3159).
+    const n = summary.ignoredColumnCount;
+    const shown = summary.ignoredColumnNames.slice(0, 3).map((h) => `\u201c${h}\u201d`);
+    const more = summary.ignoredColumnNames.length - shown.length;
+    const names =
+      shown.length > 0 ? `: ${shown.join(', ')}${more > 0 ? ` +${more} more` : ''}` : '';
+    clauses.push(`${n} column${n !== 1 ? 's' : ''} not recognized and ignored${names}`);
   }
   if (summary.needsDurationCount > 0) {
     const isPlural = summary.needsDurationCount !== 1;

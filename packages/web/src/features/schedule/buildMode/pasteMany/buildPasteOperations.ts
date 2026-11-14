@@ -21,6 +21,9 @@ export interface PasteSummary {
   levelCount: number;
   matchedFields: PasteField[];
   ignoredColumnCount: number;
+  /** Header text of each unmatched column ("column N" when it has none), so the
+   *  receipt can name what the client did not recognize. Never a permission verdict. */
+  ignoredColumnNames: string[];
   needsDurationCount: number;
   /** Rows whose Owner cell named nobody on the roster — a typo or a stale person.
    *  Counted separately from `ambiguousOwnerCount` because the repairs differ. */
@@ -189,7 +192,9 @@ export function buildPasteOperations(
   }
 
   const matchedFields = columns.map((c) => c.field).filter((f): f is PasteField => f !== null);
-  const ignoredColumnCount = columns.filter((c) => c.field === null).length;
+  const ignoredColumns = columns.filter((c) => c.field === null);
+  const ignoredColumnCount = ignoredColumns.length;
+  const ignoredColumnNames = ignoredColumns.map((c) => c.header?.trim() || `column ${c.index + 1}`);
 
   return {
     operations,
@@ -198,6 +203,7 @@ export function buildPasteOperations(
       levelCount: depthsUsed.size,
       matchedFields,
       ignoredColumnCount,
+      ignoredColumnNames,
       needsDurationCount: needsDurationIds.size,
       unmatchedOwnerCount: droppedOwners.filter((o) => o.reason === 'unmatched').length,
       ambiguousOwnerCount: droppedOwners.filter((o) => o.reason === 'ambiguous').length,
