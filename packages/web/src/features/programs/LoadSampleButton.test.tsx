@@ -1,9 +1,20 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SampleInfo } from '@/hooks/useProgramSeedIo';
 import { LoadSampleButton } from './LoadSampleButton';
+
+function throttled(retryAfter = '17') {
+  return new AxiosError('throttled', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status: 429,
+    statusText: 'Too Many Requests',
+    data: {},
+    headers: new AxiosHeaders({ 'retry-after': retryAfter }),
+    config: { headers: new AxiosHeaders() },
+  });
+}
 
 const loadMutate = vi.fn();
 let samplesState: { data: SampleInfo[] | undefined } = { data: undefined };
@@ -109,5 +120,38 @@ describe('LoadSampleButton picker', () => {
     await userEvent.click(screen.getByRole('menuitem', { name: /Atlas Platform Launch/i }));
 
     expect(loadMutate).toHaveBeenCalledWith('atlas-platform-launch', expect.anything());
+  });
+});
+
+describe('LoadSampleButton rate limiting (#2432)', () => {
+  it('shows the Retry-After wait and disables the trigger on a 429', async () => {
+    samplesState = { data: [sample()] }; // single sample: the button loads directly
+    loadMutate.mockImplementation((_key: unknown, opts: { onError: (e: unknown) => void }) =>
+      opts.onError(throttled('30')),
+    );
+    render(
+      <MemoryRouter>
+        <LoadSampleButton />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Load demo data/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Try again in 30 seconds');
+    expect(screen.queryByText(/Could not load the demo/)).toBeNull();
+    expect(screen.getByRole('button', { name: /Load demo data/i })).toBeDisabled();
+  });
+
+  it('keeps the generic message for a non-429 failure', async () => {
+    samplesState = { data: [sample()] };
+    loadMutate.mockImplementation((_key: unknown, opts: { onError: (e: unknown) => void }) =>
+      opts.onError(new Error('boom')),
+    );
+    render(
+      <MemoryRouter>
+        <LoadSampleButton />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Load demo data/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load the demo');
   });
 });

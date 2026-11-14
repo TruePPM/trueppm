@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useLoadSampleProgram, useSamples, type SampleInfo } from '@/hooks/useProgramSeedIo';
+import { useRateLimitCooldown } from '@/hooks/useRateLimitCooldown';
+import { waitPhrase } from '@/lib/rateLimit';
 
 /**
  * "3 projects · 88 tasks" — the scale of a sample, for the picker row.
@@ -41,9 +43,11 @@ export function LoadSampleButton({ variant = 'hero' }: LoadSampleButtonProps) {
   const loadSample = useLoadSampleProgram();
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
+  const cooldown = useRateLimitCooldown();
 
   const load = (key?: string) => {
     setFailed(false);
+    cooldown.clear();
     setOpen(false);
     loadSample.mutate(key, {
       // PM/admin context stays on the program overview; carry the sample key so
@@ -52,7 +56,11 @@ export function LoadSampleButton({ variant = 'hero' }: LoadSampleButtonProps) {
         void navigate(`/programs/${result.program.id}/overview`, {
           state: { startExploringSample: result.sample_key },
         }),
-      onError: () => setFailed(true),
+      onError: (err) => {
+        // A 429 is the per-account cap on sample loads (#2402): name the wait and
+        // hold the button, rather than inviting a retry loop that drains the bucket.
+        if (!cooldown.start(err)) setFailed(true);
+      },
     });
   };
 
@@ -68,7 +76,7 @@ export function LoadSampleButton({ variant = 'hero' }: LoadSampleButtonProps) {
       <button
         type="button"
         onClick={() => (multiple ? setOpen((v) => !v) : load())}
-        disabled={loadSample.isPending}
+        disabled={loadSample.isPending || cooldown.active}
         aria-haspopup={multiple ? 'menu' : undefined}
         aria-expanded={multiple ? open : undefined}
         className={
@@ -135,6 +143,12 @@ export function LoadSampleButton({ variant = 'hero' }: LoadSampleButtonProps) {
             </div>
           </li>
         </ul>
+      )}
+
+      {cooldown.active && (
+        <p role="alert" className="mt-2 text-xs text-neutral-text-secondary">
+          You&rsquo;ve loaded several demos in a row. Try again {waitPhrase(cooldown.waitSeconds)}.
+        </p>
       )}
 
       {failed && (

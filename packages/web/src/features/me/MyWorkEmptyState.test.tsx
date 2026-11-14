@@ -1,7 +1,18 @@
 import { screen, fireEvent } from '@testing-library/react';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { MyWorkEmptyState } from './MyWorkEmptyState';
+
+function throttled(retryAfter = '17') {
+  return new AxiosError('throttled', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status: 429,
+    statusText: 'Too Many Requests',
+    data: {},
+    headers: new AxiosHeaders({ 'retry-after': retryAfter }),
+    config: { headers: new AxiosHeaders() },
+  });
+}
 
 const loadSampleMutate = vi.fn();
 let loadSampleState = { isPending: false };
@@ -92,6 +103,29 @@ describe('MyWorkEmptyState v2 (#499 / ADR-0129)', () => {
     expect(navigateMock).toHaveBeenCalledWith('/programs/prog-1/overview', {
       state: { startExploringSample: 'bayside-civic-center' },
     });
+  });
+
+  it('flavor A — a 429 names the Retry-After wait and disables the CTA instead of a generic failure (#2432)', () => {
+    loadSampleMutate.mockImplementation(
+      (_arg: unknown, opts: { onError: (e: unknown) => void }) => opts.onError(throttled()),
+    );
+    renderWithRouter(<MyWorkEmptyState hasProjects={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Explore a demo project' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /loaded several demos in a row\. Try again in 17 seconds/,
+    );
+    expect(screen.queryByText(/Couldn.t load the demo/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Explore a demo project' })).toBeDisabled();
+  });
+
+  it('flavor A — a non-429 failure still shows the generic message (#2432)', () => {
+    loadSampleMutate.mockImplementation(
+      (_arg: unknown, opts: { onError: (e: unknown) => void }) => opts.onError(new Error('boom')),
+    );
+    renderWithRouter(<MyWorkEmptyState hasProjects={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Explore a demo project' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn.t load the demo/);
+    expect(screen.getByRole('button', { name: 'Explore a demo project' })).toBeEnabled();
   });
 
   it('flavor B (has projects, no assignments) — refreshed copy, NO demo CTA', () => {

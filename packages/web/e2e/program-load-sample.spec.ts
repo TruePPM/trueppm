@@ -188,6 +188,29 @@ test.describe('Load demo data', () => {
     ).toContainText('Start exploring — Atlas Platform Launch');
   });
 
+  test('a 429 from load-sample names the Retry-After wait and holds the trigger (#2432)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/programs/load-sample/', (r) =>
+      r.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        headers: { 'Retry-After': '27' },
+        body: pj({ detail: 'Request was throttled. Expected available in 27 seconds.' }),
+      }),
+    );
+    await page.goto('/programs');
+
+    const trigger = page.getByRole('button', { name: /Load demo data/i }).first();
+    await trigger.click();
+    await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
+
+    await expect(page.getByRole('alert').filter({ hasText: 'Try again in 27 seconds' })).toBeVisible();
+    await expect(page.getByText('Could not load the demo')).toHaveCount(0);
+    await expect(trigger).toBeDisabled();
+  });
+
   test('the sample projects appear in the sidebar without a manual refresh', async ({ page }) => {
     await setup(page);
 
