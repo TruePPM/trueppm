@@ -342,6 +342,10 @@ cannot be regenerated, and therefore depend on the originals being retained:
   ancestor queries);
 - the composite `(project_id, history_date)` index on `projects_historicaltask` —
   a raw `CREATE INDEX` operation;
+- the IMMUTABLE `wbs_sort_key(ltree)` SQL function (`projects.0171`) — `RunSQL`;
+  it must exist before `task_proj_wbs_sort_idx` is built and before any query on
+  `Task`'s default ordering, so a regenerated `0001_initial` would break every task
+  query. Keep it via `replaces=`;
 - the functional index on `UPPER(auth_user.email::text)` (`profiles.0009`) — a raw
   `CREATE INDEX` operation. `auth.User` is a `django.contrib` model we do not own,
   so `Meta.indexes` is unavailable and the index exists **DB-side only**, with no

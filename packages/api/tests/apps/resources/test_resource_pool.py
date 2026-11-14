@@ -1257,3 +1257,17 @@ class TestRosterChangedBroadcast:
             )
         assert res.status_code == 200, res.data
         assert ("roster_changed", {"resource_id": str(resource.pk)}) in events
+
+
+def test_published_schema_declares_optional_skill_fit_fields() -> None:
+    """#3588: the ``?task=`` annotation is in the schema, and optional (never required)."""
+    import json
+    from pathlib import Path
+
+    schema = json.loads(
+        (Path(__file__).resolve().parents[5] / "docs" / "api" / "openapi.json").read_text()
+    )
+    resource = schema["components"]["schemas"]["Resource"]
+    assert {"skill_fit", "missing_skills"} <= set(resource["properties"])
+    assert not {"skill_fit", "missing_skills"} & set(resource.get("required", []))
+    assert "MissingSkill" in schema["components"]["schemas"]

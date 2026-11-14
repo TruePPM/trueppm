@@ -113,24 +113,24 @@ def _reject_infeasible_graph(
         # the engine refuses on every recalculation (#4856).
         validate_task_graph(edges, children_map=children_map)
     except InfeasibleGraphError as exc:
-        # ImportRequest has no result_summary column to persist the detail on
-        # (unlike CsvImportRequest), so the TaskRunTracker's FAILED message is the
-        # only surface that outlives the worker — log the human-readable form for
-        # the operator as well (#2714).
+        # The human-readable form (task names, not uid space) is persisted on the
+        # ImportRequest row as well as logged and carried on the TaskRun, so it
+        # outlives the worker (#2714).
         detail = describe_bad_graph(project_data, exc, edges)
         logger.warning("import.msproject: rejected %s — %s", filename, detail)
         if import_request_id:
-            _mark_import_dead(import_request_id)
-        # Re-raised with the described text: it becomes TaskRun.error_detail, the
-        # only user-visible record of a rejected MS Project import (ImportRequest
-        # has no error column).
+            _mark_import_dead(import_request_id, detail)
+        # Re-raised with the described text: it becomes TaskRun.error_detail.
         raise ImportGraphRejected(exc, detail) from exc
     except InvalidScheduleInput as exc:
         # A malformed summary shape (fan-out past the engine cap) is as
         # deterministic as a cycle: DEAD, or the orphan drain re-dispatches forever.
         logger.warning("import.msproject: rejected %s — %s", filename, exc)
         if import_request_id:
-            _mark_import_dead(import_request_id)
+            _mark_import_dead(
+                import_request_id,
+                "The task hierarchy in this file is too large or malformed to schedule.",
+            )
         raise
 
 
@@ -184,7 +184,9 @@ def import_msproject(
             # (broker, timeout, transient DB) happen later and leave the row
             # DISPATCHED for the normal drain/retry path.
             if import_request_id:
-                _mark_import_dead(import_request_id)
+                _mark_import_dead(
+                    import_request_id, f"{filename} could not be read as an MS Project file."
+                )
             raise
 
         # Runs OUTSIDE the atomic() block below — see the helper's docstring for
@@ -302,19 +304,27 @@ def _claim_import(import_request_id: str) -> bool:
     return bool(claimed)
 
 
-def _mark_import_dead(import_request_id: str) -> None:
+def _mark_import_dead(import_request_id: str, detail: str = "") -> None:
     """Flip the ImportRequest row to DEAD after a terminal (parse) failure.
 
     DEAD is excluded from the orphan-drain recovery, so a deterministically bad
     file is not re-dispatched forever (ADR-0092). Because it is terminal and can
     never be retried, the base64 payload is cleared here too for the same reason
     as DONE — it is only needed for pre-terminal retry (#789).
+
+    ``detail`` is persisted as ``result_summary["error"]`` (mirroring
+    ``CsvImportRequest``): the worker's logs and the TaskRun are the only other
+    records of *why*, and the row is what a poller reads after the worker is gone.
     """
     from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
 
     ImportRequest.objects.filter(id=import_request_id).exclude(
         status=ImportRequestStatus.DONE
-    ).update(status=ImportRequestStatus.DEAD, file_content_b64="")
+    ).update(
+        status=ImportRequestStatus.DEAD,
+        file_content_b64="",
+        result_summary={"error": detail or "The file could not be imported."},
+    )
 
 
 def _apply_header_to_project(project_id: str, data: ProjectData) -> None:

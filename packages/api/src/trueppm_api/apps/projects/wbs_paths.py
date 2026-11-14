@@ -23,6 +23,36 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from django.db.models import Func, TextField
+from django.db.models.expressions import OrderBy
+
+
+# Fixed SQL function name and a column reference; no user input reaches this expression.
+# nosemgrep: extends-custom-expression
+class WbsSortKey(Func):
+    """``wbs_sort_key(wbs_path)`` — the numeric-aware sort key for a WBS path (#4854).
+
+    ``ltree`` compares label by label as *text*, so with ten or more siblings "10"
+    and "11" sort before "2" wherever a bare ``order_by("wbs_path")`` is displayed or
+    exported. The SQL function (created by ``projects.0171``) pads every all-digit
+    label to a fixed width and returns ``text[]``, which compares element-wise, so
+    ``1.2`` < ``1.10``. Non-numeric labels pass through unchanged. The function is
+    IMMUTABLE, which is what lets ``task_proj_wbs_sort_idx`` serve ``Task.Meta.ordering``
+    exactly as ``task_proj_wbs_name_idx`` served the text order.
+
+    Use :func:`wbs_order` rather than ``order_by("wbs_path")`` for anything a person
+    reads or a file carries. Lock-ordering queries (``select_for_update``) only need
+    a consistent order, not a numeric one, and may keep the bare column.
+    """
+
+    function = "wbs_sort_key"
+    output_field = TextField()  # text[]; only ever ordered on
+
+
+def wbs_order(field: str = "wbs_path", *, descending: bool = False) -> OrderBy:
+    """An ``order_by`` term that sorts ``field`` numerically per label (#4854)."""
+    return WbsSortKey(field).desc() if descending else WbsSortKey(field).asc()
+
 
 def min_root_ordinal(paths: Iterable[str | None]) -> int | None:
     """The smallest numeric root label in ``paths``, or ``None`` if there is none.
@@ -78,9 +108,9 @@ def root_ordinal_offset(
         # nosemgrep: avoid-raw-sql
         rows.annotate(root_label=RawSQL("subpath(projects_task.wbs_path, 0, 1)::text", []))  # nosec B611
         .values_list("root_label", flat=True)
-        # Task.Meta.ordering is ["wbs_path", "name"], and Postgres requires every
+        # Task.Meta.ordering is [wbs_order, "name"], and Postgres requires every
         # ORDER BY expression to appear in a SELECT DISTINCT list — so without this
-        # Django widens the DISTINCT key to (root_label, wbs_path, name), which is
+        # Django widens the DISTINCT key to (root_label, wbs_sort_key(wbs_path), name), which is
         # unique per task. The query then streams one row per task, plus a sort, to
         # compute a single integer. Clearing the ordering is what makes the "distinct
         # root labels" this docstring promises actually true.

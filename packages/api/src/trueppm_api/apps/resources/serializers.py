@@ -135,6 +135,18 @@ class _BlankableEmailField(serializers.CharField):
         return value
 
 
+class MissingSkillSerializer(serializers.Serializer[dict[str, Any]]):
+    """One unmet task skill requirement in ``GET /resources/?task=`` (documentation only)."""
+
+    skill_id = serializers.UUIDField()
+    skill_name = serializers.CharField()
+    # Wire name is fixed by #3588; it shadows ``Field.required: bool`` for mypy only.
+    required = serializers.IntegerField(help_text="Minimum proficiency the task requires.")  # type: ignore[assignment]
+    required_label = serializers.CharField()
+    actual = serializers.IntegerField(help_text="The resource's proficiency; 0 when not tagged.")
+    actual_label = serializers.CharField()
+
+
 class ResourceSerializer(serializers.ModelSerializer[Resource]):
     """Read/write serializer for named resources (people, equipment, or material).
 
@@ -166,6 +178,20 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
     # valid response (see _BlankableEmailField for why a stock EmailField cannot
     # drop the format).
     email = _BlankableEmailField(required=False, allow_blank=True)
+    # ``?task=`` annotation, attached by ``ResourceViewSet.list`` to the serialized dict
+    # (never by this serializer), so drf-spectacular cannot see it unless it is declared
+    # here (#3588). ``required=False`` makes DRF skip them on every other row and keeps
+    # them out of the schema's ``required`` list; they are present only when ``?task=`` is
+    # passed and the caller is a member of the task's project (#3571). Declared on the
+    # base serializer, not a subclass, so the shipped ``Resource`` / ``PaginatedResourceList``
+    # component names (which SDKs generate types from) do not change.
+    skill_fit = serializers.ChoiceField(
+        choices=["exact", "partial", "missing"],
+        required=False,
+        read_only=True,
+        help_text="Only with ?task=: how well the resource's skills meet the task's requirements.",
+    )
+    missing_skills = MissingSkillSerializer(many=True, required=False, read_only=True)
     # Hourly cost rate in the workspace currency (ADR-1324, #754). Read-only here: the
     # one write path is ``POST /resources/{id}/rate/``, whose dry-run preview and save
     # share one computation. A salary proxy — present only for a workspace ADMIN+
@@ -190,13 +216,24 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
             "name",
             "email",
             "job_role",
+            "employee_id",
             "calendar",
             "max_units",
             "cost_rate",
             "skills",
             "is_me",
+            "skill_fit",
+            "missing_skills",
         ]
-        read_only_fields = ["id", "server_version", "skills", "is_me", "cost_rate"]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "skills",
+            "is_me",
+            "cost_rate",
+            "skill_fit",
+            "missing_skills",
+        ]
 
     def get_is_me(self, obj: Resource) -> bool:
         request = self.context.get("request")
@@ -263,11 +300,13 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
         # serializer inherits this because it reuses this class with the same context.
         if "cost_rate" in data and not self._caller_is_workspace_admin():
             data.pop("cost_rate")
-        if "email" not in data:
+        # ``employee_id`` is HR data like ``email``: same read floor, same self-view carve-out.
+        if "email" not in data and "employee_id" not in data:
             return data
         if data.get("is_me") or self._caller_is_workspace_admin():
             return data
         data.pop("email", None)
+        data.pop("employee_id", None)
         return data
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -300,6 +339,10 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
         if "email" in attrs and not self._caller_is_workspace_admin():
             raise serializers.ValidationError(
                 {"email": "Only a workspace admin may set a resource's email address."}
+            )
+        if "employee_id" in attrs and not self._caller_is_workspace_admin():
+            raise serializers.ValidationError(
+                {"employee_id": "Only a workspace admin may set a resource's employee ID."}
             )
         return attrs
 

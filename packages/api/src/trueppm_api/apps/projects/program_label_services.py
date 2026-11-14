@@ -23,6 +23,7 @@ from django.db.models import Count, Min, Prefetch, QuerySet
 from django.db.models.functions import Lower
 
 from trueppm_api.apps.projects.models import Label, Task
+from trueppm_api.apps.projects.wbs_paths import wbs_order
 
 
 class LabelCatalogEntry(TypedDict):
@@ -58,7 +59,7 @@ def tasks_by_label_name(*, project_ids: Iterable[UUID | str], label_name: str) -
         .prefetch_related(Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)))
         # A task carrying two labels that both match would otherwise repeat.
         .distinct()
-        .order_by("project__name", "wbs_path")
+        .order_by("project__name", wbs_order())
     )
 
 

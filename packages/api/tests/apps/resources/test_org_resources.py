@@ -1031,3 +1031,55 @@ class TestOrgAuthorityIgnoresDeadProjects:
         live = Project.objects.create(name="Live", start_date="2026-01-01")
         ProjectMembership.objects.create(user=user, project=live, role=Role.ADMIN)
         assert self._create_resource(c, "Mixed").status_code == 201
+
+
+class TestEmployeeIdExposure:
+    """``employee_id`` (#3838) is HR data: same read and write floors as ``email``."""
+
+    def test_defaults_to_blank(self, resource: Resource) -> None:
+        assert resource.employee_id == ""
+
+    def test_workspace_admin_can_set_and_read_it(
+        self, admin_and_workspace_admin_client: APIClient, resource: Resource
+    ) -> None:
+        res = admin_and_workspace_admin_client.patch(
+            f"/api/v1/resources/{resource.pk}/", {"employee_id": "W-1042"}, format="json"
+        )
+        assert res.status_code == 200
+        assert res.data["employee_id"] == "W-1042"
+        resource.refresh_from_db()
+        assert resource.employee_id == "W-1042"
+
+    def test_org_admin_cannot_write_it(self, admin_client: APIClient, resource: Resource) -> None:
+        res = admin_client.patch(
+            f"/api/v1/resources/{resource.pk}/", {"employee_id": "X-1"}, format="json"
+        )
+        assert res.status_code == 400
+        assert "employee_id" in res.data
+        resource.refresh_from_db()
+        assert resource.employee_id == ""
+
+    def test_over_length_is_rejected(
+        self, admin_and_workspace_admin_client: APIClient, resource: Resource
+    ) -> None:
+        res = admin_and_workspace_admin_client.patch(
+            f"/api/v1/resources/{resource.pk}/", {"employee_id": "x" * 65}, format="json"
+        )
+        assert res.status_code == 400
+
+    def test_stripped_for_non_admin_readers(
+        self, member_client: APIClient, operator_client: APIClient, resource: Resource
+    ) -> None:
+        Resource.objects.filter(pk=resource.pk).update(employee_id="W-1042")
+        row = next(
+            r
+            for r in member_client.get("/api/v1/resources/").data["results"]
+            if r["id"] == str(resource.pk)
+        )
+        assert "employee_id" not in row
+        row = next(
+            r
+            for r in operator_client.get("/api/v1/resources/").data["results"]
+            if r["id"] == str(resource.pk)
+        )
+        assert row["employee_id"] == "W-1042"

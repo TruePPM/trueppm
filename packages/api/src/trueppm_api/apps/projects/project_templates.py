@@ -476,6 +476,15 @@ def materialize_structure(
     # Allocate a contiguous short_id block in one UPDATE, exactly as the MS Project
     # importer does — per-row allocation would be N round-trips and the per-project
     # unique constraint rejects the second blank one.
+    #
+    # ORDER MATTERS (#3074): this UPDATE takes the Project row's write lock and holds
+    # it to commit, so a second apply to the same project blocks here until the first
+    # commits, and the ordinal-offset read below (a fresh READ COMMITTED statement)
+    # then sees the first apply's rows. Moving ``root_ordinal_offset`` above this
+    # draw reopens the race: both applies would read the same maximum, write the same
+    # paths, and the loser would die on the live-path unique constraint at COMMIT.
+    # ``test_template_apply_concurrency`` pins it. Must be called inside the caller's
+    # transaction for the lock to span the read and the insert.
     count = len(nodes)
     end_seq = draw_project_sequence(project.pk, "object_sequence", by=count)
     start_seq = end_seq - count + 1

@@ -58,6 +58,7 @@ def export_project_xml(project_id: str) -> bytes:
         UTF-8 encoded XML bytes.
     """
     from trueppm_api.apps.projects.models import Dependency, Project, Task
+    from trueppm_api.apps.projects.wbs_paths import wbs_order
     from trueppm_api.apps.resources.models import Resource, TaskResource
     from trueppm_api.apps.scheduling.calendars import resolve_applied_calendars
 
@@ -68,7 +69,7 @@ def export_project_xml(project_id: str) -> bytes:
     ).get(pk=project_id)
     applied_calendars = resolve_applied_calendars(project)
     tasks = list(
-        Task.objects.filter(project_id=project_id, is_deleted=False).order_by("wbs_path", "name")
+        Task.objects.filter(project_id=project_id, is_deleted=False).order_by(wbs_order(), "name")
     )
     dependencies = list(
         Dependency.objects.filter(

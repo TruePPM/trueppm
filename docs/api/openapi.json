@@ -59665,6 +59665,79 @@
                     "user_id"
                 ]
             },
+            "MissingSkill": {
+                "type": "object",
+                "description": "One unmet task skill requirement in ``GET /resources/?task=`` (documentation only).",
+                "properties": {
+                    "skill_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill_name": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "type": "integer",
+                        "description": "Minimum proficiency the task requires."
+                    },
+                    "required_label": {
+                        "type": "string"
+                    },
+                    "actual": {
+                        "type": "integer",
+                        "description": "The resource's proficiency; 0 when not tagged."
+                    },
+                    "actual_label": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "actual",
+                    "actual_label",
+                    "required",
+                    "required_label",
+                    "skill_id",
+                    "skill_name"
+                ]
+            },
+            "MissingSkillRequest": {
+                "type": "object",
+                "description": "One unmet task skill requirement in ``GET /resources/?task=`` (documentation only).",
+                "properties": {
+                    "skill_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "required": {
+                        "type": "integer",
+                        "description": "Minimum proficiency the task requires."
+                    },
+                    "required_label": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "actual": {
+                        "type": "integer",
+                        "description": "The resource's proficiency; 0 when not tagged."
+                    },
+                    "actual_label": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "actual",
+                    "actual_label",
+                    "required",
+                    "required_label",
+                    "skill_id",
+                    "skill_name"
+                ]
+            },
             "ModeEnum": {
                 "enum": [
                     "export",
@@ -63863,6 +63936,10 @@
                     "job_role": {
                         "type": "string",
                         "maxLength": 120
+                    },
+                    "employee_id": {
+                        "type": "string",
+                        "maxLength": 64
                     },
                     "calendar": {
                         "type": "string",
@@ -72803,6 +72880,10 @@
                         "type": "string",
                         "maxLength": 120
                     },
+                    "employee_id": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
                     "calendar": {
                         "type": "string",
                         "format": "uuid",
@@ -72830,6 +72911,22 @@
                     },
                     "is_me": {
                         "type": "boolean",
+                        "readOnly": true
+                    },
+                    "skill_fit": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SkillFitEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Only with ?task=: how well the resource's skills meet the task's requirements.\n\n* `exact` - exact\n* `partial` - partial\n* `missing` - missing"
+                    },
+                    "missing_skills": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MissingSkill"
+                        },
                         "readOnly": true
                     }
                 },
@@ -73057,6 +73154,10 @@
                     "job_role": {
                         "type": "string",
                         "maxLength": 120
+                    },
+                    "employee_id": {
+                        "type": "string",
+                        "maxLength": 64
                     },
                     "calendar": {
                         "type": "string",
@@ -75137,6 +75238,16 @@
                     "normalized_name",
                     "server_version"
                 ]
+            },
+            "SkillFitEnum": {
+                "enum": [
+                    "exact",
+                    "partial",
+                    "missing"
+                ],
+                "type": "string",
+                "description": "* `exact` - exact\n* `partial` - partial\n* `missing` - missing",
+                "x-trueppm-enum": "open"
             },
             "SkillRequest": {
                 "type": "object",

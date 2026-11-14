@@ -429,6 +429,12 @@ ROLE_OMITTED_RESPONSE_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         # ADR-1324 §4: workspace ADMIN only (ResourceSerializer.to_representation).
         ("Resource", "cost_rate"),
+        # #3838: HR data, workspace ADMIN or the row's own user (like ``email``).
+        ("Resource", "employee_id"),
+        # #3588: attached only by ``GET /resources/?task=`` for a member of the task's
+        # project (#3571); absent on every other row and every other endpoint.
+        ("Resource", "skill_fit"),
+        ("Resource", "missing_skills"),
     }
 )
 

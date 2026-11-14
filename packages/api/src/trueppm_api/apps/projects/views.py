@@ -337,6 +337,7 @@ from trueppm_api.apps.projects.summary_link_guard import (
 from trueppm_api.apps.projects.task_bulk import (
     BulkOutcome,
 )
+from trueppm_api.apps.projects.wbs_paths import wbs_order
 from trueppm_api.apps.scheduling.finish_reading import FINISH_READING_FIELDS
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
@@ -4214,7 +4215,7 @@ class ProjectViewSet(
                 total_float__isnull=False,
                 total_float__lte=5,
             )
-            .order_by("total_float", "wbs_path")
+            .order_by("total_float", wbs_order())
             .values("id", "name", "wbs_path")[:5]
         )
         at_risk_tasks = [
@@ -4223,7 +4224,7 @@ class ProjectViewSet(
 
         critical_qs = (
             incomplete_tasks.filter(is_critical=True)
-            .order_by("wbs_path")
+            .order_by(wbs_order())
             .values("id", "name", "wbs_path")[:5]
         )
         critical_tasks = [
@@ -5944,11 +5945,25 @@ def _next_root_wbs_path(project: Any) -> str:
     has always claimed was not a property the query had. ``test_next_root_wbs_path_locks``
     pins it.
     """
-    highest = 0
-    for path in (
+    # Lock order is task rows, THEN the Project row — the order single-row synced
+    # writers take them in (task writes first, then ``last_sync_version`` on the
+    # Project via ``sync.sequence``); bulk writes via task_bulk.py:450 and the
+    # tombstone reaper in sync/tasks.py:~489 are known exceptions, where Postgres
+    # aborts one side. Reversing it here would deadlock a root create
+    # against a root-level renumber/indent. ``FOR UPDATE`` on the roots locks only rows
+    # that already exist, so two creates into an *empty* project both see "no roots"
+    # and both write ``1`` (#3074); the Project lock closes that: the second creator
+    # blocks on it until the first commits, and the plain re-read below then sees the
+    # first's row.
+    list(
         Task.objects.select_for_update()
         .filter(project=project, wbs_path__regex=_ROOT_WBS_RE)
-        .values_list("wbs_path", flat=True)
+        .values_list("pk", flat=True)
+    )
+    list(Project.objects.select_for_update().filter(pk=project.pk).values_list("pk", flat=True))
+    highest = 0
+    for path in Task.objects.filter(project=project, wbs_path__regex=_ROOT_WBS_RE).values_list(
+        "wbs_path", flat=True
     ):
         label = str(path)
         if label.isdigit():
@@ -6495,6 +6510,25 @@ class TaskListPagination(ScheduleFetchPagination):
         return list(self.page)
 
 
+class _NumericWbsOrderingFilter(filters.OrderingFilter):
+    """``OrderingFilter`` that sorts ``wbs_path`` numerically per label (#4854).
+
+    DRF would emit ``ORDER BY wbs_path``, which compares ltree labels as text so
+    "10" sorts before "2" once a level has ten siblings. Swapping in the
+    ``wbs_sort_key`` expression keeps the query on ``task_proj_wbs_sort_idx``.
+    """
+
+    def filter_queryset(self, request: Request, queryset: Any, view: Any) -> Any:
+        ordering = self.get_ordering(request, queryset, view)
+        if not ordering:
+            return queryset
+        terms = [
+            wbs_order(descending=term.startswith("-")) if term.lstrip("-") == "wbs_path" else term
+            for term in ordering
+        ]
+        return queryset.order_by(*terms)
+
+
 @extend_schema_view(
     update=extend_schema(
         # TaskWriteResponse, not Task: a successful write can carry a ``warnings`` array
@@ -6805,7 +6839,7 @@ class TaskViewSet(
     # queryset instead of the fully annotated one — see its docstring and
     # `list()`/`get_queryset()` below.
     pagination_class = TaskListPagination
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [filters.SearchFilter, _NumericWbsOrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
     # No `ordering = [...]` override (#2814, removes the #2807 workaround). #2807
@@ -6815,11 +6849,11 @@ class TaskViewSet(
     # GROUP BY is present (`if self._meta_ordering: order_by = None`), so the
     # shipped list query paginated with no ORDER BY at all. #2814 converted every
     # aggregate annotation to a correlated `Subquery(...)`, so the outer query has
-    # no GROUP BY any more and `Task.Meta.ordering = ["wbs_path", "name"]` reaches
-    # this endpoint unassisted — the same order the model declares, and the order a
-    # `(project, wbs_path, name)` btree can now actually serve (see that index's
-    # migration for the "why only now" reasoning). Clients that want a different
-    # order still ask for it via `?ordering=`.
+    # no GROUP BY any more and `Task.Meta.ordering = [wbs_sort_key(wbs_path), "name"]` reaches
+    # this endpoint unassisted — the same order the model declares, and the order the
+    # `task_proj_wbs_sort_idx` (project, wbs_sort_key(wbs_path), name) btree can now
+    # actually serve (see that index's migration for the "why only now" reasoning).
+    # Clients that want a different order still ask for it via `?ordering=`.
     queryset = (
         Task.objects.select_related("project", "sprint")
         .prefetch_related("assignments__resource")
@@ -6875,7 +6909,7 @@ class TaskViewSet(
         identically to the annotated one.
 
         ``.order_by().values("pk").distinct()`` — not a bare ``.distinct()`` —
-        because `Task.Meta.ordering = ["wbs_path", "name"]` would otherwise inject
+        because `Task.Meta.ordering = [wbs_sort_key(wbs_path), "name"]` would otherwise inject
         those columns into the SELECT list and silently defeat distinctness for a
         filter that fans out over a to-many join (``_filter_tasks_by_labels``,
         ``_filter_tasks_mine``): two rows that are duplicates on ``pk`` alone can
@@ -16206,7 +16240,7 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 wbs_path__regex=_ROOT_WBS_RE,
             )
             .select_related("project", "assignee")
-            .order_by("priority_rank", "wbs_path", "name")
+            .order_by("priority_rank", wbs_order(), "name")
         )
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:

@@ -28,6 +28,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
 )
 from trueppm_api.apps.projects.sharing_settings import resolve_effective_sharing
+from trueppm_api.apps.projects.wbs_paths import wbs_order
 from trueppm_api.apps.workspace.serializers import display_name_for
 
 logger = logging.getLogger(__name__)
@@ -355,7 +356,7 @@ def serialize_public_schedule(link: ShareLink) -> dict[str, Any]:
     qs = (
         Task.committed.filter(project=project)
         .select_related("assignee")
-        .order_by("wbs_path", "early_start", "name")
+        .order_by(wbs_order(), "early_start", "name")
     )
     if not link.show_milestone_dates:
         # Withheld in SQL, not filtered out of the page in Python (#2532): the row

@@ -394,6 +394,15 @@ class TestImportTaskRejectsBadGraphs:
         # #789: a DEAD row can never be retried, so its payload is cleared too.
         assert req.file_content_b64 == ""
 
+    def test_cyclic_file_persists_a_human_readable_reason(self, project: Project) -> None:
+        # #2714: the reason outlives the worker on the row, in task names rather
+        # than uid space / reason codes.
+        _result, req = self._run(project, CYCLIC_XML, "cyclic.xml")
+
+        error = req.result_summary["error"]
+        assert error.startswith("Circular dependency")
+        assert "cyclic_dependency" not in error
+
     def test_self_referential_file_creates_no_tasks(self, project: Project) -> None:
         result, req = self._run(project, SELF_REF_XML, "selfref.xml")
 
