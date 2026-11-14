@@ -35,7 +35,7 @@ def _promises_without_todo(lines: list[str]) -> list[int]:
 
 def test_removal_promise_detector_flags_a_bare_comment() -> None:
     assert _promises_without_todo(["# this alias is removed in 0.5"]) == [1]
-    assert _promises_without_todo(["# removed in 0.5", "# TODO(#1)"]) == []
+    assert _promises_without_todo(["# removed in 0.5", "# TODO(#" + "12)"]) == []
     assert _promises_without_todo(["# was removed in 0.4 and is gone"]) == []
 
 
