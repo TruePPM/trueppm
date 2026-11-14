@@ -22,15 +22,27 @@ export function registerSessionBridge(bridge: SessionBridge | null): void {
   sessionBridge = bridge;
 }
 
+/** Drop every cached read through the bridge. Used when a sibling tab signs out
+ *  (#4296): the menu's sign-out clears its own tab's cache, and the receiving tab
+ *  must not keep the previous user's data in memory either. */
+export function clearSessionCache(): void {
+  sessionBridge?.clearCache();
+}
+
 /** Options for the store actions that broadcast. Receivers of a broadcast pass
  *  `broadcast: false` so a change is never echoed back around the tabs. */
 export interface BroadcastOption {
   broadcast?: boolean;
 }
 
-/** How long "Continue viewing" may keep cached data on screen once the session is
- *  gone (#4313). The server cannot be asked while expired, so an account deactivated
- *  in the meantime would otherwise stay readable for the life of the tab. */
+/** True for the rest of the task in which the first refused-write cue was shown. */
+let cueJustShown = false;
+
+/** How long cached data may stay on screen once the session is gone (#4313),
+ *  measured from the moment it ended (`sessionEndedAt`), whether the modal or the
+ *  read-only bar is showing. The server cannot be asked while expired, so an account
+ *  deactivated in the meantime would otherwise stay readable for the life of the tab.
+ *  Nothing the user does in the meantime extends it. */
 export const READ_ONLY_VIEW_WINDOW_MS = 15 * 60 * 1000;
 
 interface AuthState {
@@ -67,8 +79,10 @@ interface AuthState {
   /** The user chose read-only from the modal, so the banner takes focus from it. False
    *  when the banner appeared on its own (#4316): stealing focus mid-edit would be worse. */
   focusReadOnlyBar: boolean;
-  /** When the user entered read-only mode (epoch ms), for the view window (#4313). */
-  readOnlySince: number | null;
+  /** When this tab learned the session ended (epoch ms), for the view window (#4313).
+   *  Set only on a FRESH expiry; entering read-only mode, a refused write and a
+   *  sibling tab's broadcast never move it, so the window cannot be extended. */
+  sessionEndedAt: number | null;
   /** This tab has waited over a second on a sibling tab's refresh lock (#4296). */
   waitingOnSiblingTab: boolean;
   /** True after an explicit sign-out in this page load. In memory only. The silent
@@ -114,7 +128,7 @@ export const useAuthStore = create<AuthState>()(
       sessionExpiredCanView: true,
       sessionExpiredInterrupted: false,
       readOnlyWriteCueShown: false,
-      readOnlySince: null,
+      sessionEndedAt: null,
       focusReadOnlyBar: false,
       waitingOnSiblingTab: false,
       signedOut: false,
@@ -131,7 +145,7 @@ export const useAuthStore = create<AuthState>()(
           sessionExpiredCanView: true,
           sessionExpiredInterrupted: false,
           readOnlyWriteCueShown: false,
-          readOnlySince: null,
+          sessionEndedAt: null,
           signedOut: false,
         });
         if (wasTokenless && opts?.broadcast !== false) postAuthMessage('restored');
@@ -156,12 +170,16 @@ export const useAuthStore = create<AuthState>()(
           sessionExpiredCanView: true,
           sessionExpiredInterrupted: false,
           readOnlyWriteCueShown: false,
-          readOnlySince: null,
+          sessionEndedAt: null,
           signedOut: true,
         });
         if (explicitSignOut && opts?.broadcast !== false) postAuthMessage('cleared');
       },
       markSessionExpired: (opts) => {
+        // Already expired: the first call decided the UI and started the view window.
+        // A second one (concurrent 401s, a WS 4001 after an API 401) must not restart
+        // the window, re-open a modal the user dismissed, or re-broadcast (#4313).
+        if (get().sessionExpired) return;
         useLastTaskStore.setState({ opened: null });
         // The modal is for a session that ended with something at stake: a write in
         // flight, or nothing yet loaded to fall back on. Otherwise go straight to the
@@ -175,16 +193,18 @@ export const useAuthStore = create<AuthState>()(
           sessionExpiredCanView: ctx.hasContent,
           sessionExpiredInterrupted: ctx.interrupted,
           readOnlyWriteCueShown: false,
-          readOnlySince: ctx.hasContent && !ctx.interrupted ? Date.now() : null,
+          sessionEndedAt: Date.now(),
           focusReadOnlyBar: false,
         });
         if (opts?.broadcast !== false) postAuthMessage('expired');
       },
       enterReadOnlyMode: (opts) => {
+        const state = get();
+        // Nothing to view once the window lapsed or on a cold load (#4313).
+        if (!state.sessionExpired || !state.sessionExpiredCanView) return;
         set({
           sessionExpiredReadOnly: true,
           readOnlyWriteCueShown: false,
-          readOnlySince: Date.now(),
           // A sibling tab's choice must not pull focus here.
           focusReadOnlyBar: opts?.broadcast !== false,
         });
@@ -197,23 +217,30 @@ export const useAuthStore = create<AuthState>()(
         // modal a misclick on an editable cell would otherwise summon (#4316).
         if (!state.readOnlyWriteCueShown) {
           set({ readOnlyWriteCueShown: true });
+          cueJustShown = true;
+          setTimeout(() => {
+            cueJustShown = false;
+          }, 0);
           return 'cue';
         }
+        // One action that fires two writes at once refuses both in the same tick; the
+        // second is the same misclick, not a repeat, so it must not escalate.
+        if (cueJustShown) return 'none';
         set({
           sessionExpiredReadOnly: false,
           sessionExpiredInterrupted: true,
-          readOnlySince: null,
         });
         return 'modal';
       },
       endReadOnlyViewing: () => {
         if (!get().sessionExpired) return;
         sessionBridge?.clearCache();
+        // `sessionEndedAt` stays: it is the record of when this session ended, and
+        // `sessionExpiredCanView: false` is what keeps the view from coming back.
         set({
           sessionExpiredReadOnly: false,
           sessionExpiredCanView: false,
           sessionExpiredInterrupted: false,
-          readOnlySince: null,
         });
       },
       setWaitingOnSiblingTab: (waiting) => set({ waitingOnSiblingTab: waiting }),

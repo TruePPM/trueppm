@@ -51,7 +51,7 @@ describe('SessionExpiredBanner', () => {
       sessionExpiredCanView: true,
       sessionExpiredInterrupted: false,
       focusReadOnlyBar: false,
-      readOnlySince: null,
+      sessionEndedAt: null,
     });
   });
 
@@ -185,6 +185,7 @@ describe('SessionExpiredBanner', () => {
   });
 
   it('re-asserting the session (blocked-write path) re-opens the blocking modal and re-focuses it', () => {
+    vi.useFakeTimers();
     renderWithLoginRoute();
     act(() => {
       useAuthStore.getState().markSessionExpired();
@@ -195,8 +196,9 @@ describe('SessionExpiredBanner', () => {
     // Simulate what the query client's global mutation onError does when a
     // write is attempted while in read-only mode (see lib/queryClient.ts).
     act(() => {
-      // The first refused write is only a cue (#4316); the repeat re-opens the modal.
+      // The first refused write is only a cue (#4316); a later repeat re-opens the modal.
       useAuthStore.getState().reassertSessionExpired();
+      vi.runAllTimers();
       useAuthStore.getState().reassertSessionExpired();
     });
 
@@ -205,15 +207,23 @@ describe('SessionExpiredBanner', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toHaveFocus();
   });
 
-  it('a fresh session expiry always starts blocking, even if a prior expiry was acknowledged', () => {
+  it('a fresh expiry re-reads the data layer instead of inheriting a prior read-only acknowledgment', () => {
+    // Production registers a bridge (lib/queryClient); the surface follows what it sees.
+    let ctx = { interrupted: false, hasContent: true };
+    registerSessionBridge({ inspect: () => ctx, clearCache: () => {} });
     renderWithLoginRoute();
     act(() => {
       useAuthStore.getState().markSessionExpired();
-      useAuthStore.getState().enterReadOnlyMode();
+    });
+    // Nothing in flight: the quiet bar, no modal.
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    act(() => {
       useAuthStore.getState().clearTokens();
+      ctx = { interrupted: true, hasContent: true };
       useAuthStore.getState().markSessionExpired();
     });
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // The second session ended mid-write: blocking again, not the bar from last time.
+    expect(screen.getByRole('dialog')).toHaveTextContent('Your last change did not go through.');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
@@ -291,6 +301,82 @@ describe('SessionExpiredBanner', () => {
       });
       expect(clearCache).toHaveBeenCalledOnce();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Continue viewing/ })).not.toBeInTheDocument();
+    });
+
+    // The window runs from when the session ENDED. None of these may extend it.
+    it('runs behind the modal too: a write in flight at expiry does not leave the cache up', () => {
+      vi.useFakeTimers();
+      const clearCache = vi.fn();
+      registerSessionBridge({
+        inspect: () => ({ interrupted: true, hasContent: true }),
+        clearCache,
+      });
+      renderWithLoginRoute();
+      act(() => {
+        useAuthStore.getState().markSessionExpired();
+      });
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(READ_ONLY_VIEW_WINDOW_MS);
+      });
+      expect(clearCache).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('button', { name: /Continue viewing/ })).not.toBeInTheDocument();
+    });
+
+    it('"Continue viewing" late in the window does not start a fresh one', () => {
+      vi.useFakeTimers();
+      const clearCache = vi.fn();
+      registerSessionBridge({
+        inspect: () => ({ interrupted: true, hasContent: true }),
+        clearCache,
+      });
+      renderWithLoginRoute();
+      act(() => {
+        useAuthStore.getState().markSessionExpired();
+      });
+      act(() => {
+        vi.advanceTimersByTime(10 * 60 * 1000);
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Continue viewing/ }));
+      expect(screen.getByRole('status')).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(5 * 60 * 1000);
+      });
+      expect(clearCache).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    it("two stray writes and a sibling tab's read-only choice do not extend the window", () => {
+      vi.useFakeTimers();
+      const clearCache = vi.fn();
+      registerSessionBridge({
+        inspect: () => ({ interrupted: false, hasContent: true }),
+        clearCache,
+      });
+      renderWithLoginRoute();
+      act(() => {
+        useAuthStore.getState().markSessionExpired();
+      });
+      act(() => {
+        vi.advanceTimersByTime(5 * 60 * 1000);
+        // Two refused writes, in separate actions: the second re-opens the modal.
+        useAuthStore.getState().reassertSessionExpired();
+        vi.advanceTimersByTime(1);
+        useAuthStore.getState().reassertSessionExpired();
+      });
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(5 * 60 * 1000);
+        // A sibling tab chose "Continue viewing".
+        useAuthStore.getState().enterReadOnlyMode({ broadcast: false });
+      });
+      expect(clearCache).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(5 * 60 * 1000);
+      });
+      expect(clearCache).toHaveBeenCalledOnce();
       expect(screen.getByRole('dialog')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Continue viewing/ })).not.toBeInTheDocument();
     });

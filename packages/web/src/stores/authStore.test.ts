@@ -73,15 +73,30 @@ describe('useAuthStore', () => {
     });
 
     it('reassertSessionExpired answers the first blocked write with a cue, the second with the modal (#4316)', () => {
+      vi.useFakeTimers();
       useAuthStore.getState().markSessionExpired();
       useAuthStore.getState().enterReadOnlyMode();
       expect(useAuthStore.getState().reassertSessionExpired()).toBe('cue');
       expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(true);
+      vi.runAllTimers(); // the repeat is a later action, not the same one
       expect(useAuthStore.getState().reassertSessionExpired()).toBe('modal');
+      vi.useRealTimers();
       expect(useAuthStore.getState().sessionExpiredInterrupted).toBe(true);
       const { sessionExpired, sessionExpiredReadOnly } = useAuthStore.getState();
       expect(sessionExpired).toBe(true);
       expect(sessionExpiredReadOnly).toBe(false);
+    });
+
+    it('two writes refused in the same tick are one action: the second does not escalate', () => {
+      vi.useFakeTimers();
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      expect(useAuthStore.getState().reassertSessionExpired()).toBe('cue');
+      expect(useAuthStore.getState().reassertSessionExpired()).toBe('none');
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(true);
+      vi.runAllTimers();
+      expect(useAuthStore.getState().reassertSessionExpired()).toBe('modal');
+      vi.useRealTimers();
     });
 
     it('reassertSessionExpired is a no-op when the modal is already blocking', () => {
@@ -189,6 +204,51 @@ describe('useAuthStore', () => {
       });
       useAuthStore.getState().endReadOnlyViewing();
       expect(clearCache).not.toHaveBeenCalled();
+    });
+
+    // The window is anchored to when the session ENDED, and nothing may move it (#4313).
+    it('records sessionEndedAt only on a fresh expiry; nothing afterwards moves it', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-14T12:00:00Z'));
+      registerSessionBridge({
+        inspect: () => ({ interrupted: false, hasContent: true }),
+        clearCache: () => {},
+      });
+      useAuthStore.getState().setAccessToken('live');
+      useAuthStore.getState().markSessionExpired();
+      const endedAt = useAuthStore.getState().sessionEndedAt;
+      expect(endedAt).toBe(Date.now());
+
+      vi.advanceTimersByTime(60_000);
+      useAuthStore.getState().markSessionExpired(); // a second 401 / a WS 4001
+      useAuthStore.getState().enterReadOnlyMode(); // this tab's choice
+      useAuthStore.getState().enterReadOnlyMode({ broadcast: false }); // a sibling's
+      useAuthStore.getState().reassertSessionExpired();
+      vi.runAllTimers();
+      useAuthStore.getState().reassertSessionExpired(); // back to the modal
+      useAuthStore.getState().enterReadOnlyMode();
+      expect(useAuthStore.getState().sessionEndedAt).toBe(endedAt);
+      vi.useRealTimers();
+    });
+
+    it('a second markSessionExpired does not re-open a modal the user already left', () => {
+      useAuthStore.getState().setAccessToken('live');
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      useAuthStore.getState().markSessionExpired();
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(true);
+    });
+
+    it('enterReadOnlyMode cannot bring the view back once the window lapsed', () => {
+      registerSessionBridge({
+        inspect: () => ({ interrupted: true, hasContent: true }),
+        clearCache: () => {},
+      });
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().endReadOnlyViewing();
+      useAuthStore.getState().enterReadOnlyMode({ broadcast: false });
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+      expect(useAuthStore.getState().sessionExpiredCanView).toBe(false);
     });
 
     it('exposes the view window as 15 minutes', () => {

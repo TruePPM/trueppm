@@ -17,6 +17,40 @@ function loginHrefWithNext(location: Location): string {
 }
 
 /**
+ * Time-box cached content after the session ends (#4313). Nothing can re-validate
+ * against the server while the session is gone, so cached data from a
+ * since-deactivated account would otherwise stay on screen for the life of the tab.
+ * The window runs from `sessionEndedAt` — the moment this tab learned the session
+ * ended — and runs behind the modal's scrim as well as under the read-only bar, so
+ * neither leaving a write in flight nor choosing "Continue viewing" restarts it.
+ * When it lapses the cache is cleared and the modal returns with only "Sign in".
+ * Checked on a timer AND on return to the tab, since a backgrounded tab's timers are
+ * throttled. Called from `SessionExpiredBanner`, which both shells mount always.
+ */
+function useReadOnlyViewWindow(): void {
+  const sessionExpired = useAuthStore((s) => s.sessionExpired);
+  const canView = useAuthStore((s) => s.sessionExpiredCanView);
+  const sessionEndedAt = useAuthStore((s) => s.sessionEndedAt);
+  const endReadOnlyViewing = useAuthStore((s) => s.endReadOnlyViewing);
+
+  useEffect(() => {
+    if (!sessionExpired || !canView || sessionEndedAt === null) return;
+    const check = () => {
+      if (Date.now() - sessionEndedAt >= READ_ONLY_VIEW_WINDOW_MS) endReadOnlyViewing();
+    };
+    const remaining = Math.max(0, READ_ONLY_VIEW_WINDOW_MS - (Date.now() - sessionEndedAt));
+    const timer = setTimeout(check, remaining);
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('focus', check);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('focus', check);
+    };
+  }, [sessionExpired, canView, sessionEndedAt, endReadOnlyViewing]);
+}
+
+/**
  * Blocking re-auth gate shown when the user's session expires (#352, escape
  * hatch #1922). Renders nothing while `sessionExpired === false` or while the
  * user has already escaped into read-only mode (`sessionExpiredReadOnly ===
@@ -49,6 +83,7 @@ export function SessionExpiredBanner() {
   const clearTokens = useAuthStore((s) => s.clearTokens);
   const navigate = useNavigate();
   const location = useLocation();
+  useReadOnlyViewWindow();
 
   const modalActive = sessionExpired && !readOnly;
   // Contain Tab/Shift+Tab inside the modal and land focus on the Sign in
@@ -139,16 +174,15 @@ export function SessionExpiredBanner() {
  * blocked the same way; the query client's global mutation `onError` (see
  * lib/queryClient) answers a write attempted in this mode: the first gets a
  * light toast, a repeat re-opens the blocking modal (#4316).
- * The view is time-boxed to `READ_ONLY_VIEW_WINDOW_MS`, after which the cache is
- * cleared and only "Sign in" remains (#4313).
+ * The view is time-boxed to `READ_ONLY_VIEW_WINDOW_MS` from the moment the session
+ * ended (see `useReadOnlyViewWindow`), after which the cache is cleared and only
+ * "Sign in" remains (#4313).
  */
 export function SessionExpiredReadOnlyBar() {
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const readOnly = useAuthStore((s) => s.sessionExpiredReadOnly);
   const clearTokens = useAuthStore((s) => s.clearTokens);
   const focusBar = useAuthStore((s) => s.focusReadOnlyBar);
-  const readOnlySince = useAuthStore((s) => s.readOnlySince);
-  const endReadOnlyViewing = useAuthStore((s) => s.endReadOnlyViewing);
   const navigate = useNavigate();
   const location = useLocation();
   const signInRef = useRef<HTMLButtonElement>(null);
@@ -163,27 +197,6 @@ export function SessionExpiredReadOnlyBar() {
   useEffect(() => {
     if (active && focusBar) signInRef.current?.focus();
   }, [active, focusBar]);
-
-  // Time-box the read-only view (#4313). Nothing can re-validate against the server
-  // while the session is gone, so cached data from a since-deactivated account would
-  // otherwise stay on screen for the life of the tab. When the window lapses, the
-  // cache is cleared and the blocking modal returns with only "Sign in". Checked on a
-  // timer AND on return to the tab, since a backgrounded tab's timers are throttled.
-  useEffect(() => {
-    if (!active || readOnlySince === null) return;
-    const check = () => {
-      if (Date.now() - readOnlySince >= READ_ONLY_VIEW_WINDOW_MS) endReadOnlyViewing();
-    };
-    const remaining = Math.max(0, READ_ONLY_VIEW_WINDOW_MS - (Date.now() - readOnlySince));
-    const timer = setTimeout(check, remaining);
-    document.addEventListener('visibilitychange', check);
-    window.addEventListener('focus', check);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener('visibilitychange', check);
-      window.removeEventListener('focus', check);
-    };
-  }, [active, readOnlySince, endReadOnlyViewing]);
 
   if (!active) return null;
 
