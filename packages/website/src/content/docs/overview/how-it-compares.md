@@ -82,6 +82,18 @@ finish on a network carrying a Finish-to-Finish or Start-to-Finish edge — a co
 of keeping MS Project's placement of FF/SF-driven tasks, documented with the engine's
 other modeling choices under [Scheduler Conventions](/features/scheduler-conventions/).
 
+**A different category also runs Monte Carlo: open-source Kanban forecasters.** Tools
+for Kanban teams simulate **throughput or cycle time over a flow of work items** and
+answer "how many items by this date" or "when will these 40 items be done." That is
+real and well-established, and it is not what the column above measures. Those tools
+treat items as interchangeable units with no dependencies between them. TruePPM
+forecasts the **finish date of a dependency network under a working calendar**, with a
+critical path, float, and four dependency types, and the percentiles come from
+re-running that network. Pick a flow forecaster if your work is a stream of similar-sized
+items; pick a schedule-risk engine if one task's slip moves another's start. We do not
+name individual flow tools here because we have not source-checked them the way we
+checked LibrePlan's.
+
 **The agile/waterfall split is a real fork, and most tools pick a side.** Plane and
 Taiga are agile-only; LibrePlan, ProjectLibre and GanttProject are schedule-only. OpenProject
 carries both, but as adjacent views over related records rather than one coupled
