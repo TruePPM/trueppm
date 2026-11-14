@@ -1106,6 +1106,9 @@ _THROTTLE_RESPONSE = {
 }
 
 
+#: Methods ``IdempotencyMixin`` acts on (mirrors ``idempotency.mixins.UNSAFE_METHODS``).
+_IDEMPOTENT_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
 #: Component name for the key-reuse conflict response (#4665).
 IDEMPOTENCY_CONFLICT = "IdempotencyKeyConflict"
 
@@ -1376,12 +1379,12 @@ class TruePPMAutoSchema(AutoSchema):
         method is one the mixin acts on — advertising the header on an exempt view
         would promise retry safety the server does not give.
         """
-        from trueppm_api.apps.idempotency.mixins import UNSAFE_METHODS, IdempotencyMixin
-
+        # Duck-typed on the mixin's ``idempotency_exempt`` flag (False on an opted-in view,
+        # True on an exempt one, absent elsewhere): ``platform`` may not import the
+        # ``idempotency`` app, and the flag is exactly what the mixin itself branches on.
         if (
-            not isinstance(self.view, IdempotencyMixin)
-            or self.view.idempotency_exempt
-            or method.upper() not in UNSAFE_METHODS
+            getattr(self.view, "idempotency_exempt", True) is not False
+            or method.upper() not in _IDEMPOTENT_METHODS
         ):
             return
         params = operation.setdefault("parameters", [])
