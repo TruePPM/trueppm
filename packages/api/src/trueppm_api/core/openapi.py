@@ -1170,7 +1170,7 @@ def _type_uuid_path_params(result: dict[str, Any]) -> None:
     that is a bare string and named ``id``/``*_pk`` is, by the all-UUID-PK convention,
     a UUID; integer-keyed routes already publish ``type: integer`` and are untouched,
     and any string param that declares its own format, pattern or enum is left alone.
-    ``tests/test_openapi_path_param_hygiene.py`` fails if a new bare one appears.
+    ``tests/test_openapi_contract_hygiene.py`` fails if a new bare one appears.
     """
     for path_item in result.get("paths", {}).values():
         groups = [path_item.get("parameters", [])]
@@ -1296,9 +1296,10 @@ class TruePPMAutoSchema(AutoSchema):
         ``get_permissions()`` WITHOUT one of these is invisible here (the original
         "every view declares it statically" premise was false for the webhook and
         share-link writes, #4665) and can drift from the schema; the route-table
-        tripwire in ``tests/apps/access/test_route_table_invariants.py`` checks runtime
-        reachability, not the schema, so only the structural check tracked in #4929 will
-        close that gap.
+        tripwire in ``tests/apps/access/test_route_table_invariants.py`` joins runtime
+        reachability to the schema for unsafe writes (``test_every_token_refusing_write_is_
+        withheld_from_the_schema_security``); a structural check covering the remaining
+        operations is tracked in #4929.
         """
         from trueppm_api.apps.access.permissions import (
             IsNotTokenAuthenticated,

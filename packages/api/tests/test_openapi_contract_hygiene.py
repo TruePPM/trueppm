@@ -34,7 +34,7 @@ def test_no_new_component_is_named_by_a_choices_hash() -> None:
     hashed = [
         n
         for n in _SCHEMA["components"]["schemas"]
-        if re.search(r"[0-9a-f]{3}Enum$", n) and n not in _PINNED_HASH_ENUMS
+        if re.search(r"[0-9A-Fa-f][0-9a-f]{2}Enum$", n) and n not in _PINNED_HASH_ENUMS
     ]
     assert not hashed, (
         f"{hashed} are named by a hash of their choices, so an unrelated choices edit "
