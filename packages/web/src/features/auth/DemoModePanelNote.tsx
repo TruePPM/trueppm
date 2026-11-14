@@ -64,6 +64,19 @@ export function DemoModePanelNote() {
         Rate limits are lifted for this demo account only. Throttling is built into TruePPM and on
         by default in every regular install.
       </p>
+      <p className="text-xs leading-relaxed text-chrome-text-secondary">
+        A self-hosted install sends nothing to us: no telemetry and no update checks. Metrics and
+        traces leave your cluster only if you point it at your own collector.{' '}
+        <a
+          href="https://docs.trueppm.com/administration/observability/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-chrome-text-primary underline underline-offset-2 hover:no-underline rounded
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Telemetry and outbound traffic <span className="sr-only">(opens in a new tab)</span>
+        </a>
+      </p>
     </div>
   );
 }

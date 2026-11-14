@@ -135,6 +135,11 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
       page.getByRole('link', { name: 'Installation guide (opens in a new tab)' }),
     ).toHaveAttribute('href', 'https://docs.trueppm.com/getting-started/installation/');
     await expect(page.getByText(/Rate limits are lifted for this demo account/)).toBeVisible();
+    // A self-hosted install phones nothing home, and links the docs that say so (#4117).
+    await expect(page.getByText(/A self-hosted install sends nothing to us/)).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Telemetry and outbound traffic (opens in a new tab)' }),
+    ).toHaveAttribute('href', 'https://docs.trueppm.com/administration/observability/');
 
     // The credential block inside the form.
     await expect(

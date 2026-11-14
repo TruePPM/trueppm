@@ -60,4 +60,14 @@ describe('DemoModePanelNote (#3970)', () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it('says a self-hosted install sends nothing home and links the telemetry docs (#4117)', () => {
+    render(<DemoModePanelNote />);
+    expect(screen.getByText(/A self-hosted install sends nothing to us/)).toBeInTheDocument();
+    const link = screen.getByRole('link', {
+      name: 'Telemetry and outbound traffic (opens in a new tab)',
+    });
+    expect(link).toHaveAttribute('href', 'https://docs.trueppm.com/administration/observability/');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
 });
