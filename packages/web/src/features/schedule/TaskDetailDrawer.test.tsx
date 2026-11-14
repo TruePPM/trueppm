@@ -1963,6 +1963,64 @@ describe('Why critical wiring (#4892)', () => {
     expect(desktop().getByTestId('why-critical-stub')).toHaveTextContent('focus 1');
   });
 
+  it('a non-critical task within the near-critical threshold shows the section and a near-critical badge', () => {
+    const task = makeTask({ isCritical: false, totalFloat: 3 });
+    TASKS = [task];
+    render(
+      <MemoryRouter initialEntries={['/schedule']}>
+        <TaskDetailDrawer
+          task={task}
+          projectId="p1"
+          onClose={() => {}}
+          showWhyCritical
+          nearCriticalThresholdDays={5}
+        />
+      </MemoryRouter>,
+    );
+    expect(desktop().getByTestId('why-critical-stub')).toBeInTheDocument();
+    expect(
+      desktop().getByRole('button', {
+        name: "Near-critical, 3 working days float. Show why it's near-critical.",
+      }),
+    ).toHaveTextContent('Near-critical · 3 wd float');
+  });
+
+  it('a task with float above the near-critical threshold gets neither section nor badge', () => {
+    const task = makeTask({ isCritical: false, totalFloat: 6 });
+    TASKS = [task];
+    render(
+      <MemoryRouter initialEntries={['/schedule']}>
+        <TaskDetailDrawer
+          task={task}
+          projectId="p1"
+          onClose={() => {}}
+          showWhyCritical
+          nearCriticalThresholdDays={5}
+        />
+      </MemoryRouter>,
+    );
+    expect(desktop().queryByTestId('why-critical-stub')).not.toBeInTheDocument();
+    expect(desktop().queryByRole('button', { name: /Show why/ })).not.toBeInTheDocument();
+  });
+
+  it('a leftover deep-link param does not mount the section for a different task', () => {
+    const a = makeTask({ id: 't1', isCritical: false });
+    const b = makeTask({ id: 't2', isCritical: false, name: 'Other' });
+    TASKS = [a, b];
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/schedule?task=t1&drawerSection=why-critical']}>
+        <TaskDetailDrawer task={a} projectId="p1" onClose={() => {}} showWhyCritical />
+      </MemoryRouter>,
+    );
+    expect(desktop().getByTestId('why-critical-stub')).toBeInTheDocument();
+    rerender(
+      <MemoryRouter initialEntries={['/schedule?task=t1&drawerSection=why-critical']}>
+        <TaskDetailDrawer task={b} projectId="p1" onClose={() => {}} showWhyCritical />
+      </MemoryRouter>,
+    );
+    expect(desktop().queryByTestId('why-critical-stub')).not.toBeInTheDocument();
+  });
+
   it('keeps the CP chip outside the Schedule view (board, My Tasks)', () => {
     TASKS = [makeTask({ isCritical: true })];
     renderDrawer(makeTask({ isCritical: true }));

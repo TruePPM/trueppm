@@ -4985,6 +4985,7 @@ export function ScheduleView() {
         depPickerState={depPickerState}
         setDepPickerState={setDepPickerState}
         programId={projectDetail?.program ?? null}
+        nearCriticalThresholdDays={projectDetail?.effective_near_critical_threshold_days ?? null}
         allTasks={allTasks}
         depPickerExcludedIds={depPickerExcludedIds}
         selectedTaskId={selectedTaskId}
@@ -5122,6 +5123,8 @@ interface ScheduleOverlayLayerProps {
     SetStateAction<{ task: Task; direction?: DependencyDirection } | null>
   >;
   programId: string | null;
+  /** Project's effective near-critical float threshold, working days (#4892). */
+  nearCriticalThresholdDays: number | null;
   allTasks: Task[];
   depPickerExcludedIds: Readonly<Record<DependencyDirection, ReadonlySet<string>>>;
   selectedTaskId: string | null;
@@ -5192,6 +5195,7 @@ function ScheduleOverlayLayer({
   depPickerState,
   setDepPickerState,
   programId,
+  nearCriticalThresholdDays,
   allTasks,
   depPickerExcludedIds,
   selectedTaskId,
@@ -5467,6 +5471,7 @@ function ScheduleOverlayLayer({
           // #4892: Why critical renders only in the Schedule drawer; its task
           // links open the named task in this same drawer.
           showWhyCritical
+          nearCriticalThresholdDays={nearCriticalThresholdDays}
           onOpenTask={(id) => {
             setSelectedTaskId(id);
             useScheduleStore.getState().scrollToTask(id);

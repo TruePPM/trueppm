@@ -44,6 +44,7 @@ const TASKS = [
   taskRow('pour', '1', 'Pour foundation', { is_critical: true, total_float: 0 }),
   taskRow('frame', '2', 'Frame walls', { is_critical: true, total_float: 0 }),
   taskRow('loose', '3', 'Paint samples'),
+  taskRow('near', '4', 'Hang drywall', { total_float: 2 }),
 ];
 
 function node(id: string, name: string, extra: Record<string, unknown> = {}) {
@@ -119,7 +120,12 @@ function chain(extra: Record<string, unknown> = {}) {
   };
 }
 
-async function setup(page: Page, body: unknown, status = 200): Promise<{ calls: () => number }> {
+async function setup(
+  page: Page,
+  body: unknown,
+  status = 200,
+  threshold?: number,
+): Promise<{ calls: () => number }> {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -130,6 +136,7 @@ async function setup(page: Page, body: unknown, status = 200): Promise<{ calls: 
         description: '',
         start_date: '2026-04-01',
         calendar: 'default',
+        ...(threshold === undefined ? {} : { effective_near_critical_threshold_days: threshold }),
       },
     ],
     projectId: PROJECT_ID,
@@ -262,6 +269,35 @@ test.describe('Why critical drawer section', () => {
     await page.goto(`${SCHEDULE_URL}?task=frame`);
     await expect(section(page)).toContainText("Couldn't load why this task is critical.");
     await expect(section(page).getByRole('button', { name: 'Try again' })).toBeVisible();
+  });
+
+  test('a near-critical task (float within the threshold) shows the section and badge', async ({
+    page,
+  }) => {
+    const nearChain = chain({
+      task_id: 'near',
+      near_critical_threshold: { value: 3, unit: 'working_days' },
+      nodes: [
+        node('near', 'Hang drywall', {
+          direction: 'self',
+          hops: 0,
+          band: 'near_critical',
+          is_critical: false,
+          total_float: { value: 2, unit: 'working_days' },
+        }),
+      ],
+      edges: [],
+      total_links: 0,
+    });
+    const { calls } = await setup(page, nearChain, 200, 3);
+    await page.goto(`${SCHEDULE_URL}?task=near`);
+    await expect(section(page).getByRole('heading', { name: 'Why critical' })).toBeVisible();
+    await expect(
+      page.getByRole('button', {
+        name: "Near-critical, 2 working days float. Show why it's near-critical.",
+      }),
+    ).toHaveText('Near-critical · 2 wd float');
+    expect(calls()).toBeGreaterThanOrEqual(1);
   });
 
   test('a non-critical task without a deep link shows no section and no badge', async ({

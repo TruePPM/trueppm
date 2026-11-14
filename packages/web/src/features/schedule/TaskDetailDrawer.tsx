@@ -172,6 +172,12 @@ export interface TaskDetailDrawerProps {
   /** Open another task in this drawer (a Why-critical task link). */
   onOpenTask?: (taskId: string) => void;
   /**
+   * The project's effective near-critical float threshold in working days
+   * (`effective_near_critical_threshold_days`). A task whose `totalFloat` is
+   * within it qualifies for Why critical before the payload arrives (#4892).
+   */
+  nearCriticalThresholdDays?: number | null;
+  /**
    * Optional context passed to each section's `canRender(ctx)` predicate.
    * Sections use this to hide entirely when a feature is not licensed/available;
    * pass the current user object so Enterprise sections can gate visibility.
@@ -258,12 +264,17 @@ export function TaskDetailDrawer({
   onReadOnlyRefusal,
   showWhyCritical = false,
   onOpenTask,
+  nearCriticalThresholdDays = null,
 }: TaskDetailDrawerProps) {
   const isMobile = useBreakpoint() === 'sm';
   // Why critical (#4892): `?drawerSection=why-critical` sits beside the host's
   // `?task=` param, written with replace so it adds no history entry.
   const [searchParams, setSearchParams] = useSearchParams();
-  const deepLinkedWhyCritical = searchParams.get(DRAWER_SECTION_PARAM) === WHY_CRITICAL_SECTION;
+  const drawerSectionParamOn = searchParams.get(DRAWER_SECTION_PARAM) === WHY_CRITICAL_SECTION;
+  // The task the param applies to: the first task the drawer shows while it is
+  // present. A task link (onOpenTask) moving to another task must not carry the
+  // param over, or the section would mount for a task that does not qualify.
+  const [deepLinkTaskId, setDeepLinkTaskId] = useState<string | null>(null);
   const [whyCriticalFocusNonce, setWhyCriticalFocusNonce] = useState(0);
   const [chainBand, setChainBand] = useState<{
     taskId: string;
@@ -281,6 +292,23 @@ export function TaskDetailDrawer({
   // task (with its unsaved draft) until the swap guard resolves (#1978).
   const [renderedTask, setRenderedTask] = useState<Task | null>(taskProp);
   const task = renderedTask;
+  const deepLinkedWhyCritical =
+    drawerSectionParamOn && (deepLinkTaskId === null || deepLinkTaskId === task?.id);
+  useEffect(() => {
+    const id = task?.id ?? null;
+    if (!drawerSectionParamOn) {
+      if (deepLinkTaskId !== null) setDeepLinkTaskId(null);
+      return;
+    }
+    if (id === null) return;
+    if (deepLinkTaskId === null) {
+      setDeepLinkTaskId(id);
+    } else if (deepLinkTaskId !== id) {
+      // Keep deepLinkTaskId until the URL drops the param (the branch above
+      // resets it): resetting here would re-adopt the stale param for `id`.
+      setSearchParam(setSearchParams, DRAWER_SECTION_PARAM, null);
+    }
+  }, [drawerSectionParamOn, task?.id, deepLinkTaskId, setSearchParams]);
 
   const isOpen = task !== null;
   const drawerTitle = task ? `${task.wbs ? task.wbs + ' — ' : ''}${task.name}` : '';
@@ -878,11 +906,23 @@ export function TaskDetailDrawer({
   const visibleTabs = TAB_DEFS.filter((t) => t.id === 'details' || sectionsByTab[t.id].length > 0);
 
   const whyCriticalTaskId = task?.id ?? null;
+  // The schedule task list carries `totalFloat` but no band, so a near-critical
+  // task is recognized from the project's threshold until the payload's own
+  // band arrives (the band is what WhyCriticalSection reports back via onBand).
+  const floatNearCritical =
+    task !== null &&
+    !task.isCritical &&
+    nearCriticalThresholdDays !== null &&
+    task.totalFloat !== null &&
+    task.totalFloat !== undefined &&
+    task.totalFloat > 0 &&
+    task.totalFloat <= nearCriticalThresholdDays;
   const qualifiesForWhyCritical =
     showWhyCritical &&
     task !== null &&
     (task.isCritical ||
       deepLinkedWhyCritical ||
+      floatNearCritical ||
       (chainBand?.taskId === task.id && chainBand.band === 'near_critical'));
   useEffect(() => {
     if (qualifiesForWhyCritical && whyCriticalTaskId) setWhyCriticalStickyFor(whyCriticalTaskId);
@@ -908,6 +948,7 @@ export function TaskDetailDrawer({
   const handleBadgeActivate = useCallback(() => {
     // The param this writes is not a fresh deep link: do not focus twice.
     deepLinkConsumedFor.current = whyCriticalTaskId;
+    setDeepLinkTaskId(whyCriticalTaskId);
     setActiveTab('details');
     setSearchParam(setSearchParams, DRAWER_SECTION_PARAM, WHY_CRITICAL_SECTION);
     setWhyCriticalFocusNonce((n) => n + 1);
@@ -919,7 +960,9 @@ export function TaskDetailDrawer({
         focusNonce: whyCriticalFocusNonce,
         // The payload's band wins once it arrives; before that the schedule task
         // list's `is_critical` + `total_float` drive the badge.
-        badgeBand: ownBand?.band ?? (task?.isCritical ? 'critical' : null),
+        badgeBand:
+          ownBand?.band ??
+          (task?.isCritical ? 'critical' : floatNearCritical ? 'near_critical' : null),
         badgeFloat: ownBand?.float ?? task?.totalFloat ?? null,
         onBadgeActivate: handleBadgeActivate,
         onBand: handleWhyCriticalBand,
