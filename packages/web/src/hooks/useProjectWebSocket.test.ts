@@ -3939,9 +3939,72 @@ describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-rela
     },
   );
 
-  // --- #3774: task-relation lifecycle (task_relation_created also closes the
-  // task_relation_* portion of #2847, which stays open for its other event
-  // types: label_*, sprint_reranked, project_restored) ---
+  // --- #2847: label catalog, sprint backlog rerank, project restore ---
+  function flushCoalesced() {
+    act(() => {
+      vi.advanceTimersByTime(400); // the trailing scheduleInvalidate debounce window
+    });
+  }
+
+  it('refreshes only the label catalog on label_created', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('label_created', { id: 'lbl-1' });
+    flushCoalesced();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['labels', 'proj-1'] });
+    // A new label sits on no task yet, so no task row's chips can have changed.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it.each(['label_updated', 'label_deleted'])(
+    'refreshes the label catalog and the task chips on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { id: 'lbl-1' });
+      flushCoalesced();
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['labels', 'proj-1'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    },
+  );
+
+  it('refreshes the named sprint backlog and the tasks cache on sprint_reranked', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('sprint_reranked', { id: 'spr-1', sprint_id: 'spr-1', project_id: 'proj-1' });
+    flushCoalesced();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['sprint-backlog', 'proj-1', 'spr-1'],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('falls back to every sprint backlog of the project when sprint_reranked names no sprint', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('sprint_reranked', {});
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint-backlog', 'proj-1'] });
+  });
+
+  it('refreshes the project detail and the project list on project_restored', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('project_restored', { id: 'proj-1' });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+  });
+
+  // --- #3774: task-relation lifecycle ---
   it.each(['task_relation_created', 'task_relation_updated', 'task_relation_deleted'])(
     'invalidates every mounted task-relations query on %s',
     (eventType) => {

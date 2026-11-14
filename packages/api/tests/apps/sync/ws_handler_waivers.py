@@ -2,7 +2,7 @@
 
 Read this as a ledger, not as an exemption list. ``scripts/check-ws-handler-conformance.sh``
 fails on every emitted event NOT listed here, and on every handler whose event nothing
-emits. These thirteen entries are what is left.
+emits. These seven entries are what is left.
 
 Be honest about what a waiver buys. Like ``--update-baseline`` on the docs gate and
 ``e2e/fixtures/schema-guard-waivers.ts``, it cannot stop a wrong answer — a wrong entry
@@ -20,7 +20,7 @@ of the same class and none could have found the others'.
   ``broadcast_board_event()`` call site emits it.
 * Every entry names a **real** issue, and the gate rejects one that does not — a waiver
   with no issue is a bug waiting to be re-found. For a gap, that is the **open** issue
-  that closes it (#2847, #3245, #836). For the two entries that are decisions rather than
+  that closes it (#836). For the two entries that are decisions rather than
   gaps, it is the **closed** issue where the decision was made (#1323, #321); there is
   nothing to fix, and filing a "fix this" issue to satisfy the field would be a lie about
   the tracker. Which kind an entry is, is what its reason says.
@@ -38,9 +38,10 @@ genuinely is one.
 
 ## The four clusters, and which side is wrong
 
-**(a) FRONTEND MISSING — #2847.** ``label_*``, ``sprint_reranked`` and ``project_restored``
-are correctly broadcast, on commit, and live in ``FROZEN_WS_EVENT_TYPES``; nothing in
-``packages/web/src`` names them. This is the cluster that named the class.
+**(a) FRONTEND MISSING — #2847 (waivers retired).** ``label_*``, ``sprint_reranked`` and
+``project_restored`` were correctly broadcast, on commit, and live in
+``FROZEN_WS_EVENT_TYPES``, while nothing in ``packages/web/src`` named them. This is the
+cluster that named the class; #2847 registered a handler for each, so the entries are gone.
 
 **(b) FRONTEND MISSING — #3245 (waiver retired by #4170).** ``project_calendar_changed``
 had no client subscriber. #4170 registered one (it refetches the project detail's
@@ -72,33 +73,8 @@ from __future__ import annotations
 
 from .ws_event_scan import Waiver, WaiverLedger
 
-# --- (a) #2847 · (b) #3245 · (c) #836 · (d) #1323 ---
+# --- (c) #836 · (d) #1323 — (a) #2847 and (b) #3245 are retired ---
 UNHANDLED_WAIVERS = {
-    "label_created": Waiver(
-        reason="No frontend consumer anywhere in packages/web/src; project label CRUD does "
-        "not reach a peer's open board until a manual refetch.",
-        issue=2847,
-    ),
-    "label_updated": Waiver(
-        reason="No frontend consumer anywhere in packages/web/src; a renamed or recolored "
-        "label keeps its old chip on a peer's board.",
-        issue=2847,
-    ),
-    "label_deleted": Waiver(
-        reason="No frontend consumer anywhere in packages/web/src; a deleted label keeps "
-        "rendering on a peer's board.",
-        issue=2847,
-    ),
-    "sprint_reranked": Waiver(
-        reason="No frontend consumer; a peer's sprint backlog keeps the pre-rerank order "
-        "until it refetches for another reason.",
-        issue=2847,
-    ),
-    "project_restored": Waiver(
-        reason="No frontend consumer; a project restored from Trash does not reappear in a "
-        "peer's project list live (ADR-0202).",
-        issue=2847,
-    ),
     "program_closed": Waiver(
         reason="Undeliverable, not unhandled: fans out on project_{program_id}, and no "
         "ws/v1/programs/ route exists for any group_add() to join. A handler would be "
@@ -146,7 +122,7 @@ UNEMITTED_WAIVERS = {
 }
 
 # The ratchet. Each must equal its dict's length; see the module docstring.
-UNHANDLED_WAIVER_BUDGET = 11
+UNHANDLED_WAIVER_BUDGET = 6
 UNEMITTED_WAIVER_BUDGET = 1
 
 LEDGER = WaiverLedger(

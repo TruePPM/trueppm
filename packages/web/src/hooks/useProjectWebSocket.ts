@@ -594,13 +594,14 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
       scheduleInvalidate('dependencies', 'tasks', ...OVERVIEW_KEYS);
     },
   );
-  // task_duration_changed is intentionally unregistered (no-op, issue 1323): the
-  // duration delta is already delivered by the task_updated event broadcast in the
-  // same commit batch, which refreshes the tasks cache *with* ADR-0152 self-echo
-  // suppression. Re-invalidating tasks here — the event carries no actor_id to
-  // suppress on — would clobber the editor's in-flight optimistic edit, the exact
-  // regression ADR-0152 prevents. The event's only extra payload is the inline
-  // "Recalc %?" affordance hint (ADR-0151), consumed locally by the editing client.
+  // task_duration_changed is intentionally unregistered here (no-op, issue 1323).
+  // The backend emits it so the *editing* client can render the inline "Recalc %?"
+  // confirm affordance (ADR-0151) — that client reads the hint from its own write
+  // response, so no peer needs this event. For peers, the duration delta already
+  // arrives on the task_updated broadcast in the same commit batch, which refreshes
+  // the tasks cache *with* ADR-0152 self-echo suppression. Re-invalidating tasks
+  // here — the event carries no actor_id to suppress on — would clobber the
+  // editor's in-flight optimistic edit, the exact regression ADR-0152 prevents.
   on(['slip_conflict_acknowledged', 'slip_conflicts_updated'], () => {
     // A downstream scope manager acknowledged a cross-project slip conflict
     // (ADR-0120 D4), or the program CPM pass detected/auto-resolved conflicts
@@ -670,6 +671,23 @@ function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
     // and the tasks cache (the board/schedule may order by priority_rank).
     void queryClient.invalidateQueries({
       queryKey: ['product-backlog', projectIdRef.current],
+    });
+    scheduleInvalidate('tasks');
+  });
+
+  // --- Sprint backlog reorder (#2847) ---
+  on('sprint_reranked', (payload) => {
+    // A peer dragged a story within a sprint's backlog, rewriting Task.sprint_rank.
+    // Refresh that sprint's planning list (useSprintBacklog's key) and the tasks
+    // cache, which carries sprintRank for the board's in-sprint order. The payload
+    // names the sprint as `id` (#4088); without one, every mounted sprint backlog
+    // for this project is refreshed instead.
+    const sprintId = typeof payload.id === 'string' ? payload.id : null;
+    void queryClient.invalidateQueries({
+      queryKey:
+        sprintId !== null
+          ? ['sprint-backlog', projectIdRef.current, sprintId]
+          : ['sprint-backlog', projectIdRef.current],
     });
     scheduleInvalidate('tasks');
   });
@@ -771,11 +789,7 @@ function registerCollaborationHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // ['task-relations', taskId] cache the way task_link's handler above does.
   // Invalidate every mounted relations query instead; RelatedLinksSection only
   // ever mounts the one for the task detail drawer that is open, so this is a
-  // single refetch in practice. task_relation_created is included here even
-  // though #2847 (open, 0.5) also tracks it, because the stated preferred
-  // disposition is registering all three task_relation_* names together —
-  // #2847's remaining scope (label_*, sprint_reranked, project_restored) is
-  // untouched by this handler.
+  // single refetch in practice.
   on(['task_relation_created', 'task_relation_updated', 'task_relation_deleted'], () => {
     void queryClient.invalidateQueries({
       predicate: (q) => q.queryKey[0] === 'task-relations',
@@ -1093,6 +1107,16 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
     void queryClient.invalidateQueries({ queryKey: ['boardViews', projectIdRef.current] });
   });
 
+  // --- Project label catalog (#2847) ---
+  // Keyed to useLabels' ['labels', projectId]. A rename/recolor or delete also
+  // changes the chips every task row renders, so those two refresh the tasks cache
+  // too, mirroring useUpdateLabel/useDeleteLabel's own onSuccess. A create adds an
+  // unused catalog entry, which no task row shows yet.
+  on(['label_created', 'label_updated', 'label_deleted'], (_payload, event_type) => {
+    void queryClient.invalidateQueries({ queryKey: ['labels', projectIdRef.current] });
+    if (event_type !== 'label_created') scheduleInvalidate('tasks');
+  });
+
   // --- Guardrail policy events (#3773) ---
   // A peer with Project Settings → Guardrails open PATCHes a composition rule
   // level or acknowledges an external policy; the payload is signal-only
@@ -1116,6 +1140,9 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
       'project_archived',
       'project_unarchived',
       'project_transferred',
+      // A restore from Trash (ADR-0202) un-deletes the project: same refresh as the
+      // lifecycle events above, so it reappears in a peer's project list (#2847).
+      'project_restored',
     ],
     () => {
       void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });

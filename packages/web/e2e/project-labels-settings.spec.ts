@@ -139,4 +139,62 @@ test.describe('Project Settings → Labels (#1089)', () => {
     await labels.getByRole('button', { name: 'Retry' }).click();
     await expect(labels.getByTestId('label-row-label-bug')).toBeVisible();
   });
+
+  // #2847: label_created/updated/deleted were broadcast to nobody, so a peer's
+  // new label never reached this open catalog until a reload. The list mock is
+  // stateful — the broadcast below is the only thing that can make the client
+  // read the second row.
+  test("a peer's label_created reaches the open catalog without a reload", async ({ page }) => {
+    await setup(page);
+    let catalog = [FIXTURE_LABEL];
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/labels/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: catalog,
+          count: catalog.length,
+          next: null,
+          previous: null,
+        }),
+      }),
+    );
+    // Mint the WS ticket so the project socket can open (ADR-0141) —
+    // setupCatchAll() would otherwise 404 it and the socket never goes Live.
+    await page.route('**/api/v1/ws/ticket/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }),
+      }),
+    );
+    let socket: import('@playwright/test').WebSocketRoute | null = null;
+    await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+      socket = ws;
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings#labels`);
+    const labels = page.getByRole('region', { name: 'Labels', exact: true });
+    await expect(labels.getByTestId('label-row-label-bug')).toBeVisible();
+    await expect(page.getByRole('contentinfo', { name: 'Application status' })).toContainText(
+      'Live',
+      { timeout: 10_000 },
+    );
+    if (!socket) throw new Error('expected the project WebSocket to have connected');
+
+    catalog = [
+      FIXTURE_LABEL,
+      { id: 'label-ux', name: 'ux', color: 'blue', position: 1, server_version: 1, task_count: 0 },
+    ];
+    (socket as import('@playwright/test').WebSocketRoute).send(
+      JSON.stringify({
+        protocol_version: 1,
+        event_type: 'label_created',
+        payload: { id: 'label-ux' },
+        seq: 1,
+      }),
+    );
+
+    await expect(labels.getByTestId('label-row-label-ux')).toBeVisible();
+  });
 });
