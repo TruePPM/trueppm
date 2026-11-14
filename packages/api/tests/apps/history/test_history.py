@@ -733,8 +733,8 @@ class TestHistorySummaryRemoved:
 
 @pytest.mark.django_db
 class TestHistoryCap:
-    """Verify _MAX_HISTORY_ROWS cap behaviour for TaskHistoryListView and
-    ProjectHistoryListView (perf-check finding #1318)."""
+    """Verify _MAX_HISTORY_ROWS cap behaviour for the per-task history view
+    (``TaskHistoryView``) and ``ProjectHistoryListView`` (perf-check finding #1318)."""
 
     def test_task_history_cap_not_triggered_on_small_set(
         self,

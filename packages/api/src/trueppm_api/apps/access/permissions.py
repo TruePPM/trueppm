@@ -2055,7 +2055,8 @@ class IsWorkspaceOperator(BasePermission):
 class CanAssignResource(BasePermission):
     """Allow Resource Manager (2) or above to assign resources to tasks.
 
-    Stub — used by a future ResourceAssignment viewset (issue #14).
+    Live, not a stub: gates ``ProjectResourceViewSet`` and ``TaskResourceViewSet`` in
+    ``resources/views.py``. Removing it would open resource assignment to any Member.
     """
 
     message = "You need at least Resource Manager role to assign resources."

@@ -210,6 +210,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                        (last-Owner guard prevents stranding a project)
     """
 
+    # authoritative: get_permissions() below; this list is a shadowed fallback (#4399).
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     # Read by BOTH get_permissions and the OpenAPI schema (core/openapi.py), so the
     # refusal and what the schema advertises cannot drift (#3847).
@@ -1574,6 +1575,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
     change its roster. Do not "fix" this by lowering the gate to Admin+.
     """
 
+    # authoritative: get_permissions() below; this list is a shadowed fallback (#4399).
     permission_classes = [IsAuthenticated, IsProgramMember, IsProgramNotClosed]
     # Shared with the OpenAPI schema; see ProjectMembershipViewSet (#3847).
     token_refused_actions = frozenset({"create", "update", "partial_update"})

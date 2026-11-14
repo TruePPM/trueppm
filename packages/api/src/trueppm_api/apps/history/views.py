@@ -36,7 +36,7 @@ from trueppm_api.apps.history.serializers import (
     ChangelogResponseSerializer,
     HistoryRecordSerializer,
 )
-from trueppm_api.apps.projects.models import Project, Task
+from trueppm_api.apps.projects.models import Project
 
 logger = logging.getLogger(__name__)
 
@@ -164,9 +164,9 @@ def _caller_can_see_user(request: Request, project: Project) -> bool:
 #
 # NOTE(#1889): this cap intentionally differs from the projects app's
 # ``apps.projects.views._MAX_HISTORY_ROWS`` (2000), which backs the wired
-# ``/projects/<pk>/tasks/<pk>/history/`` route serving the task drawer.
-# ``TaskHistoryListView`` below is deliberately unwired (see this app's
-# ``urls.py``); the 5000 bound here covers the project-wide list view. Do not
+# ``/projects/<pk>/tasks/<pk>/history/`` route serving the task drawer. The
+# history app's own per-task view was deleted (#4399); the 5000 bound here
+# covers the project-wide list view. Do not
 # "sync" the two numbers; cross-reference comments live at both constants.
 #
 # NOTE(#3372): this constant previously was also shared with
@@ -213,32 +213,6 @@ def _history_page_response(
     response = paginator.get_paginated_response(serializer.data)
     response.data["count_truncated"] = count_truncated
     return response
-
-
-class TaskHistoryListView(APIView):
-    """Paginated change history for a single task.
-
-    GET /api/v1/projects/{project_pk}/tasks/{task_pk}/history/
-
-    Permissions: any project member (Viewer+) may read. history_user details
-    are visible only to Owner/Admin (role >= Role.ADMIN); lower-privilege callers
-    receive null for that field.
-
-    At most ``_MAX_HISTORY_ROWS`` records are materialized; ``count_truncated``
-    in the response is ``true`` when the cap was hit so the client can surface
-    "showing recent activity" instead of implying a complete record.
-    """
-
-    # IsProjectNotArchived is deliberately omitted: history is a read-only audit
-    # surface that must stay accessible after a project is archived. Do not add it
-    # "for consistency" — archived projects still need their audit trail readable.
-    permission_classes = [IsAuthenticated, IsProjectMember]
-
-    def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
-        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
-        self.check_object_permissions(request, project)
-        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
-        return _history_page_response(request, self, project, task.history)
 
 
 class ProjectHistoryListView(APIView):

@@ -32,12 +32,9 @@ class Migration(migrations.Migration):
         # originals already applied in an earlier release (#4320 correction; see
         # CLAUDE.md migration-discipline rule 1/6 and access/migrations/
         # 0017_viewer_ordinal_one.py for the upgrade-path counterexample this was
-        # wrong about). As of this writing 0009 is UNRELEASED, so that condition
-        # does not yet hold: whichever 0.x squash first spans this migration will
-        # run it directly against populated tables on upgrade, exactly like the
-        # access squash did. Re-check this comment, and verify with a test in the
-        # shape of tests/apps/access/test_viewer_ordinal_upgrade.py, before that
-        # squash is generated — do not assume elision is still safe by then.
+        # wrong about). 0009 shipped, byte-identical, in v0.4.0-beta.7, so that
+        # condition now holds: a squash that replaces it spans an already-applied
+        # migration, and the optimizer may elide this op.
         # Leaving it non-elidable would make squashmigrations keep it as an
         # optimizer barrier, pinning the add-copy-drop dance for a column no model
         # has — plus a hard import of webhooks.backfill — into the baseline.
