@@ -185,7 +185,7 @@ export function WhyCriticalNetworkDialog({ chain, view, copyText, onClose, onOpe
                         : 'border border-neutral-border',
                       card.nonDriving ? 'border-dashed' : '',
                       card.band === 'near_critical'
-                        ? 'border-semantic-at-risk bg-semantic-at-risk/10'
+                        ? 'border-semantic-at-risk'
                         : '',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2',
                     ].join(' ')}
