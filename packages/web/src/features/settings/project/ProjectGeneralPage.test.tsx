@@ -196,7 +196,12 @@ describe('ProjectGeneralPage', () => {
     const group = screen.getByRole('radiogroup', {
       name: 'Near-critical threshold in working days',
     });
-    expect(within(group).getByText(/Inherit/)).toHaveTextContent('Inherit (10 wd)');
+    expect(within(group).getByText(/Use the program or workspace default/)).toHaveTextContent(
+      'Use the program or workspace default (10 wd)',
+    );
+    expect(screen.getByText(/Inherited from the program or workspace default:/)).toHaveTextContent(
+      'Inherited from the program or workspace default: 10 wd.',
+    );
     fireEvent.click(within(group).getByLabelText(/Override/));
     const input = screen.getByRole('spinbutton', {
       name: 'Near-critical threshold in working days',

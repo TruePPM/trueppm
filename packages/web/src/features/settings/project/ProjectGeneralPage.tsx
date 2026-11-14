@@ -890,6 +890,7 @@ export function ProjectGeneralPage() {
               max={NEAR_CRITICAL_THRESHOLD_MAX}
               ariaLabel="Near-critical threshold in working days"
               unit="wd"
+              inheritPhrasing="default"
               overrideHint={`${NEAR_CRITICAL_THRESHOLD_MIN}–${NEAR_CRITICAL_THRESHOLD_MAX} working days.`}
               scopeNoun="project"
               canEdit={canEdit}

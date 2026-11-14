@@ -518,7 +518,7 @@ test.describe('Project Settings → General', () => {
     await setup(page, captures);
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
     const group = page.getByRole('radiogroup', { name: 'Near-critical threshold in working days' });
-    await expect(group.getByText('Inherit (10 wd)')).toBeVisible();
+    await expect(group.getByText('Use the program or workspace default (10 wd)')).toBeVisible();
     await group.getByText('Override', { exact: true }).click();
     const input = page.getByRole('spinbutton', { name: 'Near-critical threshold in working days' });
     await expect(input).toHaveValue('10');

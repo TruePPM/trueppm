@@ -1068,6 +1068,55 @@ describe('ProgramGeneralPage (settings)', () => {
  * mounts: it reports a fact about a write, so it must not appear for a write that did
  * not happen, did not land, or was not this field.
  */
+describe('ProgramGeneralPage — near-critical threshold row (#4892)', () => {
+  beforeEach(() => {
+    useProgram.mockReset();
+    mutateAsync.mockReset();
+    mutateAsync.mockResolvedValue(undefined);
+    useWorkspaceSettings.mockReturnValue({ data: { methodologyOverridePolicy: 'suggest' } });
+    useProgramProjects.mockReturnValue({
+      data: [],
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+  });
+
+  it('inherits the workspace default in the deck wording, unit on every number', () => {
+    useProgram.mockReturnValue({
+      data: makeProgram({ inherited_near_critical_threshold_days: 8 }),
+    });
+    renderPage();
+    const group = screen.getByRole('radiogroup', {
+      name: 'Near-critical threshold in working days',
+    });
+    expect(within(group).getByText(/Use the workspace default/)).toHaveTextContent(
+      'Use the workspace default (8 wd)',
+    );
+    expect(screen.getByText(/Inherited from the workspace default:/)).toHaveTextContent(
+      'Inherited from the workspace default: 8 wd.',
+    );
+  });
+
+  it('Override seeds the inherited value with 1–260 bounds', () => {
+    useProgram.mockReturnValue({
+      data: makeProgram({ inherited_near_critical_threshold_days: 8 }),
+    });
+    renderPage();
+    const group = screen.getByRole('radiogroup', {
+      name: 'Near-critical threshold in working days',
+    });
+    fireEvent.click(within(group).getByLabelText(/Override/));
+    const input = screen.getByRole('spinbutton', {
+      name: 'Near-critical threshold in working days',
+    });
+    expect(input).toHaveValue(8);
+    expect(input).toHaveAttribute('min', '1');
+    expect(input).toHaveAttribute('max', '260');
+  });
+});
+
 describe('ProgramGeneralPage — methodology align offer (#3293)', () => {
   beforeEach(() => {
     useProgram.mockReset();

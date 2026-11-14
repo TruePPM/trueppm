@@ -38,14 +38,18 @@ function clampRetention(n: number): number {
   return Math.min(MC_HISTORY_RETENTION_MAX, Math.max(MC_HISTORY_RETENTION_MIN, Math.round(n)));
 }
 
-/** Clamp the near-critical threshold into the server-enforced [1, 260] working days. */
-function clampThreshold(n: number): number {
-  if (Number.isNaN(n)) return NEAR_CRITICAL_THRESHOLD_MIN;
-  return Math.min(
-    NEAR_CRITICAL_THRESHOLD_MAX,
-    Math.max(NEAR_CRITICAL_THRESHOLD_MIN, Math.round(n)),
-  );
+/**
+ * Parse the near-critical threshold field. Returns the whole number when it is
+ * within the server-enforced [1, 260] working days, else `null`. The field is
+ * never clamped: an out-of-range entry is shown back with an error instead.
+ */
+function parseThreshold(text: string): number | null {
+  if (!/^\d+$/.test(text.trim())) return null;
+  const n = Number(text.trim());
+  return n >= NEAR_CRITICAL_THRESHOLD_MIN && n <= NEAR_CRITICAL_THRESHOLD_MAX ? n : null;
 }
+
+const THRESHOLD_ERROR = `Enter a whole number from ${NEAR_CRITICAL_THRESHOLD_MIN} to ${NEAR_CRITICAL_THRESHOLD_MAX}.`;
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const DAY_NAMES = [
@@ -121,7 +125,11 @@ export function WorkspaceGeneralPage() {
   // Forecast-history config (ADR-0144, issue 1232) — workspace is the non-null root.
   const [mcHistoryEnabled, setMcHistoryEnabled] = useState(true);
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState(100);
-  const [nearCriticalThresholdDays, setNearCriticalThresholdDays] = useState(10);
+  // Kept as the typed text so clearing the field does not snap to a number.
+  const [nearCriticalThresholdDays, setNearCriticalThresholdDays] = useState('10');
+  const [thresholdTouched, setThresholdTouched] = useState(false);
+  const thresholdValue = parseThreshold(nearCriticalThresholdDays);
+  const thresholdInvalid = thresholdValue === null;
   const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
     useState<MCAttributionAudience>('admin_owner');
   const [mcHistoryOverridePolicy, setMcHistoryOverridePolicy] =
@@ -151,7 +159,7 @@ export function WorkspaceGeneralPage() {
     iterationLabelPolicy: 'suggest' as IterationLabelOverridePolicy,
     mcHistoryEnabled: true,
     mcHistoryRetentionCap: 100,
-    nearCriticalThresholdDays: 10,
+    nearCriticalThresholdDays: '10',
     mcHistoryAttributionAudience: 'admin_owner' as MCAttributionAudience,
     mcHistoryOverridePolicy: 'suggest' as MCHistoryOverridePolicy,
     taskDurationChangePercentPolicy: 'keep' as DurationChangePercentPolicy,
@@ -178,7 +186,7 @@ export function WorkspaceGeneralPage() {
       iterationLabelPolicy: ws.iterationLabelOverridePolicy,
       mcHistoryEnabled: ws.mcHistoryEnabled,
       mcHistoryRetentionCap: ws.mcHistoryRetentionCap,
-      nearCriticalThresholdDays: ws.nearCriticalThresholdDays,
+      nearCriticalThresholdDays: String(ws.nearCriticalThresholdDays),
       mcHistoryAttributionAudience: ws.mcHistoryAttributionAudience,
       mcHistoryOverridePolicy: ws.mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy: ws.taskDurationChangePercentPolicy,
@@ -230,6 +238,10 @@ export function WorkspaceGeneralPage() {
   };
 
   const onSave = useCallback(async () => {
+    if (thresholdValue === null) {
+      setThresholdTouched(true);
+      return;
+    }
     await updateSettings.mutateAsync({
       name,
       timezone,
@@ -244,7 +256,7 @@ export function WorkspaceGeneralPage() {
       iterationLabelOverridePolicy: iterationLabelPolicy,
       mcHistoryEnabled,
       mcHistoryRetentionCap: clampRetention(mcHistoryRetentionCap),
-      nearCriticalThresholdDays: clampThreshold(nearCriticalThresholdDays),
+      nearCriticalThresholdDays: thresholdValue,
       mcHistoryAttributionAudience,
       mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy,
@@ -266,7 +278,7 @@ export function WorkspaceGeneralPage() {
       iterationLabelPolicy,
       mcHistoryEnabled,
       mcHistoryRetentionCap: clampRetention(mcHistoryRetentionCap),
-      nearCriticalThresholdDays: clampThreshold(nearCriticalThresholdDays),
+      nearCriticalThresholdDays: String(thresholdValue),
       mcHistoryAttributionAudience,
       mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy,
@@ -287,7 +299,7 @@ export function WorkspaceGeneralPage() {
     iterationLabelPolicy,
     mcHistoryEnabled,
     mcHistoryRetentionCap,
-    nearCriticalThresholdDays,
+    thresholdValue,
     mcHistoryAttributionAudience,
     mcHistoryOverridePolicy,
     taskDurationChangePercentPolicy,
@@ -311,6 +323,7 @@ export function WorkspaceGeneralPage() {
     setMcHistoryEnabled(initial.mcHistoryEnabled);
     setMcHistoryRetentionCap(initial.mcHistoryRetentionCap);
     setNearCriticalThresholdDays(initial.nearCriticalThresholdDays);
+    setThresholdTouched(false);
     setMcHistoryAttributionAudience(initial.mcHistoryAttributionAudience);
     setMcHistoryOverridePolicy(initial.mcHistoryOverridePolicy);
     setTaskDurationChangePercentPolicy(initial.taskDurationChangePercentPolicy);
@@ -318,7 +331,14 @@ export function WorkspaceGeneralPage() {
     setSprintPickerReadyOnlyDefault(initial.sprintPickerReadyOnlyDefault);
   }, [initial]);
 
-  useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: true });
+  // An out-of-range threshold disarms the save bar, as ProgramRiskPolicyPage does.
+  useDirtyForm({
+    values,
+    initialValues: initial,
+    onSave,
+    onReset,
+    apiReady: !thresholdInvalid,
+  });
 
   function toggleDay(i: number) {
     setWorkWeek((prev) => prev.map((on, j) => (j === i ? !on : on)));
@@ -816,9 +836,12 @@ export function WorkspaceGeneralPage() {
                 step={1}
                 value={nearCriticalThresholdDays}
                 aria-label="Near-critical threshold in working days"
-                onChange={(e) =>
-                  setNearCriticalThresholdDays(clampThreshold(e.target.valueAsNumber))
+                aria-invalid={(thresholdTouched && thresholdInvalid) || undefined}
+                aria-describedby={
+                  thresholdTouched && thresholdInvalid ? 'near-critical-threshold-error' : undefined
                 }
+                onChange={(e) => setNearCriticalThresholdDays(e.target.value)}
+                onBlur={() => setThresholdTouched(true)}
                 className="w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
               />
               <span className="text-[13px] text-neutral-text-secondary">wd</span>
@@ -826,6 +849,15 @@ export function WorkspaceGeneralPage() {
             <span className="text-[12px] text-neutral-text-secondary">
               {NEAR_CRITICAL_THRESHOLD_MIN}–{NEAR_CRITICAL_THRESHOLD_MAX} working days
             </span>
+            {thresholdTouched && thresholdInvalid && (
+              <span
+                id="near-critical-threshold-error"
+                role="alert"
+                className="text-[12px] text-semantic-critical"
+              >
+                {THRESHOLD_ERROR}
+              </span>
+            )}
           </div>
         </FieldRow>
 

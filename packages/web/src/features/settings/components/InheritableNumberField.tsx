@@ -26,6 +26,12 @@ export interface InheritableNumberFieldProps {
   scopeNoun?: string;
   /** Unit suffix printed after every number (e.g. "wd"), so a value never reads bare. */
   unit?: string;
+  /**
+   * `'default'` words the inherit state as a named default: the chip reads
+   * "Use {inheritFromLabel} (N)" and the line "Inherited from {inheritFromLabel}: N."
+   * The default `'inherit'` keeps "Inherit (N)" / "Using {inheritFromLabel}: N."
+   */
+  inheritPhrasing?: 'inherit' | 'default';
 }
 
 const chipClass = (selected: boolean) =>
@@ -67,6 +73,7 @@ export function InheritableNumberField({
   overrideHint,
   scopeNoun = 'scope',
   unit,
+  inheritPhrasing = 'inherit',
 }: InheritableNumberFieldProps) {
   const u = unit ? ` ${unit}` : '';
   const radioName = useId();
@@ -104,7 +111,7 @@ export function InheritableNumberField({
             checked={inheriting}
             onChange={() => onChange(null)}
           />
-          Inherit
+          {inheritPhrasing === 'default' ? `Use ${inheritFromLabel}` : 'Inherit'}
           <span className="font-normal opacity-80">
             {' '}
             ({inherited}
@@ -127,7 +134,7 @@ export function InheritableNumberField({
 
       {inheriting ? (
         <p className="text-[12px] text-neutral-text-secondary">
-          Using {inheritFromLabel}:{' '}
+          {inheritPhrasing === 'default' ? 'Inherited from' : 'Using'} {inheritFromLabel}:{' '}
           <span className="font-medium text-neutral-text-primary">
             {inherited}
             {u}

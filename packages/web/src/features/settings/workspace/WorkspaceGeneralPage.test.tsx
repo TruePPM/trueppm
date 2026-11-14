@@ -16,6 +16,8 @@ const mockState = vi.hoisted(() => ({
   isError: false,
   refetch: vi.fn(),
   error: undefined as unknown,
+  mutateAsync: vi.fn(),
+  dirtyForm: null as null | { onSave: () => Promise<void> | void; apiReady: boolean },
 }));
 
 // The page is fully hook-backed; mock the data/mutation/dirty-form hooks so it
@@ -66,10 +68,13 @@ vi.mock('../hooks/useWorkspaceSettings', () => ({
   }),
 }));
 vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
-  useUpdateWorkspaceSettings: () => ({ mutateAsync: vi.fn() }),
+  useUpdateWorkspaceSettings: () => ({ mutateAsync: mockState.mutateAsync }),
 }));
+// Records the latest options so a test can drive the shell's Save (onSave).
 vi.mock('../hooks/useDirtyForm', () => ({
-  useDirtyForm: () => undefined,
+  useDirtyForm: (opts: { onSave: () => Promise<void> | void; apiReady: boolean }) => {
+    mockState.dirtyForm = opts;
+  },
 }));
 // Logo control (#969) is hook-backed via react-query mutations; stub them so the
 // page renders without a QueryClientProvider.
@@ -96,6 +101,8 @@ beforeEach(() => {
   mockState.isError = false;
   mockState.error = undefined;
   mockState.refetch.mockReset();
+  mockState.mutateAsync.mockReset();
+  mockState.dirtyForm = null;
 });
 
 // A <Link> to the danger page needs a Router context.
@@ -466,6 +473,51 @@ describe('WorkspaceGeneralPage — settings that persist but nothing reads (#323
     expect(within(popover).getByRole('link', { name: /Learn more/i })).toHaveAttribute(
       'href',
       expect.stringContaining('#settings-that-are-stored-but-not-yet-read'),
+    );
+  });
+});
+
+describe('WorkspaceGeneralPage — near-critical threshold (#4892)', () => {
+  function field() {
+    return screen.getByRole('spinbutton', { name: 'Near-critical threshold in working days' });
+  }
+
+  it('lets the field be cleared without snapping to a number, and errors on blur', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(field()).toHaveValue(10);
+    await user.clear(field());
+    expect(field()).toHaveValue(null);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number from 1 to 260.');
+    expect(field()).toHaveAttribute('aria-invalid', 'true');
+    expect(mockState.dirtyForm?.apiReady).toBe(false);
+  });
+
+  it('never clamps an out-of-range entry: it stays as typed and is refused', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.clear(field());
+    await user.type(field(), '261');
+    await user.tab();
+    expect(field()).toHaveValue(261);
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number from 1 to 260.');
+    await mockState.dirtyForm?.onSave();
+    expect(mockState.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('saves a valid threshold as nearCriticalThresholdDays', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.clear(field());
+    await user.type(field(), '15');
+    await user.tab();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mockState.dirtyForm?.apiReady).toBe(true);
+    await mockState.dirtyForm?.onSave();
+    expect(mockState.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ nearCriticalThresholdDays: 15 }),
     );
   });
 });

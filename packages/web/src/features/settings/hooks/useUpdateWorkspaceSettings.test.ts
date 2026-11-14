@@ -111,6 +111,18 @@ describe('useUpdateWorkspaceSettings', () => {
     });
   });
 
+  it('sends the near-critical threshold as near_critical_threshold_days (#4892)', async () => {
+    const qc = makeQC();
+    const { result } = renderHook(() => useUpdateWorkspaceSettings(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({ nearCriticalThresholdDays: 7 });
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    expect(patchMock).toHaveBeenCalledWith('/workspace/', { near_critical_threshold_days: 7 });
+  });
+
   it('serializes a falsy-but-defined boolean (false) rather than dropping it', async () => {
     const qc = makeQC();
     const { result } = renderHook(() => useUpdateWorkspaceSettings(), {
