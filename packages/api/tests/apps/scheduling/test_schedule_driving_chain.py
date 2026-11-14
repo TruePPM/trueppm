@@ -159,7 +159,11 @@ class TestDrivingChain:
         data = viewer_client.get(url(project.pk), {"task_id": str(chain["B"].pk)}).json()
         assert set(data) == set(ScheduleDrivingChainSerializer().fields)
         a = next(n for n in data["nodes"] if n["name"] == "A")
-        assert a["sprint"] == {"id": str(sprint.pk), "finish_date": "2026-03-13"}
+        assert a["sprint"] == {
+            "id": str(sprint.pk),
+            "name": "S1",
+            "finish_date": "2026-03-13",
+        }
         assert not (_walk_keys(data) & FORBIDDEN_KEYS)
 
     def test_depth_truncates(
