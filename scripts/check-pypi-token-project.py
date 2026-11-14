@@ -103,23 +103,28 @@ def _main_plumbing_failures(
     import io
     import tempfile
 
-    def run(argv: list[str], token: str | None) -> int:
+    def run_err(argv: list[str], token: str | None) -> tuple[int, str]:
         saved = os.environ.get("PYPI_TOKEN")
         if token is None:
             os.environ.pop("PYPI_TOKEN", None)
         else:
             os.environ["PYPI_TOKEN"] = token
         try:
+            err = io.StringIO()
             with (
-                contextlib.redirect_stderr(io.StringIO()),
+                contextlib.redirect_stderr(err),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
-                return main(argv)
+                rc = main(argv)
+            return rc, err.getvalue()
         finally:
             if saved is None:
                 os.environ.pop("PYPI_TOKEN", None)
             else:
                 os.environ["PYPI_TOKEN"] = saved
+
+    def run(argv: list[str], token: str | None) -> int:
+        return run_err(argv, token)[0]
 
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as d:
@@ -141,13 +146,17 @@ def _main_plumbing_failures(
             ),
         ]
         failures += [n for got, want, n in plumbing if got != want]
-        # Missing or malformed pins must raise, never be read as "pass".
+        # Missing or malformed pins must fail closed with a message naming the path.
         for label, path in (("missing", Path(d, "nope.json")), ("malformed", bad_json)):
             try:
-                rc = run(["x", "pkg", "--pins", str(path)], good)
-            except (OSError, ValueError):
+                rc, err = run_err(["x", "pkg", "--pins", str(path)], good)
+            except Exception as exc:  # a traceback is the bug being pinned
+                failures.append(f"{label} pins file raised {type(exc).__name__}")
                 continue
-            failures.append(f"{label} pins file must not succeed (rc={rc})")
+            if rc != 1 or str(path) not in err:
+                failures.append(
+                    f"{label} pins file: want rc=1 + path in stderr (rc={rc})"
+                )
     return failures
 
 
@@ -158,9 +167,12 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     pins_path = Path(argv[3]) if len(argv) > 3 and argv[2] == "--pins" else DEFAULT_PINS
-    ok, message = check(
-        os.environ.get("PYPI_TOKEN", ""), argv[1], json.loads(pins_path.read_text())
-    )
+    try:
+        pins = json.loads(pins_path.read_text())
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: cannot read pins file {pins_path}: {exc}", file=sys.stderr)
+        return 1
+    ok, message = check(os.environ.get("PYPI_TOKEN", ""), argv[1], pins)
     print(
         ("OK: " if ok else "ERROR: ") + message,
         file=sys.stderr if not ok else sys.stdout,
