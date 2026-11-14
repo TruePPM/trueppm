@@ -10,7 +10,13 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -1494,7 +1500,21 @@ class UserSearchView(APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "user_search"
 
-    @extend_schema(responses={200: UserSearchResultSerializer(many=True)})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="q",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Search term: a username fragment, or a full email address. Fewer "
+                    "than 2 characters returns an empty list."
+                ),
+            ),
+        ],
+        responses={200: UserSearchResultSerializer(many=True)},
+    )
     def get(self, request: Request) -> Response:
         q = (request.query_params.get("q") or "").strip()
         if len(q) < 2:

@@ -173,6 +173,45 @@ def test_list_filters_by_state(member_client: APIClient, project: Project) -> No
     assert ids == [str(s2.pk)]
 
 
+@pytest.mark.parametrize("bad", ["CLOSED", "CANCELED", "completed", "planned", "nonsense"])
+def test_list_unknown_state_is_400_not_an_empty_list(
+    member_client: APIClient, project: Project, bad: str
+) -> None:
+    """The old docs named CLOSED/CANCELED, which matched nothing and read as no history (#4662)."""
+    _make_sprint(project, name="C", state=SprintState.COMPLETED)
+    resp = member_client.get(f"/api/v1/projects/{project.pk}/sprints/?state={bad}")
+    assert resp.status_code == 400
+    assert "COMPLETED" in str(resp.json()["state"])
+
+
+def test_list_state_filter_accepts_every_real_value(
+    member_client: APIClient, project: Project
+) -> None:
+    for value in SprintState.values:
+        resp = member_client.get(f"/api/v1/projects/{project.pk}/sprints/?state={value}")
+        assert resp.status_code == 200, value
+
+
+def test_sprint_state_param_declares_the_real_enum() -> None:
+    """The committed schema documents the model's values, not the old CLOSED/CANCELED."""
+    import json
+    from pathlib import Path
+
+    schema = json.loads(Path(__file__).parents[5].joinpath("docs/api/openapi.json").read_text())
+    found = [
+        param
+        for path, ops in schema["paths"].items()
+        if path.endswith("/sprints/")
+        for op in ops.values()
+        if isinstance(op, dict)
+        for param in op.get("parameters", [])
+        if param["name"] == "state" and "sprint state" in param.get("description", "")
+    ]
+    assert found, "sprint list `state` parameter missing from the schema"
+    for param in found:
+        assert set(param["schema"]["enum"]) == set(SprintState.values)
+
+
 def test_create_sprint_requires_member(stranger_client: APIClient, project: Project) -> None:
     resp = stranger_client.post(
         f"/api/v1/projects/{project.pk}/sprints/",

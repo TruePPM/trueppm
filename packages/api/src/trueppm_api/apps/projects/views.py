@@ -16495,7 +16495,11 @@ class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Proj
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by sprint state (PLANNED, ACTIVE, CLOSED, CANCELED).",
+                enum=SprintState.values,
+                description=(
+                    "Filter by sprint state. Exact and case-sensitive; an unknown value "
+                    "is a 400, not an empty list."
+                ),
             ),
         ],
     ),
@@ -16710,6 +16714,17 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         if self.action == "list":
             state_filter = self.request.query_params.get("state")
             if state_filter:
+                # An exact filter that silently returned [] for a value it does not
+                # know (the old docs said CLOSED/CANCELED) read as "no past sprints".
+                if state_filter not in SprintState.values:
+                    raise DRFValidationError(
+                        {
+                            "state": (
+                                "Unknown sprint state. Valid values: "
+                                f"{', '.join(SprintState.values)}."
+                            )
+                        }
+                    )
                 qs = qs.filter(state=state_filter)
         # ADR-0102 §5/§8: annotate pending_count so SprintSerializer reads it
         # without an N+1 COUNT per row (the serializer falls back to a single

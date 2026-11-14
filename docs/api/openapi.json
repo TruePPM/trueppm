@@ -32031,9 +32031,16 @@
                         "in": "query",
                         "name": "state",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "enum": [
+                                "ACTIVE",
+                                "CANCELLED",
+                                "COMPLETED",
+                                "PLANNED"
+                            ],
+                            "x-trueppm-enum": "open"
                         },
-                        "description": "Filter by sprint state (PLANNED, ACTIVE, CLOSED, CANCELED)."
+                        "description": "Filter by sprint state. Exact and case-sensitive; an unknown value is a 400, not an empty list."
                     }
                 ],
                 "tags": [
@@ -47788,6 +47795,16 @@
             "get": {
                 "operationId": "v1_users_search_list",
                 "description": "GET /api/v1/users/search/?q=<term> — workspace user typeahead for member invite.\n\nReturns up to 10 active users matching username or email (case-insensitive).\nThe email is matched but never returned (#815, ADR-0061 amended): the previous\nserializer echoed every matched user's email, so a single authenticated account\ncould paginate the typeahead to harvest the whole workspace's email list. The\nsubstantive fix is dropping ``email`` from the payload + a per-user throttle.\nDefense in depth:\n\n- ``IsWorkspaceMember`` — a deactivated membership (or, once explicit\n  memberships/multi-workspace land, a non-member) is denied. In a single-\n  workspace OSS deploy every active account is an implicit member, so this is\n  the semantically-correct gate rather than an added restriction today; and\n- a per-user 60/min throttle (``user_search`` scope) bounds bulk scraping.\n\nEmail matches only on the full address (``iexact``); a fragment matches usernames\nonly (#3639).\n\nReturns an empty list when q is fewer than 2 characters.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Search term: a username fragment, or a full email address. Fewer than 2 characters returns an empty list."
+                    }
+                ],
                 "tags": [
                     "workspace"
                 ],
