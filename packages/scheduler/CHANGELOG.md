@@ -30,8 +30,9 @@ change between releases. Pin an exact version (e.g.
   `SimulationTimeExceeded`, a `SimulationCapExceeded` subclass exported from
   `trueppm_scheduler`, so existing cap handlers keep catching it. It is checked at
   phase boundaries (before and after sampling, before each forward-pass chunk, and
-  before the sensitivity tornado), and with a deadline the forward pass runs in at
-  least eight chunks so an overrun stops inside it. A project with a milestone or
+  before the sensitivity tornado), and with a deadline the forward pass runs in
+  about eight chunks (`ceil(runs / 8)` runs each) so an overrun stops inside it. The
+  split costs about 2x on the pass for large projects, and the result is unchanged. A project with a milestone or
   zero-base task on a non-working `actual_start` still runs its pass as one chunk.
   The default `None` sets no limit, and a run that finishes in time returns exactly
   what it would have without one.

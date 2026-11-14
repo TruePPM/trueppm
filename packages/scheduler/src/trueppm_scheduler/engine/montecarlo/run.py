@@ -100,12 +100,17 @@ _MC_REFERENCE_BLOCK_CELLS = 65_536
 # per-chunk loop overhead at all.
 _MC_FORWARD_CHUNK_CELLS = 8_000_000
 
-# With a ``deadline``, the forward pass is split into at least this many chunks (#4496).
-# The deadline is checked between chunks only, and the cell budget above exceeds the
-# API's ``MC_CELL_CAP`` (2.5M), so without this an API run would be one chunk and an
-# overrun in the pass -- the costliest phase -- would run to the end before the next
-# check. Eight bounds the overshoot to about an eighth of the pass for a few
-# per-chunk loop iterations; chunking is exact, so the result does not change.
+# With a ``deadline``, the forward pass is split into about this many chunks of
+# ``ceil(runs / 8)`` runs each (#4496): exactly eight from about 50 runs up, fewer for
+# small run counts (9 runs make 5 chunks), and one run per chunk below 8 runs. The
+# deadline is checked between chunks only, and the cell budget above exceeds the API's
+# ``MC_CELL_CAP`` (2.5M), so without this an API run would be one chunk and an overrun
+# in the pass -- the costliest phase -- would run to the end before the next check.
+# Eight bounds the overshoot to about an eighth of the pass. It is not free: each
+# chunk loops over every column in Python, and on API-cap-sized projects the pass
+# measured about 2x slower (2,500 tasks x 1,000 runs: 0.35-0.38 s -> 0.58-0.65 s;
+# 5,000 x 500: 0.45-0.49 s -> 0.89-0.94 s), still far inside the 15 s API default. A
+# what-if pays it twice. Chunking is exact, so the result does not change.
 _MC_DEADLINE_MIN_CHUNKS = 8
 
 
@@ -295,9 +300,10 @@ def _check_deadline(deadline: float | None) -> None:
 
     The simulation is vectorized, so it cannot stop mid-array: it checks at phase
     boundaries (before and after sampling, before each forward-pass chunk, before the
-    tornado). With a deadline the pass runs in at least ``_MC_DEADLINE_MIN_CHUNKS``
-    chunks, except for a project whose pass must run whole (a milestone or zero-base
-    task on a non-working ``actual_start``), which is one chunk.
+    tornado). With a deadline the pass runs in about ``_MC_DEADLINE_MIN_CHUNKS``
+    chunks of ``ceil(runs / 8)`` runs each (fewer for small run counts), except for a
+    project whose pass must run whole (a milestone or zero-base task on a non-working
+    ``actual_start``), which is one chunk.
     A deadline is therefore a bound to within one phase or chunk, not to the
     millisecond. A call already past its deadline raises before it samples anything.
     """
