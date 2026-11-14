@@ -34,7 +34,9 @@ Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-mana
 In the current release every project member, including a Viewer, sees each person's name and hours. From 0.5 the per-person list is governed by [Signal privacy](/features/settings/signal-privacy/).
 :::
 
-The per-person list is the **capacity** signal. By default it is visible to the team (members, viewers and the Scrum Master) and not to the project-manager band. Someone outside the signal's audience still sees the donut and the team totals, with a note in place of the names: *"Per-person capacity is team-private."* The team can share it upward from **Settings, Signal privacy**.
+The per-person list is the **capacity** signal. By default it is visible to the team (members, viewers and the Scrum Master) and not to the project-manager band. Someone outside the signal's audience still sees the donut and the team totals, with a note in place of the names: *"Per-person capacity is team-private."* The team can share it upward from **Settings → Signal privacy** (the **Sprint capacity per person** row).
+
+The over-capacity warnings shown when a sprint is activated carry the same names and hours, so they follow the same rule: outside the audience the banner says how many members are over capacity without naming them.
 
 ## Points ceiling (added in 0.3)
 

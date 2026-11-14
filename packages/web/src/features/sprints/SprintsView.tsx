@@ -1063,6 +1063,10 @@ function GuardrailRow({
   );
 }
 
+function formatHours(hours: number | undefined): string {
+  return hours === undefined ? '—' : `${Math.round(hours * 10) / 10}h`;
+}
+
 /** Capacity warnings surfaced by the activate response — dismissible; auto-clears
  *  when the active sprint changes (handled by useActivateSprint). */
 function CapacityWarningsAlert({
@@ -1075,6 +1079,9 @@ function CapacityWarningsAlert({
   onDismiss: () => void;
 }) {
   if (warnings.length === 0) return null;
+  // Suppressed entries (ADR-0104 `capacity` signal) carry no name — count them in the
+  // heading but list only the entries the caller may read.
+  const named = warnings.filter((w) => !w.detail_suppressed && w.member_name);
   return (
     <div
       role="alert"
@@ -1086,12 +1093,22 @@ function CapacityWarningsAlert({
           {itl.singular} activated with {warnings.length} capacity warning
           {warnings.length === 1 ? '' : 's'}
         </p>
-        <ul className="list-disc list-inside space-y-0.5">
-          {warnings.slice(0, 3).map((w) => (
-            <li key={w.resource_id}>{w.message}</li>
-          ))}
-          {warnings.length > 3 && <li className="italic">and {warnings.length - 3} more…</li>}
-        </ul>
+        {named.length > 0 ? (
+          <ul className="list-disc list-inside space-y-0.5">
+            {named.slice(0, 3).map((w) => (
+              <li key={w.member_id ?? w.member_name}>
+                {w.member_name}: {formatHours(w.committed_hours)} committed of{' '}
+                {formatHours(w.available_hours)} available
+              </li>
+            ))}
+            {named.length > 3 && <li className="italic">and {named.length - 3} more…</li>}
+          </ul>
+        ) : (
+          <p>
+            Per-person detail is visible to the team unless they share it in Settings → Signal
+            privacy.
+          </p>
+        )}
       </div>
       <button
         type="button"

@@ -24,7 +24,6 @@ from trueppm_api.apps.projects.models import (
     SIGNAL_DEFAULTS,
     Calendar,
     Project,
-    ProjectSignalPrivacyPolicy,
     SignalAudience,
     Sprint,
     SprintState,
@@ -119,10 +118,90 @@ def test_non_member_is_denied(project: Project, sprint: Sprint) -> None:
     assert c.get(_url(sprint)).status_code == 404
 
 
-def test_ratchet_down_covers_capacity(project: Project) -> None:
+def test_ratchet_down_covers_capacity(project: Project, sprint: Sprint) -> None:
+    """Lowering the ceiling and the SM panic button both re-suppress the PM band."""
     policy = svc.get_or_create_policy(project)
-    assert ProjectSignalPrivacyPolicy.objects.filter(pk=policy.pk).exists()
+    svc.raise_signal_ceiling(policy, "capacity", SignalAudience.TEAM_SM_PM)
+    svc.set_signal_audience(policy, "capacity", SignalAudience.TEAM_SM_PM)
+    pm = _client(project, "pm", Role.ADMIN)
+    assert pm.get(_url(sprint)).data["capacity_suppressed"] is False
+
+    # Ceiling ratcheted back to TEAM: the audience clamps down with it.
+    svc.raise_signal_ceiling(policy, "capacity", SignalAudience.TEAM)
+    policy.refresh_from_db()
+    assert policy.ceiling_of("capacity") == SignalAudience.TEAM
     assert policy.audience_of("capacity") == SignalAudience.TEAM
+    resp = pm.get(_url(sprint))
+    assert resp.data["capacity_suppressed"] is True
+    assert resp.data["members"] == []
+
+    # Re-share, then the all-signals ratchet to TEAM suppresses it again.
+    svc.raise_signal_ceiling(policy, "capacity", SignalAudience.TEAM_SM_PM)
+    svc.set_signal_audience(policy, "capacity", SignalAudience.TEAM_SM_PM)
+    assert pm.get(_url(sprint)).data["capacity_suppressed"] is False
+    svc.ratchet_down_to_team(policy)
+    policy.refresh_from_db()
+    assert policy.audience_of("capacity") == SignalAudience.TEAM
+    assert pm.get(_url(sprint)).data["capacity_suppressed"] is True
+
+
+# --- activate: the over-capacity warnings carry the same per-person data ------------
+
+
+@pytest.fixture
+def planned_over_capacity_sprint(project: Project) -> Sprint:
+    """A PLANNED sprint whose one member is committed well past their available hours."""
+    sp = Sprint.objects.create(
+        project=project,
+        name="S2",
+        start_date=date(2026, 3, 2),
+        finish_date=date(2026, 3, 6),
+        state=SprintState.PLANNED,
+    )
+    res = Resource.objects.create(name="Dana Private", max_units=Decimal("1.0"))
+    for i in range(3):
+        task = Task.objects.create(
+            project=project, name=f"T{i}", duration=5, sprint=sp, sprint_id=sp.pk
+        )
+        TaskResource.objects.create(task=task, resource=res, units=Decimal("1.0"))
+    return sp
+
+
+def _activate(client: APIClient, sp: Sprint) -> dict:
+    resp = client.post(f"/api/v1/sprints/{sp.pk}/activate/")
+    assert resp.status_code == 200, resp.content
+    return resp.json()
+
+
+def test_pm_band_activate_warnings_carry_no_names_or_hours(
+    project: Project, planned_over_capacity_sprint: Sprint
+) -> None:
+    body = _activate(_client(project, "pm", Role.ADMIN), planned_over_capacity_sprint)
+    assert body["warnings"] == [{"type": "over_capacity", "detail_suppressed": True}]
+    raw = str(body["warnings"])
+    for leaked in ("Dana Private", "member_id", "member_name", "committed_hours"):
+        assert leaked not in raw
+
+
+def test_team_band_activate_warnings_keep_member_detail(
+    project: Project, planned_over_capacity_sprint: Sprint
+) -> None:
+    body = _activate(_client(project, "sched", Role.SCHEDULER), planned_over_capacity_sprint)
+    assert len(body["warnings"]) == 1
+    warning = body["warnings"][0]
+    assert warning["member_name"] == "Dana Private"
+    assert warning["committed_hours"] > warning["available_hours"]
+    assert "detail_suppressed" not in warning
+
+
+def test_pm_band_activate_reads_detail_once_shared(
+    project: Project, planned_over_capacity_sprint: Sprint
+) -> None:
+    policy = svc.get_or_create_policy(project)
+    svc.raise_signal_ceiling(policy, "capacity", SignalAudience.TEAM_SM_PM)
+    svc.set_signal_audience(policy, "capacity", SignalAudience.TEAM_SM_PM)
+    body = _activate(_client(project, "pm", Role.ADMIN), planned_over_capacity_sprint)
+    assert body["warnings"][0]["member_name"] == "Dana Private"
 
 
 # --- completeness: a per-person metric cannot ship ungated ------------------------
@@ -158,7 +237,13 @@ def test_every_per_person_serializer_is_registered_to_a_governed_signal() -> Non
 
 
 def test_registered_signal_is_enforced_in_a_read_path() -> None:
-    """Each registered signal key must appear in a ``can_read_signal`` call in the source."""
+    """Each registered signal key must appear in a ``can_read_signal`` call in the source.
+
+    Its limit: this proves the key is read through the gate *somewhere* in
+    ``views``/``services``/``signal_privacy_services``, not that every endpoint which
+    serializes the registered class does so. The per-endpoint proof is the request
+    tests above (``/capacity/`` and ``activate``).
+    """
     import trueppm_api.apps.projects as pkg
 
     root = inspect.getfile(pkg).rsplit("/", 1)[0]

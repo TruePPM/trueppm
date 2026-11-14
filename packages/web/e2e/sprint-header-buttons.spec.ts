@@ -417,7 +417,7 @@ test.describe('Sprint header buttons (#299)', () => {
           ...PLANNED_SPRINT,
           state: 'ACTIVE',
           warnings: [
-            { resource_id: 'r1', resource_name: 'Alice', load_factor: 1.3, message: 'Alice at 130% in week 1' },
+            { type: 'over_capacity', member_id: 'r1', member_name: 'Alice', committed_hours: 52, available_hours: 40, suggested_commitment_points: 6 },
           ],
         }),
       });

@@ -821,7 +821,7 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     const userEvent = (await import('@testing-library/user-event')).default;
     const activateMutate = vi.fn((_id: string, opts: { onSuccess?: (data: unknown) => void }) =>
       opts.onSuccess?.({
-        warnings: [{ resource_id: 'r1', message: 'Alice is overallocated' }],
+        warnings: [{ type: 'over_capacity', member_id: 'r1', member_name: 'Alice', committed_hours: 60, available_hours: 40 }],
       }),
     );
     useSprintMutationsMock.mockReturnValue({
@@ -862,7 +862,7 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
 
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent(/Sprint activated with 1 capacity warning/i);
-    expect(alert).toHaveTextContent(/Alice is overallocated/);
+    expect(alert).toHaveTextContent(/Alice: 60h committed of 40h available/);
 
     await userEvent.click(screen.getByRole('button', { name: /^Dismiss$/i }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -1049,10 +1049,10 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     const activateMutate = vi.fn((_id: string, opts: { onSuccess?: (data: unknown) => void }) =>
       opts.onSuccess?.({
         warnings: [
-          { resource_id: 'r1', message: 'Alice overallocated' },
-          { resource_id: 'r2', message: 'Bob overallocated' },
-          { resource_id: 'r3', message: 'Cara overallocated' },
-          { resource_id: 'r4', message: 'Dan overallocated' },
+          { type: 'over_capacity', member_id: 'r1', member_name: 'Alice', committed_hours: 60, available_hours: 40 },
+          { type: 'over_capacity', member_id: 'r2', member_name: 'Bob', committed_hours: 60, available_hours: 40 },
+          { type: 'over_capacity', member_id: 'r3', member_name: 'Cara', committed_hours: 60, available_hours: 40 },
+          { type: 'over_capacity', member_id: 'r4', member_name: 'Dan', committed_hours: 60, available_hours: 40 },
         ],
       }),
     );
@@ -1083,13 +1083,53 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent(/activated with 4 capacity warnings/i);
     // Only the first three are listed; the rest collapse into an overflow note.
-    expect(alert).toHaveTextContent(/Alice overallocated/);
-    expect(alert).toHaveTextContent(/Cara overallocated/);
-    expect(alert).not.toHaveTextContent(/Dan overallocated/);
+    expect(alert).toHaveTextContent(/Alice: 60h/);
+    expect(alert).toHaveTextContent(/Cara: 60h/);
+    expect(alert).not.toHaveTextContent(/Dan: 60h/);
     expect(alert).toHaveTextContent(/and 1 more/i);
 
     await userEvent.click(screen.getByRole('button', { name: /^Dismiss$/i }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('counts suppressed capacity warnings without naming anyone (ADR-0104)', async () => {
+    const userEvent = (await import('@testing-library/user-event')).default;
+    const activateMutate = vi.fn((_id: string, opts: { onSuccess?: (data: unknown) => void }) =>
+      opts.onSuccess?.({
+        warnings: [
+          { type: 'over_capacity', detail_suppressed: true },
+          { type: 'over_capacity', detail_suppressed: true },
+        ],
+      }),
+    );
+    useSprintMutationsMock.mockReturnValue({
+      closeSprint: { mutate: vi.fn(), isPending: false },
+      createSprint: { mutate: vi.fn() },
+      activateSprint: { mutate: activateMutate },
+      updateSprint: { mutate: vi.fn(), isPending: false },
+    });
+    const readyPlanned = makeSprint({
+      id: 'sp-planned',
+      state: 'PLANNED',
+      name: 'Next up',
+      start_date: '2026-04-01',
+      finish_date: '2026-04-14',
+    });
+    useSprintsMock.mockReturnValue({ sprints: [readyPlanned], isLoading: false, error: null });
+    useSprintsByStateMock.mockReturnValue({
+      closed: [],
+      active: null,
+      planned: [readyPlanned],
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
+
+    await userEvent.click(screen.getByRole('button', { name: /Activate/i }));
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/activated with 2 capacity warnings/i);
+    expect(alert).toHaveTextContent(/Settings → Signal privacy/);
+    expect(alert.querySelectorAll('li')).toHaveLength(0);
   });
 
   it('dismisses the retro handoff banner without opening the retro', async () => {

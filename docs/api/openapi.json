@@ -40918,7 +40918,7 @@
         "/api/v1/sprints/{id}/activate/": {
             "post": {
                 "operationId": "v1_sprints_activate_create",
-                "description": "Transition PLANNED → ACTIVE.\n\nSnapshots committed_points and committed_task_count from the current\nbacklog. Enforces the single-active-sprint-per-project soft constraint\n(409 with conflicting sprint id). Returns the updated sprint plus a\nnon-blocking ``warnings`` array for over-allocated members\n(ADR-0037 Q2 amendment).",
+                "description": "Transition PLANNED → ACTIVE.\n\nSnapshots committed_points and committed_task_count from the current\nbacklog. Enforces the single-active-sprint-per-project soft constraint\n(409 with conflicting sprint id). Returns the updated sprint plus a\nnon-blocking ``warnings`` array for over-allocated members\n(ADR-0037 Q2 amendment). Outside the ADR-0104 ``capacity`` audience each\nwarning is ``{\"type\": \"over_capacity\", \"detail_suppressed\": true}`` with no\nmember identity or hours.",
                 "summary": "Activate a sprint",
                 "parameters": [
                     {

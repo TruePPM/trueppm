@@ -17015,7 +17015,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         backlog. Enforces the single-active-sprint-per-project soft constraint
         (409 with conflicting sprint id). Returns the updated sprint plus a
         non-blocking ``warnings`` array for over-allocated members
-        (ADR-0037 Q2 amendment).
+        (ADR-0037 Q2 amendment). Outside the ADR-0104 ``capacity`` audience each
+        warning is ``{"type": "over_capacity", "detail_suppressed": true}`` with no
+        member identity or hours.
         """
         from trueppm_api.apps.projects.product_backlog_services import seed_sprint_rank
         from trueppm_api.apps.projects.services import (
@@ -17098,6 +17100,17 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             # sprint has no target milestone.
             if sprint.target_milestone_id is not None:
                 recompute_milestone_rollup(sprint.target_milestone_id)
+
+        # ADR-0104 ``capacity`` signal: the over-capacity warnings name members and carry
+        # their committed/available hours — the same per-person data the /capacity/
+        # endpoint suppresses outside the signal's audience. A caller outside it (the
+        # PM/Admin band by default) keeps one entry per over-allocated member, so the
+        # activation flow still says how many warnings there are, but each entry is
+        # reduced to an identity-free marker.
+        from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
+
+        if warnings and not can_read_signal(request, sprint.project_id, "capacity"):
+            warnings = [{"type": "over_capacity", "detail_suppressed": True} for _ in warnings]
 
         data = SprintSerializer(sprint).data
         data["warnings"] = warnings
