@@ -67,7 +67,7 @@ describe('DemoModePanelNote (#3970)', () => {
     const link = screen.getByRole('link', {
       name: 'Telemetry and outbound traffic (opens in a new tab)',
     });
-    expect(link).toHaveAttribute('href', 'https://docs.trueppm.com/administration/observability/');
+    expect(link).toHaveAttribute('href', 'https://docs.trueppm.com/administration/networking/#outbound');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 });

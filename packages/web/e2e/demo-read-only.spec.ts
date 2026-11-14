@@ -139,7 +139,7 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
     await expect(page.getByText(/A self-hosted install sends nothing to us/)).toBeVisible();
     await expect(
       page.getByRole('link', { name: 'Telemetry and outbound traffic (opens in a new tab)' }),
-    ).toHaveAttribute('href', 'https://docs.trueppm.com/administration/observability/');
+    ).toHaveAttribute('href', 'https://docs.trueppm.com/administration/networking/#outbound');
 
     // The credential block inside the form.
     await expect(

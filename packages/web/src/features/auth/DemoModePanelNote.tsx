@@ -68,7 +68,7 @@ export function DemoModePanelNote() {
         A self-hosted install sends nothing to us: no telemetry and no update checks. Metrics and
         traces leave your cluster only if you point it at your own collector.{' '}
         <a
-          href="https://docs.trueppm.com/administration/observability/"
+          href="https://docs.trueppm.com/administration/networking/#outbound"
           target="_blank"
           rel="noopener noreferrer"
           className="font-semibold text-chrome-text-primary underline underline-offset-2 hover:no-underline rounded
