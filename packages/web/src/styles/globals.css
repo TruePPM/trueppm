@@ -87,7 +87,7 @@
     /* #2207 a11y (WCAG 1.4.11): ≥3:1 boundary/mark tokens. --neutral-border
        #E6E1D6 is 1.30:1 as a sole field boundary; --neutral-text-disabled
        was #A09D99, 2.70:1 as a chart mark, pre-#4379. */
-    --input-border:            136 135 128;   /* #888780 — 3.61:1 on white */
+    --input-border:            124 123 116;   /* #7C7B74 — 4.0:1 on white, 3.38:1 on sunken #EAE5D9 (#4669; was #888780, 2.87:1 there) */
     --chart-neutral:           136 135 128;   /* #888780 — 3.61:1 on white */
     /* Drag-preview ghost — applied at low / 0.85 alpha in tailwind.config.ts;
        the 0.85 border is 3.6:1 on white (was slate-500 @55% = 2.12:1). */
@@ -114,7 +114,7 @@
                                                  apart, darker/more muted than secondary in
                                                  both themes. */
     --neutral-text-inverse:    26 25 23;      /* #1A1917 */
-    --input-border:            100 116 139;   /* #64748B — 3.34:1 on navy-800 surface */
+    --input-border:            106 122 146;   /* #6A7A92 — 3.26:1 on raised navy-700 (#4669; was #64748B, 2.99:1) */
     --chart-neutral:           180 178 169;   /* #B4B2A9 — brand dark neutral, ~7:1 on surface */
     --ghost-fill:              148 163 184;   /* slate-400 */
     --ghost-border:            148 163 184;   /* slate-400 #94A3B8 — 4.6:1 on dark canvas @0.85 */

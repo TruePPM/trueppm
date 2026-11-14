@@ -60,7 +60,7 @@ function SeverityCountChips({
       {highCount > 0 && (
         <span
           // `text-brand-accent-text` (#92400E, ≥6:1 on the accent-light tint) —
-          // NOT `text-white` on `bg-brand-accent-dark`, which reintroduces the
+          // NOT `text-white dark:text-navy-900` on `bg-brand-accent-dark`, which reintroduces the
           // fill/border-weight-as-text-background bug RiskChip already fixed for
           // the High level (#2197). Matches RiskChip's High classes exactly.
           className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium

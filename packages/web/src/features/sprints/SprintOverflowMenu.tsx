@@ -103,7 +103,7 @@ export function SprintOverflowMenu({ sprint, projectId, canEdit }: Props) {
         }}
         className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded border border-neutral-border
           text-neutral-text-secondary hover:text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <span aria-hidden="true" className="text-base leading-none">
           ⋯
@@ -118,6 +118,7 @@ export function SprintOverflowMenu({ sprint, projectId, canEdit }: Props) {
             id={menuId}
             role="menu"
             aria-label={`${itl.singular} options`}
+            tabIndex={-1}
             onKeyDown={onMenuKeyDown}
             className="z-30 overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface py-1"
           >

@@ -153,7 +153,7 @@ export function DeleteConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={isPending}
-            className="h-8 px-3 rounded-control bg-semantic-critical text-white text-[13px] font-medium border-none hover:bg-semantic-critical/90 focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-semantic-critical focus:outline-none disabled:opacity-50"
+            className="h-8 px-3 rounded-control bg-semantic-critical text-white dark:text-navy-900 text-[13px] font-medium border-none hover:bg-semantic-critical/90 focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-semantic-critical focus:outline-none disabled:opacity-50"
           >
             {isPending ? 'Deleting…' : 'Delete'}
           </button>

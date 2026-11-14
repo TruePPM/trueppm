@@ -144,6 +144,28 @@ describe.each([
   }
 });
 
+// WCAG 1.4.11 (non-text contrast, ≥3:1): the input outline is what identifies a
+// field's boundary, so it must clear 3:1 against every surface a field sits on
+// (#4669 — dark #64748B on raised navy was 2.99:1, light #888780 on sunken 2.87:1).
+describe.each([
+  ['light', lightTokens],
+  ['dark', darkTokens],
+])('input-border contrast — %s theme (WCAG 1.4.11, ≥3:1)', (_themeName, tokens) => {
+  for (const surfaceToken of SURFACE_TOKENS) {
+    it(`--input-border on --${surfaceToken} clears 3:1`, () => {
+      const border = tokens['input-border'];
+      const surface = tokens[surfaceToken];
+      expect(border, '--input-border not found in parsed token block').toBeDefined();
+      expect(surface, `--${surfaceToken} not found in parsed token block`).toBeDefined();
+      const ratio = contrastRatio(border, surface);
+      expect(
+        ratio,
+        `--input-border ${toHex(border)} on --${surfaceToken} ${toHex(surface)} is ${ratio.toFixed(2)}:1`,
+      ).toBeGreaterThanOrEqual(3);
+    });
+  }
+});
+
 describe('token-contrast guard negative control', () => {
   it('fails a token that is actually below 4.5:1 (proves the assertion is live, not vacuous)', () => {
     const belowAA: [number, number, number] = [160, 157, 153]; // old --neutral-text-disabled #A09D99

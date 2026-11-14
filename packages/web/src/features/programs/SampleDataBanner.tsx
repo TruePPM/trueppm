@@ -167,7 +167,7 @@ export function SampleDataBanner({
             onClick={onShift}
             disabled={shiftDates.isPending}
             aria-busy={shiftDates.isPending}
-            className="h-8 rounded-control bg-brand-primary px-3 text-xs font-medium text-white
+            className="h-8 rounded-control bg-brand-primary px-3 text-xs font-medium text-white dark:text-navy-900
               hover:bg-brand-primary/90 disabled:opacity-60 focus:outline-none
               focus:ring-2 focus:ring-white focus:ring-offset-1
               focus:ring-offset-brand-primary"
@@ -198,7 +198,7 @@ export function SampleDataBanner({
             type="button"
             onClick={onRemove}
             disabled={removeSample.isPending}
-            className="h-8 rounded-control bg-semantic-critical px-3 text-xs font-medium text-white hover:bg-semantic-critical/90 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-semantic-critical"
+            className="h-8 rounded-control bg-semantic-critical px-3 text-xs font-medium text-white dark:text-navy-900 hover:bg-semantic-critical/90 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-semantic-critical"
           >
             {removeSample.isPending ? 'Removing…' : 'Remove'}
           </button>
@@ -220,7 +220,7 @@ export function SampleDataBanner({
               className={`h-8 rounded-control px-3 text-xs font-medium focus:outline-none
                 focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${
                   isStale
-                    ? 'bg-brand-primary text-white hover:bg-brand-primary/90'
+                    ? 'bg-brand-primary text-white dark:text-navy-900 hover:bg-brand-primary/90'
                     : 'border border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised'
                 }`}
             >

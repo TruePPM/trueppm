@@ -88,7 +88,7 @@ export function CardBadgeRow({
       ) : (
         view.showCriticalState && (
           <span
-            className="inline-block px-1 py-px rounded-chip text-xs text-white bg-semantic-critical font-bold"
+            className="inline-block px-1 py-px rounded-chip text-xs text-white dark:text-navy-900 bg-semantic-critical font-bold"
             aria-hidden="true"
           >
             CP

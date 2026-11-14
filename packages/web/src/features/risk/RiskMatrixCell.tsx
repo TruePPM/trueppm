@@ -12,10 +12,10 @@ function cellBgClass(probability: number, impact: number): string {
 
 // Badge background matches the design ring formula (mockups-pages.jsx ringFor).
 function badgeBgClass(severity: number): string {
-  if (severity >= 20) return 'bg-semantic-critical text-white';
-  if (severity >= 12) return 'bg-brand-accent-dark text-white';
-  if (severity >= 6)  return 'bg-brand-accent text-white';
-  if (severity >= 2)  return 'bg-semantic-on-track text-white';
+  if (severity >= 20) return 'bg-semantic-critical text-white dark:text-navy-900';
+  if (severity >= 12) return 'bg-brand-accent-dark text-white dark:text-navy-900';
+  if (severity >= 6)  return 'bg-brand-accent text-navy-900';
+  if (severity >= 2)  return 'bg-semantic-on-track text-white dark:text-navy-900';
   return 'bg-neutral-border text-neutral-text-secondary';
 }
 

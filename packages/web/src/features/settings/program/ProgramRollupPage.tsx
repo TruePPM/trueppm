@@ -697,7 +697,7 @@ export function ProgramRollupPage() {
             className={[
               'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-card border border-neutral-border text-[13px] font-medium',
               toast.variant === 'error'
-                ? 'bg-semantic-critical text-white'
+                ? 'bg-semantic-critical text-white dark:text-navy-900'
                 : 'bg-neutral-text-primary text-white',
             ].join(' ')}
           >
