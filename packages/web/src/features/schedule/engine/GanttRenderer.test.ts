@@ -10,6 +10,7 @@ import {
   drawRowBands,
   resetTextMeasureCache,
   drawGridLines,
+  isNonWorkingDay,
   drawTodayLine,
   drawMilestone,
   drawDragShadow,
@@ -4086,5 +4087,65 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
     const { ctx, calls } = makeCtxSpy();
     drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
     expect(styles(calls, 'fillStyle')).toContain(COLOR.milestone);
+  });
+});
+
+describe('working-time shading (#1498)', () => {
+  /** ISO dates of the day columns drawGridLines shades, recovered from fillRect x. */
+  function shadedDays(workingTime?: { mask: number; exceptions: { start: string; end: string }[] }) {
+    const { ctx, calls } = makeCtxSpy();
+    (ctx as unknown as { canvas: { width: number; height: number } }).canvas = {
+      width: 100_000,
+      height: 600,
+    };
+    drawGridLines(ctx, DAY_SCALES, 0, 0, 600, 0, 1, workingTime);
+    const startMs = DAY_SCALES.start.getTime();
+    return argsOf(calls, 'fillRect')
+      .map((a) => new Date(startMs + Math.round((a[0] as number) / (a[2] as number)) * 86_400_000))
+      .map((d) => d.toISOString().slice(0, 10));
+  }
+
+  it('defaults to Saturday and Sunday when no calendar is supplied', () => {
+    const days = shadedDays();
+    expect(days).toContain('2026-04-04'); // Sat
+    expect(days).toContain('2026-04-05'); // Sun
+    expect(days).not.toContain('2026-04-03'); // Fri
+    expect(days).not.toContain('2026-04-06'); // Mon
+  });
+
+  it('shades exactly the days a Sun–Thu mask blocks (Fri and Sat)', () => {
+    // Mon=1 Tue=2 Wed=4 Thu=8 Fri=16 Sat=32 Sun=64 → Sun–Thu = 64+1+2+4+8
+    const days = shadedDays({ mask: 79, exceptions: [] });
+    expect(days).toContain('2026-04-03'); // Fri shaded
+    expect(days).toContain('2026-04-04'); // Sat shaded
+    expect(days).not.toContain('2026-04-05'); // Sun is a working day
+    expect(days).not.toContain('2026-04-06'); // Mon working
+  });
+
+  it('shades a four-day week (Fri, Sat, Sun off)', () => {
+    const days = shadedDays({ mask: 15, exceptions: [] });
+    expect(days).toEqual(expect.arrayContaining(['2026-04-03', '2026-04-04', '2026-04-05']));
+    expect(days).not.toContain('2026-04-02'); // Thu working
+  });
+
+  it('shades holidays and shutdown ranges on otherwise working days', () => {
+    const days = shadedDays({
+      mask: 31,
+      exceptions: [
+        { start: '2026-04-08', end: '2026-04-08' }, // a Wed holiday
+        { start: '2026-04-14', end: '2026-04-16' }, // a Tue–Thu shutdown
+      ],
+    });
+    for (const d of ['2026-04-08', '2026-04-14', '2026-04-15', '2026-04-16']) {
+      expect(days).toContain(d);
+    }
+    expect(days).not.toContain('2026-04-09');
+    expect(days).not.toContain('2026-04-13');
+  });
+
+  it('reads the weekday in UTC, never the local getter', () => {
+    // 23:30 UTC Friday must stay a Friday for a viewer in any timezone.
+    expect(isNonWorkingDay(new Date('2026-04-03T23:30:00Z'), { mask: 31, exceptions: [] })).toBe(false);
+    expect(isNonWorkingDay(new Date('2026-04-04T00:00:00Z'), { mask: 31, exceptions: [] })).toBe(true);
   });
 });

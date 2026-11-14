@@ -160,6 +160,8 @@ TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/sch
 | Milestone | Diamond | Zero-duration event (`is_milestone=true`), drawn at the instant it sits on: a milestone that follows work sits at the **end** of its day, exactly where its predecessor's bar ends (`milestone_at_day_end=true`); one held by the project start or a start-no-earlier-than date sits at the **start** of its day. When a lag, or a predecessor's recorded finish, puts a milestone after a weekend or holiday, it sits at the **start** of the next working day instead (`milestone_at_day_end=false`) |
 | Actual-date overlay | `ghost-fill`/`ghost-border` 6px, dashed | A task's recorded actual start/finish, drawn below the live bar once it has at least one actual date; colored by schedule variance (late/early/in-progress) |
 
+The shaded columns behind the bars are the project's non-working days: the weekly pattern of its working calendar (a four-day week or a Sunday-to-Thursday week shades the days that calendar blocks, not just Saturday and Sunday) plus its holidays and shutdowns. Until the project's calendar has loaded, the chart shades Saturday and Sunday.
+
 :::note[Milestone placement in older releases]
 The instant-based milestone placement (#4079, with the weekend and holiday
 reading from #4173) is not in `trueppm-scheduler` 0.4.0b4 or earlier. Those

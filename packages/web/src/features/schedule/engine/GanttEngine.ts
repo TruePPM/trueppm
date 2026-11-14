@@ -14,7 +14,7 @@
 import type { Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { RowMode } from '../deliveryModePresentation';
-import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
+import type { FiscalConfig, GanttScaleData, WorkingTimeConfig, ZoomLevel } from './GanttScaleData';
 import type { ChartRenderOptions } from './GanttRenderer';
 
 /**
@@ -414,6 +414,16 @@ export interface GanttEngine {
    * Triggers a full repaint automatically — only the header is affected.
    */
   setFiscalConfig(config: FiscalConfig): void;
+
+  // ── Working time (#1498) ──────────────────────────────────────────────────
+
+  /**
+   * Set the project's working-day mask and holiday/shutdown ranges so the
+   * background shades the days the schedule actually skips — not a hardcoded
+   * Sat/Sun. Until called the renderer shades Mon–Fri weekends. Triggers a full
+   * repaint of the background layer.
+   */
+  setWorkingTime(config: WorkingTimeConfig): void;
 
   // ── Chart presentation toggles (#2097) ────────────────────────────────────
 

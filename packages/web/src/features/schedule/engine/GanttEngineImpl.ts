@@ -16,9 +16,10 @@
 
 import type { Task, TaskLink } from '@/types';
 import type { GanttEngine, GanttEngineEventMap } from './GanttEngine';
-import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
+import type { FiscalConfig, GanttScaleData, WorkingTimeConfig, ZoomLevel } from './GanttScaleData';
 import {
   CALENDAR_QUARTERS,
+  MON_FRI_WORKING_TIME,
   ZOOM_CONFIGS,
   ZOOM_WHEEL_FACTOR,
   buildScaleDataFromPxPerDay,
@@ -323,6 +324,7 @@ export class GanttEngineImpl implements GanttEngine {
   // Quarter/year header tier config (#755) — calendar quarters until the host
   // (ScheduleView) pushes the workspace fiscal config + the user's view pref.
   private _fiscal: FiscalConfig = CALENDAR_QUARTERS;
+  private _workingTime: WorkingTimeConfig = MON_FRI_WORKING_TIME;
 
   // ---------------------------------------------------------------------------
   // Constructor
@@ -766,6 +768,19 @@ export class GanttEngineImpl implements GanttEngine {
     // Only the header tiers change, but a full repaint is the cheapest correct
     // path (header is redrawn on every full paint) and the call is rare.
     this._headerContentDirty = true; // header quarter/year labels change (issue 1523)
+    this._fullRepaintPending = true;
+    this._requestRepaint();
+  }
+
+  // ---------------------------------------------------------------------------
+  // GanttEngine — Working time (#1498)
+  // ---------------------------------------------------------------------------
+
+  setWorkingTime(config: WorkingTimeConfig): void {
+    // Callers memoize, but guard identity anyway: the shading lives on the bg
+    // layer, so a redundant call would cost a full background repaint.
+    if (config === this._workingTime) return;
+    this._workingTime = config;
     this._fullRepaintPending = true;
     this._requestRepaint();
   }
@@ -1237,7 +1252,16 @@ export class GanttEngineImpl implements GanttEngine {
     const { firstRow, lastRow } = this._visibleRange();
 
     drawRowBands(ctx, firstRow, lastRow, this._scrollLeft, this._scrollTop, w);
-    drawGridLines(ctx, this._scales, this._scrollLeft, this._scrollTop, h, firstRow, lastRow);
+    drawGridLines(
+      ctx,
+      this._scales,
+      this._scrollLeft,
+      this._scrollTop,
+      h,
+      firstRow,
+      lastRow,
+      this._workingTime,
+    );
     // Sprint windows sit above the grid and weekend shading (they are a claim
     // about a span of days, so they must read as one region rather than as
     // stripes) but below the today line, which is the one mark that must never

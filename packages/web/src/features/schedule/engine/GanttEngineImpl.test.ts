@@ -496,6 +496,18 @@ describe('GanttEngineImpl — mutations and setters', () => {
     }).not.toThrow();
   });
 
+  it('setWorkingTime repaints cleanly and ignores an identical config (#1498)', () => {
+    const { engine, flushFrame } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    flushFrame();
+    const wt = { mask: 79, exceptions: [{ start: '2026-04-08', end: '2026-04-08' }] };
+    expect(() => {
+      engine.setWorkingTime(wt);
+      engine.setWorkingTime(wt); // same identity → no second repaint request
+      flushFrame();
+    }).not.toThrow();
+  });
+
   it('cancelDrag with no active gesture emits nothing and does not throw', () => {
     const { engine } = setup();
     const onEnd = vi.fn();

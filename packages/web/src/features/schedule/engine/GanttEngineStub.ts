@@ -23,7 +23,7 @@ import type {
   GanttEngineEventMap,
   HoverChain,
 } from './GanttEngine';
-import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
+import type { FiscalConfig, GanttScaleData, WorkingTimeConfig, ZoomLevel } from './GanttScaleData';
 import type { ChartRenderOptions } from './GanttRenderer';
 
 export class GanttEngineStub implements GanttEngine {
@@ -98,6 +98,7 @@ export class GanttEngineStub implements GanttEngine {
   // ── Fiscal quarters ───────────────────────────────────────────────────────
 
   setFiscalConfig(_config: FiscalConfig): void {}
+  setWorkingTime(_config: WorkingTimeConfig): void {}
   setChartOptions(_options: ChartRenderOptions): void {
     // no-op: the stub renders nothing, so chart display options are ignored
   }
