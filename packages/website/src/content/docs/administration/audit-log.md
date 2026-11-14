@@ -48,7 +48,7 @@ those edits are recorded from 0.5. `resource_rate_changed` and
 | `invite_sent` *(0.4)* | An Owner/Admin invites an email address | The invite | `role` |
 | `invite_accepted` *(0.4)* | An invited person joins the workspace | The invite | `role`, `invited_by`, `invited_by_id`, `invited_at` |
 | `invite_revoked` *(0.4)* | An Owner/Admin revokes a pending invite | The invite | `role`, `invited_by` |
-| `calendar_changed` | A shared working-time calendar's working days, hours per day or holiday exceptions are edited, or a program or workspace default calendar is reassigned — including a calendar no project uses yet *(0.5)* | The calendar | `affected_project_count`, `affected_project_ids` (the first 50), `affected_project_ids_truncated` |
+| `calendar_changed` | A shared working-time calendar's working days, hours per day or holiday exceptions are edited, or a program or workspace default calendar is reassigned — including a calendar no project uses yet *(0.5)* | The calendar | `affected_project_count`, `affected_project_ids` (the first 50), `affected_project_ids_truncated`; when the same request also renames the calendar or changes its time zone, also `changed_fields` and `previous_name` |
 | `calendar_changed` *(0.5)* | A shared calendar is renamed or its time zone changes (no dates move, so no project is rescheduled) | The calendar | `changed_fields`, `previous_name`, and `affected_project_count` of `0` |
 | `sso_provider_created` *(0.4)* | An Admin adds a single sign-on provider | The provider | `config`, `secret_set`, `actor_kind` |
 | `sso_provider_updated` *(0.4)* | An Admin changes a provider's configuration | The provider | `changed` (per-field before/after), `actor_kind` |

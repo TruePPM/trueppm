@@ -366,7 +366,7 @@ An event's payload may be richer at some emitting sites than others, but **all
 sites emitting a given `event_type` share at least one key**, so one handler can
 always read every emission of an event it subscribes to. For the task events
 (`task_created`, `task_updated`) that key is always `id`. This is enforced by a
-conformance test over every broadcast call site, not by convention.
+conformance test over every literal broadcast call site, plus the workspace-group cascade events (`member_added`, `member_removed`, `member_role_changed`), which are built dynamically and asserted by `test_groups_cascade`, not by convention.
 
 The `task_updated` event carries a richer **field-level delta** (ADR-0152):
 
