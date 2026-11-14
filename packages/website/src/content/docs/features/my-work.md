@@ -1,6 +1,7 @@
 ---
 title: My Work
 description: A contributor's personal task list across every project, with zero project-management vocabulary.
+documentedFor: "0.5"
 ---
 
 :::note[0.1]
@@ -27,9 +28,14 @@ Each row shows:
 - **Status chip** — tap to change between `Not started`, `In progress`, `In review`, and `Complete`
 - **Story points** — `5pts` or `5pts · 2 left` when remaining points differ
 - **Due date** with a source label so you know what the date means:
+
+  :::note[Ships in 0.5]
+  In 0.4 the scheduling engine's estimate takes precedence over the sprint end, so a sprint task with no committed date reads `Due … (estimated)`. From 0.5 it reads `Ends with sprint`.
+  :::
+
   - `Due May 30 (planned)` — the project manager committed to this date
-  - `Due May 30 (estimated)` — the scheduling engine computed this date from the project's dependencies
-  - `Ends with sprint` — the task doesn't have its own due date; it ends when the sprint ends
+  - `Due May 30 (estimated)` — the scheduling engine computed this date from the project's dependencies (shown only for a task that is not in a sprint)
+  - `Ends with sprint` — the task is in a sprint and the project manager hasn't committed a date for it, so it ends when the sprint ends. The scheduling engine's own estimate never overrides the sprint end for a sprint task, so an on-track task doesn't read as due early
   - `Done May 28` — the task is already complete
 
 A `⚠` icon to the left of the row appears when the task is on the schedule's critical path — a delay on that task delays the whole project. The icon's tooltip explains it in plain English; the words "critical path" never appear on the page.

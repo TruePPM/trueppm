@@ -917,11 +917,57 @@ def _apply_sprint_close(beat: _Beat, ctx: ReplayContext) -> None:
     # mutates Task.sprint — same order as the live close — otherwise the
     # "what didn't ship" set would already be gone by the time this reads it.
     carry_over_to = _implied_carry_over_target(ctx, sprint)
-    snapshot_sprint_task_outcomes(sprint, carry_over_to=carry_over_to)
+    if beat.data.get("outcomes") is not None:
+        _restore_sprint_outcomes(sprint, beat.data["outcomes"], ctx)
+    else:
+        snapshot_sprint_task_outcomes(sprint, carry_over_to=carry_over_to)
     carried_task_ids = _replay_carry_over(sprint, carry_over_to, beat.when, beat.actor)
     _notify_carry_over(sprint, carry_over_to, carried_task_ids, beat)
 
     compute_velocity_suggestions(sprint.pk)
+
+
+def _restore_sprint_outcomes(
+    sprint: Sprint, outcomes: list[dict[str, Any]], ctx: ReplayContext
+) -> None:
+    """Write ``SprintTaskOutcome`` rows from the close event's recorded membership (#3740).
+
+    ``snapshot_sprint_task_outcomes`` reads the sprint's membership *now*, but on a
+    re-import a task the original close carried forward (or returned to the
+    backlog) was created in its final sprint, so it is no longer a member here.
+    The exporter therefore records membership-at-close on the event, and this
+    restores the recorded disposition, final_status, next_sprint and was_pending;
+    the task short id, title and story points are re-derived from the task at
+    replay time (same fidelity as the replay snapshot). A reference that no
+    longer resolves (task or sprint absent from the document) is skipped rather
+    than failing the whole import.
+    """
+    from trueppm_api.apps.projects.models import SprintTaskOutcome
+
+    project_slug, _ = _sprint_key(ctx, sprint)
+    rows = []
+    for entry in outcomes:
+        task = ctx.tasks.get((project_slug, entry["task"]))
+        if task is None:
+            continue
+        next_sprint = None
+        if entry.get("next_sprint"):
+            next_sprint = ctx.sprints.get((project_slug, entry["next_sprint"]))
+        rows.append(
+            SprintTaskOutcome(
+                sprint=sprint,
+                task=task,
+                task_short_id=f"T-{task.short_id}" if task.short_id else "",
+                task_title=task.name,
+                story_points=task.story_points,
+                final_status=entry["final_status"],
+                disposition=entry["disposition"],
+                next_sprint=next_sprint,
+                was_pending=bool(entry.get("was_pending", False)),
+            )
+        )
+    if rows:
+        SprintTaskOutcome.objects.bulk_create(rows, ignore_conflicts=True)
 
 
 def _replay_carry_over(sprint: Sprint, carry_over_to: str, when: datetime, actor: Any) -> list[str]:

@@ -178,3 +178,105 @@ def test_v2_round_trip_preserves_task_end_states(owner: Any) -> None:
     assert t2.percent_complete == 40.0
     t5 = Task.objects.get(project__program=program2, wbs_path="5")
     assert (t5.percent_complete, t5.remaining_points) == (25.0, 3)
+
+
+# --- sprint-close membership round-trip (#3740) ------------------------------
+
+
+def _outcome_view(program: Any) -> set[tuple[Any, ...]]:
+    from trueppm_api.apps.projects.models import SprintTaskOutcome
+
+    return {
+        (
+            o.sprint.name,
+            o.task.name,
+            str(o.disposition),
+            o.next_sprint.name if o.next_sprint else None,
+            o.was_pending,
+            o.final_status,
+        )
+        for o in SprintTaskOutcome.objects.filter(
+            sprint__project__program=program, task__isnull=False
+        ).select_related("sprint", "task", "next_sprint")
+    }
+
+
+def _suggestion_view(program: Any) -> set[tuple[Any, ...]]:
+    from trueppm_api.apps.scheduling.models import VelocitySuggestion
+
+    return {
+        (v.sprint.name, v.task.name, v.suggested_duration, str(v.team_velocity_per_day))
+        for v in VelocitySuggestion.objects.filter(sprint__project__program=program).select_related(
+            "sprint", "task"
+        )
+    }
+
+
+def test_reimport_restores_outcomes_for_tasks_a_close_moved_out(owner: Any) -> None:
+    """Carried-to-sprint and returned-to-backlog outcome rows survive a re-import (#3740).
+
+    Those tasks are born in their final sprint (or sprintless) on replay, so the
+    live-membership snapshot cannot see them; the close event must carry them.
+    """
+    from datetime import timedelta
+
+    from trueppm_api.apps.projects.models import (
+        Sprint,
+        SprintState,
+        SprintTaskDisposition,
+        SprintTaskOutcome,
+        Task,
+        TaskStatus,
+    )
+
+    program1 = import_seed(_v2_seed(), owner=owner, create_users=True)
+    closed = Sprint.objects.get(project__program=program1, state=SprintState.COMPLETED)
+    next_sprint = Sprint.objects.create(
+        project=closed.project,
+        name="Next",
+        start_date=closed.finish_date + timedelta(days=1),
+        finish_date=closed.finish_date + timedelta(days=14),
+        state=SprintState.ACTIVE,
+        activated_at=closed.closed_at,
+    )
+    tasks = list(Task.objects.filter(project=closed.project, is_deleted=False).order_by("wbs_path"))
+    carried, returned = tasks[1], tasks[2]
+    # What a live close with carry-over leaves behind: the task now sits in the
+    # next sprint (or none) and the closed sprint keeps only the outcome snapshot.
+    Task.objects.filter(pk=carried.pk).update(sprint=next_sprint)
+    Task.objects.filter(pk=returned.pk).update(sprint=None, status=TaskStatus.BACKLOG)
+    SprintTaskOutcome.objects.filter(sprint=closed, task__in=[carried, returned]).delete()
+    SprintTaskOutcome.objects.create(
+        sprint=closed,
+        task=carried,
+        task_short_id="T-1",
+        task_title=carried.name,
+        final_status=TaskStatus.IN_PROGRESS,
+        disposition=SprintTaskDisposition.CARRIED,
+        next_sprint=next_sprint,
+        was_pending=True,
+    )
+    SprintTaskOutcome.objects.create(
+        sprint=closed,
+        task=returned,
+        task_short_id="T-2",
+        task_title=returned.name,
+        final_status=TaskStatus.NOT_STARTED,
+        disposition=SprintTaskDisposition.DROPPED,
+    )
+    before = _outcome_view(program1)
+    suggestions_before = _suggestion_view(program1)
+    assert any(row[2] == "carried" and row[3] == "Next" for row in before)
+
+    export1 = export_program(program1, with_events=True)
+    close = next(e for e in export1["events"] if e["action"] == "sprint.close")
+    assert {o["disposition"] for o in close["outcomes"]} >= {"carried", "dropped"}
+
+    program2 = import_seed(export1, owner=owner, create_users=True, replace=True)
+    assert _outcome_view(program2) == before
+    # Velocity suggestions are recomputed by the replayed close; they must match
+    # the source (this fixture has a single closed sprint, so both sides may be
+    # empty -- the assertion pins that restoring outcomes does not perturb them).
+    assert _suggestion_view(program2) == suggestions_before
+    # The new field is part of the byte-identical fixpoint.
+    assert dump_seed(export_program(program2, with_events=True)) == dump_seed(export1)

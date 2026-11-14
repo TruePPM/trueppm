@@ -119,6 +119,75 @@ class TestSprintHealthSignals:
             )
         assert "phase_span" not in _signals_by_key(project)
 
+    def test_window_drift_fires_after_assignment(
+        self, project: Project, active_sprint: Sprint
+    ) -> None:
+        """A date write past the sprint end after assignment trips the signal (#1780)."""
+        t = Task.objects.create(
+            project=project,
+            name="Drifts",
+            wbs_path="6.1",
+            duration=1,
+            sprint=active_sprint,
+            planned_start=date(2026, 1, 6),
+            early_start=date(2026, 1, 6),
+            early_finish=date(2026, 1, 7),
+        )
+        assert "outside_sprint_window" not in _signals_by_key(project)
+
+        # Gantt drag / CPM push past the sprint end (2026-01-16).
+        Task.objects.filter(pk=t.pk).update(
+            planned_start=date(2026, 2, 2),
+            early_start=date(2026, 2, 2),
+            early_finish=date(2026, 2, 3),
+        )
+        sig = _signals_by_key(project)["outside_sprint_window"]
+        assert sig["count"] == 1
+        assert sig["tone"] == "warn"
+        assert sig["detail"] == "1 task scheduled outside the sprint's dates"
+
+    def test_window_drift_ignores_complete_and_unsprinted_tasks(
+        self, project: Project, active_sprint: Sprint
+    ) -> None:
+        late = {
+            "planned_start": date(2026, 2, 2),
+            "early_start": date(2026, 2, 2),
+            "early_finish": date(2026, 2, 3),
+        }
+        Task.objects.create(
+            project=project,
+            name="Done",
+            wbs_path="6.1",
+            duration=1,
+            sprint=active_sprint,
+            status="COMPLETE",
+            **late,
+        )
+        Task.objects.create(project=project, name="NoSprint", wbs_path="6.2", duration=1, **late)
+        # Undated task can never be "outside".
+        Task.objects.create(
+            project=project, name="Undated", wbs_path="6.3", duration=1, sprint=active_sprint
+        )
+        assert "outside_sprint_window" not in _signals_by_key(project)
+
+    def test_window_drift_adds_no_per_task_queries(
+        self, project: Project, active_sprint: Sprint, django_assert_max_num_queries: object
+    ) -> None:
+        for i in range(5):
+            Task.objects.create(
+                project=project,
+                name=f"T{i}",
+                wbs_path=f"6.{i + 1}",
+                duration=1,
+                sprint=active_sprint,
+                planned_start=date(2026, 2, 2),
+                early_start=date(2026, 2, 2),
+                early_finish=date(2026, 2, 3),
+            )
+        with django_assert_max_num_queries(3):  # type: ignore[operator]
+            result = sprint_health(project.pk)
+        assert {s["key"]: s["count"] for s in result["signals"]}["outside_sprint_window"] == 5
+
     def test_phase_span_ignored_without_active_sprint(self, project: Project) -> None:
         # Same three-phase shape but no ACTIVE sprint → no span signal.
         for root in ("1", "2", "3"):

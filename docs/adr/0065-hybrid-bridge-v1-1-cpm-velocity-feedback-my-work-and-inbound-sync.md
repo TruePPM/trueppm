@@ -150,7 +150,12 @@ Response shape — deliberately flat, no CPM fields exposed:
 ```
 
 No `early_start`, `late_finish`, `total_float`, `wbs_path`, or CPM fields in this response.
-`due` is computed as: `actual_finish ?? planned_start ?? early_finish ?? sprint.finish_date`.
+`due` is computed as: `actual_finish ?? planned_start ?? sprint.finish_date ?? early_finish`.
+
+> **Amended by #1780 (2026-11-13):** the cascade order was originally
+> `actual_finish ?? planned_start ?? early_finish ?? sprint.finish_date`. The sprint window now
+> outranks the CPM `early_finish`, so a task committed to a sprint reports the sprint's end
+> rather than a stale CPM estimate.
 `is_blocked` is **deferred to v1.2** — computing it requires a dependency subquery per task and
 is an N+1 risk on a cross-project endpoint without a covering index. The field is omitted from
 v1; a `?include=blocking` query parameter will be added in v1.2 once the index strategy is decided.
@@ -374,7 +379,8 @@ also carries:
   date") satisfies WCAG 1.4.1 (color-plus-text) without leaking the words
   "critical path" into the contributor surface.
 - `due_source: "actual" | "planned" | "estimated" | "sprint" | null` — labels
-  which step of the four-way cascade produced `due`. Resolves the "Due Oct 14
+  which step of the four-way cascade (`actual_finish → planned_start → sprint.finish_date →
+  early_finish`, see the #1780 amendment above) produced `due`. Resolves the "Due Oct 14
   vs Ends with Sprint 12" ambiguity Sarah and Morgan flagged in VoC. Null when
   no candidate is present.
 - `server_version: int` — needed for mobile delta sync (`?since=` cursor).

@@ -11668,7 +11668,7 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     project end date"), not as the words "critical path".
 
     ``due`` follows the ADR-0065 cascade:
-        actual_finish → planned_start → early_finish → sprint.finish_date.
+        actual_finish → planned_start → sprint.finish_date → early_finish.
     ``due_source`` labels which step of the cascade produced the date so the
     UI can render "Due May 30 (planned)" vs "Ends with Sprint 12" — pure dates
     without their provenance erode contributor trust within a sprint.
@@ -11833,7 +11833,7 @@ def _resolve_due(task: Any) -> tuple[date | None, str | None]:
     """Return (date, source) where source is the cascade step that produced it.
 
     Cascade order matches ADR-0065:
-        actual_finish → planned_start → early_finish → sprint.finish_date.
+        actual_finish → planned_start → sprint.finish_date → early_finish.
 
     Returns (None, None) if no candidate is present — surfaced as null in
     both fields so the UI knows there is no due date rather than guessing.
@@ -11842,11 +11842,15 @@ def _resolve_due(task: Any) -> tuple[date | None, str | None]:
         return task.actual_finish, "actual"
     if getattr(task, "planned_start", None) is not None:
         return task.planned_start, "planned"
-    if getattr(task, "early_finish", None) is not None:
-        return task.early_finish, "estimated"
+    # A sprint-assigned task with no PM-committed start is due with its sprint. CPM
+    # always writes a synthetic ``early_finish`` (sprint-floored, 1-day default
+    # duration), so checking it first made every no-date sprint task read
+    # "Due … (estimated)" from day 2 of an on-track sprint (#1780).
     sprint = getattr(task, "sprint", None)
     if sprint is not None and getattr(sprint, "finish_date", None) is not None:
         return sprint.finish_date, "sprint"
+    if getattr(task, "early_finish", None) is not None:
+        return task.early_finish, "estimated"
     return None, None
 
 
@@ -13544,7 +13548,8 @@ class ProjectSprintHealthSignalSerializer(serializers.Serializer[dict[str, Any]]
     """One tripped Tier-3 signal in :func:`services.sprint_health` (ADR-0101 §4, #3679)."""
 
     key = serializers.ChoiceField(
-        choices=["orphan", "phase_span", "summary_in_sprint"], read_only=True
+        choices=["orphan", "phase_span", "summary_in_sprint", "outside_sprint_window"],
+        read_only=True,
     )
     count = serializers.IntegerField(read_only=True)
     tone = serializers.ChoiceField(choices=["info", "warn"], read_only=True)

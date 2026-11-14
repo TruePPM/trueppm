@@ -361,7 +361,7 @@ def test_is_critical_exposed_as_boolean(calendar: Calendar, alice: object) -> No
 
 @pytest.mark.django_db
 def test_due_cascade(calendar: Calendar, alice: object) -> None:
-    """due = actual_finish ?? planned_start ?? early_finish ?? sprint.finish_date."""
+    """due = actual_finish ?? planned_start ?? sprint.finish_date ?? early_finish (#1780)."""
     proj = _project(calendar, "P1")
     _member(proj, alice)
     sprint = _active_sprint(proj, name="S", finish_date=date(2026, 4, 14))
@@ -388,7 +388,14 @@ def test_due_cascade(calendar: Calendar, alice: object) -> None:
         duration=1,
         assignee=alice,
         early_finish=date(2026, 4, 7),
-        sprint=sprint,  # ignored — early_finish wins over sprint
+    )
+    Task.objects.create(
+        project=proj,
+        name="sprint_beats_cpm",
+        duration=1,
+        assignee=alice,
+        early_finish=date(2026, 4, 7),  # CPM synthetic date — ignored, sprint wins
+        sprint=sprint,
     )
     Task.objects.create(
         project=proj,
@@ -412,6 +419,8 @@ def test_due_cascade(calendar: Calendar, alice: object) -> None:
     assert by_name["planned"]["due_source"] == "planned"
     assert by_name["estimated"]["due"] == "2026-04-07"
     assert by_name["estimated"]["due_source"] == "estimated"
+    assert by_name["sprint_beats_cpm"]["due"] == "2026-04-14"
+    assert by_name["sprint_beats_cpm"]["due_source"] == "sprint"
     assert by_name["sprint_fallback"]["due"] == "2026-04-14"
     assert by_name["sprint_fallback"]["due_source"] == "sprint"
     assert by_name["no_due"]["due"] is None

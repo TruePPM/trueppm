@@ -1,6 +1,7 @@
 ---
 title: Data export
 description: Export a whole program to a canonical JSON seed file — endpoint, CLI, round-trip guarantee, and limitations.
+documentedFor: "0.5"
 ---
 
 Any program — or a single project — can be exported to a canonical JSON seed
@@ -291,9 +292,18 @@ A seed file is the program's **declarative state**, not its database internals.
 
 **Included:**
 
+:::note[Ships in 0.5]
+Restoring sprint-review history (the sprint bullet below) on re-import ships in 0.5. In 0.4 the sprint-review "what didn't finish" panel is empty after a re-import for tasks a close carried or returned.
+:::
+
 - the program, its projects, tasks (WBS paths, three-point estimates,
   durations, statuses), dependencies, sprints, baselines, risks, resources, and
   memberships,
+- sprint-review history (what each closed sprint carried to the next sprint or
+  returned to the backlog) — **only in a timeline export** (`with_events`, seed
+  schema v2). The plain v1 export records each task under its current sprint
+  only, so the sprint-review "what didn't finish" panel is empty after
+  re-importing one,
 - each project's board-card **labels** (name, color, and which tasks carry them),
   so a re-import restores the label catalog,
 - the email addresses of the program's members and resources — **only when the
