@@ -40,7 +40,7 @@ const useSprintMutationsMock = vi.fn<(projectId?: string | null) => unknown>(() 
   closeSprint: { mutate: vi.fn() },
   createSprint: { mutate: vi.fn() },
   activateSprint: { mutate: vi.fn() },
-  // ExcludeFromVelocityToggle (ADR-0113) reads updateSprint.{mutate,isPending}.
+  // The sprint overflow menu's Exclude-from-velocity item (ADR-0113) reads updateSprint.{mutate,isPending}.
   updateSprint: { mutate: vi.fn(), isPending: false },
 }));
 

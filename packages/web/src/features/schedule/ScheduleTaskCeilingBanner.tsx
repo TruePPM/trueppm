@@ -82,12 +82,15 @@ export function ScheduleTaskCeilingBanner({
           Read the deployment sizing guide
         </a>
       </div>
+      {/* 28px, not 24: the centered 44px `before:` pad overhangs a box by
+          (44 - size) / 2, and this banner's py-2 only has 8px to spend — a 24px
+          box poked 2px above the banner (#4966, measured in a real browser). */}
       <button
         type="button"
         onClick={onDismiss}
         aria-label="Dismiss Schedule size warning"
         data-testid="schedule-task-ceiling-banner-dismiss"
-        className="relative ml-auto shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-control
+        className="relative ml-auto shrink-0 w-7 h-7 inline-flex items-center justify-center rounded-control
           before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']
           text-neutral-text-secondary hover:bg-neutral-surface-sunken
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

@@ -292,7 +292,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 type="button"
                 onClick={handleDeactivate}
                 disabled={deactivateMutation.isPending}
-                className="min-h-11 md:min-h-7 px-3 rounded text-xs bg-semantic-critical text-white hover:bg-semantic-critical/90
+                className="min-h-11 md:min-h-7 px-3 rounded text-xs bg-semantic-critical text-white dark:text-navy-900 hover:bg-semantic-critical/90
                   disabled:opacity-40
                   focus:outline-none focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1"
               >

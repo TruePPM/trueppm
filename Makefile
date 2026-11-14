@@ -335,6 +335,10 @@ loading-skeleton-role-check: ## Fail if aria-label="Loading…" sits on a role-l
 	@python3 scripts/check-loading-skeleton-role.py --self-test
 	@python3 scripts/check-loading-skeleton-role.py
 
+dark-text-white-check: ## Fail if a filled semantic/brand surface sets text-white with no dark:text-* override (web-rule 456, #4669)
+	@python3 scripts/check-dark-text-white.py --self-test
+	@python3 scripts/check-dark-text-white.py
+
 hover-reveal-focus-check: ## Fail if opacity-0 + hover:opacity-100 has no focus counterpart (web-rule 417, #3619)
 	@# A control revealed only on :hover, with no focus:/focus-within:/
 	@# focus-visible:/group-focus-within: counterpart, is unreachable by keyboard
@@ -829,6 +833,7 @@ pre-push-checks: web-row-vocabulary-check
 pre-push-checks: design-system-check
 pre-push-checks: dropdown-scroll-check
 pre-push-checks: hover-reveal-focus-check
+pre-push-checks: dark-text-white-check
 pre-push-checks: loading-skeleton-role-check
 pre-push-checks: anchored-popover-check
 pre-push-checks: focus-trap-focuskey-check

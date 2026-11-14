@@ -6,8 +6,11 @@
  *
  * Token usage (light surface):
  *   - Milestone:  brand-accent border + text (◆ shape + text for WCAG 1.4.1)
+ *   - Critical:   semantic-critical (wins over complete and review, same as the
+ *                 phone agenda's `statusBarClass` — one task, one color on both
+ *                 surfaces, #3181)
  *   - Complete:   semantic-on-track
- *   - Critical:   semantic-critical
+ *   - In review:  semantic-at-risk (the legend's "At risk")
  *   - Normal:     brand-primary
  */
 
@@ -30,11 +33,14 @@ function chipColorClass(chip: CalendarChipData): string {
   if (chip.isMilestone) {
     return 'bg-brand-accent/15 border-brand-accent text-brand-accent-dark';
   }
+  if (chip.isCritical) {
+    return 'bg-semantic-critical-bg border-semantic-critical text-semantic-critical';
+  }
   if (chip.isComplete) {
     return 'bg-semantic-on-track-bg border-semantic-on-track text-semantic-on-track';
   }
-  if (chip.isCritical) {
-    return 'bg-semantic-critical-bg border-semantic-critical text-semantic-critical';
+  if (chip.isAtRisk) {
+    return 'bg-semantic-at-risk-bg border-semantic-at-risk text-semantic-at-risk';
   }
   return 'bg-brand-primary/10 border-brand-primary/60 text-brand-primary';
 }
@@ -55,6 +61,7 @@ export function CalendarChip({ chip, onClick, labelContinuation = false }: Calen
     chip.taskName,
     chip.isCritical ? ', on critical path' : null,
     chip.isComplete ? ', complete' : null,
+    chip.isAtRisk && !chip.isComplete ? ', in review' : null,
     showDue ? ', due' : null,
   ]
     .filter(Boolean)

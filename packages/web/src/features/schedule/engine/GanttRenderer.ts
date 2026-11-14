@@ -19,7 +19,13 @@
 import type { DeliveryMode, ExternalLinkStatus, Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { RowMode, SingleModeKind } from '../deliveryModePresentation';
-import type { FiscalConfig, GanttScaleData, HeaderUnit } from './GanttScaleData';
+import {
+  MON_FRI_WORKING_TIME,
+  type FiscalConfig,
+  type GanttScaleData,
+  type HeaderUnit,
+  type WorkingTimeConfig,
+} from './GanttScaleData';
 import {
   CALENDAR_QUARTERS,
   dateToLeft,
@@ -507,9 +513,48 @@ function resolveBarMode(task: Task): RowMode | 'milestone' {
 // Helper: is a UTC date a weekend?
 // ---------------------------------------------------------------------------
 
-function isWeekend(date: Date): boolean {
-  const dow = date.getUTCDay(); // 0 = Sun, 6 = Sat
-  return dow === 0 || dow === 6;
+/**
+ * Is this UTC day non-working for the project's calendar (#1498)? The weekly mask
+ * uses the server's `1 << pythonWeekday` bits, and `getUTCDay()` — never the local
+ * getter — so a viewer behind UTC never shades Friday (rule 56). Exceptions are
+ * checked by ISO string; the string is built only when there are any.
+ */
+export function isNonWorkingDay(date: Date, workingTime: WorkingTimeConfig): boolean {
+  const dow = date.getUTCDay(); // 0 = Sun … 6 = Sat
+  const bit = 1 << (dow === 0 ? 6 : dow - 1);
+  if ((workingTime.mask & bit) === 0) return true;
+  if (workingTime.exceptions.length === 0) return false;
+  return expandedExceptionDays(workingTime.exceptions).has(date.toISOString().slice(0, 10));
+}
+
+/**
+ * Expanded non-working ISO days per exceptions array. Shading asks once per visible
+ * day column per repaint, so a linear range scan over every holiday each time is
+ * wasted work; the array identity changes only when the calendar does, so a WeakMap
+ * keyed on it expands each calendar once. Expansion is capped per range so a
+ * malformed multi-century exception cannot allocate unboundedly.
+ */
+const _exceptionDayCache = new WeakMap<object, ReadonlySet<string>>();
+const MAX_EXCEPTION_RANGE_DAYS = 3660;
+
+function expandedExceptionDays(
+  exceptions: WorkingTimeConfig['exceptions'],
+): ReadonlySet<string> {
+  const cached = _exceptionDayCache.get(exceptions);
+  if (cached) return cached;
+  const days = new Set<string>();
+  const dayMs = 86_400_000;
+  for (const e of exceptions) {
+    const start = Date.parse(`${e.start}T00:00:00Z`);
+    const end = Date.parse(`${e.end}T00:00:00Z`);
+    if (Number.isNaN(start) || Number.isNaN(end)) continue;
+    const last = Math.min(end, start + MAX_EXCEPTION_RANGE_DAYS * dayMs);
+    for (let ms = start; ms <= last; ms += dayMs) {
+      days.add(new Date(ms).toISOString().slice(0, 10));
+    }
+  }
+  _exceptionDayCache.set(exceptions, days);
+  return days;
 }
 
 // ---------------------------------------------------------------------------
@@ -650,6 +695,7 @@ export function drawGridLines(
   canvasHeight: number,
   firstRow: number,
   lastRow: number,
+  workingTime: WorkingTimeConfig = MON_FRI_WORKING_TIME,
 ): void {
   ctx.strokeStyle = _palette.gridLine;
   ctx.lineWidth = 1;
@@ -682,7 +728,7 @@ export function drawGridLines(
     if (x >= -1) {
       const date = new Date(ms);
       // Weekend shading (rule 74) — draw on bg canvas, below the header
-      if (isWeekend(date)) {
+      if (isNonWorkingDay(date, workingTime)) {
         const dayWidth = dayMs * scales.pxPerMs;
         ctx.fillStyle = _palette.weekend;
         ctx.fillRect(

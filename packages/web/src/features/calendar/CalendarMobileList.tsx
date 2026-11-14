@@ -27,7 +27,8 @@ import {
 
 /**
  * Status color bar — mirrors the legend and the TaskDetailBanner status dot
- * (critical wins over status). Complete and on-track are deliberately distinct
+ * (critical wins over status — the desktop `chipColorClass` uses the same order,
+ * #3181). Complete and on-track are deliberately distinct
  * so a finished task doesn't read the same as an in-flight one.
  */
 function statusBarClass(task: Task): string {

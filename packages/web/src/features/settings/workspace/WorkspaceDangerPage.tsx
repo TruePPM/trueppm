@@ -119,7 +119,7 @@ function DangerToast({ toast }: { toast: InlineToast }) {
       aria-live={isError ? 'assertive' : 'polite'}
       className={[
         'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-card border border-neutral-border text-[13px] font-medium',
-        isError ? 'bg-semantic-critical text-white' : 'bg-neutral-text-primary text-white',
+        isError ? 'bg-semantic-critical text-white dark:text-navy-900' : 'bg-neutral-text-primary text-white dark:text-navy-900',
       ].join(' ')}
     >
       {toast.message}
@@ -370,7 +370,7 @@ export function WorkspaceDangerPage() {
             title={ownerBlocked ? OWNER_REQUIRED_TEXT : undefined}
             onClick={onDelete}
             className={[
-              'px-4 py-2 rounded-control text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
+              'px-4 py-2 rounded-control text-[13px] font-semibold text-white dark:text-navy-900 bg-semantic-critical transition-opacity',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
               confirmed && !remove.isPending && !ownerBlocked
                 ? 'opacity-100 hover:opacity-90'

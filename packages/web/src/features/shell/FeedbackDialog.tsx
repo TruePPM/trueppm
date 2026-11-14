@@ -165,7 +165,7 @@ export function FeedbackDialog({ onClose }: FeedbackDialogProps) {
             rel="noopener noreferrer"
             onClick={onClose}
             className="inline-flex h-9 items-center rounded-control bg-brand-primary px-3 text-xs
-              font-medium text-white no-underline hover:bg-brand-primary-dark
+              font-medium text-white dark:text-navy-900 no-underline hover:bg-brand-primary-dark
               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Continue to tracker

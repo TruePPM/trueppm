@@ -82,8 +82,9 @@ Chip fill, first rule that matches:
 
 | The task is | Fill |
 | --- | --- |
+| On the critical path | Red (critical path), even when the task is complete or in review |
 | Complete | Green (on track) |
-| On the critical path | Red (critical path) |
+| In Review | Amber (at risk) |
 | Anything else | Blue (on track) |
 
 ### Milestones
@@ -99,7 +100,7 @@ Two small dots carry information the bars can't:
 
 ### Legend
 
-A legend strip is pinned along the bottom of the view in both modes and on the phone, naming six marks: **Critical path**, **At risk**, **On track**, **Milestone**, **Due**, **Sprint boundary**. Above the phone breakpoint it also names the three day fills: **Non-working day**, **Holiday**, **Shutdown**. The at-risk color marks tasks in **Review**, which you'll meet on the phone agenda rows and on the task-detail banner's status dot.
+A legend strip is pinned along the bottom of the view in both modes and on the phone, naming six marks: **Critical path**, **At risk**, **On track**, **Milestone**, **Due**, **Sprint boundary**. Above the phone breakpoint it also names the three day fills: **Non-working day**, **Holiday**, **Shutdown**. The at-risk color marks tasks in **Review** — on the month and week chips, the phone agenda rows, and the task-detail banner's status dot. A task on the critical path stays red on every surface, whatever its status.
 
 Nothing here depends on color alone: milestones carry a diamond shape and a name, the due marker is a distinct dot, and every chip's screen-reader label spells out its state — `Design review, on critical path, due`.
 
@@ -148,7 +149,7 @@ Below **768px** the seven-column grid would give each day about 60px — far too
 - Every task overlapping the window is listed **once**, grouped under a sticky date heading.
 - A task that started before the window opens is listed on the window's first day, matching where its chip is clipped in the grid.
 - Within a day, tasks are sorted by name.
-- Each row is a full-width, ≥44px target that opens the same detail banner a chip does. Milestones show a diamond; everything else shows a status color bar — red for critical, green for complete, blue for in progress, amber for review, gray otherwise.
+- Each row is a full-width, ≥44px target that opens the same detail banner a chip does. Milestones show a diamond; everything else shows a status color bar — red for critical (which wins over every status), green for complete, blue for in progress, amber for review, gray otherwise.
 
 The list follows whichever mode you are in, so week mode narrows the agenda to that week, starting on the same day as the grid's first column. The agenda lists only days with tasks and does not mark non-working days.
 

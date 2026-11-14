@@ -11,8 +11,8 @@
  */
 
 import { useState, useEffect, type RefObject } from 'react';
-import type { FiscalConfig, GanttEngine, ZoomLevel } from '@/features/schedule/engine';
-import { CALENDAR_QUARTERS, GanttEngineImpl } from '@/features/schedule/engine';
+import type { FiscalConfig, GanttEngine, WorkingTimeConfig, ZoomLevel } from '@/features/schedule/engine';
+import { CALENDAR_QUARTERS, GanttEngineImpl, MON_FRI_WORKING_TIME } from '@/features/schedule/engine';
 
 export function useGanttEngine(
   containerRef: RefObject<HTMLDivElement | null>,
@@ -23,6 +23,7 @@ export function useGanttEngine(
   isDark = false,
   fiscalConfig: FiscalConfig = CALENDAR_QUARTERS,
   pxPerDay: number | null = null,
+  workingTime: WorkingTimeConfig = MON_FRI_WORKING_TIME,
 ): GanttEngine | null {
   const [engine, setEngine] = useState<GanttEngine | null>(null);
 
@@ -91,6 +92,13 @@ export function useGanttEngine(
     if (!engine) return;
     engine.setFiscalConfig(fiscalConfig);
   }, [engine, fiscalConfig]);
+
+  // Shade the project's real non-working days, not a hardcoded Sat/Sun (#1498).
+  // The caller memoizes `workingTime` so this only fires when the calendar changes.
+  useEffect(() => {
+    if (!engine) return;
+    engine.setWorkingTime(workingTime);
+  }, [engine, workingTime]);
 
   return engine;
 }

@@ -13,10 +13,12 @@ export type {
   QuarterMode,
   FiscalConfig,
   HeaderTier,
+  WorkingTimeConfig,
 } from './GanttScaleData';
 export {
   ZOOM_CONFIGS,
   CALENDAR_QUARTERS,
+  MON_FRI_WORKING_TIME,
   MIN_PX_PER_DAY,
   MAX_PX_PER_DAY,
   ZOOM_STEP_FACTOR,

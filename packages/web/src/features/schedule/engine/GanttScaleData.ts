@@ -86,6 +86,20 @@ export interface FiscalConfig {
   readonly mode: QuarterMode;
 }
 
+/**
+ * The project's non-working time, as the renderer shades it (#1498). `mask` is the
+ * AND-composed weekly pattern with the server's convention (`bit = 1 << pythonWeekday`,
+ * Mon = 1 … Sun = 64); `exceptions` are inclusive ISO date ranges (holidays and
+ * shutdowns) that block a day regardless of the mask.
+ */
+export interface WorkingTimeConfig {
+  readonly mask: number;
+  readonly exceptions: readonly { readonly start: string; readonly end: string }[];
+}
+
+/** Mon–Fri, no exceptions — what the renderer shades until a calendar is loaded. */
+export const MON_FRI_WORKING_TIME: WorkingTimeConfig = { mask: 31, exceptions: [] };
+
 /** Default = plain calendar quarters; the engine swaps it via `setFiscalConfig`. */
 export const CALENDAR_QUARTERS: FiscalConfig = { startMonth: 1, mode: 'calendar' };
 

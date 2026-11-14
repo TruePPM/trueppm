@@ -25,6 +25,7 @@ import type { BuildModeApi } from './buildMode/BuildModeContext';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
+import { useScheduleWorkingTime } from './useScheduleWorkingTime';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { ScheduleAriaOverlay } from './ScheduleAriaOverlay';
 import { PreviewOverlay } from './PreviewOverlay';
@@ -119,6 +120,7 @@ export function CanvasScheduleTimeline({
 
   const isDark = useIsDark();
   const fiscalStartMonth = useFiscalYearStartMonth();
+  const workingTime = useScheduleWorkingTime();
   const quarterMode = useScheduleStore((s) => s.quarterMode);
   // Continuous zoom (#351). pxPerDay is the source of truth; the engine derives
   // the tier. setPxPerDay closes the loop for imperative zoom (wheel / pinch /
@@ -141,6 +143,7 @@ export function CanvasScheduleTimeline({
     isDark,
     fiscalConfig,
     pxPerDay,
+    workingTime,
   );
 
   // Push the engine's continuous zoom back into the store after imperative

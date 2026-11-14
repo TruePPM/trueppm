@@ -275,7 +275,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
                 type="button"
                 onClick={handleDelete}
                 disabled={deleteAttachment.isPending}
-                className="text-xs bg-semantic-critical text-white rounded-control px-2 min-h-11 md:min-h-7 font-medium
+                className="text-xs bg-semantic-critical text-white dark:text-navy-900 rounded-control px-2 min-h-11 md:min-h-7 font-medium
                 hover:opacity-90 disabled:opacity-50
                 focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                 focus:outline-none"

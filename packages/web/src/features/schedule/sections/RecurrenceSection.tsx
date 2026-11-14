@@ -528,7 +528,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
                   if (e.key === 'Escape') setConfirmingDelete(false);
                 }}
                 disabled={remove.isPending}
-                className="rounded-control bg-semantic-critical px-3 h-9 text-sm font-medium text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
+                className="rounded-control bg-semantic-critical px-3 h-9 text-sm font-medium text-white dark:text-navy-900 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
               >
                 {remove.isPending ? 'Stopping…' : 'Confirm stop'}
               </button>

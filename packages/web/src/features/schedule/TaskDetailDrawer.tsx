@@ -1345,7 +1345,7 @@ function DrawerContent({
               // definition the grid's TaskRow/OutlineRow CP badge uses, rather
               // than a second inline wording of the same token.
               <Tooltip content={ABBREVIATIONS.CRITICAL}>
-                <span className="text-xs font-semibold text-white bg-semantic-critical px-1.5 py-0.5 rounded-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
+                <span className="text-xs font-semibold text-white dark:text-navy-900 bg-semantic-critical px-1.5 py-0.5 rounded-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
                   CP
                 </span>
               </Tooltip>

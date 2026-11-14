@@ -3189,16 +3189,23 @@ def snapshot_committed_metrics(sprint: Any) -> None:
     backlog as the commitment baseline; subsequent scope changes are tracked
     via ``SprintBurnSnapshot.scope_change_*``.
     """
+    from django.db.models import Count, Sum
+    from django.db.models.functions import Coalesce
+
     from trueppm_api.apps.projects.models import committed_sprint_tasks
 
     # ADR-0102 §2: exclude pending injections from the activation snapshot for
     # symmetry with the recompute-on-accept path (at activation there are no
     # pending tasks, but the filter keeps the helper correct under reuse).
-    committed_qs = committed_sprint_tasks(sprint.pk)
-    committed_points = sum(
-        p for p in committed_qs.values_list("story_points", flat=True) if p is not None
+    # ONE aggregate for both figures: the points and the task count must describe
+    # the same row set, so a real count of 0 can never sit beside real points
+    # (#4963). Two separate queries (sum in Python, then .count()) could read
+    # different snapshots of a backlog being edited concurrently.
+    agg = committed_sprint_tasks(sprint.pk).aggregate(
+        points=Coalesce(Sum("story_points"), 0), count=Count("pk")
     )
-    committed_count = committed_qs.count()
+    committed_points = agg["points"]
+    committed_count = agg["count"]
     sprint.committed_points = committed_points
     sprint.committed_task_count = committed_count
 

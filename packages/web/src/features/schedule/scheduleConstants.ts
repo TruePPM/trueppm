@@ -530,8 +530,18 @@ export function resolveOutlineLeftReserve(coarse: boolean, authorable: boolean):
   return resolveOutlineGripReserve(coarse, authorable) + resolveOutlineNudgeReserve(coarse, authorable);
 }
 
-/** Visible breathing room between the nudge lane and the insert `+` disc. */
-export const INSERT_LANE_GAP = 4;
+/**
+ * Visible breathing room between the nudge lane and the insert `+` disc.
+ *
+ * 12, not the 4 it shipped as (#3077). The disc straddles the row boundary, so
+ * it sits half over the NEXT row, level with that row's indent/outdent/milestone
+ * nudges; a first-level child has no `(level - 1) * 12` depth term to add, so
+ * this constant is its entire clearance. 4px measured non-overlapping in a
+ * browser and read as touching. 12px keeps >= 8px of daylight (asserted in
+ * `e2e/schedule-insert-lane-gap.spec.ts`) and, being only the disc's own offset,
+ * costs the row no chrome.
+ */
+export const INSERT_LANE_GAP = 12;
 
 /**
  * The row-edge insert `+` — the disc you see and the box the browser hits

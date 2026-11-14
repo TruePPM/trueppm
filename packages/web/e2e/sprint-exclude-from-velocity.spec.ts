@@ -127,8 +127,11 @@ test.describe('Sprint exclude_from_velocity (#1092)', () => {
     await setupCommon(page);
     await page.goto(BASE_URL);
 
-    // The team-owned toggle renders on the sprint workspace.
-    await expect(page.getByRole('switch', { name: /Exclude Telemetry sweep from velocity/i })).toBeVisible();
+    // The toggle lives in the sprint overflow menu (#4963), not the page body.
+    await expect(page.getByRole('switch', { name: /from velocity/i })).toHaveCount(0);
+    await page.getByRole('button', { name: /Sprint options/i }).click();
+    await expect(page.getByRole('menuitemcheckbox', { name: /Exclude Telemetry sweep from velocity/i })).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
 
     // The velocity panel surfaces the plain-language "N excluded" callout.
     const velocity = page.getByRole('region', { name: /Velocity/i });
@@ -154,7 +157,8 @@ test.describe('Sprint exclude_from_velocity (#1092)', () => {
     });
 
     await page.goto(BASE_URL);
-    const toggle = page.getByRole('switch', { name: /Exclude Telemetry sweep from velocity/i });
+    await page.getByRole('button', { name: /Sprint options/i }).click();
+    const toggle = page.getByRole('menuitemcheckbox', { name: /Exclude Telemetry sweep from velocity/i });
     await expect(toggle).toBeVisible();
     await toggle.click();
 

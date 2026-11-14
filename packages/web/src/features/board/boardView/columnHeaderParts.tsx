@@ -132,7 +132,7 @@ function isBreached(band: WipState): boolean {
 
 /**
  * Pair the `-bg` pill fill with the matching full semantic token for text +
- * border (rule 8b) — `bg-semantic-critical text-white` failed WCAG 1.4.3 in dark
+ * border (rule 8b) — `bg-semantic-critical text-white dark:text-navy-900` failed WCAG 1.4.3 in dark
  * mode (white on the critical red-400 fill is approx 2.8:1). The `-bg` tints are
  * pre-computed per-mode in globals.css so the badge stays AA in both themes. An
  * empty stub drops the fill entirely for a dashed hollow ring (folded ≠ empty,

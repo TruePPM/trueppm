@@ -1,6 +1,7 @@
 import type { Ref } from 'react';
 import type { ApiSprint, SprintState } from '@/types';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { SprintOverflowMenu } from './SprintOverflowMenu';
 
 interface Props {
   /** The currently-active sprint (or null when none is active). */
@@ -28,6 +29,15 @@ interface Props {
    * empty-state "Plan a sprint" CTA. Filter stays available to every role.
    */
   canManageLifecycle: boolean;
+  /**
+   * The sprint the workspace is currently SHOWING (any state) — the target of the
+   * overflow menu's per-sprint settings. Distinct from `sprint`, which is the
+   * active sprint that titles the header. Omit to render no overflow menu.
+   */
+  menuSprint?: ApiSprint | null;
+  projectId?: string;
+  /** SCHEDULER+ may change per-sprint settings; lower roles see them read-only. */
+  canEditSprintSettings?: boolean;
 }
 
 const STATE_PILL_STYLE: Record<SprintState, string> = {
@@ -63,6 +73,9 @@ export function SprintHeader({
   onFilter,
   filterButtonRef,
   canManageLifecycle,
+  menuSprint = null,
+  projectId = '',
+  canEditSprintSettings = false,
 }: Props) {
   const itl = useIterationLabel();
   const isActive = sprint?.state === 'ACTIVE';
@@ -151,6 +164,20 @@ export function SprintHeader({
           >
             Close {itl.lower}
           </button>
+        )}
+        {menuSprint && (
+          <>
+            {menuSprint.exclude_from_velocity && (
+              <span className="inline-flex min-h-[44px] items-center rounded border border-neutral-border px-2 text-xs font-medium text-neutral-text-secondary">
+                Excluded from velocity
+              </span>
+            )}
+            <SprintOverflowMenu
+              sprint={menuSprint}
+              projectId={projectId}
+              canEdit={canEditSprintSettings}
+            />
+          </>
         )}
       </div>
     </header>
