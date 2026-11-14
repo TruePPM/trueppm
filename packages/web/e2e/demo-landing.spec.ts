@@ -14,10 +14,8 @@
  * stable e2e gesture, and the hint's step-2 advance is keyed on the commit
  * phase, which both gestures reach.
  *
- * A2 (legend closed on first load) is NOT covered here. It depends on !2766
- * (#3614), which adds the toolbar Legend toggle and is unmerged; stubbing an
- * assertion against a control that does not exist would be a test that passes
- * for the wrong reason.
+ * A2 (legend closed on first load) is covered in `schedule-legend.spec.ts`
+ * ("Schedule legend in the read-only demo (#4067)"), not here.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
