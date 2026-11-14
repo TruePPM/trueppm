@@ -166,9 +166,9 @@ api/v1/me/notifications/<uuid:pk>/
 api/v1/me/notifications/<uuid:pk>/snooze/
 api/v1/me/notifications/mark-all-read/
 api/v1/me/time-entries/<uuid:pk>/
-api/v1/me/timer/start
-api/v1/me/timer/stop
-api/v1/me/timesheets/<str:week_start>/submit
+api/v1/^me/timer/start/?$
+api/v1/^me/timer/stop/?$
+api/v1/^me/timesheets/(?P<week_start>[^/]+)/submit/?$
 api/v1/poker/<pk>/cancel/
 api/v1/poker/<pk>/commit/
 api/v1/poker/<pk>/reopen/

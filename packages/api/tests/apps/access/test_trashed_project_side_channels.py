@@ -113,7 +113,7 @@ def test_a_second_start_discards_a_timer_left_on_a_trashed_project(
     _running_timer(member, task)
     _trash(project)
     resp = _client(member).post(
-        "/api/v1/me/timer/start", {"task": str(other_task.pk)}, format="json"
+        "/api/v1/me/timer/start/", {"task": str(other_task.pk)}, format="json"
     )
     assert resp.status_code == 201, resp.content
     assert resp.data["finalized_entry"] is None

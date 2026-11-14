@@ -398,7 +398,7 @@ because that refusal is a fact about their role, not about the task's existence.
 `POST /tasks/{id}/time-entries/` resolves its task the same membership-scoped way.
 
 Time tracking's two `/me/` write surfaces that act on a row you already
-own — `PATCH`/`DELETE /me/time-entries/{id}/` and `POST /me/timer/start` (against
+own — `PATCH`/`DELETE /me/time-entries/{id}/` and `POST /me/timer/start/` (against
 the task you're starting a *new* timer on) — re-check this live, not just at
 creation: editing or deleting your own entry, or starting a timer, answers `403`
 if the project has since been archived, or if you have since been removed from
@@ -406,7 +406,7 @@ the project or demoted below Team Member. Because these routes only ever act on
 your *own* row, there is no existence oracle to protect here, so the refusal is
 always `403`, never `404`.
 
-**`POST /me/timer/stop` is the one write path here that never answers this `403`,
+**`POST /me/timer/stop/` is the one write path here that never answers this `403`,
 deliberately.** A running timer belongs to exactly one project, and once that
 project is archived or your access has lapsed, you have no other way to resolve
 it — you can't PATCH or DELETE a timer the way you can an entry, and you can't

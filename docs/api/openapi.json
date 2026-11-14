@@ -8884,7 +8884,7 @@
                 "summary": "Retrieve timer"
             }
         },
-        "/api/v1/me/timer/start": {
+        "/api/v1/me/timer/start/": {
             "post": {
                 "operationId": "v1_me_timer_start_create",
                 "description": "``POST /api/v1/me/timer/start`` — start (or restart) the caller's timer (ADR-0185 §4).\n\nSecond-start: if a timer is already running it is atomically stopped and logged, and\nthat finalized entry rides back in ``finalized_entry`` for the undo toast. The task\nis resolved membership-scoped (404 for cross-project) and gated by ``can_log_time``\n(403 for a Viewer).\n\nCarries ``IsProjectNotArchived`` alongside ``CanLogTime`` (#4318) — starting a timer\nis a write like any other, so the **new** task's project being archived answers 403\nexactly as it does on the other write paths. This says nothing about the *prior*\nrunning timer a second-start may finalize: that timer's own project is re-checked\ninside ``services.start_timer`` (discard rather than finalize if it is no longer\nwritable), because it belongs to a different project than the one this permission\nclass is resolving against here.",
@@ -9021,7 +9021,7 @@
                 "summary": "Start timer"
             }
         },
-        "/api/v1/me/timer/stop": {
+        "/api/v1/me/timer/stop/": {
             "post": {
                 "operationId": "v1_me_timer_stop_create",
                 "description": "``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).\n\nReturns the created ``TimeEntry`` (``source=\"timer\"``). Naturally idempotent without a\nkey — a second stop finds no timer and returns ``409`` rather than a 500 or a\ndouble-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a\nkeyed retry replays the original ``201`` instead of racing into that 409.\n\n**No object to resolve a project from at this layer (#4318).** Unlike\n``MeTimeEntryDetailView``, the request carries no id — the running timer, and\ntherefore its task and project, is only known once ``services.stop_timer``\nlooks it up. The archived-project and live-Member+ re-checks accordingly live\n*inside* ``stop_timer`` itself (``timetracking/services.py``), not on\n``permission_classes`` here.\n\n**Never a 403 from either re-check (#4318 round 2).** An earlier version of\n``stop_timer`` raised ``PermissionDenied`` when a timer's project was archived\nor access had lapsed — which left the ``ActiveTimer`` row in place and made\nthat timer permanently un-stoppable (every retry re-hit the same 403, and the\nweb client restores the timer into its cache on any non-409 error). Both\nchecks now **discard** the timer and return ``None``, so this view answers the\nsame ``409`` (\"no timer to stop\") it already answers for a timer that was\nstopped from another device — a state the client already clears silently with\nno error toast. In practice a revoked or demoted member's ``ActiveTimer`` row\nis usually already gone by the time this runs regardless — the\n``ProjectMembership`` revocation hook (``access/signals.py``) discards it\nimmediately — so an archived project (which does not evict membership, and so\nnever fires that hook) is the common way to actually reach this discard.",
@@ -9105,7 +9105,7 @@
                 "summary": "Stop timer"
             }
         },
-        "/api/v1/me/timesheets/{week_start}/submit": {
+        "/api/v1/me/timesheets/{week_start}/submit/": {
             "post": {
                 "operationId": "v1_me_timesheets_submit_create",
                 "description": "``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).\n\nA per-user-per-week submission marker with no approver: entries stay editable after\nsubmit, and the 0.5 approval epic (#100) reads this row rather than re-deciding it. The\nmarker is hard-scoped to ``request.user`` (IDOR-safe by construction — the URL carries no\nother user's identity), so ``IsAuthenticated`` is the whole gate; there is no task/project\nto run ``CanLogTime`` against, and a marker with no entries is inert.\n\n``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the\n``(user, week_start)`` uniqueness cannot fragment. POST is an idempotent upsert\n(``update_or_create`` refreshes ``submitted_at``); DELETE is an idempotent un-submit (204\neven when no marker exists).",
@@ -9114,7 +9114,8 @@
                         "in": "path",
                         "name": "week_start",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "pattern": "^[^/]+$"
                         },
                         "required": true
                     }
@@ -9184,7 +9185,8 @@
                         "in": "path",
                         "name": "week_start",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "pattern": "^[^/]+$"
                         },
                         "required": true
                     }

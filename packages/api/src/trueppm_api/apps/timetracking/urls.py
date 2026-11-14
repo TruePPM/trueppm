@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from django.urls import path
+from django.urls import path, re_path
 
 from trueppm_api.apps.timetracking.views import (
     MeTimeEntryDetailView,
@@ -35,13 +35,17 @@ urlpatterns = [
         name="me-time-entry-detail",
     ),
     # Weekly submission marker — submit / un-submit (ADR-0224).
-    path(
-        "me/timesheets/<str:week_start>/submit",
+    # Canonical form carries the trailing slash like every other route (#3792). The
+    # unslashed spelling shipped first in 0.4 and web/integrator clients call it, and
+    # APPEND_SLASH only ever adds a slash, so it stays routable through `/?$` — one
+    # pattern, one view, one schema path (the slashed one).
+    re_path(
+        r"^me/timesheets/(?P<week_start>[^/]+)/submit/?$",
         MeTimesheetSubmitView.as_view(),
         name="me-timesheet-submit",
     ),
     # Running timer (user singleton).
     path("me/timer/", MeTimerView.as_view(), name="me-timer"),
-    path("me/timer/start", MeTimerStartView.as_view(), name="me-timer-start"),
-    path("me/timer/stop", MeTimerStopView.as_view(), name="me-timer-stop"),
+    re_path(r"^me/timer/start/?$", MeTimerStartView.as_view(), name="me-timer-start"),
+    re_path(r"^me/timer/stop/?$", MeTimerStopView.as_view(), name="me-timer-stop"),
 ]

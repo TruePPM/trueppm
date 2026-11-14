@@ -251,3 +251,10 @@ schema:PatchedPhaseReorderRequestRequest
 
 # #3246: the burn endpoint no longer computes or returns the unconsumed baseline_series overlay.
 schema:ProjectBurnBaselinePoint
+
+# #3792 — the three unslashed time-tracking paths are republished with the trailing
+# slash every other route carries. The unslashed spellings stay routable (one
+# `re_path` ending `/?$`), so no client breaks; only the schema path is renamed.
+/api/v1/me/timer/start
+/api/v1/me/timer/stop
+/api/v1/me/timesheets/{week_start}/submit

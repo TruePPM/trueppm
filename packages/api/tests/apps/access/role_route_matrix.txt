@@ -55,7 +55,7 @@
 -++++++  DELETE api/v1/me/connections/<slug:source>/::delete
 -++++++  DELETE api/v1/me/credentials/<slug:provider>/::destroy
 -++++++  DELETE api/v1/me/time-entries/<uuid:pk>/::delete
--++++++  DELETE api/v1/me/timesheets/<str:week_start>/submit::delete
+-++++++  DELETE api/v1/^me/timesheets/(?P<week_start>[^/]+)/submit/?$::delete
 -----++  DELETE api/v1/programs/<program_pk>/api-tokens/<pk>/::destroy
 ---++++  DELETE api/v1/programs/<program_pk>/backlog-items/<pk>/::destroy
 -----++  DELETE api/v1/programs/<program_pk>/ceremonies/<pk>/::destroy
@@ -494,9 +494,9 @@
 -++++++  POST api/v1/me/notification-preferences/apply-preset/::apply_preset
 -++++++  POST api/v1/me/notifications/<uuid:pk>/snooze/::snooze
 -++++++  POST api/v1/me/notifications/mark-all-read/::mark_all_read
--++++++  POST api/v1/me/timer/start::post
--++++++  POST api/v1/me/timer/stop::post
--++++++  POST api/v1/me/timesheets/<str:week_start>/submit::post
+-++++++  POST api/v1/^me/timer/start/?$::post
+-++++++  POST api/v1/^me/timer/stop/?$::post
+-++++++  POST api/v1/^me/timesheets/(?P<week_start>[^/]+)/submit/?$::post
 -++++++  POST api/v1/poker/<pk>/cancel/::post
 -++++++  POST api/v1/poker/<pk>/commit/::post
 -++++++  POST api/v1/poker/<pk>/reopen/::post

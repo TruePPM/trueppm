@@ -144,7 +144,7 @@ test.describe('Live running timer (#1415, ADR-0185 §C)', () => {
     await setupWithTask(page);
 
     // Start writes the active timer; the chip + row read it from the cache.
-    await page.route('**/api/v1/me/timer/start', (route) =>
+    await page.route('**/api/v1/me/timer/start/', (route) =>
       route.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -152,7 +152,7 @@ test.describe('Live running timer (#1415, ADR-0185 §C)', () => {
       }),
     );
     // Stop logs a 24-minute entry.
-    await page.route('**/api/v1/me/timer/stop', (route) =>
+    await page.route('**/api/v1/me/timer/stop/', (route) =>
       route.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -205,7 +205,7 @@ test.describe('Live running timer (#1415, ADR-0185 §C)', () => {
     await setupCatchAll(page);
     await setupWithTask(page);
 
-    await page.route('**/api/v1/me/timer/start', (route) =>
+    await page.route('**/api/v1/me/timer/start/', (route) =>
       route.fulfill({
         status: 403,
         contentType: 'application/json',

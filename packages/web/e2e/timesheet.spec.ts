@@ -217,7 +217,7 @@ async function setupTimesheet(page: Page, opts: TimesheetOpts = {}): Promise<voi
   });
 
   // POST / DELETE /me/timesheets/{week}/submit — the marker.
-  await page.route('**/api/v1/me/timesheets/*/submit', async (route) => {
+  await page.route('**/api/v1/me/timesheets/*/submit/', async (route) => {
     const req = route.request();
     const week = new URL(req.url()).pathname.split('/').filter(Boolean).at(-2) ?? '';
     const monday = mondayOf(week);

@@ -169,7 +169,7 @@ export function useSubmitWeek(mondayIso: string) {
 
   return useMutation({
     mutationFn: async (submit: boolean): Promise<void> => {
-      const url = `/me/timesheets/${mondayIso}/submit`;
+      const url = `/me/timesheets/${mondayIso}/submit/`;
       if (submit) {
         await apiClient.post(url);
       } else {

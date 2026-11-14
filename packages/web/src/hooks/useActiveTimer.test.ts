@@ -93,7 +93,7 @@ describe('useActiveTimer', () => {
     act(() => result.current.startTimer('task-a'));
     await waitFor(() => expect(result.current.isRunning).toBe(true));
 
-    expect(postMock).toHaveBeenCalledWith('/me/timer/start', { task: 'task-a' });
+    expect(postMock).toHaveBeenCalledWith('/me/timer/start/', { task: 'task-a' });
     expect(result.current.timer?.task).toBe('task-a');
     expect(toastAction).not.toHaveBeenCalled();
   });
