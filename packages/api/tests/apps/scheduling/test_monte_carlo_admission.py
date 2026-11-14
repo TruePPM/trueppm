@@ -271,3 +271,97 @@ class TestSimulationSlot:
         settings.MC_MAX_CONCURRENT = None  # type: ignore[attr-defined]
         with mc_admission.simulation_slot() as ok:
             assert ok is True
+
+
+# ---------------------------------------------------------------------------
+# Wall-clock budget (#4496)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestWallClockBudget:
+    """A simulation past MC_WALL_CLOCK_BUDGET_SECONDS answers a documented 503.
+
+    A negative budget is a deadline already passed, so the engine refuses at its first
+    checkpoint: the test exercises the real engine and the real mapping, with no
+    sleeping and no worker timeout.
+    """
+
+    def test_run_past_budget_is_503_time_exceeded(
+        self, client: APIClient, project: Project, tasks: list[Task], settings: object
+    ) -> None:
+        settings.MC_WALL_CLOCK_BUDGET_SECONDS = -1.0  # type: ignore[attr-defined]
+        r = client.post(_run_url(project), {"n_simulations": 10}, format="json")
+        assert r.status_code == 503
+        # The rendered wire body, not an attribute: the code must reach the client.
+        assert r.json()["error"] == "simulation_time_exceeded"
+        assert "n_simulations" in r.json()["message"]
+        assert "Retry-After" not in r.headers
+
+    def test_whatif_past_budget_is_503_time_exceeded(
+        self, client: APIClient, project: Project, tasks: list[Task], settings: object
+    ) -> None:
+        settings.MC_WALL_CLOCK_BUDGET_SECONDS = -1.0  # type: ignore[attr-defined]
+        r = client.get(
+            _whatif_url(project),
+            {"task_id": str(tasks[0].pk), "duration_delta": 2, "n_simulations": 10},
+        )
+        assert r.status_code == 503
+        assert r.json()["error"] == "simulation_time_exceeded"
+
+    def test_within_budget_runs_normally(
+        self, client: APIClient, project: Project, tasks: list[Task], settings: object
+    ) -> None:
+        settings.MC_WALL_CLOCK_BUDGET_SECONDS = 3600.0  # type: ignore[attr-defined]
+        r = client.post(_run_url(project), {"n_simulations": 10}, format="json")
+        assert r.status_code == 200, r.data
+
+    def test_whatif_shares_one_deadline_across_both_runs(
+        self,
+        client: APIClient,
+        project: Project,
+        tasks: list[Task],
+        settings: object,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import trueppm_scheduler.engine as engine
+
+        settings.MC_WALL_CLOCK_BUDGET_SECONDS = 3600.0  # type: ignore[attr-defined]
+        real = engine.monte_carlo
+        deadlines: list[object] = []
+
+        def _spy(*args: object, **kwargs: object) -> object:
+            deadlines.append(kwargs.get("deadline"))
+            return real(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(engine, "monte_carlo", _spy)
+        r = client.get(
+            _whatif_url(project),
+            {"task_id": str(tasks[0].pk), "duration_delta": 2, "n_simulations": 10},
+        )
+        assert r.status_code == 200, r.data
+        assert len(deadlines) == 2
+        assert deadlines[0] is not None and deadlines[0] == deadlines[1]
+
+    def test_none_budget_passes_no_deadline(self, settings: object) -> None:
+        settings.MC_WALL_CLOCK_BUDGET_SECONDS = None  # type: ignore[attr-defined]
+        assert mc_admission.mc_deadline_kwargs() == {}
+
+    def test_an_engine_without_deadline_gets_no_deadline(
+        self, settings: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On the API's 0.4 scheduler floor ``monte_carlo()`` has no ``deadline``.
+
+        Passing one would be a ``TypeError`` on every simulation, so the budget is
+        dropped instead, even when it is configured.
+        """
+        settings.MC_WALL_CLOCK_BUDGET_SECONDS = 15.0  # type: ignore[attr-defined]
+        assert "deadline" in mc_admission.mc_deadline_kwargs()
+        monkeypatch.setattr(mc_admission, "_ENGINE_TAKES_DEADLINE", False)
+        assert mc_admission.mc_deadline_kwargs() == {}
+
+    def test_a_size_cap_is_not_mistaken_for_the_time_budget(self) -> None:
+        from trueppm_scheduler import SimulationCapExceeded, SimulationTimeExceeded
+
+        assert mc_admission.is_time_exceeded(SimulationTimeExceeded("x"))
+        assert not mc_admission.is_time_exceeded(SimulationCapExceeded("x"))

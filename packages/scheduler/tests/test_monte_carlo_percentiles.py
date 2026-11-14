@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
-from datetime import date
+from datetime import date, timedelta
 
+import numpy as np
 import pytest
 
 from trueppm_scheduler import MonteCarloResult, Percentile
@@ -119,3 +120,47 @@ def test_to_dict_shape_is_unchanged() -> None:
         "p80_at_day_start", "p95_at_day_start", "distribution", "sensitivity",
         "velocity_saturated_runs",
     ]  # fmt: skip
+
+
+# --- Precision at low run counts and the midpoint tie (#4540) ---------------------
+
+_WD = [date(2026, 3, 2) + timedelta(days=i) for i in range(40)]
+
+
+def _readings(offsets: list[float]) -> list[tuple[date, bool]]:
+    from trueppm_scheduler.engine import _mc_percentiles
+
+    arr = np.asarray(offsets, dtype=np.float64)
+    return _mc_percentiles(arr, arr, _WD, None, False)
+
+
+def _share_on_or_before(offsets: list[float], reading: date) -> float:
+    from trueppm_scheduler.engine.montecarlo.run import _offset_to_date
+
+    return sum(_offset_to_date(float(o), _WD, None) <= reading for o in offsets) / len(offsets)
+
+
+def test_ten_runs_p95_can_cover_only_ninety_percent() -> None:
+    """The documented low-N imprecision, pinned: a P95 between two far-apart runs."""
+    offsets = [1, 2, 3, 4, 5, 6, 7, 8, 9, 20]  # linear P95 position 15.05: no run there
+    p95 = _readings(offsets)[2][0]
+    assert _share_on_or_before(offsets, p95) == 0.9
+
+
+@pytest.mark.parametrize("n", [10, 11, 20, 22, 37, 100])
+@pytest.mark.parametrize("q_index, q", [(0, 50), (1, 80), (2, 95)])
+def test_coverage_is_above_the_documented_bound(n: int, q_index: int, q: int) -> None:
+    """With n runs a Pq reading has more than q*(1 - 1/n) percent of runs on or before it."""
+    rng = np.random.default_rng(n * 100 + q)
+    for _ in range(25):
+        # Sparse, widely spaced whole-day positions make "no run at k" common.
+        offsets = sorted(float(x) for x in rng.integers(1, 39, size=n))
+        reading = _readings(offsets)[q_index][0]
+        assert _share_on_or_before(offsets, reading) > (q / 100) * (1 - 1 / n)
+
+
+def test_an_exact_midpoint_reads_the_later_day_not_half_to_even() -> None:
+    """Two runs: P50 is their midpoint, and it goes up, whichever day is even."""
+    for lo in (4.0, 5.0):
+        p50 = _readings([lo, lo + 1])[0][0]
+        assert p50 == _readings([lo + 1, lo + 1])[0][0]

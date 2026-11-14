@@ -1380,6 +1380,15 @@ MC_CELL_CAP: int | None = 2_500_000
 # 503 + Retry-After. Per process, so N workers admit N x this. None = unbounded.
 MC_MAX_CONCURRENT: int | None = 2
 
+# Wall-clock budget for one synchronous simulation request, in seconds (#4496). The
+# caps above bound cost through cell count, which tracks wall time on a healthy host
+# but not on a slow one or a pathological calendar. Past the budget the engine stops
+# at its next phase boundary and the request gets 503 simulation_time_exceeded,
+# instead of running until the worker or ingress times out. A what-if shares one
+# budget across its two runs. 15 s is several times a full-size run at MC_CELL_CAP
+# and, with the 10 s slot wait, still short of a 30 s ingress timeout. None = none.
+MC_WALL_CLOCK_BUDGET_SECONDS: float | None = 15.0
+
 # Project Monte Carlo run-history retention (ADR-0175, #961): the nightly purge
 # keeps the newest MC_HISTORY_CAP MonteCarloRun rows per project so a PM can read
 # finish-date forecast drift over time. None = unlimited (Enterprise overrides it

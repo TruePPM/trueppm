@@ -333,6 +333,9 @@ from trueppm_scheduler.engine.errors import (
 from trueppm_scheduler.engine.errors import (
     SimulationCapExceeded as SimulationCapExceeded,
 )
+from trueppm_scheduler.engine.errors import (
+    SimulationTimeExceeded as SimulationTimeExceeded,
+)
 from trueppm_scheduler.engine.forward import (
     _calendar_floors as _calendar_floors,
 )

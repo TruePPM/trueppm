@@ -18,11 +18,15 @@ never the 402 the per-dimension OSS caps return.
 
 from __future__ import annotations
 
+import inspect
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import TypedDict
 
+import trueppm_scheduler
 from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
@@ -151,6 +155,60 @@ def busy_response() -> Response:
         },
         status=status.HTTP_503_SERVICE_UNAVAILABLE,
         headers={"Retry-After": str(MC_BUSY_RETRY_AFTER_SECONDS)},
+    )
+
+
+# The engine's wall-clock refusal (#4496), a SimulationCapExceeded subclass. Read by
+# name, not imported, because the API's scheduler floor (0.4.0) predates it: on that
+# release the class and the ``deadline`` keyword are absent, and the budget below is
+# simply not applied rather than breaking the import.
+_TIME_EXCEEDED: type[Exception] | None = getattr(trueppm_scheduler, "SimulationTimeExceeded", None)
+_ENGINE_TAKES_DEADLINE = "deadline" in inspect.signature(trueppm_scheduler.monte_carlo).parameters
+
+
+class McDeadlineKwargs(TypedDict, total=False):
+    """The ``deadline`` keyword for ``monte_carlo()``, absent when no budget applies."""
+
+    deadline: float
+
+
+def mc_deadline_kwargs() -> McDeadlineKwargs:
+    """``monte_carlo()`` kwargs bounding one request's simulation wall time (#4496).
+
+    ``MC_CELL_CAP`` bounds cost only through the cell count; a slow host or a
+    pathological calendar can still overrun it. The deadline is computed once per
+    call, so a view running two simulations (the what-if) should compute it once and
+    pass the same dict to both, sharing one budget. Empty when
+    ``MC_WALL_CLOCK_BUDGET_SECONDS`` is ``None`` or the installed engine has no
+    ``deadline`` parameter.
+    """
+    budget = getattr(settings, "MC_WALL_CLOCK_BUDGET_SECONDS", None)
+    if budget is None or not _ENGINE_TAKES_DEADLINE:
+        return McDeadlineKwargs()
+    return McDeadlineKwargs(deadline=time.monotonic() + float(budget))
+
+
+def is_time_exceeded(exc: Exception) -> bool:
+    """Is ``exc`` the engine's wall-clock refusal rather than a size cap?"""
+    return _TIME_EXCEEDED is not None and isinstance(exc, _TIME_EXCEEDED)
+
+
+def time_exceeded_response() -> Response:
+    """503 for a simulation the engine stopped at ``MC_WALL_CLOCK_BUDGET_SECONDS``.
+
+    503, not 400: the request is well-formed and within every size cap, and the
+    overrun is usually this host's load. No ``Retry-After``: a pathological project
+    overruns again, so the remedy named is fewer runs, not waiting.
+    """
+    return Response(
+        {
+            "error": "simulation_time_exceeded",
+            "message": (
+                "The Monte Carlo simulation exceeded this server's time budget and was "
+                "stopped. Retry with a smaller n_simulations."
+            ),
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
     )
 
 

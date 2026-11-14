@@ -342,7 +342,8 @@ def test_unpaginated_viewsets_are_capped_or_allowlisted() -> None:
         "TaskLinkViewSet",
         # Stakeholder roster: bounded by the project's own stakeholder list.
         "ExternalStakeholderViewSet",
-        # Known gap, tracked in #2346 (fully unpaginated relation list).
+        # Bare array by contract (#2321), bounded by a required ?task= or ?project=:
+        # the list answers 400 without one, so it never spans every member project.
         "TaskRelationViewSet",
     }
     found: set[str] = set()

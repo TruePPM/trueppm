@@ -77,7 +77,14 @@ from trueppm_api.apps.scheduling.forecast_staleness import (
     forecast_staleness_for_payload,
     forecast_staleness_from_run,
 )
-from trueppm_api.apps.scheduling.mc_admission import admit_runs, busy_response, simulation_slot
+from trueppm_api.apps.scheduling.mc_admission import (
+    admit_runs,
+    busy_response,
+    is_time_exceeded,
+    mc_deadline_kwargs,
+    simulation_slot,
+    time_exceeded_response,
+)
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
     FailedTaskStatus,
@@ -212,6 +219,8 @@ def _simulation_cap_response(exc: Exception) -> Response:
     remedy that does not exist. It is a request the engine cannot serve at this size,
     so it is a 400 carrying the engine's message, like the API's own ``MC_CELL_CAP``.
     """
+    if is_time_exceeded(exc):
+        return time_exceeded_response()
     message = str(exc)
     if message.startswith(_SAMPLE_CELL_CAP_PREFIX):
         return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
@@ -722,7 +731,11 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
             description=(
                 "This API process is already running MC_MAX_CONCURRENT simulations "
                 "and none finished within the wait window (#2839). Body {error: "
-                "simulation_busy, message}; retry after the Retry-After header."
+                "simulation_busy, message}; retry after the Retry-After header. "
+                "Also returned as {error: simulation_time_exceeded, message}, with "
+                "no Retry-After, when the simulation ran past "
+                "MC_WALL_CLOCK_BUDGET_SECONDS and was stopped (#4496); retry with "
+                "a smaller n_simulations."
             ),
         ),
     },
@@ -787,8 +800,8 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     Returns 200 on success, 402 if the OSS simulation cap is exceeded,
     400 if the schedule input is invalid (e.g. the dependency-edge cap is
     breached) or an explicit n_simulations breaches MC_CELL_CAP, 503 if the
-    process has no free simulation slot, 404 if the project does not exist,
-    403 if the caller lacks read access.
+    process has no free simulation slot or the run passed its wall-clock budget,
+    404 if the project does not exist, 403 if the caller lacks read access.
     """
     from trueppm_scheduler import MAX_DEPENDENCIES
     from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
@@ -981,6 +994,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
                     max_runs=cap,
                     max_tasks=settings.MC_TASK_CAP,
                     **_mc_lag_delta_kwargs(),
+                    **mc_deadline_kwargs(),
                 )
     except SimulationCapExceeded as exc:
         # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
@@ -1497,7 +1511,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 description=(
                     "No free Monte Carlo slot in this API process (MC_MAX_CONCURRENT, "
                     "#2839). Body {error: simulation_busy, message}; retry after "
-                    "Retry-After."
+                    "Retry-After. Also {error: simulation_time_exceeded, message}, "
+                    "with no Retry-After, when the two simulations together ran past "
+                    "MC_WALL_CLOCK_BUDGET_SECONDS (#4496)."
                 ),
             ),
         },
@@ -1679,6 +1695,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     ).duration.days
                     baseline_cpm = schedule(_make_project(leaf_tasks, cpm_status_date))
                     perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
+                    # One budget for both runs (#4496): computed once, so the
+                    # perturbed run gets only what the baseline left.
+                    deadline_kwargs = mc_deadline_kwargs()
                     baseline_mc = monte_carlo(
                         _make_project(leaf_tasks, mc_status_date),
                         runs=n_simulations,
@@ -1686,6 +1705,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                         max_runs=cap,
                         max_tasks=settings.MC_TASK_CAP,
                         **_mc_lag_delta_kwargs(),
+                        **deadline_kwargs,
                     )
                     perturbed_mc = monte_carlo(
                         _make_project(perturbed_tasks, mc_status_date),
@@ -1694,6 +1714,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                         max_runs=cap,
                         max_tasks=settings.MC_TASK_CAP,
                         **_mc_lag_delta_kwargs(),
+                        **deadline_kwargs,
                     )
         except SimulationCapExceeded as exc:
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
