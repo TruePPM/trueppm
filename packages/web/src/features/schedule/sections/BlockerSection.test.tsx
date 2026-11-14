@@ -360,6 +360,23 @@ describe('BlockerSection — read-only view', () => {
     expect(screen.queryByText('Related task')).toBeNull();
   });
 
+  it('shows the pending badge beside "Not blocked" for a queued offline unblock (#2675)', () => {
+    seedPending({ kind: 'unblock', wasFlagged: true });
+    setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
+    renderWith({ canEdit: false });
+    expect(screen.getByText('Not blocked')).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Unblock queued — it will save when you reconnect/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('shows no pending badge on an unblocked read-only task with nothing queued', () => {
+    setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
+    renderWith({ canEdit: false });
+    expect(screen.queryByLabelText(/queued/i)).toBeNull();
+  });
+
   it('shows "queued" + the pending badge for a fresh offline flag (issue 2584)', () => {
     // A viewer has no write control on the task, so the queued signal is the only
     // affordance that reveals a blocker hasn't reached the server yet — it must
