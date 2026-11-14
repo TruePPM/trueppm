@@ -15,7 +15,7 @@ Open it at **Project → Settings → Signal privacy** (`/projects/:id/settings/
 ## What signals are governed
 
 :::note[Ships in 0.5]
-The capacity signal lands in 0.5. In the current release the per-person list in the Capacity preflight is visible to every project member.
+The capacity signal and the Flow metrics row on this tab land in 0.5. In the current release the per-person list in the Capacity preflight is visible to every project member, and flow metrics can be governed only through the API.
 :::
 
 Team signals that can be gated:
@@ -23,7 +23,8 @@ Team signals that can be gated:
 - **Velocity** — the per-sprint velocity series and its forecast range.
 - **Throughput rollup** — the team's per-period throughput (completed work over time).
 - **Retro pulse** — the team-sentiment trend captured at retrospectives.
-- **Capacity** *(from 0.5)* — the per-person committed and available hours in the sprint [Capacity preflight](/features/capacity-preflight/). Only the per-person list is gated; the team total stays visible, and a reader outside the audience sees a "team-private" note in place of the names.
+- **Flow metrics** *(row on this tab from 0.5)* — cycle and lead-time distributions, the cumulative flow series and weekly throughput.
+- **Sprint capacity per person** *(from 0.5)* — the per-person committed and available hours in the sprint [Capacity preflight](/features/capacity-preflight/). Only the per-person list is gated; the team total stays visible, and a reader outside the audience sees a "team-private" note in place of the names. The over-capacity warnings shown when a sprint is activated follow the same rule: outside the audience they give the number of warnings, not who or how many hours.
 
 These are the team-private *details*. Aggregate, outward-facing readings — milestone health, schedule confidence — are **not** on this tab and stay visible to everyone (see [Suppressed, not blocked](#suppressed-not-blocked) below).
 

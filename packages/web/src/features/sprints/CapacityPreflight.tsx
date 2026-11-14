@@ -191,7 +191,7 @@ export function CapacityPreflight({ capacity, points }: Props) {
       >
         {membersSuppressed ? (
           <li className="text-xs italic text-neutral-text-secondary">
-            Per-person capacity is team-private. Your team can share it in Settings, Signal
+            Per-person capacity is team-private. Your team can share it in Settings → Signal
             privacy.
           </li>
         ) : members.length === 0 ? (
