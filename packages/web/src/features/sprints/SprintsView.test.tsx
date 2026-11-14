@@ -1213,6 +1213,7 @@ const CAPACITY_DATA: SprintCapacity = {
   },
   working_days: 10,
   hours_per_day: 6,
+  capacity_suppressed: false,
 };
 
 const VELOCITY_DATA: ProjectVelocity = {

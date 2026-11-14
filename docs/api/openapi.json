@@ -41206,7 +41206,7 @@
         "/api/v1/sprints/{id}/capacity/": {
             "get": {
                 "operationId": "v1_sprints_capacity_retrieve",
-                "description": "Return per-person and aggregate capacity for a sprint (#228).\n\nExposes every assigned member (not only over-allocated ones) plus\naggregate totals — what the wave/10 capacity preflight panel\nrenders. The activate endpoint still returns the warnings-only\nslice via ``capacity_check``.",
+                "description": "Return per-person and aggregate capacity for a sprint (#228).\n\nExposes every assigned member (not only over-allocated ones) plus\naggregate totals — what the wave/10 capacity preflight panel\nrenders. The per-member breakdown is the ADR-0104 ``capacity`` signal: a\nreader outside its audience gets ``members: []`` and\n``capacity_suppressed: true``. The activate endpoint still returns the warnings-only\nslice via ``capacity_check``.",
                 "summary": "Get a sprint's capacity summary",
                 "parameters": [
                     {
@@ -75134,10 +75134,11 @@
                     "velocity",
                     "throughput_rollup",
                     "pulse",
-                    "flow_metrics"
+                    "flow_metrics",
+                    "capacity"
                 ],
                 "type": "string",
-                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse\n* `flow_metrics` - flow_metrics",
+                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse\n* `flow_metrics` - flow_metrics\n* `capacity` - capacity",
                 "x-trueppm-enum": "open"
             },
             "SignalPrivacyPolicy": {
@@ -75823,9 +75824,15 @@
                         "type": "number",
                         "format": "double",
                         "readOnly": true
+                    },
+                    "capacity_suppressed": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "True when the requester is outside the project's `capacity` signal audience (ADR-0104): `members` is then empty and only `totals` is real."
                     }
                 },
                 "required": [
+                    "capacity_suppressed",
                     "hours_per_day",
                     "members",
                     "totals",

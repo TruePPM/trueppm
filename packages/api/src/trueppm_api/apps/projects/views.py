@@ -17981,14 +17981,18 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         Exposes every assigned member (not only over-allocated ones) plus
         aggregate totals — what the wave/10 capacity preflight panel
-        renders. The activate endpoint still returns the warnings-only
+        renders. The per-member breakdown is the ADR-0104 ``capacity`` signal: a
+        reader outside its audience gets ``members: []`` and
+        ``capacity_suppressed: true``. The activate endpoint still returns the warnings-only
         slice via ``capacity_check``.
         """
-        from trueppm_api.apps.projects.services import capacity_summary
+        from trueppm_api.apps.projects.signal_privacy_services import capacity_summary_for
 
         sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
-        return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
+        # ADR-0104 ``capacity`` signal (#2854): a reader outside the audience gets the
+        # aggregate totals but no per-member names/hours.
+        return Response(capacity_summary_for(request, sprint), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Incoming carryover preview for a PLANNED sprint",

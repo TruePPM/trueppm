@@ -10464,6 +10464,13 @@ class SprintCapacitySerializer(serializers.Serializer[dict[str, Any]]):
     totals = SprintCapacityTotalsSerializer(read_only=True)
     working_days = serializers.IntegerField(read_only=True)
     hours_per_day = serializers.FloatField(read_only=True)
+    capacity_suppressed = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when the requester is outside the project's `capacity` signal "
+            "audience (ADR-0104): `members` is then empty and only `totals` is real."
+        ),
+    )
 
 
 class _BlockedUserRefSerializer(serializers.Serializer[dict[str, Any]]):

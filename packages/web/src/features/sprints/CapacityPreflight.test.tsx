@@ -17,11 +17,20 @@ function makeCapacity(overrides: Partial<SprintCapacity> = {}): SprintCapacity {
     },
     working_days: 10,
     hours_per_day: 8,
+    capacity_suppressed: false,
     ...overrides,
   };
 }
 
 describe('CapacityPreflight', () => {
+  it('renders a team-private state, not an empty list, when per-person capacity is suppressed', () => {
+    render(<CapacityPreflight capacity={makeCapacity({ capacity_suppressed: true })} />);
+    expect(screen.getByText(/Per-person capacity is team-private/)).toBeInTheDocument();
+    expect(screen.queryByText(/No assignments yet/)).toBeNull();
+    // The aggregate donut still renders.
+    expect(screen.getByText(/hours committed/)).toBeInTheDocument();
+  });
+
   it('renders aggregate hours and the on-track label', () => {
     render(<CapacityPreflight capacity={makeCapacity()} />);
     expect(screen.getByText(/hours committed/)).toBeInTheDocument();

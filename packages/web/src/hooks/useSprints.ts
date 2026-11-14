@@ -614,6 +614,11 @@ export interface SprintCapacity {
   };
   working_days: number;
   hours_per_day: number;
+  /**
+   * True when the reader is outside the project's `capacity` signal audience
+   * (ADR-0104, #2854): `members` is empty and only `totals` is real.
+   */
+  capacity_suppressed: boolean;
 }
 
 /** GET /api/v1/sprints/{id}/capacity/ — per-person + aggregate capacity (#228). */
