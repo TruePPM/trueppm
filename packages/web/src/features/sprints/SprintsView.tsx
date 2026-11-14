@@ -27,7 +27,6 @@ import {
   useSprintOutcome,
   type CapacityWarning,
 } from '@/hooks/useSprints';
-import { ExcludeFromVelocityToggle } from './ExcludeFromVelocityToggle';
 import { SprintClosedOutcome } from './SprintClosedOutcome';
 import { SprintReforecastCard } from './SprintReforecastCard';
 import { SprintDailyDeltaPanel } from './SprintDailyDeltaPanel';
@@ -751,6 +750,9 @@ export function SprintsView() {
             onFilter={handleFilter}
             filterButtonRef={filterAnchorRef}
             canManageLifecycle={canManageLifecycle}
+            menuSprint={selectedSprint}
+            projectId={projectId ?? ''}
+            canEditSprintSettings={(currentRole ?? -1) >= ROLE_SCHEDULER}
           />
           {/* Popover places itself in fixed coords from the Filter button so it
           stays anchored regardless of horizontal layout overflow. */}
@@ -1318,14 +1320,6 @@ function SelectedSprintCards({
           </div>
         </div>
       )}
-
-      {/* ADR-0113: team-owned "Sprint 0" escape hatch. Available in every
-      state (settable post-close); SCHEDULER+ writes, others read-only. */}
-      <ExcludeFromVelocityToggle
-        sprint={selectedSprint}
-        projectId={projectId ?? ''}
-        canEdit={(currentRole ?? -1) >= ROLE_SCHEDULER}
-      />
 
       {selectedSprint.state === 'ACTIVE' && (
         <ActiveSprintPanels

@@ -167,6 +167,23 @@ def test_snapshot_committed_metrics_excludes_pending(
     assert sprint.committed_task_count == 1
 
 
+def test_snapshot_counts_unestimated_tasks_from_the_same_row_set(
+    project: Project, sprint: Sprint
+) -> None:
+    """Count and points come from one aggregate (#4963): an unestimated task is
+    counted (it is in the commitment) and adds no points; an empty sprint
+    snapshots 0/0 rather than leaving the two figures disagreeing."""
+    _task(project, "Sized", sprint=sprint, story_points=5)
+    _task(project, "Unsized", sprint=sprint, story_points=None)
+    snapshot_committed_metrics(sprint)
+    assert (sprint.committed_points, sprint.committed_task_count) == (5, 2)
+
+
+def test_snapshot_empty_sprint_is_zero_zero(sprint: Sprint) -> None:
+    snapshot_committed_metrics(sprint)
+    assert (sprint.committed_points, sprint.committed_task_count) == (0, 0)
+
+
 def test_upsert_burndown_excludes_pending(project: Project, sprint: Sprint, owner: object) -> None:
     _task(project, "Committed", sprint=sprint, story_points=5, status=TaskStatus.IN_PROGRESS)
     pending = _task(

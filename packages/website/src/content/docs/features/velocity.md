@@ -91,7 +91,7 @@ A **setup or ramp-up iteration** — what agile teams often call a "Sprint 0" �
 TruePPM is scheduling-first, so it has an opinion about where this work belongs:
 
 - **Model mobilization as schedule tasks, not a sprint.** Setup work is real work with durations and dependencies — put it on the schedule (the waterfall side of the hybrid bridge), where it shows up in the critical path and the Gantt rather than as a misleading zero-velocity sprint. This keeps your velocity baseline clean from the start.
-- **If you do run a ramp-up sprint, exclude it from velocity.** A Scheduler (or above) can flag any sprint **Exclude from velocity** from the sprint workspace. An excluded sprint is held out of the rolling average, the forecast band, and the [milestone reforecast](/features/sprint-milestone-rollup/) — but it stays fully visible in your history.
+- **If you do run a ramp-up sprint, exclude it from velocity.** A Scheduler (or above) can flag any sprint **Exclude from velocity** from the sprint workspace's **Sprint options** (⋯) menu in the page header; an excluded sprint also shows a standing **Excluded from velocity** chip beside it. An excluded sprint is held out of the rolling average, the forecast band, and the [milestone reforecast](/features/sprint-milestone-rollup/) — but it stays fully visible in your history.
 
 ### How an excluded sprint reads
 
