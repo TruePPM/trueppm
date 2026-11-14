@@ -133,7 +133,6 @@ These rules are enforced at review time. Violations block merge.
 445. **Every schedule number carries its unit.** → [rule](../../docs/design/invariants/445-every-schedule-number-carries-its-unit.md)
 447. **Open enums render neutral when unknown.** → [rule](../../docs/design/invariants/447-open-enums-render-neutral-when-unknown.md)
 454. **Driving vs non-driving links are always solid vs dashed AND labeled in words ("Not driving"); color by band is an extra cue, never the only one.** → [rule](../../docs/design/invariants/454-driving-vs-non-driving-is-solid-vs-dashed-plus-words.md)
-445. **A filled semantic/brand surface that sets `text-white` carries a `dark:text-*` override (`dark:text-navy-900`, as `Button` does) — white on the dark-mode light fills is 2.3-2.8:1. Machine-checked: `scripts/check-dark-text-white.py`.** → [rule](../../docs/design/invariants/445-filled-semantic-brand-surface-pairs-text-white-with-a-dark-override.md)
 456. **A filled semantic/brand surface that sets `text-white` carries a `dark:text-*` override (`dark:text-navy-900`, as `Button` does) — white on the dark-mode light fills is 2.3-2.8:1. Machine-checked: `scripts/check-dark-text-white.py`.** → [rule](../../docs/design/invariants/456-filled-semantic-brand-surface-pairs-text-white-with-a-dark-override.md)
 
 ## Redundancy

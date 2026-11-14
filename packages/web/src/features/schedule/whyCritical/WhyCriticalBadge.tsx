@@ -38,7 +38,7 @@ export function WhyCriticalBadge({ band, float, onActivate }: Props) {
         'min-h-11 md:min-h-6 text-xs font-semibold px-1.5 py-0.5 rounded-chip',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2',
         critical
-          ? 'text-white bg-semantic-critical'
+          ? 'text-white dark:text-navy-900 bg-semantic-critical'
           : 'text-semantic-at-risk border border-semantic-at-risk',
       ].join(' ')}
     >
