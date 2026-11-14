@@ -56,6 +56,7 @@ from trueppm_scheduler.engine.montecarlo.index import (
     _raise_mc_index_overrun,
 )
 from trueppm_scheduler.engine.montecarlo.sampling import (
+    _MAX_SAMPLE_CELLS,
     _build_working_day_index,
     _duration_sensitivity,
     _OffsetLookup,
@@ -638,9 +639,11 @@ def monte_carlo(
         finish days, and the duration-sensitivity tornado (``sensitivity``).
 
     Raises:
-        SimulationCapExceeded: If ``runs`` exceeds ``max_runs``, the project
-            has more tasks than ``max_tasks``, or its distinct calendars' working-day
-            indices would exceed ``max_index_cells``.
+        SimulationCapExceeded: If ``runs x tasks`` exceeds the 250,000,000-cell
+            ceiling on the sampled-duration matrix (``_MAX_SAMPLE_CELLS``, about
+            2 GB of float64, whatever ``max_runs`` says), if ``runs`` exceeds
+            ``max_runs``, the project has more tasks than ``max_tasks``, or its
+            distinct calendars' working-day indices would exceed ``max_index_cells``.
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If a calendar has no working day, a duration
             or lag is negative/out of range, the project has no tasks,
@@ -683,6 +686,11 @@ def monte_carlo(
         _raise_cycle_error(g)
     n_tasks = len(topo_order)
     task_idx = {tid: i for i, tid in enumerate(topo_order)}
+    if runs * n_tasks > _MAX_SAMPLE_CELLS:
+        raise SimulationCapExceeded(
+            f"Monte Carlo sampled durations would exceed {_MAX_SAMPLE_CELLS:,} cells: "
+            f"{runs:,} runs x {n_tasks:,} tasks. Reduce runs."
+        )
 
     rng = np.random.default_rng(seed)
     calendar = project.calendar

@@ -679,6 +679,9 @@ from trueppm_scheduler.engine.montecarlo.sampling import (
     _MAX_RUNS_ABSOLUTE as _MAX_RUNS_ABSOLUTE,
 )
 from trueppm_scheduler.engine.montecarlo.sampling import (
+    _MAX_SAMPLE_CELLS as _MAX_SAMPLE_CELLS,
+)
+from trueppm_scheduler.engine.montecarlo.sampling import (
     _VELOCITY_CHUNK_CELLS as _VELOCITY_CHUNK_CELLS,
 )
 from trueppm_scheduler.engine.montecarlo.sampling import (

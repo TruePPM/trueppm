@@ -436,6 +436,12 @@ def _duration_sensitivity(
 
 
 _MAX_RUNS_ABSOLUTE = 100_000_000  # hard ceiling on ``runs`` independent of the caller's max_runs
+# Hard ceiling on the sampled-duration matrix, ``runs x tasks`` float64 cells (2 GB):
+# the one structure that is allocated in full, column by column, because that is the
+# order the seeded stream is consumed in. The runs ceiling alone does not bound it, so
+# 5M runs on a 200-task project reached ``np.empty`` and died with a bare MemoryError
+# outside the SchedulerError contract (#1829).
+_MAX_SAMPLE_CELLS = 250_000_000
 
 
 def _validate_monte_carlo_args(

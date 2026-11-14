@@ -405,3 +405,43 @@ def test_monte_carlo_cell_budgets_default_to_the_exported_cap(param: str, cap: s
     """The cell cases probe the keyword, so pin that the keyword's default is the constant."""
     default = inspect.signature(monte_carlo).parameters[param].default
     assert default == _exported_caps()[cap]
+
+
+# --- #1829: the sampled-duration matrix is bounded, and the offset rounding is uniform ---
+
+
+def _flat_project(n_tasks: int) -> Project:
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),
+        tasks=[Task(id=f"t{i}", name="t", duration=timedelta(days=1)) for i in range(n_tasks)],
+    )
+
+
+def test_sample_matrix_over_the_cell_ceiling_is_refused_before_allocating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Shrink the ceiling so the boundary is cheap to exercise: 4 tasks x 25 runs = 100.
+    monkeypatch.setattr("trueppm_scheduler.engine.montecarlo.run._MAX_SAMPLE_CELLS", 100)
+    monte_carlo(_flat_project(4), runs=25, seed=1)  # exactly at the ceiling: allowed
+    with pytest.raises(SimulationCapExceeded, match="sampled durations"):
+        monte_carlo(_flat_project(4), runs=26, seed=1)
+    # A caller's own max_runs does not lift it.
+    with pytest.raises(SimulationCapExceeded, match="sampled durations"):
+        monte_carlo(_flat_project(4), runs=26, seed=1, max_runs=1_000)
+
+
+def test_sample_cell_ceiling_is_far_past_a_realistic_run() -> None:
+    assert engine_pkg._MAX_SAMPLE_CELLS >= 10_000 * 20_000
+
+
+@pytest.mark.parametrize("frac", [0.25, 0.5, 0.75, 1.0])
+def test_offset_to_date_is_translation_equivariant(frac: float) -> None:
+    # A half-day tie must not round to even (#1829 item 1): shifting every completion
+    # by one working day shifts the reported day by exactly one index entry.
+    index = [date(2026, 1, 5) + timedelta(days=i) for i in range(40)]
+    for k in range(1, 30):
+        here = engine_pkg._offset_to_date(k + frac, index, None)
+        shifted = engine_pkg._offset_to_date(k + 1 + frac, index, None)
+        assert index.index(shifted) == index.index(here) + 1, (k, frac)

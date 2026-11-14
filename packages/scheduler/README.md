@@ -587,6 +587,7 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_VELOCITY_SPRINTS` | `10000` | Per-run sprint horizon the velocity sampler will bootstrap |
 | `MC_SENSITIVITY_CAP` | `20` | Tasks returned by the sensitivity ("tornado") ranking |
 | `_MAX_RUNS_ABSOLUTE` | `100000000` | Hard ceiling on `monte_carlo(runs=…)`, enforced regardless of `max_runs`; over it `monte_carlo()` raises `InvalidScheduleInput`. A caller-supplied `max_runs` below `runs` is checked as well and raises `SimulationCapExceeded` instead. Not exported from the package: it is a private engine constant, listed so the number is documented |
+| `_MAX_SAMPLE_CELLS` | `250000000` | From 0.5, a hard ceiling on `runs x tasks`, the sampled-duration matrix `monte_carlo()` allocates in full (8 bytes a cell, about 2 GB at the ceiling). Over it `monte_carlo()` will raise `SimulationCapExceeded` whatever `max_runs` says, instead of a bare `MemoryError`: 100,000 runs fit a 2,500-task project, 10,000 runs a 25,000-task one. Not exported from the package |
 
 ```python
 from trueppm_scheduler import MAX_DEPENDENCIES, MAX_DURATION_DAYS, MAX_LAG_DAYS
@@ -594,7 +595,9 @@ from trueppm_scheduler import MAX_DEPENDENCIES, MAX_DURATION_DAYS, MAX_LAG_DAYS
 
 The engine has no task-count cap of its own, and its only run-count cap is the
 absolute `100_000_000` ceiling in the table above, which is far past anything a
-request handler should accept. `monte_carlo(max_runs=…, max_tasks=…)` are opt-in,
+request handler should accept. From 0.5 the `runs x tasks` product will also be
+capped at `_MAX_SAMPLE_CELLS`, so a large run count on a large project is refused
+with `SimulationCapExceeded` rather than exhausting memory. `monte_carlo(max_runs=…, max_tasks=…)` are opt-in,
 caller-supplied ceilings that default to `None` (no limit beyond that ceiling).
 That default is correct for a batch script or notebook that owns the whole machine, and wrong for a synchronous web request:
 **`schedule()` and `monte_carlo()` are CPU-bound** (a day-by-day calendar walk,
