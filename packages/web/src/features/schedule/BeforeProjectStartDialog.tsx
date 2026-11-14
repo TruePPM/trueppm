@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { fmtUtcMedium } from '@/lib/formatUtcDate';
 import { Button } from '@/components/Button';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 
@@ -29,12 +30,7 @@ interface Props {
 
 /** Format an ISO date as `Mon D, YYYY` in UTC (no off-by-one from local tz). */
 function formatIso(iso: string): string {
-  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
+  return fmtUtcMedium(iso);
 }
 
 const FOCUS_RING =

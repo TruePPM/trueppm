@@ -4,6 +4,10 @@ import { GitAutomationManager } from './GitAutomationManager';
 import type { GitAutomationConfig, RotatedGitSecret } from '@/hooks/useGitAutomation';
 import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 
+vi.mock('@/hooks/useUserDateFormat', async () =>
+  (await import('@/test/mockUserDateFormat')).userDateFormatModule(),
+);
+
 const useCurrentUserRole = vi.fn();
 const useGitAutomationConfig = vi.fn();
 const updateMutate = vi.fn();

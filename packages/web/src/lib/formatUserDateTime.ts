@@ -59,14 +59,18 @@ export function formatInstant(
   return formatInstantWithStyle(new Date(iso), prefs.dateFormat, prefs.timeZone);
 }
 
-/** Format only the date part of an instant, in the user's zone + format. */
+/**
+ * Format only the date part of an instant, in the user's zone + format.
+ * `variant` defaults to `'long'`; `'medium'` is "Aug 19, 2026", `'short'` drops the year.
+ */
 export function formatInstantDate(
   iso: string | null | undefined,
   prefs: ResolvedDatePrefs,
+  variant: 'short' | 'medium' | 'long' = 'long',
 ): string {
   if (!iso) return '—';
   if (!isValidIso(iso)) return iso;
-  return formatDateWithStyle(new Date(iso), prefs.dateFormat, prefs.timeZone, 'long');
+  return formatDateWithStyle(new Date(iso), prefs.dateFormat, prefs.timeZone, variant);
 }
 
 /** Format only the time-of-day of an instant, in the user's zone + format. */

@@ -13,6 +13,10 @@ import type { Breakpoint } from '@/hooks/useBreakpoint';
 import type { Risk, RiskComment } from '@/api/types';
 import { RiskDrawer } from './RiskDrawer';
 
+vi.mock('@/hooks/useUserDateFormat', async () =>
+  (await import('@/test/mockUserDateFormat')).userDateFormatModule(),
+);
+
 type CommentVars = { projectId: string; riskId: string; message: string };
 type CommentOpts = { onSuccess: () => void; onError: () => void };
 

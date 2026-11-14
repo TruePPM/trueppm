@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import type { ProjectMembership } from '@/api/types';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { ROLE_OWNER } from '@/lib/roles';
@@ -12,13 +13,6 @@ import { roleLabel } from '@/lib/roleLabels';
  * access and since when" — needs the calendar date a reviewer can screenshot,
  * including the year, since memberships span years.
  */
-export function formatAccessDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 
 interface MemberRowProps {
   membership: ProjectMembership;
@@ -52,6 +46,7 @@ export function MemberRow({
     other_active_project_names: otherProjectNames,
   } = membership;
   const initials = membership.user_detail.username.slice(0, 2).toUpperCase();
+  const { formatInstantDate } = useUserDateFormat();
   const isOwnerMember = role === ROLE_OWNER;
 
   // Per-project access evidence (#590): show when the member joined, plus the
@@ -61,7 +56,7 @@ export function MemberRow({
   // formatter call non-null without a type assertion.
   const roleChangedLabel =
     role_changed_at != null && new Date(role_changed_at).getTime() > new Date(joined_at).getTime()
-      ? formatAccessDate(role_changed_at)
+      ? formatInstantDate(role_changed_at, 'medium')
       : null;
 
   // Non-OWNER callers cannot change the role of an OWNER member.
@@ -91,7 +86,7 @@ export function MemberRow({
         </p>
         <p className="text-xs text-neutral-text-secondary truncate">{user_detail.email}</p>
         <p className="tppm-mono text-xs text-neutral-text-secondary mt-0.5">
-          Joined {formatAccessDate(joined_at)}
+          Joined {formatInstantDate(joined_at, 'medium')}
           {roleChangedLabel && (
             <>
               {' · '}

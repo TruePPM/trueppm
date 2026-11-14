@@ -1,5 +1,7 @@
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import type React from 'react';
+import { fmtUtcMedium } from '@/lib/formatUtcDate';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import type { Risk } from '@/api/types';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -258,6 +260,7 @@ function RiskDetailView({
   risk: Risk;
   onClose: () => void;
 }) {
+  const { formatInstantDate } = useUserDateFormat();
   const statusClasses = STATUS_CLASSES[risk.status];
   const hasPmiFields  = !!(risk.category || risk.response || risk.mitigation_due_date || risk.trigger || risk.contingency);
 
@@ -334,9 +337,7 @@ function RiskDetailView({
                 Mitigation Due
               </p>
               <span className="text-sm text-neutral-text-primary tppm-mono">
-                {new Date(`${risk.mitigation_due_date}T00:00:00Z`).toLocaleDateString('en-US', {
-                  month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
-                })}
+                {fmtUtcMedium(risk.mitigation_due_date)}
               </span>
             </div>
           )}
@@ -368,7 +369,7 @@ function RiskDetailView({
       <RiskNotesSection projectId={projectId} riskId={risk.id} />
 
       <div className="text-xs text-neutral-text-secondary">
-        Updated {new Date(risk.updated_at).toLocaleDateString()}
+        Updated {formatInstantDate(risk.updated_at, 'medium')}
       </div>
     </div>
   );
@@ -376,6 +377,7 @@ function RiskDetailView({
 
 // Notes section — append-only comments with author attribution (ADR-0044, issue #244)
 function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: string }) {
+  const { formatInstant } = useUserDateFormat();
   const { comments, isLoading } = useRiskComments(projectId, riskId);
   const createComment           = useCreateRiskComment();
   const [open, setOpen]         = useState(false);
@@ -461,10 +463,7 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
                       dateTime={c.created_at}
                       className="text-xs text-neutral-text-disabled tppm-mono"
                     >
-                      {new Date(c.created_at).toLocaleString('en-US', {
-                        month: 'short', day: 'numeric', hour: 'numeric',
-                        minute: '2-digit', hour12: true,
-                      })}
+                      {formatInstant(c.created_at)}
                     </time>
                   </div>
                   <p className="text-sm text-neutral-text-primary whitespace-pre-wrap mt-0.5">

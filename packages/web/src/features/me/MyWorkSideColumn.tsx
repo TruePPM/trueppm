@@ -15,6 +15,8 @@
  * single-column list with no empty rail.
  */
 import { WarningIcon } from '@/components/Icons';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
+import { fmtUtcMedium } from '@/lib/formatUtcDate';
 import { Tooltip } from '@/components/Tooltip';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -24,14 +26,7 @@ const MAX_CRITICAL = 4;
 
 /** Format an ISO date (YYYY-MM-DD) as e.g. "Aug 14, 2026" without a timezone shift. */
 function formatShipDate(iso: string): string {
-  // Parse as a local date (append T00:00 avoids the UTC-midnight day-rollback).
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-/** Format the "as of" ISO timestamp as a short calendar day. */
-function formatAsOf(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return fmtUtcMedium(iso);
 }
 
 function Panel({ title, count, children }: { title: string; count: string; children: ReactNode }) {
@@ -58,6 +53,7 @@ export function MyWorkSideColumn({
   /** Real cross-program Monte-Carlo P80 ship-date forecast (#1236), if any. */
   forecast?: MyWorkSignals['forecast'];
 }) {
+  const { formatInstantDate } = useUserDateFormat();
   const criticalTasks = tasks.filter((t) => t.is_critical).slice(0, MAX_CRITICAL);
   const criticalTotal = tasks.filter((t) => t.is_critical).length;
 
@@ -92,7 +88,7 @@ export function MyWorkSideColumn({
               ) : (
                 '80% confidence'
               )}{' '}
-              · as of {formatAsOf(forecast.as_of)}
+              · as of {formatInstantDate(forecast.as_of, 'short')}
             </p>
           </div>
         </Panel>

@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { isAxiosError } from 'axios';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SettingsCard } from '../../SettingsShell';
@@ -188,6 +189,7 @@ function WebhookUrlField({ url }: { url: string }) {
 
 /** Secret status + generate/rotate action. The secret value itself is never shown here. */
 function SecretRow({ config, onRotate }: { config: GitAutomationConfig; onRotate: () => void }) {
+  const { formatInstantDate } = useUserDateFormat();
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex flex-col min-w-0">
@@ -195,7 +197,7 @@ function SecretRow({ config, onRotate }: { config: GitAutomationConfig; onRotate
         <span className="text-[12px] text-neutral-text-secondary">
           {config.secret_set
             ? config.secret_set_at
-              ? `Set on ${formatDate(config.secret_set_at)}. Shown once at generation — rotate to issue a new one.`
+              ? `Set on ${formatInstantDate(config.secret_set_at, 'medium')}. Shown once at generation — rotate to issue a new one.`
               : 'A secret is set. Shown once at generation — rotate to issue a new one.'
             : 'No secret yet. Generate one to paste into your provider.'}
         </span>
@@ -593,13 +595,6 @@ function RotateSecretModal({
       </div>
     </div>
   );
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 /** Date + time — a delivery is diagnosed by the minute, not by the day. */

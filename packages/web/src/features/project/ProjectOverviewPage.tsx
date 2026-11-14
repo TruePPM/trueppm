@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { fmtUtcMedium } from '@/lib/formatUtcDate';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -201,13 +202,7 @@ function useMyTasks(projectId: string | undefined) {
 // ---------------------------------------------------------------------------
 
 function formatIsoDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00Z');
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
+  return fmtUtcMedium(iso);
 }
 
 function daysFromToday(iso: string): number {

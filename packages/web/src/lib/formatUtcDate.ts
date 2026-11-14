@@ -70,3 +70,17 @@ export function fmtUtcLong(
   if (!isValidIso(iso)) return iso;
   return formatDateWithStyle(new Date(iso), dateFormat, 'UTC', 'long');
 }
+
+/**
+ * Format an ISO date string as an abbreviated month/day/year in UTC, e.g.
+ * "Aug 19, 2026" (or "19 Aug 2026" / "2026-08-19" per the user's date format).
+ * The dense-but-unambiguous form for dates that can fall in another year.
+ */
+export function fmtUtcMedium(
+  iso: string | null | undefined,
+  dateFormat: DateFormatStyle = activeDateFormat,
+): string {
+  if (!iso) return '—';
+  if (!isValidIso(iso)) return iso;
+  return formatDateWithStyle(new Date(iso), dateFormat, 'UTC', 'medium');
+}

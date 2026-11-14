@@ -1,4 +1,5 @@
 import type { SprintRetroSummaryPayload } from '@/hooks/useSprints';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
  */
 export function RetroSummaryCard({ summary }: Props) {
   const itl = useIterationLabel();
+  const { formatInstantDate } = useUserDateFormat();
   return (
     <div
       role="status"
@@ -22,8 +24,7 @@ export function RetroSummaryCard({ summary }: Props) {
       </p>
       <p className="text-xs text-neutral-text-secondary tppm-mono">
         {summary.action_items_count} action item{summary.action_items_count === 1 ? '' : 's'} ·{' '}
-        {summary.promoted_count} promoted · saved{' '}
-        {new Date(summary.updated_at).toLocaleDateString()}
+        {summary.promoted_count} promoted · saved {formatInstantDate(summary.updated_at, 'medium')}
       </p>
     </div>
   );

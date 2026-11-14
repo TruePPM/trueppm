@@ -13,6 +13,7 @@
  * (rule 161).
  */
 import { Suspense, lazy } from 'react';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 
 import { TargetIcon } from '@/components/Icons';
 import type { ApiSprint } from '@/types';
@@ -35,17 +36,12 @@ interface BoardSprintHeaderProps {
 
 /** Format the sprint window as "Mar 4 – Mar 17" (mirrors BoardSprintSwitcher). */
 function dateRange(sprint: ApiSprint): string {
-  const fmt = (iso: string) =>
-    new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  return `${fmt(sprint.start_date)} – ${fmt(sprint.finish_date)}`;
+  return `${fmtUtcShort(sprint.start_date)} – ${fmtUtcShort(sprint.finish_date)}`;
 }
 
 /** Format an ISO date as "Mar 17" for the "Completed {finish}" copy. */
 function shortDate(iso: string): string {
-  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  });
+  return fmtUtcShort(iso);
 }
 
 export function BoardSprintHeader({ sprint, projectId, onOpenStandup }: BoardSprintHeaderProps) {

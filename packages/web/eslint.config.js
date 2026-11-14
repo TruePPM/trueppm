@@ -399,6 +399,72 @@ export default [
       ],
     },
   },
+  // Per-user date formatting gate (#4394, ADR-0144, ADR-0410, rule 189). A raw
+  // `toLocaleDateString` / `toLocaleTimeString` / `Intl.DateTimeFormat` in a feature
+  // hand-rolls en-US or browser-locale output and skips the user's `date_format`
+  // preference, so two surfaces disagree on the same date. Route calendar dates
+  // through `fmtUtcShort` / `fmtUtcLong` (lib/formatUtcDate.ts) and instants through
+  // `useUserDateFormat()` (lib/formatUserDateTime.ts). `toLocaleString` is NOT
+  // restricted: it is overwhelmingly number grouping (`count.toLocaleString()`), and
+  // a name-only selector cannot tell that from a date call. A separate rule (not
+  // no-restricted-syntax) so it composes with the per-tree selector lists above
+  // instead of being replaced by them.
+  //
+  // The `ignores` list is the grandfathered backlog: files that still hand-roll a
+  // formatter and have not been migrated. It can only shrink. A new file must not be
+  // added; if a call genuinely needs raw Intl (a month-only label, a timeZoneName),
+  // use `// eslint-disable-next-line no-restricted-properties -- <reason>`.
+  {
+    files: ['src/features/**/*.{ts,tsx}'],
+    ignores: [
+      'src/**/*.test.{ts,tsx}',
+      'src/features/calendar/calendarUtils.ts',
+      'src/features/charts/scale.ts',
+      'src/features/me/TimezoneFormatSection.tsx',
+      'src/features/me/myWorkFocus.ts',
+      'src/features/reports/burnChartData.ts',
+      'src/features/risk/riskExport.ts',
+      'src/features/schedule/BaselineManagerModal.tsx',
+      'src/features/schedule/BaselineTab.tsx',
+      'src/features/schedule/DateInputPopover.tsx',
+      'src/features/schedule/PhaseUncertaintyBlock.tsx',
+      'src/features/schedule/ScheduleAriaOverlay.tsx',
+      'src/features/schedule/ScheduleCommitPopover.tsx',
+      'src/features/schedule/TaskScheduleStrip.tsx',
+      'src/features/schedule/buildMode/BlankProjectCanvas.tsx',
+      'src/features/schedule/engine/GanttScaleData.ts',
+      'src/features/schedule/forecastDelta.ts',
+      'src/features/schedule/sections/RecurrenceSection.tsx',
+      'src/features/schedule/sections/SprintSection.tsx',
+      'src/features/schedule/useScheduleCommit.ts',
+      'src/features/settings/project/calendarDisplay.ts',
+      'src/features/shell/MCResultPanel.tsx',
+      'src/features/shell/demoResetSchedule.ts',
+      'src/features/sprints/SprintDailyDeltaPanel.tsx',
+      'src/features/sprints/sprintMath.ts',
+    ],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        {
+          property: 'toLocaleDateString',
+          message:
+            'Hand-rolled date formatting bypasses the user date_format preference (#4394). Use fmtUtcShort/fmtUtcLong (calendar dates) or useUserDateFormat() (instants).',
+        },
+        {
+          property: 'toLocaleTimeString',
+          message:
+            'Hand-rolled time formatting bypasses the user date_format/timezone preference (#4394). Use useUserDateFormat().formatInstantTime.',
+        },
+        {
+          object: 'Intl',
+          property: 'DateTimeFormat',
+          message:
+            'Hand-rolled Intl.DateTimeFormat bypasses the user date_format preference (#4394). Use lib/dateFormatStyle via formatUtcDate / formatUserDateTime.',
+        },
+      ],
+    },
+  },
   // Test files also need vitest globals (describe, it, expect, etc.)
   {
     files: ['src/**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],

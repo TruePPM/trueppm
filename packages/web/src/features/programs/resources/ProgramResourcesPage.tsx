@@ -1,4 +1,5 @@
 import { RadioDotIcon, WarningIcon } from '@/components/Icons';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { useMemo } from 'react';
 import { useProgramId } from '@/hooks/useProgramId';
 import {
@@ -251,11 +252,5 @@ function formatSpan(t: ProgramAllocationTask): string {
   // an in-progress task would misreport its cross-project contention window.
   const spanStart = taskSpanStart(t);
   if (!spanStart || !t.early_finish) return 'unscheduled';
-  const fmt = (iso: string) =>
-    new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      timeZone: 'UTC',
-    });
-  return `${fmt(spanStart)}–${fmt(t.early_finish)}`;
+  return `${fmtUtcShort(spanStart)}–${fmtUtcShort(t.early_finish)}`;
 }

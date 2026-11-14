@@ -57,13 +57,14 @@ function formatter(style: DateFormatStyle, timeZone: string, opts: Intl.DateTime
  * - `variant: 'short'` omits the year (dense contexts: Gantt columns, chips) —
  *   except `iso`, which is always the full `YYYY-MM-DD` (a year-less ISO date is
  *   ambiguous), so its short and long forms match.
- * - `variant: 'long'` includes the year.
+ * - `variant: 'medium'` is the abbreviated month with the year ("Aug 19, 2026").
+ * - `variant: 'long'` includes the year with the month spelled out.
  */
 export function formatDateWithStyle(
   date: Date,
   style: DateFormatStyle,
   timeZone: string,
-  variant: 'short' | 'long',
+  variant: 'short' | 'medium' | 'long',
 ): string {
   if (style === 'iso') {
     // en-CA numeric year/month/day → "2026-08-19" for both variants.
@@ -78,7 +79,9 @@ export function formatDateWithStyle(
   const opts: Intl.DateTimeFormatOptions =
     variant === 'long'
       ? { year: 'numeric', month: 'long', day: 'numeric' }
-      : { month: 'short', day: 'numeric' };
+      : variant === 'medium'
+        ? { year: 'numeric', month: 'short', day: 'numeric' }
+        : { month: 'short', day: 'numeric' };
   return formatter(style, timeZone, opts).format(date);
 }
 
