@@ -57,7 +57,7 @@ the web client, MCP and the homes, reads that value and only formats it.
 | Open risks | overview | `open_risk_count` | `as_of` |
 | Schedule performance | overview | `schedule_health` | `as_of` |
 | Burn series | `GET /projects/{id}/burn/` | `series` | `as_of` |
-| S-curve (planned vs actual) | burn, `chart_type=burnup` | `series` + `baseline_series` | `as_of` |
+| S-curve (planned vs actual) | burn, `chart_type=burnup` | `series` + `baseline_series` (note: `baseline_series` was removed from the burn response in #3246 — no screen read it — so the burn response no longer carries a planned curve) | `as_of` |
 | Task slip (one task) | `GET /projects/{id}/tasks/{task_id}/baseline/` | `finish_delta_days` | `as_of` |
 | Task slip (rows) | task rows (`TaskSerializer`), the same computation | `baseline_finish_variance_days` | the comparison's `as_of`; on a list, `Project.recalculated_at` |
 

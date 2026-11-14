@@ -314,7 +314,7 @@ def velocity_summary_for(request: Request, project_id: Any) -> dict[str, Any]:
 
 
 # Serializers that carry a per-person metric, mapped to the governed signal that gates
-# them (ADR-0104). A completeness test (tests/apps/projects/test_signal_privacy_completeness.py)
+# them (ADR-0104). A completeness test (tests/apps/projects/test_signal_privacy_capacity.py)
 # fails when a serializer in apps/projects declares a per-person identity field
 # (``member_id`` / ``member_name``) and is not listed here, so a new per-person
 # surface cannot ship without either a SIGNAL_DEFAULTS entry or a written

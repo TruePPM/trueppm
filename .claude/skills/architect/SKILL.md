@@ -350,6 +350,7 @@ grep -rhoE "(environ(\.get)?|getenv|env(\.[a-z]+)?)\(['\"][A-Z][A-Z0-9_]+" packa
 - **The scheduling engine (trueppm-scheduler) has ZERO Django dependencies.**
   It is a pure Python library that accepts data structures and returns results.
   Django wraps it; it never wraps Django.
+- **Per-person team metrics are governed signals:** a new per-person, per-team metric must register in the signal-privacy model (ADR-0104 / `PER_PERSON_METRIC_SERIALIZERS`) and be read through `can_read_signal`.
 
 ## Decision Framework
 

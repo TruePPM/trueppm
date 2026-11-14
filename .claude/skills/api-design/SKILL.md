@@ -32,6 +32,7 @@ You design APIs for TruePPM following these rules:
 6. Side effects (Celery tasks triggered, WebSocket events emitted)
 7. Rate limit tier (standard: 100/min, bulk: 10/min, heavy: 5/min)
 8. OSS or Enterprise? (check CLAUDE.md boundary rules)
+9. Per-person data? A new per-person, per-team metric must register in the signal-privacy model (ADR-0104 / `PER_PERSON_METRIC_SERIALIZERS`) and be read through `can_read_signal`.
 
 ## Schema Fidelity (verify before finalizing any endpoint)
 - **Response-transforming views need a matching `@extend_schema` override** — if a view returns a body that diverges from its declared serializer (popping a field, renaming it, relocating it — e.g. moving a value into a cookie or a `meta` envelope), the generated schema still advertises the declared shape. That divergence breaks every schema-driven client (the TypeScript types, the MCP tool catalog). Any view whose actual response differs from its serializer must carry an `@extend_schema(responses=...)` that describes the *real* body.
