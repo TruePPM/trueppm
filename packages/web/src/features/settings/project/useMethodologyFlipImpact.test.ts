@@ -22,8 +22,7 @@ function wrapper() {
 function paramsFor(path: string, match: (p: Record<string, unknown>) => boolean) {
   const call = getMock.mock.calls.find(
     (c) =>
-      c[0] === path &&
-      match((c[1] as { params: Record<string, unknown> } | undefined)?.params ?? {}),
+      c[0] === path && match((c[1] as { params: Record<string, unknown> } | undefined)?.params ?? {}),
   );
   return (call?.[1] as { params: Record<string, unknown> } | undefined)?.params;
 }
@@ -41,9 +40,7 @@ describe('useMethodologyFlipImpact', () => {
       return Promise.resolve({ data: { count: 64, results: [] } });
     });
 
-    const { result } = renderHook(() => useMethodologyFlipImpact('p-1', true), {
-      wrapper: wrapper(),
-    });
+    const { result } = renderHook(() => useMethodologyFlipImpact('p-1', true), { wrapper: wrapper() });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.backlogCount).toBe(180);
@@ -53,9 +50,7 @@ describe('useMethodologyFlipImpact', () => {
 
   it('scopes the backlog read to the product-backlog list, and asks for one row', async () => {
     getMock.mockResolvedValue({ data: { count: 0, results: [] } });
-    const { result } = renderHook(() => useMethodologyFlipImpact('p-1', true), {
-      wrapper: wrapper(),
-    });
+    const { result } = renderHook(() => useMethodologyFlipImpact('p-1', true), { wrapper: wrapper() });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     // `status=BACKLOG AND sprint IS NULL` is the server's own scope for the
@@ -83,9 +78,7 @@ describe('useMethodologyFlipImpact', () => {
       return Promise.resolve({ data: { count: 5, results: [] } });
     });
 
-    const { result } = renderHook(() => useMethodologyFlipImpact('p-1', true), {
-      wrapper: wrapper(),
-    });
+    const { result } = renderHook(() => useMethodologyFlipImpact('p-1', true), { wrapper: wrapper() });
     await waitFor(() => expect(result.current.backlogCount).toBe(null));
     expect(result.current.taskCount).toBe(5);
   });
@@ -114,9 +107,7 @@ describe('useMethodologyFlipImpact', () => {
 
   it('defaults a count-less body to 0 rather than NaN', async () => {
     getMock.mockResolvedValue({ data: { results: [] } });
-    const { result } = renderHook(() => useMethodologyFlipImpact('p-1', true), {
-      wrapper: wrapper(),
-    });
+    const { result } = renderHook(() => useMethodologyFlipImpact('p-1', true), { wrapper: wrapper() });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.backlogCount).toBe(0);
     expect(result.current.taskCount).toBe(0);

@@ -63,10 +63,7 @@ function renderPage() {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/projects/p-1/settings/surfaces']}>
         <Routes>
-          <Route
-            path="/projects/:projectId/settings/surfaces"
-            element={<ProjectVisibilityPage />}
-          />
+          <Route path="/projects/:projectId/settings/surfaces" element={<ProjectVisibilityPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -83,7 +80,9 @@ beforeEach(() => {
 describe('ProjectVisibilityPage', () => {
   it('renders all four surfaces', () => {
     renderPage();
-    expect(screen.getByRole('heading', { name: 'Surface visibility' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Surface visibility' }),
+    ).toBeInTheDocument();
     for (const label of ['Reports', 'Time tracking', 'Baselines', 'Monte-Carlo forecast']) {
       expect(screen.getByText(label, { exact: true })).toBeInTheDocument();
     }

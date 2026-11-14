@@ -44,12 +44,7 @@ vi.mock('@/hooks/useProjectPhases', () => ({
       error: Error | null;
       create: { mutate: typeof phaseCreate; isPending: boolean; error: unknown };
       update: { mutate: typeof phaseUpdate; isPending: boolean };
-      remove: {
-        mutate: typeof phaseRemove;
-        isPending: boolean;
-        error: unknown;
-        variables: string | undefined;
-      };
+      remove: { mutate: typeof phaseRemove; isPending: boolean; error: unknown; variables: string | undefined };
       reorder: { mutate: typeof phaseReorder };
     },
 }));
@@ -140,7 +135,10 @@ function renderPage() {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/projects/p1/settings/workflow']}>
         <Routes>
-          <Route path="/projects/:projectId/settings/workflow" element={<ProjectWorkflowPage />} />
+          <Route
+            path="/projects/:projectId/settings/workflow"
+            element={<ProjectWorkflowPage />}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -432,7 +430,10 @@ describe('ProjectWorkflowPage — Fields section', () => {
     await user.click(screen.getByRole('button', { name: /\+ New field/i }));
     const dialog = screen.getByRole('dialog');
     await user.type(within(dialog).getByDisplayValue(''), 'Vendor');
-    await user.selectOptions(within(dialog).getByRole('combobox'), 'SINGLE_SELECT');
+    await user.selectOptions(
+      within(dialog).getByRole('combobox'),
+      'SINGLE_SELECT',
+    );
     expect(within(dialog).getByRole('button', { name: /Add field/i })).toBeDisabled();
   });
 
@@ -728,9 +729,9 @@ describe('ProjectWorkflowPage — StatusRow interactions', () => {
     renderPage();
     const section = screen.getByRole('region', { name: /Statuses/i });
     await user.click(within(section).getByRole('button', { name: /Change color for Backlog/i }));
-    const picker = within(section).getByRole('button', {
-      name: /Set status color to Sage/i,
-    }).parentElement!;
+    const picker = within(section)
+      .getByRole('button', { name: /Set status color to Sage/i })
+      .parentElement!;
     await user.click(within(picker).getByRole('button', { name: /^Clear$/ }));
     const next = boardSave.mock.calls[0][0] as BoardColumnDef[];
     expect(next.find((c) => c.status === 'BACKLOG')?.color).toBeNull();
@@ -984,9 +985,7 @@ describe('ProjectWorkflowPage — OptionsEditor', () => {
     await user.clear(value2);
     await user.type(value2, 'south');
     await user.click(within(dialog).getByRole('button', { name: /Remove option option-1/i }));
-    expect(
-      within(dialog).queryByRole('textbox', { name: /Option 2 value/i }),
-    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('textbox', { name: /Option 2 value/i })).not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('button', { name: /Add field/i }));
     const [payload] = fieldCreate.mock.calls[0];
@@ -1007,9 +1006,7 @@ describe('ProjectWorkflowPage — OptionsEditor', () => {
 
     // Switch to BOOLEAN — the options editor disappears and options are cleared.
     await user.selectOptions(within(dialog).getByRole('combobox'), 'BOOLEAN');
-    expect(
-      within(dialog).queryByRole('textbox', { name: /Option 1 value/i }),
-    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('textbox', { name: /Option 1 value/i })).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: /Add field/i }));
     const [payload] = fieldCreate.mock.calls[0];
     expect(payload.fieldType).toBe('BOOLEAN');
@@ -1028,9 +1025,7 @@ describe('ProjectWorkflowPage — contextual help', () => {
       screen.getByRole('button', { name: /About the Board cadence options/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /About the Statuses options/i })).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /About the Field type options/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /About the Field type options/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /About the Required options/i })).toBeInTheDocument();
   });
 
@@ -1052,9 +1047,7 @@ describe('ProjectWorkflowPage — contextual help', () => {
     expect(
       screen.getByRole('button', { name: /About the Board cadence options/i }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /About the Field type options/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /About the Field type options/i })).toBeInTheDocument();
   });
 });
 
@@ -1396,11 +1389,7 @@ describe('ProjectWorkflowPage — custom field modal lifecycle', () => {
       fields: [],
       isLoading: false,
       error: null,
-      create: {
-        mutate: fieldCreate,
-        isPending: false,
-        error: { response: { data: { name: [] } } },
-      },
+      create: { mutate: fieldCreate, isPending: false, error: { response: { data: { name: [] } } } },
       update: { mutate: fieldUpdate, isPending: false, error: null },
       remove: { mutate: fieldRemove, isPending: false },
     });

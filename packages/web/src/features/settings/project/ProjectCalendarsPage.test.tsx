@@ -3,7 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { ProjectCalendarsPage } from './ProjectCalendarsPage';
-import type { Calendar, ProjectCalendars, CalendarPreview } from '@/hooks/useProjectCalendars';
+import type {
+  Calendar,
+  ProjectCalendars,
+  CalendarPreview,
+} from '@/hooks/useProjectCalendars';
 import { ROLE_ADMIN, ROLE_VIEWER } from '@/lib/roles';
 import { localTodayIso } from '@/lib/localDate';
 import {
@@ -43,9 +47,8 @@ vi.mock('@/hooks/useEdition', () => ({
 // Partial-mock the calendar hooks module — keep the real `buildUpdatePayload`
 // pure helper (exercised by the remove flow) and mock only the query hooks.
 vi.mock('@/hooks/useProjectCalendars', async () => {
-  const actual = await vi.importActual<typeof import('@/hooks/useProjectCalendars')>(
-    '@/hooks/useProjectCalendars',
-  );
+  const actual =
+    await vi.importActual<typeof import('@/hooks/useProjectCalendars')>('@/hooks/useProjectCalendars');
   return {
     ...actual,
     useProjectCalendars: (id: string | null | undefined) => useProjectCalendars(id) as unknown,
@@ -93,16 +96,8 @@ const PREVIEW: CalendarPreview = {
   end: '2027-01-31',
   days: [
     { date: '2026-11-02', working: true, sources: [] },
-    {
-      date: '2026-11-07',
-      working: false,
-      sources: [{ role: 'project', calendar_id: 'base', name: 'Project calendar' }],
-    },
-    {
-      date: '2026-11-11',
-      working: false,
-      sources: [{ role: 'holidays', calendar_id: 'hol', name: 'US Federal Holidays 2026' }],
-    },
+    { date: '2026-11-07', working: false, sources: [{ role: 'project', calendar_id: 'base', name: 'Project calendar' }] },
+    { date: '2026-11-11', working: false, sources: [{ role: 'holidays', calendar_id: 'hol', name: 'US Federal Holidays 2026' }] },
   ],
 };
 
@@ -167,9 +162,7 @@ describe('ProjectCalendarsPage', () => {
 
     // Scheduler+ sees the edit affordances.
     expect(screen.getByRole('button', { name: 'Add calendar' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /Remove US Federal Holidays 2026/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Remove US Federal Holidays 2026/ })).toBeInTheDocument();
   });
 
   it('removing an overlay calls the update mutation with the base preserved and the layer dropped', () => {
@@ -187,9 +180,7 @@ describe('ProjectCalendarsPage', () => {
     loadedHooks(ROLE_ADMIN);
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
-    expect(
-      screen.getByRole('dialog', { name: 'Add calendars to this project' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Add calendars to this project' })).toBeInTheDocument();
   });
 
   it('renders read-only for a Viewer: view-only note, no add/remove controls', () => {
@@ -262,12 +253,7 @@ describe('ProjectCalendarsPage', () => {
       data: {
         calendar: null,
         calendar_source: 'workspace',
-        effective_calendar: {
-          id: 'ws',
-          name: 'Workspace default',
-          working_days: 31,
-          hours_per_day: 8,
-        },
+        effective_calendar: { id: 'ws', name: 'Workspace default', working_days: 31, hours_per_day: 8 },
       },
     });
     renderPage();
@@ -296,19 +282,9 @@ describe('ProjectCalendarsPage', () => {
 
   it('shows the loading skeleton while the applied set is loading', () => {
     useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN, isLoading: false });
-    useProjectCalendars.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      error: null,
-      refetch: vi.fn(),
-    });
+    useProjectCalendars.mockReturnValue({ data: undefined, isLoading: true, error: null, refetch: vi.fn() });
     useCalendarLibrary.mockReturnValue({ data: [], isLoading: true });
-    useCalendarPreview.mockReturnValue({
-      data: undefined,
-      isFetching: true,
-      error: null,
-      refetch: vi.fn(),
-    });
+    useCalendarPreview.mockReturnValue({ data: undefined, isFetching: true, error: null, refetch: vi.fn() });
     useUpdateProjectCalendars.mockReturnValue({ mutate: vi.fn(), isPending: false });
     renderPage();
     expect(screen.getByText('Loading calendars…')).toBeInTheDocument();
@@ -324,12 +300,7 @@ describe('ProjectCalendarsPage', () => {
       refetch,
     });
     useCalendarLibrary.mockReturnValue({ data: [], isLoading: false });
-    useCalendarPreview.mockReturnValue({
-      data: undefined,
-      isFetching: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+    useCalendarPreview.mockReturnValue({ data: undefined, isFetching: false, error: null, refetch: vi.fn() });
     useUpdateProjectCalendars.mockReturnValue({ mutate: vi.fn(), isPending: false });
     renderPage();
 
@@ -341,12 +312,7 @@ describe('ProjectCalendarsPage', () => {
   it('surfaces an inline preview error without tearing down the applied stack', () => {
     const refetch = vi.fn();
     useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN, isLoading: false });
-    useProjectCalendars.mockReturnValue({
-      data: APPLIED,
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+    useProjectCalendars.mockReturnValue({ data: APPLIED, isLoading: false, error: null, refetch: vi.fn() });
     useCalendarLibrary.mockReturnValue({ data: [BASE, HOL], isLoading: false });
     useCalendarPreview.mockReturnValue({
       data: undefined,
@@ -723,9 +689,7 @@ describe('ProjectCalendarsPage — preview strip', () => {
     expect(weekend).toHaveAttribute('aria-label');
 
     // Holiday and shutdown swap the number for a color-blind-safe letter.
-    expect(
-      screen.getByTitle(`${formatFullDate(far(4))} — US Federal Holidays 2026`),
-    ).toHaveTextContent('H');
+    expect(screen.getByTitle(`${formatFullDate(far(4))} — US Federal Holidays 2026`)).toHaveTextContent('H');
     expect(screen.getByTitle(`${formatFullDate(far(5))} — Winter shutdown`)).toHaveTextContent('S');
 
     // Two calendars block the same day — shutdown wins the glyph.

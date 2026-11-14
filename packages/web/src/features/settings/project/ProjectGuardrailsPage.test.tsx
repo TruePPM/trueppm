@@ -19,9 +19,9 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
 }));
 
 vi.mock('@/hooks/useProjectGuardrailPolicy', async () => {
-  const actual = await vi.importActual<typeof import('@/hooks/useProjectGuardrailPolicy')>(
-    '@/hooks/useProjectGuardrailPolicy',
-  );
+  const actual = await vi.importActual<
+    typeof import('@/hooks/useProjectGuardrailPolicy')
+  >('@/hooks/useProjectGuardrailPolicy');
   return {
     ...actual,
     useProjectGuardrailPolicy: (id: string | null | undefined) =>
@@ -212,18 +212,14 @@ describe('ProjectGuardrailsPage — mounted as a block (#2969)', () => {
   it.each(BRANCHES)('titles the %s branch as an h3 when embedded', (_name, seed) => {
     seed();
     renderPage({ embedded: true, docsHref: 'administration/project-settings/#sprint-guardrails' });
-    expect(
-      screen.getByRole('heading', { level: 3, name: 'Sprint guardrails' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Sprint guardrails' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 2, name: 'Sprint guardrails' })).toBeNull();
   });
 
   it.each(BRANCHES)('keeps the %s branch an h2 when mounted standalone', (_name, seed) => {
     seed();
     renderPage();
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Sprint guardrails' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Sprint guardrails' })).toBeInTheDocument();
   });
 
   it('carries its own docs link rather than the section it sits in', () => {

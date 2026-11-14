@@ -84,8 +84,9 @@ export function ProjectTemplatesPage() {
         // yields role === null, and reporting that as a permission verdict
         // tells an Admin they lack a role they hold (rule 246).
         <p role="alert" className="text-sm text-semantic-critical">
-          Couldn&rsquo;t check your role on this project, so publishing is unavailable right now.
-          This is a failed request, not a permission decision — reload to try again.
+          Couldn&rsquo;t check your role on this project, so publishing is
+          unavailable right now. This is a failed request, not a permission
+          decision — reload to try again.
         </p>
       ) : roleLoading ? null : canPublish ? (
         <>
@@ -140,9 +141,9 @@ export function ProjectTemplatesPage() {
             Publishing a template needs Project Manager role
           </p>
           <p className="mt-1 max-w-prose text-sm leading-relaxed text-neutral-text-secondary">
-            Everything a template would carry is already visible to you in the Schedule — publishing
-            is the only act that is gated. Ask a Project Manager or Owner on this project to publish
-            its shape.
+            Everything a template would carry is already visible to you in the Schedule —
+            publishing is the only act that is gated. Ask a Project Manager or Owner on this
+            project to publish its shape.
           </p>
         </div>
       )}

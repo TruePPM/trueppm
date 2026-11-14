@@ -47,10 +47,9 @@ describe('ProjectIntegrationsPage', () => {
   it('renders the connected-accounts teaser', () => {
     render(<ProjectIntegrationsPage />);
     expect(screen.getByText(/Your connected accounts/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Manage credentials/i })).toHaveAttribute(
-      'href',
-      '/me/settings/connected-accounts',
-    );
+    expect(
+      screen.getByRole('link', { name: /Manage credentials/i }),
+    ).toHaveAttribute('href', '/me/settings/connected-accounts');
   });
 
   it('renders the connector roadmap callout (#588)', () => {

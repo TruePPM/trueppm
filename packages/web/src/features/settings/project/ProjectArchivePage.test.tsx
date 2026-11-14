@@ -44,9 +44,7 @@ vi.mock('@/hooks/useProjectMutations', () => ({
   useDeleteProject: () => h.remove as Mutation,
   useTransferProject: () => h.transfer as Mutation,
 }));
-vi.mock('@/hooks/useProgramSeedIo', () => ({
-  useExportProjectSeed: () => h.exportSeed as Mutation,
-}));
+vi.mock('@/hooks/useProgramSeedIo', () => ({ useExportProjectSeed: () => h.exportSeed as Mutation }));
 vi.mock('../hooks/useProjectExport', () => ({
   useStartProjectExport: () => h.startBundle as Mutation,
   useProjectExportJob: () => h.exportJob,
@@ -183,7 +181,9 @@ describe('ProjectArchivePage archive toggle', () => {
     renderPage();
     expect(screen.getByRole('heading', { name: 'Unarchive project' })).toBeInTheDocument();
     // Copy reflects the restore path, not the freeze path
-    expect(screen.getByText(/Restore writes to this project/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Restore writes to this project/i),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Unarchive Atlas Migration…' }));
     expect(h.unarchive.mutate).toHaveBeenCalledWith(undefined);
     expect(h.archive.mutate).not.toHaveBeenCalled();
@@ -239,8 +239,8 @@ describe('ProjectArchivePage permanent delete', () => {
     h.archive.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
       opts?.onSuccess?.(),
     );
-    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation(
+      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
     );
     renderPage();
 
@@ -261,8 +261,8 @@ describe('ProjectArchivePage permanent delete', () => {
   it('deletes directly (no archive) when the project is already archived', async () => {
     const user = userEvent.setup();
     h.project = { ...h.project, is_archived: true };
-    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation(
+      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
     );
     renderPage();
 
@@ -308,8 +308,8 @@ describe('ProjectArchivePage permanent delete', () => {
 describe('ProjectArchivePage move to Trash', () => {
   it('soft-deletes, fires an Undo toast, and navigates home', async () => {
     const user = userEvent.setup();
-    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation(
+      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
     );
     renderPage();
 
@@ -328,8 +328,8 @@ describe('ProjectArchivePage move to Trash', () => {
 
   it('restores via the Undo action, invalidates caches, and navigates to the project', async () => {
     const user = userEvent.setup();
-    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation(
+      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
     );
     renderPage();
     await user.click(screen.getByRole('button', { name: 'Move to Trash…' }));
@@ -346,8 +346,8 @@ describe('ProjectArchivePage move to Trash', () => {
 
   it('shows an error toast when the Undo restore call fails', async () => {
     const user = userEvent.setup();
-    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation(
+      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
     );
     h.apiPost.mockRejectedValue(new Error('restore failed'));
     renderPage();
@@ -376,9 +376,7 @@ describe('ProjectArchivePage docs links (#2266)', () => {
     expect(hrefs).toHaveLength(6);
     expect(hrefs.some((h) => h.includes('administration/project-settings/#lifecycle'))).toBe(true);
     expect(hrefs.some((h) => h.includes('administration/rbac'))).toBe(true);
-    expect(hrefs.some((h) => h.includes('administration/data-export/#export-a-project'))).toBe(
-      true,
-    );
+    expect(hrefs.some((h) => h.includes('administration/data-export/#export-a-project'))).toBe(true);
     expect(
       hrefs.some((h) => h.includes('administration/data-export/#export-a-project-bundle-async')),
     ).toBe(true);

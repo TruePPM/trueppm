@@ -18,7 +18,9 @@ import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 const SPRINT = iterationLabelForms('Sprint');
 const PI = iterationLabelForms('PI');
 
-function renderDialog(props: Partial<ComponentProps<typeof MethodologyFlipWarningDialog>> = {}) {
+function renderDialog(
+  props: Partial<ComponentProps<typeof MethodologyFlipWarningDialog>> = {},
+) {
   const onCancel = vi.fn();
   const onConfirm = vi.fn();
   const utils = render(
@@ -60,9 +62,7 @@ describe('MethodologyFlipWarningDialog', () => {
       expect(
         screen.getByRole('heading', { name: 'Switch to Waterfall?', level: 2 }),
       ).toBeInTheDocument();
-      expect(body()).toHaveTextContent(
-        'Waterfall hides the Sprints and Backlog views from the nav',
-      );
+      expect(body()).toHaveTextContent('Waterfall hides the Sprints and Backlog views from the nav');
     });
 
     it('names the two views AGILE hides', () => {

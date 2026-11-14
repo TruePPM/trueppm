@@ -167,9 +167,7 @@ export function ProjectSharingPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-1.5">
-                <h2 className="text-[13px] font-semibold text-neutral-text-primary">
-                  Public links
-                </h2>
+                <h2 className="text-[13px] font-semibold text-neutral-text-primary">Public links</h2>
                 <FieldHelp
                   label="Public links"
                   body="Create link opens a chooser: pick what to share — the project schedule or its board — set an expiry (a 30-day nudge is prefilled, or choose Never), and decide what the public view reveals: assignee names (hidden by default) and, on a schedule link, milestone dates (shown by default — turn them off to share progress without committing to dates). The link is public and read-only: anyone with it can view without signing in, and comments, notes, and attachments are never included. You can revoke any link here at any time."

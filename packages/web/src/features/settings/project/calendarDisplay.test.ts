@@ -57,19 +57,13 @@ describe('summarizeWorkingCalendar', () => {
     expect(summarizeWorkingCalendar(eff())).toBe('Mon – Fri · 8h/day');
   });
   it('appends a pluralized holiday count', () => {
-    expect(summarizeWorkingCalendar(eff({ holiday_count: 3 }))).toBe(
-      'Mon – Fri · 8h/day · 3 holidays',
-    );
+    expect(summarizeWorkingCalendar(eff({ holiday_count: 3 }))).toBe('Mon – Fri · 8h/day · 3 holidays');
   });
   it('uses the singular for one holiday', () => {
-    expect(summarizeWorkingCalendar(eff({ holiday_count: 1 }))).toBe(
-      'Mon – Fri · 8h/day · 1 holiday',
-    );
+    expect(summarizeWorkingCalendar(eff({ holiday_count: 1 }))).toBe('Mon – Fri · 8h/day · 1 holiday');
   });
   it('omits the holiday clause when the count is undefined', () => {
-    expect(summarizeWorkingCalendar({ working_days: 15, hours_per_day: 9 })).toBe(
-      'Mon – Thu · 9h/day',
-    );
+    expect(summarizeWorkingCalendar({ working_days: 15, hours_per_day: 9 })).toBe('Mon – Thu · 9h/day');
   });
 });
 
@@ -113,11 +107,7 @@ describe('summarizeCalendar', () => {
     expect(summarizeCalendar(cal({ exceptions }), 'holidays')).toBe('11 holidays');
   });
   it('summarizes a single shutdown range', () => {
-    const c = cal({
-      exceptions: [
-        { id: 'e', exc_start: '2026-12-22', exc_end: '2027-01-02', description: 'Winter' },
-      ],
-    });
+    const c = cal({ exceptions: [{ id: 'e', exc_start: '2026-12-22', exc_end: '2027-01-02', description: 'Winter' }] });
     expect(summarizeCalendar(c, 'workspace')).toBe('1 shutdown · Dec 22 – Jan 2');
   });
 });
@@ -142,11 +132,7 @@ describe('classifyDay', () => {
     expect(d.multi).toBe(true);
   });
   it('tags a lone holiday', () => {
-    const d = classifyDay({
-      date: '2026-11-11',
-      working: false,
-      sources: [src('holidays', 'Vet')],
-    });
+    const d = classifyDay({ date: '2026-11-11', working: false, sources: [src('holidays', 'Vet')] });
     expect(d.type).toBe('holiday');
     expect(d.multi).toBe(false);
   });
@@ -157,11 +143,7 @@ describe('countLostWorkdays', () => {
     const days: PreviewDay[] = [
       { date: '2026-11-07', working: false, sources: [src('project', 'Sat')] }, // weekend — not a loss
       { date: '2026-11-11', working: false, sources: [src('holidays', 'Vet')] }, // holiday — loss
-      {
-        date: '2026-12-26',
-        working: false,
-        sources: [src('project', 'Sat'), src('holidays', 'X')],
-      }, // weekend+holiday — not a loss
+      { date: '2026-12-26', working: false, sources: [src('project', 'Sat'), src('holidays', 'X')] }, // weekend+holiday — not a loss
       { date: '2026-11-04', working: true, sources: [] }, // working — not a loss
     ];
     expect(countLostWorkdays(days)).toBe(1);
