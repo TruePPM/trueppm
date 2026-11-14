@@ -141,7 +141,7 @@ describe('ApiTokensManager', () => {
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create token' }));
     const body = createMutate.mock.calls[0][0] as ApiTokenCreateBody;
-    expect(body).toEqual({ name: 'CI Pipeline', scopes: ['legacy:full'] });
+    expect(body).toEqual({ name: 'CI Pipeline', scopes: ['api:full'] });
   });
 
   it('reveals the raw token exactly once on create (full scope)', async () => {

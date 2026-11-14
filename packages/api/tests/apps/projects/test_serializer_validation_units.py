@@ -449,8 +449,8 @@ class TestProjectApiTokenCreateValidation:
         mapping = {"Done": "COMPLETE", "Doing": "IN_PROGRESS"}
         assert ProjectApiTokenCreateSerializer().validate_status_map(mapping) == mapping
 
-    def test_empty_scopes_collapse_to_the_legacy_full_scope(self) -> None:
-        assert ProjectApiTokenCreateSerializer().validate_scopes([]) == ["legacy:full"]
+    def test_empty_scopes_collapse_to_the_api_full_scope(self) -> None:
+        assert ProjectApiTokenCreateSerializer().validate_scopes([]) == ["api:full"]
 
     def test_duplicate_scopes_are_deduped_in_request_order(self) -> None:
         assert ProjectApiTokenCreateSerializer().validate_scopes(["mcp:read", "mcp:read"]) == [
@@ -475,6 +475,9 @@ class TestProjectApiTokenCreateValidation:
             )
         with pytest.raises(serializers.ValidationError, match="cannot be combined"):
             MyApiTokenCreateSerializer().validate_scopes(["legacy:full", "mcp:read"])
+        # #4388: the pair check reads both names of the full scope as one.
+        with pytest.raises(serializers.ValidationError, match="cannot be combined"):
+            MyApiTokenCreateSerializer().validate_scopes(["api:full", "mcp:read"])
 
     def test_an_mcp_read_token_is_refused_at_project_scope(self) -> None:
         # #2890: a project/program token has a null owner and the MCP read surface
@@ -496,8 +499,8 @@ class TestPersonalAccessTokenCreateValidation:
         with pytest.raises(serializers.ValidationError, match="name is required"):
             MyApiTokenCreateSerializer().validate_name("  ")
 
-    def test_empty_scopes_collapse_to_the_legacy_full_scope(self) -> None:
-        assert MyApiTokenCreateSerializer().validate_scopes([]) == ["legacy:full"]
+    def test_empty_scopes_collapse_to_the_api_full_scope(self) -> None:
+        assert MyApiTokenCreateSerializer().validate_scopes([]) == ["api:full"]
 
     def test_duplicate_scopes_are_deduped(self) -> None:
         assert MyApiTokenCreateSerializer().validate_scopes(["mcp:read", "mcp:read"]) == [

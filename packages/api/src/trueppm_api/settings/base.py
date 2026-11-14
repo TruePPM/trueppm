@@ -1584,9 +1584,10 @@ REST_FRAMEWORK = {
     # McpReadableViewMixin.get_authenticators' ordering): it returns None for any
     # bearer that isn't one of our tppm_-prefixed tokens, so JWT still gets a turn
     # for every human/SPA request. It only accepts an owner-scoped Personal Access
-    # Token carrying the legacy:full scope — project/program-scoped integration
-    # tokens and mcp:read-only tokens are rejected here and keep authenticating only
-    # via the narrow surfaces that reference ProjectApiTokenAuthentication directly
+    # Token carrying the full scope (api:full, or its original name legacy:full) —
+    # project/program-scoped integration tokens and mcp:read-only tokens are rejected
+    # here and keep authenticating only via the narrow surfaces that reference
+    # ProjectApiTokenAuthentication directly
     # (TaskSyncView, the acceptance-result view, the MCP-readable viewsets).
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication",

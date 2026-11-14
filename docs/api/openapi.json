@@ -60461,7 +60461,7 @@
                             "$ref": "#/components/schemas/ScopesEnum"
                         },
                         "readOnly": true,
-                        "description": "Capabilities this token grants. 'legacy:full' is the historical unrestricted scope (and a superset satisfying any read scope); 'mcp:read' grants read-only access to the MCP-wrapped viewsets and is rejected at every write path."
+                        "description": "Capabilities this token grants. 'api:full' is the unrestricted scope (and a superset satisfying any read scope); 'legacy:full' is the same scope under its original name, still accepted; 'mcp:read' grants read-only access to the MCP-wrapped viewsets and is rejected at every write path."
                     },
                     "created_at": {
                         "type": "string",
@@ -60532,7 +60532,7 @@
                         "items": {
                             "$ref": "#/components/schemas/ScopesEnum"
                         },
-                        "description": "Capabilities to grant. Defaults to ['legacy:full'] (full access, acts as you). Send ['mcp:read'] to mint a read-only personal token for the MCP server; an mcp:read token requires a non-null expires_at."
+                        "description": "Capabilities to grant. Defaults to ['api:full'] (full access, acts as you). Send ['mcp:read'] to mint a read-only personal token for the MCP server; an mcp:read token requires a non-null expires_at."
                     }
                 },
                 "required": [
@@ -68340,7 +68340,7 @@
                             "$ref": "#/components/schemas/ScopesEnum"
                         },
                         "readOnly": true,
-                        "description": "Capabilities this token grants. 'legacy:full' is the historical unrestricted scope (and a superset satisfying any read scope); 'mcp:read' grants read-only access to the MCP-wrapped viewsets and is rejected at every write path."
+                        "description": "Capabilities this token grants. 'api:full' is the unrestricted scope (and a superset satisfying any read scope); 'legacy:full' is the same scope under its original name, still accepted; 'mcp:read' grants read-only access to the MCP-wrapped viewsets and is rejected at every write path."
                     },
                     "created_by": {
                         "type": "integer",
@@ -68404,7 +68404,7 @@
                         "items": {
                             "$ref": "#/components/schemas/ScopesEnum"
                         },
-                        "description": "Capabilities to grant. Defaults to ['legacy:full'] (full access). 'mcp:read' is NOT available here — the MCP read surface accepts only owner-scoped (personal) tokens, so mint one from POST /api/v1/me/api-tokens/ instead."
+                        "description": "Capabilities to grant. Defaults to ['api:full'] (full access). 'mcp:read' is NOT available here — the MCP read surface accepts only owner-scoped (personal) tokens, so mint one from POST /api/v1/me/api-tokens/ instead."
                     },
                     "expires_at": {
                         "type": "string",
@@ -74550,11 +74550,12 @@
             },
             "ScopesEnum": {
                 "enum": [
+                    "api:full",
                     "legacy:full",
                     "mcp:read"
                 ],
                 "type": "string",
-                "description": "* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read",
+                "description": "* `api:full` - api:full\n* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read",
                 "x-trueppm-enum": "open"
             },
             "SecurityEnum": {
@@ -85082,7 +85083,7 @@
                 "type": "http",
                 "scheme": "bearer",
                 "bearerFormat": "tppm_<64-hex>",
-                "description": "TruePPM API token. Send as `Authorization: Bearer tppm_<64-hex>`. Three token types share this scheme: personal (owner-scoped) tokens minted in personal settings; project-scoped tokens (ADR-0068) bound to a single project's task-sync surface; and program-scoped tokens bound to a program. A token also carries scopes: `legacy:full` (the historical unrestricted superset) or `mcp:read` (the read-only MCP surface — owner-scoped tokens only). MCP-token access can be disabled instance-wide by the operator (TRUEPPM_MCP_ENABLED)."
+                "description": "TruePPM API token. Send as `Authorization: Bearer tppm_<64-hex>`. Three token types share this scheme: personal (owner-scoped) tokens minted in personal settings; project-scoped tokens (ADR-0068) bound to a single project's task-sync surface; and program-scoped tokens bound to a program. A token also carries scopes: `api:full` (the unrestricted superset and the default; `legacy:full` is the same scope under its original name and is still accepted) or `mcp:read` (the read-only MCP surface — owner-scoped tokens only). MCP-token access can be disabled instance-wide by the operator (TRUEPPM_MCP_ENABLED)."
             }
         }
     },

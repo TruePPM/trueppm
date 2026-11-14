@@ -583,6 +583,13 @@ reaches refresh tokens issued before the blacklist recorded every session (see
 [Blacklist tables and cleanup](#blacklist-tables-and-cleanup)), which the
 blacklist alone cannot revoke.
 
+Changing a password from the Django admin's change-password form will stamp the
+same cutoff and revoke every refresh token, but it will not revoke personal
+tokens or durable grants. `manage.py changepassword` does neither: it is Django's
+own command and only sets the new password, so follow it with
+`revoke_api_tokens --user <username> --commit` (see
+[Administrator fallback](/administration/admin-password/#administrator-fallback)).
+
 The same protection holds for a request that is already running when the reset
 commits. Creating a personal token, project token, program token, share link,
 git-automation secret, outgoing webhook (or editing its URL or secret, or

@@ -364,14 +364,15 @@ class OwnerScopedApiTokenAuthentication(ProjectApiTokenAuthentication):
         ``TaskSyncView``/the acceptance-result view and ``McpReadableViewMixin``
         reference directly (which runs *before* this subclass gets a turn on an
         MCP-wrapped view, since the mixin prepends its own bare-class instance).
-      * it carries the ``legacy:full`` scope — an ``mcp:read``-only token stays
+      * it carries the full scope (``api:full``, or its original name
+        ``legacy:full``) — an ``mcp:read``-only token stays
         confined to the curated, explicitly opted-in MCP-readable surface (which
         checks scope itself via ``TokenHasScope``/``TokenReadOnlyMethods``). Nothing
         on a general (non-MCP-wrapped) view checks token scope, so without this guard
         an ``mcp:read`` token would gain full read/write here — the exact opposite of
         "rejected at every write path" the token's own scope description promises.
 
-    Anything else (project/program-scoped, or owner-scoped without ``legacy:full``)
+    Anything else (project/program-scoped, or owner-scoped without the full scope)
     is rejected with the same generic 401 as every other failure on the base class —
     a caller cannot distinguish "wrong token type for this surface" from "invalid
     token," preserving the anti-enumeration posture.
@@ -392,9 +393,9 @@ class OwnerScopedApiTokenAuthentication(ProjectApiTokenAuthentication):
             return None
         _, token = result
 
-        from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL
+        from trueppm_api.apps.projects.models import has_full_scope
 
-        if not token.is_personal or SCOPE_LEGACY_FULL not in (token.scopes or []):
+        if not token.is_personal or not has_full_scope(token.scopes):
             # Marked, not audited: `_audit_identity_refusal` is deliberately bounded to
             # tokens that have stopped conferring authority at all (revoked/expired/
             # owner disabled). This token is live and legitimate — it is simply on the
@@ -432,8 +433,9 @@ class ProjectApiTokenScheme(OpenApiAuthenticationExtension):  # type: ignore[no-
                 "Three token types share this scheme: personal (owner-scoped) tokens "
                 "minted in personal settings; project-scoped tokens (ADR-0068) bound to "
                 "a single project's task-sync surface; and program-scoped tokens bound to "
-                "a program. A token also carries scopes: `legacy:full` (the historical "
-                "unrestricted superset) or `mcp:read` (the read-only MCP surface — "
+                "a program. A token also carries scopes: `api:full` (the unrestricted "
+                "superset and the default; `legacy:full` is the same scope under its "
+                "original name and is still accepted) or `mcp:read` (the read-only MCP surface — "
                 "owner-scoped tokens only). MCP-token access can be disabled instance-wide "
                 "by the operator (TRUEPPM_MCP_ENABLED)."
             ),

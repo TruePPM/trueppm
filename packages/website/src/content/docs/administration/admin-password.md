@@ -1,6 +1,7 @@
 ---
 title: Admin password setup
 description: Create, retrieve, and rotate the TruePPM admin password.
+documentedFor: "0.5"
 ---
 
 Every fresh TruePPM install needs one administrator account to sign in with before
@@ -194,11 +195,29 @@ account:
 docker compose exec api python manage.py changepassword <username>
 ```
 
-`changepassword` (and the Django admin's change-password form) only sets the new
-password. Unlike the self-service reset, it does not sign the account out:
-existing sessions, access tokens, personal tokens, share links and webhooks stay
-live. If the account may be compromised, use the reset flow instead, or follow up
-with `python manage.py revoke_api_tokens --user <username> --commit`.
+`changepassword` only sets the new password. Unlike the self-service reset, it
+does not sign the account out: existing sessions, access tokens, personal tokens,
+share links and webhooks stay live. Always follow it with:
+
+```bash
+docker compose exec api python manage.py revoke_api_tokens --user <username> --commit
+```
+
+That command signs the account out everywhere (refresh tokens, and every access
+token and WebSocket ticket issued before it runs) and revokes the account's personal
+tokens, share links, git-automation webhook secret and outgoing webhooks. It is a
+separate step because `changepassword` is Django's own command, and TruePPM does not
+replace it.
+
+:::note[Ships in 0.5]
+From 0.5, the Django admin's change-password form (`/admin/`, off unless
+`TRUEPPM_DJANGO_ADMIN_ENABLED` is set) signs the account out everywhere when it
+saves: every refresh token is revoked, and every access token and WebSocket ticket
+issued before the change is refused, as with the self-service reset. It does not
+revoke personal tokens, share links or webhooks; run `revoke_api_tokens --user` for
+those if the account may be compromised. In 0.4 the form only sets the new
+password, like `changepassword`.
+:::
 
 ## Forgot the admin password (no email configured)
 

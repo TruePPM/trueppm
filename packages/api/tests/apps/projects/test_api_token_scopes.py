@@ -2,8 +2,8 @@
 
 Covers the six behaviors the slice must guarantee:
 
-  * backfill/default outcome — every token defaults to ``legacy:full`` so
-    pre-scopes tokens keep unrestricted write behavior;
+  * backfill/default outcome — every new token defaults to ``api:full`` (#4388)
+    and backfilled ``legacy:full`` tokens keep unrestricted write behavior;
   * an ``mcp:read`` token can GET a wrapped read viewset but is rejected on any
     write (safe-methods guard + fail-closed write-path scope check);
   * a ``legacy:full`` token retains write access at the inbound task-sync path;
@@ -35,6 +35,7 @@ from trueppm_api.apps.access.permissions import TokenHasScope, TokenReadOnlyMeth
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
     MCP_READ_TOKEN_MAX_EXPIRY_DAYS,
+    SCOPE_API_FULL,
     SCOPE_LEGACY_FULL,
     SCOPE_MCP_READ,
     ApiToken,
@@ -42,6 +43,9 @@ from trueppm_api.apps.projects.models import (
     Program,
     Project,
     _default_api_token_scopes,
+    has_full_scope,
+    is_agent_token,
+    normalize_token_scopes,
 )
 
 User = get_user_model()
@@ -120,10 +124,11 @@ def _bearer(raw: str) -> APIClient:
 # ---------------------------------------------------------------------------
 
 
-def test_default_scope_callable_returns_legacy_full() -> None:
-    # The AddField default and migration backfill both stamp legacy:full onto
-    # existing rows; the callable is the single source of that value.
-    assert _default_api_token_scopes() == [SCOPE_LEGACY_FULL]
+def test_default_scope_callable_returns_api_full() -> None:
+    # #4388: the mint default is the full scope under its non-legacy name. The
+    # 0099 backfill still stamped legacy:full onto pre-scope rows; those keep
+    # working through has_full_scope (below).
+    assert _default_api_token_scopes() == [SCOPE_API_FULL]
 
 
 def test_default_scope_callable_returns_a_fresh_list() -> None:
@@ -132,9 +137,35 @@ def test_default_scope_callable_returns_a_fresh_list() -> None:
 
 
 @pytest.mark.django_db
-def test_token_minted_without_scopes_defaults_to_legacy_full(project: Project, owner: Any) -> None:
+def test_token_minted_without_scopes_defaults_to_api_full(project: Project, owner: Any) -> None:
     token, _ = _mint(project, owner)
-    assert token.scopes == [SCOPE_LEGACY_FULL]
+    assert token.scopes == [SCOPE_API_FULL]
+
+
+@pytest.mark.parametrize(
+    ("scopes", "full"),
+    [
+        ([SCOPE_API_FULL], True),
+        ([SCOPE_LEGACY_FULL], True),
+        ([SCOPE_LEGACY_FULL, SCOPE_API_FULL], True),
+        ([SCOPE_MCP_READ], False),
+        ([], False),
+        (None, False),
+    ],
+)
+def test_has_full_scope_reads_both_names_as_one(scopes: list[str] | None, full: bool) -> None:
+    # #4388: legacy:full is normalized to api:full on read; nothing else is.
+    assert has_full_scope(scopes) is full
+    assert (SCOPE_LEGACY_FULL in normalize_token_scopes(scopes)) is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("full_scope", [SCOPE_API_FULL, SCOPE_LEGACY_FULL])
+def test_either_full_scope_name_is_not_an_agent_token(
+    project: Project, owner: Any, full_scope: str
+) -> None:
+    token, _ = _mint(project, owner, scopes=[full_scope])
+    assert is_agent_token(token) is False
 
 
 # ---------------------------------------------------------------------------
@@ -306,8 +337,12 @@ def test_mcp_read_token_rejected_at_task_sync_write(project: Project, owner: Any
 
 
 @pytest.mark.django_db
-def test_legacy_full_token_retains_task_sync_write(project: Project, owner: Any) -> None:
-    _, raw = _mint(project, owner, scopes=[SCOPE_LEGACY_FULL])
+@pytest.mark.parametrize("full_scope", [SCOPE_API_FULL, SCOPE_LEGACY_FULL])
+def test_full_scope_token_retains_task_sync_write(
+    project: Project, owner: Any, full_scope: str
+) -> None:
+    # #4388: the route requires the full scope; either spelling satisfies it.
+    _, raw = _mint(project, owner, scopes=[full_scope])
     resp = _bearer(raw).post(
         f"/api/v1/projects/{project.pk}/task-sync/",
         {"source": "jira", "external_id": "X-1", "name": "Issue 1"},
@@ -337,9 +372,22 @@ def test_token_has_scope_passes_when_scope_present(project: Project, owner: Any)
 @pytest.mark.django_db
 def test_token_has_scope_rejects_when_scope_absent(project: Project, owner: Any) -> None:
     token, _ = _mint(project, owner, scopes=[SCOPE_MCP_READ])
-    perm = TokenHasScope(SCOPE_LEGACY_FULL)()
-    # mcp:read must NOT satisfy a required legacy:full (fail-closed write gate).
-    assert perm.has_permission(_req(auth=token), view=None) is False
+    # mcp:read must NOT satisfy a required full scope under either name
+    # (fail-closed write gate).
+    assert TokenHasScope(SCOPE_API_FULL)().has_permission(_req(auth=token), view=None) is False
+    assert TokenHasScope(SCOPE_LEGACY_FULL)().has_permission(_req(auth=token), view=None) is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("held", [SCOPE_API_FULL, SCOPE_LEGACY_FULL])
+@pytest.mark.parametrize("required", [SCOPE_API_FULL, SCOPE_LEGACY_FULL, SCOPE_MCP_READ])
+def test_token_has_scope_treats_full_scope_names_as_synonyms(
+    project: Project, owner: Any, held: str, required: str
+) -> None:
+    # #4388 test plan: a request with either full-scope name passes TokenHasScope,
+    # whichever name the route requires, and both remain a read superset.
+    token, _ = _mint(project, owner, scopes=[held])
+    assert TokenHasScope(required)().has_permission(_req(auth=token), view=None) is True
 
 
 @pytest.mark.django_db
@@ -478,22 +526,35 @@ def test_create_legacy_full_token_beyond_max_horizon_accepted(
 
 
 @pytest.mark.django_db
-def test_create_token_without_scopes_defaults_to_legacy_full(
+def test_create_token_without_scopes_defaults_to_api_full(
     admin_client: APIClient, project: Project
 ) -> None:
     # A legacy:full sync token is unaffected by the mcp:read expiry rule — no
     # expires_at is required and it never expires (backward-safe).
     resp = admin_client.post(_tokens_url(project), {"name": "CI"}, format="json")
     assert resp.status_code == 201, resp.data
-    assert resp.data["scopes"] == [SCOPE_LEGACY_FULL]
+    assert resp.data["scopes"] == [SCOPE_API_FULL]
     assert ApiToken.objects.get(pk=resp.data["id"]).expires_at is None
 
 
 @pytest.mark.django_db
-def test_create_token_empty_scopes_collapses_to_legacy_full(
+def test_create_token_empty_scopes_collapses_to_api_full(
     admin_client: APIClient, project: Project
 ) -> None:
     resp = admin_client.post(_tokens_url(project), {"name": "CI", "scopes": []}, format="json")
+    assert resp.status_code == 201, resp.data
+    assert resp.data["scopes"] == [SCOPE_API_FULL]
+
+
+@pytest.mark.django_db
+def test_create_token_with_explicit_legacy_full_is_stored_as_sent(
+    admin_client: APIClient, project: Project
+) -> None:
+    # #4388: an integrator script that still sends legacy:full keeps working and
+    # reads back exactly what it sent — normalization is on read, not on write.
+    resp = admin_client.post(
+        _tokens_url(project), {"name": "CI", "scopes": [SCOPE_LEGACY_FULL]}, format="json"
+    )
     assert resp.status_code == 201, resp.data
     assert resp.data["scopes"] == [SCOPE_LEGACY_FULL]
 

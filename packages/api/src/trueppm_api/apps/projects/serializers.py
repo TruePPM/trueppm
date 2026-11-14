@@ -65,6 +65,7 @@ from trueppm_api.apps.projects.models import (
     MCP_READ_TOKEN_MAX_EXPIRY_DAYS,
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
+    SCOPE_API_FULL,
     SCOPE_LEGACY_FULL,
     SCOPE_MCP_READ,
     AcceptanceCriterion,
@@ -127,6 +128,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     format_risk_short_id_display,
     format_short_id_display,
+    has_full_scope,
     three_point_estimates_ordered,
     validate_project_span,
 )
@@ -12153,7 +12155,7 @@ def _normalize_token_scopes(value: list[str]) -> list[str]:
     :func:`~trueppm_api.apps.projects.models.is_agent_token`. Duplicating the rule in
     two copies is what let the two paths drift in the first place.
 
-    An explicit empty list collapses to ``legacy:full``, matching the model default so
+    An explicit empty list collapses to ``api:full``, matching the model default so
     a caller that sends ``[]`` behaves like one that omits the field. ``ChoiceField``
     has already rejected anything outside the allowed set, so only de-duping (order
     preserved) and the pair check remain.
@@ -12167,15 +12169,21 @@ def _normalize_token_scopes(value: list[str]) -> list[str]:
     does); it is now actively misleading, because the settings UI would label such a
     token "Read-only for AI assistants" while it wrote freely and ignored the
     instance kill switch.
+
+    ``legacy:full`` is accepted and stored as sent (#4388): it is the same scope as
+    ``api:full`` under its original name, and every check reads the two as one via
+    :func:`~trueppm_api.apps.projects.models.has_full_scope`, so the pair check below
+    covers either spelling.
     """
     if not value:
-        return [SCOPE_LEGACY_FULL]
+        return [SCOPE_API_FULL]
     deduped: dict[str, None] = {}
     for scope in value:
         deduped.setdefault(scope, None)
-    if SCOPE_LEGACY_FULL in deduped and SCOPE_MCP_READ in deduped:
+    if has_full_scope(deduped) and SCOPE_MCP_READ in deduped:
         raise serializers.ValidationError(
-            f"{SCOPE_LEGACY_FULL!r} and {SCOPE_MCP_READ!r} cannot be combined — a "
+            f"{SCOPE_API_FULL!r} (or {SCOPE_LEGACY_FULL!r}) and {SCOPE_MCP_READ!r} "
+            "cannot be combined — a "
             "token is either a full-access credential that acts as its owner or a "
             "read-only agent credential. Pick one."
         )
@@ -12252,7 +12260,7 @@ class ProjectApiTokenCreateSerializer(
     scopes = serializers.ListField(
         child=serializers.ChoiceField(choices=API_TOKEN_SCOPES),
         required=False,
-        help_text="Capabilities to grant. Defaults to ['legacy:full'] "
+        help_text="Capabilities to grant. Defaults to ['api:full'] "
         "(full access). 'mcp:read' is NOT available here — the MCP read "
         "surface accepts only owner-scoped (personal) tokens, so mint one "
         "from POST /api/v1/me/api-tokens/ instead.",
@@ -12280,7 +12288,7 @@ class ProjectApiTokenCreateSerializer(
         # rather than as a DB constraint so legacy:full sync tokens — which
         # legitimately never expire — are unaffected. ``scopes`` may be absent
         # (defaults to legacy:full) so read it defensively.
-        scopes = attrs.get("scopes") or [SCOPE_LEGACY_FULL]
+        scopes = attrs.get("scopes") or [SCOPE_API_FULL]
         # This endpoint mints project- and program-scoped tokens, whose ``owner``
         # is null by construction. ``TokenIsOwnerScoped`` (#1712) refuses exactly
         # those on the MCP read surface — a project token carries no pk on a
@@ -12373,7 +12381,7 @@ class MyApiTokenCreateSerializer(
     scopes = serializers.ListField(
         child=serializers.ChoiceField(choices=API_TOKEN_SCOPES),
         required=False,
-        help_text="Capabilities to grant. Defaults to ['legacy:full'] "
+        help_text="Capabilities to grant. Defaults to ['api:full'] "
         "(full access, acts as you). Send ['mcp:read'] to mint a read-only "
         "personal token for the MCP server; an mcp:read token requires a "
         "non-null expires_at.",
@@ -12391,7 +12399,7 @@ class MyApiTokenCreateSerializer(
         # expire, and within a bounded horizon, so a leaked read credential is
         # self-limiting. Legacy:full PATs keep the optional-expiry behavior
         # (backward-safe).
-        scopes = attrs.get("scopes") or [SCOPE_LEGACY_FULL]
+        scopes = attrs.get("scopes") or [SCOPE_API_FULL]
         _validate_mcp_read_expiry(scopes, attrs.get("expires_at"))
         return attrs
 

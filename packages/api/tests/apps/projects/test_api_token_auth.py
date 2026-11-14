@@ -31,7 +31,15 @@ from trueppm_api.apps.projects.authentication import (
     ProjectApiTokenAuthentication,
     sha256_hex,
 )
-from trueppm_api.apps.projects.models import SCOPE_MCP_READ, ApiToken, Calendar, Program, Project
+from trueppm_api.apps.projects.models import (
+    SCOPE_API_FULL,
+    SCOPE_LEGACY_FULL,
+    SCOPE_MCP_READ,
+    ApiToken,
+    Calendar,
+    Program,
+    Project,
+)
 
 User = get_user_model()
 
@@ -237,9 +245,10 @@ class TestOwnerScopedApiTokenAuthentication:
             is None
         )
 
-    def test_personal_legacy_full_token_authenticates(self, creator: object) -> None:
+    @pytest.mark.parametrize("scope", [SCOPE_API_FULL, SCOPE_LEGACY_FULL])
+    def test_personal_full_scope_token_authenticates(self, creator: object, scope: str) -> None:
         owner = User.objects.create_user(username="pat_owner2", password="pw")
-        token = _mint(owner=owner, project=None, created_by=creator)
+        token = _mint(owner=owner, project=None, created_by=creator, scopes=[scope])
         result = OwnerScopedApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
         assert result is not None
         user, auth = result

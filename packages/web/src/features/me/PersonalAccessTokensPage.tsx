@@ -227,7 +227,7 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
   const titleId = useId();
   const create = useCreateMyApiToken();
   const [name, setName] = useState('');
-  const [tokenScope, setTokenScope] = useState<ApiTokenScope>('legacy:full');
+  const [tokenScope, setTokenScope] = useState<ApiTokenScope>('api:full');
   const [expiresAt, setExpiresAt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedMyApiToken | null>(null);
@@ -397,7 +397,7 @@ function ScopeSelector({
     describedBy: string;
   }[] = [
     {
-      scope: 'legacy:full',
+      scope: 'api:full',
       label: 'Full access (acts as you)',
       help: 'Read and write everything your account can — for scripts, CI, or a portfolio export.',
       describedBy: 'pat-scope-full-help',

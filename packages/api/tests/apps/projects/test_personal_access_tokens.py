@@ -79,7 +79,7 @@ def test_create_returns_raw_token_once_and_auto_scopes_owner(
     token = ApiToken.objects.get(pk=resp.data["id"])
     assert token.owner_id == user.pk
     assert token.project_id is None and token.program_id is None
-    assert token.scopes == ["legacy:full"]
+    assert token.scopes == ["api:full"]
     # A MINTED audit row was written with owner scope.
     audit = ApiTokenAuditEntry.objects.get(token=token, action="minted")
     assert audit.owner_id == user.pk

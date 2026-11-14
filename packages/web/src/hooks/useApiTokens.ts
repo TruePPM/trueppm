@@ -26,13 +26,15 @@ function tokensKey(scope: IntegrationScope) {
 /**
  * Capability scopes a token can carry (issue 601, ADR-0186 §E).
  *
- * - `legacy:full` — read + write, including the inbound task-sync surface. The
- *   backfilled default for every pre-existing token, and what CI / external
- *   integrations mint.
+ * - `api:full` — read + write, including the inbound task-sync surface. What
+ *   CI / external integrations mint, and the server default since #4388.
+ * - `legacy:full` — the same scope under its original name: every token minted
+ *   before #4388 carries it, so it is still read back and still accepted on
+ *   mint. Treat the two as one; never compare against either literal alone.
  * - `mcp:read` — read-only, for pointing an MCP client (Claude Desktop and the
  *   like) at the instance. Cannot write even if replayed against a write path.
  */
-export type ApiTokenScope = 'legacy:full' | 'mcp:read';
+export type ApiTokenScope = 'api:full' | 'legacy:full' | 'mcp:read';
 
 export interface ApiToken {
   id: string;

@@ -1,5 +1,6 @@
 ---
 title: "API authentication"
+documentedFor: "0.5"
 description: "Logging in, refreshing and revoking access tokens, project-scoped API tokens, personal access tokens, and single sign-on."
 ---
 
@@ -180,7 +181,8 @@ the same push succeeds unchanged. The `401` above is checked first, so a token
 that does not authorize the URL project never learns whether it is archived
 (#3413).
 
-The only scope this endpoint mints is **`legacy:full`**. Sending
+The only scope this endpoint mints is the full-access scope (**`legacy:full`**;
+named `api:full` from 0.5, see the note below). Sending
 `{"scopes": ["mcp:read"]}` to `POST /api/v1/projects/{id}/api-tokens/` (or the
 program equivalent) is a `400`: a token minted at project or program scope has no
 owner, and the MCP read surface accepts owner-scoped (personal) tokens only, so
@@ -208,6 +210,16 @@ soft-revokes; both mint and revoke are audited. See
 walkthrough (creating, scope picker, the MCP-client config snippet) and
 [MCP server](/features/mcp-server/) for connecting an AI client with an
 `mcp:read` token.
+
+:::note[Ships in 0.5]
+From 0.5 the full-access scope is named **`api:full`**, and a token minted without
+`scopes` will carry `["api:full"]`. **`legacy:full`** is the same scope under its
+original name: every token minted before 0.5 carries it, it stays accepted when you
+mint, it is echoed back exactly as sent, and it authorizes exactly the same routes.
+Nothing needs re-minting. New scripts should send `api:full`, so that a later
+release can retire the `legacy:` name without breaking them. In 0.4 the only name
+is `legacy:full`.
+:::
 
 **A `legacy:full` PAT authenticates the general API — reads and writes — exactly
 as your own session would** (`personalApiTokenAuth` in the schema, #2547).
