@@ -8,7 +8,7 @@ import trueppm_api.apps.projects.wbs_paths
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0169_repair_blank_estimate_status"),
+        ("projects", "0170_apitoken_scopes_api_full"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

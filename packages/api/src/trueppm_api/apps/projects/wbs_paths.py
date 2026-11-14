@@ -27,12 +27,14 @@ from django.db.models import Func, TextField
 from django.db.models.expressions import OrderBy
 
 
+# Fixed SQL function name and a column reference; no user input reaches this expression.
+# nosemgrep: extends-custom-expression
 class WbsSortKey(Func):
     """``wbs_sort_key(wbs_path)`` — the numeric-aware sort key for a WBS path (#4854).
 
     ``ltree`` compares label by label as *text*, so with ten or more siblings "10"
     and "11" sort before "2" wherever a bare ``order_by("wbs_path")`` is displayed or
-    exported. The SQL function (created by ``projects.0170``) pads every all-digit
+    exported. The SQL function (created by ``projects.0171``) pads every all-digit
     label to a fixed width and returns ``text[]``, which compares element-wise, so
     ``1.2`` < ``1.10``. Non-numeric labels pass through unchanged. The function is
     IMMUTABLE, which is what lets ``task_proj_wbs_sort_idx`` serve ``Task.Meta.ordering``
