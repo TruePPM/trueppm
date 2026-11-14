@@ -360,30 +360,34 @@ describe('LoginPage', () => {
   it('parks a safe ?next= for the SSO round-trip and drops an unsafe one (#3563)', async () => {
     const originalLocation = window.location;
     const assign = vi.fn();
+    // `origin` is a prototype getter, so spreading Location drops it and
+    // loginRedirectDest's same-origin check would reject every target. Carry it over.
     Object.defineProperty(window, 'location', {
       configurable: true,
-      value: { ...originalLocation, assign },
+      value: { ...originalLocation, origin: originalLocation.origin, assign },
     });
-    ssoProviders = [{ slug: 'keycloak', display_name: 'Keycloak' }];
-    sessionStorage.clear();
+    try {
+      ssoProviders = [{ slug: 'keycloak', display_name: 'Keycloak' }];
+      sessionStorage.clear();
 
-    const { unmount } = renderWithRouter(<LoginPage />, {
-      initialEntries: ['/login?next=%2Fprojects%2Fp1%2Frisk%23r-7'],
-    });
-    await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
-    expect((JSON.parse(sessionStorage.getItem('tppm.sso.next') ?? '{}') as { next?: string }).next).toBe(
-      '/projects/p1/risk#r-7',
-    );
-    unmount();
+      const { unmount } = renderWithRouter(<LoginPage />, {
+        initialEntries: ['/login?next=%2Fprojects%2Fp1%2Frisk%23r-7'],
+      });
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
+      expect(
+        (JSON.parse(sessionStorage.getItem('tppm.sso.next') ?? '{}') as { next?: string }).next,
+      ).toBe('/projects/p1/risk#r-7');
+      unmount();
 
-    renderWithRouter(<LoginPage />, { initialEntries: ['/login?next=%2F%2Fevil.example'] });
-    await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
-    expect(sessionStorage.getItem('tppm.sso.next')).toBeNull();
-
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: originalLocation,
-    });
+      renderWithRouter(<LoginPage />, { initialEntries: ['/login?next=%2F%2Fevil.example'] });
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
+      expect(sessionStorage.getItem('tppm.sso.next')).toBeNull();
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
   });
 
   it('shows no SSO section when no provider is configured (password-only install)', async () => {
@@ -563,7 +567,9 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
   it('shows the provider button, not the docs link, when the demo has a provider (#3972)', async () => {
     ssoProviders = [{ slug: 'keycloak', display_name: 'Keycloak' }];
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
-    expect(await screen.findByRole('button', { name: 'Continue with Keycloak' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Continue with Keycloak' }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /see the docs/i })).not.toBeInTheDocument();
   });
 
@@ -592,7 +598,7 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     await waitFor(() => expect(screen.getByText('Read-only demo')).toBeInTheDocument());
     expect(
       screen.getByText(
-        "The Schedule is the only interactive part of this demo — drag a task to a new date, or resize its bar to change its duration, and watch the critical path recompute live in your browser. Nothing you do here is saved.",
+        'The Schedule is the only interactive part of this demo — drag a task to a new date, or resize its bar to change its duration, and watch the critical path recompute live in your browser. Nothing you do here is saved.',
       ),
     ).toBeInTheDocument();
     expect(
