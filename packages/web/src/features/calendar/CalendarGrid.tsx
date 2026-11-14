@@ -9,7 +9,7 @@
  *     ResizeObserver or a separate overlay layer
  *   - Lane assignment: greedy interval scheduling so non-overlapping chips
  *     share the same vertical lane; overlapping chips stack in separate lanes
- *   - MAX 4 chip lanes per row; overflow shows "+N more" in the cell corner
+ *   - MAX 4 chip lanes per row; overflow shows a "+N more" button in the cell corner that opens a popover of the hidden tasks (rule 296)
  *   - Milestone diamonds render in each day cell below the date number
  *
  * Accessibility (#3241): the date grid implements the ARIA grid pattern —
@@ -47,6 +47,7 @@ import {
 } from './calendarUtils';
 import { CalendarChip } from './CalendarChip';
 import { CalendarMobileList } from './CalendarMobileList';
+import { DayOverflowButton } from './DayOverflowButton';
 import { dayTypeFillStyle } from '@/features/settings/project/calendarDisplay';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { todayLocalIso } from '@/features/schedule/scheduleUtils';
@@ -71,6 +72,11 @@ const MAX_LANES = 4;
 const LANE_HEIGHT_PX = 22; // chip height (18px) + 4px gap
 const DATE_NUMBER_HEIGHT_PX = 24;
 const CELL_MIN_HEIGHT_PX = DATE_NUMBER_HEIGHT_PX + MAX_LANES * LANE_HEIGHT_PX + 8;
+// Month rows reserve a strip below the fourth lane for the "+N more" button: the
+// chips are absolutely positioned at z-10, so a button drawn over lane 4 is both
+// hidden and unclickable (#3179). Week mode has no cap and no button.
+const OVERFLOW_ROW_PX = 18;
+const MONTH_ROW_MIN_HEIGHT_PX = CELL_MIN_HEIGHT_PX + OVERFLOW_ROW_PX;
 
 /**
  * The day cell's accessible name. The visible cue for a non-working day is the
@@ -587,12 +593,14 @@ export function CalendarGrid({
               const weekChips = chipsByWeek.get(wsIso) ?? [];
               const laneMap = assignLanes(weekChips);
 
-              const overflowByDay = new Map<number, number>();
+              const overflowByDay = new Map<number, CalendarChipData[]>();
               weekChips.forEach((chip, idx) => {
                 const lane = laneMap.get(idx) ?? 0;
                 if (lane >= maxLanes) {
                   const dayOffset = chip.chipStartOffset;
-                  overflowByDay.set(dayOffset, (overflowByDay.get(dayOffset) ?? 0) + 1);
+                  const list = overflowByDay.get(dayOffset) ?? [];
+                  list.push(chip);
+                  overflowByDay.set(dayOffset, list);
                 }
               });
 
@@ -626,7 +634,7 @@ export function CalendarGrid({
                     CELL_MIN_HEIGHT_PX,
                     DATE_NUMBER_HEIGHT_PX + laneCount * LANE_HEIGHT_PX + 8,
                   )
-                : CELL_MIN_HEIGHT_PX;
+                : MONTH_ROW_MIN_HEIGHT_PX;
 
               return (
                 <div
@@ -643,7 +651,7 @@ export function CalendarGrid({
                     // out-of-month graying is a month-mode concept only.
                     const isCurrentMonth = isWeek || day.getUTCMonth() === currentMonth;
                     const dayOffset = Math.round((day.getTime() - ws.getTime()) / 86_400_000);
-                    const overflow = overflowByDay.get(dayOffset) ?? 0;
+                    const hiddenChips = overflowByDay.get(dayOffset) ?? [];
                     const dayMarks = marksByWeekDay.get(`${wsIso}:${dayOffset}`) ?? [];
                     const isSprintBoundary = sprintBoundaries?.has(iso) ?? false;
                     const availability = resolveDayAvailability(iso, workingTime);
@@ -745,14 +753,13 @@ export function CalendarGrid({
                             />
                           ))}
 
-                          {overflow > 0 && (
-                            <span
-                              className={`absolute bottom-1 left-1 text-xs text-neutral-text-secondary ${
-                                onFill ? `${ON_FILL_BACKING} px-0.5` : ''
-                              }`}
-                            >
-                              +{overflow} more
-                            </span>
+                          {hiddenChips.length > 0 && (
+                            <DayOverflowButton
+                              hidden={hiddenChips}
+                              dayLabel={formatDayCellLabel(day)}
+                              onTaskClick={onTaskClick}
+                              className={onFill ? `${ON_FILL_BACKING} px-0.5` : ''}
+                            />
                           )}
                         </div>
 

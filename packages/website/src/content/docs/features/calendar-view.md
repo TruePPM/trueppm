@@ -34,7 +34,7 @@ Month is the default. The grid runs from the [first day of the week](#non-workin
 
 Chips stack in horizontal **lanes** within a week row: two tasks that don't overlap in time share a lane, two that do overlap get a lane each. A month row shows at most **four lanes**. Any chip that would land in a fifth lane is not drawn; instead the day cell where it would have started shows a small **`+N more`** in its bottom-left corner.
 
-Be aware of what that label is and isn't: **`+N more` is a count, not a control.** Clicking it does nothing, and there is no popover behind it. It exists to tell you the row is not the whole truth.
+**`+N more` is a button.** Select it (click, tap, or Enter/Space from the keyboard) and a small list opens beside it naming every task the cap hid on that day; choose one to open it in the task drawer. Escape closes the list and returns focus to the button. The month grid reserves a strip below the fourth lane so the button is never drawn behind a chip. Week mode, below, has no cap at all.
 
 The cap is there because a month packs four to six rows into one screen, so each row can only afford about four chips. The way to actually see everything in a busy week is to switch that week to **Week** mode, which has no cap.
 
