@@ -65,6 +65,16 @@ class SimulationCapExceeded(SchedulerError):
     """
 
 
+class SimulationTimeExceeded(SimulationCapExceeded):
+    """Raised when a Monte Carlo run passes the caller's ``deadline``.
+
+    A subclass of :class:`SimulationCapExceeded`, so a handler written for the
+    size caps still catches it. The size caps bound cost indirectly; this bounds
+    wall time directly, for the overruns the cell count does not capture, such as
+    a slow host or a pathological calendar. The message is user-facing.
+    """
+
+
 class InvalidScheduleInput(SchedulerError):
     """Raised when a project's input is structurally valid but out of range.
 

@@ -107,6 +107,7 @@ class TestExceptionHierarchy:
         [
             ts.CyclicDependencyError,
             ts.SimulationCapExceeded,
+            ts.SimulationTimeExceeded,
             ts.InvalidScheduleInput,
             ts.UnknownTaskError,
         ],

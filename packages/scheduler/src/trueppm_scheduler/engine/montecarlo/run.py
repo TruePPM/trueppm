@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import (
     Callable,
     Sequence,
@@ -21,7 +22,9 @@ from trueppm_scheduler.engine.calendar_math import (
     _safe_offset,
 )
 from trueppm_scheduler.engine.errors import (
+    InvalidScheduleInput,
     SimulationCapExceeded,
+    SimulationTimeExceeded,
 )
 from trueppm_scheduler.engine.graph import (
     _build_graph,
@@ -254,6 +257,37 @@ def _offset_to_date(
     return resolved
 
 
+def _validate_deadline(deadline: object) -> float | None:
+    """``deadline`` is ``None`` or a finite :func:`time.monotonic` timestamp (#4496)."""
+    if deadline is None:
+        return None
+    if (
+        isinstance(deadline, bool)
+        or not isinstance(deadline, (int, float))
+        or not math.isfinite(deadline)
+    ):
+        raise InvalidScheduleInput(
+            f"deadline must be a finite time.monotonic() timestamp or None (got {deadline!r:.40})."
+        )
+    return float(deadline)
+
+
+def _check_deadline(deadline: float | None) -> None:
+    """Raise :class:`SimulationTimeExceeded` once ``time.monotonic()`` passes ``deadline``.
+
+    The simulation is vectorized, so it cannot stop mid-array: it checks at phase
+    boundaries (before and after sampling, before each forward-pass chunk, before the
+    tornado).
+    A deadline is therefore a bound to within one phase or chunk, not to the
+    millisecond. A call already past its deadline raises before it samples anything.
+    """
+    if deadline is not None and time.monotonic() >= deadline:
+        raise SimulationTimeExceeded(
+            "Monte Carlo simulation exceeded its time budget and was stopped. "
+            "Reduce the number of runs, or simplify the project's calendars."
+        )
+
+
 def _mc_chunked_finishes(
     forward_chunk: Callable[
         [int, int], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]
@@ -263,6 +297,7 @@ def _mc_chunked_finishes(
     task_idx: dict[str, int],
     instants: tuple[list[int], dict[int, float]],
     reference: tuple[np.ndarray | None, list[tuple[int, np.ndarray]], dict[int, np.ndarray]],
+    deadline: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, date | None]:
     """Each run's shown finish offset and working-time finish, one row chunk at a time (#3824).
 
@@ -272,7 +307,8 @@ def _mc_chunked_finishes(
     durations rather than O(runs x tasks) six times over. ``instants`` is the live
     milestone columns and the closed start-of-day milestone positions; ``reference``
     the union ruler, each calendar's column group and the calendars' ordinals, with a
-    ``None`` ruler for a single-calendar project.
+    ``None`` ruler for a single-calendar project. ``deadline`` is checked before
+    each chunk (#4496), so an overrun stops at the next chunk boundary.
 
     Returns ``(shown_offsets, completion_offsets, milestone_finish_floor)``.
     """
@@ -282,6 +318,7 @@ def _mc_chunked_finishes(
     completion_offsets = np.empty(runs, dtype=np.float64)  # its working-time position
     milestone_finish_floor: date | None = None
     for lo in range(0, runs, chunk_rows):
+        _check_deadline(deadline)
         hi = min(runs, lo + chunk_rows)
         es_mat, ef_mat, chunk_floor, instant_runs = forward_chunk(lo, hi)
         if chunk_floor is not None:
@@ -445,6 +482,7 @@ def monte_carlo(
     sensitivity_cap: int = MC_SENSITIVITY_CAP,
     max_lag_delta_cells: int = MAX_LAG_DELTA_CELLS,
     max_index_cells: int = MAX_INDEX_CELLS,
+    deadline: float | None = None,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
@@ -631,6 +669,14 @@ def monte_carlo(
                    pass a smaller value; a project above it raises
                    :class:`SimulationCapExceeded` before any index is allocated. It
                    does not change any computed value.
+        deadline:  A :func:`time.monotonic` timestamp after which the run stops
+                   with :class:`SimulationTimeExceeded`, or ``None`` (the default)
+                   for no time limit. Checked at phase boundaries — before and after
+                   sampling, before each forward-pass chunk and before the sensitivity
+                   tornado — so a run can overshoot it by up to one phase. An
+                   embedder on a request path passes ``time.monotonic() + budget``.
+                   It does not change any computed value: a run that finishes in
+                   time returns exactly what it would have without one.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates — each an order
@@ -644,6 +690,8 @@ def monte_carlo(
             2 GB of float64, whatever ``max_runs`` says), if ``runs`` exceeds
             ``max_runs``, the project has more tasks than ``max_tasks``, or its
             distinct calendars' working-day indices would exceed ``max_index_cells``.
+        SimulationTimeExceeded: If ``deadline`` passes before the run finishes. A
+            subclass of :class:`SimulationCapExceeded`, so one handler catches both.
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If a calendar has no working day, a duration
             or lag is negative/out of range, the project has no tasks,
@@ -664,6 +712,7 @@ def monte_carlo(
         max_lag_delta_cells,
         max_index_cells,
     )
+    deadline = _validate_deadline(deadline)
     _validate_project(project)
 
     g = _build_graph(project)
@@ -692,6 +741,7 @@ def monte_carlo(
             f"{runs:,} runs x {n_tasks:,} tasks. Reduce runs."
         )
 
+    _check_deadline(deadline)
     rng = np.random.default_rng(seed)
     calendar = project.calendar
 
@@ -703,6 +753,7 @@ def monte_carlo(
     dur_matrix = _sample_duration_matrix(
         project, topo_order, task_map, runs, rng, velocity_saturated
     )
+    _check_deadline(deadline)
 
     # Pre-compute a working-day index covering the whole simulation so a lag can
     # be converted to working-day offsets against the predecessor's *actual* date
@@ -951,6 +1002,7 @@ def monte_carlo(
         task_idx,
         (milestone_cols, closed_positions),
         (ref_ord, cal_col_groups, wd_ord_by_cal),
+        deadline,
     )
     # The floor wins over the index only when it is later; it is a start-of-day
     # reading exactly when every source reaching it is a milestone shown at the start
@@ -996,6 +1048,7 @@ def monte_carlo(
     # deterministic and task-order-independent (no RNG, no copy). Slicing past the
     # end returns every row, so runs <= the cap needs no special case. Percentiles
     # above use the FULL distribution; only the ranking is subsampled.
+    _check_deadline(deadline)
     sensitivity = _duration_sensitivity(
         dur_matrix[:MC_SENSITIVITY_SUBSAMPLE],
         completion_offsets[:MC_SENSITIVITY_SUBSAMPLE],

@@ -484,6 +484,7 @@ each is individually catchable:
 |-----------|-------------|
 | `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` is the full canonical path (deterministic, starts at its smallest ID, repeats it at the end). The message `repr()`-escapes IDs and truncates after 10 with `… (+M more)`. |
 | `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. |
+| `SimulationTimeExceeded` | From 0.5: `monte_carlo(deadline=…)` passed its `time.monotonic()` deadline before the run finished. A subclass of `SimulationCapExceeded`, so a handler for the size caps catches it too. The deadline is checked at phase boundaries (sampling, each forward-pass chunk, the sensitivity tornado), so a run can overshoot it by up to one phase. |
 | `InvalidScheduleInput` | The input is structurally valid but out of range, or the wrong type (see below), including `monte_carlo`'s own `sensitivity_cap`, `max_runs`, `max_tasks`, `max_lag_delta_cells` and `max_index_cells`. Messages that echo a value cap it at 200 characters. |
 | `UnknownTaskError` | `derive_value(project, task_id, …)` is called with a `task_id` that names no task in the project, or (with a supplied `result`) a dependency of that task names a task the `result` lacks. |
 
@@ -607,7 +608,9 @@ as long as the input demands. Pass `max_runs` and `max_tasks` whenever the
 caller is untrusted (and a smaller `max_index_cells` if it supplies a `calendars` registry; the default 25M cells is 200 MB of index arrays alone at 8 bytes per cell, and the whole process runs larger: the issue's 32-calendar maximum-span repro peaks near 220 MB RSS, and about 63 calendars would be 400+ MB. For a request-scoped caller handling untrusted registries, `max_index_cells=5_000_000` is a sensible start: 40 MB of index arrays, about 12 calendars at the maximum span of ~366k days, roughly 100 MB for the process), and run the call off the request thread with a wall-clock
 timeout — a worker/queue, not inline in the view — the same pattern the
 TruePPM API itself uses
-([#4010](https://gitlab.com/trueppm/trueppm/-/issues/4010)).
+([#4010](https://gitlab.com/trueppm/trueppm/-/issues/4010)). From 0.5, `monte_carlo(deadline=time.monotonic() + budget)` also
+stops a simulation that overruns its budget with `SimulationTimeExceeded`, for the
+overruns the size caps cannot see, such as a slow host.
 
 **Concurrency.** `schedule()` and `monte_carlo()` are pure with respect to the
 `Project` you pass (they do not mutate it) and keep no module-level mutable state,
