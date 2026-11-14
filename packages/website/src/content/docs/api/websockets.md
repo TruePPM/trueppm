@@ -169,7 +169,14 @@ The set is open-ended and grows as features land; current event types include:
   `status_date` values and the merged run floors none of them, so no single
   value would honestly describe what was computed. Both dispatch paths build
   this payload through one shared helper so the key set cannot drift between
-  them (#3776).
+  them (#3776). One run adds a fourth key (ships in 0.5): the first recalculation
+  that resolves a project's empty `status_date` to today on an established schedule
+  (the data-date "arming" run, ADR-0752 §7) withholds the per-task
+  `task_dates_updated` delta, and if it moved any task its `cpm_complete` carries
+  `"dates_changed": true`. Treat it as "re-read the task list": it names no task and
+  no date, so it carries no movement — the confidentiality goal of ADR-0752 §7 — and
+  a re-read goes through REST, which applies the reader's field gating. The key is
+  absent on every other run, whose movement arrives as `task_dates_updated`.
 - **Baselines**: `baseline_created`, `baseline_activated`, `baseline_deleted`
 - **Risks**: `risk_created`, `risk_updated`, `risk_deleted`, `risks_imported`
 - **Labels**: `label_created`, `label_updated`, `label_deleted` (catalog changes;

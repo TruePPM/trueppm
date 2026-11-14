@@ -7,7 +7,8 @@
  *   task_run_completed → taskRunStore.completeRun(); for scheduling tasks also setCpmComplete()
  *   task_run_failed   → taskRunStore.failRun(); for scheduling tasks also setCpmError()
  *   task_run_cancelled → taskRunStore.cancelRun()
- *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated)
+ *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated,
+ *                       except `dates_changed: true` on the data-date arming run, which invalidates tasks)
  *   task_dates_updated → splice per-task CPM date deltas into the tasks cache; truncated payload → invalidate (ADR-0091)
  *                        and record the moved count for the reforecast panel (#3158)
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
@@ -378,6 +379,12 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
     // The tasks cache is maintained by task_dates_updated (ADR-0091); the
     // coarse compat event no longer invalidates it. Pill + stats only.
     void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
+    // #4659: the one exception. The data-date arming run (ADR-0752 §7) moves task
+    // dates but withholds the per-task task_dates_updated delta, and the fallback
+    // poll only runs while the socket is down — so without this a live peer's
+    // Gantt keeps the pre-correction dates and may commit a drag against them.
+    // The flag names no task; the re-read goes through REST.
+    if (payload.dates_changed === true) scheduleInvalidate('tasks');
   });
 
   // --- Working-time calendar changed (#4170; the event is #2845's) ---

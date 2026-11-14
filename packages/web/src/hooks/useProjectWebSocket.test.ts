@@ -2535,6 +2535,38 @@ describe('useProjectWebSocket — presence and CPM handlers', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  // #4659: the arming run's refetch nudge — and only that — refreshes the tasks cache.
+  it('invalidates the tasks cache when cpm_complete carries dates_changed: true', () => {
+    vi.useFakeTimers(); // this describe runs on real timers; the debounce needs fake ones
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('cpm_complete', { project_finish: '2026-12-01', dates_changed: true });
+    act(() => {
+      vi.advanceTimersByTime(400); // flush the trailing scheduleInvalidate debounce
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    vi.useRealTimers();
+  });
+
+  it.each([false, 'true', 1])(
+    'leaves the tasks cache alone when dates_changed is %p (only a literal true counts)',
+    (value) => {
+      vi.useFakeTimers();
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch('cpm_complete', { project_finish: '2026-12-01', dates_changed: value });
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+      vi.useRealTimers();
+    },
+  );
+
   it('falls back to a generated timestamp when cpm_complete omits project_finish', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
