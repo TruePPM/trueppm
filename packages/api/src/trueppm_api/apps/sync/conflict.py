@@ -72,6 +72,13 @@ def parse_base_version(request: Request) -> int | None:
     return value if value >= 0 else None
 
 
+# Longest version gap whose history is reconstructed. A client offline against a hot
+# row can be thousands of versions behind; scanning that many history rows per row
+# inside one upload transaction is unbounded work, so a larger gap is treated as
+# ambiguous and fails closed (409) to force a client reload (#2347).
+MAX_CONFLICT_HISTORY_GAP = 200
+
+
 def _concurrent_changed_fields(instance: Any, base_version: int) -> tuple[set[str], bool]:
     """Fields changed by writes committed since ``base_version``, plus an ambiguity flag.
 
@@ -81,11 +88,14 @@ def _concurrent_changed_fields(instance: Any, base_version: int) -> tuple[set[st
     ``QuerySet.update()`` bumped ``server_version`` via ``F()`` without writing a
     history row — the changed-field set is incomplete, so ``ambiguous`` is ``True`` and
     the caller fails closed (409) rather than risk a silent merge over an unknown change.
+    A gap above ``MAX_CONFLICT_HISTORY_GAP`` is likewise ambiguous, without a query.
     """
     current = int(instance.server_version)
     gap = current - base_version
     if gap <= 0:
         return set(), False
+    if gap > MAX_CONFLICT_HISTORY_GAP:
+        return set(), True
 
     # Newest-first by the monotonic history pk. Pull one extra row so the oldest of
     # the ``gap`` recent rows can diff against its predecessor without a per-row query.

@@ -42,6 +42,7 @@ from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
@@ -1678,8 +1679,8 @@ class _SeedImporter:
                 continue
             try:
                 upsert_burndown_for_sprint(sprint)
-            # TODO(#4421): swallows SoftTimeLimitExceeded; the drain-loop guard
-            # is ineffective until this is fixed
+            except SoftTimeLimitExceeded:
+                raise
             except Exception:
                 logger.exception("seed import: burndown upsert failed for sprint=%s", sprint.pk)
 

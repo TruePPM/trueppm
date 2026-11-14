@@ -286,10 +286,15 @@ def build_driving_chain(
                 ),
                 "is_critical": bool(st.is_critical),
                 "is_project_finish": st.early_finish == result.project_finish,
-                # Sprint-bound is a fact about the task, not the team: id and end date
-                # only — never assignee, hours, or velocity (#4891).
+                # Sprint-bound is a fact about the task, not the team: id, name and end
+                # date only — never assignee, hours, or velocity (#4891). The name is a
+                # public label (already exposed as ``sprint_name`` on suggestions).
                 "sprint": (
-                    {"id": str(sprint.pk), "finish_date": sprint.finish_date}
+                    {
+                        "id": str(sprint.pk),
+                        "name": sprint.name,
+                        "finish_date": sprint.finish_date,
+                    }
                     if sprint is not None
                     else None
                 ),

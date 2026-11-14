@@ -56381,9 +56381,12 @@
             },
             "DrivingChainSprint": {
                 "type": "object",
-                "description": "Sprint binding of a chain node — id and end date only, never team internals.",
+                "description": "Sprint binding of a chain node — id, name and end date, never team internals.\n\nThe name is allowed because it is a public label (``TaskSuggestionSerializer``\nalready exposes it as ``sprint_name``); assignee, hours and velocity describe the\nteam and stay out.",
                 "properties": {
                     "id": {
+                        "type": "string"
+                    },
+                    "name": {
                         "type": "string"
                     },
                     "finish_date": {
@@ -56394,7 +56397,8 @@
                 },
                 "required": [
                     "finish_date",
-                    "id"
+                    "id",
+                    "name"
                 ]
             },
             "DrivingChainViaSummary": {

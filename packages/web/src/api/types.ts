@@ -982,9 +982,10 @@ export interface AnswerProvenance {
   computed_at: string
 }
 
-/** Sprint binding of a driving-chain node — id and finish date only. */
+/** Sprint binding of a driving-chain node — id, name and finish date only. */
 export interface DrivingChainSprint {
   id: string
+  name: string
   finish_date: string | null
 }
 

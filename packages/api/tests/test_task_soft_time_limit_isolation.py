@@ -30,7 +30,17 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "trueppm_api"
 
 # Handlers outside a loop that sit on a task's per-item path. Contract list: the
 # loop rule cannot see them, so each is named here and asserted guarded.
-_NON_LOOP_HELPERS = {("apps/scheduling/services.py", "safe_capture_forecast_snapshot")}
+_NON_LOOP_HELPERS = {
+    ("apps/scheduling/services.py", "safe_capture_forecast_snapshot"),
+    ("apps/notifications/tasks.py", "_send_email_for_notification"),
+    ("apps/workspace/tasks.py", "_send_invite_email"),
+    # Re-raise is a no-op until the send_robust half of #4421 lands: the signal is
+    # dispatched with send_robust, which swallows the receiver's exception.
+    ("apps/projects/receivers.py", "_on_task_status_changed"),
+    ("apps/projects/receivers.py", "_on_task_save_reset_promoted"),
+    ("apps/projects/receivers.py", "_on_task_save_recompute_rollup"),
+    ("apps/projects/receivers.py", "_on_task_soft_delete_reset_backlog_item"),
+}
 
 # Exempt handlers, keyed by (file, function) -> (handler count, reason). The count
 # is exact: a new unguarded handler in an exempt function fails, and so does a
@@ -41,8 +51,7 @@ _NON_LOOP_HELPERS = {("apps/scheduling/services.py", "safe_capture_forecast_snap
 #     signal; re-raising there changes behavior (a PurgeRun left RUNNING, a saga
 #     rollback undone inside the surrounding transaction) or needs a helper
 #     redesign, so it is tracked rather than fixed. Also tracked there and NOT
-#     seen by this scan: projects/receivers.py receivers and
-#     core/extension_signals send_robust.
+#     seen by this scan: core/extension_signals send_robust.
 _EXEMPT: dict[tuple[str, str], tuple[int, str]] = {
     ("apps/agents/deferred.py", "drain_agent_actions"): (1, "request-path drain"),
     ("apps/integrations/me_work.py", "_maybe_enqueue_on_open_refresh"): (1, "request path"),
@@ -56,29 +65,13 @@ _EXEMPT: dict[tuple[str, str], tuple[int, str]] = {
         1,
         "KNOWN-UNGUARDED #4421: per-receiver catch matches the send_robust it replaced",
     ),
-    ("apps/projects/seed/importer.py", "_refresh_active_sprint_burndown"): (
-        1,
-        "KNOWN-UNGUARDED #4421 (seed import)",
-    ),
-    ("apps/projects/seed/replay.py", "_snapshot_active_sprints"): (
-        1,
-        "KNOWN-UNGUARDED #4421 (seed replay)",
-    ),
     ("apps/observability/tasks.py", "_execute_run"): (
         1,
-        "KNOWN-UNGUARDED #4421: re-raise would leave PurgeRun RUNNING and lose results",
+        "finalizes the PurgeRun (PARTIAL/FAILED) with the tables so far, then re-raises",
     ),
     ("apps/workflow_engine/tasks.py", "_handle_failure"): (
         1,
         "KNOWN-UNGUARDED #4421: re-raise inside _do_advance's atomic undoes the rollback",
-    ),
-    ("apps/notifications/tasks.py", "_send_email_for_notification"): (
-        1,
-        "KNOWN-UNGUARDED #4421: swallows the signal, so the drain loop's guard is moot",
-    ),
-    ("apps/workspace/tasks.py", "_send_invite_email"): (
-        1,
-        "KNOWN-UNGUARDED #4421: swallows the signal, so the drain loop's guard is moot",
     ),
 }
 

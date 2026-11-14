@@ -819,9 +819,15 @@ class NearCriticalThresholdSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 class DrivingChainSprintSerializer(serializers.Serializer[dict[str, Any]]):
-    """Sprint binding of a chain node — id and end date only, never team internals."""
+    """Sprint binding of a chain node — id, name and end date, never team internals.
+
+    The name is allowed because it is a public label (``TaskSuggestionSerializer``
+    already exposes it as ``sprint_name``); assignee, hours and velocity describe the
+    team and stay out.
+    """
 
     id = serializers.CharField()
+    name = serializers.CharField()
     finish_date = serializers.DateField(allow_null=True)
 
 

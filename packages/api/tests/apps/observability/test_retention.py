@@ -343,6 +343,46 @@ class TestCoordinator:
         assert run.state == PurgeRun.State.PARTIAL
         assert run.tables[-1]["state"] == "failed"
 
+    def test_soft_time_limit_finalizes_run_then_reraises(self, monkeypatch) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        def _boom(*, dry_run: bool = False, override_value: int | None = None) -> int:
+            raise SoftTimeLimitExceeded
+
+        slow = _fake_spec("TASK_RUN_RETENTION_DAYS")
+        slow = PurgeSpec(key=slow.key, purge=_boom, db_tables=slow.db_tables)
+        monkeypatch.setattr(
+            "trueppm_api.apps.observability.purge_registry.get_purge_specs",
+            lambda: [_fake_spec("HISTORY_RETENTION_DAYS", rows=5), slow],
+        )
+        run = self._run()
+        with pytest.raises(SoftTimeLimitExceeded):
+            obs_tasks._execute_run(run, dry_run=False)
+        run.refresh_from_db()
+        assert run.state == PurgeRun.State.PARTIAL
+        assert run.finished_at is not None
+        assert run.rows_deleted == 5
+        assert [t["state"] for t in run.tables] == ["ok", "interrupted"]
+
+    def test_soft_time_limit_before_any_table_finishes_is_failed(self, monkeypatch) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        def _boom(*, dry_run: bool = False, override_value: int | None = None) -> int:
+            raise SoftTimeLimitExceeded
+
+        slow = _fake_spec("TASK_RUN_RETENTION_DAYS")
+        slow = PurgeSpec(key=slow.key, purge=_boom, db_tables=slow.db_tables)
+        monkeypatch.setattr(
+            "trueppm_api.apps.observability.purge_registry.get_purge_specs",
+            lambda: [slow],
+        )
+        run = self._run()
+        with pytest.raises(SoftTimeLimitExceeded):
+            obs_tasks._execute_run(run, dry_run=False)
+        run.refresh_from_db()
+        assert run.state == PurgeRun.State.FAILED
+        assert [t["state"] for t in run.tables] == ["interrupted"]
+
     def test_failed_when_all_tables_fail(self, monkeypatch) -> None:
         monkeypatch.setattr(
             "trueppm_api.apps.observability.purge_registry.get_purge_specs",

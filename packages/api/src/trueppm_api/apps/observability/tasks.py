@@ -6,6 +6,8 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from celery.exceptions import SoftTimeLimitExceeded
+
 from trueppm_api.core.idempotent import idempotent_task
 
 if TYPE_CHECKING:
@@ -164,6 +166,7 @@ def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
     total_rows = 0
     total_bytes = 0
     failures = 0
+    interrupted = False
     for spec in get_purge_specs():
         meta = spec_for(spec.key)
         try:
@@ -182,7 +185,22 @@ def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
             total_rows += rows
             if freed:
                 total_bytes += freed
-        except Exception as exc:  # TODO(#4421): also swallows SoftTimeLimitExceeded
+        except SoftTimeLimitExceeded:
+            # Finalize with the tables done so far before re-raising, so the run is
+            # not left RUNNING with its per-table results lost (#4421).
+            interrupted = True
+            tables.append(
+                {
+                    "key": spec.key,
+                    "label": meta["label"],
+                    "rows": 0,
+                    "bytes": None,
+                    "state": "interrupted",
+                    "error": "",
+                }
+            )
+            break
+        except Exception as exc:
             failures += 1
             logger.exception("retention purge failed for table %s", spec.key)
             tables.append(
@@ -198,7 +216,10 @@ def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
             if on_failure == RetentionSchedule.OnFailure.STOP:
                 break
 
-    if failures == 0:
+    if interrupted:
+        completed = sum(1 for t in tables if t["state"] == "ok")
+        state = PurgeRun.State.PARTIAL if completed else PurgeRun.State.FAILED
+    elif failures == 0:
         state = PurgeRun.State.OK
     elif failures == len(tables):
         state = PurgeRun.State.FAILED
@@ -213,6 +234,8 @@ def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
     run.save(update_fields=["state", "finished_at", "tables", "rows_deleted", "bytes_freed"])
 
     _trim_runs()
+    if interrupted:
+        raise SoftTimeLimitExceeded("retention purge interrupted by the soft time limit")
 
 
 def _trim_runs() -> None:
