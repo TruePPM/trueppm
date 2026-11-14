@@ -293,6 +293,17 @@ These rules are enforced at review time. Violations block merge.
 121. **Enterprise-only capability rows carry an inline `EE` badge that is itself the link.** → [rule](../../docs/design/invariants/121-enterprise-only-capability-rows-carry-an-inline-ee-badge.md)
 404. **A "this surface does not apply to you" disclosure must be gated on the CONDITION, never on emptiness — an explanation that lives only inside the empty state is blind to the populated case, which is the worse one.** → [rule](../../docs/design/invariants/404-a-this-surface-does-not-apply-to-you-disclosure-must-be.md)
 409. **A shared notice's remediation sentence ("narrow the window", "use the filter", "try searching") is a claim about the CALLER's affordances, not the component's — parameterize it per mount, never hardcode one sentence for all of them.** → [rule](../../docs/design/invariants/409-a-shared-notice-s-remediation-sentence-narrow-the-window.md)
+445. **Every schedule number carries its unit: float is "wd" (working days), lag is "cal d" (calendar days), in tooltips, aria labels and copied text too. Float and lag never share a column, cell or phrase, and no UI sums them (#4892).**
+446. **Server-explanation surfaces render the payload, nothing else: no client-side graph walk and no derived fact the payload does not state. Sorting or grouping by a payload field (`hops`, `sprint.id`) is allowed; inferring relationships is not (#4892).**
+447. **Open enums render neutral when unknown: an unrecognized `band` (or similar) gets the neutral gray treatment and no band word. It never falls through to the critical style and never throws (#4892).**
+448. **Copy as text is a superset of the screen: anything shown visually (color, dash, indent) also exists as words in the copied text and the accessible name, and a vitest asserts every rendered node name and edge label is in the text output (#4892).**
+449. **The task drawer has four tabs (Details · Subtasks · Activity · Files). A new drawer surface is a Details section unless an ADR adds a tab, so e2e tablist assertions stay state-independent (#4892).**
+450. **Conditional drawer content changes in place: a section that stops qualifying mid-session (a task leaving the critical band) shows a "no longer" state until the drawer closes or the task changes; it is never unmounted under the reader (#4892).**
+451. **Plain language first, jargon behind a disclosure: a surface explaining a schedule computation leads with one sentence a team member can read; "float", "FS" and "CPM" appear only in the collapsed technical detail and the badge (#4892).**
+452. **Compute-heavy reads: a 429 shows a visible countdown from `Retry-After` and never retries automatically; a refresh dims stale content to 55% with its provenance line at full strength and never swaps in a skeleton (#4892).**
+453. **A diagram may be desktop-only only if a list form exists: below 768 px the list is the surface and the diagram's entry point is not rendered (no disabled stub) (#4892).**
+454. **Driving vs non-driving links are always solid vs dashed AND labeled in words ("Not driving"); color by band is an extra cue, never the only one (#4892).**
+455. **Settings that feed a server computation are shown on the consuming surface as the payload's value ("Near-critical: ≤ 10 wd float"), never re-read from settings, so the two cannot disagree on screen (#4892).**
 
 ---
 

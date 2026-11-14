@@ -83,6 +83,15 @@ vi.mock('@/hooks/useIterationLabel', () => ({
 }));
 // Keep the render a unit: no registered sections, stub the two heavy children.
 vi.mock('./sections', () => ({ registerOssDrawerSections: () => {} }));
+// The Why-critical section owns a TanStack query; this suite has no
+// QueryClient, so stub it and record the props the drawer threads in (#4892).
+const whyCriticalProps: Array<{ taskId: string; focusNonce: number }> = [];
+vi.mock('./whyCritical/WhyCriticalSection', () => ({
+  WhyCriticalSection: (props: { taskId: string; focusNonce: number }) => {
+    whyCriticalProps.push(props);
+    return <div data-testid="why-critical-stub">focus {props.focusNonce}</div>;
+  },
+}));
 vi.mock('./TaskScheduleStrip', () => ({ TaskScheduleStrip: () => <div /> }));
 // A minimal controlled stand-in for the real field (which owns a read/edit mode
 // plus scroll restoration, covered by its own suite). It keeps the ONE thing the
@@ -1910,5 +1919,54 @@ describe('TaskDetailDrawer last-opened task hand-off (#1211)', () => {
       name: task.name,
       ref: 'PRJ-T-1',
     });
+  });
+});
+
+describe('Why critical wiring (#4892)', () => {
+  function renderSchedule(task: Task, url = '/schedule') {
+    TASKS = [task];
+    return render(
+      <MemoryRouter initialEntries={[url]}>
+        <TaskDetailDrawer task={task} projectId="p1" onClose={() => {}} showWhyCritical />
+      </MemoryRouter>,
+    );
+  }
+
+  it('replaces the CP chip with the badge button and mounts the section first in Details', () => {
+    renderSchedule(makeTask({ isCritical: true, totalFloat: 0 }));
+    expect(desktop().queryByText('CP')).not.toBeInTheDocument();
+    const badge = desktop().getByRole('button', {
+      name: "Critical, 0 working days float. Show why it's critical.",
+    });
+    expect(badge).toHaveTextContent('Critical · 0 wd float');
+    expect(desktop().getByTestId('why-critical-stub')).toBeInTheDocument();
+  });
+
+  it('badge activation selects Details and bumps the focus request', () => {
+    renderSchedule(makeTask({ isCritical: true, totalFloat: 0 }));
+    fireEvent.click(desktop().getByRole('button', { name: /Show why it's critical/ }));
+    expect(desktop().getByRole('tab', { name: 'Details' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(desktop().getByTestId('why-critical-stub')).toHaveTextContent('focus 1');
+  });
+
+  it('does not render the section for a non-critical task without a deep link', () => {
+    renderSchedule(makeTask({ isCritical: false }));
+    expect(desktop().queryByTestId('why-critical-stub')).not.toBeInTheDocument();
+    expect(desktop().queryByRole('button', { name: /Show why/ })).not.toBeInTheDocument();
+  });
+
+  it('a deep link mounts the section whatever the band and requests focus', () => {
+    renderSchedule(makeTask({ isCritical: false }), '/schedule?task=t1&drawerSection=why-critical');
+    expect(desktop().getByTestId('why-critical-stub')).toHaveTextContent('focus 1');
+  });
+
+  it('keeps the CP chip outside the Schedule view (board, My Tasks)', () => {
+    TASKS = [makeTask({ isCritical: true })];
+    renderDrawer(makeTask({ isCritical: true }));
+    expect(desktop().getByText('CP')).toBeInTheDocument();
+    expect(desktop().queryByTestId('why-critical-stub')).not.toBeInTheDocument();
   });
 });

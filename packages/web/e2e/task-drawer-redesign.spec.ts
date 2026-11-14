@@ -598,7 +598,8 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
 
   test('critical task shows the CP marker in the schedule strip', async ({ page }) => {
     const drawer = await openDrawer(page, 'Backend Implementation');
-    await expect(drawer.getByText('CP', { exact: true }).first()).toBeVisible();
+    // #4892: the header CP chip became the "Why critical" badge button.
+    await expect(drawer.getByRole('button', { name: /Show why it's critical/ })).toBeVisible();
     await expect(drawer.getByText(/On the critical path/i)).toBeVisible();
   });
 

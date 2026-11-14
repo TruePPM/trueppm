@@ -345,3 +345,24 @@ mid-session:
 - **Sarah (PM)** — this is your home. The critical path lights up automatically; a task's actual dates overlay as a dashed bar once you record them; the milestone diamonds are your contractual signal.
 - **Alex (Scrum Master)** — you don't open this day to day. When you do, the sprint windows are where your cadence is visible against Sarah's gates — and the one place you can see a gate landing inside one of your sprints.
 - **Priya (engineer)** — you don't open this either. The Schedule auto-re-forecasts off your board moves.
+
+## Why a task is critical
+
+:::note[Ships in 0.5]
+This section describes the **Why critical** drawer section, which ships in 0.5. In the current release the task drawer shows a `CP` chip on critical tasks and does not explain what drives them.
+:::
+
+Open a critical or near-critical task from the Schedule, and the first section of the drawer's **Details** tab is **Why critical**. It leads with one plain sentence, for example "Can't start until Pour foundation finishes on Mar 14. A delay to any step in this chain moves it." The task name is a link that opens that task in the same drawer.
+
+The header badge (**Critical · 0 wd float** or **Near-critical · 6 wd float**) is a button that jumps to the section. You can share a link to it: the drawer adds `drawerSection=why-critical` to the page address.
+
+**Show technical detail** lists the driving chain, nearest first. Every number carries its unit: float in working days (**wd**) and lag in calendar days (**cal d**). Link types are spelled out (Finish-to-start, Start-to-start, Finish-to-finish, Start-to-finish). Links that do not drive any date are dashed and labeled **Not driving**. Tasks committed to a sprint collapse into one team-owned card that shows only the sprint's end date. When the chain is cut at its depth or task limit, the section says so and how many links it shows.
+
+- **Copy as text** copies the whole chain as plain text, wrapped at 60 characters, for a status report. It includes everything the screen shows, plus the near-critical threshold, the unit key and when the schedule was computed.
+- **Open network view** (screens 768 px and wider) draws the upstream chain as a diagram you can move through with the arrow keys.
+- **Refresh** asks the server again. After a schedule recompute the section refreshes on its own and stays readable, dimmed, while it updates. If the server is busy it shows a countdown and waits for you to try again.
+
+Backlog items, uncommitted tasks, summary tasks and tasks without dependency links have no chain, and the section says why instead.
+
+The section appears only in the Schedule view. It does not appear in My Tasks or the board drawer. The near-critical threshold comes from the workspace, program and project settings (1 to 260 working days).
+

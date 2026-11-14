@@ -115,6 +115,12 @@ export interface ApiProjectDetail {
   /** Server-resolved scale (project ?? program ?? workspace). The value every point
    *  picker on this project reads. */
   effective_estimation_scale: EstimationScale;
+  /** Near-critical float threshold override, 1–260 working days (#4907). null = inherit. */
+  near_critical_threshold_days: number | null;
+  /** Read-only resolved threshold in working days (override ?? inherited). */
+  effective_near_critical_threshold_days: number;
+  /** Read-only threshold inherited if the override were cleared. */
+  inherited_near_critical_threshold_days: number;
   /** Scale this project would show if its own override were cleared (program ??
    *  workspace). Drives the settings "Inherit (X)" affordance. */
   inherited_estimation_scale: EstimationScale;

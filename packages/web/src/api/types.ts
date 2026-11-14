@@ -420,6 +420,12 @@ export interface Program {
   effective_task_duration_change_percent_policy: DurationChangePercentPolicy;
   /** Read-only policy inherited if the override were cleared (the workspace value). */
   inherited_task_duration_change_percent_policy: DurationChangePercentPolicy;
+  /** Near-critical float threshold override, 1–260 working days (#4907). null = inherit. */
+  near_critical_threshold_days: number | null;
+  /** Read-only resolved threshold in working days (override ?? inherited). */
+  effective_near_critical_threshold_days: number;
+  /** Read-only threshold inherited if the override were cleared. */
+  inherited_near_critical_threshold_days: number;
   /** Estimation-scale override (ADR-0510, #2027). null = inherit the workspace value. */
   estimation_scale: EstimationScale | null;
   /** Read-only server-resolved effective scale (program override ?? workspace). */
@@ -716,6 +722,8 @@ export interface WorkspaceSettings {
    *  duration changes (ADR-0151, issue 1254) — the non-null root of the
    *  Workspace → Program → Project chain. */
   taskDurationChangePercentPolicy: DurationChangePercentPolicy;
+  /** Workspace root near-critical float threshold, 1–260 working days (#4907). */
+  nearCriticalThresholdDays: number;
   /** `suggest`/`inherit` (OSS) let programs/projects override; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */
   taskDurationChangePercentOverridePolicy: TaskDurationChangePercentOverridePolicy;

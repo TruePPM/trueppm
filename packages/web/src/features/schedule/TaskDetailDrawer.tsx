@@ -15,7 +15,11 @@ import {
   type DrawerSectionRegistration,
   type DrawerSectionTab,
 } from '@/lib/widget-registry';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
+import { setSearchParam } from '@/hooks/useUrlSelectedId';
+import { WhyCriticalSection } from './whyCritical/WhyCriticalSection';
+import { WhyCriticalBadge } from './whyCritical/WhyCriticalBadge';
+import type { BandKind } from './whyCritical/whyCriticalModel';
 import {
   DialogFooter,
   UnsavedChangesDialog,
@@ -52,6 +56,10 @@ import { registerOssDrawerSections } from './sections';
 // init module. Both must run before the first drawer render; both are
 // idempotent so the order doesn't matter.
 registerOssDrawerSections();
+
+/** Drawer deep-link param naming a Details section to scroll to (#4892). */
+const DRAWER_SECTION_PARAM = 'drawerSection';
+const WHY_CRITICAL_SECTION = 'why-critical';
 
 /** Fixed tab order for the redesigned drawer (#962). */
 const TAB_DEFS: ReadonlyArray<{ id: DrawerSectionTab; label: string }> = [
@@ -156,6 +164,14 @@ export interface TaskDetailDrawerProps {
   projectId: string;
   onClose: () => void;
   /**
+   * Render the "Why critical" Details section and header badge (#4892). Only the
+   * Schedule view passes this: the section never appears in My Tasks, the board
+   * drawer or navigation.
+   */
+  showWhyCritical?: boolean;
+  /** Open another task in this drawer (a Why-critical task link). */
+  onOpenTask?: (taskId: string) => void;
+  /**
    * Optional context passed to each section's `canRender(ctx)` predicate.
    * Sections use this to hide entirely when a feature is not licensed/available;
    * pass the current user object so Enterprise sections can gate visibility.
@@ -240,8 +256,24 @@ export function TaskDetailDrawer({
   onSwapCanceled,
   readOnly = false,
   onReadOnlyRefusal,
+  showWhyCritical = false,
+  onOpenTask,
 }: TaskDetailDrawerProps) {
   const isMobile = useBreakpoint() === 'sm';
+  // Why critical (#4892): `?drawerSection=why-critical` sits beside the host's
+  // `?task=` param, written with replace so it adds no history entry.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkedWhyCritical = searchParams.get(DRAWER_SECTION_PARAM) === WHY_CRITICAL_SECTION;
+  const [whyCriticalFocusNonce, setWhyCriticalFocusNonce] = useState(0);
+  const [chainBand, setChainBand] = useState<{
+    taskId: string;
+    band: BandKind | null;
+    float: number | null;
+  } | null>(null);
+  // Once mounted for a task the section stays until the task changes or the
+  // drawer closes, so a recompute that drops the band changes it in place
+  // ("no longer critical") instead of unmounting it under the reader.
+  const [whyCriticalStickyFor, setWhyCriticalStickyFor] = useState<string | null>(null);
 
   // The task actually rendered. Normally tracks the `task` prop, but during a
   // swap-while-dirty it deliberately LAGS the prop: the host has already moved
@@ -590,8 +622,9 @@ export function TaskDetailDrawer({
   const closeAndReset = useCallback(() => {
     restoreFocus();
     reset();
+    setSearchParam(setSearchParams, DRAWER_SECTION_PARAM, null);
     onClose();
-  }, [restoreFocus, reset, onClose]);
+  }, [restoreFocus, reset, onClose, setSearchParams]);
   const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
     dirty: guardDirty,
     onClose: closeAndReset,
@@ -648,9 +681,13 @@ export function TaskDetailDrawer({
 
   // Tab-switch keeps the dirty draft intact — the bar docks below the tabpanel,
   // so nothing is lost or silently saved when moving between tabs.
-  const changeTab = useCallback((next: DrawerSectionTab) => {
-    setActiveTab(next);
-  }, []);
+  const changeTab = useCallback(
+    (next: DrawerSectionTab) => {
+      setActiveTab(next);
+      if (next !== 'details') setSearchParam(setSearchParams, DRAWER_SECTION_PARAM, null);
+    },
+    [setSearchParams],
+  );
 
   // Swap-while-dirty guard verbs (#1978, web-rule 264c). All three resolve the
   // pending swap: Keep editing stays on the current task (and asks the host to
@@ -744,12 +781,16 @@ export function TaskDetailDrawer({
 
   // Move focus to Close on open so keyboard users land somewhere sensible.
   // Desktop only: the mobile bottom-sheet focus-trap seats its own initial focus.
+  // A `drawerSection=why-critical` deep link hands focus to that heading instead.
+  const whyCriticalDeepLinkFocus = showWhyCritical && deepLinkedWhyCritical;
   useEffect(() => {
-    if (isOpen && !isMobile) {
+    if (isOpen && !isMobile && !whyCriticalDeepLinkFocus) {
       const id = setTimeout(() => closeButtonRef.current?.focus(), 50);
       return () => clearTimeout(id);
     }
     return undefined;
+    // The deep-link flag is read at open time; flipping it later must not refocus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, isMobile, taskId]);
 
   // Esc is owned by the unsaved-changes guard (escapeToClose) so a dirty drawer
@@ -836,55 +877,116 @@ export function TaskDetailDrawer({
   // (it carries the schedule strip + description).
   const visibleTabs = TAB_DEFS.filter((t) => t.id === 'details' || sectionsByTab[t.id].length > 0);
 
-  const content = task && (
-    // Provide the estimate draft to the registry sections (EstimatesTab opts in
-    // via useTaskDraft); a section that ignores it keeps its immediate mutation
-    // — the DrawerSectionProps contract is unchanged (#1985, ADR-0439).
-    <TaskDraftProvider value={estimateBinding}>
-      <ComposerDirtyProvider onDirtyChange={setComposerDirty}>
-        <DrawerContent
-          task={task}
-          projectId={projectId}
-          userRole={userRole}
-          drawerTitle={drawerTitle}
-          closeButtonRef={closeButtonRef}
-          onRequestClose={requestClose}
-          onExpand={handleExpand}
-          tabs={visibleTabs}
-          activeTab={activeTab}
-          onTabChange={changeTab}
-          sectionsByTab={sectionsByTab}
-          sectionPopulated={sectionPopulated}
-          subtaskStats={subtaskStats}
-          draftName={draft.name}
-          onNameChange={(v) => setField('name', v)}
-          changedName={draft.name !== baseline.name}
-          draftNotes={draft.notes}
-          onNotesChange={(v) => setField('notes', v)}
-          changedNotes={draft.notes !== baseline.notes}
-          changedEstimates={changedEstimates}
-          estimateInvalid={estimateInvalid}
-          notesChangedElsewhere={notesChangedElsewhere}
-          conflictLabels={conflictLabels}
-          deletedExternally={deletedExternally}
-          copiedDraft={copiedDraft}
-          onCopyDeletedDraft={handleCopyDeletedDraft}
-          onDismissDeleted={handleDismissDeleted}
-          dirty={dirty}
-          isSaving={isSaving}
-          readOnly={readOnly}
-          // While the swap guard is up it owns the refusal: both surfaces are
-          // mounted at once (the guard fires only when dirty, which is exactly
-          // when the save bar is up), so passing it to both inserts two
-          // `role="alert"` nodes with identical text in one commit — announced
-          // twice, and one of them behind the scrim (web-rule 372b).
-          saveRefusal={swapGuardOpen ? null : saveRefusal}
-          onSave={handleSave}
-          onCancel={reset}
-        />
-      </ComposerDirtyProvider>
-    </TaskDraftProvider>
+  const whyCriticalTaskId = task?.id ?? null;
+  const qualifiesForWhyCritical =
+    showWhyCritical &&
+    task !== null &&
+    (task.isCritical ||
+      deepLinkedWhyCritical ||
+      (chainBand?.taskId === task.id && chainBand.band === 'near_critical'));
+  useEffect(() => {
+    if (qualifiesForWhyCritical && whyCriticalTaskId) setWhyCriticalStickyFor(whyCriticalTaskId);
+  }, [qualifiesForWhyCritical, whyCriticalTaskId]);
+  const whyCriticalMounted =
+    qualifiesForWhyCritical ||
+    (whyCriticalTaskId !== null && whyCriticalStickyFor === whyCriticalTaskId);
+  // A deep link opens Details and focuses the section heading once per task.
+  const deepLinkConsumedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!showWhyCritical || !deepLinkedWhyCritical || !whyCriticalTaskId) return;
+    if (deepLinkConsumedFor.current === whyCriticalTaskId) return;
+    deepLinkConsumedFor.current = whyCriticalTaskId;
+    setActiveTab('details');
+    setWhyCriticalFocusNonce((n) => n + 1);
+  }, [showWhyCritical, deepLinkedWhyCritical, whyCriticalTaskId]);
+  const handleWhyCriticalBand = useCallback(
+    (band: BandKind | null, float: number | null) => {
+      if (whyCriticalTaskId) setChainBand({ taskId: whyCriticalTaskId, band, float });
+    },
+    [whyCriticalTaskId],
   );
+  const handleBadgeActivate = useCallback(() => {
+    // The param this writes is not a fresh deep link: do not focus twice.
+    deepLinkConsumedFor.current = whyCriticalTaskId;
+    setActiveTab('details');
+    setSearchParam(setSearchParams, DRAWER_SECTION_PARAM, WHY_CRITICAL_SECTION);
+    setWhyCriticalFocusNonce((n) => n + 1);
+  }, [setSearchParams, whyCriticalTaskId]);
+  const ownBand = chainBand && task && chainBand.taskId === task.id ? chainBand : null;
+  const whyCritical: WhyCriticalDrawerProps | null = showWhyCritical
+    ? {
+        mounted: whyCriticalMounted,
+        focusNonce: whyCriticalFocusNonce,
+        // The payload's band wins once it arrives; before that the schedule task
+        // list's `is_critical` + `total_float` drive the badge.
+        badgeBand: ownBand?.band ?? (task?.isCritical ? 'critical' : null),
+        badgeFloat: ownBand?.float ?? task?.totalFloat ?? null,
+        onBadgeActivate: handleBadgeActivate,
+        onBand: handleWhyCriticalBand,
+        onOpenTask,
+        wide: !isMobile,
+      }
+    : null;
+
+  // Both shells are always mounted (CSS picks one), so the Why-critical section
+  // mounts only in the shell for the current breakpoint: one query observer,
+  // one `#why-critical` heading.
+  const renderContent = (desktopShell: boolean) =>
+    task && (
+      // Provide the estimate draft to the registry sections (EstimatesTab opts in
+      // via useTaskDraft); a section that ignores it keeps its immediate mutation
+      // — the DrawerSectionProps contract is unchanged (#1985, ADR-0439).
+      <TaskDraftProvider value={estimateBinding}>
+        <ComposerDirtyProvider onDirtyChange={setComposerDirty}>
+          <DrawerContent
+            task={task}
+            projectId={projectId}
+            userRole={userRole}
+            drawerTitle={drawerTitle}
+            closeButtonRef={closeButtonRef}
+            onRequestClose={requestClose}
+            onExpand={handleExpand}
+            tabs={visibleTabs}
+            activeTab={activeTab}
+            onTabChange={changeTab}
+            sectionsByTab={sectionsByTab}
+            sectionPopulated={sectionPopulated}
+            subtaskStats={subtaskStats}
+            draftName={draft.name}
+            onNameChange={(v) => setField('name', v)}
+            changedName={draft.name !== baseline.name}
+            draftNotes={draft.notes}
+            onNotesChange={(v) => setField('notes', v)}
+            changedNotes={draft.notes !== baseline.notes}
+            changedEstimates={changedEstimates}
+            estimateInvalid={estimateInvalid}
+            notesChangedElsewhere={notesChangedElsewhere}
+            conflictLabels={conflictLabels}
+            deletedExternally={deletedExternally}
+            copiedDraft={copiedDraft}
+            onCopyDeletedDraft={handleCopyDeletedDraft}
+            onDismissDeleted={handleDismissDeleted}
+            dirty={dirty}
+            isSaving={isSaving}
+            readOnly={readOnly}
+            // While the swap guard is up it owns the refusal: both surfaces are
+            // mounted at once (the guard fires only when dirty, which is exactly
+            // when the save bar is up), so passing it to both inserts two
+            // `role="alert"` nodes with identical text in one commit — announced
+            // twice, and one of them behind the scrim (web-rule 372b).
+            saveRefusal={swapGuardOpen ? null : saveRefusal}
+            onSave={handleSave}
+            onCancel={reset}
+            whyCritical={
+              whyCritical && {
+                ...whyCritical,
+                mounted: whyCritical.mounted && desktopShell === !isMobile,
+              }
+            }
+          />
+        </ComposerDirtyProvider>
+      </TaskDraftProvider>
+    );
 
   return (
     <>
@@ -929,7 +1031,7 @@ export function TaskDetailDrawer({
           isOpen ? 'translate-x-0' : 'translate-x-full invisible pointer-events-none',
         ].join(' ')}
       >
-        {content}
+        {renderContent(true)}
       </div>
 
       {/* Mobile: 85vh bottom sheet — stays MODAL (web-rule 264a): aria-modal
@@ -952,7 +1054,7 @@ export function TaskDetailDrawer({
           className="w-8 h-1 rounded-full bg-neutral-border mx-auto mt-3 mb-2 shrink-0"
           aria-hidden="true"
         />
-        {content}
+        {renderContent(false)}
       </div>
 
       {/* Unsaved-changes guard — shared prompt (web-rule 217). One instance for
@@ -1038,6 +1140,20 @@ interface DrawerContentProps {
   readOnly: boolean;
   onSave: () => void;
   onCancel: () => void;
+  /** Why critical section + header badge (#4892); `null` outside the Schedule view. */
+  whyCritical: WhyCriticalDrawerProps | null;
+}
+
+/** Why-critical wiring threaded from the drawer shell into its content. */
+interface WhyCriticalDrawerProps {
+  mounted: boolean;
+  focusNonce: number;
+  badgeBand: BandKind | null;
+  badgeFloat: number | null;
+  onBadgeActivate: () => void;
+  onBand: (band: BandKind | null, float: number | null) => void;
+  onOpenTask?: (taskId: string) => void;
+  wide: boolean;
 }
 
 /**
@@ -1110,6 +1226,7 @@ function DrawerContent({
   readOnly,
   onSave,
   onCancel,
+  whyCritical,
 }: DrawerContentProps) {
   // Progressive-disclosure state (ADR-0605, #2315): which empty optional
   // sections the user re-added via "Add detail", and the configurable iteration
@@ -1173,15 +1290,23 @@ function DrawerContent({
             </span>
           )}
           <HeaderEstimateChip task={task} projectId={projectId} />
-          {task.isCritical && (
-            // `ABBREVIATIONS.CRITICAL` (#2454, rule 287) — the same shared
-            // definition the grid's TaskRow/OutlineRow CP badge uses, rather
-            // than a second inline wording of the same token.
-            <Tooltip content={ABBREVIATIONS.CRITICAL}>
-              <span className="text-xs font-semibold text-white bg-semantic-critical px-1.5 py-0.5 rounded-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
-                CP
-              </span>
-            </Tooltip>
+          {whyCritical ? (
+            <WhyCriticalBadge
+              band={whyCritical.badgeBand}
+              float={whyCritical.badgeFloat}
+              onActivate={whyCritical.onBadgeActivate}
+            />
+          ) : (
+            task.isCritical && (
+              // `ABBREVIATIONS.CRITICAL` (#2454, rule 287) — the same shared
+              // definition the grid's TaskRow/OutlineRow CP badge uses, rather
+              // than a second inline wording of the same token.
+              <Tooltip content={ABBREVIATIONS.CRITICAL}>
+                <span className="text-xs font-semibold text-white bg-semantic-critical px-1.5 py-0.5 rounded-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
+                  CP
+                </span>
+              </Tooltip>
+            )
           )}
           {/* "View only" indicator (ADR-0133, 1143). A muted, neutral read-state
               chip — not a warning — present whenever the drawer is non-editable,
@@ -1411,6 +1536,22 @@ function DrawerContent({
             return (
               <div>
                 <div className="px-4 py-4 space-y-5">
+                  {/* Why critical is the FIRST Details section, above every OSS and
+                      Enterprise-registered section, and never behind "Add detail". */}
+                  {whyCritical?.mounted && (
+                    <SectionErrorBoundary sectionTitle="Why critical">
+                      <WhyCriticalSection
+                        key={task.id}
+                        projectId={projectId}
+                        taskId={task.id}
+                        taskHasSprint={Boolean(task.sprintId)}
+                        focusNonce={whyCritical.focusNonce}
+                        wide={whyCritical.wide}
+                        onOpenTask={whyCritical.onOpenTask}
+                        onBand={whyCritical.onBand}
+                      />
+                    </SectionErrorBoundary>
+                  )}
                   <DrawerRecentActivity
                     projectId={projectId}
                     taskId={task.id}

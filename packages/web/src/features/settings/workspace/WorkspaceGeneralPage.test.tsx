@@ -40,6 +40,7 @@ const WS: WorkspaceSettings = {
   mcHistoryAttributionAudience: 'admin_owner',
   mcHistoryOverridePolicy: 'suggest',
   taskDurationChangePercentPolicy: 'prorate',
+  nearCriticalThresholdDays: 10,
   taskDurationChangePercentOverridePolicy: 'suggest',
   estimationScale: 'fibonacci',
   sprintPickerReadyOnlyDefault: true,

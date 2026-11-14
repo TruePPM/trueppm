@@ -5464,6 +5464,13 @@ function ScheduleOverlayLayer({
         <TaskDetailDrawer
           task={selectedTask}
           projectId={projectId}
+          // #4892: Why critical renders only in the Schedule drawer; its task
+          // links open the named task in this same drawer.
+          showWhyCritical
+          onOpenTask={(id) => {
+            setSelectedTaskId(id);
+            useScheduleStore.getState().scrollToTask(id);
+          }}
           onClose={() => {
             setSelectedTaskId(null);
             // Drawer Esc closes the drawer with stopPropagation (drawer's own

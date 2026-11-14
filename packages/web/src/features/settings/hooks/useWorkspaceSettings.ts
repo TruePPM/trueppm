@@ -39,6 +39,7 @@ interface WorkspaceSettingsRaw {
   mc_history_attribution_audience: MCAttributionAudience;
   mc_history_override_policy: MCHistoryOverridePolicy;
   task_duration_change_percent_policy: DurationChangePercentPolicy;
+  near_critical_threshold_days: number;
   task_duration_change_percent_override_policy: TaskDurationChangePercentOverridePolicy;
   estimation_scale: EstimationScale;
   sprint_picker_ready_only_default: boolean;
@@ -75,6 +76,7 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     mcHistoryAttributionAudience: raw.mc_history_attribution_audience,
     mcHistoryOverridePolicy: raw.mc_history_override_policy,
     taskDurationChangePercentPolicy: raw.task_duration_change_percent_policy,
+    nearCriticalThresholdDays: raw.near_critical_threshold_days,
     taskDurationChangePercentOverridePolicy: raw.task_duration_change_percent_override_policy,
     estimationScale: raw.estimation_scale,
     sprintPickerReadyOnlyDefault: raw.sprint_picker_ready_only_default,
