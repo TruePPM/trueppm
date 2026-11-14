@@ -245,11 +245,10 @@ class TestCountAgreesWithFilterBackends:
 class TestCountAgreesUnderMcpAgentReadScoping:
     """An ``mcp:read`` token's count and results must agree on the agent-read filter (#2815).
 
-    ``_build_task_count_queryset`` re-runs the *unannotated* base queryset through
-    ``filter_queryset()`` so that ``McpReadableViewMixin``'s row filter applies to the
-    count as well as to the page. If it ever counted the raw queryset, an agent would
-    see ``count`` include rows from a project that opted out of agent reads while
-    ``results`` correctly omitted them.
+    ``McpReadableViewMixin.get_queryset`` already applies ``_mcp_filter_queryset``, so
+    the base queryset is scoped before ``_build_task_count_queryset`` runs. This test
+    pins the end-to-end agreement under agent-read scoping: a project that opted out
+    of agent reads contributes to neither ``count`` nor ``results``.
     """
 
     def test_count_excludes_opted_out_project_rows_for_an_mcp_token(
