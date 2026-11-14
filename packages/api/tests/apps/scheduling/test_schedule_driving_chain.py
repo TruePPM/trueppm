@@ -164,6 +164,8 @@ class TestDrivingChain:
             "name": "S1",
             "finish_date": "2026-03-13",
         }
+        b = next(n for n in data["nodes"] if n["name"] == "B")
+        assert b["sprint"] is None
         assert not (_walk_keys(data) & FORBIDDEN_KEYS)
 
     def test_depth_truncates(

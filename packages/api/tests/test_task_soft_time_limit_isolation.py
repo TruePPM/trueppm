@@ -34,6 +34,8 @@ _NON_LOOP_HELPERS = {
     ("apps/scheduling/services.py", "safe_capture_forecast_snapshot"),
     ("apps/notifications/tasks.py", "_send_email_for_notification"),
     ("apps/workspace/tasks.py", "_send_invite_email"),
+    # Re-raise is a no-op until the send_robust half of #4421 lands: the signal is
+    # dispatched with send_robust, which swallows the receiver's exception.
     ("apps/projects/receivers.py", "_on_task_status_changed"),
     ("apps/projects/receivers.py", "_on_task_save_reset_promoted"),
     ("apps/projects/receivers.py", "_on_task_save_recompute_rollup"),

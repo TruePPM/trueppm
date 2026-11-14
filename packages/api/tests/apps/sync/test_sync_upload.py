@@ -1384,6 +1384,41 @@ def test_stale_sync_update_conflicts_and_does_not_clobber(
 
 
 @pytest.mark.django_db
+def test_push_gap_over_history_cap_is_ambiguous_conflict_and_not_saved(
+    admin_client: APIClient, project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row further behind than the cap is reported ambiguous, never applied (#2347)."""
+    from trueppm_api.apps.sync import conflict as sync_conflict
+
+    task = Task.objects.create(project=project, name="Design", notes="orig")
+    base = task.server_version
+    for n in range(2):
+        task.notes = f"concurrent {n}"
+        task.save()
+    task.refresh_from_db()
+    concurrent_version = task.server_version
+    monkeypatch.setattr(sync_conflict, "MAX_CONFLICT_HISTORY_GAP", 1)
+
+    # The edit touches a DIFFERENT field than the concurrent writes, so only the
+    # gap cap can make it a conflict.
+    resp = admin_client.post(
+        _url(project),
+        _conflict_payload(base, updated=[{"id": str(task.pk), "name": "My name"}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["applied"]["tasks"]["updated"] == []
+    conflicts = body["conflicts"]["tasks"]
+    assert [c["id"] for c in conflicts] == [str(task.pk)]
+    assert conflicts[0]["ambiguous"] is True
+
+    task.refresh_from_db()
+    assert task.name == "Design"
+    assert task.server_version == concurrent_version
+
+
+@pytest.mark.django_db
 def test_nonconflicting_row_applies_alongside_a_conflict(
     admin_client: APIClient, project: Project
 ) -> None:

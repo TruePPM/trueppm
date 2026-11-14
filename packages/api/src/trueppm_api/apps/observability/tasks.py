@@ -189,6 +189,16 @@ def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
             # Finalize with the tables done so far before re-raising, so the run is
             # not left RUNNING with its per-table results lost (#4421).
             interrupted = True
+            tables.append(
+                {
+                    "key": spec.key,
+                    "label": meta["label"],
+                    "rows": 0,
+                    "bytes": None,
+                    "state": "interrupted",
+                    "error": "",
+                }
+            )
             break
         except Exception as exc:
             failures += 1
@@ -207,7 +217,8 @@ def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
                 break
 
     if interrupted:
-        state = PurgeRun.State.PARTIAL if tables else PurgeRun.State.FAILED
+        completed = sum(1 for t in tables if t["state"] == "ok")
+        state = PurgeRun.State.PARTIAL if completed else PurgeRun.State.FAILED
     elif failures == 0:
         state = PurgeRun.State.OK
     elif failures == len(tables):

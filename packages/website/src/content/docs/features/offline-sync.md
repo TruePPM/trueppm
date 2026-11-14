@@ -120,6 +120,8 @@ header (or a `base_version` body key) on a `PATCH`:
 - If the record has moved more than 200 versions past the one the client saw, the API
   does not try to reconstruct what changed and returns `409 Conflict` regardless of
   which fields differ, so a long-offline client reloads instead.
+  A `/sync/` push reports such a row in `conflicts` with `ambiguous: true` instead of
+  saving it; reload the record and reapply the edit.
 - If someone changed the **same** field, the API returns `409 Conflict` with a
   structured body — the client shows a "Someone else changed this" prompt with a Reload
   action rather than silently discarding either edit:

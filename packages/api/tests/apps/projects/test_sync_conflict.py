@@ -99,7 +99,7 @@ class TestFieldLevelMerge:
         task.refresh_from_db()
         assert task.name == "Their name"
 
-    def test_gap_over_history_cap_fails_closed_409_without_scanning(
+    def test_gap_over_history_cap_fails_closed_409(
         self,
         client: APIClient,
         task: Task,
