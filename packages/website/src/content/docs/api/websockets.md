@@ -229,8 +229,11 @@ The set is open-ended and grows as features land; current event types include:
   sovereignty gate for the reading identity
 - **Membership / project**: `member_added`, `member_role_changed`,
   `member_removed`, `mention_group_changed`, `project_updated`,
-  `project_archived`, `project_unarchived`, `project_restored`,
-  `project_transferred`, `project_deleted`, `project_hard_deleted`
+  `project_archived`, `project_unarchived`, `project_transferred`,
+  `project_deleted`, `project_hard_deleted`. `project_restored` is emitted but
+  **not deliverable**: the
+  channel refuses a trashed project, so no client is subscribed when a restore broadcasts
+  (#2847)
 - **Programs** — ⚠️ **not deliverable** until the program channel ships in 0.8 (#836);
   emitted by the server but no client can subscribe, see the caution above:
   `program_closed`, `program_reopened`, `program_deleted`, `program_split`,
@@ -291,15 +294,18 @@ that case. Event payloads are intentionally minimal (usually `{ "id": "<uuid>" }
 or a small id set): fetch the resource for its full state.
 
 **Identity keys.** An event whose subject is a row — every `*_created`, `*_updated`
-and `*_deleted` event, and the sprint-family events above — names that row as
+and `*_deleted` event, the sprint-family events above, `member_added`,
+`member_role_changed`, `member_removed` (the membership), `mention_group_changed`
+(the group) and `task_comment_ack_changed` (the comment) — names that row as
 `payload.id`. Key on `id`; a more specific key such as `sprint_id` or
 `suggestion_id` may appear beside it with the same value, kept for older consumers.
 An actor is named as `actor_id`, never by display label alone. The exceptions have
 no single subject row: `board_config_updated` (the project's board configuration),
-`dependencies_bulk_created` (a batch, named by `dependency_ids`) and
-`milestone_forecast_updated` (a computed forecast, named by `milestone_id`). The API
-test suite enforces this rule over every broadcast call site, with those three as
-its only waivers (ships in 0.5).
+`dependencies_bulk_created` (a batch, named by `dependency_ids`),
+`milestone_forecast_updated` (a computed forecast, named by `milestone_id`) and
+`roster_changed` (named by `resource_id`; it covers both allocation-row and
+resource-level writes). The API test suite enforces this rule over every broadcast
+call site, with those four as its only waivers (ships in 0.5).
 
 ### Sequence numbers and reconnect replay
 
@@ -455,7 +461,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `project_updated` | **WS-only** |
 | `project_archived` | **WS-only** |
 | `project_unarchived` | **WS-only** |
-| `project_restored` | **WS-only** |
+| `project_restored` | **WS-only** — not deliverable (the channel refuses trashed projects) |
 | `project_deleted` | **WS-only** |
 | `project_custom_fields_updated` | **WS-only** |
 | `guardrail_policy_updated` | **WS-only** |

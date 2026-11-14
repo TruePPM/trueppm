@@ -182,6 +182,9 @@ _ID_WAIVERS: dict[str, str] = {
     "field on Project), not a row of its own; the project is the channel.",
     "dependencies_bulk_created": "Aggregate of up to 500 edges from one POST "
     "/tasks/bulk/; names them as the plural dependency_ids (#3770), so no single id.",
+    "roster_changed": "Fanned out from allocation-row writes (ProjectResource create/"
+    "update/delete) and resource-level writes alike; the one stable subject is the "
+    "resource, named as resource_id, and an `id` would be ambiguous between the two rows.",
     "milestone_forecast_updated": "Subject is a server-computed forecast, not a "
     "persisted row write; milestone_id names the milestone task it describes.",
 }
@@ -192,10 +195,15 @@ _ID_WAIVERS: dict[str, str] = {
 _ID_REQUIRED_EXTRA = frozenset(
     {
         "demo_reordered",
+        "member_added",
+        "member_removed",
+        "member_role_changed",
+        "mention_group_changed",
         "project_calendar_changed",
         "sprint_reranked",
         "sprint_retro_updated",
         "sprint_scope_changed",
+        "task_comment_ack_changed",
     }
 )
 

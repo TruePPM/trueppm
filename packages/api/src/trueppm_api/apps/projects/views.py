@@ -1239,19 +1239,30 @@ class CalendarViewSet(
 
         instance = serializer.save()
 
+        changed_fields = [
+            field
+            for field, old in (("name", old_name), ("timezone", old_timezone))
+            if getattr(instance, field) != old
+        ]
+
         if instance.working_days != old_working_days or instance.hours_per_day != old_hours_per_day:
-            _recalc_projects_for_calendar(instance.pk, actor=self.request.user)
+            # A combined rename + working-days edit still writes ONE audit row (the
+            # recalc one); hand it the metadata changes so the rename is not lost.
+            _recalc_projects_for_calendar(
+                instance.pk,
+                actor=self.request.user,
+                extra_metadata=(
+                    {"changed_fields": changed_fields, "previous_name": old_name}
+                    if changed_fields
+                    else None
+                ),
+            )
             return
 
         # A metadata-only edit (rename, timezone) moves no dates, so it fans out no
         # recompute and no broadcast — but it is still an edit to a SHARED calendar
         # every bound project reads, and the CALENDAR_CHANGED verb promises a record
         # of it (#3245). Written synchronously so it rolls back with the edit.
-        changed_fields = [
-            field
-            for field, old in (("name", old_name), ("timezone", old_timezone))
-            if getattr(instance, field) != old
-        ]
         if changed_fields and getattr(self.request.user, "is_authenticated", False):
             from trueppm_api.apps.workspace.models import AuditEventType
             from trueppm_api.apps.workspace.services import record_audit_event
@@ -1278,6 +1289,7 @@ def _enqueue_calendar_recalc(
     actor: Any = None,
     calendar_label: str = "",
     calendar_id: Any = None,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> None:
     """Defer a CALENDAR_CHANGE recompute for each project to ``transaction.on_commit``.
 
@@ -1356,6 +1368,9 @@ def _enqueue_calendar_recalc(
                 "affected_project_count": len(project_id_strs),
                 "affected_project_ids": project_id_strs[:50],
                 "affected_project_ids_truncated": len(project_id_strs) > 50,
+                # Metadata edits (rename/timezone) made in the same request as a
+                # working-time edit: one audit row, not two (see calendar perform_update).
+                **(extra_metadata or {}),
             },
         )
 
@@ -1378,7 +1393,12 @@ def _enqueue_calendar_recalc(
     transaction.on_commit(_dispatch)
 
 
-def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str, *, actor: Any = None) -> None:
+def _recalc_projects_for_calendar(
+    calendar_id: uuid.UUID | str,
+    *,
+    actor: Any = None,
+    extra_metadata: dict[str, Any] | None = None,
+) -> None:
     """Enqueue a CPM recompute for every live project this calendar's edit affects.
 
     Calendar (and calendar-exception) edits are workspace-Admin writes (#3600) that
@@ -1422,6 +1442,7 @@ def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str, *, actor: Any = 
         actor=actor,
         calendar_label=calendar.name if calendar else "",
         calendar_id=calendar_id,
+        extra_metadata=extra_metadata,
     )
 
 
@@ -6243,11 +6264,13 @@ def _defer_task_update_broadcasts(
             lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
         )
     # ADR-0151 (#414): a user edit changed this task's duration on a task with
-    # progress. Broadcast the WS-only task_duration_changed event so the desktop
-    # client can render the inline "Recalc %?" / confirm affordance without a
-    # refetch. WS-only (no webhook): external consumers already see the new
-    # duration via task.updated, and the OSS webhook set is at its cap (ADR-0147).
-    # The event row is already persisted by the serializer; this is the live hint.
+    # progress. Broadcast the WS-only task_duration_changed event as a live
+    # record of the old/new duration and percent. The web client registers no
+    # handler for it: the editing row builds its inline "Recalc %?" prompt locally
+    # from the values it just submitted (recalcPercentPrompt.ts), and peers get the
+    # duration via task_updated. WS-only (no webhook): external consumers already
+    # see the new duration via task.updated, and the OSS webhook set is at its cap
+    # (ADR-0147). The event row is already persisted by the serializer.
     duration_event: dict[str, Any] | None = getattr(instance, "_duration_change_event", None)
     if duration_event is not None:
         event_payload = duration_event
@@ -22297,7 +22320,7 @@ class TaskCommentViewSet(
                 lambda: broadcast_board_event(
                     str(project_pk),
                     "task_comment_ack_changed",
-                    {"comment_id": str(pk), "task_id": str(task_pk)},
+                    {"id": str(pk), "comment_id": str(pk), "task_id": str(task_pk)},
                 )
             )
 

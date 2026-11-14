@@ -160,6 +160,28 @@ def test_a_rename_is_recorded_without_claiming_a_schedule_change(
 
 
 @pytest.mark.django_db
+def test_rename_plus_working_days_edit_keeps_the_rename_in_the_single_audit_row(
+    actor: Any, shared_calendar: Calendar, outsider_project: Project
+) -> None:
+    """A combined edit writes ONE row, and that row still names the rename (#3245).
+
+    ``perform_update`` hands the working-time edit to the recalc fan-out and returns,
+    which used to drop the rename's ``changed_fields`` / ``previous_name`` on the floor.
+    """
+    with patch(BROADCAST):
+        resp = _client(actor).patch(
+            f"/api/v1/calendars/{shared_calendar.pk}/",
+            {"name": "Renamed", "working_days": 127},
+            format="json",
+        )
+    assert resp.status_code == 200
+    (row,) = AuditEvent.objects.filter(event_type=AuditEventType.CALENDAR_CHANGED)
+    assert row.metadata["changed_fields"] == ["name"]
+    assert row.metadata["previous_name"] == "Corporate"
+    assert row.metadata["affected_project_count"] >= 1
+
+
+@pytest.mark.django_db
 def test_a_resave_with_no_change_records_nothing(
     actor: Any, shared_calendar: Calendar, outsider_project: Project
 ) -> None:

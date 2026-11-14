@@ -2,7 +2,7 @@
 
 Read this as a ledger, not as an exemption list. ``scripts/check-ws-handler-conformance.sh``
 fails on every emitted event NOT listed here, and on every handler whose event nothing
-emits. These seven entries are what is left.
+emits. These eight entries are what is left.
 
 Be honest about what a waiver buys. Like ``--update-baseline`` on the docs gate and
 ``e2e/fixtures/schema-guard-waivers.ts``, it cannot stop a wrong answer — a wrong entry
@@ -38,10 +38,13 @@ genuinely is one.
 
 ## The four clusters, and which side is wrong
 
-**(a) FRONTEND MISSING — #2847 (waivers retired).** ``label_*``, ``sprint_reranked`` and
-``project_restored`` were correctly broadcast, on commit, and live in
-``FROZEN_WS_EVENT_TYPES``, while nothing in ``packages/web/src`` named them. This is the
-cluster that named the class; #2847 registered a handler for each, so the entries are gone.
+**(a) FRONTEND MISSING — #2847 (``label_*`` and ``sprint_reranked`` retired).** They were
+correctly broadcast, on commit, and live in ``FROZEN_WS_EVENT_TYPES``, while nothing in
+``packages/web/src`` named them; #2847 registered a handler for each. ``project_restored``
+stays waived below as *not deliverable*: ``ProjectConsumer`` refuses a trashed project
+(``project__is_deleted=False``) and ``ProjectShell`` passes a null project id to the hook
+while the project is unavailable, so no peer is subscribed to the group when a restore
+broadcasts. A handler would be unreachable code.
 
 **(b) FRONTEND MISSING — #3245 (waiver retired by #4170).** ``project_calendar_changed``
 had no client subscriber. #4170 registered one (it refetches the project detail's
@@ -73,8 +76,16 @@ from __future__ import annotations
 
 from .ws_event_scan import Waiver, WaiverLedger
 
-# --- (c) #836 · (d) #1323 — (a) #2847 and (b) #3245 are retired ---
+# --- (a) #2847 project_restored · (c) #836 · (d) #1323 — (b) #3245 is retired ---
 UNHANDLED_WAIVERS = {
+    "project_restored": Waiver(
+        reason="Not deliverable: the WS consumer refuses a soft-deleted project "
+        "(project__is_deleted=False) and the web shell subscribes with a null project id "
+        "while a project is unavailable, so no peer is in the group when a restore "
+        "broadcasts. A handler would be unreachable. Removed by a channel that admits a "
+        "trashed project to owners/admins.",
+        issue=2847,
+    ),
     "program_closed": Waiver(
         reason="Undeliverable, not unhandled: fans out on project_{program_id}, and no "
         "ws/v1/programs/ route exists for any group_add() to join. A handler would be "
@@ -105,8 +116,8 @@ UNHANDLED_WAIVERS = {
         reason="DELIBERATE (ADR-0151/ADR-0152). The duration delta already arrives on the "
         "task_updated broadcast in the same commit batch, with self-echo suppression. This "
         "event carries no actor_id, so a handler here would clobber the editing client's "
-        "in-flight optimistic edit. Its extra payload is the inline 'Recalc %?' hint, "
-        "consumed locally by the editing client.",
+        "in-flight optimistic edit. No client reads its extra payload: the editing row "
+        "builds the inline 'Recalc %?' prompt locally from the values it submitted.",
         issue=1323,
     ),
 }
@@ -122,7 +133,7 @@ UNEMITTED_WAIVERS = {
 }
 
 # The ratchet. Each must equal its dict's length; see the module docstring.
-UNHANDLED_WAIVER_BUDGET = 6
+UNHANDLED_WAIVER_BUDGET = 7
 UNEMITTED_WAIVER_BUDGET = 1
 
 LEDGER = WaiverLedger(

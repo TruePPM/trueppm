@@ -4070,16 +4070,6 @@ describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-rela
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint-backlog', 'proj-1'] });
   });
 
-  it('refreshes the project detail and the project list on project_restored', () => {
-    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
-    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
-
-    dispatch('project_restored', { id: 'proj-1' });
-
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
-  });
-
   // --- #3774: task-relation lifecycle ---
   it.each(['task_relation_created', 'task_relation_updated', 'task_relation_deleted'])(
     'invalidates every mounted task-relations query on %s',

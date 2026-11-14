@@ -616,9 +616,10 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     },
   );
   // task_duration_changed is intentionally unregistered here (no-op, issue 1323).
-  // The backend emits it so the *editing* client can render the inline "Recalc %?"
-  // confirm affordance (ADR-0151) — that client reads the hint from its own write
-  // response, so no peer needs this event. For peers, the duration delta already
+  // The backend emits it as a live record of the duration/percent change. The
+  // *editing* client's inline "Recalc %?" confirm affordance (ADR-0151) is built
+  // locally by the edited row from the values it just submitted
+  // (recalcPercentPrompt.ts), not from this event, so no client needs it. For peers, the duration delta already
   // arrives on the task_updated broadcast in the same commit batch, which refreshes
   // the tasks cache *with* ADR-0152 self-echo suppression. Re-invalidating tasks
   // here — the event carries no actor_id to suppress on — would clobber the
@@ -1161,9 +1162,6 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
       'project_archived',
       'project_unarchived',
       'project_transferred',
-      // A restore from Trash (ADR-0202) un-deletes the project: same refresh as the
-      // lifecycle events above, so it reappears in a peer's project list (#2847).
-      'project_restored',
     ],
     () => {
       void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
