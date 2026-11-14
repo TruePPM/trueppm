@@ -353,6 +353,8 @@ else # DRILL_MODE=demo
   # Same retag as scripts/prod-compose-drill.sh step 0: pulls this commit's
   # already-built images under the names docker-compose.demo.yml resolves, so
   # the drill exercises HEAD code and touches GHCR not at all.
+  . "$(dirname "${BASH_SOURCE[0]}")/lib/dockerhub-auth.sh"  # optional Docker Hub auth (#4202)
+  dockerhub_login
   if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
     echo "${CI_REGISTRY_PASSWORD}" | docker login -u "${CI_REGISTRY_USER}" --password-stdin "${REGISTRY}"
   fi

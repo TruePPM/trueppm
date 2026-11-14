@@ -1338,6 +1338,7 @@ fi
 # kind-in-dind recipe: the API server is published on the dind host and the
 # kubeconfig (rewritten below) reaches it over the CI network as `docker:6443`
 # with a valid TLS SAN.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/dockerhub-auth.sh"  # optional Docker Hub auth (#4202)
 log "creating kind cluster '$CLUSTER'"
 cat >/tmp/kind-config.yaml <<EOF
 kind: Cluster
@@ -1354,6 +1355,10 @@ kubeadmConfigPatches:
         - localhost
         - 127.0.0.1
 EOF
+# Authenticated Docker Hub pulls for the node's containerd (#4202); no-op
+# without DOCKERHUB_USERNAME/DOCKERHUB_TOKEN.
+dockerhub_login
+dockerhub_kind_containerd_patch >>/tmp/kind-config.yaml
 # kind's own node-boot wait — it tails the node container's log for a systemd
 # target, separate from the --wait 120s above, which gates node Readiness —
 # has no knob to lengthen and can fail in under two seconds on a loaded runner

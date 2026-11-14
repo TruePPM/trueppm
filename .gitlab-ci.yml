@@ -762,6 +762,8 @@ scripts:test:
         - scripts/tests/resolve-prev-web-image.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
+        - scripts/tests/dockerhub-auth.test.sh
+        - scripts/lib/dockerhub-auth.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
         - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh}
@@ -815,6 +817,8 @@ scripts:test:
         - scripts/tests/resolve-prev-web-image.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
+        - scripts/tests/dockerhub-auth.test.sh
+        - scripts/lib/dockerhub-auth.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
         - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh}
@@ -854,6 +858,7 @@ scripts:test:
     - bash scripts/tests/resolve-prev-web-image.test.sh
     - bash scripts/tests/helm-sentinel-schema-experimental.test.sh
     - bash scripts/tests/check-release-images.test.sh
+    - bash scripts/tests/dockerhub-auth.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
     - bash scripts/tests/check-bulk-create-server-version.test.sh
     - bash scripts/tests/check-app-layering.test.sh
