@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { useAuthStore } from '@/stores/authStore';
 import * as client from '@/api/client';
 import { RequireAuth, resetSilentDemoAttempt } from './RequireAuth';
@@ -11,6 +11,16 @@ import { clearDemoSessionMarker, markDemoSession } from './demoMarker';
 // Render RequireAuth as a layout route with a protected child and a /login
 // route, so we can assert on whether the Outlet (protected content) renders,
 // whether we hold (nothing rendered), or whether we redirect to /login.
+function LoginProbe() {
+  const loc = useLocation();
+  return (
+    <div>
+      Login page
+      <span data-testid="login-probe">{loc.pathname + loc.search}</span>
+    </div>
+  );
+}
+
 function renderGuard(initialEntries: string[] = ['/app']) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -20,7 +30,7 @@ function renderGuard(initialEntries: string[] = ['/app']) {
           <Route path="/app" element={<RequireAuth />}>
             <Route index element={<div>Protected content</div>} />
           </Route>
-          <Route path="/login" element={<div>Login page</div>} />
+          <Route path="/login" element={<LoginProbe />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -55,7 +65,16 @@ describe('RequireAuth', () => {
 
   it('redirects to /login when not authenticated', async () => {
     renderGuard();
-    await waitFor(() => expect(screen.getByText('Login page')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('login-probe')).toBeInTheDocument());
+  });
+
+  it('carries path, query AND hash in ?next= so a hash deep link survives re-auth (#3563)', async () => {
+    renderGuard(['/app?tab=risk#risk-42']);
+    await waitFor(() =>
+      expect(screen.getByTestId('login-probe')).toHaveTextContent(
+        `/login?next=${encodeURIComponent('/app?tab=risk#risk-42')}`,
+      ),
+    );
   });
 
   it('renders nothing until the store has rehydrated', () => {

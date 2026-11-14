@@ -227,6 +227,28 @@ describe('LoginPage', () => {
     expect(password).toHaveAttribute('aria-describedby', errorId);
   });
 
+  it('explains a 429 with the Retry-After wait and holds the form (#3563)', async () => {
+    mockedAxios.post.mockRejectedValueOnce(
+      Object.assign(new Error('Too Many Requests'), {
+        isAxiosError: true,
+        response: { status: 429, headers: { 'retry-after': '23' }, data: {} },
+      }),
+    );
+    vi.spyOn(axios, 'isAxiosError').mockReturnValue(true);
+
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Email'), 'anna@example.com');
+    await user.type(screen.getByLabelText('Password'), 'pw');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Too many attempts. Try again in 23 seconds.',
+    );
+    expect(screen.queryByText(/unexpected error/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+  });
+
   it('shows generic error on unexpected failure', async () => {
     mockedAxios.post.mockRejectedValueOnce(new Error('Network error'));
     vi.spyOn(axios, 'isAxiosError').mockReturnValue(false);
@@ -329,6 +351,35 @@ describe('LoginPage', () => {
     await waitFor(() =>
       expect(assign).toHaveBeenCalledWith('/api/v1/auth/oidc/login?provider=keycloak'),
     );
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+
+  it('parks a safe ?next= for the SSO round-trip and drops an unsafe one (#3563)', async () => {
+    const originalLocation = window.location;
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, assign },
+    });
+    ssoProviders = [{ slug: 'keycloak', display_name: 'Keycloak' }];
+    sessionStorage.clear();
+
+    const { unmount } = renderWithRouter(<LoginPage />, {
+      initialEntries: ['/login?next=%2Fprojects%2Fp1%2Frisk%23r-7'],
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
+    expect(JSON.parse(sessionStorage.getItem('tppm.sso.next') ?? '{}').next).toBe(
+      '/projects/p1/risk#r-7',
+    );
+    unmount();
+
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login?next=%2F%2Fevil.example'] });
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
+    expect(sessionStorage.getItem('tppm.sso.next')).toBeNull();
+
     Object.defineProperty(window, 'location', {
       configurable: true,
       value: originalLocation,

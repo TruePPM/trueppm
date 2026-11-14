@@ -179,6 +179,29 @@ test.describe('Wave 8 — Login screen', () => {
     expect(page.url()).toContain('/api/v1/auth/oidc/login?provider=keycloak');
   });
 
+  test('a 429 from the token endpoint reads as a wait with the Retry-After seconds (#3563)', async ({
+    page,
+  }) => {
+    await page.route(AUTH_TOKEN_URL, (r) =>
+      r.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        headers: { 'Retry-After': '31' },
+        body: JSON.stringify({ detail: 'Request was throttled. Expected available in 31 seconds.' }),
+      }),
+    );
+    await page.goto('/login');
+    await page.getByLabel('Email').fill('anna@example.com');
+    await page.getByLabel('Password', { exact: true }).fill('pw');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Too many attempts. Try again in 31 seconds.' }),
+    ).toBeVisible();
+    await expect(page.getByText(/unexpected error/i)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+  });
+
   test('marketing panel shows headline and build info', async ({ page }) => {
     await page.goto('/login');
 

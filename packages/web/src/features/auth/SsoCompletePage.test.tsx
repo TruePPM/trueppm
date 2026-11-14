@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SsoCompletePage } from './SsoCompletePage';
+import { stashSsoNext } from './ssoNext';
 
 /** AuthShell renders a real <Link>, which needs a Router context. */
 function renderPage() {
@@ -35,6 +36,7 @@ describe('SsoCompletePage', () => {
     searchString = '';
     mockNavigate.mockClear();
     mockBootstrap.mockReset();
+    sessionStorage.clear();
   });
 
   it('mints the session and enters the app on the success path', async () => {
@@ -42,6 +44,42 @@ describe('SsoCompletePage', () => {
     renderPage();
 
     expect(screen.getByText('Identity verified')).toBeInTheDocument();
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));
+  });
+
+  it('lands on the deep link parked at the SSO click (#3563)', async () => {
+    stashSsoNext('/projects/p1/schedule?x=1#task-9');
+    mockBootstrap.mockResolvedValue(true);
+    renderPage();
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/p1/schedule?x=1#task-9', {
+        replace: true,
+      }),
+    );
+    // One-shot: a later, unrelated SSO sign-in must not inherit it.
+    expect(sessionStorage.getItem('tppm.sso.next')).toBeNull();
+  });
+
+  it('re-validates the parked target — an off-origin value falls back to the front door (#3563)', async () => {
+    sessionStorage.setItem(
+      'tppm.sso.next',
+      JSON.stringify({ next: '//evil.example/x', at: Date.now() }),
+    );
+    mockBootstrap.mockResolvedValue(true);
+    renderPage();
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));
+  });
+
+  it('ignores an expired parked target (#3563)', async () => {
+    sessionStorage.setItem(
+      'tppm.sso.next',
+      JSON.stringify({ next: '/projects/p1/schedule', at: Date.now() - 11 * 60 * 1000 }),
+    );
+    mockBootstrap.mockResolvedValue(true);
+    renderPage();
+
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));
   });
 
