@@ -375,16 +375,23 @@ def _mc_percentiles(
 
     Percentile convention (documented for the public surface, #826): numpy.percentile
     — linear interpolation between the two nearest ranks — over the FULL run set,
-    mapped to a working-day date. The position ``k`` is taken over working-time
-    positions, not shown days: ordering by shown day ranked the start of a Monday
+    mapped to a working-day date. When no run sits at ``k`` (the interpolation fell
+    between two runs more than a day apart), the reading is ``k`` itself and only the
+    runs below it are on or before it: more than ``q x (1 - 1/n)`` percent of them,
+    so at 10 runs a P95 can cover only 90% (#4540). An exact midpoint goes to the
+    later day through the ceiling in :func:`_finish_day_key`, never half-to-even.
+
+    The position ``k`` is taken over working-time positions, not shown days:
+    ordering by shown day ranked the start of a Monday
     after the end of the Friday before it, although neither is later in working time.
 
     Runs at one position can still be shown on different days — some at the end of a
     Friday, some at the start of the Monday. The percentile is shown on the day its
     rank lands on when runs are ordered by ``(position, shown day)``: the earliest
     shown day of a run at ``k`` on or before which at least that share of ALL runs is
-    shown. So it is a two-sided quantile of ``distribution`` — at least PXX% of runs
-    on or before it, and fewer than PXX% (plus one run) strictly before it — rather
+    shown. So when a run sits at ``k`` it is a two-sided quantile of ``distribution``
+    — at least PXX% of runs on or before it, and fewer than PXX% (plus one run)
+    strictly before it — rather
     than following either the earliest or the latest reading at ``k``. It reads as the
     start of its day when that day lies past ``k``. Every candidate day is the same
     working-time position, so a delta measured in working time does not depend on
@@ -627,6 +634,12 @@ def monte_carlo(
     ``max_runs`` / ``max_tasks`` knobs exist for an *embedding* layer that needs
     to bound work on a synchronous request path (the TruePPM API passes its own caps and returns
     ``SimulationCapExceeded`` as a 402); a standalone caller leaves them ``None``.
+
+    Percentile precision (#4540): P50/P80/P95 are ``numpy.percentile``'s linear
+    interpolation over all ``runs``, so with ``n`` runs a P*q* reading has more than
+    ``q x (1 - 1/n)`` percent of runs on or before it — within 0.01 points at the
+    default 10 000 runs, but as little as 90% for a P95 at 10 runs. An exact midpoint
+    between two runs is read on the later day, not rounded half-to-even.
 
     Args:
         project:   The project to simulate. Must have at least one task and

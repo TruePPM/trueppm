@@ -471,6 +471,7 @@ convention. The same list, with the comparison spelled out, is on
 - Every sampled duration is **floored at `Task.duration`** — the optimistic tail below the plan is not expressed. **Differs** — risk tools sample the whole estimate. ([#3765](https://gitlab.com/trueppm/trueppm/-/issues/3765))
 - A zero-duration task with a sampled duration (a three-point estimate, or story points on the velocity path) is decided **run by run**. A draw under half a day rounds away: it leaves the task the instant `schedule()` places, links and lags included, and hands no fraction on to the work after it. Three 0.2-day draws in a chain therefore cost nothing, although they add up to 0.6 of a day of work. A larger draw is simulated as work. With no recorded start that is the same as a task of that length with the same link; a started zero-duration task can differ from a started real task. A `(0, 0, 1)` estimate therefore leaves P50 on the CPM finish. On a network with FF or SF links a work-sized draw can back-solve a start, so a run can finish before CPM ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)). ([#4698](https://gitlab.com/trueppm/trueppm/-/issues/4698))
 - Sampled durations are continuous, and a run's finish is shown on **the day its work ends in** (`ceil(offset) - 1`): work ending 0.3 of the way into a Monday finishes on Monday. Lagged links read the same day and carry the fraction while the lag lands in working time, and a milestone after fractional work sits at that point in working time. A run with no spread lands exactly on the CPM finish. A zero-duration task's draw under half a day is exempt and rounds away. A percentile interpolated between two whole-day positions is read on the later day. ([#4697](https://gitlab.com/trueppm/trueppm/-/issues/4697))
+- Percentiles are `numpy.percentile`'s linear interpolation over all runs, so a reading can fall on a day no run finished on, between two runs far apart. Its precision then depends on the run count: with `n` runs a P*q* reading has **more than `q × (1 − 1/n)` percent** of runs on or before it, never fewer. At the default 10,000 runs that is within 0.01 points; at 10 runs a P95 can have only 90% of runs on or before it. Use at least a few hundred runs before quoting P95 as a commitment. An exact midpoint between two runs (an even run count's P50 between two days) is read on the later day, not rounded half-to-even. ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540))
 - "Never before the CPM finish" holds **only on FS/SS-only networks**; on an FF/SF network a percentile can land earlier, because CPM itself is non-monotone there. ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806))
 - A fixed `seed` reproduces P50/P80/P95 on the **same numpy and `trueppm-scheduler` versions** — see [Reproducibility](#reproducibility-seeded-runs). ([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099))
 
@@ -796,10 +797,7 @@ release it is scheduled for:
   as a lower bound rather than a full forecast. From 0.5 the result will report
   how many runs were clamped (`velocity_saturated_runs`), but the bias itself
   will not be removed
-  ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); percentile
-  estimation is imprecise at very low run counts (10–11 runs), where the
-  reported P95 can have only 90% of runs on or before it
-  ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)); a zero-duration task drawing real work back-solves through
+  ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); a zero-duration task drawing real work back-solves through
   FF/SF, so the Monte Carlo P50 can land before the CPM date
   ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)); an exhausted what-if pull-in on an SS/SF link reverses the
   forecast
@@ -881,8 +879,7 @@ the CPM date
 ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)), the remaining
 MS-Project-parity gaps
 ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
-[#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the very-low-run-count percentile imprecision
-([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)), the closed-milestone frozen-edge path dependence
+[#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the closed-milestone frozen-edge path dependence
 ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)), the non-monotone forward pass at a floored milestone ([#4883](https://gitlab.com/trueppm/trueppm/-/issues/4883)), and a
 `monte_carlo(return_samples=True)` option to hand back the raw matrices
 ([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)).
