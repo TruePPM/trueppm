@@ -34,6 +34,9 @@ from trueppm_scheduler.engine.errors import (
     InvalidScheduleInput,
     SimulationCapExceeded,
 )
+from trueppm_scheduler.engine.graph import (
+    _resolve_task_calendars,
+)
 from trueppm_scheduler.engine.limits import (
     MAX_CALENDAR_SCAN_DAYS,
     MAX_DURATION_DAYS,
@@ -50,6 +53,7 @@ from trueppm_scheduler.engine.results import (
 )
 from trueppm_scheduler.engine.validate import (
     _validate_project_shape,
+    _velocity_days_on_calendar,
     _velocity_mean,
     _velocity_observations,
 )
@@ -590,6 +594,7 @@ def _sample_duration_matrix(
     column is collapsed to its base duration below, so its draws do not count.
     """
     dur_matrix = np.empty((runs, len(topo_order)), dtype=np.float64)
+    task_calendars = _resolve_task_calendars(project)
     for col, tid in enumerate(topo_order):
         t = task_map[tid]
         base = float(t.duration.days)
@@ -613,6 +618,16 @@ def _sample_duration_matrix(
                 rng,
                 None if _is_complete(t) else velocity_saturated,
             )
+        if velocity_durations is not None and task_calendars is not None:
+            # Sampled in sprint-calendar days; laid out on the task's own calendar
+            # (#4529). Whole sprints only, so the draw takes few distinct values.
+            task_cal = task_calendars.get(tid, project.calendar)
+            values, inverse = np.unique(velocity_durations, return_inverse=True)
+            converted = np.array(
+                [_velocity_days_on_calendar(project, task_cal, int(v)) for v in values],
+                dtype=np.float64,
+            )
+            velocity_durations = converted[inverse]
         if velocity_durations is not None:
             dur_matrix[:, col] = velocity_durations
         elif (

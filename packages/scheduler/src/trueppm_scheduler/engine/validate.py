@@ -15,6 +15,8 @@ from types import EllipsisType
 
 from trueppm_scheduler.engine.calendar_math import (
     _next_working_day,
+    _nth_working_day,
+    _working_days_in_ordinals,
 )
 from trueppm_scheduler.engine.errors import (
     InvalidScheduleInput,
@@ -120,6 +122,47 @@ def _velocity_mean(project: Project) -> float | None:
         return None
     mean = sum(observations) / len(observations)
     return mean if mean > 0 else None
+
+
+def _velocity_days_on_calendar(project: Project, task_calendar: Calendar, sprint_days: int) -> int:
+    """Re-express a velocity-sampled duration in the working days of the task's calendar.
+
+    The velocity sampler answers in sprints, and a sprint is the *team's* cadence:
+    ``sprint_length_days`` counts working days of the project calendar the sprints
+    run on, not of whichever per-task calendar (ADR-0120 D3) the story is assigned.
+    Laying ``sprints x sprint_length_days`` straight onto a sparser task calendar
+    stretched the same two sprints from 25 to 44 calendar days on a Mon/Wed/Fri
+    calendar (#4529), so a story got slower merely by being moved to a part-time
+    calendar although the throughput it was sampled from had not changed.
+
+    So the sprint span is measured on ``project.calendar`` from the schedule's data
+    date (``status_date`` or ``start_date``, snapped to a working day) and the task
+    calendar's working days inside that span are what the task then lays out. That
+    anchor is fixed rather than the task's per-run start, which keeps the conversion
+    run-invariant: it is exact for a weekly calendar whenever a sprint spans whole
+    weeks, and otherwise reads the exception set at the data date. The count is
+    non-decreasing in ``sprint_days``, so converting a worst case bounds every
+    converted draw, which is what the index sizing relies on. A positive span keeps at
+    least one working day of the task's own calendar, because the task still has work
+    to do even when its calendar is idle across the whole sprint span.
+
+    Identity when the task's calendar has the project calendar's content, so a
+    single-calendar project is byte-for-byte unchanged.
+    """
+    if sprint_days <= 0:
+        return sprint_days
+    sprint_cal = project.calendar
+    if task_calendar is sprint_cal or (
+        task_calendar.working_days == sprint_cal.working_days
+        and tuple(task_calendar.exceptions) == tuple(sprint_cal.exceptions)
+    ):
+        return sprint_days
+    anchor = project.start_date
+    if project.status_date is not None:
+        anchor = max(anchor, project.status_date)
+    first = _next_working_day(anchor, sprint_cal)
+    last = _nth_working_day(first, sprint_days, sprint_cal, forward=True)
+    return max(1, _working_days_in_ordinals(first.toordinal(), last.toordinal() + 1, task_calendar))
 
 
 def _velocity_worst_case_days(

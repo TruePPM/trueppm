@@ -260,6 +260,15 @@ on the team would stand behind — while every other task in the same run still
 uses its three-point estimate. `DeliveryMode.WATERFALL` (the default) is
 unaffected; mixing modes is opt-in per task.
 
+`sprint_length_days` counts working days of the project `calendar`, the calendar
+the team's sprints run on. A scrum task on its own per-task calendar takes the
+same sprints of calendar time: from 0.5, two 10-day sprints on a Mon/Wed/Fri task
+calendar will end where they end on the project calendar, instead of being laid
+out as 20 Mon/Wed/Fri days. The sprint span is measured from the data date
+(`status_date`, or `start_date`), so a holiday on the project calendar is read
+there rather than at each run's start
+([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)).
+
 ## Interpreting the output
 
 The two entry points answer different questions, and their outputs are not the
@@ -776,10 +785,7 @@ release it is scheduled for:
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
   [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)).
-- **Monte Carlo** — a velocity-sampled duration is re-expanded
-  against the task's own calendar rather than the sprint calendar it was
-  sampled against
-  ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); sprint-horizon
+- **Monte Carlo** — sprint-horizon
   clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
   as a lower bound rather than a full forecast. From 0.5 the result will report
   how many runs were clamped (`velocity_saturated_runs`), but the bias itself
@@ -843,8 +849,7 @@ they will ship with 0.5 or that release will slip:
   O(duration)
   ([#1531](https://gitlab.com/trueppm/trueppm/-/issues/1531)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
-  fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
-  calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
+  fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a

@@ -862,6 +862,9 @@ from trueppm_scheduler.engine.validate import (
     _validate_unique_task_ids as _validate_unique_task_ids,
 )
 from trueppm_scheduler.engine.validate import (
+    _velocity_days_on_calendar as _velocity_days_on_calendar,
+)
+from trueppm_scheduler.engine.validate import (
     _velocity_mean as _velocity_mean,
 )
 from trueppm_scheduler.engine.validate import (
