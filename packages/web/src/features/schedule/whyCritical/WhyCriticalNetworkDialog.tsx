@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -31,7 +31,23 @@ interface Props {
  * form at every width.
  */
 export function WhyCriticalNetworkDialog({ chain, view, copyText, onClose, onOpenTask }: Props) {
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
+  // Escape closes this dialog only. The drawer underneath also listens for
+  // Escape on `document` and registered first, so a bubbling listener (the
+  // focus trap's) would close the drawer too; a window capture listener runs
+  // before either and stops the event there.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      e.preventDefault();
+      onCloseRef.current();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
   const hopsById = useMemo(() => new Map(chain.nodes.map((n) => [n.task_id, n.hops])), [chain]);
   const columns = useMemo(() => {
     const cards = view.cards.filter((c) => c.kind !== 'finish');
