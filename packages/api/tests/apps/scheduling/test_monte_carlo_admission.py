@@ -347,6 +347,19 @@ class TestWallClockBudget:
         settings.MC_WALL_CLOCK_BUDGET_SECONDS = None  # type: ignore[attr-defined]
         assert mc_admission.mc_deadline_kwargs() == {}
 
+    def test_an_engine_without_deadline_gets_no_deadline(
+        self, settings: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On the API's 0.4 scheduler floor ``monte_carlo()`` has no ``deadline``.
+
+        Passing one would be a ``TypeError`` on every simulation, so the budget is
+        dropped instead, even when it is configured.
+        """
+        settings.MC_WALL_CLOCK_BUDGET_SECONDS = 15.0  # type: ignore[attr-defined]
+        assert "deadline" in mc_admission.mc_deadline_kwargs()
+        monkeypatch.setattr(mc_admission, "_ENGINE_TAKES_DEADLINE", False)
+        assert mc_admission.mc_deadline_kwargs() == {}
+
     def test_a_size_cap_is_not_mistaken_for_the_time_budget(self) -> None:
         from trueppm_scheduler import SimulationCapExceeded, SimulationTimeExceeded
 

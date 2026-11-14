@@ -24,6 +24,17 @@ change between releases. Pin an exact version (e.g.
   docstrings. The private `engine._WorkingDayCounter` and `engine._collect_leaves`
   names remain as aliases for one release. Scheduling results are unchanged. The
   API adopts the public names after 0.5 publishes (#4976).
+- **`monte_carlo(deadline=...)` and the public `SimulationTimeExceeded`
+  ([#4496](https://gitlab.com/trueppm/trueppm/-/issues/4496)).** `deadline` is a
+  `time.monotonic()` timestamp; past it the simulation raises
+  `SimulationTimeExceeded`, a `SimulationCapExceeded` subclass exported from
+  `trueppm_scheduler`, so existing cap handlers keep catching it. It is checked at
+  phase boundaries (before and after sampling, before each forward-pass chunk, and
+  before the sensitivity tornado), and with a deadline the forward pass runs in at
+  least eight chunks so an overrun stops inside it. A project with a milestone or
+  zero-base task on a non-working `actual_start` still runs its pass as one chunk.
+  The default `None` sets no limit, and a run that finishes in time returns exactly
+  what it would have without one.
 
 ### Changed
 

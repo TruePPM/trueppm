@@ -100,8 +100,18 @@ _MC_REFERENCE_BLOCK_CELLS = 65_536
 # per-chunk loop overhead at all.
 _MC_FORWARD_CHUNK_CELLS = 8_000_000
 
+# With a ``deadline``, the forward pass is split into at least this many chunks (#4496).
+# The deadline is checked between chunks only, and the cell budget above exceeds the
+# API's ``MC_CELL_CAP`` (2.5M), so without this an API run would be one chunk and an
+# overrun in the pass -- the costliest phase -- would run to the end before the next
+# check. Eight bounds the overshoot to about an eighth of the pass for a few
+# per-chunk loop iterations; chunking is exact, so the result does not change.
+_MC_DEADLINE_MIN_CHUNKS = 8
 
-def _mc_forward_chunk_rows(runs: int, n_tasks: int, *, whole: bool) -> int:
+
+def _mc_forward_chunk_rows(
+    runs: int, n_tasks: int, *, whole: bool, interruptible: bool = False
+) -> int:
     """Runs per forward-pass chunk: all of them when ``whole``, else a cell budget's worth.
 
     Chunking is exact, not an approximation: every row of the forward pass is one run,
@@ -112,10 +122,18 @@ def _mc_forward_chunk_rows(runs: int, n_tasks: int, *, whole: bool) -> int:
     that day only when every run shows it there (:func:`_mc_forward_pass`,
     :func:`_mc_zero_base_column`). A chunk cannot see the other chunks' runs, so a
     project with such a task (``whole``) runs in one chunk, as before.
+
+    ``interruptible`` (a deadline is set) further caps a chunk at
+    ``ceil(runs / _MC_DEADLINE_MIN_CHUNKS)`` rows, so the deadline is checked inside
+    the pass and not only around it. A ``whole`` project still runs in one chunk: its
+    pass cannot be split without changing its result.
     """
     if whole:
         return runs
-    return max(1, min(runs, _MC_FORWARD_CHUNK_CELLS // max(1, n_tasks)))
+    rows = max(1, min(runs, _MC_FORWARD_CHUNK_CELLS // max(1, n_tasks)))
+    if interruptible:
+        rows = min(rows, max(1, -(-runs // _MC_DEADLINE_MIN_CHUNKS)))
+    return rows
 
 
 # Kept as the per-column reference oracle for _to_reference_columns_inplace; the parity
@@ -277,7 +295,9 @@ def _check_deadline(deadline: float | None) -> None:
 
     The simulation is vectorized, so it cannot stop mid-array: it checks at phase
     boundaries (before and after sampling, before each forward-pass chunk, before the
-    tornado).
+    tornado). With a deadline the pass runs in at least ``_MC_DEADLINE_MIN_CHUNKS``
+    chunks, except for a project whose pass must run whole (a milestone or zero-base
+    task on a non-working ``actual_start``), which is one chunk.
     A deadline is therefore a bound to within one phase or chunk, not to the
     millisecond. A call already past its deadline raises before it samples anything.
     """
@@ -991,6 +1011,7 @@ def monte_carlo(
         runs,
         n_tasks,
         whole=any(tid in verbatim_actuals for tid in milestone_ids | zero_base_ids),
+        interruptible=deadline is not None,
     )
     shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
         lambda lo, hi: _mc_forward_pass(

@@ -673,6 +673,19 @@ tail), and P50 is very stable (500 samples on each side).
 For planning conversations where the tail matters, a higher run cap
 (`MC_SIMULATION_CAP` is operator-configurable) produces more stable P80 and P95 estimates.
 
+A percentile is a linear interpolation over all runs, so it can fall on a day no run
+finished on. With `n` runs, a P*q* reading always has more than `q × (1 − 1/n)`
+percent of runs on or before it, never fewer: at 1,000 runs that is within 0.1
+points, but at 10 runs a P95 can have only 90% of runs on or before it. A reading
+that falls between two days, including an exact midpoint such as an even run count's
+P50, is shown on the later day. Use at least a few hundred runs before quoting P95
+as a commitment.
+
+:::note[Ships in 0.5]
+Reading a between-days percentile on the later day ships in 0.5. In 0.4 the
+reading is rounded to a whole day and can land on the earlier one.
+:::
+
 | Edition | Max runs | P50 stability | P80 stability | P95 stability |
 |---|---|---|---|---|
 | Community (OSS) | 1,000 | Good | Acceptable | Noisy (±1.4 pp) |

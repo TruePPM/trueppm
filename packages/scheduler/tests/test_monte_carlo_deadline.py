@@ -13,6 +13,7 @@ from datetime import date, timedelta
 import pytest
 
 from trueppm_scheduler import (
+    Dependency,
     InvalidScheduleInput,
     Project,
     SimulationCapExceeded,
@@ -110,3 +111,65 @@ def test_the_deadline_is_checked_between_forward_chunks(monkeypatch: pytest.Monk
 def test_a_malformed_deadline_is_invalid_input(bad: object) -> None:
     with pytest.raises(InvalidScheduleInput, match="deadline"):
         monte_carlo(_project(), runs=10, deadline=bad)  # type: ignore[arg-type]
+
+
+def _chain(n: int = 12) -> Project:
+    """A dependency chain plus a parallel branch, so chunks carry real ES/EF reads."""
+    project = _project(n)
+    project.dependencies = [
+        Dependency(predecessor_id=f"t{i}", successor_id=f"t{i + 1}") for i in range(n - 2)
+    ]
+    return project
+
+
+@pytest.mark.parametrize("make", [_project, _chain])
+def test_a_deadline_splits_the_pass_without_changing_the_result(
+    monkeypatch: pytest.MonkeyPatch, make: object
+) -> None:
+    """The API's run sizes fit one chunk, so a deadline splits the pass to be checkable.
+
+    The split must be invisible in the result: same seed, bitwise-identical output.
+    """
+    project = make()  # type: ignore[operator]
+    without = monte_carlo(project, runs=1000, seed=11).to_dict()
+
+    real_forward = mc_run._mc_forward_pass
+    chunks = [0]
+
+    def _counting_forward(*args: object, **kwargs: object) -> object:
+        chunks[0] += 1
+        return real_forward(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(mc_run, "_mc_forward_pass", _counting_forward)
+    with_deadline = monte_carlo(
+        project, runs=1000, seed=11, deadline=time.monotonic() + 3600
+    ).to_dict()
+    assert chunks[0] >= mc_run._MC_DEADLINE_MIN_CHUNKS
+    assert with_deadline == without
+
+
+def test_an_overrun_in_the_last_chunk_stops_before_the_tornado(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The clock passes the deadline during the final forward chunk; the tornado never runs."""
+    real_forward = mc_run._mc_forward_pass
+    clock = [0.0]
+    chunks = [0]
+    monkeypatch.setattr(mc_run.time, "monotonic", lambda: clock[0])
+    expected = -(-80 // mc_run._MC_DEADLINE_MIN_CHUNKS)  # rows per chunk
+    n_chunks = -(-80 // expected)
+
+    def _forward(*args: object, **kwargs: object) -> object:
+        chunks[0] += 1
+        if chunks[0] == n_chunks:
+            clock[0] = 100.0  # the last chunk overran
+        return real_forward(*args, **kwargs)  # type: ignore[arg-type]
+
+    def _no_tornado(*_a: object, **_k: object) -> None:
+        raise AssertionError("ran the sensitivity tornado past the deadline")
+
+    monkeypatch.setattr(mc_run, "_mc_forward_pass", _forward)
+    monkeypatch.setattr(mc_run, "_duration_sensitivity", _no_tornado)
+    with pytest.raises(SimulationTimeExceeded):
+        monte_carlo(_project(), runs=80, seed=1, deadline=50.0)
+    assert chunks[0] == n_chunks  # every chunk ran; the pre-tornado check refused
