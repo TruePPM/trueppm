@@ -101,7 +101,6 @@ export function WhyCriticalSection({
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [networkOpen, setNetworkOpen] = useState(false);
   const networkButtonRef = useRef<HTMLButtonElement>(null);
-  const pendingRecompute = useRef(false);
 
   const view = useMemo(() => (data ? buildWhyCriticalView(data, new Date()) : null), [data]);
   const copyText = useMemo(() => (data && view ? buildCopyText(data, view) : ''), [data, view]);
@@ -158,6 +157,9 @@ export function WhyCriticalSection({
 
   // A schedule recompute marks the payload stale and refetches after a debounce.
   // TanStack dedupes concurrent fetches on one key, so at most one is in flight.
+  // Staleness keys on the scheduler store's `recalculatedAt` because the payload
+  // carries no `schedule_version` to compare against. During a 429 countdown the
+  // auto refetch is skipped: the user's Try again fetches the latest schedule.
   const recalculatedAt = useSchedulerStore((s) => s.recalculatedAt);
   const lastRecalc = useRef(recalculatedAt);
   useEffect(() => {
@@ -165,10 +167,7 @@ export function WhyCriticalSection({
     lastRecalc.current = recalculatedAt;
     if (!data) return;
     const t = window.setTimeout(() => {
-      if (countdown > 0) {
-        pendingRecompute.current = true;
-        return;
-      }
+      if (countdown > 0) return;
       setRefreshKind('auto');
       void refetch();
     }, RECOMPUTE_DEBOUNCE_MS);
@@ -178,7 +177,6 @@ export function WhyCriticalSection({
   }, [recalculatedAt]);
 
   const manualRefresh = () => {
-    pendingRecompute.current = false;
     setRefreshKind('manual');
     void refetch();
   };
@@ -317,7 +315,13 @@ export function WhyCriticalSection({
           >
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" onClick={() => void copy()}>
-                {copyState === 'copied' ? '✓ Copied' : 'Copy as text'}
+                {copyState === 'copied' ? (
+                  <>
+                    <span aria-hidden="true">✓ </span>Copied
+                  </>
+                ) : (
+                  'Copy as text'
+                )}
               </Button>
               {wide && (
                 <Button

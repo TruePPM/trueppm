@@ -418,13 +418,19 @@ export function buildCopyText(chain: ScheduleDrivingChain, view: WhyCriticalView
     );
   }
   lines.push('Driving chain, nearest first');
+  // Card subtitles in the year form too: the same view built against a far-future
+  // "today" renders every date with its year, keyed back onto the screen's cards.
+  const yearSubtitles = new Map(
+    (buildWhyCriticalView(chain, farFuture)?.cards ?? []).map((c) => [c.key, c.subtitle]),
+  );
   let index = 1;
   for (const card of view.cards) {
     if (card.kind === 'finish') continue;
     const bw = bandWord(card.band);
     const prefix = card.nonDriving ? '   ' : `${index++}. `;
     const title = card.kind === 'self' ? `${card.title} (this task)` : card.title;
-    lines.push(...wrapText(`${prefix}${title} · ${card.subtitle}`, 60, '   '));
+    const subtitle = yearSubtitles.get(card.key) ?? card.subtitle;
+    lines.push(...wrapText(`${prefix}${title} · ${subtitle}`, 60, '   '));
     lines.push(`   · ${floatLabel(card.float)}${bw ? ` · ${bw}` : ''}`);
     for (const e of card.outEdges) {
       lines.push(...wrapText(`   ← ${e.label}${e.driving ? ' · driving' : ''}`, 60, '     '));

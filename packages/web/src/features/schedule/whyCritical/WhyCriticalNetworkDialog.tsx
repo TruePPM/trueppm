@@ -147,7 +147,13 @@ export function WhyCriticalNetworkDialog({ chain, view, copyText, onClose, onOpe
                   .catch(() => setCopied('failed'));
               }}
             >
-              {copied === 'copied' ? '✓ Copied' : 'Copy as text'}
+              {copied === 'copied' ? (
+                <>
+                  <span aria-hidden="true">✓ </span>Copied
+                </>
+              ) : (
+                'Copy as text'
+              )}
             </Button>
             <Button variant="ghost" size="sm" aria-label="Close network view" onClick={onClose}>
               ×

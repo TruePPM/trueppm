@@ -283,6 +283,7 @@ describe('buildCopyText (R4: a superset of the screen)', () => {
   it('contains every rendered card title, subtitle and edge label', () => {
     for (const card of view.cards) {
       expect(flat).toContain(card.title);
+      expect(flat).toContain(card.subtitle);
       for (const e of card.outEdges) expect(flat).toContain(e.label);
     }
   });
@@ -296,6 +297,12 @@ describe('buildCopyText (R4: a superset of the screen)', () => {
     expect(text).toContain('cal d = calendar days (lag). Not addable.');
     expect(text).toContain('engine 0.4.3');
     expect(text).toContain('Project finish: Handover, Jun 2, 2027');
+  });
+
+  it('prints card subtitle dates in the year form', () => {
+    const self = view.cards.find((card) => card.kind === 'self')!;
+    expect(self.subtitle).toBe('Finishes Mar 21');
+    expect(flat).toContain('Finishes Mar 21, 2027');
   });
 
   it('wraps at 60 characters', () => {
