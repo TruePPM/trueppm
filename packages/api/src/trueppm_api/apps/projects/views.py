@@ -2358,8 +2358,12 @@ class ProjectViewSet(
         epics = list(_backlog_qs().filter(type=TaskType.EPIC).order_by("priority_rank", "name"))
 
         def _story_filter(qs: Any) -> Any:
-            return qs.filter(status=TaskStatus.BACKLOG, sprint__isnull=True).exclude(
-                type=TaskType.EPIC
+            # Phases excluded: a phase of all-BACKLOG leaves stores BACKLOG (#3531).
+            return (
+                qs.filter(status=TaskStatus.BACKLOG, sprint__isnull=True)
+                .exclude(type=TaskType.EPIC)
+                .annotate(_backlog_is_phase=task_is_phase_expr())
+                .filter(_backlog_is_phase=False)
             )
 
         story_order = ("priority_rank", "short_id")
@@ -2371,8 +2375,29 @@ class ProjectViewSet(
                 "parent_epic_id", "story_points", "status", "dor"
             )
         )
+        # The RawSQL phase probe cannot sit inside a ``task__in`` subquery (it is
+        # re-aliased and the correlated reference breaks), so phases — few — are
+        # materialized and excluded by id here.
+        backlog_phase_ids = list(
+            Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                status=TaskStatus.BACKLOG,
+                sprint__isnull=True,
+            )
+            .annotate(_backlog_is_phase=task_is_phase_expr())
+            .filter(_backlog_is_phase=True)
+            .values_list("pk", flat=True)
+        )
         ac_agg = AcceptanceCriterion.objects.filter(
-            task__in=_story_filter(Task.objects.filter(project=project, is_deleted=False))
+            task__in=Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                status=TaskStatus.BACKLOG,
+                sprint__isnull=True,
+            )
+            .exclude(type=TaskType.EPIC)
+            .exclude(pk__in=backlog_phase_ids)
         ).aggregate(
             total=db_models.Count("id"),
             met=db_models.Count("id", filter=db_models.Q(met=True)),

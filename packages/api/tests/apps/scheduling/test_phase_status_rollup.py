@@ -9,10 +9,10 @@ write-back on both CPM paths, ``own_status`` isolation, and the consumers that f
 from __future__ import annotations
 
 import datetime
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
-from django.utils import timezone
 
 from trueppm_api.apps.projects.models import (
     Baseline,
@@ -141,4 +141,144 @@ def test_spi_baseline_path_excludes_phase_rows(project: Project) -> None:
             baseline=baseline, task_id=t.pk, task_name=t.name, finish=TODAY, duration=1
         )
     assert spi_counts_by_project([project.pk], TODAY)[project.pk] == (2, 1)
-    _ = timezone.now()
+
+
+def _run(project: Project) -> None:
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+
+
+@pytest.mark.django_db
+def test_backlog_flip_schedules_one_followup_and_settles_in_it(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A phase leaving BACKLOG is excluded from the pass that un-BACKLOGs it (#3531).
+
+    CPM inputs drop BACKLOG rows, so the pass that flips the phase out of BACKLOG
+    still ran without it: no dates, successor not pushed. The rollup must schedule
+    exactly one follow-up recompute, and that follow-up must settle the network and
+    must not enqueue another (the rollup is idempotent).
+    """
+    phase = _t(project, "1")
+    leaf = _t(project, "1.1", S.BACKLOG)
+    succ = _t(project, "2")
+    Dependency.objects.create(predecessor=phase, successor=succ)
+
+    enqueue = MagicMock()
+    with patch("trueppm_api.apps.scheduling.services.enqueue_recalculate", enqueue):
+        with django_capture_on_commit_callbacks(execute=True):
+            _run(project)  # phase -> BACKLOG (entering BACKLOG is a flip too)
+        phase.refresh_from_db()
+        assert phase.status == S.BACKLOG
+        assert enqueue.call_count == 1
+        enqueue.reset_mock()
+        with django_capture_on_commit_callbacks(execute=True):
+            _run(project)  # the follow-up for the flip above: nothing changes
+        assert enqueue.call_count == 0
+
+        Task.objects.filter(pk=leaf.pk).update(status=S.NOT_STARTED)
+        with django_capture_on_commit_callbacks(execute=True):
+            _run(project)  # phase leaves BACKLOG here, but this pass excluded it
+        phase.refresh_from_db()
+        assert phase.status == S.NOT_STARTED
+        assert enqueue.call_count == 1
+        enqueue.assert_called_once_with(str(project.pk))
+        enqueue.reset_mock()
+
+        with django_capture_on_commit_callbacks(execute=True):
+            _run(project)  # the single follow-up: settles, and does not loop
+        assert enqueue.call_count == 0
+
+    phase.refresh_from_db()
+    succ.refresh_from_db()
+    assert phase.early_start is not None and phase.early_finish is not None
+    assert succ.early_start is not None and succ.early_start >= phase.early_finish
+
+
+@pytest.mark.django_db
+def test_rollup_bumps_sync_cursor_for_changed_phases_only(project: Project) -> None:
+    phase = _t(project, "1")
+    _t(project, "1.1", S.COMPLETE)
+    untouched = _t(project, "2")
+    _t(project, "2.1", S.NOT_STARTED)
+    before = (phase.server_version, phase.sync_seq, untouched.server_version, untouched.sync_seq)
+
+    rollup_phase_statuses([project.pk])
+
+    phase.refresh_from_db()
+    untouched.refresh_from_db()
+    assert phase.server_version == before[0] + 1
+    assert phase.sync_seq > before[1]
+    assert (untouched.server_version, untouched.sync_seq) == before[2:]
+
+
+@pytest.mark.django_db
+def test_program_pass_rolls_up_member_phase_status(db: object) -> None:
+    from trueppm_api.apps.projects.models import Program
+    from trueppm_api.apps.scheduling.tasks import _run_program_schedule
+
+    program = Program.objects.create(name="P")
+    proj = Project.objects.create(
+        name="M",
+        start_date=datetime.date(2026, 1, 5),
+        calendar=Calendar.objects.create(name="C2"),
+        program=program,
+    )
+    phase = _t(proj, "1")
+    _t(proj, "1.1", S.COMPLETE)
+    _t(proj, "1.2", S.COMPLETE)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_program_schedule(str(program.pk))
+    phase.refresh_from_db()
+    assert phase.status == S.COMPLETE
+
+
+@pytest.mark.django_db
+def test_status_source_and_invariants_in_task_payload(project: Project) -> None:
+    from trueppm_api.apps.projects.models import StructureRole
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+    from trueppm_api.apps.projects.views import annotate_tasks_queryset
+
+    done = _t(project, "1", percent_complete=0)
+    _t(project, "1.1", S.COMPLETE, percent_complete=100)
+    _t(project, "1.2", S.COMPLETE, percent_complete=100)
+    idle = _t(project, "3")
+    _t(project, "3.1", S.NOT_STARTED, percent_complete=0)
+    empty = _t(project, "2", structure_role=StructureRole.CONTAINER)
+    leaf = _t(project, "4")
+    rollup_phase_statuses([project.pk])
+    rows = {
+        t.pk: TaskSerializer(t).data
+        for t in annotate_tasks_queryset(Task.objects.filter(project=project))
+    }
+    assert rows[done.pk]["status_source"] == "derived"
+    assert rows[done.pk]["status_rollup_count"] == 2
+    assert rows[empty.pk]["status_source"] == "none"
+    assert rows[leaf.pk]["status_source"] == "committed"
+    assert rows[idle.pk]["status_source"] == "derived"
+    # issue invariants: COMPLETE implies 100, NOT_STARTED implies 0.
+    for t in Task.objects.filter(project=project, pk__in=[done.pk, idle.pk]):
+        pct = rows[t.pk]["percent_complete"]
+        if t.status == S.COMPLETE:
+            assert pct == 100
+        if t.status == S.NOT_STARTED:
+            assert pct == 0
+
+
+@pytest.mark.django_db
+def test_backlog_phase_is_not_a_product_backlog_story(project: Project) -> None:
+    """A phase of all-BACKLOG leaves stores BACKLOG; it must not rank as a story (#3531)."""
+    from trueppm_api.apps.projects.product_backlog_services import _backlog_stories
+
+    phase = _t(project, "1")
+    leaf = _t(project, "1.1", S.BACKLOG)
+    rollup_phase_statuses([project.pk])
+    phase.refresh_from_db()
+    assert phase.status == S.BACKLOG
+    assert [t.pk for t in _backlog_stories(project)] == [leaf.pk]

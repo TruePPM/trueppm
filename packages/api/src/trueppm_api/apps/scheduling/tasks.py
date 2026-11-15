@@ -9,6 +9,7 @@ import re
 import uuid
 from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
+from functools import partial
 from typing import Any
 
 import redis as redis_lib
@@ -1384,6 +1385,27 @@ def _persist_driving_flags_and_shift_events(
         )
 
 
+def _schedule_backlog_flip_recompute(project_ids: set[Any]) -> None:
+    """Re-enqueue a recompute for projects whose phase status crossed BACKLOG (#3531).
+
+    CPM inputs exclude ``BACKLOG`` rows, and the rollup just changed which phases
+    are ``BACKLOG`` *after* this pass built its input, so the dates written here
+    used the stale committed set (a phase that left BACKLOG has no dates and its
+    successors are not pushed; one that entered it keeps stale dates). One
+    follow-up pass, deferred to commit and coalesced by ``enqueue_recalculate``'s
+    pending-row dedup, settles it. Not a loop: the follow-up re-derives the same
+    statuses from the same leaves, so no phase flips again and nothing is enqueued.
+    """
+    if not project_ids:
+        return
+    from django.db import transaction
+
+    from trueppm_api.apps.scheduling.services import enqueue_recalculate
+
+    for pid in sorted(project_ids, key=str):
+        transaction.on_commit(partial(enqueue_recalculate, str(pid)))
+
+
 def _run_schedule(
     project_id: str,
     tracker: object = None,
@@ -1423,7 +1445,7 @@ def _run_schedule(
         build_sched_graph,
         build_sched_tasks,
         resolve_cpm_status_date,
-        rollup_phase_statuses,
+        rollup_phase_statuses_detailed,
     )
     from trueppm_api.apps.scheduling.telemetry import cpm_span
 
@@ -1721,7 +1743,8 @@ def _run_schedule(
         delta_payload = _member_cpm_delta(moved_tasks)
 
         # #3531: materialize phase status beside the date rollup, same transaction.
-        rollup_phase_statuses([project_id])
+        _, backlog_flips = rollup_phase_statuses_detailed([project_id])
+        _schedule_backlog_flip_recompute(backlog_flips)
 
         # ADR-1152 (#3578): the write-back above covers only the rows the engine
         # returned, which is the committed set. Rows that LEFT it keep their last
@@ -2260,7 +2283,7 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
     from trueppm_api.apps.scheduling.services import (
         apply_summary_rollups,
-        rollup_phase_statuses,
+        rollup_phase_statuses_detailed,
     )
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
@@ -2384,7 +2407,8 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
             _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
 
         # #3531: phase status rollup for every member project, same transaction.
-        rollup_phase_statuses(member_ids)
+        _, backlog_flips = rollup_phase_statuses_detailed(member_ids)
+        _schedule_backlog_flip_recompute(backlog_flips)
 
         # ADR-1152 (#3578): mirror of the single-project clear. Scoped to every member
         # project, NOT to the schedulable subset — a member whose whole committed set

@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.utils import timezone
 
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
@@ -1093,6 +1094,15 @@ def derive_phase_status(leaf_statuses: Iterable[str]) -> str | None:
 
 
 def rollup_phase_statuses(project_ids: Iterable[Any]) -> int:
+    """Materialize every phase's ``status`` and return how many rows changed.
+
+    Thin wrapper over :func:`rollup_phase_statuses_detailed` for callers that only
+    need the count.
+    """
+    return rollup_phase_statuses_detailed(project_ids)[0]
+
+
+def rollup_phase_statuses_detailed(project_ids: Iterable[Any]) -> tuple[int, set[Any]]:
     """Materialize every phase's ``status`` from its leaf descendants (#3531).
 
     The write ADR-0293's ``phase_status_rollup_locked`` always promised and nothing
@@ -1106,12 +1116,20 @@ def rollup_phase_statuses(project_ids: Iterable[Any]) -> int:
     ``percent_complete_rollup`` reads. Writes ``status`` only and **never**
     ``own_status``: that is the parked authored value
     ``sync_structure_shadow_values`` restores when a phase loses its last child.
-    Like the CPM outputs it is a derived value, so ``bulk_update`` deliberately
-    does not bump ``server_version``.
+    Unlike the CPM outputs, ``status`` is a synced field no client derives, so the
+    ``bulk_update`` bumps ``server_version`` and draws a fresh ``sync_seq`` (one
+    draw per project, ADR-0686); otherwise a rolled-up status would sit below the
+    project's checkpoint and never reach an offline client.
 
-    Returns the number of phase rows changed.
+    Returns ``(changed_count, flipped_project_ids)``. ``flipped_project_ids`` are the
+    projects where a phase moved into or out of ``BACKLOG``: CPM feeds exclude
+    ``BACKLOG`` rows (``_run_schedule``), so that flip changes the committed set and
+    the pass that just ran used the old one. The caller schedules one follow-up
+    recompute for those projects. It cannot loop: the follow-up re-derives the same
+    statuses from the same leaves, so nothing flips again.
     """
-    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
 
     rows = list(
         Task.objects.filter(
@@ -1119,7 +1137,7 @@ def rollup_phase_statuses(project_ids: Iterable[Any]) -> int:
             is_deleted=False,
             is_subtask=False,
             wbs_path__isnull=False,
-        ).only("id", "project_id", "wbs_path", "status")
+        ).only("id", "project_id", "wbs_path", "status", "server_version", "sync_seq")
     )
     by_key: dict[tuple[Any, str], Any] = {(r.project_id, str(r.wbs_path)): r for r in rows}
     parent_keys: set[tuple[Any, str]] = set()
@@ -1139,15 +1157,25 @@ def rollup_phase_statuses(project_ids: Iterable[Any]) -> int:
                 leaf_statuses.setdefault(anc, []).append(row.status)
 
     changed: list[Any] = []
+    flipped: set[Any] = set()
     for key, statuses in leaf_statuses.items():
         derived = derive_phase_status(statuses)
         phase = by_key[key]
         if derived is not None and phase.status != derived:
+            if TaskStatus.BACKLOG in (phase.status, derived):
+                flipped.add(phase.project_id)
             phase.status = derived
             changed.append(phase)
     if changed:
-        Task.objects.bulk_update(changed, ["status"], batch_size=500)
-    return len(changed)
+        seq_by_project = {
+            pid: allocate_for_projects([pid])
+            for pid in sorted({p.project_id for p in changed}, key=str)
+        }
+        for phase in changed:
+            phase.server_version = F("server_version") + 1
+            phase.sync_seq = seq_by_project[phase.project_id]
+        Task.objects.bulk_update(changed, ["status", "server_version", "sync_seq"], batch_size=500)
+    return len(changed), flipped
 
 
 # Capture-path dedup window (ADR-0154 §3): a recompute that produces an
