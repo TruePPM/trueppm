@@ -49,8 +49,7 @@ return count
 
 # INCRBY the key by ARGV[1] and (re)stamp the TTL unconditionally. Used where the
 # counter is advanced by a variable amount and the window is meant to slide from
-# the most recent activity (mention fan-out accounting; the sync in-flight
-# semaphore, whose TTL is a crash-leak guard that should refresh on every entry).
+# the most recent activity (mention fan-out accounting).
 _INCRBY_WITH_TTL_LUA = """
 local count = redis.call('INCRBY', KEYS[1], ARGV[1])
 redis.call('EXPIRE', KEYS[1], ARGV[2])
