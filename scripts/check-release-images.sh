@@ -39,6 +39,14 @@
 #                       from ever reproducing, #2822) — not a way to quiet the
 #                       gate for an image that is expected to come back.
 #
+# RELEASE_IMAGE_BASE    registry path to probe instead of $CI_REGISTRY_IMAGE,
+#                       e.g. "ghcr.io/trueppm" for the Compose publish path
+#                       (#4373). When set, CI_REGISTRY_IMAGE is not required.
+# RELEASE_TAG_BARE      "1" strips the leading "v" before probing. The release
+#                       pipeline pushes GHCR images under the bare semver
+#                       (docker-compose.prod.yml's APP_VERSION), while the
+#                       GitLab registry keeps the v-prefixed tag.
+#
 # Usage:
 #   scripts/check-release-images.sh [tag]
 #
@@ -52,7 +60,8 @@
 
 set -euo pipefail
 
-REGISTRY_IMAGE="${CI_REGISTRY_IMAGE:-}"
+REGISTRY_IMAGE="${RELEASE_IMAGE_BASE:-${CI_REGISTRY_IMAGE:-}}"
+RELEASE_TAG_BARE="${RELEASE_TAG_BARE:-0}"
 RELEASE_IMAGES="${RELEASE_IMAGES:-api web}"
 RELEASE_IMAGE_PROBE="${RELEASE_IMAGE_PROBE:-}"
 ACCEPTED_GAPS="${ACCEPTED_GAPS:-}"
@@ -99,7 +108,7 @@ probe_image() {
 
 main() {
   if [ -z "$REGISTRY_IMAGE" ]; then
-    echo "ERROR: CI_REGISTRY_IMAGE is not set — nothing to probe." >&2
+    echo "ERROR: neither RELEASE_IMAGE_BASE nor CI_REGISTRY_IMAGE is set — nothing to probe." >&2
     exit 2
   fi
 
@@ -111,6 +120,10 @@ main() {
     echo "ERROR: no v* release tag found — cannot verify release images." >&2
     echo "       In CI this usually means the clone has no tags; fetch them first." >&2
     exit 2
+  fi
+
+  if [ "$RELEASE_TAG_BARE" = "1" ]; then
+    tag="${tag#v}"
   fi
 
   echo "Verifying release images for tag: $tag"

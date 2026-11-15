@@ -764,7 +764,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -817,7 +817,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -854,6 +854,7 @@ scripts:test:
     - bash scripts/tests/resolve-prev-web-image.test.sh
     - bash scripts/tests/helm-sentinel-schema-experimental.test.sh
     - bash scripts/tests/check-release-images.test.sh
+    - bash scripts/tests/dockerhub-auth.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
     - bash scripts/tests/check-bulk-create-server-version.test.sh
     - bash scripts/tests/check-app-layering.test.sh
@@ -7315,7 +7316,13 @@ renovate:
   #      self-reference only reads as if it were the wiring when it is not (#3915).
   #   2. Create a Pipeline Schedule (Settings -> CI/CD -> Pipeline schedules):
   #      daily cron, with a variable RENOVATE = "true". renovate.json restricts
-  #      actual PR creation to Monday mornings, so a daily run is cheap.
+  #      routine PR creation to Monday mornings, so a daily run is cheap; security
+  #      advisories (`vulnerabilityAlerts`) are scheduled "at any time" and ride
+  #      this same daily run, so the cron must stay daily (#4679).
+  #   2b. Add a masked CI/CD variable GITHUB_COM_TOKEN (a fine-grained GitHub token
+  #      with no scopes: public read only). Without it Renovate's github.com lookups
+  #      (changelogs, GHSA data) are rate limited anonymously and advisory lookups
+  #      degrade (#4679). Like RENOVATE_TOKEN it reaches the job on its own.
   #
   #      RENOVATE MUST BE A SCHEDULE-LEVEL VARIABLE, NEVER A PROJECT-LEVEL ONE.
   #      This job's rule can only see `$CI_PIPELINE_SOURCE == "schedule"` — GitLab
@@ -9271,6 +9278,36 @@ registry:release-images:
         - .gitlab-ci.yml
   before_script:
     - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    - apk add --no-cache bash git
+  script:
+    - bash scripts/check-release-images.sh
+
+registry:ghcr-release-images:
+  # Nightly proof that the Compose publish path is pullable (#4373).
+  # docker-compose.prod.yml resolves ghcr.io/trueppm/{api,web}:<bare-semver>
+  # (the release pipeline strips the `v`), a ref neither registry:release-images
+  # (GitLab registry, v-prefixed) nor check-compose-image-pins.sh (scopes
+  # first-party images out) ever probes. Same shape and same reasoning as
+  # registry:release-images: an image vanishing is not a diff event. Anonymous
+  # `docker manifest inspect` — the packages are public, and that is also what a
+  # self-hoster's `docker compose pull` does.
+  stage: publish
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    GIT_DEPTH: "0"
+    RELEASE_IMAGE_BASE: "ghcr.io/trueppm"
+    RELEASE_TAG_BARE: "1"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $REGISTRY_NIGHTLY == "true"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - scripts/check-release-images.sh
+        - scripts/tests/check-release-images.test.sh
+        - .gitlab-ci.yml
+  before_script:
     - apk add --no-cache bash git
   script:
     - bash scripts/check-release-images.sh

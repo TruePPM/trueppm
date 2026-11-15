@@ -177,6 +177,8 @@ teardown() {
 trap teardown EXIT
 
 # ---- 0. per-commit images under the names the prod file resolves ------------
+. "$(dirname "${BASH_SOURCE[0]}")/lib/dockerhub-auth.sh"  # optional Docker Hub auth (#4202)
+dockerhub_login
 if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
   echo "${CI_REGISTRY_PASSWORD}" | docker login -u "${CI_REGISTRY_USER}" --password-stdin "${REGISTRY}"
 fi

@@ -114,6 +114,9 @@ REGISTRY="${CI_REGISTRY:-registry.gitlab.com}"
 IMAGE_REPO="${IMAGE_REPO:-${REGISTRY}/trueppm/trueppm}"
 RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
 
+# Authenticate Docker Hub pulls for both legs (#4202); no-op without DOCKERHUB_* vars.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/dockerhub-auth.sh"  # optional Docker Hub auth (#4202)
+dockerhub_login
 if [ "${DRILL_MODE}" = "dev" ]; then
   COMPOSE_FILE="docker-compose.yml"
   export COMPOSE_PROJECT_NAME="trueppm-dev-drill"

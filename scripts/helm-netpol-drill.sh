@@ -195,6 +195,7 @@ trap on_exit EXIT
 # ---- 1. cluster with NO default CNI ----------------------------------------
 # disableDefaultCNI drops kindnetd; podSubnet is set to Calico's own default
 # IPv4 pool (192.168.0.0/16) so the stock manifest needs no CIDR override.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/dockerhub-auth.sh"  # optional Docker Hub auth (#4202)
 log "creating kind cluster '$CLUSTER' (default CNI disabled)"
 cat >/tmp/kind-netpol-config.yaml <<EOF
 kind: Cluster
@@ -213,6 +214,10 @@ kubeadmConfigPatches:
         - localhost
         - 127.0.0.1
 EOF
+# Authenticated Docker Hub pulls for the node's containerd (#4202); no-op
+# without DOCKERHUB_USERNAME/DOCKERHUB_TOKEN.
+dockerhub_login
+dockerhub_kind_containerd_patch >>/tmp/kind-netpol-config.yaml
 # No --wait: without a CNI, nodes stay NotReady until Calico is installed, so
 # waiting for node readiness here would always time out.
 #
