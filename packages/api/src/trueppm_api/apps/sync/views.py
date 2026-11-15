@@ -925,10 +925,10 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
             user=cast("_User", request.user), is_deleted=False
         ).values("program_id")
 
-        # Snapshot the high-water mark BEFORE the delta queries. server_version is
+        # Snapshot the high-water mark BEFORE the delta queries. sync_seq is
         # monotonic, so a write landing after this snapshot moves the row forward in
-        # (server_version, id) order — delivered this pull (re-applied under upsert)
-        # or the next (its version > timestamp = next since); never lost. This is
+        # (sync_seq, id) order — delivered this pull (re-applied under upsert) or the
+        # next (its sync_seq > timestamp = next since); never lost. This is
         # the same concurrency argument pagination.py makes, and the same
         # watermark-before-rows ordering ProjectSyncView relies on. Neither view
         # opens a REPEATABLE READ block; both run at READ COMMITTED, and the

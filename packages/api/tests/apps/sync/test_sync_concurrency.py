@@ -231,11 +231,15 @@ def test_acquire_slot_lua_against_real_valkey(monkeypatch: pytest.MonkeyPatch) -
             assert client.zcard(key) == 0, "release (ZREM) must free both leases"
 
         # Lease expiry: a holder that never releases stops counting once its own
-        # lease ends — the next acquire reaps it inside the script.
-        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 1, 1, "leaked") == 1
-        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 1, 1, "blocked") == 0
+        # lease ends — the next acquire reaps it inside the script. A live 60 s
+        # lease shares the key, so the key's EXPIRE is pushed out and cannot be what
+        # frees the slot: only the script's ZREMRANGEBYSCORE reaps the leaked one.
+        # ARGV order is lease seconds, cap, holder id.
+        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 1, 2, "leaked") == 1
+        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 60, 2, "live") == 1
+        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 60, 2, "blocked") == 0
         time.sleep(2.1)
-        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 1, 1, "after") == 1
-        assert client.zrange(key, 0, -1) == [b"after"]
+        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 60, 2, "third") == 1
+        assert client.zrange(key, 0, -1) == [b"live", b"third"]
     finally:
         client.delete(key)

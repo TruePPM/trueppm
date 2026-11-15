@@ -276,6 +276,45 @@ def test_cleared_promoted_link_is_delivered_on_next_delta_pull(
 
 
 @pytest.mark.django_db
+def test_bulk_delete_cleared_promoted_link_is_delivered_on_next_delta_pull(
+    project: Project, member: object
+) -> None:
+    """#2514 on the set-based path: ``bulk_soft_delete_tasks`` fires no receiver.
+
+    It clears the link itself, so it has to bump the version and draw a cursor the
+    same way the receiver does, or the delete reaches the client but the freed
+    action item never does.
+    """
+    from trueppm_api.apps.projects.models import bulk_soft_delete_tasks
+
+    sprint, _, item = _retro_with_item(project)
+    client = _client(member)
+    client.post(
+        f"/api/v1/sprints/{sprint.pk}/retrospective/action-items/{item.pk}/promote/",
+        {},
+        format="json",
+    )
+    item.refresh_from_db()
+    task = Task.objects.get(pk=item.promoted_task_id)
+    version_before = item.server_version
+    since = client.get(f"/api/v1/projects/{project.pk}/sync/").json()["timestamp"]
+
+    assert bulk_soft_delete_tasks([task]) == 1
+
+    item.refresh_from_db()
+    assert item.promoted_task_id is None
+    assert item.server_version == version_before + 1
+    changes = client.get(f"/api/v1/projects/{project.pk}/sync/?since={since}").json()["changes"]
+    delivered = {
+        row["id"]: row
+        for bucket in ("created", "updated")
+        for row in changes["retro_action_items"][bucket]
+    }
+    assert str(item.pk) in delivered
+    assert delivered[str(item.pk)]["promoted_task_id"] is None
+
+
+@pytest.mark.django_db
 def test_soft_delete_of_unpromoted_task_draws_no_retro_cursor(
     project: Project, member: object
 ) -> None:

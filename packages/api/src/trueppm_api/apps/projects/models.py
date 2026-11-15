@@ -2302,7 +2302,9 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
     * ``deleted_at`` — the nightly reap's retention clock;
     * ``edited_at`` is left alone: deleting is not editing (ADR-0786 §4);
     * the Task post_save soft-delete receivers' effects, which ``update()`` would
-      otherwise skip: ``RetroActionItem.promoted_task_id`` is cleared (ADR-0071) and a
+      otherwise skip: ``RetroActionItem.promoted_task_id`` is cleared (ADR-0071) with
+      a bumped ``server_version`` and a fresh ``sync_seq``, through the same helper
+      the receiver uses (:func:`~.retro_services.clear_promoted_task_links`), and a
       ``BacklogItem`` still ``PULLED`` from a victim goes back to ``PROPOSED``
       (ADR-0069). Both cost one query when nothing matches.
 
@@ -2373,13 +2375,15 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
         cascade_task_synced_children_soft_delete(ids, project_id, now=now)
 
     # The Task post_save soft-delete receivers never fire for ``update()``; run their
-    # effects set-wise. Retro action items are one UPDATE (the receiver sets only
-    # ``promoted_task_id``). Backlog items keep the service's own ``save()`` so
-    # ``server_version`` and the program's ``sync_seq`` are drawn exactly as before;
-    # only items actually still PULLED from a victim are visited.
+    # effects set-wise. Retro action items go through the receiver's own helper, so
+    # the cleared link carries a bumped ``server_version`` and a fresh ``sync_seq``
+    # drawn before the item UPDATE (#2514, #4628). Backlog items keep the service's
+    # own ``save()`` so ``server_version`` and the program's ``sync_seq`` are drawn
+    # exactly as before; only items actually still PULLED from a victim are visited.
     from trueppm_api.apps.projects.backlog_services import reset_pulled_item_on_task_delete
+    from trueppm_api.apps.projects.retro_services import clear_promoted_task_links
 
-    RetroActionItem.objects.filter(promoted_task_id__in=victim_ids).update(promoted_task_id=None)
+    clear_promoted_task_links(victim_ids)
     pulled_task_ids = list(
         BacklogItem.objects.filter(
             pulled_task_id__in=victim_ids,

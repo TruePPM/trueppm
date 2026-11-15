@@ -23,6 +23,8 @@ from django.db.models import F
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from django.contrib.auth.models import User
 
     from trueppm_api.apps.projects.models import (
@@ -321,6 +323,39 @@ def pull_carryover_item_to_sprint(
     return task
 
 
+def clear_promoted_task_links(task_ids: Iterable[Any]) -> int:
+    """Clear ``RetroActionItem.promoted_task_id`` for every item linked to ``task_ids``.
+
+    ``retro_action_items`` is a sync delta collection, and a bulk ``.update()``
+    runs no ``save()`` — so the cleared link has to carry a fresh cursor and
+    version itself, or an offline client keeps showing the item as promoted to a
+    task that no longer exists (#2514). The cursor is drawn *before* the item
+    UPDATE, keeping the global retro lock order: project row, then items (#4628).
+    Costs one query and takes no lock when no item is linked.
+
+    Returns:
+        The number of action items cleared.
+    """
+    from trueppm_api.apps.projects.models import RetroActionItem
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+    ids = list(task_ids)
+    if not ids:
+        return 0
+    linked = RetroActionItem.objects.filter(promoted_task_id__in=ids)
+    project_ids = list(
+        linked.order_by().values_list("retro__sprint__project_id", flat=True).distinct()
+    )
+    if not project_ids:
+        return 0
+    seq = allocate_for_projects(project_ids)
+    return linked.update(
+        promoted_task_id=None,
+        server_version=F("server_version") + 1,
+        sync_seq=seq,
+    )
+
+
 def reset_promoted_task_on_delete(task_id: str) -> None:
     """Reset RetroActionItem.promoted_task_id to NULL when its Task is soft-deleted.
 
@@ -328,27 +363,10 @@ def reset_promoted_task_on_delete(task_id: str) -> None:
     signal so a re-deleted Task automatically frees the originating action
     item to be re-promoted. ADR-0071 §2 rollback.
 
-    ``retro_action_items`` is a sync delta collection, and a bulk ``.update()``
-    runs no ``save()`` — so the cleared link has to carry a fresh cursor and
-    version itself, or an offline client keeps showing the item as promoted to a
-    task that no longer exists (#2514). The cursor is drawn *before* the item
-    UPDATE, keeping the global retro lock order: project row, then items (#4628).
+    The clearing itself is :func:`clear_promoted_task_links`, shared with
+    ``bulk_soft_delete_tasks`` so both delete paths publish the cleared link.
     """
-    from trueppm_api.apps.projects.models import RetroActionItem
-    from trueppm_api.apps.sync.sequence import allocate_for_projects
-
-    linked = RetroActionItem.objects.filter(promoted_task_id=task_id)
-    project_ids = list(
-        linked.order_by().values_list("retro__sprint__project_id", flat=True).distinct()
-    )
-    if not project_ids:
-        return
-    seq = allocate_for_projects(project_ids)
-    updated = linked.update(
-        promoted_task_id=None,
-        server_version=F("server_version") + 1,
-        sync_seq=seq,
-    )
+    updated = clear_promoted_task_links([task_id])
     if updated:
         logger.info(
             "reset_promoted_task_on_delete: freed %s action items linked to task %s",
