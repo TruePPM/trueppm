@@ -4240,6 +4240,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # directly. Distinct from is_summary: a leaf-with-subtasks is is_summary=True
     # but is_phase=False (its only children are drawer subtasks, not structure).
     is_phase = serializers.BooleanField(read_only=True, default=False)
+    # Provenance of ``status`` (#3531): 'derived' on a phase (rolled up from its
+    # leaves, not editable by anyone), 'none' on a declared container with no
+    # children (no status exists yet — clients render a dash, not the stored
+    # NOT_STARTED), 'committed' otherwise. Surfaces gate on this, never on is_phase.
+    status_source = serializers.SerializerMethodField()
+    status_rollup_count = serializers.IntegerField(read_only=True, default=0)
     parent_id = serializers.UUIDField(read_only=True, allow_null=True, default=None)
 
     # Sprint scope-change audit rows (ADR-0060).  Populated via prefetch_related
@@ -4540,6 +4546,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_stalled",
             "is_summary",
             "is_phase",
+            "status_source",
+            "status_rollup_count",
             "parent_id",
             "assignments",
             "owners",
@@ -4649,6 +4657,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_stalled",
             "is_summary",
             "is_phase",
+            "status_source",
+            "status_rollup_count",
             # Shadow values are SERVER-managed (#2950): the server parks them when a
             # row gains its first child and restores them when it loses the last. A
             # writable own_estimate would let a client resurrect a stale number over a
@@ -4762,6 +4772,16 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             .values_list("role", flat=True)
             .first()
         )
+
+    def get_status_source(self, obj: Any) -> str:
+        """'derived' | 'none' | 'committed' — see the field comment (#3531)."""
+        from trueppm_api.apps.projects.models import StructureRole
+
+        if getattr(obj, "is_phase", False):
+            return "derived"
+        if getattr(obj, "structure_role", None) == StructureRole.CONTAINER:
+            return "none"
+        return "committed"
 
     def _instance_is_phase(self) -> bool:
         """Is the instance under update a *phase* (ADR-0293)?

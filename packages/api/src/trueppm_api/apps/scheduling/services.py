@@ -35,6 +35,8 @@ from django.utils import timezone
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from trueppm_api.apps.projects.models import Calendar, Sprint
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
@@ -1051,6 +1053,101 @@ def apply_summary_rollups(
         rolled = _rollup_one_summary(sid, leaf_results, db_task_by_id)
         if rolled is not None:
             result_map[sid] = rolled
+
+
+def derive_phase_status(leaf_statuses: Iterable[str]) -> str | None:
+    """Phase status from its leaf descendants' statuses (#3531, ADR-0293).
+
+    First match wins. ``None`` means "no status" (no leaves: a declared container
+    that is still empty); the caller leaves such a row alone rather than stamping
+    ``NOT_STARTED``, which is the bug this rollup exists to remove. The derivation
+    reads **status only**, never percent: percent is duration-weighted and status
+    is not, so mixing them lets a row say *Complete* at 80%.
+
+    * every leaf ``BACKLOG`` -> ``BACKLOG``
+    * every non-backlog leaf ``COMPLETE`` -> ``COMPLETE``
+    * every non-backlog leaf ``COMPLETE``/``REVIEW`` with >=1 ``REVIEW`` -> ``REVIEW``
+    * any non-backlog leaf ``IN_PROGRESS``/``REVIEW`` -> ``IN_PROGRESS``
+    * any non-backlog leaf ``COMPLETE`` (none underway) -> ``IN_PROGRESS``
+    * otherwise -> ``NOT_STARTED``
+    """
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    statuses = list(leaf_statuses)
+    if not statuses:
+        return None
+    pool = [x for x in statuses if x != TaskStatus.BACKLOG]
+    if not pool:
+        return TaskStatus.BACKLOG
+    done = TaskStatus.COMPLETE
+    review = TaskStatus.REVIEW
+    if all(x == done for x in pool):
+        return done
+    if all(x in (done, review) for x in pool):
+        return review
+    if any(x in (TaskStatus.IN_PROGRESS, review) for x in pool):
+        return TaskStatus.IN_PROGRESS
+    if any(x == done for x in pool):
+        return TaskStatus.IN_PROGRESS
+    return TaskStatus.NOT_STARTED
+
+
+def rollup_phase_statuses(project_ids: Iterable[Any]) -> int:
+    """Materialize every phase's ``status`` from its leaf descendants (#3531).
+
+    The write ADR-0293's ``phase_status_rollup_locked`` always promised and nothing
+    performed. Runs in the CPM write-back transaction (single-project and program
+    pass), beside the date rollup, so a recompute — which every child create,
+    delete, reparent and status write already triggers — keeps it fresh and the two
+    write-backs cannot drift. One SELECT over the project's non-subtask rows and one
+    ``bulk_update`` of only the phases whose value changed; no per-phase query.
+
+    Leaves are non-subtask rows with no live structural descendant, the same set
+    ``percent_complete_rollup`` reads. Writes ``status`` only and **never**
+    ``own_status``: that is the parked authored value
+    ``sync_structure_shadow_values`` restores when a phase loses its last child.
+    Like the CPM outputs it is a derived value, so ``bulk_update`` deliberately
+    does not bump ``server_version``.
+
+    Returns the number of phase rows changed.
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    rows = list(
+        Task.objects.filter(
+            project_id__in=list(project_ids),
+            is_deleted=False,
+            is_subtask=False,
+            wbs_path__isnull=False,
+        ).only("id", "project_id", "wbs_path", "status")
+    )
+    by_key: dict[tuple[Any, str], Any] = {(r.project_id, str(r.wbs_path)): r for r in rows}
+    parent_keys: set[tuple[Any, str]] = set()
+    for pid, path in by_key:
+        parts = path.split(".")
+        for i in range(1, len(parts)):
+            parent_keys.add((pid, ".".join(parts[:i])))
+
+    leaf_statuses: dict[tuple[Any, str], list[str]] = {}
+    for (pid, path), row in by_key.items():
+        if (pid, path) in parent_keys:
+            continue
+        parts = path.split(".")
+        for i in range(1, len(parts)):
+            anc = (pid, ".".join(parts[:i]))
+            if anc in by_key:
+                leaf_statuses.setdefault(anc, []).append(row.status)
+
+    changed: list[Any] = []
+    for key, statuses in leaf_statuses.items():
+        derived = derive_phase_status(statuses)
+        phase = by_key[key]
+        if derived is not None and phase.status != derived:
+            phase.status = derived
+            changed.append(phase)
+    if changed:
+        Task.objects.bulk_update(changed, ["status"], batch_size=500)
+    return len(changed)
 
 
 # Capture-path dedup window (ADR-0154 §3): a recompute that produces an

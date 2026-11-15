@@ -5046,6 +5046,30 @@ def annotate_tasks_queryset(
             [],
             output_field=BooleanField(),
         ),
+        # status_rollup_count (#3531): how many leaves the materialized phase status
+        # was derived from — the same non-subtask leaf-descendant set
+        # ``rollup_phase_statuses`` reads. 0 on a non-phase (the serializer reads
+        # ``status_source`` for provenance, not this).
+        # nosemgrep: avoid-raw-sql
+        status_rollup_count=RawSQL(
+            "("
+            "  SELECT COUNT(*) FROM projects_task c"
+            "  WHERE c.project_id = projects_task.project_id"
+            "    AND c.is_deleted = false"
+            "    AND c.is_subtask = false"
+            "    AND projects_task.wbs_path IS NOT NULL"
+            "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1,}')::lquery"
+            "    AND NOT EXISTS ("
+            "      SELECT 1 FROM projects_task gc"
+            "      WHERE gc.project_id = projects_task.project_id"
+            "        AND gc.is_deleted = false"
+            "        AND gc.is_subtask = false"
+            "        AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
+            "    )"
+            ")",
+            [],
+            output_field=db_models.IntegerField(),
+        ),
         # nosemgrep: avoid-raw-sql
         parent_id=RawSQL(
             "("

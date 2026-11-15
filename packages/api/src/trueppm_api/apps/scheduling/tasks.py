@@ -1423,6 +1423,7 @@ def _run_schedule(
         build_sched_graph,
         build_sched_tasks,
         resolve_cpm_status_date,
+        rollup_phase_statuses,
     )
     from trueppm_api.apps.scheduling.telemetry import cpm_span
 
@@ -1718,6 +1719,9 @@ def _run_schedule(
         # Leaf `duration` is excluded on purpose (#4371): see _CPM_WRITE_FIELDS.
         _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
         delta_payload = _member_cpm_delta(moved_tasks)
+
+        # #3531: materialize phase status beside the date rollup, same transaction.
+        rollup_phase_statuses([project_id])
 
         # ADR-1152 (#3578): the write-back above covers only the rows the engine
         # returned, which is the committed set. Rows that LEFT it keep their last
@@ -2254,7 +2258,10 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     from trueppm_api.apps.projects.program_schedule import gather_program_schedule
     from trueppm_api.apps.projects.slip_conflict import detect_and_upsert_slip_conflicts
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-    from trueppm_api.apps.scheduling.services import apply_summary_rollups
+    from trueppm_api.apps.scheduling.services import (
+        apply_summary_rollups,
+        rollup_phase_statuses,
+    )
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
     try:
@@ -2375,6 +2382,9 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
             # written back, so a concurrent edit anywhere in the program survives
             # (#4371). See _CPM_WRITE_FIELDS.
             _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
+
+        # #3531: phase status rollup for every member project, same transaction.
+        rollup_phase_statuses(member_ids)
 
         # ADR-1152 (#3578): mirror of the single-project clear. Scoped to every member
         # project, NOT to the schedulable subset — a member whose whole committed set
