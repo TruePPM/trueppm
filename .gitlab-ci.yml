@@ -5504,7 +5504,14 @@ wasm:test:
   script:
     - cargo test --all-targets
 
-wasm:conformance:
+scheduler:snapshot-regression:
+  # Renamed from `wasm:conformance` (#3366): it runs ONLY the Python engine, so
+  # the old name read as a Rust-engine gate and made the `wasm-scheduler` freeze
+  # look like it froze this job too. It does not: it is the Python engine's own
+  # snapshot regression test and keeps firing on every `packages/scheduler/**`
+  # change. The WASM engine is frozen until the 0.6 decision (ADR-0015); its
+  # Rust jobs below run on path change and on the nightly schedule only.
+  #
   # The PYTHON half of cross-engine conformance: run the Python scheduler against
   # the shared `packages/wasm-scheduler/fixtures/` corpus and its committed
   # `expected/` snapshots.

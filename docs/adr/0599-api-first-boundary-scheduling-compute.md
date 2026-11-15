@@ -84,9 +84,19 @@ word.**
    CI today, but is not yet wired into any client** ([ADR-0015](0015-wasm-cpm-engine.md));
    the shipped browser preview above remains the TypeScript port until that swap
    lands.
-   *Bounded by:* CI conformance to the Python source-of-record guarantees the
-   offline result matches what the server would compute, and the server still
-   reconciles on reconnect.
+   *Bounded by:* CI conformance to the Python source-of-record, and the server
+   still reconciles on reconnect. *(Corrected 2026-11, #3366: conformance does
+   **not** guarantee the offline result matches the server's. Summary rollup and
+   summary-dependency expansion live in the API (`apply_summary_rollups`, driven by
+   a `children_map` built from `wbs_path`), not in the scheduler package.
+   `children_map` is not a field of `Project.to_dict()`, so the shared JSON contract
+   cannot carry it, the Rust side's `deny_unknown_fields` would reject it, and no
+   fixture contains summary structure. An on-device recompute of a project with a
+   WBS would treat every summary as a leaf, and the conformance suite structurally
+   cannot see that. Offline output is therefore advisory and never produces a
+   refusal; carrying the rollup in the contract, with a summary-task fixture, is
+   tracked by a follow-up issue. The engine is frozen until the 0.6 decision, see
+   ADR-0015.)*
 
 3. **The scheduling engine as a separable library.**
    `trueppm-scheduler` (PyPI) and the Rust crate are usable with no API — embedded

@@ -60,12 +60,12 @@ conformance suite. CI gates for the package:
 
 - `wasm:lint` — `cargo clippy --all-targets -- -D warnings` (mirrored locally by
   `make pre-push-wasm`; there is intentionally no `cargo fmt --check` gate)
-- `wasm:conformance` — the **Python** half of cross-engine conformance: the Python
+- `scheduler:snapshot-regression` (formerly `wasm:conformance`) — the **Python** half of cross-engine conformance: the Python
   engine against the shared `packages/wasm-scheduler/fixtures/` corpus and its
-  committed `expected/` snapshots. Despite the name it exercises one engine
+  committed `expected/` snapshots. It exercises one engine, and keeps firing on every `packages/scheduler/**` change even while the WASM engine is frozen
 - `wasm:test` — `cargo test --all-targets`: the Rust unit tests **and** the Rust
   half of conformance (`tests/conformance.rs`, `tests/invalid_conformance.rs`).
-  Engine agreement is the conjunction of this job and `wasm:conformance` against
+  Engine agreement is the conjunction of this job and `scheduler:snapshot-regression` against
   the one shared oracle, the `expected/` snapshots
 - `wasm:license-check` — `cargo deny check licenses` against the `deny.toml` allow-list
 

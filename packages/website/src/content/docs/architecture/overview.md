@@ -182,7 +182,7 @@ Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on P
 
 ### packages/wasm-scheduler
 
-The CPM engine's Rust sibling: a `petgraph`-based implementation compiled to WebAssembly with `wasm-pack` (crate `trueppm-wasm-scheduler`). It exists for future on-device / offline scheduling (#1777) — a browser or mobile client with no network still needs to recompute dates locally. CI holds it in behavioral conformance with `packages/scheduler` (`wasm:conformance`), and gates it with `wasm:lint` (clippy `-D warnings`), `wasm:test`, and `wasm:license-check` (`deny.toml`). It is not yet wired into the web or mobile client — see [API-first](#api-first) for why an unwired offline engine doesn't compromise the "server always has the last word" invariant.
+The CPM engine's Rust sibling: a `petgraph`-based implementation compiled to WebAssembly with `wasm-pack` (crate `trueppm-wasm-scheduler`). It exists for future on-device / offline scheduling (#1777) — a browser or mobile client with no network still needs to recompute dates locally. CI holds it in behavioral conformance with `packages/scheduler` (`scheduler:snapshot-regression`), and gates it with `wasm:lint` (clippy `-D warnings`), `wasm:test`, and `wasm:license-check` (`deny.toml`). It is not wired into the web or mobile client and is **frozen**: no new feature work lands in it until the decision on its fate (#4743), due no later than 0.6 planning. Its output is advisory and never produces a refusal; it cannot see summary-task structure (see ADR-0599). See [API-first](#api-first) for why an unwired offline engine doesn't compromise the "server always has the last word" invariant.
 
 ### packages/mobile
 
