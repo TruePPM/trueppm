@@ -52,6 +52,27 @@ const CASES = [
   },
 ];
 
+/**
+ * JSX drops the whitespace at a line break, so "The" + newline + {interpolation}
+ * renders "Thesprint". These pin each interpolated sentence as the user reads it.
+ */
+describe('interpolated copy keeps its word spacing', () => {
+  it.each([
+    ['VelocityHelp', <VelocityHelp key="v" />, 'The sprint in progress'],
+    [
+      'GuardrailBreachHelp',
+      <GuardrailBreachHelp key="g" />,
+      'A guardrail is a sprint-composition rule',
+    ],
+  ])('%s renders spaced sentences', async (_n, node, sentence) => {
+    const user = userEvent.setup();
+    renderWithProviders(node);
+    await user.click(screen.getByRole('button'));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(sentence);
+  });
+});
+
 describe.each(CASES)('$name', ({ node, label, text, doc }) => {
   it('opens a labelled dialog from a named trigger and deep-links to docs', async () => {
     const user = userEvent.setup();

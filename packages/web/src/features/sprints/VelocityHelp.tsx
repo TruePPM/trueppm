@@ -21,9 +21,8 @@ export function VelocityHelp() {
           <ul className="flex flex-col gap-1 text-xs text-neutral-text-secondary">
             <li>
               <strong className="text-neutral-text-primary">Closed {itl.lowerPlural} only.</strong>{' '}
-              The
-              {itl.lower} in progress is shown beside the history but is not in the average until it
-              closes.
+              The {itl.lower} in progress is shown beside the history but is not in the average
+              until it closes.
             </li>
             <li>
               <strong className="text-neutral-text-primary">
