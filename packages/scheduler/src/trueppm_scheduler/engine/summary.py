@@ -281,7 +281,8 @@ def _path_counts(
 
     A node whose own path count passes ``MAX_EXPANDED_EDGES`` raises the same error
     :func:`collect_leaves` does (#1822), so a doubling map is refused here in O(1) per
-    node.
+    node. Counting per root-to-leaf path, not per distinct leaf, is the pre-existing
+    #1822 semantics of :func:`collect_leaves`, kept here unchanged.
 
     Returns:
         Path count per node, leaves (nodes absent from ``children_map``) counting 1.

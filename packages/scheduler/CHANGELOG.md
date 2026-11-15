@@ -160,9 +160,10 @@ change between releases. Pin an exact version (e.g.
   are now fresh copies rather than the ones you passed in. A summary expansion
   past `MAX_EXPANDED_EDGES` is refused from leaf counts before any leaf list is
   built: a 6,000-deep chain took 11 to 18 s and about 490 MB to refuse and now
-  takes milliseconds. The limit is an upper bound, and the error says so. A diamond
-  `children_map` is counted per root-to-leaf path, so a diamond whose paths pass
-  the limit but whose distinct leaves do not is now refused.
+  takes milliseconds. The limit is an upper bound, and the error says so. The cross-product
+  bound now sums root-to-leaf path counts rather than distinct-leaf counts, so a
+  diamond `children_map` whose summed products pass the limit can be refused where
+  it was previously accepted; forest-shaped WBS maps are unaffected.
 
 - **A closed milestone whose `actual_start` and `actual_finish` differ is now
   shown on its `actual_finish` day
