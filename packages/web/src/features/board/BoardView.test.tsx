@@ -2017,6 +2017,44 @@ describe('per-cell card cap (issue 1967, ADR-0420)', () => {
     expect(screen.queryByTestId('cell-ceiling-more')).toBeNull();
   });
 
+  it('keeps a card mounted after it is moved into a full cell (#1538, #2340)', () => {
+    // The mover sits in IN_PROGRESS; the target cell (TO DO) already holds 120
+    // calm cards, so once the mover lands there it sorts BEYOND the 50-card window.
+    // Pressing the card focuses it (onPointerDown), and the focused card is what
+    // selectRenderWindow pins — without that pin the moved card would vanish.
+    const calm = Array.from({ length: 120 }, (_, i) => leaf(`full${i}`, `Full ${i + 1}`));
+    mockTasks = [...calm, leaf('mover', 'Mover card', { status: 'IN_PROGRESS' })];
+    const { rerender } = renderBoard();
+    fireEvent.pointerDown(screen.getByText('Mover card'));
+
+    mockTasks = [...calm, leaf('mover', 'Mover card', { status: 'NOT_STARTED' })];
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    rerender(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <BoardView />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText('Mover card')).toBeInTheDocument();
+    // 50 windowed cards + the one pinned card; the other 70 stay unmounted.
+    expect(cardCount()).toBeLessThanOrEqual(51);
+    expect(screen.getByTestId('cell-ceiling-more')).toBeInTheDocument();
+  });
+
+  it('still bounds a cell when the tall-cell cap is on and expanded (#1538)', async () => {
+    const user = userEvent.setup();
+    enableCap(6);
+    mockTasks = Array.from({ length: 120 }, (_, i) => leaf(`cc${i}`, `Capped ${i + 1}`));
+    renderBoard();
+    expect(cardCount()).toBe(6);
+    await user.click(screen.getByTestId('cell-overflow-toggle'));
+    // Expand wants "every card"; the ceiling still holds at 50.
+    expect(cardCount()).toBe(50);
+    expect(screen.getByTestId('cell-ceiling-more')).toBeInTheDocument();
+  });
+
   it('collapses the calm overflow behind a "+N more" disclosure when the cap is on', () => {
     enableCap(6);
     mockTasks = Array.from({ length: 8 }, (_, i) => leaf(`c${i}`, `Card ${i + 1}`));

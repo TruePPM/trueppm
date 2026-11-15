@@ -164,7 +164,7 @@ describe('selectRenderWindow (#1538, #2340)', () => {
     expect(visible).toHaveLength(50);
   });
 
-  it('raises the limit to keep the pinned (focused) card mounted', () => {
+  it('keeps the pinned (focused) card mounted without mounting the cards before it', () => {
     const tasks = calmN(100);
     const { visible } = selectRenderWindow(tasks, {
       limit: 50,
@@ -172,6 +172,8 @@ describe('selectRenderWindow (#1538, #2340)', () => {
       pinnedId: tasks[70].id,
     });
     expect(visible).toContain(tasks[70]);
+    expect(visible).toHaveLength(51);
+    expect(visible.indexOf(tasks[70])).toBe(50);
   });
 
   it('hides nothing at or just over the limit', () => {

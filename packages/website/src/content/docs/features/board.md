@@ -403,8 +403,10 @@ A single board cell (one phase in one status column) or, on a phone, one status
 column never draws more than **50 cards** at a time. When a cell holds more, a
 button at the bottom reads "50 of 120 shown · show 50 more"; each press reveals
 another 50. Cards that need attention are never hidden behind it: critical,
-blocked, running-late, and your own cards always stay on screen, and a card you
-focus or just moved into the cell is kept on screen too. The cell's task count and
+blocked, and running-late cards always stay on screen (plus, on the desktop board,
+your own cards), and a card you focus or just moved into the cell is kept on
+screen too. This ceiling covers board cells and phone status columns; other
+lists, such as the Queue and Backlog views, are not windowed yet. The cell's task count and
 any WIP-limit warning always count every card, shown or not.
 
 This ceiling is separate from **Cap tall cells** in the More menu, which is an

@@ -133,22 +133,26 @@ export interface RenderWindow {
 /**
  * Window `tasks` to at most `limit` calm cards, reusing `selectVisibleCards` so
  * exception cards (critical / blocked / late / mine) are never hidden and order
- * is preserved. `pinnedId` (the keyboard-focused or just-dropped card) raises
- * the limit just enough to keep that card mounted — never strand a focused card
- * out of reach (rule 105).
+ * is preserved. `pinnedId` (the keyboard-focused or just-dropped card) is added
+ * to the window in its original position — exactly that one card, never every
+ * card ahead of it — so a focused card is never stranded out of reach (rule 105)
+ * and a card moved to the tail of a huge cell still mounts only `limit + 1` cards.
  */
 export function selectRenderWindow(
   tasks: Task[],
   opts: { limit: number; myResourceId: string | null; pinnedId?: string | null },
 ): RenderWindow {
-  let limit = opts.limit;
-  if (opts.pinnedId != null) {
-    const idx = tasks.findIndex((t) => t.id === opts.pinnedId);
-    if (idx >= 0) limit = Math.max(limit, idx + 1);
-  }
   const { visible, overflow } = selectVisibleCards(tasks, {
-    cap: limit,
+    cap: opts.limit,
     myResourceId: opts.myResourceId,
   });
-  return { visible, hiddenCount: overflow.length };
+  if (opts.pinnedId == null || !overflow.some((t) => t.id === opts.pinnedId)) {
+    return { visible, hiddenCount: overflow.length };
+  }
+  const keep = new Set(visible.map((t) => t.id));
+  keep.add(opts.pinnedId);
+  return {
+    visible: tasks.filter((t) => keep.has(t.id)),
+    hiddenCount: overflow.length - 1,
+  };
 }
