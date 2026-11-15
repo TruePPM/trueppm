@@ -813,6 +813,33 @@ class TestAllocation:
     def test_colon_inside_a_name_is_not_an_allocation(self) -> None:
         assert _units(b"Task,Owner\nA,Team: Core\n") == {("A", "Team: Core"): 1.0}
 
+    @pytest.mark.parametrize(
+        ("cell", "expected"),
+        [
+            ("Ana:50", {"Ana": 0.5}),
+            ("Ana : 50 %", {"Ana": 0.5}),
+            ("Ana:62.5%", {"Ana": 0.625}),
+            ("Team: Core:25", {"Team: Core": 0.25}),
+            ("Team: Core", {"Team: Core": 1.0}),
+            ("Ana:", {"Ana:": 1.0}),
+            (":50", {":50": 1.0}),
+            ("Ana:5x", {"Ana:5x": 1.0}),
+        ],
+    )
+    def test_name_suffix_forms(self, cell: str, expected: dict[str, float]) -> None:
+        got = _units(f'Task,Owner\nA,"{cell}"\n'.encode())
+        assert got == {("A", name): u for name, u in expected.items()}
+
+    def test_long_adversarial_cell_completes_quickly(self) -> None:
+        import time
+
+        # Many colons and spaces with no valid numeric tail: a backtracking
+        # `.*\S\s*:\s*...` regex went quadratic here (#4998).
+        cell = ("a :" * 20000) + " x"
+        start = time.perf_counter()
+        _units(f'Task,Owner\nA,"{cell}"\n'.encode())
+        assert time.perf_counter() - start < 5.0
+
     def test_repeated_name_in_one_cell_collapses_last_wins(self) -> None:
         assert _units(b"Task,Owner\nA,Ana; ana:50\n") == {("A", "Ana"): 0.5}
 

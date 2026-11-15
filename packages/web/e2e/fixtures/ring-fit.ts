@@ -7,7 +7,7 @@ import type { Locator } from '@playwright/test';
  * padding cuts the ring off — and jsdom has no layout to see it (#4775).
  * A result <= 0 means every child's ring fits.
  */
-export async function scrollerRingOverflow(child: Locator, ringExtent = 3): Promise<number> {
+export function scrollerRingOverflow(child: Locator, ringExtent = 3): Promise<number> {
   return child.evaluate((el, extent) => {
     let scroller = el.parentElement;
     while (scroller && !['auto', 'scroll'].includes(getComputedStyle(scroller).overflowX)) {

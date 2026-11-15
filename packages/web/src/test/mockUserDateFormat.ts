@@ -6,6 +6,8 @@ import {
   type ResolvedDatePrefs,
 } from '@/lib/formatUserDateTime';
 
+const DEFAULT_PREFS: ResolvedDatePrefs = Object.freeze({ timeZone: 'UTC', dateFormat: 'us' });
+
 /**
  * Module factory for `vi.mock('@/hooks/useUserDateFormat', ...)` in suites that
  * render a component without a QueryClient (the real hook reads the current user
@@ -15,9 +17,7 @@ import {
  *   vi.mock('@/hooks/useUserDateFormat', async () =>
  *     (await import('@/test/mockUserDateFormat')).userDateFormatModule());
  */
-export function userDateFormatModule(
-  prefs: ResolvedDatePrefs = { timeZone: 'UTC', dateFormat: 'us' },
-) {
+export function userDateFormatModule(prefs: ResolvedDatePrefs = DEFAULT_PREFS) {
   return {
     useUserDateFormat: () => ({
       prefs,

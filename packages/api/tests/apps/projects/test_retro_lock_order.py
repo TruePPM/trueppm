@@ -105,7 +105,10 @@ def _hold_and_contend(
             with connection.cursor() as cur:
                 cur.execute("SELECT pg_backend_pid()")
                 contender_pid.append(cur.fetchone()[0])
-            assert holder_holds.wait(_TIMEOUT)
+            # An explicit raise, not `assert`: this try catches Exception, so an assert here
+            # would be swallowed into `results` by design (S5779).
+            if not holder_holds.wait(_TIMEOUT):
+                raise TimeoutError("holder never reached its lock gate")
             contender_ready.set()
             results["contender"] = contender()
         except Exception as exc:

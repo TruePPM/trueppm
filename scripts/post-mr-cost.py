@@ -129,7 +129,7 @@ LEAF_RE = re.compile(r"^\d+-\S")
 # A worktree path component in a brief (`.../blueprint-wt/387-cost-records/`): `<digits>-<slug>` after a
 # slash. Briefs usually name the worktree, not the branch, so this is how another branch's agent is seen.
 OTHER_LEAF_RE = re.compile(
-    r"(?<=/)(\d+-[A-Za-z][\w-]*)(?![\w-]|\.\w)"
+    r"(?<=/)(\d++-[A-Za-z][\w-]*+)(?![\w-]|\.\w)"
 )  # not a file name: `3-tier.md`
 BRIEF_CAP = 256 << 10
 STATE_SCHEMA = 1
@@ -1600,7 +1600,7 @@ def post_record(
         "project": project,
         "since": since,
         "until": until,
-        "agents": {m: until for m in members},
+        "agents": dict.fromkeys(members, until),
     }
     fwrite = {
         fsid: {
@@ -4920,6 +4920,22 @@ def _self_test():
         "no repo-locating GIT_* variable leaks into the self-test (a pre-push hook sets GIT_DIR, and every scratch repo would be the outer one)",
         not [k for k in REPO_LOCATING_GIT_ENV if k in os.environ],
         repr([k for k in REPO_LOCATING_GIT_ENV if k in os.environ]),
+    )
+    check(
+        "other worktree leaf: slug after a slash, not a file name or a longer word",
+        OTHER_LEAF_RE.findall("see /w/387-cost-records/ and /w/3-tier.md and /w/12-a.b")
+        == ["387-cost-records"],
+        repr(
+            OTHER_LEAF_RE.findall(
+                "see /w/387-cost-records/ and /w/3-tier.md and /w/12-a.b"
+            )
+        ),
+    )
+    t0 = time.monotonic()
+    OTHER_LEAF_RE.findall("/" + "1-a" * 30000 + ".x")
+    OTHER_LEAF_RE.findall("/1-a" + "-" * 60000 + "!")
+    check(
+        "other worktree leaf regex is linear on a long slug", time.monotonic() - t0 < 5
     )
     url = "https://gitlab.com/g/p/-/merge_requests/1745\n"
     check(

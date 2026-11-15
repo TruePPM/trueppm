@@ -38,7 +38,7 @@ COSTISH_RE = re.compile(
 LEDGER_OFF_RE = re.compile(r"^\s*(?:[-*]\s*)?cost-ledger:\s*off\s*$", re.I)
 # Linear on purpose: `^(#{1,6})\s+(.*?)\s*#*\s*$` backtracks cubically on a heading padded with
 # spaces, and an MR description is user-written. The closing `#`s are stripped in heading_title().
-HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+HEADING_RE = re.compile(r"^(#{1,6})\s++(.*)$")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 
 
@@ -147,6 +147,17 @@ def _self_test():
         return "## Gates\n" + "\n".join(lines) + "\n"
 
     check("subagent-tokens read", subagent_tokens(wrap("subagent-tokens: 7")) == 7)
+    hm = HEADING_RE.match("##   Gates  ##  ")
+    check(
+        "heading regex keeps level and title",
+        hm is not None and hm.group(1) == "##" and heading_title(hm) == "gates",
+    )
+    check(
+        "heading without a space is not a heading", HEADING_RE.match("##Gates") is None
+    )
+    t0 = time.monotonic()
+    HEADING_RE.match("#" + " " * 200000 + "\n")
+    check("heading regex is linear on a space-padded line", time.monotonic() - t0 < 5)
     est = est_cost_usd(wrap("est-cost-usd: 1.50 (prices 2026-11-01)"))
     check("est-cost-usd read", est is not None and math.isclose(est, 1.5))
     check(

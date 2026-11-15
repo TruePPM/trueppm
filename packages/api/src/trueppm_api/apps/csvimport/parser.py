@@ -1831,9 +1831,30 @@ def _collect_task_labels(
 _MIN_ALLOCATION_PERCENT = 1.0
 _MAX_ALLOCATION_PERCENT = 200.0
 
-#: A trailing ``:<number>`` (optionally ``%``) on one assignee name. Only a
-#: trailing numeric suffix counts, so a name that merely contains ``:`` is intact.
-_NAME_ALLOCATION_RE = re.compile(r"^(?P<name>.*\S)\s*:\s*(?P<pct>\d+(?:\.\d+)?)\s*%?\s*$")
+#: The part after the last ``:`` of one assignee name: ``<number>`` with an
+#: optional ``%``. Anchored at both ends, with no unbounded run on either side of
+#: a repeated character class, so it cannot backtrack super-linearly.
+_ALLOCATION_TAIL_RE = re.compile(r"\s*(?P<pct>\d+(?:\.\d+)?)\s*%?\s*")
+
+
+def _split_name_allocation(name: str) -> tuple[str, str] | None:
+    """Split a trailing ``:<number>`` (optionally ``%``) off one assignee name.
+
+    Only a trailing numeric suffix counts, so a name that merely contains ``:`` is
+    intact. The suffix holds exactly one colon, so it always starts at the last one;
+    splitting there is linear, where a greedy ``.*`` regex backtracked quadratically on a
+    long cell (#4998). Returns ``(name, pct)`` or None when there is no suffix.
+    """
+    head, sep, tail = name.rpartition(":")
+    if not sep:
+        return None
+    base = head.rstrip()
+    if not base or "\n" in base:
+        return None
+    tail_match = _ALLOCATION_TAIL_RE.fullmatch(tail)
+    if tail_match is None:
+        return None
+    return base, tail_match.group("pct")
 
 
 def _parse_allocation_percent(raw: str) -> float | None:
@@ -1897,10 +1918,10 @@ def _build_resources(
         for part in re.split(r"[,;/]", raw):
             name = part.strip()
             percent = row_percent
-            suffix = _NAME_ALLOCATION_RE.match(name)
+            suffix = _split_name_allocation(name)
             if suffix:
-                name = suffix.group("name").strip()
-                parsed = _parse_allocation_percent(suffix.group("pct"))
+                name = suffix[0].strip()
+                parsed = _parse_allocation_percent(suffix[1])
                 if parsed is not None:
                     percent = parsed
             if not name:
