@@ -270,6 +270,36 @@ class TestRefusals:
         with pytest.raises(InvalidScheduleInput, match="other"):
             to_graph(schedule(project), other)
 
+    def test_project_that_gained_a_task_is_refused(self) -> None:
+        project = _diamond()
+        result = schedule(project)
+        project.tasks.append(_task("zz", 1))  # no link, so only the id set can catch it
+        with pytest.raises(InvalidScheduleInput, match="in project but not result: 'zz'"):
+            to_graph(result, project)
+
+    def test_project_that_lost_a_task_is_refused(self) -> None:
+        project = _diamond()
+        result = schedule(project)
+        gone = project.tasks.pop().id
+        project.dependencies[:] = [
+            d for d in project.dependencies if gone not in (d.predecessor_id, d.successor_id)
+        ]
+        with pytest.raises(InvalidScheduleInput, match="in result but not project"):
+            to_graph(result, project)
+
+    def test_changed_dependency_type_is_refused(self) -> None:
+        project = Project(
+            id="p",
+            name="n",
+            start_date=date(2026, 1, 5),
+            tasks=[_task("a", 3), _task("b", 2)],
+            dependencies=[_dep("a", "b")],
+        )
+        result = schedule(project)
+        project.dependencies[:] = [_dep("a", "b", DependencyType.SS, 5)]
+        with pytest.raises(InvalidScheduleInput, match="driving edge"):
+            to_graph(result, project)
+
     def test_unscheduled_task_is_refused(self) -> None:
         project = _diamond()
         result = schedule(project)

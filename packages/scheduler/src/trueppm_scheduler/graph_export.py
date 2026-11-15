@@ -343,6 +343,15 @@ def to_graph(result: ScheduleResult, project: Project) -> GraphExport:
     project that was scheduled; a result and project that do not match are refused
     rather than blended.
 
+    What "do not match" covers: the project id, the task-id set (a task added to or
+    removed from the project after scheduling), and every driving edge in
+    ``result`` (each must still be a dependency of ``project`` with the same
+    predecessor, successor and type, so a changed link type is refused). What it
+    cannot detect, because ``ScheduleResult`` records only the *driving* links and
+    not their lags: a changed lag, or a new or removed non-driving link, between
+    the same tasks. Task names and dates are always read from ``result``. Re-run
+    ``schedule()`` whenever the project changes rather than relying on this check.
+
     Args:
         result: The :class:`ScheduleResult` returned by ``schedule(project)``.
         project: The :class:`Project` that was scheduled, supplying each
@@ -355,9 +364,11 @@ def to_graph(result: ScheduleResult, project: Project) -> GraphExport:
     Raises:
         InvalidScheduleInput: If ``result`` is not a :class:`ScheduleResult` or
             ``project`` is not a :class:`Project`, if ``result`` was not computed
-            from ``project`` (a different project id), a task has no computed dates, a task id is
-            repeated, or a dependency names a task that is not in ``result``. The
-            offending ids are named in the message.
+            from ``project`` (a different project id, a different task-id set, or
+            a driving edge that is not a dependency of ``project``), a task has
+            no computed dates, a task id is repeated, or a dependency names a
+            task that is not in ``result``. The offending ids are named in the
+            message.
         CyclicDependencyError: If the dependencies contain a cycle; ``cycle``
             names the ids on it. No partial graph is emitted.
     """
@@ -371,6 +382,38 @@ def to_graph(result: ScheduleResult, project: Project) -> GraphExport:
         raise InvalidScheduleInput(
             f"Result is for project {_short_repr(result.project_id)}, "
             f"not {_short_repr(project.id)}."
+        )
+    result_ids = {t.id for t in result.tasks}
+    project_ids = {t.id for t in project.tasks}
+    if result_ids != project_ids:
+        parts = []
+        if project_ids - result_ids:
+            parts.append(
+                "in project but not result: "
+                + ", ".join(_short_repr(i) for i in sorted(project_ids - result_ids))
+            )
+        if result_ids - project_ids:
+            parts.append(
+                "in result but not project: "
+                + ", ".join(_short_repr(i) for i in sorted(result_ids - project_ids))
+            )
+        raise InvalidScheduleInput(
+            "Result was not computed from this project; task ids differ (" + "; ".join(parts) + ")."
+        )
+    project_links = {
+        (d.predecessor_id, d.successor_id, d.dep_type.value) for d in project.dependencies
+    }
+    stale = sorted(
+        (e.predecessor_id, e.successor_id, e.dep_type)
+        for e in result.driving_edges
+        if (e.predecessor_id, e.successor_id, e.dep_type) not in project_links
+    )
+    if stale:
+        raise InvalidScheduleInput(
+            "Result was not computed from this project; driving edge(s) not in its "
+            "dependencies: "
+            + ", ".join(f"{_short_repr(p)}->{_short_repr(s)} ({t})" for p, s, t in stale)
+            + "."
         )
     nodes: list[GraphNode] = []
     for t in result.tasks:
