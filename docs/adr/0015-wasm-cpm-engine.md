@@ -103,6 +103,12 @@ types, same semantics. This is the contract between the two implementations.
 `incremental_update` returns the same shape but only includes tasks downstream of the
 changed task (subgraph extraction, matching the existing `buildSubgraph.ts` approach).
 
+> **Superseded 2026-11-14 (#4101):** `incremental_update` now also returns every
+> task whose CPM output differs from the input it was given — upstream and
+> parallel tasks whose late dates and float moved because the drag moved the
+> project finish. A caller that passes its previous run's output back gets just
+> the changed rows; one that does not gets every task.
+
 ### Integration points
 
 **Web (packages/web)**:

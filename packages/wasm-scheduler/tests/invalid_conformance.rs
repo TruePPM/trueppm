@@ -27,7 +27,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use trueppm_wasm_scheduler::models::Project;
-use trueppm_wasm_scheduler::schedule_impl;
+use trueppm_wasm_scheduler::{
+    compute_schedule, incremental_checked, schedule_checked, schedule_impl, ErrorKind,
+};
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
@@ -98,4 +100,106 @@ fn parse_reject_fixtures_fail_to_deserialize() {
              date form, got Ok (#1861)"
         );
     }
+}
+
+/// #4474: every rejection carries a structured kind. A degenerate input is
+/// `invalid_input`, `cycle`, or — for a calendar whose exceptions leave no
+/// working day for a pass to land on — `schedule`; never `parse` or
+/// `unknown_task`. Only a `cycle` carries a cycle chain.
+#[test]
+fn invalid_fixtures_reject_with_a_structured_kind() {
+    let dir = fixtures_dir().join("invalid");
+    for stem in &json_stems(&dir) {
+        let json = fs::read_to_string(dir.join(format!("{stem}.json"))).unwrap();
+        let project: Project = serde_json::from_str(&json).unwrap();
+        let err = schedule_checked(&project).expect_err(stem);
+        let kind = err.error_kind();
+        assert!(
+            matches!(
+                kind,
+                ErrorKind::InvalidInput | ErrorKind::Cycle | ErrorKind::Schedule
+            ),
+            "{stem}: unexpected kind {kind:?} ({err})"
+        );
+        assert_eq!(
+            kind == ErrorKind::Cycle,
+            err.cycle_chain().is_some(),
+            "{stem}: a cycle chain must come with, and only with, kind cycle"
+        );
+        // The message is the one `schedule_impl` has always returned.
+        assert_eq!(
+            schedule_impl(&project).unwrap_err(),
+            err.to_string(),
+            "{stem}"
+        );
+    }
+    let json = fs::read_to_string(dir.join("cycle.json")).unwrap();
+    let project: Project = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        schedule_checked(&project).unwrap_err().error_kind(),
+        ErrorKind::Cycle
+    );
+}
+
+/// #4474: a cyclic input yields kind `cycle` with the full canonical chain —
+/// the same chain the Python engine reports on `CyclicDependencyError.cycle`,
+/// pinned by the shared `cycle_errors/expected/` snapshots.
+#[test]
+fn cycle_error_carries_the_canonical_chain() {
+    let dir = fixtures_dir().join("cycle_errors");
+    let stems = json_stems(&dir);
+    assert!(!stems.is_empty());
+    for stem in &stems {
+        let project: Project =
+            serde_json::from_str(&fs::read_to_string(dir.join(format!("{stem}.json"))).unwrap())
+                .unwrap();
+        let expected: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dir.join("expected").join(format!("{stem}.json"))).unwrap(),
+        )
+        .unwrap();
+        let want: Vec<String> = serde_json::from_value(expected["cycle"].clone()).unwrap();
+        for err in [
+            schedule_checked(&project).unwrap_err(),
+            incremental_checked(&project, &project.tasks[0].id).unwrap_err(),
+        ] {
+            assert_eq!(err.error_kind(), ErrorKind::Cycle, "{stem}");
+            assert_eq!(err.kind(), "cycle", "{stem}");
+            assert_eq!(err.cycle(), Some(want.clone()), "{stem}");
+            assert_eq!(
+                err.message(),
+                expected["message"].as_str().unwrap(),
+                "{stem}"
+            );
+        }
+    }
+}
+
+/// #4474: the JS entry point itself distinguishes malformed JSON (`parse`) from a
+/// project that parsed but is not schedulable (`invalid_input`), and an unknown
+/// changed task (`unknown_task`) from both.
+#[test]
+fn entry_points_classify_parse_input_and_unknown_task() {
+    let err = compute_schedule("{not json").unwrap_err();
+    assert_eq!(err.kind(), "parse");
+    assert_eq!(err.cycle(), None);
+    assert!(err.to_js_string().starts_with("parse: "));
+
+    let dir = fixtures_dir().join("parse_rejects");
+    for stem in &json_stems(&dir) {
+        let json = fs::read_to_string(dir.join(format!("{stem}.json"))).unwrap();
+        assert_eq!(
+            compute_schedule(&json).unwrap_err().kind(),
+            "parse",
+            "{stem}"
+        );
+    }
+
+    let empty = r#"{"id":"p","name":"p","start_date":"2026-04-01","tasks":[],"dependencies":[]}"#;
+    assert_eq!(compute_schedule(empty).unwrap_err().kind(), "invalid_input");
+
+    let valid = fs::read_to_string(fixtures_dir().join("basic_fs_chain.json")).unwrap();
+    let project: Project = serde_json::from_str(&valid).unwrap();
+    let err = incremental_checked(&project, "GHOST").unwrap_err();
+    assert_eq!(err.error_kind(), ErrorKind::UnknownTask);
+    assert_eq!(err.kind(), "unknown_task");
 }

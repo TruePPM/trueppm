@@ -10,6 +10,10 @@ repository = "https://gitlab.com/trueppm/trueppm"
 # crates.io sdist would carry the SPDX id and no license text (#2632). The root
 # LICENSE does not travel with a separately-published crate.
 include = ["src/**/*", "LICENSE", "NOTICE", "Cargo.toml"]
+# Not published until the npm/crates decision (#948, #2634) is made: `include`
+# above prepares a package, and nothing else stops an accidental `cargo publish`
+# from freezing today's API as a release (#4474).
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]

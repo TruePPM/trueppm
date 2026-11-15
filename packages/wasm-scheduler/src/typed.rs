@@ -27,8 +27,9 @@
 //!   bitset: at one byte per task it is ~5 KB for 5k tasks (negligible) and needs
 //!   no bit-unpacking on the JS side.
 //! - `node_indices` — the dense node position of each row. For a full recalc this
-//!   is `0..N`; for the downstream-only (incremental) recalc it is the subset of
-//!   nodes reachable from the dragged task — i.e. this array *is* the delta-emit.
+//!   is `0..N`; for the incremental recalc it is the nodes reachable from the
+//!   dragged task plus every node whose output moved relative to the input
+//!   project (#4101) — i.e. this array *is* the delta-emit.
 //!
 //! The driving-edge set (`ScheduleResult.driving_edges`) is deliberately not a
 //! column: a preview that draws the link hierarchy must take it from the JSON path.
@@ -50,7 +51,7 @@ use crate::backward::backward_pass;
 use crate::floats::compute_floats;
 use crate::forward::forward_pass;
 use crate::graph::ProjectGraph;
-use crate::incremental::downstream_mask;
+use crate::incremental::{downstream_mask, emit_mask};
 use crate::models::{Project, Task};
 
 /// Columnar CPM result for a set of tasks, indexed by their row position.
@@ -61,7 +62,8 @@ use crate::models::{Project, Task};
 /// to JS as typed arrays.
 pub(crate) struct TypedResult {
     /// Dense node position of each row (row → node). `0..N` for a full recalc;
-    /// the downstream subset for an incremental recalc (the delta).
+    /// for an incremental recalc, the downstream subset plus every task whose
+    /// output moved (the delta, #4101).
     pub node_indices: Vec<u32>,
     /// Day ordinals relative to the session epoch.
     pub early_start: Vec<i32>,
@@ -237,9 +239,10 @@ pub(crate) fn compute_full_typed(
     Ok(result)
 }
 
-/// Downstream-only CPM over the cached graph, emitted as columnar typed arrays.
-/// Only tasks reachable from `changed_task_id` (inclusive) are pushed, so
-/// `node_indices` is the drag delta. Whole-project aggregates are still computed
+/// Incremental CPM over the cached graph, emitted as columnar typed arrays.
+/// Tasks reachable from `changed_task_id` (inclusive) and every task whose
+/// output moved relative to the input project are pushed, so `node_indices` is
+/// the drag delta (#4101). Whole-project aggregates are still computed
 /// over the full task set, matching the JSON path.
 pub(crate) fn compute_downstream_typed(
     project: &Project,
@@ -256,10 +259,15 @@ pub(crate) fn compute_downstream_typed(
     let project_finish = run_passes(scratch, project, pg)?;
     let project_start = scratch.iter().filter_map(|t| t.early_start).min().unwrap();
 
-    let downstream_count = mask.iter().filter(|&&d| d).count();
-    let mut result = TypedResult::with_capacity(downstream_count);
+    // Same emitted set as the JSON path (#4101): downstream, plus every task whose
+    // output moved relative to the input project — not relative to the scratch
+    // buffer, which holds the previous frame and would make the set depend on
+    // the call history.
+    let emit = emit_mask(mask, &project.tasks, scratch);
+    let emit_count = emit.iter().filter(|&&d| d).count();
+    let mut result = TypedResult::with_capacity(emit_count);
     for (node, t) in scratch.iter().enumerate() {
-        if mask[node] {
+        if emit[node] {
             result.push(node, t, epoch);
         }
     }
@@ -647,6 +655,150 @@ mod tests {
         let json = schedule_impl(&project).unwrap();
         let typed = compute_full_typed(&project, &pg, &mut scratch, epoch).unwrap();
         assert_eq!(typed.node_indices.len(), json.tasks.len());
+    }
+
+    /// `A(5) -> B(3)` plus `P(2)` in parallel off nothing, with every task's
+    /// computed fields primed from a full run — the input a preview passes when
+    /// it hands the previous output back (#4101).
+    fn primed_parallel_project() -> Project {
+        let mut project = Project {
+            id: "p".to_string(),
+            name: "parallel".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: vec![make_task("A", 5), make_task("B", 3), make_task("P", 2)],
+            dependencies: vec![dep("A", "B")],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        let before = schedule_impl(&project).unwrap();
+        for t in project.tasks.iter_mut() {
+            let b = before.tasks.iter().find(|r| r.id == t.id).unwrap();
+            t.early_start = Some(b.early_start);
+            t.early_finish = Some(b.early_finish);
+            t.late_start = Some(b.late_start);
+            t.late_finish = Some(b.late_finish);
+            t.scheduled_start = Some(b.scheduled_start);
+            t.milestone_at_day_end = b.milestone_at_day_end;
+            t.total_float = b.total_float;
+            t.free_float = b.free_float;
+            t.is_critical = b.is_critical;
+        }
+        project
+    }
+
+    fn typed_row_ids(typed: &TypedResult, project: &Project) -> Vec<String> {
+        let mut ids: Vec<String> = typed
+            .node_indices
+            .iter()
+            .map(|&n| project.tasks[n as usize].id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    /// Typed port of `parallel_branch_float_follows_a_finish_the_drag_moved`
+    /// (#4101): lengthening B moves the finish, so P — which no path from B
+    /// reaches — gains float and must be emitted with the full run's values. The
+    /// typed row set must equal the JSON incremental row set.
+    #[test]
+    fn typed_parallel_branch_float_follows_a_finish_the_drag_moved() {
+        let base = primed_parallel_project();
+        let mut dragged = base.clone();
+        dragged.tasks[1].duration += 4.0 * 86_400.0;
+        let epoch = dragged.start_date;
+        let pg = build_graph(&dragged).unwrap();
+
+        let full = schedule_impl(&dragged).unwrap();
+        let json = incremental_update(&dragged, "B").unwrap();
+        let mut scratch = dragged.tasks.clone();
+        let typed = compute_downstream_typed(&dragged, &pg, &mut scratch, epoch, "B").unwrap();
+
+        let full_p = full.tasks.iter().find(|t| t.id == "P").unwrap();
+        assert!(
+            full_p.total_float > base.tasks[2].total_float,
+            "fixture must move P's float, or the test proves nothing"
+        );
+        let row = typed
+            .node_indices
+            .iter()
+            .position(|&n| n == 2)
+            .expect("P's float moved, so the typed result must carry it");
+        assert_eq!(typed.total_float[row], full_p.total_float);
+        assert_eq!(
+            ord_to_date(typed.late_finish[row], epoch),
+            full_p.late_finish
+        );
+
+        let mut json_ids: Vec<String> = json.tasks.iter().map(|t| t.id.clone()).collect();
+        json_ids.sort();
+        assert_eq!(typed_row_ids(&typed, &dragged), json_ids);
+        assert_eq!(json_ids, vec!["B".to_string(), "P".to_string()]);
+    }
+
+    /// The session contract (#4101): each frame is compared against the input
+    /// the session was built from, not the previous frame. Rows not returned
+    /// equal the session input's values, so a consumer draws the session input
+    /// and overlays each frame's delta (no accumulation). A row whose values
+    /// return to the start-of-drag state is therefore NOT re-emitted.
+    #[test]
+    fn session_frames_are_deltas_against_the_session_input() {
+        // `project` plays the session's resident project: only `planned_start`
+        // changes between frames, as `setTaskStart` does; `scratch` persists.
+        let session_input = primed_parallel_project();
+        let mut project = session_input.clone();
+        let epoch = project.start_date;
+        let pg = build_graph(&project).unwrap();
+        let mut scratch = project.tasks.clone();
+        let b_start = project.tasks[1].early_start.unwrap();
+
+        let overlay_matches_full = |project: &Project, typed: &TypedResult| {
+            let full = schedule_impl(project).unwrap();
+            for (node, input) in session_input.tasks.iter().enumerate() {
+                let ft = full.tasks.iter().find(|t| t.id == input.id).unwrap();
+                let (lf, tf) = match typed.node_indices.iter().position(|&n| n as usize == node) {
+                    Some(row) => (
+                        ord_to_date(typed.late_finish[row], epoch),
+                        typed.total_float[row],
+                    ),
+                    None => (input.late_finish.unwrap(), input.total_float),
+                };
+                assert_eq!(lf, ft.late_finish, "{} LF", input.id);
+                assert_eq!(tf, ft.total_float, "{} TF", input.id);
+            }
+        };
+
+        // Frame 1: slip B by 4 days. P and A gain float; both are emitted.
+        project.tasks[1].planned_start = Some(b_start + chrono::Duration::days(4));
+        let slipped = compute_downstream_typed(&project, &pg, &mut scratch, epoch, "B").unwrap();
+        assert!(
+            typed_row_ids(&slipped, &project).contains(&"P".to_string()),
+            "fixture must move P's float, or the restore proves nothing"
+        );
+        overlay_matches_full(&project, &slipped);
+
+        // Frame 2: restore B. P's values equal the session input again, so P is
+        // not re-emitted even though the previous frame showed it moved.
+        project.tasks[1].planned_start = Some(b_start);
+        let restored = compute_downstream_typed(&project, &pg, &mut scratch, epoch, "B").unwrap();
+        assert_eq!(typed_row_ids(&restored, &project), vec!["B".to_string()]);
+        overlay_matches_full(&project, &restored);
+    }
+
+    /// A session built from input with no computed values returns every row on
+    /// every frame — each output differs from an absent one (#4101).
+    #[test]
+    fn session_from_unprimed_input_returns_every_row() {
+        let project = chain_project();
+        let epoch = project.start_date;
+        let pg = build_graph(&project).unwrap();
+        let mut scratch = project.tasks.clone();
+        for _ in 0..2 {
+            let typed = compute_downstream_typed(&project, &pg, &mut scratch, epoch, "C").unwrap();
+            assert_eq!(typed.node_indices.len(), project.tasks.len());
+        }
     }
 
     /// Sanity: the drag genuinely moves the schedule, and `incremental_update`
