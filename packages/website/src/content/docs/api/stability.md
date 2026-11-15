@@ -480,6 +480,22 @@ the program/project visibility boundary. Resolve and render an @mention from `us
 | Announced | 0.4 (removed with no window; security-critical exception) |
 | Migration | use `username`; email is not available on these payloads |
 
+### My Work delta high-water mark removed (#2512)
+
+`GET /api/v1/me/work/` no longer returns `server_version_high_water`. This is a
+**Breaking** removal, taken without a window as a policy exception, on the same
+reasoning as #3137: nothing read the field, and the endpoint never accepted a `?since=`
+to send it back to. The window would have preserved only the field's documented
+instruction, which was unsafe. The value was the largest `server_version` across tasks
+from several projects. `server_version` counts one row's saves, so that maximum is not
+an ordering: a client that sent it back as a sync cursor would have lost every task
+edited less often than the busiest one, permanently.
+
+| | |
+|---|---|
+| Announced | 0.5 (removed with no window; policy exception, see above) |
+| Migration | none needed for My Work; offline clients pull each project from `/api/v1/projects/{id}/sync/` and adopt that response's `timestamp` |
+
 ### Task-run initiator id replaced and error text redacted (#1726)
 
 The task-run payloads (`/projects/{id}/task-runs/`, `/task-runs/{id}/`,
