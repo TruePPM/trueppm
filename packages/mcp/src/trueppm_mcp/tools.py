@@ -908,7 +908,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
     @server.tool()
     async def get_project_cost(project_id: str) -> dict[str, Any]:
-        """A project's cost: budget, actual cost, earned value, cost variance, utilization.
+        """A project's cost: budget, actual cost, earned value, variance, CPI/EAC/ETC/VAC/TCPI.
 
         Read-only; recomputed server-side on every call. Amounts are decimal strings
         in the workspace ``currency``. Read the server's figures and ``definitions``
@@ -916,10 +916,13 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
         Check ``cost_computable`` before quoting a total: when false, one or more
         people in scope have no hourly rate, ``actual`` covers only the priced part,
-        and each KPI reports ``available: false`` with a ``reason`` (``no_budget`` or
-        ``missing_rates``) instead of a value. ``missing_rate_count`` and
-        ``missing_rate_resources`` say who is unrated. ``lines`` holds one row per
-        person (hours, rate, cost).
+        and each KPI reports ``available: false`` with a ``reason`` (``no_budget``,
+        ``missing_rates``, or for the forecasts ``no_actual_cost``, ``no_earned_value``,
+        ``budget_exhausted``) instead of a value. ``provenance`` names the inputs behind
+        every figure (rate source, percent-complete basis, EAC method) and marks each
+        as computed or restricted; quote it when asked where a number came from.
+        ``missing_rate_count`` and ``missing_rate_resources`` say who is unrated.
+        ``lines`` holds one row per person (hours, rate, cost).
 
         Cost is visible to project Admins and Owners only. Any other caller gets
         ``{"cost_restricted": true, "reason": ...}`` with no figures. That is a normal

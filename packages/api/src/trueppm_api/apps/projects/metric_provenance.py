@@ -179,7 +179,8 @@ METRIC_DEFINITIONS: dict[str, str] = {
     ),
     "rollup.budget_utilization": (
         "Actual cost across the contributing projects divided by their total budget; "
-        "1.0 means the whole budget is spent."
+        "1.0 means the whole budget is spent. "
+        "It is spend against budget, not a cost performance index."
     ),
     "rollup.p80_completion": (
         "The latest P80 finish among the contributing projects' own Monte Carlo "

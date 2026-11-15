@@ -61799,6 +61799,37 @@
                 "description": "* `board` - Board\n* `schedule` - Schedule",
                 "x-trueppm-enum": "open"
             },
+            "CostFigureProvenance": {
+                "type": "object",
+                "description": "Whether one figure was computed or restricted, and why when restricted.",
+                "properties": {
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostFigureProvenanceStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "reason",
+                    "status"
+                ]
+            },
+            "CostFigureProvenanceStatusEnum": {
+                "enum": [
+                    "computed",
+                    "restricted"
+                ],
+                "type": "string",
+                "description": "* `computed` - computed\n* `restricted` - restricted",
+                "x-trueppm-enum": "open"
+            },
             "CostKpi": {
                 "type": "object",
                 "description": "``{available, value | reason}`` for one cost KPI (ADR-1324 §3).",
@@ -61810,7 +61841,7 @@
                     "value": {
                         "readOnly": true,
                         "nullable": true,
-                        "description": "cost_variance: a decimal string in the workspace currency. budget_utilization: a number, 1.0 = whole budget spent."
+                        "description": "cost_variance: a decimal string in the workspace currency. budget_utilization, cpi, tcpi: a number (ratio). eac, etc, vac: a decimal string in the workspace currency."
                     },
                     "reason": {
                         "allOf": [
@@ -61819,7 +61850,7 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "Why there is no value: no_budget, missing_rates, or cost_restricted.\n\n* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `cost_restricted` - cost_restricted"
+                        "description": "Why there is no value: no_budget, missing_rates, cost_restricted, no_actual_cost (AC is 0, CPI undefined), no_earned_value (EV is 0, EAC would be infinite) or budget_exhausted (AC has reached BAC, TCPI undefined).\n\n* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `cost_restricted` - cost_restricted\n* `no_actual_cost` - no_actual_cost\n* `no_earned_value` - no_earned_value\n* `budget_exhausted` - budget_exhausted"
                     }
                 },
                 "required": [
@@ -61832,10 +61863,13 @@
                 "enum": [
                     "no_budget",
                     "missing_rates",
-                    "cost_restricted"
+                    "cost_restricted",
+                    "no_actual_cost",
+                    "no_earned_value",
+                    "budget_exhausted"
                 ],
                 "type": "string",
-                "description": "* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `cost_restricted` - cost_restricted",
+                "description": "* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `cost_restricted` - cost_restricted\n* `no_actual_cost` - no_actual_cost\n* `no_earned_value` - no_earned_value\n* `budget_exhausted` - budget_exhausted",
                 "x-trueppm-enum": "open"
             },
             "CostLine": {
@@ -61879,6 +61913,46 @@
                     "name",
                     "rate",
                     "resource_id"
+                ]
+            },
+            "CostProvenance": {
+                "type": "object",
+                "description": "What computed the cost figures and from which inputs (#4848, ADR-1314 pattern).",
+                "properties": {
+                    "computed_by": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "contract_version": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "inputs": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "figures": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/CostFigureProvenance"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "computed_by",
+                    "contract_version",
+                    "figures",
+                    "inputs"
                 ]
             },
             "CredentialSummary": {
@@ -74114,7 +74188,7 @@
                     "budget_utilization": {
                         "type": "string",
                         "readOnly": true,
-                        "description": "Actual cost across the contributing projects divided by their total budget; 1.0 means the whole budget is spent."
+                        "description": "Actual cost across the contributing projects divided by their total budget; 1.0 means the whole budget is spent. It is spend against budget, not a cost performance index."
                     },
                     "schedule_health": {
                         "type": "string",
@@ -75733,6 +75807,54 @@
                         ],
                         "readOnly": true
                     },
+                    "cpi": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostKpi"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "eac": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostKpi"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "etc": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostKpi"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "vac": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostKpi"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "tcpi": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostKpi"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "provenance": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostProvenance"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "cost_computable": {
                         "type": "boolean",
                         "readOnly": true
@@ -75788,9 +75910,12 @@
                     "budget_utilization",
                     "cost_computable",
                     "cost_variance",
+                    "cpi",
                     "currency",
                     "definitions",
+                    "eac",
                     "earned_value",
+                    "etc",
                     "lines",
                     "logged_hours",
                     "missing_rate_count",
@@ -75798,7 +75923,10 @@
                     "percent_complete",
                     "priced_hours",
                     "project_id",
-                    "unpriced_hours"
+                    "provenance",
+                    "tcpi",
+                    "unpriced_hours",
+                    "vac"
                 ]
             },
             "ProjectCustomField": {

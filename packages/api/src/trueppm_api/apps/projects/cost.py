@@ -19,7 +19,13 @@ Definitions (ADR-1324 §2–§3):
   ``Avg(percent_complete)`` over non-deleted tasks the project list annotates, ADR-0171)
   / 100. Reused verbatim; not a new progress measure. A project with no live tasks
   has percent complete 0 (nothing left has been earned), never null.
-- **CV** = EV − AC; **budget utilization** = AC / BAC.
+- **CV** = EV − AC; **budget utilization** = AC / BAC (spend as a share of budget; it
+  is *not* the cost performance index).
+- **CPI** = EV / AC; **EAC** = BAC / CPI (the "typical variance" forecast: the cost
+  efficiency so far continues for the rest of the work); **ETC** = EAC − AC;
+  **VAC** = BAC − EAC; **TCPI** = (BAC − EV) / (BAC − AC) (the efficiency needed on the
+  remaining work to finish on BAC). Textbook definitions; EV keeps the unweighted-mean
+  percent-complete basis (the basis decision is #4853, not made here).
 
 Performance: a fixed number of queries for any number of projects (no per-project
 loop). The heavy aggregation — summing minutes — is a grouped SQL ``Sum``; the
@@ -45,11 +51,24 @@ _MINUTES_PER_HOUR = Decimal(60)
 REASON_COST_RESTRICTED = "cost_restricted"
 REASON_NO_BUDGET = "no_budget"
 REASON_MISSING_RATES = "missing_rates"
+# Forecast-only reasons: the inputs exist but the ratio's denominator is zero (or the
+# result would be infinite), so no number is the honest answer.
+REASON_NO_ACTUAL_COST = "no_actual_cost"  # AC = 0: CPI = EV / AC is undefined
+REASON_NO_EARNED_VALUE = "no_earned_value"  # EV = 0: CPI = 0, so EAC = BAC / CPI is infinite
+REASON_BUDGET_EXHAUSTED = "budget_exhausted"  # AC >= BAC: TCPI's denominator is <= 0
+
+#: The computing function and response contract named in the ``provenance`` block, so a
+#: figure someone quotes can be traced to the code and shape that produced it.
+COST_COMPUTED_BY = "trueppm_api.apps.projects.cost.project_cost_facts"
+COST_CONTRACT_VERSION = "1"
 
 #: One-sentence derivation per published cost field, served on the cost summary so an
 #: agent (or a PM) can say *why* a number is what it is rather than restate it.
 COST_DEFINITIONS: dict[str, str] = {
-    "budget": "Budget at completion (BAC) set on the project, in the workspace currency.",
+    "budget": (
+        "Budget at completion (BAC) set on the project, in the workspace currency. This is "
+        "the total planned cost, not the money remaining."
+    ),
     "actual": (
         "Sum over everyone who logged time on this project's tasks of hours x the "
         "current hourly rate of their resource. PTO and time on other projects are "
@@ -59,9 +78,34 @@ COST_DEFINITIONS: dict[str, str] = {
         "The project's percent complete: the mean percent_complete of its non-deleted "
         "tasks, or 0 when it has none."
     ),
-    "earned_value": "budget x percent_complete / 100.",
+    "earned_value": (
+        "budget x percent_complete / 100. percent_complete is the unweighted mean of "
+        "task percent complete, so every task counts equally regardless of its size."
+    ),
     "cost_variance": "earned_value - actual. Negative means over budget.",
-    "budget_utilization": "actual / budget. 1.0 means the whole budget has been spent.",
+    "budget_utilization": (
+        "actual / budget (AC / BAC): the share of the budget spent so far. 1.0 means the "
+        "whole budget has been spent. It is not the cost performance index: it ignores "
+        "how much work the money bought (see cpi). At program level it is total actual "
+        "cost / total budget, a ratio of sums, not an average of project ratios."
+    ),
+    "cpi": (
+        "Cost performance index: earned_value / actual. Above 1.0 the work done cost "
+        "less than budgeted; below 1.0 it cost more. Unavailable when actual is 0."
+    ),
+    "eac": (
+        "Estimate at completion, typical-variance variant: budget / cpi, i.e. the cost "
+        "efficiency so far is assumed to continue for the rest of the work. Unavailable "
+        "when cpi is unavailable or earned_value is 0 (the forecast would be infinite)."
+    ),
+    "etc": "Estimate to complete: eac - actual. The forecast cost of the remaining work.",
+    "vac": "Variance at completion: budget - eac. Negative means a forecast overrun.",
+    "tcpi": (
+        "To-complete performance index: (budget - earned_value) / (budget - actual), the "
+        "cost efficiency the remaining work must achieve to finish exactly on budget. "
+        "Above 1.0 means the rest must be done more cheaply than so far. Unavailable "
+        "when actual is at or above budget."
+    ),
     "cost_computable": (
         "True when every person in scope (anyone who logged time here or is assigned "
         "to a live task) has a rate."
@@ -170,6 +214,57 @@ class ProjectCost:
             return None
         assert self.budget is not None
         return round(float(self.actual / self.budget), 4)
+
+    # -- Forecast measures (#4852). Each returns (value, reason); exactly one is None.
+
+    def _forecast_gate(self) -> str | None:
+        return self.unavailable_reason()
+
+    def cpi_result(self) -> tuple[float | None, str | None]:
+        """CPI = EV / AC, or why it cannot be given (never 0 or infinity as a stand-in)."""
+        reason = self._forecast_gate()
+        if reason is not None:
+            return None, reason
+        ev = self.earned_value
+        if ev is None:  # unreachable once has_budget; keeps the type honest
+            return None, REASON_NO_BUDGET
+        if self.actual <= 0:
+            return None, REASON_NO_ACTUAL_COST
+        return round(float(ev / self.actual), 4), None
+
+    def eac_result(self) -> tuple[Decimal | None, str | None]:
+        """EAC = BAC / CPI = BAC x AC / EV, computed in Decimal (no float round-trip)."""
+        _, reason = self.cpi_result()
+        if reason is not None:
+            return None, reason
+        ev = self.earned_value
+        assert ev is not None and self.budget is not None
+        if ev <= 0:
+            return None, REASON_NO_EARNED_VALUE
+        return money(self.budget * self.actual / ev), None
+
+    def etc_result(self) -> tuple[Decimal | None, str | None]:
+        eac, reason = self.eac_result()
+        return (None, reason) if eac is None else (eac - self.actual, None)
+
+    def vac_result(self) -> tuple[Decimal | None, str | None]:
+        eac, reason = self.eac_result()
+        if eac is None:
+            return None, reason
+        assert self.budget is not None
+        return money(self.budget) - eac, None
+
+    def tcpi_result(self) -> tuple[float | None, str | None]:
+        """TCPI = (BAC - EV) / (BAC - AC); unavailable once AC has reached BAC."""
+        reason = self._forecast_gate()
+        if reason is not None:
+            return None, reason
+        ev = self.earned_value
+        assert ev is not None and self.budget is not None
+        remaining_budget = money(self.budget) - self.actual
+        if remaining_budget <= 0:
+            return None, REASON_BUDGET_EXHAUSTED
+        return round(float((money(self.budget) - ev) / remaining_budget), 4), None
 
 
 def _hours(minutes: int) -> Decimal:
@@ -454,6 +549,67 @@ def kpi_entry(value: Any, reason: str | None, **extra: Any) -> dict[str, Any]:
     return {"available": True, "value": value, **extra}
 
 
+def _money_result(result: tuple[Decimal | None, str | None]) -> tuple[str | None, str | None]:
+    value, reason = result
+    return (str(value) if value is not None else None), reason
+
+
+def _forecast_entry(value: Any, reason: str | None) -> dict[str, Any]:
+    """``{available, value | reason}`` for a forecast measure (same shape as the KPIs)."""
+    return kpi_entry(value, reason)
+
+
+def cost_provenance(cost: ProjectCost) -> dict[str, Any]:
+    """The ``provenance`` block: what computed each figure, from which inputs (#4848).
+
+    Follows the metric-provenance pattern (ADR-1314): the sentence that defines a figure
+    stays in ``definitions``; this block adds what a definition cannot — the computing
+    function, a contract version, the inputs and their basis, and per figure whether it
+    was ``computed`` or ``restricted`` (never silently zero). Rates carry no change
+    history today (one current rate per resource, ADR-1324), so ``as_of`` is the only
+    datum saying when a figure was true, and a rate change re-costs past hours.
+    """
+    reason = cost.unavailable_reason()
+
+    def status(figure_reason: str | None) -> dict[str, Any]:
+        return (
+            {"status": "computed"}
+            if figure_reason is None
+            else {"status": "restricted", "reason": figure_reason}
+        )
+
+    return {
+        "computed_by": COST_COMPUTED_BY,
+        "contract_version": COST_CONTRACT_VERSION,
+        "as_of": cost.as_of,
+        "inputs": {
+            "rate_source": "current_resource_rate",
+            "rate_history": "none",
+            "rate_note": (
+                "Each person's hours are priced at the resource's current rate, so a "
+                "rate change re-costs past hours; as_of is when this figure was true."
+            ),
+            "percent_complete_source": "unweighted_mean_task_percent_complete",
+            "percent_complete_note": (
+                "Earned value uses the unweighted mean of non-deleted task percent "
+                "complete, not duration- or cost-weighted."
+            ),
+            "eac_method": "typical_variance",
+            "eac_formula": "budget / cpi",
+        },
+        "figures": {
+            "earned_value": status(None if cost.earned_value is not None else REASON_NO_BUDGET),
+            "cost_variance": status(reason),
+            "budget_utilization": status(reason),
+            "cpi": status(cost.cpi_result()[1]),
+            "eac": status(cost.eac_result()[1]),
+            "etc": status(cost.etc_result()[1]),
+            "vac": status(cost.vac_result()[1]),
+            "tcpi": status(cost.tcpi_result()[1]),
+        },
+    }
+
+
 def project_cost_payload(cost: ProjectCost, currency: str) -> dict[str, Any]:
     """Serialize one :class:`ProjectCost` for ``GET /projects/{id}/cost/`` (ADR-1324 §6)."""
     reason = cost.unavailable_reason()
@@ -468,6 +624,12 @@ def project_cost_payload(cost: ProjectCost, currency: str) -> dict[str, Any]:
         "earned_value": cost.earned_value,
         "cost_variance": kpi_entry(str(cv) if cv is not None else None, reason),
         "budget_utilization": kpi_entry(cost.budget_utilization, reason),
+        "cpi": _forecast_entry(*cost.cpi_result()),
+        "eac": _forecast_entry(*_money_result(cost.eac_result())),
+        "etc": _forecast_entry(*_money_result(cost.etc_result())),
+        "vac": _forecast_entry(*_money_result(cost.vac_result())),
+        "tcpi": _forecast_entry(*cost.tcpi_result()),
+        "provenance": cost_provenance(cost),
         "cost_computable": cost.cost_computable,
         "missing_rate_count": cost.missing_rate_count,
         "missing_rate_resources": [
