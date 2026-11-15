@@ -1,3 +1,4 @@
+import { inheritedFromPhrase } from './provenance';
 import { useId } from 'react';
 
 export interface InheritableSelectOption<T extends string> {
@@ -63,7 +64,7 @@ export function InheritableSelectField<T extends string>({
 
   if (!canEdit) {
     const provenance = inheriting
-      ? `inherited from ${inheritFromLabel}`
+      ? inheritedFromPhrase(inheritFromLabel)
       : `set on this ${scopeNoun}`;
     return (
       <div

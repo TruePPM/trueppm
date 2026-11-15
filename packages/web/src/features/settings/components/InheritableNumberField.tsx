@@ -1,3 +1,4 @@
+import { inheritedFromLead, inheritedFromPhrase } from './provenance';
 import { useId } from 'react';
 
 export interface InheritableNumberFieldProps {
@@ -82,7 +83,7 @@ export function InheritableNumberField({
 
   if (!canEdit) {
     const provenance = inheriting
-      ? `inherited from ${inheritFromLabel}`
+      ? inheritedFromPhrase(inheritFromLabel)
       : `set on this ${scopeNoun}`;
     return (
       <div
@@ -134,7 +135,9 @@ export function InheritableNumberField({
 
       {inheriting ? (
         <p className="text-[12px] text-neutral-text-secondary">
-          {inheritPhrasing === 'default' ? 'Inherited from' : 'Using'} {inheritFromLabel}:{' '}
+          {inheritPhrasing === 'default'
+            ? inheritedFromLead(inheritFromLabel)
+            : `Using ${inheritFromLabel}:`}{' '}
           <span className="font-medium text-neutral-text-primary">
             {inherited}
             {u}

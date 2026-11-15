@@ -309,7 +309,7 @@ describe('ProjectGeneralPage', () => {
     const row = within(calendarRow());
     expect(row.getByText('Workspace default')).toBeInTheDocument();
     expect(row.getByText('Inherited')).toBeInTheDocument();
-    expect(row.getByText(/Inherited from workspace \(Workspace default\)/i)).toBeInTheDocument();
+    expect(row.getByText(/Inherited from the workspace default \(Workspace default\)/i)).toBeInTheDocument();
   });
 
   it('wires the project-lead picker — an enabled trigger opens the member listbox (#966)', () => {
@@ -774,7 +774,7 @@ describe('ProjectGeneralPage', () => {
     const row = within(calendarRow());
     expect(row.getByText(/System default/)).toBeInTheDocument();
     expect(row.getByText('Inherited')).toBeInTheDocument();
-    expect(row.queryByText(/Inherited from program/i)).not.toBeInTheDocument();
+    expect(row.queryByText(/Inherited from the program default/i)).not.toBeInTheDocument();
   });
 
   it('falls back to built-in inherit defaults when the inherited_* reads are absent', () => {

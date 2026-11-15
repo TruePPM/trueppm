@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { INHERIT_SOURCE, inheritedFrom } from '@/features/settings/components/provenance';
 import { Link } from 'react-router';
 import { useTaskHistory, type TaskActivityEntry } from '@/hooks/useTaskHistory';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
@@ -174,7 +175,7 @@ const DATE_FIELDS = new Set(['planned_start', 'actual_start', 'actual_finish']);
  * declares its own", and that is what a cascade breaking inheritance did.
  */
 const GOVERNANCE_SOURCE_LABELS: Record<string, string> = {
-  True: 'Inherited from parent',
+  True: inheritedFrom(INHERIT_SOURCE.parentTask),
   False: 'Set on this task',
 };
 

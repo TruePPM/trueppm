@@ -1,3 +1,4 @@
+import { inheritedFromPhrase } from './provenance';
 import { useId, useMemo } from 'react';
 import { AttachmentTypesChecklist } from './AttachmentTypesChecklist';
 import { labelForMime } from '@/lib/attachmentTypes';
@@ -86,7 +87,7 @@ export function InheritableMultiSelectField({
 
   if (!canEdit) {
     const provenance = inheriting
-      ? `inherited from ${inheritFromLabel}`
+      ? inheritedFromPhrase(inheritFromLabel)
       : `set on this ${scopeNoun}`;
     const summary = summarizeLabels(effective);
     return (

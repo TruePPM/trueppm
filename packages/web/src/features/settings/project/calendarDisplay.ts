@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { INHERIT_SOURCE, inheritedFrom } from '../components/provenance';
 import type {
   Calendar,
   CalendarPreview,
@@ -85,14 +86,14 @@ export function calendarSourceCopy(
   switch (source) {
     case 'program':
       return effective
-        ? `Inherited from program (${effective.name}). ${summarizeWorkingCalendar(effective)}.`
+        ? `${inheritedFrom(INHERIT_SOURCE.program, effective.name)}. ${summarizeWorkingCalendar(effective)}.`
         : null;
     case 'workspace':
       return effective
-        ? `Inherited from workspace (${effective.name}). ${summarizeWorkingCalendar(effective)}.`
+        ? `${inheritedFrom(INHERIT_SOURCE.workspace, effective.name)}. ${summarizeWorkingCalendar(effective)}.`
         : null;
     case 'system_default':
-      return 'Inherited from the system default (Mon–Fri, 8h/day). No org calendar is set above this project.';
+      return `${inheritedFrom(INHERIT_SOURCE.system, 'Mon–Fri, 8h/day')}. No org calendar is set above this project.`;
     case 'project':
     default:
       return null;

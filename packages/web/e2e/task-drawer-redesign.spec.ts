@@ -787,7 +787,7 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
     await drawer.getByRole('tab', { name: 'Activity' }).click();
     await drawer.getByRole('button', { name: 'All events' }).click();
     await expect(drawer.getByText(/changed governance source/i)).toBeVisible({ timeout: 5_000 });
-    await expect(drawer.getByText('Inherited from parent')).toBeVisible();
+    await expect(drawer.getByText('Inherited from the parent task')).toBeVisible();
     await expect(drawer.getByText('Set on this task')).toBeVisible();
     // The raw column name never reaches the reader.
     await expect(drawer.getByText(/parent_governance_inherited/)).toHaveCount(0);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { INHERIT_SOURCE, inheritedFrom, inheritedFromLead } from '../components/provenance';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
@@ -58,7 +59,7 @@ function calendarSummaryLine(
 
 /**
  * Read-only calendar value for below-role / policy-locked users (ADR-0133):
- * "Inherited from workspace" collapses inheritance to a word; an active override
+ * The workspace provenance line collapses inheritance to a word; an active override
  * reads out the resolved calendar name.
  */
 function readOnlyCalendarLabel(
@@ -66,7 +67,7 @@ function readOnlyCalendarLabel(
   displayCalendarRow: WorkingCalendar | null,
   displayCalendarId: string | null,
 ): string {
-  if (displayCalendarId === null) return 'Inherited from workspace';
+  if (displayCalendarId === null) return inheritedFrom(INHERIT_SOURCE.workspace);
   if (displayCalendarRow?.name != null) return displayCalendarRow.name;
   if (effective && effective.id === displayCalendarId) return effective.name;
   return 'Workspace calendar';
@@ -132,7 +133,7 @@ function CalendarInheritanceBanner({
         </p>
       ) : programInherits ? (
         <p className="text-[13px] text-neutral-text-secondary">
-          Inherited from the workspace default:{' '}
+          {inheritedFromLead(INHERIT_SOURCE.workspace)}{' '}
           <span className="font-semibold text-neutral-text-primary">
             {effective ? effective.name : SYSTEM_DEFAULT_LABEL}
           </span>

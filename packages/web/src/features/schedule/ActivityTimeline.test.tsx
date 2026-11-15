@@ -214,7 +214,7 @@ describe('ActivityTimeline', () => {
     historySpy.mockReturnValue(makeHistory([inheritBitOnly]));
     renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
     expect(screen.getByText(/changed governance source/i)).toBeInTheDocument();
-    expect(screen.getByText('Inherited from parent')).toBeInTheDocument();
+    expect(screen.getByText('Inherited from the parent task')).toBeInTheDocument();
     expect(screen.getByText('Set on this task')).toBeInTheDocument();
     expect(screen.queryByText(/parent_governance_inherited/)).not.toBeInTheDocument();
     // …and it sits under the same chip as a governance_class change, so filtering
