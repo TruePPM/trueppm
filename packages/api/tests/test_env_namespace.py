@@ -259,6 +259,10 @@ _GRANDFATHERED_BARE = frozenset(
         "CSP_CONNECT_SRC",
         "JWT_SIGNING_KEY",
         "INTEGRATION_ENCRYPTION_KEY",
+        # Rotation siblings (#3406) of the two bare keys above; named in the issue and
+        # delivered through the same operator Secret, so they follow their primaries.
+        "JWT_SIGNING_KEY_FALLBACKS",
+        "INTEGRATION_ENCRYPTION_KEY_FALLBACKS",
     }
 )
 
@@ -267,6 +271,7 @@ _GRANDFATHERED_BARE = frozenset(
 _CONVENTION_BARE_EXACT = frozenset(
     {
         "SECRET_KEY",
+        "SECRET_KEY_FALLBACKS",  # Django setting name
         "DATABASE_URL",
         "REDIS_URL",
         "ALLOWED_HOSTS",

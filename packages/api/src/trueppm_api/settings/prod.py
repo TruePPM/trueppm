@@ -14,10 +14,13 @@ from trueppm_api.core.security_checks import (
     validate_demo_read_only_enforcement,
     validate_frontend_base_url,
     validate_integration_encryption_key,
+    validate_integration_encryption_key_fallbacks,
     validate_project_soft_delete_retention,
     validate_secret_key,
+    validate_secret_key_fallbacks,
     validate_service_credentials,
     validate_signing_key,
+    validate_signing_key_fallbacks,
 )
 
 from .base import *  # noqa: F403
@@ -30,9 +33,12 @@ from .base import (
     DJANGO_LOG_LEVEL,
     FRONTEND_BASE_URL,
     INTEGRATION_ENCRYPTION_KEY,
+    INTEGRATION_ENCRYPTION_KEY_FALLBACKS,
+    JWT_SIGNING_KEY_FALLBACKS,
     MEDIA_ROOT,
     MIDDLEWARE,
     REDIS_URL,
+    SECRET_KEY_FALLBACKS,
     SIMPLE_JWT,
     STORAGES,
     TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS,
@@ -109,6 +115,19 @@ SIMPLE_JWT["SIGNING_KEY"] = JWT_SIGNING_KEY
 _signing_key_errors = validate_signing_key(JWT_SIGNING_KEY, SECRET_KEY, debug=DEBUG)
 if _signing_key_errors:
     raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _signing_key_errors))
+
+# Zero-downtime rotation fallbacks (#3406): every entry gets the same strength /
+# format check as its primary; a malformed one refuses to boot rather than being
+# silently ignored (which would sign users out or strand credentials mid-rotation).
+_fallback_errors = [
+    *validate_secret_key_fallbacks(SECRET_KEY_FALLBACKS, debug=DEBUG),
+    *validate_signing_key_fallbacks(JWT_SIGNING_KEY_FALLBACKS, debug=DEBUG),
+    *validate_integration_encryption_key_fallbacks(
+        INTEGRATION_ENCRYPTION_KEY_FALLBACKS, debug=DEBUG
+    ),
+]
+if _fallback_errors:
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _fallback_errors))
 
 # Persistent connections for production load.
 DATABASES["default"]["CONN_MAX_AGE"] = 600

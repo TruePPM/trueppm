@@ -44,7 +44,7 @@ dependencies = [
     # Floor is 3.18.2: 3.17.x is affected by GHSA-xw6w-gcfp-cf8m, GHSA-33wh-fxxf-88vv
     # and GHSA-3547-9m27-7rxg, all fixed only in 3.18.2.
     "djangorestframework>=3.18.2,<3.19",
-    "djangorestframework-simplejwt>=5.3.1,<6.0",
+    "djangorestframework-simplejwt>=5.5.0,<6.0",
     # [socialaccount] is what declares requests/oauthlib/pyjwt, which the
     # openid_connect provider imports at django.setup(). Without it requests
     # arrives only transitively (via the OTLP HTTP exporter, which dropped it in 1.45).
