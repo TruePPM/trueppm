@@ -1566,3 +1566,53 @@ def test_grooming_offset_query_count_bounded(
         resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/?limit=5&offset=5")
     assert resp.status_code == 200
     assert len(resp.data["ungrouped"]) == 5
+
+
+# --------------------------------------------------------------------------- #
+# A phase of all-BACKLOG leaves stores BACKLOG; it is never a story (#3531)
+# --------------------------------------------------------------------------- #
+
+
+def _backlog_phase_with_leaf(project: Project) -> tuple[Task, Task]:
+    phase = _story(project, name="PH", wbs_path="1", type=TaskType.TASK)
+    leaf = _story(project, name="leaf", wbs_path="1.1")
+    _criterion(phase, text="phase ac")
+    _criterion(leaf, text="leaf ac", met=True)
+    Task.objects.filter(pk=phase.pk).update(status=TaskStatus.BACKLOG)
+    return phase, leaf
+
+
+def test_grooming_view_excludes_backlog_phase_and_its_acceptance_criteria(
+    owner_client: APIClient, project: Project
+) -> None:
+    _phase, leaf = _backlog_phase_with_leaf(project)
+    resp = owner_client.get(f"/api/v1/projects/{project.pk}/product-backlog/")
+    assert resp.status_code == 200
+    listed = {r["id"] for r in resp.data["ungrouped"]}
+    assert listed == {str(leaf.pk)}
+    assert resp.data["health"]["story_count"] == 1
+    # The phase's own criterion must not reach the totals (backlog_phase_ids path).
+    assert resp.data["health"]["ac_total"] == 1
+    assert resp.data["health"]["ac_met"] == 1
+
+
+def test_reorder_backlog_ignores_backlog_phase_under_row_lock(
+    project: Project, owner: object
+) -> None:
+    from trueppm_api.apps.projects.product_backlog_services import reorder_backlog
+
+    phase, leaf = _backlog_phase_with_leaf(project)
+    other = _story(project, name="other", wbs_path="2")
+    leaf.refresh_from_db()
+    other.refresh_from_db()
+    # The complete live backlog is the two leaves; the phase is not part of it, so
+    # supplying exactly them must not 409 as drift.
+    changed = reorder_backlog(
+        project,
+        [(str(other.pk), other.server_version), (str(leaf.pk), leaf.server_version)],
+        owner,
+    )
+    assert changed == 2
+    phase.refresh_from_db()
+    other.refresh_from_db()
+    assert other.priority_rank == 1

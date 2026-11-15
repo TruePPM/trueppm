@@ -1102,7 +1102,9 @@ def rollup_phase_statuses(project_ids: Iterable[Any]) -> int:
     return rollup_phase_statuses_detailed(project_ids)[0]
 
 
-def rollup_phase_statuses_detailed(project_ids: Iterable[Any]) -> tuple[int, set[Any]]:
+def rollup_phase_statuses_detailed(
+    project_ids: Iterable[Any],
+) -> tuple[int, set[Any], set[Any]]:
     """Materialize every phase's ``status`` from its leaf descendants (#3531).
 
     The write ADR-0293's ``phase_status_rollup_locked`` always promised and nothing
@@ -1121,7 +1123,10 @@ def rollup_phase_statuses_detailed(project_ids: Iterable[Any]) -> tuple[int, set
     draw per project, ADR-0686); otherwise a rolled-up status would sit below the
     project's checkpoint and never reach an offline client.
 
-    Returns ``(changed_count, flipped_project_ids)``. ``flipped_project_ids`` are the
+    Returns ``(changed_count, flipped_project_ids, changed_project_ids)``.
+    ``changed_project_ids`` are every project with a phase whose status moved (the
+    caller tells live peers to re-read tasks, since no per-task delta carries
+    status). ``flipped_project_ids`` are the
     projects where a phase moved into or out of ``BACKLOG``: CPM feeds exclude
     ``BACKLOG`` rows (``_run_schedule``), so that flip changes the committed set and
     the pass that just ran used the old one. The caller schedules one follow-up
@@ -1175,7 +1180,7 @@ def rollup_phase_statuses_detailed(project_ids: Iterable[Any]) -> tuple[int, set
             phase.server_version = F("server_version") + 1
             phase.sync_seq = seq_by_project[phase.project_id]
         Task.objects.bulk_update(changed, ["status", "server_version", "sync_seq"], batch_size=500)
-    return len(changed), flipped
+    return len(changed), flipped, {p.project_id for p in changed}
 
 
 # Capture-path dedup window (ADR-0154 §3): a recompute that produces an

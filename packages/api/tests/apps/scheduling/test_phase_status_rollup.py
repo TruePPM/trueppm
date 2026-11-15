@@ -282,3 +282,117 @@ def test_backlog_phase_is_not_a_product_backlog_story(project: Project) -> None:
     phase.refresh_from_db()
     assert phase.status == S.BACKLOG
     assert [t.pk for t in _backlog_stories(project)] == [leaf.pk]
+
+
+@pytest.mark.django_db
+def test_in_pass_rollup_bumps_sync_cursor(project: Project) -> None:
+    phase = _t(project, "1")
+    _t(project, "1.1", S.COMPLETE)
+    before = (phase.server_version, phase.sync_seq)
+    _run(project)
+    phase.refresh_from_db()
+    assert phase.status == S.COMPLETE
+    assert phase.server_version == before[0] + 1 and phase.sync_seq > before[1]
+
+
+@pytest.mark.django_db
+def test_real_enqueue_followup_settles_the_network(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Same flip, but through the real enqueue path and the real recompute task."""
+    from trueppm_api.apps.scheduling.models import ScheduleRequest
+
+    phase = _t(project, "1")
+    leaf = _t(project, "1.1", S.BACKLOG)
+    succ = _t(project, "2")
+    Dependency.objects.create(predecessor=phase, successor=succ)
+    _run(project)  # phase enters BACKLOG
+    Task.objects.filter(pk=leaf.pk).update(status=S.NOT_STARTED)
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay") as delay:
+        delay.return_value.id = "00000000-0000-0000-0000-000000000001"
+        with django_capture_on_commit_callbacks(execute=True):
+            _run(project)
+    delay.assert_called_once_with(str(project.pk))
+    assert ScheduleRequest.objects.filter(project=project).exists()
+
+    _run(project)  # what the dispatched task runs
+    phase.refresh_from_db()
+    succ.refresh_from_db()
+    assert phase.early_start is not None and phase.early_finish is not None
+    assert succ.early_start >= phase.early_finish
+
+
+@pytest.mark.django_db
+def test_program_pass_enqueues_once_per_flipped_member(
+    db: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    from trueppm_api.apps.projects.models import Program
+    from trueppm_api.apps.scheduling.tasks import _run_program_schedule
+
+    program = Program.objects.create(name="P2")
+    members = []
+    for i in range(2):
+        proj = Project.objects.create(
+            name=f"M{i}",
+            start_date=datetime.date(2026, 1, 5),
+            calendar=Calendar.objects.create(name=f"CM{i}"),
+            program=program,
+        )
+        _t(proj, "1")
+        _t(proj, "1.1", S.BACKLOG)
+        members.append(proj)
+    enqueue = MagicMock()
+    with (
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate", enqueue),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        _run_program_schedule(str(program.pk))
+    assert sorted(c.args[0] for c in enqueue.call_args_list) == sorted(str(m.pk) for m in members)
+
+
+@pytest.mark.django_db
+def test_cpm_complete_tells_peers_to_reread_when_phase_status_moves(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """No per-task delta carries status, so cpm_complete must say tasks are stale."""
+    _t(project, "1")
+    _t(project, "1.1", S.COMPLETE)
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def _capture(*, project_id: str, event_type: str, payload: dict[str, Any], **_: Any) -> None:
+        events.append((event_type, payload))
+
+    def _go() -> None:
+        events.clear()
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", _capture),
+            patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            _run_schedule(str(project.pk))
+
+    _go()
+    assert next(p for e, p in events if e == "cpm_complete").get("dates_changed") is True
+    _go()  # nothing moves now
+    assert "dates_changed" not in next(p for e, p in events if e == "cpm_complete")
+
+
+@pytest.mark.django_db
+def test_phase_containers_are_not_wip_or_remaining_flow_items(project: Project) -> None:
+    from trueppm_api.apps.projects.services import annotate_wip_breach, throughput_forecast
+
+    _t(project, "1")
+    _t(project, "1.1", S.IN_PROGRESS)
+    rollup_phase_statuses([project.pk])  # phase now IN_PROGRESS too
+    col = annotate_wip_breach(project.pk, [{"status": "IN_PROGRESS", "wip_limit": 1}])[0]
+    assert col["current_count"] == 1  # the leaf only
+
+    with patch(
+        "trueppm_api.apps.projects.services._project_weekly_throughput",
+        return_value=([{"completed_count": 3}] * 4, None),
+    ):
+        out = throughput_forecast(project.pk)
+    assert out is not None and out["remaining_count"] == 1

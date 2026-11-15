@@ -5077,7 +5077,16 @@ def annotate_tasks_queryset(
         # ``status_source`` for provenance, not this).
         # nosemgrep: avoid-raw-sql
         status_rollup_count=RawSQL(
-            "("
+            "CASE WHEN EXISTS ("
+            "  SELECT 1 FROM projects_task pc"
+            "  WHERE pc.project_id = projects_task.project_id"
+            "    AND pc.is_deleted = false"
+            "    AND pc.is_subtask = false"
+            "    AND pc.id != projects_task.id"
+            "    AND pc.wbs_path IS NOT NULL"
+            "    AND projects_task.wbs_path IS NOT NULL"
+            "    AND pc.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+            ") THEN ("
             "  SELECT COUNT(*) FROM projects_task c"
             "  WHERE c.project_id = projects_task.project_id"
             "    AND c.is_deleted = false"
@@ -5091,7 +5100,7 @@ def annotate_tasks_queryset(
             "        AND gc.is_subtask = false"
             "        AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
             "    )"
-            ")",
+            ") ELSE 0 END",
             [],
             output_field=db_models.IntegerField(),
         ),

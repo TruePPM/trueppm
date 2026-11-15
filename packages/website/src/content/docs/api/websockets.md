@@ -176,7 +176,9 @@ The set is open-ended and grows as features land; current event types include:
   `"dates_changed": true`. Treat it as "re-read the task list": it names no task and
   no date, so it carries no movement — the confidentiality goal of ADR-0752 §7 — and
   a re-read goes through REST, which applies the reader's field gating. The key is
-  absent on every other run, whose movement arrives as `task_dates_updated`.
+  absent on every other run, whose movement arrives as `task_dates_updated`. It is also
+  set when the recompute rolled a phase's `status` up from its leaves (ships in 0.5): no
+  per-task delta carries status, so re-read the task list to see it.
 - **Baselines**: `baseline_created`, `baseline_activated`, `baseline_deleted`
 - **Risks**: `risk_created`, `risk_updated`, `risk_deleted`, `risks_imported`
 - **Labels**: `label_created`, `label_updated`, `label_deleted` (catalog changes;
