@@ -872,6 +872,9 @@ they will ship with 0.5 or that release will slip:
   predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), start-of-day milestone total float ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)),
   and the `free_float` oracle disagreement
   ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)).
+- **Forward-pass monotonicity** — slipping a predecessor will no longer move a
+  floored milestone's successors earlier
+  ([#4883](https://gitlab.com/trueppm/trueppm/-/issues/4883)).
 - **Scheduling semantics** — the calendar-day-vs-working-day lag question will be
   decided ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535));
   deadline-driven negative float will surface "behind committed date" in CPM
@@ -889,7 +892,7 @@ the CPM date
 MS-Project-parity gaps
 ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
 [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the closed-milestone frozen-edge path dependence
-([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)), the non-monotone forward pass at a floored milestone ([#4883](https://gitlab.com/trueppm/trueppm/-/issues/4883)), and a
+([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)), and a
 `monte_carlo(return_samples=True)` option to hand back the raw matrices
 ([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)).
 
