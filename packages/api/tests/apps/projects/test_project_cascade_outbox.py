@@ -158,6 +158,38 @@ def test_restored_project_is_not_cascaded(project: Project) -> None:
     assert ProjectCascadeRequest.objects.get(project=project).status == Status.DONE
 
 
+@pytest.mark.django_db(transaction=True)
+def test_restored_project_with_dispatched_row_is_not_cascaded(project: Project) -> None:
+    _tombstone(project)
+    ProjectCascadeRequest.objects.create(
+        project=project, status=Status.DISPATCHED, dispatched_at=timezone.now()
+    )
+    project.restore()
+    cascade_project_soft_delete.run(str(project.pk))
+    assert _live_tasks(project) == 1
+    req = ProjectCascadeRequest.objects.get(project=project)
+    assert req.status == Status.DONE and req.completed_at is not None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_restore_then_delete_again_cascades_and_closes_all_rows(project: Project) -> None:
+    _tombstone(project)
+    old = ProjectCascadeRequest.objects.create(
+        project=project, status=Status.DISPATCHED, dispatched_at=timezone.now()
+    )
+    project.restore()
+    project.refresh_from_db()
+    _tombstone(project)
+    new = ProjectCascadeRequest.objects.create(project=project)
+
+    cascade_project_soft_delete.run(str(project.pk))
+
+    assert _live_tasks(project) == 0
+    for r in (old, new):
+        r.refresh_from_db()
+        assert r.status == Status.DONE
+
+
 @pytest.mark.django_db
 def test_rolled_back_delete_leaves_no_row_and_no_dispatch(project: Project) -> None:
     from django.db import transaction

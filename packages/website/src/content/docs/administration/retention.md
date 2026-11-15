@@ -255,7 +255,7 @@ Tombstoning a trashed project's children runs in the background, tracked by a sm
 outbox row written in the same transaction as the delete. If the message broker is down
 at that moment the row stays pending, and the Celery Beat task
 `projects.drain_project_cascade_requests` (every 30 seconds) re-dispatches it once the
-broker recovers, so no child rows are left live under a project that reads as gone.
+broker recovers, so no child rows are left live under a project that reads as gone. A project restored from the Trash before the cascade runs is not cascaded.
 Finished rows are deleted after seven days by the nightly
 `projects.purge_old_project_cascade_requests` task; they are not governed by the
 retention window above.
