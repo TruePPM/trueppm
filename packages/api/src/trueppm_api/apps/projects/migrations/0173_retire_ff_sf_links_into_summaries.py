@@ -16,7 +16,7 @@ def _retire_inbound_summary_links(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0171_task_wbs_sort_key"),
+        ("projects", "0172_export_job_file_sha256"),
     ]
 
     operations = [
