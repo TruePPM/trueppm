@@ -374,3 +374,46 @@ def test_empty_update_fields_moves_no_counter(project: Project) -> None:
     assert sprint.server_version == version
     assert _seq(sprint) == seq
     assert _watermark(project) == head
+
+
+# ---------------------------------------------------------------------------
+# Calendar-link guard when the instance did not load ``calendar_id`` (#2513)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_save_without_loaded_calendar_does_not_refan_an_unchanged_calendar(
+    calendar: Calendar,
+) -> None:
+    """An instance loaded with ``calendar_id`` deferred has no recorded prior FK.
+
+    Treating that "unknown" as "changed" re-allocated the shared calendar — one
+    project-row UPDATE per co-owner, raising every co-owner's allocator — on a
+    save that never touched the FK. The stored FK is read instead.
+    """
+    a = Project.objects.create(name="A", start_date=date(2026, 1, 1), calendar=calendar)
+    b = Project.objects.create(name="B", start_date=date(2026, 1, 1), calendar=calendar)
+    cal_seq, b_head = _seq(calendar), _watermark(b)
+
+    partial = Project.objects.only("id", "name").get(pk=a.pk)
+    assert "_sync_loaded_calendar_id" not in partial.__dict__
+    partial.name = "A renamed"
+    partial.save()
+
+    assert _seq(calendar) == cal_seq, "an unchanged FK must not re-allocate the calendar"
+    assert _watermark(b) == b_head, "a co-owner's allocator must not move"
+
+
+@pytest.mark.django_db
+def test_save_without_loaded_calendar_still_delivers_a_repointed_calendar(
+    project: Project,
+) -> None:
+    """The DB read must still see a real FK change on such an instance."""
+    replacement = Calendar.objects.create(name="Replacement")
+    since = _watermark(project)
+    partial = Project.objects.only("id", "name").get(pk=project.pk)
+    partial.calendar_id = replacement.pk
+    partial.save()
+
+    assert _seq(replacement) > since
+    assert _seq(replacement) <= _watermark(project)
