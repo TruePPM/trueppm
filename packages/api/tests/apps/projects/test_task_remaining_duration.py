@@ -2,9 +2,12 @@
 
 The served value and the engine's early dates must name the same window (ADR-0752
 §2): the web rebuilds ``early_start`` from ``remaining_duration``. The serializer
-therefore calls the scheduler's ``_elapsed_working_days`` rather than restating it,
-and these tests pin the cases where a float restatement drifted from the engine.
-Unsaved ``Task`` instances: the method reads two fields and touches no database.
+therefore calls the scheduler's ``_effective_duration_days`` rather than restating
+it, and these tests pin the cases where a float restatement drifted from the engine.
+The expected values are the in-tree scheduler's exact rule; with the published 0.4
+scheduler installed the served value follows that release's float rule instead,
+which is what that release schedules. Unsaved ``Task`` instances: the method reads
+a few fields and touches no database.
 """
 
 from __future__ import annotations

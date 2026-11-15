@@ -85251,7 +85251,7 @@
                     },
                     "remaining_duration": {
                         "type": "integer",
-                        "description": "Working days of REMAINING work (ADR-0752 §2).\n\n``duration - elapsed``, where ``elapsed`` is the scheduler's own\nelapsed-days rule (``_elapsed_working_days``): the exact decimal\n``duration * percent_complete / 100``, snapped to a whole day within\n1e-9 and otherwise floored, leaving an open task at least one day. It\nis called, not restated, so this value cannot drift from the engine rule\nthat makes ``early_start``/``early_finish`` name the remaining-work\nwindow (#5034). Serializer-computed, not persisted: unlike\n``scheduled_start`` (which utilization, #2623, needs to filter on in the\ndatabase), nothing queries this value, so no column is needed for it.",
+                        "description": "Working days of REMAINING work (ADR-0752 §2).\n\nThe installed scheduler's own remaining-work rule,\n``_effective_duration_days``, called on an engine ``Task`` built from\nthis row: ``duration`` less the days ``percent_complete`` has used,\nclamped at zero. It is called, not restated, so this value is always the\nwindow the installed engine scheduled ``early_start``/``early_finish``\nover (#5034). That function exists in every supported scheduler\nrelease, unlike the helpers it is built from, so an install that\nresolves the published package imports it too. Serializer-computed, not\npersisted: unlike ``scheduled_start`` (which utilization, #2623, needs\nto filter on in the database), nothing queries this value, so no column\nis needed for it.",
                         "readOnly": true
                     },
                     "late_start": {
@@ -88869,7 +88869,7 @@
                     },
                     "remaining_duration": {
                         "type": "integer",
-                        "description": "Working days of REMAINING work (ADR-0752 §2).\n\n``duration - elapsed``, where ``elapsed`` is the scheduler's own\nelapsed-days rule (``_elapsed_working_days``): the exact decimal\n``duration * percent_complete / 100``, snapped to a whole day within\n1e-9 and otherwise floored, leaving an open task at least one day. It\nis called, not restated, so this value cannot drift from the engine rule\nthat makes ``early_start``/``early_finish`` name the remaining-work\nwindow (#5034). Serializer-computed, not persisted: unlike\n``scheduled_start`` (which utilization, #2623, needs to filter on in the\ndatabase), nothing queries this value, so no column is needed for it.",
+                        "description": "Working days of REMAINING work (ADR-0752 §2).\n\nThe installed scheduler's own remaining-work rule,\n``_effective_duration_days``, called on an engine ``Task`` built from\nthis row: ``duration`` less the days ``percent_complete`` has used,\nclamped at zero. It is called, not restated, so this value is always the\nwindow the installed engine scheduled ``early_start``/``early_finish``\nover (#5034). That function exists in every supported scheduler\nrelease, unlike the helpers it is built from, so an install that\nresolves the published package imports it too. Serializer-computed, not\npersisted: unlike ``scheduled_start`` (which utilization, #2623, needs\nto filter on in the database), nothing queries this value, so no column\nis needed for it.",
                         "readOnly": true
                     },
                     "late_start": {

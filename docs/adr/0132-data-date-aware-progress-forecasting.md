@@ -231,7 +231,8 @@ date (`packages/scheduler/tests/test_started_link_anchor.py`, and the `started_`
 > **Amendment (2026-11-15, #5034, #5015) — the elapsed days are exact, with a
 > tolerance.** Every `int(duration × pct / 100)` and `floor(duration × percent_complete
 > / 100)` in this ADR, including the #1495 amendment below, is superseded by one rule
-> in both engines and the API's `remaining_duration`: with `P` the decimal `pct`
+> in both engines (the API's `remaining_duration` calls the installed engine's
+> `_effective_duration_days`, so it follows whichever rule that release has): with `P` the decimal `pct`
 > prints as (its shortest round-trip form) and `x = duration × P / 100` in exact
 > rational arithmetic, elapsed is the nearest integer when `x` is within 1e-9 days
 > of it and `floor(x)` otherwise, then capped at `duration − 1` when `pct < 100`.

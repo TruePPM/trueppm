@@ -268,9 +268,6 @@ from trueppm_scheduler.engine.calendar_math import (
     _effective_duration_days as _effective_duration_days,
 )
 from trueppm_scheduler.engine.calendar_math import (
-    _elapsed_working_days as _elapsed_working_days,
-)
-from trueppm_scheduler.engine.calendar_math import (
     _finish_from_start as _finish_from_start,
 )
 from trueppm_scheduler.engine.calendar_math import (

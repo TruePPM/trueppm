@@ -445,8 +445,8 @@ _VALID_SOURCE = re.compile(r"[a-z_]{1,64}")
 # originally denylisted on the premise that the CPM forward/backward pass never
 # reads it. ADR-0132 (progress-aware forecasting) made that premise false:
 # ``trueppm_scheduler.engine._effective_duration_days`` derives an in-progress
-# task's *remaining* duration from ``percent_complete``
-# (``duration - floor(duration * pct/100)``), and ``_is_complete`` pins a task
+# task's *remaining* duration from ``percent_complete`` (``duration`` less the
+# elapsed whole days ``pct`` has used), and ``_is_complete`` pins a task
 # once ``percent_complete >= 100`` — both unconditionally, independent of
 # whether ``Project.status_date`` is set. (A status date only changes the
 # *floor* applied to not-started/in-progress work; it does not gate whether
