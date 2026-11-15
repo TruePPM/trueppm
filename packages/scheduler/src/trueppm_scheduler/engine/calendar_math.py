@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 from datetime import (
     date,
     timedelta,
@@ -200,15 +201,168 @@ def _finish_from_start(start: date, duration_days: int, calendar: Calendar) -> d
 
     A duration of 0 is not a walk: a milestone keeps its verbatim date, so a
     completed milestone stays pinned exactly where it was recorded.
+
+    The layout is computed arithmetically (:func:`_lay_out_working_days`, #1531)
+    rather than stepped one working day at a time; :func:`_finish_from_start_walk`
+    is the reference walk it must equal and the fallback for the inputs where the
+    walk raises.
     """
     if duration_days <= 0:
         return start
+    first = _next_working_day(start, calendar)
+    if duration_days == 1:
+        return first
+    landed = _lay_out_working_days(first, duration_days, calendar, forward=True)
+    if landed is None:
+        return _walk_working_days(first, duration_days, calendar, forward=True)
+    return landed
+
+
+def _walk_working_days(
+    first: date, duration_days: int, calendar: Calendar, *, forward: bool
+) -> date:
+    """Step ``duration_days - 1`` working days off the working day ``first``, one at a time."""
     remaining = duration_days - 1
-    current = _next_working_day(start, calendar)
+    current = first
     while remaining > 0:
-        current = _scan_for_working_day(current, calendar, forward=True)
+        current = _scan_for_working_day(current, calendar, forward=forward)
         remaining -= 1
     return current
+
+
+def _finish_from_start_walk(start: date, duration_days: int, calendar: Calendar) -> date:
+    """Reference day-walk for :func:`_finish_from_start` (the pre-#1531 algorithm).
+
+    Kept as the oracle the differential test compares the arithmetic against.
+    """
+    if duration_days <= 0:
+        return start
+    return _walk_working_days(
+        _next_working_day(start, calendar), duration_days, calendar, forward=True
+    )
+
+
+def _start_from_finish_walk(finish: date, duration_days: int, calendar: Calendar) -> date:
+    """Reference day-walk for :func:`_start_from_finish` (the pre-#1531 algorithm)."""
+    if duration_days <= 0:
+        return finish
+    return _walk_working_days(
+        _prev_working_day(finish, calendar), duration_days, calendar, forward=False
+    )
+
+
+# Per weekday mask (0..127): ``(k, offs, before)`` where ``k`` is the number of mask
+# days per week, ``offs[j]`` the Monday-based weekday of the ``j``-th one, and
+# ``before[w]`` how many mask days precede weekday ``w`` within its week. Filled
+# lazily; a dict write of an immutable value is safe to race under the GIL.
+_MASK_TABLES: dict[int, tuple[int, tuple[int, ...], tuple[int, ...]]] = {}
+
+
+def _mask_table(mask: int) -> tuple[int, tuple[int, ...], tuple[int, ...]]:
+    table = _MASK_TABLES.get(mask)
+    if table is None:
+        offs = tuple(w for w in range(7) if (mask >> w) & 1)
+        before = tuple(sum(1 for o in offs if o < w) for w in range(7))
+        table = (len(offs), offs, before)
+        _MASK_TABLES[mask] = table
+    return table
+
+
+def _lay_out_working_days(
+    first: date, duration_days: int, calendar: Calendar, *, forward: bool
+) -> date | None:
+    """The ``duration_days``-th working day counted from the working day ``first``.
+
+    ``first`` counts as day 1. Equal to :func:`_walk_working_days` on every input
+    where it returns a date, in O(log E) per exception run crossed instead of one
+    calendar step per working day (#1531): the CPM passes lay every task's duration
+    out through here, and the day walk made them O(tasks x mean duration).
+
+    How: number the weekday-mask days by rank (``rank(o)`` = mask days in
+    ``[1, o)``; ordinal 1 is a Monday, so the rank is closed-form from the week
+    number and a per-mask table). The ``n``-th mask day from ``first`` is a rank
+    offset of ``n - 1``. Exceptions remove mask days, so the landing is then pushed
+    on by the number of exception mask days between the previous landing and the
+    new one (:meth:`Calendar._exception_mask_days`), until a push crosses none. A
+    landing that crossed no exception mask day is a mask day outside every
+    exception, i.e. a working day, and the working days up to it number exactly
+    ``n``.
+
+    Returns ``None`` — "use the walk" — wherever the walk would not complete
+    silently, so the documented errors stay the walk's own, word for word:
+
+    - the landing falls outside the representable ``date`` range (the walk raises
+      the overflow :class:`InvalidScheduleInput`);
+    - a crossed exception run is long enough that the gap between two consecutive
+      working days could exceed the walk's per-step budget of
+      :data:`MAX_CALENDAR_SCAN_DAYS`. Exception runs are coalesced across mask-off
+      gaps, so the longest non-working stretch around a run is the run plus at most
+      six mask-off days on each side; runs within 13 days of the budget fall back.
+    """
+    mask = calendar.working_days
+    k, offs, before = _mask_table(mask)
+    if k == 0:
+        return None
+    o0 = first.toordinal()
+    wk, wd = divmod(o0 - 1, 7)
+    rank = wk * k + before[wd]
+    step = duration_days - 1
+    has_exc = bool(calendar.exceptions)
+    if forward:
+        rank += step
+        q, j = divmod(rank, k)
+        land = 1 + 7 * q + offs[j]
+        if has_exc:
+            lo = o0
+            while True:
+                if land > _MAX_ORDINAL:
+                    return None
+                deficit = calendar._exception_mask_days(lo, land + 1)
+                if not deficit:
+                    break
+                lo = land + 1
+                rank += deficit
+                q, j = divmod(rank, k)
+                land = 1 + 7 * q + offs[j]
+            if not _runs_within_scan_budget(calendar, o0, land):
+                return None
+        if land > _MAX_ORDINAL:
+            return None
+    else:
+        rank -= step
+        q, j = divmod(rank, k)
+        land = 1 + 7 * q + offs[j]
+        if has_exc:
+            hi = o0 + 1
+            while True:
+                if land < _MIN_ORDINAL:
+                    return None
+                deficit = calendar._exception_mask_days(land, hi)
+                if not deficit:
+                    break
+                hi = land
+                rank -= deficit
+                q, j = divmod(rank, k)
+                land = 1 + 7 * q + offs[j]
+            if not _runs_within_scan_budget(calendar, land, o0):
+                return None
+        if land < _MIN_ORDINAL:
+            return None
+    return date.fromordinal(land)
+
+
+# A coalesced exception run of this many days or more may leave a non-working gap
+# (run + up to 6 mask-off days each side, + 1 to reach the next working day) wider
+# than the walk's per-step budget, where the walk raises instead of landing.
+_LONG_RUN_DAYS = MAX_CALENDAR_SCAN_DAYS - 13
+
+
+def _runs_within_scan_budget(calendar: Calendar, lo: int, hi: int) -> bool:
+    """Whether every exception run between ordinals ``lo`` and ``hi`` is short of the budget."""
+    starts, ends, _ = calendar._exception_intervals()
+    i = max(0, bisect.bisect_right(starts, lo) - 1)
+    j = bisect.bisect_right(starts, hi)
+    return all(ends[r] - starts[r] < _LONG_RUN_DAYS for r in range(i, j))
 
 
 def _start_from_finish(finish: date, duration_days: int, calendar: Calendar) -> date:
@@ -229,12 +383,13 @@ def _start_from_finish(finish: date, duration_days: int, calendar: Calendar) -> 
     """
     if duration_days <= 0:
         return finish
-    remaining = duration_days - 1
-    current = _prev_working_day(finish, calendar)
-    while remaining > 0:
-        current = _scan_for_working_day(current, calendar, forward=False)
-        remaining -= 1
-    return current
+    last = _prev_working_day(finish, calendar)
+    if duration_days == 1:
+        return last
+    landed = _lay_out_working_days(last, duration_days, calendar, forward=False)
+    if landed is None:
+        return _walk_working_days(last, duration_days, calendar, forward=False)
+    return landed
 
 
 def _working_days_in_ordinals(lo: int, hi: int, calendar: Calendar) -> int:
