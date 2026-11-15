@@ -389,7 +389,7 @@ These exist for specific operational situations and are not part of routine use:
   `INTEGRATION_ENCRYPTION_KEY` (SSO client secret, Jira credentials, webhook and
   board-automation secrets, the SMTP password) under the current primary key, so an
   old key in `INTEGRATION_ENCRYPTION_KEY_FALLBACKS` can be retired. Run it after
-  promoting a new key; see
+  the new key is primary (phase 2 of the rotation); see
   [Rotating secrets without downtime](/administration/security/#rotating-secrets-without-downtime).
   Pass `--dry-run` to count without writing and `--batch-size N` (default 500) to
   size each transaction. It is idempotent, skips rows already on the primary key,

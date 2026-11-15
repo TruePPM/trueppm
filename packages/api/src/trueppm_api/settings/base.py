@@ -35,10 +35,13 @@ env = environ.Env()
 # fixed grandfathered list of TruePPM names that shipped bare and have not been migrated yet:
 # ``MSPROJECT_MAX_UPLOAD_MB``, ``SEED_MAX_UPLOAD_MB``, ``IMPORT_MAX_RESOURCES_CREATED``,
 # ``RETENTION_PURGE_INFLIGHT_SECONDS``, ``SIGNAL_CEILING_PROPOSAL_TTL_HOURS``,
-# ``CSP_CONNECT_SRC``, ``JWT_SIGNING_KEY``,
-# ``INTEGRATION_ENCRYPTION_KEY``. They will gain the prefix with the same
-# legacy fallback; ``tests/test_env_namespace.py`` pins the list so it only changes
-# deliberately. A setting that shipped bare and HAS been migrated keeps working as a
+# ``CSP_CONNECT_SRC``, ``JWT_SIGNING_KEY``, ``INTEGRATION_ENCRYPTION_KEY``. They will
+# gain the prefix with the same legacy fallback; ``tests/test_env_namespace.py`` pins the
+# list so it only changes deliberately. Two further names were added bare by #3406
+# because that issue names them: ``JWT_SIGNING_KEY_FALLBACKS`` and
+# ``INTEGRATION_ENCRYPTION_KEY_FALLBACKS`` (pending a decision on whether to prefix them
+# before 0.5 ships; ``SECRET_KEY_FALLBACKS`` follows the Django ``SECRET_KEY`` convention).
+# A setting that shipped bare and HAS been migrated keeps working as a
 # deprecated fallback through ``env_with_legacy`` (one precedence rule, one-time
 # WARNING; removed at 1.0, #4405). Do not add a new bare name.
 

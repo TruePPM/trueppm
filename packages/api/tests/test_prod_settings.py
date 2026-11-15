@@ -348,6 +348,21 @@ def test_prod_refuses_empty_integration_encryption_key() -> None:
         _load_prod(backend=_S3, allow_local=False, encryption_key="")
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["SECRET_KEY_FALLBACKS", "JWT_SIGNING_KEY_FALLBACKS", "INTEGRATION_ENCRYPTION_KEY_FALLBACKS"],
+)
+def test_prod_refuses_invalid_key_fallback(name: str) -> None:
+    """A malformed ``*_FALLBACKS`` entry stops the boot (#3406) and is not echoed."""
+    with (
+        mock.patch.object(base, name, ["weak-entry"]),
+        pytest.raises(RuntimeError, match="Refusing to start") as exc,
+    ):
+        _load_prod(backend=_S3, allow_local=False)
+    assert name in str(exc.value)
+    assert "weak-entry" not in str(exc.value)
+
+
 def test_prod_refuses_unencrypted_database_url() -> None:
     """A DATABASE_URL without sslmode and no opt-in stops the boot (#1550)."""
     with pytest.raises(RuntimeError, match="sslmode=require"):

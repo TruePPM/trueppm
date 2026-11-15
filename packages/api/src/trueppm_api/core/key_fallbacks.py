@@ -16,6 +16,8 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from jwt.exceptions import PyJWTError
+
 
 def parse_key_list(raw: str | None) -> list[str]:
     """Split a comma-separated ``*_FALLBACKS`` env value into a list of keys.
@@ -53,6 +55,11 @@ def make_fallback_token_backend(fallbacks_getter: Callable[[], Sequence[str]]) -
                 if not verify:
                     raise
                 for key in fallbacks_getter():
+                    # An empty entry (stray comma) must not reach PyJWT: it raises
+                    # InvalidKeyError, which is not a TokenBackendError and would
+                    # surface as a 500 instead of the normal 401 rejection.
+                    if not key:
+                        continue
                     verifier = TokenBackend(
                         self.algorithm,
                         key,
@@ -67,7 +74,7 @@ def make_fallback_token_backend(fallbacks_getter: Callable[[], Sequence[str]]) -
                         return verifier.decode(token, verify=True)
                     except TokenBackendExpiredToken:
                         raise
-                    except TokenBackendError:
+                    except (TokenBackendError, PyJWTError):
                         continue
                 raise primary_error
 

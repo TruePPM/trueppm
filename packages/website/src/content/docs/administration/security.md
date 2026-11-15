@@ -380,13 +380,22 @@ stops the process from starting with an error naming the list and the position
 (`SECRET_KEY_FALLBACKS[1]`); it is never silently ignored. Error messages never
 print the key.
 
-**Runbook (any of the three):**
+**Runbook (any of the three) — two phases, never one step:**
 
-1. Generate the new key (`python3 -c "import secrets; print(secrets.token_urlsafe(50))"`, or a new Fernet key for `INTEGRATION_ENCRYPTION_KEY`).
-2. Set the new key as the primary **and** put the previous primary in the matching `*_FALLBACKS` variable. Update your Secret, then
-   [restart the api, celery-worker, and celery-beat Deployments](#restarting-pods-after-rotating-the-secret).
-   Pods that have not restarted yet still hold the old primary, so keep the old key in the fallback list until the rollout is complete everywhere.
-3. For `INTEGRATION_ENCRYPTION_KEY`, re-encrypt stored values under the new primary, then confirm the report shows nothing left to rewrite:
+A rolling restart runs old and new pods side by side (the Helm production values run
+two API replicas). If you set the new key as primary and keep the old one as a
+fallback in a single step, a restarted pod signs or encrypts under the new key
+while a pod that has not restarted yet only knows the old key. That old pod cannot
+verify a token or session value signed under the new key, or decrypt a secret
+written under it, so users see `401` responses and sign-outs. The old pods are
+missing the **new** key, so the new key must reach every pod as a fallback
+*before* it becomes primary.
+
+1. Generate the new key B (`python3 -c "import secrets; print(secrets.token_urlsafe(50))"`, or a new Fernet key for `INTEGRATION_ENCRYPTION_KEY`). The current key is A.
+2. **Phase 1 — distribute B.** Keep A as the primary and add B to the matching `*_FALLBACKS` variable. Update your Secret, then
+   [restart the api, celery-worker, and celery-beat Deployments](#restarting-pods-after-rotating-the-secret). Wait until the rollout has finished and **every** pod of all three Deployments runs the new configuration. Nothing signs under B yet, so nothing can break.
+3. **Phase 2 — promote B.** Set B as the primary and A as the fallback, update the Secret, and restart the same three Deployments again. During this rollout both old and new pods know both keys, so each can verify what the other produced.
+4. For `INTEGRATION_ENCRYPTION_KEY`, re-encrypt stored values under the new primary, then confirm the report shows nothing left to rewrite:
 
    ```bash
    python manage.py reencrypt_integration_secrets --dry-run   # counts only
@@ -398,7 +407,7 @@ print the key.
    already current, or could not decrypt, and is idempotent. It exits non-zero if
    any value cannot be decrypted by any configured key; add the missing old key to
    the fallback list and re-run rather than dropping anything.
-4. After the longest-lived value signed under the old key has expired (for JWTs, the refresh-token lifetime, 7 days by default and up to 30 days for "keep me signed in"; for `SECRET_KEY`, your longest password-reset or cookie lifetime), remove the old key from the fallback list and restart again. For `INTEGRATION_ENCRYPTION_KEY`, remove it only after step 3 reports zero rows rewritten.
+5. **Retire A.** After the longest-lived value signed under A has expired, remove A from the fallback list and restart again. For JWTs that is the longer of `TRUEPPM_REFRESH_TOKEN_REMEMBER_DAYS` (default 30, the "Keep me signed in" refresh lifetime) and 7 days (the lifetime of refresh tokens issued before the remember-me change); a non-remembered session lasts 12 hours (`TRUEPPM_REFRESH_TOKEN_SESSION_HOURS`). For `SECRET_KEY`, use your longest password-reset or cookie lifetime. For `INTEGRATION_ENCRYPTION_KEY`, remove A only after step 4 reports zero rows rewritten.
 
 :::caution[Rotating with no fallback signs everyone out]
 Leaving the `*_FALLBACKS` list empty keeps the original behavior: rotating

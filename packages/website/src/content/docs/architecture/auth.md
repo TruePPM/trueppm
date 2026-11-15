@@ -329,7 +329,11 @@ startup, so a change needs a restart). It exempts a host for single sign-on only
 SMTP, integrations and webhooks each have their own list — see [Single sign-on](/administration/single-sign-on/#running-the-identity-provider-inside-your-cluster).
 
 :::note[Ships in 0.5]
-The per-purpose lists are introduced by 0.5. In 0.4 the escape hatch is
+Zero-downtime rotation of `INTEGRATION_ENCRYPTION_KEY` (the
+`INTEGRATION_ENCRYPTION_KEY_FALLBACKS` variable and the `reencrypt_integration_secrets`
+command, described under "One encryption key for every stored third-party secret") also
+ships in 0.5; in 0.4 changing the key breaks every stored ciphertext. The per-purpose
+lists are introduced by 0.5. In 0.4 the escape hatch is
 `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, which exempts a host for every outbound
 caller, so it must name only a host at least as trusted as the identity provider.
 :::
@@ -346,8 +350,9 @@ whether OIDC should have its own key; the code resolved it by reuse, and this
 page records that as an accepted risk so it is not rediscovered as a finding.
 
 The consequences are structural. A leak of the key exposes every one of these
-together. Rotation is supported without data loss: `INTEGRATION_ENCRYPTION_KEY_FALLBACKS`
-holds older keys that a `MultiFernet` tries for decryption only (writes use the
+together. Rotation is supported without data loss, in two phases (add the new key as a
+fallback and finish that rollout, then promote it): `INTEGRATION_ENCRYPTION_KEY_FALLBACKS`
+holds additional keys that a `MultiFernet` tries for decryption only (writes use the
 primary), and `manage.py reencrypt_integration_secrets` rewrites every stored
 ciphertext under the primary so a fallback can be dropped. Changing the key with no
 fallback still breaks every stored ciphertext and recovery is for an administrator

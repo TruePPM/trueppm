@@ -110,12 +110,14 @@ def test_command_fails_and_keeps_going_on_undecryptable_row(settings, django_use
 
 
 def test_every_ciphertext_field_is_registered() -> None:
-    """A new ``*_ciphertext`` column must be added to ENCRYPTED_FIELDS or it is
-    stranded on a dropped key."""
+    """Every ``BinaryField`` on every model (five today) must be in ENCRYPTED_FIELDS
+    or it is stranded on a dropped key; a new binary column that is NOT encrypted
+    must be added here deliberately, not slip past a name filter."""
     found = {
         (m._meta.app_label, m.__name__, f.name)
         for m in apps.get_models()
         for f in m._meta.get_fields()
-        if isinstance(f, models.BinaryField) and f.name.endswith("_ciphertext")
+        if isinstance(f, models.BinaryField)
     }
+    assert len(found) == 5
     assert found == set(ENCRYPTED_FIELDS)

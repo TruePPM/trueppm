@@ -121,7 +121,9 @@ def test_expired_token_under_fallback_stays_expired(jwt_key) -> None:
     tok.set_exp(lifetime=-timedelta(minutes=5))
     expired = str(tok)
     jwt_key(NEW, [OLD])
-    with pytest.raises(TokenError):
+    from rest_framework_simplejwt.exceptions import ExpiredTokenError
+
+    with pytest.raises(ExpiredTokenError, match="expired"):
         AccessToken(expired)
 
 
@@ -161,3 +163,121 @@ def test_validators_reject_weak_malformed_and_empty_entries_without_echoing_keys
 
 def test_validators_skip_in_debug() -> None:
     assert validate_secret_key_fallbacks(["x"], debug=True) == []
+
+
+# --- two-phase rollout: the overlap order the runbook prescribes -------------
+# Phase 1 puts the NEW key in the fallbacks while OLD stays primary, so pods that
+# have not restarted yet (primary OLD, fallbacks [NEW]) can verify anything a
+# restarted pod (primary NEW, fallbacks [OLD]) signs. Phase 2 swaps them.
+
+
+def test_jwt_phase1_pod_verifies_token_minted_by_phase2_pod(jwt_key) -> None:
+    jwt_key(NEW, [OLD])  # a pod already on phase 2 signs under NEW
+    minted = str(AccessToken())
+    jwt_key(OLD, [NEW])  # a pod still on phase 1 (OLD primary, NEW fallback)
+    assert AccessToken(minted)["token_type"] == "access"
+
+
+def test_multifernet_phase1_pod_decrypts_value_written_by_phase2_pod(settings) -> None:
+    from cryptography.fernet import Fernet
+
+    from trueppm_api.apps.integrations.encryption import decrypt_secret, encrypt_secret
+
+    old, new = Fernet.generate_key().decode(), Fernet.generate_key().decode()
+    settings.INTEGRATION_ENCRYPTION_KEY = new
+    settings.INTEGRATION_ENCRYPTION_KEY_FALLBACKS = [old]
+    ciphertext = encrypt_secret("s3cret")
+    settings.INTEGRATION_ENCRYPTION_KEY = old
+    settings.INTEGRATION_ENCRYPTION_KEY_FALLBACKS = [new]
+    assert decrypt_secret(ciphertext) == "s3cret"
+
+
+def test_django_signing_phase1_pod_verifies_value_signed_by_phase2_pod(settings) -> None:
+    settings.SECRET_KEY = NEW
+    settings.SECRET_KEY_FALLBACKS = [OLD]
+    value = signing.dumps({"v": 2})
+    settings.SECRET_KEY = OLD
+    settings.SECRET_KEY_FALLBACKS = [NEW]
+    assert signing.loads(value) == {"v": 2}
+
+
+# --- empty fallback entries must reject, not 500 -----------------------------
+
+
+def test_empty_fallback_entry_rejects_stranger_token_without_invalid_key_error(jwt_key) -> None:
+    jwt_key(OTHER, [])
+    stranger = str(AccessToken())
+    jwt_key(NEW, [""])
+    with pytest.raises(TokenError):
+        AccessToken(stranger)
+
+
+# --- refresh endpoint under rotation -----------------------------------------
+
+
+def test_refresh_endpoint_accepts_cookie_signed_under_old_key(jwt_key, django_user_model) -> None:
+    from django.conf import settings as dj_settings
+    from django.core.cache import cache
+    from rest_framework.test import APIClient
+
+    cache.clear()
+    user = django_user_model.objects.create_user(username="rot-refresh", password=None)
+    jwt_key(OLD, [])
+    old_refresh = str(RefreshToken.for_user(user))
+    jwt_key(NEW, [OLD])
+    client = APIClient()
+    client.cookies[dj_settings.AUTH_REFRESH_COOKIE_NAME] = old_refresh
+    resp = client.post("/api/v1/auth/token/refresh/")
+    assert resp.status_code == 200
+    new_cookie = resp.cookies[dj_settings.AUTH_REFRESH_COOKIE_NAME].value
+    assert new_cookie != old_refresh
+    jwt_key(NEW, [])  # primary alone: everything minted now is under NEW
+    assert AccessToken(resp.data["access"])["token_type"] == "access"
+    assert RefreshToken(new_cookie)["token_type"] == "refresh"
+    cache.clear()
+
+
+# --- settings wiring ----------------------------------------------------------
+
+
+def _fallbacks_in_subprocess(env_extra: dict[str, str]) -> list[list[str]]:
+    import json
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import json;from trueppm_api.settings import base;"
+        "print(json.dumps([base.SECRET_KEY_FALLBACKS, base.JWT_SIGNING_KEY_FALLBACKS]))"
+    )
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"JWT_SIGNING_KEY", "JWT_SIGNING_KEY_FALLBACKS", "SECRET_KEY_FALLBACKS"}
+    }
+    env.update(env_extra)
+    out = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+    )
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_jwt_fallbacks_inherit_secret_key_fallbacks_only_when_jwt_key_unset() -> None:
+    inherited = _fallbacks_in_subprocess({"SECRET_KEY_FALLBACKS": "old1,old2"})
+    assert inherited == [["old1", "old2"], ["old1", "old2"]]
+    explicit = _fallbacks_in_subprocess(
+        {"SECRET_KEY_FALLBACKS": "old1,old2", "JWT_SIGNING_KEY": "j" * 50}
+    )
+    assert explicit == [["old1", "old2"], []]
+    own = _fallbacks_in_subprocess(
+        {"JWT_SIGNING_KEY": "j" * 50, "JWT_SIGNING_KEY_FALLBACKS": "jold"}
+    )
+    assert own[1] == ["jold"]
+
+
+def test_check_key_fallbacks_is_registered_as_a_deploy_check() -> None:
+    from django.core.checks.registry import registry
+
+    from trueppm_api.core.security_checks import check_key_fallbacks
+
+    assert check_key_fallbacks in registry.get_checks(include_deployment_checks=True)
