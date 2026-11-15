@@ -84,7 +84,7 @@ class TimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
         # UTC-configured server, the default). Without this grace an ahead-of-server user
         # logging "today" would hit a spurious 400 (#1926). Genuine future-dated logging is
         # still blocked (client offers no future day) and >1 day ahead exceeds any real skew.
-        if value > today + timedelta(days=1):
+        if value > today + timedelta(days=1):  # engine-boundary-ok: entry-date skew bound
             raise serializers.ValidationError("Entry date cannot be in the future.")
         window = _backdate_window_days()
         if value < today - timedelta(days=window):

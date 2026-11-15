@@ -1,0 +1,17 @@
+# Allow-list for scripts/check-api-engine-boundary.py (#4688) — a ceiling that can only shrink.
+# Format:  path (relative to packages/api/src/trueppm_api) | rule | max-count | issue | reason
+# Every entry names an issue as #NNNN.
+# Fix a hit => lower the count (the gate fails if you do not). Never raise a count
+# without a new issue and a reviewer's eyes on the reason.
+
+# --- Velocity (agile) Monte Carlo lives in the API, not the library -------------------
+apps/projects/services.py | np-random | 2 | #5008 | velocity bootstrap sampler (_bootstrap_*, sprint-forecast) draws with np.random in the API; move into trueppm_scheduler behind a public function
+apps/projects/services.py | percentile | 11 | #5008 | p50/p80/p95 of bootstrap sprint counts and burn-up values computed with np.percentile in the API; library should return them
+apps/projects/services.py | timedelta-days | 18 | #5008 | p50/p80/p95 date projection (today + sprints*len), velocity-band penalty, plus working-day walks _working_days/_layered_working_days (#5009); includes some non-schedule calendar arithmetic (today +/- n days, window, retention) grandfathered with the working-day walks
+
+# --- Hand-rolled calendar / working-day walks ------------------------------------------
+apps/projects/sprint_cadence.py | timedelta-days | 4 | #5009 | next-working-day scan and sprint cursor stepping over Calendar.is_working_day; library should expose add/next working day
+apps/projects/utilization.py | timedelta-days | 6 | #5009 | per-day capacity loops step dates by hand over the composed calendar
+apps/projects/standup.py | timedelta-days | 2 | #5009 | previous-working-day scan with its own mask/exception check
+apps/projects/views.py | timedelta-days | 1 | #5009 | day-by-day working/non-working calendar preview loop
+apps/scheduling/finish_reading.py | timedelta-days | 1 | #5009 | previous working day of a finish date (_prev_working_day)

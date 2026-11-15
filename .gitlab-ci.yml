@@ -4130,6 +4130,25 @@ api:app-layering:
     - python3 scripts/check-app-layering.py --self-test
     - python3 scripts/check-app-layering.py
 
+lint:api-engine-boundary:
+  # The API must not reimplement engine math: every sampled, scheduled, or derived value
+  # is a trueppm_scheduler call (#4688; #2645/#4663/#4660 were instances). Pattern-based
+  # and narrow (np.random, random., np.percentile, timedelta(days=) outside the
+  # allow-list in packages/api/api-engine-boundary-allowlist.txt, a ceiling that can only
+  # shrink; every entry names an issue). Pure static analysis, ~1s.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    - python3 scripts/check-api-engine-boundary.py --self-test
+    - python3 scripts/check-api-engine-boundary.py
+
 api:schema-breaking:
   # stability.md promises a deprecation window for every Breaking change (field
   # removal/rename, type change, status-code change, optional -> required, enum
