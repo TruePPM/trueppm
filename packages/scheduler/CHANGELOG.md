@@ -111,6 +111,12 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **`MAX_PROJECT_WORK_DAYS` is now exported from `trueppm_scheduler`
+  ([#5022](https://gitlab.com/trueppm/trueppm/-/issues/5022)).** The constant was
+  documented as public, but only `trueppm_scheduler.engine` had it, so
+  `from trueppm_scheduler import MAX_PROJECT_WORK_DAYS` raised `ImportError`. It is
+  now imported at the package root and listed in `__all__`; its value is unchanged.
+
 - **A closed milestone whose `actual_start` and `actual_finish` differ is now
   shown on its `actual_finish` day
   ([#4458](https://gitlab.com/trueppm/trueppm/-/issues/4458)).** Its successors

@@ -46,12 +46,18 @@ _DOCUMENTED_CAPS = frozenset(
 
 
 def _actual(name: str) -> int:
-    """Resolve a documented cap: the exported constant, else the engine's private one.
+    """Resolve a documented cap from where the README says it lives.
 
-    ``_MAX_RUNS_ABSOLUTE`` (the ``monte_carlo(runs=…)`` ceiling) is documented in the
-    table but deliberately not exported, so it is read from ``engine`` directly.
+    A public cap (no leading underscore) is documented as exported from the top-level
+    package, so it is read there and a missing export raises ``AttributeError``; an
+    ``engine`` fallback would let a cap that is documented as exported pass while
+    ``from trueppm_scheduler import NAME`` raises ``ImportError`` (#5022). Only the
+    underscore-prefixed caps (``_MAX_RUNS_ABSOLUTE``, ``_MAX_SAMPLE_CELLS``) are
+    documented as not exported, so those are read from ``engine`` directly.
     """
-    return getattr(ts, name) if hasattr(ts, name) else getattr(_engine, name)
+    if name.startswith("_"):
+        return getattr(_engine, name)
+    return getattr(ts, name)
 
 
 def _parse_limits_table() -> dict[str, int]:
