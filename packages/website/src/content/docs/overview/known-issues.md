@@ -331,9 +331,9 @@ as a fixed Mon–Fri week.
   engine below.
 - **What to do:** treat the drag preview as an estimate and read the dates after the
   drop, once the server has reconciled them. Those are the ones that count.
-- **Frozen, with a decision date** — the WASM engine takes no new feature work until the decision on its fate
+- **Frozen, with a decision date** — the WASM engine takes no new feature work in the crate until the decision on its fate
   ([#4743](https://gitlab.com/trueppm/trueppm/-/issues/4743)), due no later than 0.6 planning.
-  [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) (wiring it in) is held until then.
+  [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) (wiring it in) is held until then. Conformance-parity maintenance for Python-side semantic changes already committed for 0.5 continues.
   Its output is advisory and never produces a refusal; the server has the last word.
 
 ### The Rust engine has no Monte Carlo — not scheduled

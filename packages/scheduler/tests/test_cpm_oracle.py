@@ -878,7 +878,8 @@ def test_a_shorter_lag_never_finishes_work_later(project: RefProject, which: int
 # reference. It needs no model of progress, the data date, ``planned_start`` or
 # per-task calendars, so it reaches the float half of that input class — #4343,
 # #4344, #4345 and #4431, which both engines shared and which therefore passed
-# ``wasm:conformance`` — including the shapes the reference refuses. Early-date
+# ``scheduler:snapshot-regression`` / ``wasm:test`` — including the shapes the
+# reference refuses. Early-date
 # bugs with consistent floats need the reference properties further down, or a
 # metamorphic test for what the reference refuses (#4433: a completed milestone
 # with recorded actuals).

@@ -95,7 +95,7 @@ word.**
    WBS would treat every summary as a leaf, and the conformance suite structurally
    cannot see that. Offline output is therefore advisory and never produces a
    refusal; carrying the rollup in the contract, with a summary-task fixture, is
-   tracked by a follow-up issue. The engine is frozen until the 0.6 decision, see
+   tracked by #5007. The engine is frozen until the 0.6 decision, see
    ADR-0015.)*
 
 3. **The scheduling engine as a separable library.**

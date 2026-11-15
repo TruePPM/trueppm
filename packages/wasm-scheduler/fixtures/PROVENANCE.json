@@ -289,7 +289,7 @@
     "expected/per_task_calendar_ss_cross.json": {
       "provenance": "regenerated",
       "issue": "#4465",
-      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; the Rust engine is compared against it by wasm:conformance (cargo test)"
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; the Rust engine is compared against it by wasm:test (cargo test)"
     },
     "expected/planned_start_snet.json": {
       "provenance": "unknown",
@@ -509,7 +509,7 @@
     "expected/ss_negative_lag_weekend.json": {
       "provenance": "regenerated",
       "issue": "#4465",
-      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; the Rust engine is compared against it by wasm:conformance (cargo test)"
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; the Rust engine is compared against it by wasm:test (cargo test)"
     },
     "expected/sub_start_floors_move_nothing.json": {
       "provenance": "unknown",

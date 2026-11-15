@@ -5510,14 +5510,14 @@ scheduler:snapshot-regression:
   # look like it froze this job too. It does not: it is the Python engine's own
   # snapshot regression test and keeps firing on every `packages/scheduler/**`
   # change. The WASM engine is frozen until the 0.6 decision (ADR-0015); its
-  # Rust jobs below run on path change and on the nightly schedule only.
+  # Rust jobs (wasm:lint, wasm:build, wasm:test, wasm:license-check) run on path change and on the nightly schedule only.
   #
   # The PYTHON half of cross-engine conformance: run the Python scheduler against
   # the shared `packages/wasm-scheduler/fixtures/` corpus and its committed
   # `expected/` snapshots.
   #
-  # This job alone does NOT prove the two engines agree, despite the name — it
-  # exercises one engine. The Rust half is `tests/conformance.rs` +
+  # This job alone does NOT prove the two engines agree: it exercises one
+  # engine. The Rust half is `tests/conformance.rs` +
   # `tests/invalid_conformance.rs`, run by `wasm:test` (`cargo test --all-targets`
   # picks up both integration-test binaries). Agreement is the conjunction of the
   # two jobs against one shared oracle: the `expected/` snapshots, generated from
