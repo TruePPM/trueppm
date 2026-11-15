@@ -624,9 +624,9 @@ column is mapped to a date field.
 
 | Limit | Default | Setting |
 |---|---|---|
-| Task import upload size | 10 MB | `CSV_IMPORT_MAX_UPLOAD_MB` |
-| Task import data rows | 5 000 | `CSV_IMPORT_MAX_ROWS` |
-| Task import `.xlsx` uncompressed size | 100 MB | `CSV_IMPORT_MAX_UNCOMPRESSED_MB` |
+| Task import upload size | 10 MB | `TRUEPPM_CSV_IMPORT_MAX_UPLOAD_MB` |
+| Task import data rows | 5 000 | `TRUEPPM_CSV_IMPORT_MAX_ROWS` |
+| Task import `.xlsx` uncompressed size | 100 MB | `TRUEPPM_CSV_IMPORT_MAX_UNCOMPRESSED_MB` |
 | Risk import upload size | 2 MB | — |
 | Risk import data rows | 500 | — |
 | Characters in a single cell (task and risk import) | 131 072 | — |

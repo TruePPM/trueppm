@@ -220,7 +220,7 @@ application ever sees it.
 | Web-tier nginx — sync, bulk, seed, logo / everything else | fixed | `10M` / `2M` |
 | Application — transport tiers | [request body ceilings](/administration/configuration/limits/#request-body-ceilings) | 110 / 10 / 2 MB |
 | Application — attachments | `MAX_ATTACHMENT_SIZE_BYTES` (**100 MB**) | see [Configuration](/administration/configuration/) |
-| Application — imports | `MSPROJECT_MAX_UPLOAD_MB` (50), `JIRA_IMPORT_MAX_UPLOAD_MB` (25), `CSV_IMPORT_MAX_UPLOAD_MB` (10), `SEED_MAX_UPLOAD_MB` (5) | see [Configuration](/administration/configuration/) |
+| Application — imports | `MSPROJECT_MAX_UPLOAD_MB` (50), `TRUEPPM_JIRA_IMPORT_MAX_UPLOAD_MB` (25), `TRUEPPM_CSV_IMPORT_MAX_UPLOAD_MB` (10), `SEED_MAX_UPLOAD_MB` (5) | see [Configuration](/administration/configuration/) |
 
 **The rule: keep every transport limit at or above the largest application cap.**
 The application cap is the one that should reject an oversized file, because it

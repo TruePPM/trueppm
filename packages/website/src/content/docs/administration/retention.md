@@ -1,8 +1,12 @@
 ---
 title: Outbox & Record Retention
+documentedFor: "0.5"
 description: How TruePPM bounds its transactional outbox and audit tables with purges, and how to tune, run on demand, or disable each retention window.
 ---
 
+:::note[Ships in 0.5]
+The one-time deprecation warning when a legacy bare retention name is read, and the 1.0 removal of those names, ship in 0.5. Empty prefixed values count as unset from 0.5.
+:::
 
 :::note[Added in 0.2 (alpha)]
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; 0.4 shipped as the first beta.
@@ -361,12 +365,12 @@ Every retention knob has a `TRUEPPM_`-prefixed name today — `TRUEPPM_HISTORY_R
 and `TRUEPPM_TASK_RUN_RETENTION_DAYS` were standardized onto the prefix pre-0.3 (#1325),
 matching `TRUEPPM_IMPORT_RETENTION_DAYS` and `TRUEPPM_WEBHOOK_RETENTION_DAYS`, which
 carried it from the start (ADR-0081) for env-var namespacing in shared Kubernetes
-ConfigMaps and Secrets. Django reads the **prefixed name first**; only when it is unset
-does it fall back to the legacy bare name (`HISTORY_RETENTION_DAYS`,
-`TASK_RUN_RETENTION_DAYS`). The bare names are kept working indefinitely as a fallback —
-removing them would break any deployment that still sets the old name — but a
-deployment configuring these for the first time should always use the `TRUEPPM_`-prefixed
-form.
+ConfigMaps and Secrets. Django reads the **prefixed name first**; when it is unset or empty it falls back to the
+legacy bare name (`HISTORY_RETENTION_DAYS`, `TASK_RUN_RETENTION_DAYS`) and, from 0.5,
+logs a one-time deprecation warning. The bare names are removed at 1.0 — see
+[Environment variable naming and precedence](/administration/configuration/#environment-variable-naming-and-precedence).
+A deployment configuring these for the first time should always use the
+`TRUEPPM_`-prefixed form.
 
 ## Disabling a purge safely
 

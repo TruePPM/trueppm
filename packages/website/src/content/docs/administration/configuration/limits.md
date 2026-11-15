@@ -8,7 +8,7 @@ documentedFor: "0.5"
 The per-route [request body ceilings](#request-body-ceilings) ship in 0.5. In 0.4
 every endpoint parses a JSON body of up to 100 MB (`DATA_UPLOAD_MAX_MEMORY_SIZE`)
 and the reference nginx configs allow 110M on every route. The five `TRUEPPM_WS_*` WebSocket Origin, frame-size and frame-rate settings
-`IMPORT_MAX_RESOURCES_CREATED` and `MC_WALL_CLOCK_BUDGET_SECONDS` also ship in 0.5. Every other limit on this page is in 0.4.
+`IMPORT_MAX_RESOURCES_CREATED` and `MC_WALL_CLOCK_BUDGET_SECONDS` also ship in 0.5. The `TRUEPPM_` prefix on the MS Project, MPXJ, Jira, CSV/Excel, seed-import and bulk-batch limits also ships in 0.5; on 0.4 they are read under the bare names (`MSPROJECT_MAX_ROWS`, `CSV_IMPORT_MAX_ROWS`, and so on), which 0.5 keeps as deprecated fallbacks. Every other limit on this page is in 0.4.
 :::
 
 ## Rate limiting and access
@@ -236,9 +236,9 @@ not bound either the derived object count or the work converting a `.mpp` create
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
 | `MSPROJECT_MAX_UPLOAD_MB` | `50` | MB | Maximum size of a single MS Project import upload |
-| `MSPROJECT_MAX_ROWS` | `20000` | tasks | Maximum tasks (also applied to resources and dependency links) a single import may contain |
-| `MPXJ_MAX_OUTPUT_MB` | `512` | MB | Ceiling on the XML MPXJ streams to stdout while converting a `.mpp` to MSPDI XML |
-| `MPXJ_MAX_HEAP_MB` | `512` | MB | JVM max-heap (`-Xmx`) for the MPXJ conversion subprocess |
+| `TRUEPPM_MSPROJECT_MAX_ROWS` | `20000` | tasks | Maximum tasks (also applied to resources and dependency links) a single import may contain |
+| `TRUEPPM_MPXJ_MAX_OUTPUT_MB` | `512` | MB | Ceiling on the XML MPXJ streams to stdout while converting a `.mpp` to MSPDI XML |
+| `TRUEPPM_MPXJ_MAX_HEAP_MB` | `512` | MB | JVM max-heap (`-Xmx`) for the MPXJ conversion subprocess |
 
 This cap was raised from a previously hardcoded 10 MB. An import is read fully
 into memory and stored base64-encoded in a single database row (about +33%), so
@@ -249,7 +249,7 @@ limit close to the practical MS Project file ceiling rather than maximizing it.
 A 50 MB MSPDI XML file can encode roughly a million tasks, and the importer builds
 one `Task` object per row, computes the WBS over all of them, then bulk-creates the
 lot — a worker-memory / transaction-time denial-of-service that the byte ceiling
-alone does not stop. `MSPROJECT_MAX_ROWS` rejects the import outright once the task
+alone does not stop. `TRUEPPM_MSPROJECT_MAX_ROWS` rejects the import outright once the task
 count (or resource or dependency-link count) exceeds it, rather than partially
 processing an oversized file. 20,000 tasks is far above any realistic
 hand-authored schedule.
@@ -258,8 +258,8 @@ hand-authored schedule.
 binary `.mpp` format is converted to XML by an external MPXJ (Java) subprocess. A
 decompression-bomb `.mpp`, still comfortably inside the 50 MB upload cap, can
 expand to multi-gigabyte XML — buffering that unbounded would OOM the worker.
-`MPXJ_MAX_OUTPUT_MB` streams the subprocess's stdout and aborts past this many
-bytes; `MPXJ_MAX_HEAP_MB` is a second line of defense that bounds the JVM's own
+`TRUEPPM_MPXJ_MAX_OUTPUT_MB` streams the subprocess's stdout and aborts past this many
+bytes; `TRUEPPM_MPXJ_MAX_HEAP_MB` is a second line of defense that bounds the JVM's own
 heap, so even a bomb the byte ceiling hasn't yet caught dies with a JVM
 `OutOfMemoryError` (a clean non-zero exit) rather than driving the host into swap.
 
@@ -268,7 +268,7 @@ CSV/Excel and MS Project imports only, not Jira:
 
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
-| `IMPORT_BULK_BATCH_SIZE` | `500` | rows | `batch_size` for the shared importer's `bulk_create()` calls |
+| `TRUEPPM_IMPORT_BULK_BATCH_SIZE` | `500` | rows | `batch_size` for the shared importer's `bulk_create()` calls |
 | `IMPORT_MAX_RESOURCES_CREATED` | `200` | resources | New workspace resources one import may create for people who match nobody on the project's roster or members; the rest get a warning and no row |
 
 Without a `batch_size`, Django would emit one giant multi-row `INSERT` that pins
@@ -301,8 +301,8 @@ row count:
 
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
-| `JIRA_IMPORT_MAX_UPLOAD_MB` | `25` | MB | Maximum size of a single Jira XML import upload |
-| `JIRA_IMPORT_MAX_ROWS` | `20000` | issues | Maximum issues a single Jira XML import may contain |
+| `TRUEPPM_JIRA_IMPORT_MAX_UPLOAD_MB` | `25` | MB | Maximum size of a single Jira XML import upload |
+| `TRUEPPM_JIRA_IMPORT_MAX_ROWS` | `20000` | issues | Maximum issues a single Jira XML import may contain |
 
 The size default is lower than the MS Project cap because a Jira issue export is
 typically small and, like the MS Project importer, an upload is read fully into
@@ -310,7 +310,7 @@ memory and stored base64-encoded in a single database row (about +33%) until the
 import is processed. Files larger than the cap are rejected with HTTP 400 before
 any parsing happens.
 
-`JIRA_IMPORT_MAX_ROWS` exists for the same reason as `MSPROJECT_MAX_ROWS` above:
+`TRUEPPM_JIRA_IMPORT_MAX_ROWS` exists for the same reason as `TRUEPPM_MSPROJECT_MAX_ROWS` above:
 the byte cap does not bound the derived task count, and every issue becomes a
 `Task` object built and bulk-created through the same shared importer
 (`msproject.importer.import_project`). An import past the row cap is rejected
@@ -319,7 +319,7 @@ outright.
 ```bash
 # Allow Jira XML imports up to 40 MB. Same edge cap as MS Project imports: keep it
 # under the 110 MB upload tier, or the request is refused before the importer.
-JIRA_IMPORT_MAX_UPLOAD_MB=40
+TRUEPPM_JIRA_IMPORT_MAX_UPLOAD_MB=40
 ```
 
 The Jira XML parse goes through `defusedxml` (no entity expansion, no
@@ -333,9 +333,9 @@ size alone does not bound the work an upload creates:
 
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
-| `CSV_IMPORT_MAX_UPLOAD_MB` | `10` | MB | Maximum size of a single `.csv` / `.xlsx` upload |
-| `CSV_IMPORT_MAX_ROWS` | `5000` | rows | Maximum data rows parsed from one file |
-| `CSV_IMPORT_MAX_UNCOMPRESSED_MB` | `100` | MB | Maximum *uncompressed* size an `.xlsx` may declare |
+| `TRUEPPM_CSV_IMPORT_MAX_UPLOAD_MB` | `10` | MB | Maximum size of a single `.csv` / `.xlsx` upload |
+| `TRUEPPM_CSV_IMPORT_MAX_ROWS` | `5000` | rows | Maximum data rows parsed from one file |
+| `TRUEPPM_CSV_IMPORT_MAX_UNCOMPRESSED_MB` | `100` | MB | Maximum *uncompressed* size an `.xlsx` may declare |
 
 The size cap is much lower than the MS Project one on purpose: a spreadsheet
 migration is a hand-maintained sheet, not a generated plan, and 10 MB is already
@@ -351,15 +351,15 @@ skipped** rather than silently dropped, so an import is never quietly partial.
 ```bash
 # Allow larger sheets. Keep the upload cap under the 110 MB upload tier,
 # or the request is refused before the importer sees it.
-CSV_IMPORT_MAX_UPLOAD_MB=25
-CSV_IMPORT_MAX_ROWS=20000
+TRUEPPM_CSV_IMPORT_MAX_UPLOAD_MB=25
+TRUEPPM_CSV_IMPORT_MAX_ROWS=20000
 ```
 
 **`TRUEPPM_SCHEDULE_TASK_CEILING` (default `1000`) is not a fourth bound here** — the three
 limits above reject or truncate; this one never does. It is the Schedule's own
 [tested-comfortable task count](/administration/sizing/#tested-envelope), and the import
 preview compares your existing task count plus this file's tasks against it purely to
-warn, not to gate the commit. Raising `CSV_IMPORT_MAX_ROWS` does not raise this — they
+warn, not to gate the commit. Raising `TRUEPPM_CSV_IMPORT_MAX_ROWS` does not raise this — they
 answer different questions ("how big a file will the parser accept" vs. "how big a
 project stays comfortable to open"), and a file well under the row cap can still carry a
 project past it.
@@ -374,7 +374,7 @@ billion-laughs payloads are rejected at parse time.
 That protection does **not** bound *decompression*. A 1 MB upload can inflate to
 gigabytes and exhaust worker memory while sitting comfortably inside the byte
 cap. Before parsing, TruePPM sums the sizes declared in the zip's central
-directory and rejects anything above `CSV_IMPORT_MAX_UNCOMPRESSED_MB`. The check
+directory and rejects anything above `TRUEPPM_CSV_IMPORT_MAX_UNCOMPRESSED_MB`. The check
 reads no member data and runs before any XML parser is invoked.
 
 ## Seed import limit
@@ -385,7 +385,7 @@ A [JSON program seed](/administration/management-commands/#sample-data--json-see
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
 | `SEED_MAX_UPLOAD_MB` | `5` | MB | Maximum size of a single JSON program seed payload |
-| `SEED_IMPORT_MAX_CONCURRENT_JOBS` | `3` | jobs | Seed imports one account may have queued or running at once. `0` disables the bound. |
+| `TRUEPPM_SEED_IMPORT_MAX_CONCURRENT_JOBS` | `3` | jobs | Seed imports one account may have queued or running at once. `0` disables the bound. |
 
 Seeds are bounded relative to the other importers because they are a different
 kind of payload: the largest bundled sample seed is a few hundred KB, so 5 MB is
@@ -402,7 +402,7 @@ above for the separate `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` /
 `TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` throttles that bound *how often* a caller
 may hit this endpoint, independent of payload size.
 
-`SEED_IMPORT_MAX_CONCURRENT_JOBS` bounds a third, independent thing: how many
+`TRUEPPM_SEED_IMPORT_MAX_CONCURRENT_JOBS` bounds a third, independent thing: how many
 imports one account may have **outstanding**. The rebuild runs on a worker, so
 the rate throttle alone lets a caller keep adding full subtree builds to the
 queue at its permitted rate without ever waiting for one to finish. Over the cap
