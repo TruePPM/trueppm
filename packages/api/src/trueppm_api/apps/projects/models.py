@@ -9190,6 +9190,9 @@ class ProjectExportJob(models.Model):
     # Storage key (relative to the configured default storage), populated on success.
     file_path = models.CharField(max_length=512, blank=True, default="")
     file_size = models.BigIntegerField(null=True, blank=True)
+    # Lowercase hex SHA-256 of the finished .tar.gz (#2399); "" for jobs built before
+    # digests existed. Verifiable client-side with ``sha256sum``.
+    file_sha256 = models.CharField(max_length=64, blank=True, default="")
     error_detail = models.TextField(blank=True, default="")
     # Download-link validity; past this the purge deletes the row + file (410 Gone).
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -9258,6 +9261,9 @@ class ProgramExportJob(models.Model):
     # Storage key (relative to the configured default storage), populated on success.
     file_path = models.CharField(max_length=512, blank=True, default="")
     file_size = models.BigIntegerField(null=True, blank=True)
+    # Lowercase hex SHA-256 of the finished .tar.gz (#2399); "" for jobs built before
+    # digests existed. Verifiable client-side with ``sha256sum``.
+    file_sha256 = models.CharField(max_length=64, blank=True, default="")
     error_detail = models.TextField(blank=True, default="")
     # Download-link validity; past this the purge deletes the row + file (410 Gone).
     expires_at = models.DateTimeField(null=True, blank=True)

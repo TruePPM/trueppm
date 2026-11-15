@@ -48,9 +48,16 @@ def stream_export_job_or_error(
         handle = default_storage.open(job.file_path, "rb")
     except (FileNotFoundError, OSError) as exc:
         raise Http404("Export archive is no longer available.") from exc
-    return FileResponse(
+    response = FileResponse(
         handle,
         as_attachment=True,
         filename=filename,
         content_type="application/gzip",
     )
+    # Whole-artifact digest (#2399) so a client can verify before writing to disk.
+    # getattr: the workspace export job predates digests and has no such field; jobs
+    # built before this existed carry "" — no header rather than a wrong one.
+    sha256 = getattr(job, "file_sha256", "")
+    if sha256:
+        response["X-Export-SHA256"] = sha256
+    return response

@@ -3422,7 +3422,11 @@ class ProjectViewSet(
         responses={
             (200, "application/gzip"): OpenApiResponse(
                 response=OpenApiTypes.BINARY,
-                description="The project export .tar.gz as a file attachment.",
+                description=(
+                    "The project export .tar.gz as a file attachment. The `X-Export-SHA256` "
+                    "header carries the archive's lowercase hex SHA-256 (absent for "
+                    "exports built before digests existed)."
+                ),
             ),
             409: OpenApiResponse(
                 response=OpenApiTypes.OBJECT, description="Export is not ready yet."

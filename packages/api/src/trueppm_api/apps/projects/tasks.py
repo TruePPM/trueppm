@@ -1316,7 +1316,7 @@ def run_project_export(self: object, job_id: str) -> None:
         job.save(update_fields=["status", "started_at", "celery_task_id"])
 
     try:
-        storage_path, size = build_and_store_project_archive(job_id)
+        storage_path, size, sha256 = build_and_store_project_archive(job_id)
     except Exception as exc:
         retries = getattr(getattr(self, "request", None), "retries", 0)
         if retries < EXPORT_MAX_RETRIES:
@@ -1336,6 +1336,7 @@ def run_project_export(self: object, job_id: str) -> None:
         status=ExportJobStatus.SUCCESS,
         file_path=storage_path,
         file_size=size,
+        file_sha256=sha256,
         expires_at=expires_at,
         completed_at=timezone.now(),
         error_detail="",
@@ -1466,7 +1467,7 @@ def run_program_export(self: object, job_id: str) -> None:
         job.save(update_fields=["status", "started_at", "celery_task_id"])
 
     try:
-        storage_path, size = build_and_store_program_archive(job_id)
+        storage_path, size, sha256 = build_and_store_program_archive(job_id)
     except Exception as exc:
         retries = getattr(getattr(self, "request", None), "retries", 0)
         if retries < EXPORT_MAX_RETRIES:
@@ -1486,6 +1487,7 @@ def run_program_export(self: object, job_id: str) -> None:
         status=ExportJobStatus.SUCCESS,
         file_path=storage_path,
         file_size=size,
+        file_sha256=sha256,
         expires_at=expires_at,
         completed_at=timezone.now(),
         error_detail="",

@@ -2,7 +2,9 @@
 
 Produces a single ``.tar.gz`` for one project containing:
 
-- ``manifest.json``   — archive version + project identity + generated_at
+- ``manifest.json``   — archive version + project identity + generated_at + the SHA-256
+  of every other member (``members``) + ``manifest_sha256`` (ADR-0634 §5, #2399).
+  Written **last**, because it records digests of the members that precede it.
 - ``seed.json``       — the canonical JSON seed (ADR-0109, round-trips through the importer)
 - ``msproject.xml``   — MS Project XML (MSPDI); opens natively in MS Project. The
   binary ``.mpp`` format is **not** produced — the in-tree MPXJ integration reads
@@ -24,13 +26,14 @@ the tar. Mirrors ``workspace/export.py`` (ADR-0174).
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
 import tarfile
 import tempfile
 from collections.abc import Callable
-from typing import Any
+from typing import IO, Any
 
 from celery.exceptions import SoftTimeLimitExceeded
 from django.core.files import File
@@ -38,6 +41,12 @@ from django.core.files.storage import default_storage
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import QuerySet
 from django.utils import timezone
+
+from trueppm_api.apps.projects.export_integrity import (
+    MANIFEST_NAME,
+    seal_manifest,
+    sha256_stream,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +57,57 @@ PROGRAM_EXPORT_DIR = "program-exports"
 _SPOOL_MAX_BYTES = 8 * 1024 * 1024
 
 
-def _add_json(tar: tarfile.TarFile, name: str, payload: Any) -> None:
-    """Add a small in-memory ``payload`` as a JSON member (manifest/counts/index)."""
+_HASH_CHUNK = 1024 * 1024
+
+
+class _HashingReader:
+    """File-like wrapper that feeds every byte ``tarfile`` reads into a SHA-256.
+
+    ``tarfile.addfile`` pulls the member through ``read()`` in fixed chunks, so
+    hashing there costs one pass over bytes already being copied — no member is
+    ever buffered whole (#2399).
+    """
+
+    def __init__(self, fileobj: IO[bytes]) -> None:
+        self._fileobj = fileobj
+        self.digest = hashlib.sha256()
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._fileobj.read(size)
+        self.digest.update(chunk)
+        return chunk
+
+
+class ArchiveWriter:
+    """A ``tarfile`` writer that records a SHA-256 for every member it adds.
+
+    The digest is recorded only after ``addfile`` returns, so a member whose
+    source fails mid-copy never leaves a digest behind. ``manifest.json`` is the
+    one member that bypasses this (:meth:`write_manifest`): it cannot contain its
+    own digest, and is covered by ``manifest_sha256`` instead.
+    """
+
+    def __init__(self, tar: tarfile.TarFile) -> None:
+        self._tar = tar
+        self.digests: dict[str, str] = {}
+
+    def addfile(self, info: tarfile.TarInfo, fileobj: IO[bytes]) -> None:
+        reader = _HashingReader(fileobj)
+        self._tar.addfile(info, reader)
+        self.digests[info.name] = reader.digest.hexdigest()
+
+    def write_manifest(self, manifest: dict[str, Any]) -> None:
+        """Add ``manifest.json`` carrying ``members`` and ``manifest_sha256``."""
+        full = seal_manifest(manifest, self.digests)
+        data = json.dumps(full, indent=2).encode("utf-8")
+        info = tarfile.TarInfo(name=MANIFEST_NAME)
+        info.size = len(data)
+        info.mtime = int(timezone.now().timestamp())
+        self._tar.addfile(info, io.BytesIO(data))
+
+
+def _add_json(tar: ArchiveWriter, name: str, payload: Any) -> None:
+    """Add a small in-memory ``payload`` as a JSON member (counts/index)."""
     data = json.dumps(payload, cls=DjangoJSONEncoder, indent=2).encode("utf-8")
     info = tarfile.TarInfo(name=name)
     info.size = len(data)
@@ -57,7 +115,7 @@ def _add_json(tar: tarfile.TarFile, name: str, payload: Any) -> None:
     tar.addfile(info, io.BytesIO(data))
 
 
-def _add_bytes(tar: tarfile.TarFile, name: str, payload: bytes) -> None:
+def _add_bytes(tar: ArchiveWriter, name: str, payload: bytes) -> None:
     """Add a raw byte payload (e.g. the MS Project XML) as a tar member."""
     info = tarfile.TarInfo(name=name)
     info.size = len(payload)
@@ -132,7 +190,7 @@ def _project_history_budget_gate(
 
 
 def _add_table(
-    tar: tarfile.TarFile,
+    tar: ArchiveWriter,
     name: str,
     qs: QuerySet[Any],
     row_transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -167,7 +225,7 @@ def _add_table(
 
 
 def _add_history(
-    tar: tarfile.TarFile,
+    tar: ArchiveWriter,
     project_id: str,
     task_ids: list[Any],
     counts: dict[str, int],
@@ -216,7 +274,7 @@ def _add_history(
 
 
 def _add_attachments(
-    tar: tarfile.TarFile,
+    tar: ArchiveWriter,
     project_id: str,
     counts: dict[str, int],
     *,
@@ -272,8 +330,29 @@ def _add_attachments(
     counts[count_key] = copied
 
 
-def build_and_store_project_archive(job_id: str) -> tuple[str, int]:
-    """Build the project ``.tar.gz`` and store it; return (storage path, bytes).
+def _store_archive(tmp: IO[bytes], name: str) -> tuple[str, int, str]:
+    """Hash the finished archive in one streamed pass, then hand it to storage.
+
+    The whole-artifact digest is of the bytes a client will download, so it is taken
+    from the finished ``.tar.gz`` on disk (a gzip header carries an mtime, so the
+    digest differs between two builds of identical input — only the per-member
+    digests are stable). Streaming 1 MiB at a time keeps memory flat.
+    """
+    tmp.flush()
+    size = tmp.tell()
+    tmp.seek(0)
+    sha256 = sha256_stream(tmp)
+    tmp.seek(0)
+    storage_path = default_storage.save(name, File(tmp))
+    return storage_path, size, sha256
+
+
+def build_and_store_project_archive(job_id: str) -> tuple[str, int, str]:
+    """Build the project ``.tar.gz`` and store it; return (storage path, bytes, sha256).
+
+    The returned SHA-256 is of the finished ``.tar.gz`` itself (the whole-artifact
+    digest a client checks with ``sha256sum``); per-member digests live in the
+    archive's ``manifest.json`` (:mod:`export_integrity`).
 
     The archive is assembled on local disk (the tar streams to a temp file and each
     table streams into the tar) then handed to ``default_storage`` so S3/MinIO and
@@ -292,22 +371,19 @@ def build_and_store_project_archive(job_id: str) -> tuple[str, int]:
 
     counts: dict[str, int] = {}
     with tempfile.NamedTemporaryFile(suffix=".tar.gz") as tmp:
-        with tarfile.open(fileobj=tmp, mode="w:gz") as tar:
-            _add_json(
-                tar,
-                "manifest.json",
-                {
-                    "archive_version": ARCHIVE_VERSION,
-                    "generated_at": timezone.now(),
-                    "project_id": project_id,
-                    "project_code": project.code or "",
-                    "project_name": project.name,
-                    # Documented degradation: the MS Project artifact is XML (MSPDI),
-                    # not binary .mpp — the reader-only MPXJ integration cannot write
-                    # .mpp (ADR-0219).
-                    "msproject_format": "msdpi-xml",
-                },
-            )
+        with tarfile.open(fileobj=tmp, mode="w:gz") as raw_tar:
+            tar = ArchiveWriter(raw_tar)
+            manifest_base: dict[str, Any] = {
+                "archive_version": ARCHIVE_VERSION,
+                "generated_at": timezone.now(),
+                "project_id": project_id,
+                "project_code": project.code or "",
+                "project_name": project.name,
+                # Documented degradation: the MS Project artifact is XML (MSPDI),
+                # not binary .mpp — the reader-only MPXJ integration cannot write
+                # .mpp (ADR-0219).
+                "msproject_format": "msdpi-xml",
+            }
             # Canonical JSON seed (round-trips through the importer, ADR-0109).
             # requesting_user=job.requested_by (#3627): the async bundle is reachable
             # through the same self-grantable IsProjectAdmin gate as the sync GET
@@ -338,16 +414,14 @@ def build_and_store_project_archive(job_id: str) -> tuple[str, int]:
             _add_history(tar, project_id, task_ids, counts, requester=job.requested_by)
             _add_attachments(tar, project_id, counts)
             _add_json(tar, "counts.json", counts)
-        tmp.flush()
-        size = tmp.tell()
-        tmp.seek(0)
-        storage_path = default_storage.save(f"{EXPORT_DIR}/{job_id}.tar.gz", File(tmp))
+            tar.write_manifest(manifest_base)
+        storage_path, size, sha256 = _store_archive(tmp, f"{EXPORT_DIR}/{job_id}.tar.gz")
     logger.info("project export %s stored at %s (%d bytes)", job_id, storage_path, size)
-    return storage_path, size
+    return storage_path, size, sha256
 
 
-def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
-    """Build the program ``.tar.gz`` and store it; return (storage path, bytes).
+def build_and_store_program_archive(job_id: str) -> tuple[str, int, str]:
+    """Build the program ``.tar.gz`` and store it; return (storage path, bytes, sha256).
 
     The program-grain counterpart to :func:`build_and_store_project_archive`
     (#1958). The archive holds one canonical program seed (``seed.json``,
@@ -378,23 +452,20 @@ def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
 
     counts: dict[str, int] = {}
     with tempfile.NamedTemporaryFile(suffix=".tar.gz") as tmp:
-        with tarfile.open(fileobj=tmp, mode="w:gz") as tar:
-            _add_json(
-                tar,
-                "manifest.json",
-                {
-                    "archive_version": ARCHIVE_VERSION,
-                    "generated_at": timezone.now(),
-                    "scope": "program",
-                    "program_id": program_id,
-                    "program_code": program.code or "",
-                    "program_name": program.name,
-                    "project_ids": [str(p.id) for p in projects],
-                    # Documented degradation: the MS Project artifact is XML (MSPDI),
-                    # not binary .mpp (ADR-0219; the MPXJ integration is read-only).
-                    "msproject_format": "msdpi-xml",
-                },
-            )
+        with tarfile.open(fileobj=tmp, mode="w:gz") as raw_tar:
+            tar = ArchiveWriter(raw_tar)
+            manifest_base: dict[str, Any] = {
+                "archive_version": ARCHIVE_VERSION,
+                "generated_at": timezone.now(),
+                "scope": "program",
+                "program_id": program_id,
+                "program_code": program.code or "",
+                "program_name": program.name,
+                "project_ids": [str(p.id) for p in projects],
+                # Documented degradation: the MS Project artifact is XML (MSPDI),
+                # not binary .mpp (ADR-0219; the MPXJ integration is read-only).
+                "msproject_format": "msdpi-xml",
+            }
             # One canonical program seed for the whole bundle (round-trips through
             # the importer, ADR-0109). Attachments/time/history are async sidecars.
             # requesting_user=job.requested_by (#3627): see the project-bundle
@@ -447,9 +518,7 @@ def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
                     tar, project_id, counts, prefix=pfx, count_key=f"{cpfx}attachments"
                 )
             _add_json(tar, "counts.json", counts)
-        tmp.flush()
-        size = tmp.tell()
-        tmp.seek(0)
-        storage_path = default_storage.save(f"{PROGRAM_EXPORT_DIR}/{job_id}.tar.gz", File(tmp))
+            tar.write_manifest(manifest_base)
+        storage_path, size, sha256 = _store_archive(tmp, f"{PROGRAM_EXPORT_DIR}/{job_id}.tar.gz")
     logger.info("program export %s stored at %s (%d bytes)", job_id, storage_path, size)
-    return storage_path, size
+    return storage_path, size, sha256

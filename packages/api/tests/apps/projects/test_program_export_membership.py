@@ -238,7 +238,7 @@ def test_async_bundle_with_deleted_requester_fails_closed(
     _grant_membership(project_p, admin_user)
     job = ProgramExportJob.objects.create(program=program, requested_by=None)
 
-    storage_path, _size = build_and_store_program_archive(str(job.id))
+    storage_path, _size, _sha = build_and_store_program_archive(str(job.id))
 
     assert storage_path
     with default_storage.open(storage_path, "rb") as fh:
