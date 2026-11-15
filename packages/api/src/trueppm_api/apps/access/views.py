@@ -69,6 +69,7 @@ from trueppm_api.apps.access.serializers import (
     UserDefinedMentionGroupWriteSerializer,
     UserSearchResultSerializer,
 )
+from trueppm_api.apps.access.services import MENTION_GROUP_CHANGES
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.workspace.permissions import IsWorkspaceMember
@@ -925,6 +926,9 @@ class UserDefinedMentionGroupViewSet(
     def _broadcast(self, project_id: str, group_id: str, change: str) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+        if change not in MENTION_GROUP_CHANGES:
+            raise ValueError(f"unknown mention_group_changed change: {change!r}")
+
         # Deferred to on_commit (ADR-0083) so a rolled-back write never notifies
         # open Members tabs; the group is also a VersionedModel, so clients that
         # miss the transient event reconcile via the sync delta.
@@ -1203,6 +1207,9 @@ class ProgramUserDefinedMentionGroupViewSet(
 
     def _broadcast(self, program_id: str, group_id: str, change: str) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        if change not in MENTION_GROUP_CHANGES:
+            raise ValueError(f"unknown mention_group_changed change: {change!r}")
 
         # A program isn't board-scoped, so fan the refresh out to every live
         # project in the program — any open Members tab in the program reconciles.

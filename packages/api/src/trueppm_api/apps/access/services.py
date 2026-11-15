@@ -50,6 +50,16 @@ PROGRAM_LEAD_NOT_MEMBER_DETAIL = (
 )
 
 
+#: The closed set of ``change`` values on a ``mention_group_changed`` WebSocket
+#: payload (#3793). One event carries five mutations because a Members tab
+#: reacts to all of them the same way (refetch the group list); the discriminator
+#: is part of the published contract, so a new value must be added here, in
+#: ``websockets.md``, and in the test that pins this set — never inline at a call site.
+MENTION_GROUP_CHANGES = frozenset(
+    {"created", "updated", "deleted", "member_added", "member_removed"}
+)
+
+
 def _protecting_relations(model: type[models.Model]) -> list[Any]:
     """Reverse relations into *model* whose FK is ``on_delete=PROTECT``.
 
