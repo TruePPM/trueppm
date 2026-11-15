@@ -397,7 +397,7 @@ fn step_to_working_day(
 /// working day early, and because the backward pass lays the same duration back
 /// from a working-day LF, `late_start` landed *before* `early_start`. Mirrors
 /// the Python engine's `_finish_from_start`; both engines had the identical rule,
-/// so `wasm:conformance` agreed and agreed wrongly.
+/// so `wasm:test` and `scheduler:snapshot-regression` agreed and agreed wrongly.
 ///
 /// The `MAX_CALENDAR_SCAN_DAYS` budget is **per non-working gap**, not for the
 /// whole expansion: it resets on every working-day hit, mirroring the Python

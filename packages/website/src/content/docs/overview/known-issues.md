@@ -315,7 +315,7 @@ TruePPM ships two coordinated CPM implementations: the Python library
 **They are not yet at parity**, and the gap is wider than the architecture diagram
 suggests.
 
-### The WASM engine is not wired into the browser — stretch goal for 0.6
+### The WASM engine is not wired into the browser — frozen until the 0.6 decision
 
 The Rust engine ships as a CI-validated conformance reference. The browser's
 drag-preview path still uses a TypeScript CPM worker that approximates the calendar
@@ -331,8 +331,10 @@ as a fixed Mon–Fri week.
   engine below.
 - **What to do:** treat the drag preview as an estimate and read the dates after the
   drop, once the server has reconciled them. Those are the ones that count.
-- **Stretch goal for 0.6, not committed** — [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) wires
-  the WASM engine in, or retires the parity claim. It lands only if there is time.
+- **Frozen, with a decision date** — the WASM engine takes no new feature work in the crate until the decision on its fate
+  ([#4743](https://gitlab.com/trueppm/trueppm/-/issues/4743)), due no later than 0.6 planning.
+  [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) (wiring it in) is held until then. Conformance-parity maintenance for Python-side semantic changes already committed for 0.5 continues.
+  Its output is advisory and never produces a refusal; the server has the last word.
 
 ### The Rust engine has no Monte Carlo — not scheduled
 
@@ -344,7 +346,7 @@ therefore deterministic-only; every probabilistic answer requires the server.
 - **What to do:** run Monte Carlo against the server when you are online; do not expect a
   confidence band from an offline session.
 - **Tracked:** not scheduled, and no issue tracks adding Monte Carlo to the Rust engine.
-  The decision on the WASM engine's future is [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777), above.
+  The decision on the WASM engine's future is [#4743](https://gitlab.com/trueppm/trueppm/-/issues/4743), above.
 
 ## Test and quality gates
 

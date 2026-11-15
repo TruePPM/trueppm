@@ -80,7 +80,7 @@ DISTRIBUTED=(
                   # Docker image, which is bundled separately (Dockerfile
                   # COPYs the root LICENSE); the PyPI wheel/sdist is its own
                   # artifact and previously carried neither file (#4177)
-  wasm-scheduler  # crates.io-publishable; compiled .wasm ships in the web bundle
+  wasm-scheduler  # crates.io-publishable; the compiled .wasm is not bundled into the web app
   mobile          # app binary distributed to devices
   helm            # packaged chart tarball
 )

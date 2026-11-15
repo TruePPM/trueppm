@@ -22,7 +22,7 @@ Apache 2.0 §4(a) requires anyone who receives a distribution to receive a copy 
 | `trueppm-scheduler` | PyPI wheel / sdist | yes | yes | n/a (no copyleft dependency) |
 | `trueppm-mcp` | PyPI wheel / sdist | yes | yes | yes (certifi only) |
 | `trueppm-api` | PyPI wheel / sdist (in addition to the Docker image) | yes | yes | yes (psycopg + certifi) |
-| `wasm-scheduler` | publishable crate; compiled `.wasm` in the web bundle | yes | — | — |
+| `wasm-scheduler` | publishable crate (the compiled `.wasm` is not bundled into the web app) | yes | — | — |
 | `mobile` | app binary installed on a device | yes | — | — |
 | `helm` | packaged chart tarball | yes | — | — |
 

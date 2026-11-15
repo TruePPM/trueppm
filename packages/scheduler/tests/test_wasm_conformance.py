@@ -33,7 +33,7 @@ PROVENANCE_VALUES = frozenset({"hand-verified", "regenerated", "unknown"})
 # run. A missing expected snapshot HARD-FAILS (#1506); it may only be
 # (re)generated when REGEN_EXPECTED=1 is set. Before #1506 the missing-snapshot
 # branch silently generated the file into the ephemeral CI workspace and skipped,
-# so `wasm:conformance` passed green on every pipeline without ever comparing the
+# so `scheduler:snapshot-regression` passed green on every pipeline without ever comparing the
 # two engines. Regenerate committed snapshots with, e.g.:
 #   REGEN_EXPECTED=1 pytest packages/scheduler/tests/test_wasm_conformance.py
 # Regenerating re-blesses whatever the engines emit, so a regenerated snapshot
@@ -133,7 +133,8 @@ def task_result_to_dict(task: object) -> dict:
         "is_critical": task.is_critical,
         # ADR-0752: the task's span start, distinct from early_start's
         # remaining-work window. A shared Python/Rust divergence here can only
-        # be caught by this fixture comparison — wasm:conformance compares the
+        # be caught by this fixture comparison — scheduler:snapshot-regression
+        # and wasm:test compare the
         # two engines to EACH OTHER, so a bug both engines share alike would
         # otherwise ship undetected (see #2621's note on the same class of gap).
         "scheduled_start": task.scheduled_start.isoformat(),

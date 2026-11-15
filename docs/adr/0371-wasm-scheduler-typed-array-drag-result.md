@@ -3,6 +3,17 @@
 ## Status
 Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `packages/wasm-scheduler/src/lib.rs` typed-array drag result + `typed.rs` contract). 
 
+> **Implementation status (2026-11-15):** the engine is **frozen**. It stays in the tree,
+> conformance-green against the shared fixture corpus, but takes no new feature work in the crate and
+> is wired into no client. Conformance-parity maintenance for Python-side semantic changes already
+> committed for 0.5 (for example sub-day scheduling and the cost model) continues. The typed-array drag path exists in the crate but no web client calls it; the shipped drag preview is the TypeScript worker (ADR-0784). The open runtime question is whether Hermes in the pinned
+> React Native version executes the crate's WASM, or the path is `cargo-ndk` + JSI; if JSI,
+> "WASM" is the wrong target and the engine is retargeted or deleted. **Decision date:**
+> no later than 0.6 planning (`/dotplanning`), via a spike; with no spike by then the package and its CI
+> jobs are deleted (tag `pre-wasm-removal-<date>` first) and this ADR is marked Superseded
+> naming the tag. WASM output is advisory and never produces a refusal; the server has the
+> last word.
+
 Extends the resident-session design of **ADR (#1533)** / `SchedulerSession` and the
 dense-node-order convention of **#1535**. Does not change the CPM math or the shared
 Python↔Rust conformance contract (**#1505/#1506**) — the JSON entry points and their

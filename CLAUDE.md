@@ -43,7 +43,7 @@ trueppm-suite/
 | Schedule view | Custom canvas renderer (packages/web/src/features/schedule/engine/) | — |
 | E2E tests | Playwright | latest |
 | Scheduler | Python (networkx + numpy) | — |
-| WASM scheduler | Rust (petgraph) + wasm-pack — gates: `wasm:lint` (clippy `-D warnings`), `wasm:conformance`, `wasm:test`, `wasm:license-check` (cargo-deny `deny.toml`) | 1.85 |
+| WASM scheduler | Rust (petgraph) + wasm-pack — gates: `wasm:lint` (clippy `-D warnings`), `wasm:test` (the Python-side fixture check is `scheduler:snapshot-regression`), `wasm:license-check` (cargo-deny `deny.toml`) | 1.85 |
 | Auth | django-allauth + simplejwt | — |
 | Deploy | Helm 3 on Kubernetes | — |
 
