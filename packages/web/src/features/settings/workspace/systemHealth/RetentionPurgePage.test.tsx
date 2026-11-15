@@ -220,6 +220,10 @@ describe('RetentionPurgePage', () => {
     expect(
       screen.getByRole('switch', { name: 'Enable Audit log purge' }),
     ).toBeInTheDocument();
+    // Rendered through the shared Toggle (#4621): same focus ring as every other switch.
+    expect(screen.getByRole('switch', { name: 'Enable Audit log purge' })).toHaveClass(
+      'focus-visible:ring-2',
+    );
     // Non-disablable sync-batch policy shows "Always on" instead of a switch.
     expect(screen.getByText('Always on')).toBeInTheDocument();
     expect(

@@ -67,7 +67,7 @@ the settings UI keeps separate:
 | **Explicit empty** | The scope allows **no** file types at all. Attachments are still "on", but no file can be uploaded — a deliberate "links only" policy. The settings page shows a clear warning when a scope is in this state. |
 
 Choosing **Inherit** at any time clears the override and the scope falls back to the
-parent's resolved value. The settings page shows an "Inherited from {parent}" indicator
+parent's resolved value. The settings page shows an "Inherited from the program or workspace default" indicator
 and, when overriding, whether the override is *narrower* or *wider* than the parent.
 
 ## Permanently blocked types (security denylist)

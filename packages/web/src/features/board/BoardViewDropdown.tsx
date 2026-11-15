@@ -399,7 +399,7 @@ export function BoardViewDropdown({
                       onClick={() => handleSelectSaved(sv)}
                       aria-label={savedViewAriaLabel(sv.name, summaryOf(sv))}
                       className={[
-                        'flex-1 text-left px-3 py-1.5 text-xs flex flex-col items-stretch',
+                        'flex-1 min-w-0 text-left px-3 py-1.5 text-xs flex flex-col items-stretch',
                         'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
                         activeViewId === sv.id
                           ? 'text-brand-primary font-medium'
