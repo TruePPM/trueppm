@@ -37,8 +37,8 @@ class TestComputeScore:
         assert cms.compute_score({"killed": 4, "timeout": 1, "survived": 5}) == pytest.approx(0.5)
 
     def test_no_tests_and_skipped_are_excluded_from_denominator(self) -> None:
-        # 5 killed / 5 considered = 1.0 — the 90 uncovered mutants are a coverage
-        # gap, not an assertion gap, so they must not drag the score down.
+        # 5 killed / 5 considered = 1.0 — the score measures assertion strength only.
+        # The uncovered mutants are gated separately (TestNoTestsCeiling, #5032).
         stats = {"killed": 5, "survived": 0, "no_tests": 80, "skipped": 10}
         assert cms.compute_score(stats) == pytest.approx(1.0)
 
@@ -121,3 +121,38 @@ class TestMainGate:
         """No floor was requested, so there is nothing to fail closed on."""
         stats_path = self._write(tmp_path, {"no_tests": 5, "skipped": 1})
         assert cms.main([str(stats_path), "--min", "0"]) == 0
+
+
+class TestNoTestsCeiling:
+    """Uncovered mutants cannot be a free way to raise the score (#5032)."""
+
+    def _write(self, tmp_path: Path, stats: dict[str, int]) -> Path:
+        p = tmp_path / "stats.json"
+        p.write_text(json.dumps(stats), "utf-8")
+        return p
+
+    def test_share_excludes_skipped(self) -> None:
+        stats = {"killed": 90, "survived": 5, "no_tests": 5, "skipped": 900}
+        assert cms.compute_no_tests_share(stats) == pytest.approx(0.05)
+
+    def test_share_is_none_for_an_empty_run(self) -> None:
+        assert cms.compute_no_tests_share({"skipped": 3}) is None
+
+    def test_issue_synthetic_run_fails_despite_a_passing_score(self, tmp_path: Path) -> None:
+        stats = {"killed": 1500, "survived": 120, "no_tests": 1400}
+        assert cms.compute_score(stats) > 0.92
+        assert cms.main([str(self._write(tmp_path, stats)), "--min", "0.92"]) == 1
+
+    def test_ceiling_boundary(self, tmp_path: Path) -> None:
+        at = self._write(tmp_path, {"killed": 95, "survived": 0, "no_tests": 5})
+        assert cms.main([str(at), "--min", "0.9"]) == 0
+        over = self._write(tmp_path, {"killed": 94, "survived": 0, "no_tests": 6})
+        assert cms.main([str(over), "--min", "0.9"]) == 1
+
+    def test_ceiling_is_report_only_at_floor_zero(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, {"killed": 5, "no_tests": 80})
+        assert cms.main([str(p), "--min", "0"]) == 0
+
+    def test_ceiling_is_tunable(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, {"killed": 5, "no_tests": 80})
+        assert cms.main([str(p), "--min", "0.9", "--max-no-tests-share", "0.95"]) == 0

@@ -6,9 +6,22 @@ per-verdict mutant counts. This script turns those counts into a single mutation
 score and exits non-zero if the score drops below the configured floor.
 
 The score deliberately excludes ``no_tests`` and ``skipped`` mutants. A mutant on
-a line no test covers is a *coverage* gap — already the coverage gate's job — not
-an assertion-strength gap, which is the only thing mutation testing is here to
-measure.
+a line no test covers is a *coverage* gap, not an assertion-strength gap, which is
+the only thing the score is here to measure.
+
+That exclusion alone leaves a hole (#5032): deleting or skipping the test that
+covers a function turns its mutants from ``killed`` into ``no_tests``, which leaves
+the score unchanged or higher, and the repo-wide line-coverage gate cannot see a
+loss confined to the three measured files. So a second, separate gate caps the
+**share of mutants no test reached** (``no_tests / every mutant that was
+generated and checked``). It is a ceiling, not a change to the score's
+denominator, because folding ``no_tests`` into the denominator would silently
+restate what the floor means (``MUTATION_MIN`` is calibrated on a score that
+excludes them, and restating it is #3721's decision). The ceiling defaults to
+``DEFAULT_MAX_NO_TESTS_SHARE`` (5%); every nightly artifact read on 2026-11-15
+had ``no_tests: 0``, so the default leaves headroom for a small helper without
+letting a deleted test file through. Like the floor, it only gates when
+``--min`` is above 0.
 
 Usage::
 
@@ -78,6 +91,11 @@ from pathlib import Path
 
 DEFAULT_STATS_PATH = Path("mutants") / "mutmut-cicd-stats.json"
 
+# Ceiling on the share of mutants no test reached (#5032). Observed: 0 on every
+# nightly read on 2026-11-15, so 5% is headroom for a small uncovered helper, not a
+# target to grow into.
+DEFAULT_MAX_NO_TESTS_SHARE = 0.05
+
 
 def compute_score(stats: dict[str, int]) -> float | None:
     """Return the mutation score in ``[0, 1]``, or ``None`` if nothing was scored.
@@ -111,6 +129,32 @@ def compute_score(stats: dict[str, int]) -> float | None:
     return detected / considered
 
 
+def compute_no_tests_share(stats: dict[str, int]) -> float | None:
+    """Return the share of checked mutants that no test reached, or ``None``.
+
+    Args:
+        stats: The counts emitted by ``mutmut export-cicd-stats``.
+
+    Returns:
+        ``no_tests / (every scored mutant + no_tests)``, in ``[0, 1]``. ``skipped``
+        mutants are left out of both sides: they were never run, so they say
+        nothing about coverage. ``None`` when nothing was checked at all, which
+        :func:`main` already reports as "not measured" before this is consulted.
+    """
+    no_tests = stats.get("no_tests", 0)
+    considered = (
+        stats.get("killed", 0)
+        + stats.get("timeout", 0)
+        + stats.get("survived", 0)
+        + stats.get("suspicious", 0)
+        + stats.get("segfault", 0)
+    )
+    total = considered + no_tests
+    if total == 0:
+        return None
+    return no_tests / total
+
+
 def _format_summary(stats: dict[str, int], score: float | None) -> str:
     lines = [
         "Mutation testing summary (scheduler beachhead: models.py, derive.py, cli.py)",
@@ -119,17 +163,20 @@ def _format_summary(stats: dict[str, int], score: float | None) -> str:
         f"  survived:   {stats.get('survived', 0)}",
         f"  suspicious: {stats.get('suspicious', 0)}",
         f"  segfault:   {stats.get('segfault', 0)}",
-        f"  no_tests:   {stats.get('no_tests', 0)}  (excluded — coverage gap, not assertion gap)",
+        f"  no_tests:   {stats.get('no_tests', 0)}  (outside the score; share gated separately)",
         f"  skipped:    {stats.get('skipped', 0)}  (excluded)",
     ]
     if score is None:
         lines.append("  score:      n/a (no scoreable mutants)")
     else:
         lines.append(f"  score:      {score:.1%}")
+    share = compute_no_tests_share(stats)
+    if share is not None:
+        lines.append(f"  no_tests share: {share:.1%} of checked mutants")
     return "\n".join(lines)
 
 
-def _run_real_script(stats_path: Path, floor: str) -> int:
+def _run_real_script(stats_path: Path, floor: str, extra: tuple[str, ...] = ()) -> int:
     """Invoke this script as a subprocess and return its exit code.
 
     A subprocess rather than a call to :func:`main` because it is the exact
@@ -138,7 +185,7 @@ def _run_real_script(stats_path: Path, floor: str) -> int:
     rather than returning, which an in-process call would swallow or die on.
     """
     completed = subprocess.run(
-        [sys.executable, str(Path(__file__).resolve()), str(stats_path), "--min", floor],
+        [sys.executable, str(Path(__file__).resolve()), str(stats_path), "--min", floor, *extra],
         capture_output=True,
         text=True,
     )
@@ -164,12 +211,35 @@ def _self_test() -> int:
         "a score exactly at the floor": (json.dumps(at_floor), "0.8", 0),
         "a score one mutant below the floor": (json.dumps(below_floor), "0.8", 1),
         "a score far below the floor": (json.dumps({"killed": 1, "survived": 99}), "0.9", 1),
-        # no_tests/skipped are excluded from the denominator by design, so a run
-        # that is 5/5 on what it scored passes a 0.9 floor despite 80 uncovered
-        # mutants. That is the coverage gate's job, not this one.
-        "uncovered mutants excluded from the denominator": (
+        # no_tests/skipped stay out of the score's denominator, so this run is 5/5
+        # on what it scored; the no_tests share (80 of 85) is what rejects it
+        # (#5032). The synthetic run from the issue: 92.6% against a 0.92 floor,
+        # 46% of mutants never reached by a test.
+        "a large no_tests share under a passing score": (
             json.dumps({"killed": 5, "survived": 0, "no_tests": 80, "skipped": 10}),
             "0.9",
+            1,
+        ),
+        "the #5032 synthetic run (92.6% score, 46% no_tests)": (
+            json.dumps({"killed": 1500, "survived": 120, "no_tests": 1400}),
+            "0.92",
+            1,
+        ),
+        # The ceiling's boundary: 5 of 100 is at it (passes), 6 of 100 is over.
+        "no_tests exactly at the ceiling": (
+            json.dumps({"killed": 95, "survived": 0, "no_tests": 5}),
+            "0.9",
+            0,
+        ),
+        "no_tests one mutant over the ceiling": (
+            json.dumps({"killed": 94, "survived": 0, "no_tests": 6}),
+            "0.9",
+            1,
+        ),
+        # Report-only at floor 0, like the score.
+        "a large no_tests share at floor 0 (report-only)": (
+            json.dumps({"killed": 5, "survived": 0, "no_tests": 80}),
+            "0",
             0,
         ),
         # THE THREE "NOT MEASURED" STATES ALL EXIT 2 (#3216). They used to
@@ -215,6 +285,17 @@ def _self_test() -> int:
 
         # A stats file that was never written must not read as a pass either — an
         # absent mutmut run is the loudest "never measured" there is.
+        # The ceiling is tunable: widening it admits the same file.
+        stats_path.write_text(json.dumps({"killed": 5, "no_tests": 80}), "utf-8")
+        widened = _run_real_script(stats_path, "0.9", ("--max-no-tests-share", "0.95"))
+        if widened != 0:
+            print(
+                f"SELF-TEST FAILED: --max-no-tests-share 0.95 exited {widened}, expected 0",
+                file=sys.stderr,
+            )
+            rc = 1
+        cases_run = len(cases) + 2
+
         missing = _run_real_script(Path(tmp) / "nope.json", "0.8")
         if missing != 2:
             print(
@@ -225,8 +306,8 @@ def _self_test() -> int:
 
     if rc == 0:
         print(
-            f"SELF-TEST OK: all {len(cases) + 1} cases passed "
-            "(above, at, below, absent, malformed, unmeasured)."
+            f"SELF-TEST OK: all {cases_run} cases passed "
+            "(above, at, below, absent, malformed, unmeasured, uncovered)."
         )
     return rc
 
@@ -248,6 +329,19 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Minimum acceptable mutation score in [0, 1]. Below this the check "
             "fails. Defaults to $MUTATION_MIN, or 0 (report-only) if unset."
+        ),
+    )
+    parser.add_argument(
+        "--max-no-tests-share",
+        type=float,
+        default=float(
+            os.environ.get("MUTATION_MAX_NO_TESTS_SHARE", "") or DEFAULT_MAX_NO_TESTS_SHARE
+        ),
+        help=(
+            "Maximum acceptable share of checked mutants no test reached, in [0, 1]. "
+            "Over it the check fails, so removing coverage cannot raise the score. "
+            "Defaults to $MUTATION_MAX_NO_TESTS_SHARE, or "
+            f"{DEFAULT_MAX_NO_TESTS_SHARE * 100:.0f}%%. Only gates when --min is above 0."
         ),
     )
     parser.add_argument(
@@ -311,8 +405,21 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    failed = False
     if score < args.min:
         print(f"FAIL: score {score:.1%} is below the floor {args.min:.1%}")
+        failed = True
+    share = compute_no_tests_share(stats)
+    if share is not None and share > args.max_no_tests_share:
+        print(
+            f"FAIL: {share:.1%} of checked mutants were reached by no test, over the "
+            f"ceiling {args.max_no_tests_share:.1%} (#5032).\n"
+            "  Those mutants are outside the score, so a deleted or skipped test "
+            "would otherwise raise it. Restore the coverage, or raise "
+            "MUTATION_MAX_NO_TESTS_SHARE deliberately."
+        )
+        failed = True
+    if failed:
         return 1
     print(f"OK: score {score:.1%} meets the floor {args.min:.1%}")
     return 0
