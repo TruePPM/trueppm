@@ -537,7 +537,9 @@ def _retire_restored_summary_start_links(locked: Any, restored: list[Any]) -> in
     skips: the undo completes and the link is counted in ``dependencies_skipped``.
 
     Runs after the shape and the minted rows are settled, because summary status is a
-    property of the final tree. Reads the project's children map only when a restored
+    property of the final tree. Step 2 restores only edges whose endpoints are both in
+    the locked project, so that project's children map is the right (and only) one.
+    Reads the project's children map only when a restored
     edge is SS/SF, which is the rare case; every other undo pays nothing.
     """
     from trueppm_api.apps.projects.serializers import _load_project_tasks_and_children_map
@@ -551,20 +553,11 @@ def _retire_restored_summary_start_links(locked: Any, restored: list[Any]) -> in
     ]
     if not candidates:
         return 0
-    # Each endpoint's own project, not just the locked one: a cross-project link's
-    # other end can be a summary in a different project (as the restore guard does).
-    project_ids = {locked.project_id}
-    for d in candidates:
-        project_ids.add(d.predecessor.project_id)
-        project_ids.add(d.successor.project_id)
-    summaries: set[str] = set()
-    for project_id in project_ids:
-        _, children_map = _load_project_tasks_and_children_map(project_id)
-        summaries.update(children_map)
+    _, children_map = _load_project_tasks_and_children_map(locked.project_id)
     offending = set(
         find_summary_start_links(
             ((str(d.predecessor_id), str(d.successor_id), d.dep_type) for d in candidates),
-            summaries,
+            children_map.keys(),
         )
     )
     retired = 0
