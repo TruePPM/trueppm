@@ -111,6 +111,22 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **The CLI's human-readable output escapes control, bidi and zero-width
+  characters
+  ([#4718](https://gitlab.com/trueppm/trueppm/-/issues/4718)).** A task name or
+  other project string can no longer reorder, hide or forge a line of
+  `trueppm-scheduler schedule` / `monte-carlo` text output, nor smuggle a terminal
+  escape sequence. Lone surrogates are escaped too. `--json` output is unchanged;
+  it was already JSON-escaped.
+- **`CyclicDependencyError` reports a canonical, escaped, bounded cycle
+  ([#4729](https://gitlab.com/trueppm/trueppm/-/issues/4729)).** `.cycle` (and
+  `find_cycle`) is now the full canonical path: the shortest cycle through the
+  smallest id of the smallest non-trivial strongly connected component, starting
+  at that id and repeating it at the end, whatever the input order. The message
+  `repr()`-escapes ids and lists at most 10, then `... (+M more)`. A caller that
+  parsed the old message text, or relied on a particular rotation of `.cycle`,
+  sees different output.
+
 - **`MAX_PROJECT_WORK_DAYS` is now exported from `trueppm_scheduler`
   ([#5022](https://gitlab.com/trueppm/trueppm/-/issues/5022)).** The constant was
   documented as public, but only `trueppm_scheduler.engine` had it, so

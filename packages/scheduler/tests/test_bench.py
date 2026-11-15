@@ -494,6 +494,10 @@ def _count_validation_work(project: Project) -> tuple[int, int]:
             if original is not None:
                 patched.append((mod, name, original))
                 setattr(mod, name, counting(original, key))
+    # A renamed helper must fail loudly here, not count 0 and pass vacuously.
+    patched_names = {name for _, name, _ in patched}
+    for helper_name in ("_short_repr", "_longest_chain_days"):
+        assert helper_name in patched_names, f"{helper_name} was not patched"
     try:
         _validate_project(project)
     finally:

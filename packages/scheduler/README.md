@@ -18,7 +18,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 
 - **Real scheduling semantics, not a toy.** All four dependency types (finish-to-start, start-to-start, finish-to-finish, start-to-finish) with lead/lag on every link — most lightweight schedulers only do finish-to-start, which cannot express an overlap or a wait without faking it with a dummy task.
 - **Working-time aware.** A built-in working-day calendar skips weekends and honors holiday exceptions, so durations resolve to real delivery dates.
-- **Risk forecasting built in.** PERT-Beta Monte Carlo (a Beta moment-fitted to the classic PERT mean and σ = (P − O)/6 — see [Conventions](#conventions)), numpy-vectorized (about 10k runs/sec in 0.4; from 0.5, 10,000 runs on a 200-task project will take roughly 60–100 ms) — the difference between "due March 3" and "70% likely by March 3, 95% by March 14."
+- **Risk forecasting built in.** PERT-Beta Monte Carlo (a Beta moment-fitted to the classic PERT mean and σ = (P − O)/6 — see [Conventions](#conventions)), numpy-vectorized (10,000 runs on a 200-task project take roughly 60–100 ms on a current laptop CPU) — the difference between "due March 3" and "70% likely by March 3, 95% by March 14."
 - **Fails loud on bad input.** Cycle detection that names the offending task IDs, plus up-front validation of durations, lag, and project span — no silent wrong answers, no spinning on a degenerate graph.
 - **Embeds anywhere.** Two dependencies, no framework. Serialize a plan to JSON, schedule it, and read back structured results.
 
@@ -26,7 +26,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 
 - Forward/backward CPM pass with all four dependency types (FS, SS, FF, SF), total/free float, and critical-path flagging
 - Calendar-aware working-day arithmetic (weekend skip + holiday exceptions), with optional per-task calendars for mixed-team schedules
-- Monte Carlo schedule-risk simulation via PERT-Beta distributions — method-of-moments fit to the classic PERT mean and σ = (P − O)/6, not the λ=4 Beta-PERT (numpy-vectorized: about 10k runs/sec in 0.4, and from 0.5 roughly 60–100 ms per 10,000 runs on a 200-task project) → P50/P80/P95 completion dates
+- Monte Carlo schedule-risk simulation via PERT-Beta distributions — method-of-moments fit to the classic PERT mean and σ = (P − O)/6, not the λ=4 Beta-PERT (numpy-vectorized: roughly 60–100 ms per 10,000 runs on a 200-task project) → P50/P80/P95 completion dates
 - Hybrid agile/waterfall forecasting — mark a task `delivery_mode=SCRUM` with a `story_points` estimate and Monte Carlo samples its duration from the team's own velocity history instead of a per-task PERT guess, so a project can mix sprint-delivered and traditionally-estimated work in one simulation
 - Explainable results — `derive_value()` answers "why is this date what it is?" for any early/late/float value, naming the exact predecessor, dependency type, and lag that won, plus every constraint it beat
 - JSON round-tripping for plans (`Project.from_json()` / `Project.to_json()`)
@@ -651,7 +651,7 @@ task regardless of `runs`.
 **`monte_carlo()` default run count.** In 0.4, `monte_carlo(project)` runs **1,000**
 simulations unless you pass `runs=`. From 0.5 it will run **10,000**, and the
 `trueppm-scheduler monte-carlo` command's `--runs` will default to the same 10,000.
-Pass `runs=1_000` to keep the 0.4 behavior.
+Pass `runs=1_000` to keep the 0.4 behavior. (The 10,000-run timing quoted above is the explicit `runs=10_000` case in 0.4, and the default from 0.5.)
 
 A long calendar exception does not cost more as the dependency graph grows:
 calendar-day lookups are index-backed (a cached, bisected merged-interval
