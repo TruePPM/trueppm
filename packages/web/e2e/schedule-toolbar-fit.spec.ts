@@ -159,6 +159,41 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     await expect.poll(async () => (await fitReport(page)).step, { timeout: 5_000 }).toBe(wide);
   });
 
+  test('resizing 1400 -> 800 moves a lower-priority control into overflow, and widening returns it (#4111)', async ({
+    page,
+  }) => {
+    // "Export schedule as PDF" is crowded out of the bar before anything a
+    // planner edits with, so it is the control that visibly changes home.
+    const exportInBar = toolbar(page).getByRole('button', { name: /Export schedule as PDF/ });
+    const actionsMenu = page.getByRole('menu', { name: 'Project actions' });
+    const exportInMenu = actionsMenu.getByRole('menuitem', { name: /Export schedule as PDF/ });
+    const openActions = () => page.getByRole('button', { name: 'Project actions' }).click();
+
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    const wide = (await fitReport(page)).step;
+    await expect(exportInBar).toHaveCount(1);
+
+    await page.setViewportSize({ width: 800, height: 900 });
+    // Wait for the ladder to concede first: a poll on overflow==0 alone can sample 0 before the re-fit.
+    await expect
+      .poll(async () => (await fitReport(page)).step, { timeout: 5_000 })
+      .toBeGreaterThan(wide);
+    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    expect((await fitReport(page)).step).toBeGreaterThan(wide);
+    await expect(exportInBar).toHaveCount(0);
+    await openActions();
+    await expect(exportInMenu).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(actionsMenu).toHaveCount(0);
+
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(exportInBar).toHaveCount(1, { timeout: 5_000 });
+    await expect.poll(async () => (await fitReport(page)).step, { timeout: 5_000 }).toBe(wide);
+    await openActions();
+    await expect(exportInMenu).toHaveCount(0);
+  });
+
   test('no toolbar label wraps inside the 40px bar', async ({ page }) => {
     // The visible artifact #3076 was filed for: the session trail was the one
     // child without `shrink-0`, so it absorbed the whole overflow alone and its

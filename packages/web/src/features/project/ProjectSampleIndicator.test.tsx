@@ -85,4 +85,49 @@ describe('ProjectSampleIndicator', () => {
       '/programs/prog-9',
     );
   });
+  describe('staleness notice (#3481)', () => {
+    function withStale(sample_days_stale: number | null | undefined) {
+      useProject.mockReturnValue({
+        data: {
+          is_sample: true,
+          program_detail: { id: 'prog-9', name: 'Atlas Platform Launch', sample_days_stale },
+        },
+      });
+      renderIndicator();
+    }
+
+    it('says how far out of date the dates are once the demo is 28+ days stale', () => {
+      withStale(47);
+      expect(screen.getByText('dates 47 days out of date')).toBeInTheDocument();
+    });
+
+    it('treats exactly 28 days as stale and 27 as fresh (threshold matches SampleDataBanner)', () => {
+      withStale(28);
+      expect(screen.getByText('dates 28 days out of date')).toBeInTheDocument();
+    });
+
+    it('stays silent just under the threshold', () => {
+      withStale(27);
+      expect(screen.queryByText(/out of date/)).not.toBeInTheDocument();
+      expect(screen.getByText(/Demo project/)).toBeInTheDocument();
+    });
+
+    it('stays silent for a null anchor (pre-#3481 server) and for an absent field', () => {
+      withStale(null);
+      expect(screen.queryByText(/out of date/)).not.toBeInTheDocument();
+    });
+
+    it('stays silent when the field is absent from the payload', () => {
+      withStale(undefined);
+      expect(screen.queryByText(/out of date/)).not.toBeInTheDocument();
+    });
+
+    it('still offers the manage link next to the notice (notice here, act there)', () => {
+      withStale(47);
+      expect(screen.getByRole('link', { name: /manage demo data/i })).toHaveAttribute(
+        'href',
+        '/programs/prog-9',
+      );
+    });
+  });
 });

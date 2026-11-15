@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 _CAVEAT = re.compile(rb"\[2,\[([^\]]*)\]\]")
@@ -82,11 +83,81 @@ def _self_test() -> int:
         (check("pypi-!!", "pkg", {"pkg": a})[0], False, "undecodable"),
     ]
     bad = [name for got, want, name in cases if got != want]
+    bad += _main_plumbing_failures(tok, a)
     if bad:
         print("self-test FAILED: " + ", ".join(bad), file=sys.stderr)
         return 1
     print("self-test OK")
     return 0
+
+
+def _main_plumbing_failures(
+    tok: Callable[[list[str]], str], pinned_id: str
+) -> list[str]:
+    """Exercise main()'s argv / env / pins-file handling; return the failed case names.
+
+    The ``--self-test`` dispatch itself is not re-entered here (it would recurse);
+    ``make pypi-id-tokens-check`` runs it through the real command line.
+    """
+    import contextlib
+    import io
+    import tempfile
+
+    def run_err(argv: list[str], token: str | None) -> tuple[int, str]:
+        saved = os.environ.get("PYPI_TOKEN")
+        if token is None:
+            os.environ.pop("PYPI_TOKEN", None)
+        else:
+            os.environ["PYPI_TOKEN"] = token
+        try:
+            err = io.StringIO()
+            with (
+                contextlib.redirect_stderr(err),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                rc = main(argv)
+            return rc, err.getvalue()
+        finally:
+            if saved is None:
+                os.environ.pop("PYPI_TOKEN", None)
+            else:
+                os.environ["PYPI_TOKEN"] = saved
+
+    def run(argv: list[str], token: str | None) -> int:
+        return run_err(argv, token)[0]
+
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as d:
+        pins = Path(d, "pins.json")
+        pins.write_text(json.dumps({"pkg": pinned_id}))
+        bad_json = Path(d, "bad.json")
+        bad_json.write_text("{not json")
+        good = tok([pinned_id])
+        pin_args = ["x", "pkg", "--pins", str(pins)]
+        plumbing = [
+            (run(["x"], None), 2, "usage: no package -> exit 2"),
+            (run(pin_args, good), 0, "--pins file honored"),
+            (run(pin_args, None), 1, "unset PYPI_TOKEN fails closed"),
+            (run(pin_args, ""), 1, "empty PYPI_TOKEN fails closed"),
+            (
+                run(["x", "other", "--pins", str(pins)], good),
+                1,
+                "unpinned package fails",
+            ),
+        ]
+        failures += [n for got, want, n in plumbing if got != want]
+        # Missing or malformed pins must fail closed with a message naming the path.
+        for label, path in (("missing", Path(d, "nope.json")), ("malformed", bad_json)):
+            try:
+                rc, err = run_err(["x", "pkg", "--pins", str(path)], good)
+            except Exception as exc:  # a traceback is the bug being pinned
+                failures.append(f"{label} pins file raised {type(exc).__name__}")
+                continue
+            if rc != 1 or str(path) not in err:
+                failures.append(
+                    f"{label} pins file: want rc=1 + path in stderr (rc={rc})"
+                )
+    return failures
 
 
 def main(argv: list[str]) -> int:
@@ -96,9 +167,12 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     pins_path = Path(argv[3]) if len(argv) > 3 and argv[2] == "--pins" else DEFAULT_PINS
-    ok, message = check(
-        os.environ.get("PYPI_TOKEN", ""), argv[1], json.loads(pins_path.read_text())
-    )
+    try:
+        pins = json.loads(pins_path.read_text())
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: cannot read pins file {pins_path}: {exc}", file=sys.stderr)
+        return 1
+    ok, message = check(os.environ.get("PYPI_TOKEN", ""), argv[1], pins)
     print(
         ("OK: " if ok else "ERROR: ") + message,
         file=sys.stderr if not ok else sys.stdout,

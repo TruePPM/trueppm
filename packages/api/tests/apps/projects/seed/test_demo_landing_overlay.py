@@ -26,9 +26,12 @@ from trueppm_api.apps.projects.seed.demo_landing_overlay import (
     BEHIND_PLAN_GAP_POINTS,
     BEHIND_PLAN_TASK_NAME,
     CONFIRMED_MILESTONE_NAME,
+    DRY_RUN_TASK_NAME,
     LANDING_PROJECT_NAME,
     MAX_UNSCHEDULED,
+    DemoOverlayFixtureMismatch,
     DemoOverlayRefused,
+    _commitment_finish,
     apply_demo_landing_overlay,
     landing_project_for_demo_visitor,
 )
@@ -287,3 +290,46 @@ def test_landing_project_for_demo_visitor_none_when_archived(program: Any) -> No
     project.save(update_fields=["is_archived"])
 
     assert landing_project_for_demo_visitor(visitor) is None
+
+
+# ---------------------------------------------------------------------------
+# The raise-loud path: a fixture rename must fail the overlay, by name
+# ---------------------------------------------------------------------------
+
+
+def test_every_name_the_overlay_matches_exists_in_the_atlas_fixture(program: Any) -> None:
+    """A fixture rename fails CI here, not the Helm reset Job.
+
+    The overlay matches these as exact strings against ``atlas-platform-launch.json``.
+    Loaded without the overlay, so this reads the fixture itself and is independent of
+    anything the overlay does to it.
+    """
+    landing = _landing(program)
+    for name in (CONFIRMED_MILESTONE_NAME, DRY_RUN_TASK_NAME, BEHIND_PLAN_TASK_NAME):
+        assert Task.objects.filter(project=landing, name=name, is_deleted=False).exists(), name
+
+
+def test_a_missing_landing_project_raises_a_mismatch_naming_it(
+    demo_mode: None, program: Any
+) -> None:
+    Project.objects.filter(program=program, name=LANDING_PROJECT_NAME).update(name="Renamed")
+
+    with pytest.raises(DemoOverlayFixtureMismatch, match=LANDING_PROJECT_NAME):
+        apply_demo_landing_overlay(program)
+
+
+@pytest.mark.parametrize(
+    "task_name", [CONFIRMED_MILESTONE_NAME, DRY_RUN_TASK_NAME, BEHIND_PLAN_TASK_NAME]
+)
+def test_a_renamed_task_raises_a_mismatch_naming_it(
+    demo_mode: None, program: Any, task_name: str
+) -> None:
+    Task.objects.filter(project=_landing(program), name=task_name).update(name="Renamed task")
+
+    with pytest.raises(DemoOverlayFixtureMismatch, match=task_name):
+        apply_demo_landing_overlay(program)
+
+
+def test_a_project_with_no_scheduled_finish_raises_a_mismatch(program: Any) -> None:
+    with pytest.raises(DemoOverlayFixtureMismatch, match="no scheduled task finish"):
+        _commitment_finish(_landing(program), [])
