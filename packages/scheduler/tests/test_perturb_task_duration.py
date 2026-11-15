@@ -940,24 +940,20 @@ def test_a_growing_pull_in_never_moves_a_velocity_band_later(
         assert bigger.p95 <= smaller.p95
 
 
-def test_an_exhausted_velocity_task_keeps_no_more_points_than_the_ceiling() -> None:
-    """The input the band ordering rests on: 10d at 40% has 6 remaining days, so the
-    last pull-in that leaves work open is -5 (30 points at 2 per day). The 4 lost
-    elapsed days need one 10-day sprint back, at the fastest observed sprint (25), so
-    the exhausted task keeps at most 5 points whatever the pull-in."""
+def test_a_velocity_what_if_moves_the_remaining_points_by_delta_at_mean_pace() -> None:
+    """The velocity branch reads ``story_points * (1 - pct / 100)`` (#5012) and no
+    elapsed days, so the whole delta moves that remainder at the mean pace (2 points
+    per day here), whatever percentage the shift leaves the task on. 10d at 40% of 40
+    points has 24 points left; a pull-in of 12 days or more leaves none, which takes
+    the task off the velocity branch."""
     baseline = _velocity_chain(10, 40.0, 40.0)
-    for delta in (-6, -7, -9):
-        assert _milestone_of(perturb_task_duration(baseline, "M", delta)).story_points == (
-            pytest.approx(5.0)
-        )
-    # Past the ceiling the mean-pace conversion keeps lowering the points.
-    assert _milestone_of(perturb_task_duration(baseline, "M", -14)).story_points == (
-        pytest.approx(4.0)
-    )
-    # A pull-in that leaves work open is untouched by the ceiling.
-    assert _milestone_of(perturb_task_duration(baseline, "M", -5)).story_points == (
-        pytest.approx(30.0)
-    )
+    for delta, left in ((-5, 14.0), (-11, 2.0), (3, 30.0)):
+        task = _milestone_of(perturb_task_duration(baseline, "M", delta))
+        assert task.story_points is not None
+        remaining = task.story_points * (1 - (task.percent_complete or 0.0) / 100)
+        assert remaining == pytest.approx(left), delta
+    for delta in (-12, -14):
+        assert _milestone_of(perturb_task_duration(baseline, "M", delta)).story_points == 0.0
 
 
 @pytest.mark.fuzz
@@ -1197,20 +1193,22 @@ def test_velocity_what_if_moves_the_band_by_delta_task_calendar_days(
         return (after - before).days
 
     if calendar_id is None:
-        # Single calendar: unchanged pace, +18 points, ceil(38 / 10) = 4 sprints.
-        assert p50_shift(story) == 28
+        # Single calendar: unchanged pace, +18 points = 18 more working days of team
+        # capacity, not rounded to whole sprints (ADR-1412): Fri 01-30 -> Wed 02-25.
+        assert p50_shift(story) == 26
     else:
         assert p50_shift(story) == p50_shift(plain) == 42
 
 
-def test_exhaustion_ceiling_counts_sprints_on_a_non_additive_task_calendar() -> None:
+def test_a_pull_in_on_a_non_additive_task_calendar_keeps_the_bands_ordered() -> None:
     """A 3-day sprint on a Mon-Fri project lays a Mon/Wed/Fri story out as 2, 4, 5, 7
     task days for 1-4 sprints, so dropping one sprint can give back a single day.
 
-    The 4-day story at 50% has 2 elapsed days, which a pull-in to exhaustion stops
-    subtracting. Dividing by the 2 days of the first sprint said one sprint gives them
-    back; the third sprint only returns one, so two sprints of the fastest velocity
-    (10) are cut: 35 points at the last open pull-in (-1) less 20, not 10.
+    The 4-day story at 50% has 20 points left, at 5 points per Mon/Wed/Fri day (one
+    3-day sprint spans 2 of them). A pull-in of 2 days takes 10 points off the
+    remainder; the task is left at 0 duration and its recorded 50%, so it keeps 20
+    points of which 10 remain. The velocity branch subtracts no elapsed days (#5012),
+    so no whole-sprint ceiling is needed for the bands to stay ordered.
     """
     task = Task(
         id="s",
@@ -1231,7 +1229,7 @@ def test_exhaustion_ceiling_counts_sprints_on_a_non_additive_task_calendar() -> 
         calendars={"mwf": Calendar(working_days=_MON_WED_FRI)},
     )
     exhausted = perturb_task_duration(baseline, "s", -2)
-    assert exhausted.tasks[0].story_points == pytest.approx(15.0)
+    assert exhausted.tasks[0].story_points == pytest.approx(20.0)
 
     forecasts = [monte_carlo(baseline, runs=50, seed=SEED)] + [
         monte_carlo(perturb_task_duration(baseline, "s", delta), runs=50, seed=SEED)

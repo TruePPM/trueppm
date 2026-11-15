@@ -531,6 +531,25 @@ renders it. See [Scheduler Conventions](/features/scheduler-conventions/).
 
 ### Agile tasks: velocity-based sampling
 
+:::caution[Experimental — ships in 0.5]
+From 0.5, velocity forecasting will use one **shared team capacity** per run, and it
+will be marked experimental until it has been checked against real projects
+([ADR-1412](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1412-shared-team-capacity-velocity-forecasting.md)).
+Each run will draw one per-sprint velocity sequence that every Scrum task with story
+points consumes, in dependency order: sequential stories add up and parallel stories
+compete for the same sprints. A story will finish part-way through a sprint rather than
+being rounded up to a whole one, an in-progress story will need only its remaining
+points (`story_points × (1 − percent complete)`), and a what-if will move its bands day
+by day rather than in sprint steps. With a team delivering 20 points every
+10-working-day sprint, ten sequential 2-point stories will forecast one sprint and five
+parallel 20-point stories five sprints. The scheduler library will also refuse a sprint
+length of zero or less, and report on the result why a velocity history was not used.
+
+The current release samples each story on its own, as described below: it draws the
+whole team's velocity for that story alone and counts whole sprints, so chains of small
+stories forecast too late and parallel stories forecast too early.
+:::
+
 A task delivered as Scrum work — `delivery_mode = scrum` with committed
 `story_points` — has no meaningful three-point *duration* estimate; its
 uncertainty comes from how much the team completes each sprint. For these tasks

@@ -53,6 +53,18 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **Velocity forecasting shares one team capacity per run
+  ([#5011](https://gitlab.com/trueppm/trueppm/-/issues/5011),
+  [#5012](https://gitlab.com/trueppm/trueppm/-/issues/5012), ADR-1412;
+  experimental).** Each Monte Carlo run draws one per-sprint velocity vector that
+  every SCRUM task with `story_points` consumes in topological order (ties by id),
+  with fractional sprints instead of whole-sprint rounding per task. An in-progress
+  story needs `story_points * (1 - percent_complete / 100)` points and no elapsed
+  days are subtracted on this path. Seeded velocity forecasts move: chains of small
+  stories finish earlier, parallel stories later, and bands widen.
+  `MonteCarloResult.velocity_fallback_reasons` reports why a supplied history was
+  not used, and `sprint_length_days <= 0` is refused with `InvalidScheduleInput`
+  ([#5013](https://gitlab.com/trueppm/trueppm/-/issues/5013)).
 - **The public dataclasses now use `slots=True`
   ([#4548](https://gitlab.com/trueppm/trueppm/-/issues/4548)).** `Task`,
   `Dependency`, `Calendar`, `Project`, `DateRange`, `Derivation`,

@@ -351,6 +351,16 @@ class MonteCarloResult:
             non-zero the slow percentiles are lower bounds, not estimates; see
             :attr:`velocity_tail_truncated`. ``0`` for a project with no velocity
             path.
+        velocity_fallback_reasons: Why a supplied velocity history was **not** used
+            (#5013), in a fixed order; empty when it was used, when none was
+            supplied, or when no SCRUM task carries story points. When non-empty,
+            every SCRUM task with story points fell back to its three-point estimate
+            or its deterministic ``duration``, so a zero-variance band is the
+            fallback talking, not the team's history. Values:
+            ``"sprint_length_days_missing"`` (``velocity_samples`` given without
+            ``sprint_length_days``) and ``"velocity_history_unusable"`` (no usable
+            observation, or a mean velocity that is not positive, such as an
+            all-zero history).
     """
 
     project_id: str
@@ -359,6 +369,7 @@ class MonteCarloResult:
     sensitivity: list[TaskSensitivity]
     percentiles: dict[int, Percentile]
     velocity_saturated_runs: int
+    velocity_fallback_reasons: tuple[str, ...]
 
     def __init__(
         self,
@@ -375,6 +386,7 @@ class MonteCarloResult:
         *,
         percentiles: dict[int, Percentile] | None = None,
         velocity_saturated_runs: int = 0,
+        velocity_fallback_reasons: tuple[str, ...] = (),
     ) -> None:
         """Build a Monte Carlo result from legacy keywords or ``percentiles=``.
 
@@ -402,6 +414,8 @@ class MonteCarloResult:
                 ``p50``/``p80``/``p95`` and ``*_at_day_start`` arguments.
             velocity_saturated_runs: Runs whose velocity draw hit the sprint
                 horizon (#2469). Keyword-only; defaults to ``0``.
+            velocity_fallback_reasons: Why a supplied velocity history was not
+                used (#5013). Keyword-only; defaults to ``()``.
 
         Raises:
             TypeError: If both forms are given, if neither is complete, or if
@@ -437,6 +451,7 @@ class MonteCarloResult:
         self.sensitivity = [] if sensitivity is None else sensitivity
         self.percentiles = levels
         self.velocity_saturated_runs = velocity_saturated_runs
+        self.velocity_fallback_reasons = tuple(velocity_fallback_reasons)
 
     def __repr__(self) -> str:
         """Summarize the result: run count, the confidence-level dates, a few ids.
@@ -458,7 +473,8 @@ class MonteCarloResult:
             f"percentiles={{{levels}}}, "
             f"distribution=<{len(self.distribution)} dates: {dates}>, "
             f"sensitivity={_summary_repr([s.task_id for s in self.sensitivity])}, "
-            f"velocity_saturated_runs={self.velocity_saturated_runs})"
+            f"velocity_saturated_runs={self.velocity_saturated_runs}, "
+            f"velocity_fallback_reasons={self.velocity_fallback_reasons!r})"
         )
 
     @property
@@ -510,7 +526,8 @@ class MonteCarloResult:
             need the percentiles should read those attributes instead of
             serializing), the duration-sensitivity tornado, and each percentile's
             edge-of-day reading (``p50_at_day_start`` etc., #4204), and
-            ``velocity_saturated_runs`` (#2469).
+            ``velocity_saturated_runs`` (#2469), and ``velocity_fallback_reasons``
+            as a list (#5013).
         """
         return {
             "project_id": self.project_id,
@@ -524,6 +541,7 @@ class MonteCarloResult:
             "distribution": [d.isoformat() for d in self.distribution],
             "sensitivity": [s.to_dict() for s in self.sensitivity],
             "velocity_saturated_runs": self.velocity_saturated_runs,
+            "velocity_fallback_reasons": list(self.velocity_fallback_reasons),
         }
 
 

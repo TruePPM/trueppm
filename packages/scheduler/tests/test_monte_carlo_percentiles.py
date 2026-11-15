@@ -114,11 +114,13 @@ def test_to_dict_shape_is_unchanged() -> None:
         "sensitivity": [],
         # Appended by #2469: every earlier key keeps its value and its position.
         "velocity_saturated_runs": 0,
+        "velocity_fallback_reasons": [],
     }
     assert list(mc.to_dict()) == [
         "project_id", "runs", "p50", "p80", "p95", "p50_at_day_start",
         "p80_at_day_start", "p95_at_day_start", "distribution", "sensitivity",
         "velocity_saturated_runs",
+        "velocity_fallback_reasons",
     ]  # fmt: skip
 
 

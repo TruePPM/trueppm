@@ -441,6 +441,12 @@ def _validate_agile_inputs(project: Project) -> None:
             f"sprint_length_days must be an integer (got "
             f"{_short_repr(project.sprint_length_days)})."
         )
+    if project.sprint_length_days is not None and project.sprint_length_days <= 0:
+        # Refused rather than ignored (#5013): a non-positive sprint silently turned
+        # velocity forecasting off, leaving a zero-variance band equal to the CPM finish.
+        raise InvalidScheduleInput(
+            f"sprint_length_days must be a positive integer (got {project.sprint_length_days})."
+        )
 
 
 def _validate_tasks(project: Project) -> None:
