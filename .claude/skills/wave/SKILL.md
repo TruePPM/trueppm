@@ -88,7 +88,8 @@ Then filter, in this order:
    unless the user said otherwise.
 
 Report the selected list to the user before spawning anything. One line per
-issue: number, title, chosen model, and why that model.
+issue: number, title, chosen model, and why that model. Fable is never a Step 2 choice: it is a
+rescue after an Opus failure (*Rescue escalation*, Step 4).
 
 ## Step 3 — One worktree per issue
 
@@ -131,6 +132,67 @@ your report:
 "This issue is important" is not escalation criteria. Neither is "it is a
 security fix" — a one-line permission-class fix with a named root cause is
 Sonnet work.
+
+Pass `model` (and `effort`) explicitly on every spawn:
+
+| Role | `model` | `effort` |
+|---|---|---|
+| Implementer, default | `sonnet` | agent default |
+| Implementer, escalated (a criterion above, named in the report) | `opus` | `high` |
+| Rescue (after Opus failed; a *Rescue escalation* trigger and the user's answer, named in the report) | `fable` | `high` |
+
+### Rescue escalation: Fable, only after Opus failed (macrodream/blueprint#399)
+
+Fable (`claude-fable-5-1`) is priced about 2.5x Opus (`.claude/model-prices.json`), so it
+earns its price only where Opus has already failed on the same issue. It is never a default,
+never chosen up front, and never a standing tier. **A Fable spawn with no prior Opus failure on
+that issue is a defect in the run**: report it as one, like an omitted `model`.
+
+**Triggers.** Each requires an Opus agent to have failed first; "this issue is hard" is not one,
+and a Sonnet failure escalates to Opus first, as above.
+
+1. **Implementer:** an escalated Opus implementer hits its budget a second time (strike two)
+   with no narrowed root cause, no commit and no passing test.
+2. **Audit:** a `completeness-check` round 2 on Opus returns a BLOCKER that survived a fix round
+   made by an Opus implementer. The rescue is for **the implementer that fixes the surviving
+   BLOCKER**, never for the audit; the audit stays on its own tier. If the fix round was on
+   Sonnet, the next fix agent is Opus, per the list above, not Fable.
+
+**The question, never automatic.** When a trigger fires, ask the user before spawning anything,
+with `AskUserQuestion`, Fable first and marked recommended:
+
+> Opus failed on #N (<which trigger>; <tool calls / minutes spent>; <what is known and what is
+> not>). How do you want to proceed?
+>
+> 1. **Run a Fable agent (Recommended)** - estimated cost <X>, about 2.5x an Opus run of the same
+>    length. One attempt, no resume.
+> 2. **Run Opus again** - fresh agent, same budget, with a brief that names what the failed run
+>    established.
+> 3. **Drop #N from the wave** - report it as unresolved and file a follow-up.
+
+- **"Run Opus again" is not the wrong answer.** The recommendation is Fable, the choice is the
+  user's, and nothing in this skill treats `opus-again` as a lesser outcome.
+- **The estimate** prices the failed Opus run's measured tokens (`subagent-tokens:` from
+  `scripts/post-mr-cost.py --measure`, per usage class) at the `claude-fable-5-1` row of
+  `.claude/model-prices.json`, and is labeled an estimate. With no measured tokens (the cost
+  ledger off, or no transcript), say "no estimate: <why>" rather than invent one.
+- **Non-interactive runs do not escalate.** A run that cannot ask reports the issue as
+  `escalation-pending: fable` and stops work on it.
+- **One Fable rescue per issue per wave.** If the Fable agent fails too, or stops at its budget,
+  the issue leaves the wave and goes to the user with what each agent left. If an Opus-again
+  agent fails the same way, the question is asked once more; a failure after that leaves the
+  wave too, so the question never loops.
+
+**Spawn shape.** `Agent(subagent_type: "general-purpose", model: "fable", effort: "high")`, with
+the implementer budget (80 calls / 45 min). It is **exempt from strike-one expansion**, like
+`completeness-check`: a stopped Fable pass is dropped (one rescue per issue), never resumed or
+expanded. Its brief is *The brief* plus the failed run's findings: what was ruled out, which
+files and lines, what is committed, so it does not re-read what Opus already established.
+
+**Reporting.** Show the model as `fable` in every status table and the Step 8 report, with the
+trigger and the user's answer. A gate a Fable agent ran is recorded `(fable)` in its
+`## Gates` line, like any model. The cost record's per-model split already handles the
+`claude-fable-5-1` id. Step 8 carries one `rescue:` line per issue a trigger fired on.
 
 **Read-only gates always run on Sonnet.** `regression-check`, `rbac-check`,
 `perf-check`, `security-review`, `broadcast-check`, `migration-check` read a diff
@@ -229,7 +291,9 @@ reported as such in Step 5.4 and recorded `budget-stopped`.
   the same model replaces it, briefed with what the stopped pass listed as not audited.
 - **Strike two**: it reaches the expanded budget, or stopped with no progress at all. Stop.
   Do not expand again: diagnose why it wandered, then continue in a fresh agent, re-scope the
-  issue, escalate per *Model choice*, or take the issue out of the wave.
+  issue, escalate per *Model choice*, or take the issue out of the wave. On an escalated Opus
+  implementer with no progress this is rescue trigger 1: ask the question in *Rescue
+  escalation* before any of those.
 
 Count every agent that reached a budget, expanded or not, as
 `budget-exceeded: <N> (<role> <k>, ...)` in the MR's `## Gates` section (`/mr` § The Gates
@@ -337,6 +401,12 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    re-check (if triggered) gets its own line under the gate name
    `completeness-check/fix-diff`; if `§ After round 1` selected neither, record
    only round 1's line. Do not invent a marker that file doesn't define.
+   If round 2 (Opus) still reports a BLOCKER after an Opus implementer's fix round, do not
+   loop: ask the *Rescue escalation* question (Step 4, trigger 2); its Fable or Opus-again agent
+   fixes the BLOCKER, and a re-check of that fix is never a third audit round. It is a round-2
+   fix, so the fix-diff re-check applies to it only where it applies to any round-2 fix
+   (`completeness-check/SKILL.md` § After round 1 and § Fix-diff re-check); otherwise its
+   result goes to the user with the MR.
 
 **Cost figures, snapshotted when you give the go-ahead.** Run `scripts/cost-ledger enabled`
 in the worktree first (`docs/harness/cost-ledger.md`), on its own line with no command before it
@@ -495,7 +565,11 @@ state plainly:
   window, same unit, not attribution), with `est-cost-usd:` beside them; `n/a` with the reason
   where a script omitted its line, and `cost ledger off` where `scripts/cost-ledger enabled`
   said so. Measured figures and the one labeled estimate, never a guess.
-- The wave's shape: how many agents, how many on Opus.
+- The wave's shape: how many agents, how many on Opus and on Fable.
+- One `rescue:` line per issue a *Rescue escalation* trigger fired on, and `rescue: none` when
+  none did (report the zero too): `rescue: #N — trigger <1 implementer strike two | 2 round-2
+  BLOCKER>; choice <fable | opus-again | dropped | escalation-pending>; outcome <resolved |
+  failed | n/a>`.
 - Which agents reached a budget, with role, tool calls and minutes spent (the total is the
   branch's `budget-exceeded:` line), and each fix round marked `fresh` or `resumed`.
 
@@ -506,7 +580,8 @@ Do not merge anything. Do not start another wave without being asked.
 Cache reads were 95.9% of the measured spend. Each of these cuts
 `turn count × context size × fan-out`:
 
-- **Sonnet unless escalation criteria are met**; read-only gates always Sonnet.
+- **Sonnet unless escalation criteria are met**; Fable only as a rescue after an Opus failure,
+  on the user's answer (*Rescue escalation*); read-only gates always Sonnet.
 - **Cap the wave** (default 5, WIP cap 10). 114 agents in one session is past
   the point where they are independent.
 - **Verify commits, don't trust summaries** — a wandering agent is 25× a focused
