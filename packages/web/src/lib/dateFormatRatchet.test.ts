@@ -1,5 +1,5 @@
 /* global process */
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ESLint } from 'eslint';
@@ -37,19 +37,27 @@ describe('date-format guard allowlist', () => {
   });
 
   it('the guard rejects a reintroduced en-US toLocaleDateString in a feature file', async () => {
-    // Probe a real, JSX-free .ts feature file: type-aware parsing needs a file in the
-    // TS project, and probing a JSX-bearing .tsx made CI's react/no-unescaped-entities
-    // visit that file's nodes against this one-line snippet's source lines and throw.
-    const eslint = new ESLint({ cwd: WEB_ROOT, cache: false });
-    const code = "export const f = (d: Date) => d.toLocaleDateString('en-US');\n";
-    const [res] = await eslint.lintText(code, {
-      filePath: resolve(WEB_ROOT, 'src/features/auth/ssoNext.ts'),
-    });
-    // Compare the rule ids as data so a failure prints what ESLint actually returned
-    // (a parse error or an ignored-file warning reads very differently from a missing rule).
-    expect(res.messages.map((m) => `${m.ruleId}: ${m.message.slice(0, 120)}`)).toEqual(
-      expect.arrayContaining([expect.stringContaining('no-restricted-properties')]),
+    // Lint a temporary on-disk probe, not `lintText` against an existing path:
+    // type-aware parsing needs the file to exist in the TS project, and `lintText`
+    // pointed at an existing feature file returned zero messages for every rule (the
+    // guard looked dead on CI and locally, while a real file on disk fires it). A
+    // unique name keeps parallel vitest workers from sharing the probe.
+    const probe = resolve(
+      WEB_ROOT,
+      `src/features/auth/__dateGuardProbe_${process.pid}_${Date.now()}.ts`,
     );
+    writeFileSync(probe, "export const f = (d: Date) => d.toLocaleDateString('en-US');\n");
+    try {
+      const eslint = new ESLint({ cwd: WEB_ROOT, cache: false });
+      const [res] = await eslint.lintFiles([probe]);
+      // Compare the rule ids as data so a failure prints what ESLint actually returned
+      // (a parse error or an ignored-file warning reads very differently from a missing rule).
+      expect(res.messages.map((m) => `${m.ruleId}: ${m.message.slice(0, 120)}`)).toEqual(
+        expect.arrayContaining([expect.stringContaining('no-restricted-properties')]),
+      );
+    } finally {
+      rmSync(probe, { force: true });
+    }
     // A cold type-aware ESLint run (parser program build) costs 5+ s, which is the
     // default vitest timeout, so the timeout is explicit rather than left to race it.
   }, 60_000);
