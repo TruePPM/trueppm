@@ -464,51 +464,64 @@ def _make_realistic_project(n: int) -> Project:
     )
 
 
-def _coverage_active() -> bool:
-    """True when a coverage tracer is collecting in this process.
+def _count_validation_work(project: Project) -> tuple[int, int]:
+    """Run ``_validate_project`` and count its two avoidable costs, not its seconds.
 
-    ``sys.gettrace()`` covers the C/Python tracers; ``Coverage.current()`` also
-    covers the ``sys.monitoring`` core (3.12+), which installs no trace function.
+    Returns ``(label_builds, chain_walks)``: how many times validation called
+    ``_short_repr`` (the helper every error-message label is built from) and how many
+    times it ran the O(tasks + dependencies) longest-chain walk. Both are what #4711
+    removed from the valid-input path, and a counter sees their return on any host.
     """
-    if sys.gettrace() is not None:
-        return True
+    from trueppm_scheduler.engine import _validate_project
+
+    calls = {"label": 0, "chain": 0}
+    patched: list[tuple[object, str, object]] = []
+
+    def counting(original: object, key: str) -> object:
+        def wrapper(*args: object, **kwargs: object) -> object:
+            calls[key] += 1
+            return original(*args, **kwargs)  # type: ignore[operator]
+
+        return wrapper
+
+    # Each submodule binds its own copy of the helper at import, so patching one
+    # namespace misses the others; patch every binding that validation can reach.
+    for mod in list(sys.modules.values()):
+        if mod is None or not getattr(mod, "__name__", "").startswith("trueppm_scheduler"):
+            continue
+        for name, key in (("_short_repr", "label"), ("_longest_chain_days", "chain")):
+            original = getattr(mod, name, None)
+            if original is not None:
+                patched.append((mod, name, original))
+                setattr(mod, name, counting(original, key))
     try:
-        import coverage
-    except ImportError:
-        return False
-    return coverage.Coverage.current() is not None
+        _validate_project(project)
+    finally:
+        for mod, name, original in patched:
+            setattr(mod, name, original)
+    return calls["label"], calls["chain"]
 
 
 def test_input_validation_stays_a_small_share_of_schedule() -> None:
-    """Validation must stay under 15% of ``schedule()`` at 10k tasks (#4711).
+    """Validation of a valid project builds no labels and walks no chain (#4711, #4898).
 
-    It was 24-31% when every valid field built an error-message f-string it never
-    used. Both sides are timed in one process and best-of-N, so host speed cancels;
-    the ratio sits near 10% with the fast paths and fails if they are lost.
-
-    Skipped under a coverage tracer: tracing charges validation's many short
-    branches far more than ``schedule()``'s loops, moving the same code from ~10%
-    to ~16% — so the budget measured the tracer, not the code, and ``scheduler:test``
-    (``--cov``) failed on every MR. ``scheduler:bench`` runs this file untraced and
-    keeps the gate.
+    #4711 found validation at 24-31% of ``schedule()`` at 10k tasks because every
+    valid field built an error-message f-string it never used, and a later change
+    added an unconditional longest-chain walk. This test used to time validation as
+    a share of ``schedule()`` and assert under 15%; on a loaded CI runner that ratio
+    wandered across the budget with no code change, so it reddened ``main`` and
+    unrelated MRs. It now counts the work instead: a valid 10,000-task project must
+    reach no error-label construction (``_short_repr``) and skip the chain walk. Those
+    two costs are what the ratio guarded, and a count does not depend on host load or
+    on coverage tracing, so it also runs under ``--cov``.
     """
-    if _coverage_active():
-        pytest.skip("ratio is distorted by coverage tracing; gated in scheduler:bench")
-    from trueppm_scheduler.engine import _validate_project
-
     project = _make_realistic_project(10_000)
-
-    def best(fn: object, runs: int) -> float:
-        times = []
-        for _ in range(runs):
-            start = time.perf_counter()
-            fn()  # type: ignore[operator]
-            times.append(time.perf_counter() - start)
-        return min(times)
-
-    schedule_s = best(lambda: schedule(project), 5)
-    validate_s = best(lambda: _validate_project(project), 7)
-    assert validate_s < 0.15 * schedule_s, (
-        f"validation took {validate_s * 1000:.1f} ms of a {schedule_s * 1000:.1f} ms "
-        f"schedule() ({100 * validate_s / schedule_s:.0f}%); budget is 15%."
+    labels, chain_walks = _count_validation_work(project)
+    assert labels == 0, (
+        f"validating a valid 10,000-task project built {labels} error labels; each "
+        "valid field must take the exact-type fast path and format nothing (#4711)."
+    )
+    assert chain_walks == 0, (
+        f"validating a valid 10,000-task project ran the longest-chain walk {chain_walks} "
+        "time(s); the serial bound already passes, so it must be skipped (#4711)."
     )
