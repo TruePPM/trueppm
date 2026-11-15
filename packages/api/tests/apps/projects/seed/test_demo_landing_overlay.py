@@ -252,14 +252,32 @@ def test_the_overlay_refuses_outside_a_demo_deployment(program: Any, settings: A
 def test_the_overlay_does_not_touch_the_other_sample_projects(
     demo_mode: None, program: Any
 ) -> None:
+    """The overlay's program CPM pass may backfill derived PHASE statuses, nothing else.
+
+    The seed stores phases as NOT_STARTED; the first program pass now materializes
+    their derived status (#3531), which legitimately bumps the sync cursor of the
+    sibling projects. So the guarantee is narrowed from "``last_sync_version``
+    unchanged" to: health, and every non-phase task's content and sync stamps, are
+    untouched.
+    """
+    from trueppm_api.apps.projects.models import task_is_phase
+
     others = list(Project.objects.filter(program=program).exclude(name=LANDING_PROJECT_NAME))
-    before = {p.pk: (p.health, p.last_sync_version) for p in others}
+
+    def _leaf_state(project: Project) -> dict[Any, tuple[Any, ...]]:
+        return {
+            t.pk: (t.name, t.status, t.server_version, t.sync_seq)
+            for t in Task.objects.filter(project=project, is_deleted=False)
+            if not task_is_phase(t)
+        }
+
+    before = {p.pk: (p.health, _leaf_state(p)) for p in others}
     assert len(before) == 2
 
     apply_demo_landing_overlay(program)
 
     for project in Project.objects.filter(pk__in=before):
-        assert (project.health, project.last_sync_version) == before[project.pk]
+        assert (project.health, _leaf_state(project)) == before[project.pk]
 
 
 # ---------------------------------------------------------------------------

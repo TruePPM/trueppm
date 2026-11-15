@@ -164,6 +164,18 @@ def _broadcast_task(task: Task) -> None:
 # ── Auto-rank ────────────────────────────────────────────────────────────────
 
 
+def without_phases(qs: Any) -> Any:
+    """Drop phase rows (rows with a structural child) from a backlog queryset.
+
+    A phase whose leaves are all ``BACKLOG`` now *stores* ``BACKLOG`` (#3531), so a
+    bare ``status=BACKLOG`` filter would list the container as a story and let
+    auto-rank / reorder renumber it. A container is never a backlog item.
+    """
+    from trueppm_api.apps.projects.program_rollup import task_is_phase_expr
+
+    return qs.annotate(_backlog_is_phase=task_is_phase_expr()).filter(_backlog_is_phase=False)
+
+
 def _backlog_stories(project: Project) -> list[Task]:
     """Project-backlog stories eligible for auto-rank.
 
@@ -171,11 +183,13 @@ def _backlog_stories(project: Project) -> list[Task]:
     task's sprint membership or its ADR-0102 ``sprint_pending`` flag. Epics excluded.
     """
     return list(
-        Task.objects.filter(
-            project=project,
-            is_deleted=False,
-            status=TaskStatus.BACKLOG,
-            sprint__isnull=True,
+        without_phases(
+            Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                status=TaskStatus.BACKLOG,
+                sprint__isnull=True,
+            )
         )
         .exclude(type=TaskType.EPIC)
         .order_by("priority_rank", "short_id")
@@ -255,16 +269,14 @@ def reorder_backlog(project: Project, ordered: list[tuple[str, int]], actor: Any
     with transaction.atomic():
         # Lock the live backlog rows first to serialise concurrent reorders, scoped exactly
         # like _backlog_stories (BACKLOG, sprint-less, non-epic).
-        live = (
-            Task.objects.select_for_update()
-            .filter(
+        live = without_phases(
+            Task.objects.select_for_update().filter(
                 project=project,
                 is_deleted=False,
                 status=TaskStatus.BACKLOG,
                 sprint__isnull=True,
             )
-            .exclude(type=TaskType.EPIC)
-        )
+        ).exclude(type=TaskType.EPIC)
         by_id = {str(t.pk): t for t in live}
         supplied = {tid for tid, _ in ordered}
 

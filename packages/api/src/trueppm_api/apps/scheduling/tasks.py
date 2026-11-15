@@ -9,6 +9,7 @@ import re
 import uuid
 from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
+from functools import partial
 from typing import Any
 
 import redis as redis_lib
@@ -1384,6 +1385,27 @@ def _persist_driving_flags_and_shift_events(
         )
 
 
+def _schedule_backlog_flip_recompute(project_ids: set[Any]) -> None:
+    """Re-enqueue a recompute for projects whose phase status crossed BACKLOG (#3531).
+
+    CPM inputs exclude ``BACKLOG`` rows, and the rollup just changed which phases
+    are ``BACKLOG`` *after* this pass built its input, so the dates written here
+    used the stale committed set (a phase that left BACKLOG has no dates and its
+    successors are not pushed; one that entered it keeps stale dates). One
+    follow-up pass, deferred to commit and coalesced by ``enqueue_recalculate``'s
+    pending-row dedup, settles it. Not a loop: the follow-up re-derives the same
+    statuses from the same leaves, so no phase flips again and nothing is enqueued.
+    """
+    if not project_ids:
+        return
+    from django.db import transaction
+
+    from trueppm_api.apps.scheduling.services import enqueue_recalculate
+
+    for pid in sorted(project_ids, key=str):
+        transaction.on_commit(partial(enqueue_recalculate, str(pid)))
+
+
 def _run_schedule(
     project_id: str,
     tracker: object = None,
@@ -1423,6 +1445,7 @@ def _run_schedule(
         build_sched_graph,
         build_sched_tasks,
         resolve_cpm_status_date,
+        rollup_phase_statuses_detailed,
     )
     from trueppm_api.apps.scheduling.telemetry import cpm_span
 
@@ -1719,6 +1742,10 @@ def _run_schedule(
         _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
         delta_payload = _member_cpm_delta(moved_tasks)
 
+        # #3531: materialize phase status beside the date rollup, same transaction.
+        _, backlog_flips, status_changed = rollup_phase_statuses_detailed([project_id])
+        _schedule_backlog_flip_recompute(backlog_flips)
+
         # ADR-1152 (#3578): the write-back above covers only the rows the engine
         # returned, which is the committed set. Rows that LEFT it keep their last
         # schedule forever unless something clears them, and nothing did — so a
@@ -1751,6 +1778,7 @@ def _run_schedule(
             delta_payload=delta_payload,
             is_first_status_date_floor_use=is_first_status_date_floor_use,
             is_arming_status_date_floor=is_arming_status_date_floor,
+            phase_status_changed=bool(status_changed),
         )
 
         # Capture a project-grain forecast snapshot for drift history (ADR-0154,
@@ -1865,6 +1893,7 @@ def _finalize_status_date_floor_arming(
     delta_payload: dict[str, object],
     is_first_status_date_floor_use: bool,
     is_arming_status_date_floor: bool,
+    phase_status_changed: bool = False,
 ) -> None:
     """Persist the one-shot arming flag and register the on-commit CPM broadcasts.
 
@@ -1926,7 +1955,10 @@ def _finalize_status_date_floor_arming(
             # The arming run withholds the delta below; tell peers to re-read
             # instead (#4659). Only when something actually moved — an arming run
             # that changed no dates leaves every client's cache correct.
-            dates_changed=is_arming_status_date_floor and bool(delta_payload.get("count")),
+            # Also set when the phase-status rollup moved a phase (#3531): no per-task
+            # delta carries status, so peers must re-read tasks or show it stale.
+            dates_changed=(is_arming_status_date_floor and bool(delta_payload.get("count")))
+            or phase_status_changed,
         )
     )
 
@@ -2062,6 +2094,7 @@ def _register_program_broadcasts(
     by_project: dict[object, list[Any]],
     moved_by_project: dict[object, list[Any]],
     crit_order: list[str],
+    status_changed_projects: set[Any] | None = None,
 ) -> None:
     """Register each member project's post-commit broadcasts for a program pass.
 
@@ -2125,6 +2158,7 @@ def _register_program_broadcasts(
                 project_finish=project_finish.isoformat() if project_finish else None,
                 critical_path=project_crit,
                 status_date=None,
+                dates_changed=p.id in (status_changed_projects or ()),
             )
         )
         # Skip the empty frame: in a program pass every member the edit did not
@@ -2254,7 +2288,10 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     from trueppm_api.apps.projects.program_schedule import gather_program_schedule
     from trueppm_api.apps.projects.slip_conflict import detect_and_upsert_slip_conflicts
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-    from trueppm_api.apps.scheduling.services import apply_summary_rollups
+    from trueppm_api.apps.scheduling.services import (
+        apply_summary_rollups,
+        rollup_phase_statuses_detailed,
+    )
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
     try:
@@ -2376,6 +2413,10 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
             # (#4371). See _CPM_WRITE_FIELDS.
             _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
 
+        # #3531: phase status rollup for every member project, same transaction.
+        _, backlog_flips, status_changed_projects = rollup_phase_statuses_detailed(member_ids)
+        _schedule_backlog_flip_recompute(backlog_flips)
+
         # ADR-1152 (#3578): mirror of the single-project clear. Scoped to every member
         # project, NOT to the schedulable subset — a member whose whole committed set
         # was groomed away contributes no rows to `tasks_to_update` yet is precisely
@@ -2416,7 +2457,9 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
         # Per-project broadcasts + forecast capture, deferred to commit (#896) so
         # clients only ever see dates that persisted. Registered from inside this
         # atomic block so the on_commit callbacks are tied to this transaction.
-        _register_program_broadcasts(graph, by_project, moved_by_project, crit_order)
+        _register_program_broadcasts(
+            graph, by_project, moved_by_project, crit_order, status_changed_projects
+        )
 
     logger.info(
         "recalculate_program_schedule: program %s — %d member project(s), %d task(s) updated",

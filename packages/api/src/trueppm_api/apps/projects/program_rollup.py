@@ -693,10 +693,23 @@ def spi_counts_by_project(
     if active_baseline:
         baseline_to_project = {bid: pid for pid, bid in active_baseline.items()}
         planned_by_project: dict[Any, int] = {}
+        # Phase rows sit in neither count (#3531): the materialized phase status now
+        # reaches COMPLETE, and a container is not planned work — its leaves already
+        # carry it. Without the exclusion a finished phase would add 1 to both sides
+        # and WBS granularity would still move SPI.
+        # A materialized id list, not a subquery: the correlated RawSQL phase probe
+        # cannot be re-aliased inside an exclude() subquery. Phases are few.
+        phase_ids = list(
+            Task.objects.filter(project_id__in=list(active_baseline), is_deleted=False)
+            .annotate(_is_phase=task_is_phase_expr())
+            .filter(_is_phase=True)
+            .values_list("id", flat=True)
+        )
         for br in (
             BaselineTask.objects.filter(
                 baseline_id__in=list(active_baseline.values()), finish__lte=today
             )
+            .exclude(task_id__in=phase_ids)
             .values("baseline_id")
             .annotate(c=Count("id"))
         ):
@@ -706,6 +719,8 @@ def spi_counts_by_project(
                 cr["project_id"]: cr["c"]
                 for cr in (
                     Task.objects.filter(project_id__in=list(planned_by_project), is_deleted=False)
+                    .annotate(_is_phase=task_is_phase_expr())
+                    .filter(_is_phase=False)
                     .filter(complete_by_today)
                     .values("project_id")
                     .annotate(c=Count("id"))

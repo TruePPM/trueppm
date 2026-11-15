@@ -57,6 +57,17 @@ refuses to let a checklist subtask be added straight into one:
 | adding a drawer subtask under a phase | "Phases group work — add tasks inside the phase, not subtasks." |
 | `percent_complete` | the pre-existing summary-task lock above, unchanged |
 
+A phase's status is computed from the status of the leaf tasks beneath it, at
+any depth, and refreshed on every schedule recompute. Backlog leaves are ignored
+unless every leaf is in the backlog. The phase is *Complete* when every other
+leaf is complete, *In review* when the rest are complete or in review, *In
+progress* when any leaf is underway or any leaf is complete, and *Not started*
+otherwise. A successor of a completed phase is therefore no longer shown as
+blocked, and the schedule-performance index counts leaf work only. Task
+responses carry `status_source` (`derived` on a phase, `none` on an empty
+container, `committed` on ordinary work) and `status_rollup_count` (how many
+leaves the status was read from).
+
 Each lock fires only when a write actually tries to *change* the locked
 value — a PATCH that omits the field, or resends the value already stored,
 still succeeds. Set the assignee and log time on the leaf tasks inside the

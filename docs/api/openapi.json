@@ -85389,6 +85389,16 @@
                         "readOnly": true,
                         "default": false
                     },
+                    "status_source": {
+                        "type": "string",
+                        "description": "'derived' | 'none' | 'committed' — see the field comment (#3531).",
+                        "readOnly": true
+                    },
+                    "status_rollup_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
                     "parent_id": {
                         "type": "string",
                         "format": "uuid",
@@ -85865,6 +85875,8 @@
                     "sprint_pending",
                     "sprint_scope_changes",
                     "status_changed_at",
+                    "status_rollup_count",
+                    "status_source",
                     "total_float",
                     "wbs_path"
                 ]
@@ -89007,6 +89019,16 @@
                         "readOnly": true,
                         "default": false
                     },
+                    "status_source": {
+                        "type": "string",
+                        "description": "'derived' | 'none' | 'committed' — see the field comment (#3531).",
+                        "readOnly": true
+                    },
+                    "status_rollup_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
                     "parent_id": {
                         "type": "string",
                         "format": "uuid",
@@ -89490,6 +89512,8 @@
                     "sprint_pending",
                     "sprint_scope_changes",
                     "status_changed_at",
+                    "status_rollup_count",
+                    "status_source",
                     "total_float",
                     "wbs_path"
                 ]

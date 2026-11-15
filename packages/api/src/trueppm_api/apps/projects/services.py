@@ -5983,9 +5983,14 @@ def annotate_wip_breach(
     from django.db.models import Count
 
     from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.program_rollup import task_is_phase_expr
 
+    # Phases are containers, not cards (#3531): a phase now stores a derived status, so
+    # leaving it in would count the container as WIP beside its own leaves.
     raw_counts = (
         Task.objects.filter(project_id=project_id, is_deleted=False)
+        .annotate(_wip_is_phase=task_is_phase_expr())
+        .filter(_wip_is_phase=False)
         .values_list("status", "board_lane")
         .annotate(n=Count("id"))
         .values_list("status", "board_lane", "n")
@@ -6510,11 +6515,20 @@ def throughput_forecast(
         # caller decide between throughput and velocity warm-up shapes.
         return None
 
-    remaining_count = Task.objects.filter(
-        project_id=project_id,
-        is_deleted=False,
-        status__in=_FLOW_REMAINING_STATUSES,
-    ).count()
+    from trueppm_api.apps.projects.program_rollup import task_is_phase_expr
+
+    # Containers are not work items (#3531): a phase's rolled-up status would
+    # otherwise count it as one more remaining item alongside its own leaves.
+    remaining_count = (
+        Task.objects.filter(
+            project_id=project_id,
+            is_deleted=False,
+            status__in=_FLOW_REMAINING_STATUSES,
+        )
+        .annotate(_flow_is_phase=task_is_phase_expr())
+        .filter(_flow_is_phase=False)
+        .count()
+    )
 
     base: dict[str, Any] = {
         "remaining_points": None,
