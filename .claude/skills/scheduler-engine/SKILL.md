@@ -39,7 +39,7 @@ You are working on trueppm-scheduler, a pure Python library with ZERO Django dep
 6. Critical path: tasks where total_float == 0
 7. Dependency types: FS (default), SS, FF, SF — each modifies which date is used
 8. Calendar-aware: working days expansion, skip holidays
-9. Incremental mode: recompute only from changed_task_id downstream
+9. Incremental mode: recompute the downstream cone plus every task whose CPM output moved (backward-pass values change outside the cone, #4101)
 
 ## Monte Carlo Spec
 1. For each task: sample duration from PERT beta distribution (O, M, P)
