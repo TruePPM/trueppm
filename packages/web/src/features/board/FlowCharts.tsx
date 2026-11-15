@@ -35,7 +35,7 @@ const CFD_BANDS: { key: keyof CfdCounts; label: string; color: string }[] = [
 
 const AXIS_TICK = {
   fill: 'rgb(var(--neutral-text-secondary))',
-  fontSize: 11,
+  fontSize: 11, // tiny-text-ok: SVG chart axis tick, not DOM copy (#3506)
 } as const;
 
 /**

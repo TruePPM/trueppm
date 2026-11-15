@@ -27,11 +27,10 @@ function CompactReadinessChip({ readiness }: { readiness: TaskReadiness }) {
   const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
   return (
     <span
-      className={`inline-flex items-center rounded-chip uppercase tracking-wider font-semibold ${COMPACT_STYLE[readiness]}`}
+      className={`inline-flex items-center rounded-chip text-xs uppercase tracking-wider font-semibold ${COMPACT_STYLE[readiness]}`}
       style={{
         height: 16,
         padding: '0 6px',
-        fontSize: '10px',
         letterSpacing: '0.06em',
         backgroundColor: inlineBg,
       }}

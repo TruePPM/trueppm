@@ -52,8 +52,8 @@ function ReadinessLabel({ readiness }: { readiness: TaskReadiness }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded-chip uppercase tracking-wider font-semibold shrink-0 px-1.5 ${tone[readiness]}`}
-      style={{ height: 16, fontSize: '10px', letterSpacing: '0.06em' }}
+      className={`inline-flex items-center rounded-chip text-xs uppercase tracking-wider font-semibold shrink-0 px-1.5 ${tone[readiness]}`}
+      style={{ height: 16, letterSpacing: '0.06em' }}
     >
       {readiness}
     </span>
@@ -307,9 +307,9 @@ export function UnscheduledTaskRow({
           </span>
         )}
         <span
-          className="inline-flex items-center rounded-chip uppercase tracking-wider font-semibold shrink-0 px-1.5
+          className="inline-flex items-center rounded-chip text-xs uppercase tracking-wider font-semibold shrink-0 px-1.5
             border border-dashed border-neutral-border text-neutral-text-disabled"
-          style={{ height: 16, fontSize: '10px', letterSpacing: '0.06em' }}
+          style={{ height: 16, letterSpacing: '0.06em' }}
         >
           planned
         </span>

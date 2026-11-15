@@ -75,13 +75,15 @@ function colorForInitials(initials: string): string {
   return RESOURCE_COLOR_PALETTE[Math.abs(hash) % RESOURCE_COLOR_PALETTE.length];
 }
 
-function Avatar({ initials, size = 18 }: AvatarProps) {
+// 24px is the smallest circle that holds two initials at the text-xs floor (rule 50);
+// a smaller one carried 9-10px glyphs the size gate could not see (#3506).
+function Avatar({ initials, size = 24 }: AvatarProps) {
   if (!initials) {
     return (
       <span
         aria-hidden="true"
-        className="inline-flex items-center justify-center rounded-full border border-dashed border-neutral-border text-neutral-text-disabled"
-        style={{ width: size, height: size, fontSize: size <= 18 ? 9 : 10, flexShrink: 0 }}
+        className="inline-flex items-center justify-center rounded-full border border-dashed border-neutral-border text-xs text-neutral-text-disabled"
+        style={{ width: size, height: size, flexShrink: 0 }}
       >
         ?
       </span>
@@ -90,12 +92,11 @@ function Avatar({ initials, size = 18 }: AvatarProps) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex items-center justify-center rounded-full font-semibold text-white"
+      className="inline-flex items-center justify-center rounded-full font-semibold text-xs text-white"
       style={{
         width: size,
         height: size,
         backgroundColor: colorForInitials(initials),
-        fontSize: size <= 18 ? 9 : 10,
         letterSpacing: '0.02em',
         flexShrink: 0,
       }}
@@ -522,7 +523,7 @@ export function BacklogCard({
             {task.name}
           </span>
           <PhaseDot color={phaseColor} />
-          <Avatar initials={initials} size={16} />
+          <Avatar initials={initials} />
         </button>
         <BacklogCardMenu
           task={task}

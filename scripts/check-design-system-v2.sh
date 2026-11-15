@@ -532,7 +532,22 @@ black_rgba_count() {
 # fixture directions below.
 # The self-test below exists because a widened pattern that silently narrows again is
 # indistinguishable from a clean tree: this gate has already been that twice.
-TINY_TEXT_PAT='text-\[(1[01]|[0-9])(\.[0-9]+)?px\]'
+#
+# THE INLINE-STYLE HOLE (#3506). The class pattern above cannot see type set as an
+# inline style: `style={{ fontSize: 10 }}`, `fontSize: '10px'`, or a derived
+# `fontSize: size * 0.42` (which resolved to 10.92px in settings and appears nowhere
+# in source as a number). #3475 dropped the baseline to 0 and the number was only true
+# for the class-shaped half; 13 inline sites, one of them 9px (prohibited in EVERY
+# tree), sat behind it. Decision (#3506, option 1): a literal-only pattern for the
+# inline form plus a derived-size form (`fontSize: <ident> * <n>`), so the fix is "use
+# the Tailwind class", which this gate already sees. Option 2 (assert computed
+# font-size in Playwright) is deferred until the class comes back a fourth time. What
+# this STILL cannot see: a size computed through a helper/variable (`fontSize: px`),
+# a CSS-variable size, or a value set in a stylesheet. Opt out a line with a trailing
+# `tiny-text-ok: <reason>` comment — used only for SVG chart axis ticks, which are
+# chart type, not DOM copy.
+TINY_STYLE_PAT="fontSize: ?('?)(1[01]|[0-9])(\\.[0-9]+)?(px'|[,} ]|\$)|fontSize: ?[A-Za-z_.]+ ?\\* ?[0-9.]+|fontSize: [^,}]*[?:] ?(1[01]|[0-9])([,} ]|\$)"
+TINY_TEXT_PAT="text-\\[(1[01]|[0-9])(\\.[0-9]+)?px\\]|$TINY_STYLE_PAT"
 # Shared by the scan and its self-test so the two can never diverge. Input is
 # `path:line:content` (grep -rIn form).
 #   1. tests/specs/stories (the global EXCLUDE);
@@ -549,7 +564,8 @@ TINY_TEXT_PAT='text-\[(1[01]|[0-9])(\.[0-9]+)?px\]'
 tiny_text_filter() {
   g -vE "$EXCLUDE" \
     | g -vE "^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*|\{/\*)" \
-    | g -vE "^$WEB_SRC/features/settings/.*text-\[1[01](\.[0-9]+)?px\]"
+    | g -vE "^$WEB_SRC/features/settings/.*(text-\[1[01](\.[0-9]+)?px\]|fontSize: ?'?1[01](\.[0-9]+)?(px'|[,} ]|\$))" \
+    | g -vE "tiny-text-ok:"
 }
 tiny_text_offenders() {
   g -rInE "$TINY_TEXT_PAT" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
@@ -818,7 +834,13 @@ pipeline_self_test() {
     "$web_src"'/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
     "$web_src"'/features/me/MyWorkFocusCards.tsx:64:  className="text-[10.5px]"' \
     "$web_src"'/features/board/QueueLayout.tsx:498:  className="text-[9.5px]"' \
-    "$web_src"'/features/settings/X.tsx:9:  className="text-[9.5px]"'; do
+    "$web_src"'/features/settings/X.tsx:9:  className="text-[9.5px]"' \
+    "$web_src"'/features/board/BacklogBand.tsx:84:  style={{ width: size, fontSize: size <= 18 ? 9 : 10 }}' \
+    "$web_src"'/features/board/QueueLayout.tsx:289:        fontSize: 10,' \
+    "$web_src"'/features/board/ReadinessChip.tsx:34:        fontSize: '"'10px'"',' \
+    "$web_src"'/features/board/Foo.tsx:5:  style={{ fontSize: 11, lineHeight: 1 }}' \
+    "$web_src"'/features/settings/X.tsx:9:  style={{ fontSize: 9 }}' \
+    "$web_src"'/features/settings/workspace/WorkspaceMembersPage.tsx:74:  style={{ fontSize: size * 0.42 }}'; do
     grep -q . <<<"$(printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter)" \
       || { echo "::error:: tiny-text pipeline MISSED an offender: $s" >&2; rc=1; }
   done
@@ -830,7 +852,12 @@ pipeline_self_test() {
     "$web_src"'/features/schedule/BulkEditSheet.tsx:446:        {/* text-xs, not text-[11px]: rationale */}' \
     "$web_src"'/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
     "$web_src"'/features/foo/Bar.tsx:3:  className="text-[12.5px]"' \
-    "$web_src"'/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
+    "$web_src"'/features/foo/Bar.tsx:3:  className="text-[12px]"' \
+    "$web_src"'/features/settings/X.tsx:9:  style={{ fontSize: 10 }}' \
+    "$web_src"'/features/settings/X.tsx:9:  style={{ fontSize: '"'11px'"' }}' \
+    "$web_src"'/features/board/Foo.tsx:5:  style={{ fontSize: 12, lineHeight: 1 }}' \
+    "$web_src"'/features/board/Foo.tsx:5:  style={{ fontSize: 14 }}' \
+    "$web_src"'/features/board/FlowCharts.tsx:38:  fontSize: 11, // tiny-text-ok: SVG chart axis tick'; do
     grep -q . <<<"$(printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter)" \
       && { echo "::error:: tiny-text pipeline COUNTED a sanctioned line: $s" >&2; rc=1; }
   done
