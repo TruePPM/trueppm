@@ -55,6 +55,16 @@ _ALLOWED_EXTENSIONS = {"mpp", "xml"}
 _FILENAME_BANNED = re.compile(r"[^A-Za-z0-9._\- ()]")
 
 
+# Jira and MS Project import have no status resource of their own (#4661), so the
+# handle is documented as a correlation id rather than as a pollable one.
+_IMPORT_HANDLE_HELP = (
+    "Handle of the queued import (the outbox row id). This import has no status "
+    "resource of its own: follow progress through the project's task-run events "
+    "(GET /task-runs/active/ and the task_run_* WebSocket events). The id is a "
+    "correlation handle, not a task-run id."
+)
+
+
 def _sanitize_filename(raw: str) -> str:
     """Return a safe stored form of ``raw``.
 
@@ -176,7 +186,10 @@ class MsProjectImportView(IdempotencyMixin, APIView):
                 name="MsProjectImportQueuedResponse",
                 fields={
                     "detail": serializers.CharField(),
-                    "import_request_id": serializers.UUIDField(),
+                    "queued": serializers.BooleanField(
+                        help_text="Always true: the import was accepted and is queued."
+                    ),
+                    "import_request_id": serializers.UUIDField(help_text=_IMPORT_HANDLE_HELP),
                 },
             ),
             400: OpenApiResponse(description="Missing or invalid upload (wrong type/too large)."),
@@ -212,6 +225,7 @@ class MsProjectImportView(IdempotencyMixin, APIView):
         return Response(
             {
                 "detail": "Import queued.",
+                "queued": True,
                 "import_request_id": req_id,
             },
             status=status.HTTP_202_ACCEPTED,
@@ -249,7 +263,7 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
                 fields={
                     "queued": serializers.BooleanField(),
                     "project_id": serializers.UUIDField(),
-                    "import_request_id": serializers.UUIDField(),
+                    "import_request_id": serializers.UUIDField(help_text=_IMPORT_HANDLE_HELP),
                 },
             ),
             400: OpenApiResponse(

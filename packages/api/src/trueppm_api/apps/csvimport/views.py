@@ -595,7 +595,13 @@ class CsvImportView(IdempotencyMixin, APIView):
                 fields={
                     "detail": serializers.CharField(),
                     "queued": serializers.BooleanField(),
-                    "import_request_id": serializers.UUIDField(),
+                    "import_request_id": serializers.UUIDField(
+                        help_text=(
+                            "Handle of the queued import. Poll "
+                            "GET /projects/{project_id}/import/csv/{import_request_id}/ "
+                            "until its status is terminal."
+                        )
+                    ),
                 },
             ),
             400: OpenApiResponse(

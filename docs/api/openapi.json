@@ -62447,7 +62447,8 @@
                     },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import. Poll GET /projects/{project_id}/import/csv/{import_request_id}/ until its status is terminal."
                     }
                 },
                 "required": [
@@ -64827,14 +64828,20 @@
                     "detail": {
                         "type": "string"
                     },
+                    "queued": {
+                        "type": "boolean",
+                        "description": "Always true: the import was accepted and is queued."
+                    },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import (the outbox row id). This import has no status resource of its own: follow progress through the project's task-run events (GET /task-runs/active/ and the task_run_* WebSocket events). The id is a correlation handle, not a task-run id."
                     }
                 },
                 "required": [
                     "detail",
-                    "import_request_id"
+                    "import_request_id",
+                    "queued"
                 ]
             },
             "KeyEnum": {
@@ -67262,7 +67269,8 @@
                     },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import (the outbox row id). This import has no status resource of its own: follow progress through the project's task-run events (GET /task-runs/active/ and the task_run_* WebSocket events). The id is a correlation handle, not a task-run id."
                     }
                 },
                 "required": [
@@ -67277,14 +67285,20 @@
                     "detail": {
                         "type": "string"
                     },
+                    "queued": {
+                        "type": "boolean",
+                        "description": "Always true: the import was accepted and is queued."
+                    },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import (the outbox row id). This import has no status resource of its own: follow progress through the project's task-run events (GET /task-runs/active/ and the task_run_* WebSocket events). The id is a correlation handle, not a task-run id."
                     }
                 },
                 "required": [
                     "detail",
-                    "import_request_id"
+                    "import_request_id",
+                    "queued"
                 ]
             },
             "MyApiToken": {
@@ -79292,7 +79306,8 @@
                     },
                     "run_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued purge run. Find it by id in the `runs` list of GET /health/retention/ to read its status."
                     }
                 },
                 "required": [
@@ -81443,7 +81458,8 @@
                     },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import. Poll GET /programs/{program_id}/import/jobs/{import_request_id}/ until its status is terminal."
                     },
                     "replaced_program_id": {
                         "type": "string",

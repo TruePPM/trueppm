@@ -668,6 +668,16 @@ role that was valid before is still valid.
 | Wire values | unchanged; the Community edition still sends and accepts only `1`, `100`, `200`, `300`, `400` |
 | Migration | type role fields as an integer, not as a five-member enum. Compare with `>=` against the built-in ordinals, and accept any integer from 1 to 400 |
 
+## Async endpoints: the `202 Accepted` contract
+
+A new endpoint that queues work and returns `202` follows one shape, so an integrator can write a single submit-then-poll helper:
+
+- The body carries `queued: true`, always. (`detail` is optional.)
+- The job handle has one name per resource family and a `description` that names the endpoint that polls it. Prefer `Location` or a status URL over a bare id on new endpoints.
+- There is one polling resource. A handle that nothing can poll does not ship.
+
+Existing endpoints predate this rule and are not renamed before 1.0 (tracked with the route-shape batch in #2844). Today the handles are `import_request_id` (CSV import polls `GET /projects/{id}/import/csv/{import_request_id}/`, seed import polls `GET /programs/{id}/import/jobs/{import_request_id}/`), `run_id` (retention purge, read from `GET /health/retention/`), and `id` (project, program and workspace export jobs, which are full job resources). Jira and MS Project import return an `import_request_id` that is only a correlation handle: they have no status resource of their own, so follow their progress through task-run events. A test fails any new `202` JSON body that omits `queued`, except the job-resource exports and two receipts it names.
+
 ## Surfaces with their own policy / not covered
 
 The sections above cover the REST and WebSocket surface in the OpenAPI schema.

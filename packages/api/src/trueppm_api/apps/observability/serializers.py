@@ -139,4 +139,9 @@ class PurgeRunQueuedSerializer(serializers.Serializer[Any]):
     """Response for a queued purge run, carrying the ``run_id`` to poll for status."""
 
     queued = serializers.BooleanField()
-    run_id = serializers.UUIDField()
+    run_id = serializers.UUIDField(
+        help_text=(
+            "Handle of the queued purge run. Find it by id in the `runs` list of "
+            "GET /health/retention/ to read its status."
+        )
+    )

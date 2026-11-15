@@ -1828,6 +1828,7 @@ class TestImportAPI:
             )
 
         assert resp.status_code == 202
+        assert resp.data["queued"] is True  # #4661: same 202 envelope as CSV import
         assert "import_request_id" in resp.data
         req = ImportRequest.objects.get(pk=resp.data["import_request_id"])
         assert req.project_id == project.pk

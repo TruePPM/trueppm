@@ -36,6 +36,16 @@ _ALLOWED_EXTENSIONS = {"xml"}
 _FILENAME_ALLOWED = re.compile(r"[^A-Za-z0-9._\- ()]")
 
 
+# Jira and MS Project import have no status resource of their own (#4661), so the
+# handle is documented as a correlation id rather than as a pollable one.
+_IMPORT_HANDLE_HELP = (
+    "Handle of the queued import (the outbox row id). This import has no status "
+    "resource of its own: follow progress through the project's task-run events "
+    "(GET /task-runs/active/ and the task_run_* WebSocket events). The id is a "
+    "correlation handle, not a task-run id."
+)
+
+
 def _sanitize_filename(raw: str) -> str:
     name = os.path.basename(raw or "")
     name = _FILENAME_ALLOWED.sub("_", name)
@@ -116,7 +126,10 @@ class JiraImportView(IdempotencyMixin, APIView):
                 name="JiraImportQueuedResponse",
                 fields={
                     "detail": serializers.CharField(),
-                    "import_request_id": serializers.UUIDField(),
+                    "queued": serializers.BooleanField(
+                        help_text="Always true: the import was accepted and is queued."
+                    ),
+                    "import_request_id": serializers.UUIDField(help_text=_IMPORT_HANDLE_HELP),
                 },
             ),
             400: OpenApiResponse(description="Missing or invalid upload (wrong type/too large)."),
@@ -148,6 +161,6 @@ class JiraImportView(IdempotencyMixin, APIView):
         transaction.on_commit(lambda: enqueue_jira_import(req_id))
 
         return Response(
-            {"detail": "Import queued.", "import_request_id": req_id},
+            {"detail": "Import queued.", "queued": True, "import_request_id": req_id},
             status=status.HTTP_202_ACCEPTED,
         )
