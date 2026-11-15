@@ -199,6 +199,12 @@ describe('ProgramCadencePage — ceremony actions menu keyboard access', () => {
     expect(screen.getByText('15 min')).toBeInTheDocument();
   });
 
+  it('renders the ceremony enable switch through the shared Toggle (#4621)', () => {
+    render(<ProgramCadencePage />);
+    const sw = screen.getAllByRole('switch')[0];
+    expect(sw).toHaveClass('focus-visible:ring-2');
+  });
+
   it('renders a read-only indicator (no toggle) for a below-admin viewer', () => {
     mockProgramRole(ROLE_VIEWER);
     render(<ProgramCadencePage />);

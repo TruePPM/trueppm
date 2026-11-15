@@ -140,6 +140,9 @@ describe('ProgramRollupPage (settings)', () => {
     expect(screen.getByRole('heading', { level: 3, name: /Schedule/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /^Risk$/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /^Cost$/ })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Schedule health' })).toHaveClass(
+      'focus-visible:ring-2',
+    ); // shared Toggle (#4621)
     expect(screen.getByRole('switch', { name: 'Schedule health' })).toHaveAttribute(
       'aria-checked',
       'true',

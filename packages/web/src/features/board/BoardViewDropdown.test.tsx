@@ -183,6 +183,10 @@ describe('BoardViewDropdown', () => {
     renderDropdown({ currentUserId: '7' });
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
     expect(screen.getByText('Sprint 7')).toBeInTheDocument();
+    // #3508: a flex-1 row button whose child truncates must carry min-w-0, or a long
+    // saved-view name widens the menu past its container (measured 1045px in a
+    // 200px row in Chromium before the clamp).
+    expect(screen.getByText('Sprint 7').closest('button')).toHaveClass('flex-1', 'min-w-0');
   });
 
   it('reveals the saved-view delete button on keyboard focus, not only on hover (rule 417, #3619)', () => {

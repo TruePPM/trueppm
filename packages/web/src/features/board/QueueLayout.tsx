@@ -299,12 +299,11 @@ function Avatar({ initials }: { initials: string | null }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex items-center justify-center rounded-full font-semibold text-white"
+      className="inline-flex items-center justify-center rounded-full font-semibold text-xs text-white"
       style={{
-        width: 18,
-        height: 18,
+        width: 24,
+        height: 24,
         backgroundColor: colorForInitials(initials),
-        fontSize: 10,
         letterSpacing: '0.02em',
         flexShrink: 0,
       }}
@@ -497,8 +496,8 @@ export function QueueRow({
             <span
               aria-label="Milestone"
               title="Milestone"
-              className="text-brand-accent-dark"
-              style={{ fontSize: 11, lineHeight: 1, flexShrink: 0 }}
+              className="text-xs text-brand-accent-dark"
+              style={{ lineHeight: 1, flexShrink: 0 }}
             >
               <MilestoneIcon aria-hidden="true" className="h-2.5 w-2.5" />
             </span>
@@ -507,8 +506,8 @@ export function QueueRow({
             <span
               aria-label={`${riskCount} linked risk${riskCount === 1 ? '' : 's'}`}
               title={`${riskCount} linked risk${riskCount === 1 ? '' : 's'}`}
-              className="text-semantic-at-risk"
-              style={{ fontSize: 11, lineHeight: 1, flexShrink: 0 }}
+              className="text-xs text-semantic-at-risk"
+              style={{ lineHeight: 1, flexShrink: 0 }}
             >
               ⚠
             </span>

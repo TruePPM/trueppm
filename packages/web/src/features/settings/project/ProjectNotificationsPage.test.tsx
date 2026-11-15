@@ -177,6 +177,7 @@ describe('ProjectNotificationsPage', () => {
     renderPage();
     const pause = screen.getByRole('switch', { name: /pause all project notifications/i });
     expect(pause).toHaveAttribute('aria-checked', 'false');
+    expect(pause).toHaveClass('focus-visible:ring-2'); // shared Toggle (#4621)
     expect(screen.getByText(/one-click opt-out/i)).toBeInTheDocument();
   });
 

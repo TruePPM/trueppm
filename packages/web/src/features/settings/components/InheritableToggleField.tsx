@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { inheritedFromPhrase } from './provenance';
 import { Toggle } from './Toggle';
 
 export interface InheritableToggleFieldProps {
@@ -51,7 +52,7 @@ const onOffWord = (effective: boolean) => (effective ? 'On' : 'Off');
 /** Where this scope's effective value came from, for the read-only/not-enforced
  *  branches' composite `aria-label`/note. */
 const provenanceText = (inheriting: boolean, inheritFromLabel: string, scopeNoun: string) =>
-  inheriting ? `inherited from ${inheritFromLabel}` : `set on this ${scopeNoun}`;
+  inheriting ? inheritedFromPhrase(inheritFromLabel) : `set on this ${scopeNoun}`;
 
 /** The dot + word pair the read-only/not-enforced branches both render, `aria-hidden`
  *  either way — the composite `aria-label` on their wrapper carries the real name. */

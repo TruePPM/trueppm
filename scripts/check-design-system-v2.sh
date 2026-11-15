@@ -235,6 +235,11 @@ if [ "${1:-}" = "--self-test" ]; then
   } > "$d/Page.tsx"
   st_probe "data-only destructure read only in the render body" expect-pass "$d"
 
+  # REJECT: a hand-rolled role="switch" outside the shared Toggle (#4621).
+  d="$(st_fixture rawswitch)"
+  printf '%s\n' 'const el = <button role="switch" aria-checked={on} className="h-5 w-9" />;' > "$d/Widget.tsx"
+  st_probe "hand-rolled role=switch" expect-fail "$d"
+
   [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
 fi
@@ -371,6 +376,13 @@ BASELINE_TINY_TEXT=0
 # issue #3542 for the full per-site disposition; #2861 is the parent meta-issue for
 # the defect class itself.
 BASELINE_QUERY_ERROR=42
+# Hand-rolled `role="switch"` knobs (#4621). `features/settings/components/Toggle.tsx`
+# is the one switch: five diverging copies (two sizes, three ring recipes) sat beside it
+# and were folded in at #4621. These five remaining sites (board settings, sprint
+# close-out, resources, oversight consent, user notification prefs) are NOT reviewed
+# conversions — each is a different control shape — so they are baselined, not blessed.
+# Lower this as they migrate; a NEW raw switch fails the gate.
+BASELINE_RAW_SWITCH=5
 
 # Under an injected scan root every ratchet floor is 0. The baselines above are
 # THIS TREE's grandfathered debt and mean nothing against an arbitrary
@@ -387,6 +399,7 @@ if [ -n "$DS_V2_ROOT" ]; then
   BASELINE_STYLE_COLOR=0
   BASELINE_TINY_TEXT=0
   BASELINE_QUERY_ERROR=0
+  BASELINE_RAW_SWITCH=0
 fi
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
@@ -532,7 +545,22 @@ black_rgba_count() {
 # fixture directions below.
 # The self-test below exists because a widened pattern that silently narrows again is
 # indistinguishable from a clean tree: this gate has already been that twice.
-TINY_TEXT_PAT='text-\[(1[01]|[0-9])(\.[0-9]+)?px\]'
+#
+# THE INLINE-STYLE HOLE (#3506). The class pattern above cannot see type set as an
+# inline style: `style={{ fontSize: 10 }}`, `fontSize: '10px'`, or a derived
+# `fontSize: size * 0.42` (which resolved to 10.92px in settings and appears nowhere
+# in source as a number). #3475 dropped the baseline to 0 and the number was only true
+# for the class-shaped half; 13 inline sites, one of them 9px (prohibited in EVERY
+# tree), sat behind it. Decision (#3506, option 1): a literal-only pattern for the
+# inline form plus a derived-size form (`fontSize: <ident> * <n>`), so the fix is "use
+# the Tailwind class", which this gate already sees. Option 2 (assert computed
+# font-size in Playwright) is deferred until the class comes back a fourth time. What
+# this STILL cannot see: a size computed through a helper/variable (`fontSize: px`),
+# a CSS-variable size, or a value set in a stylesheet. Opt out a line with a trailing
+# `tiny-text-ok: <reason>` comment — used only for SVG chart axis ticks, which are
+# chart type, not DOM copy.
+TINY_STYLE_PAT="fontSize: ?('?)(1[01]|[0-9])(\\.[0-9]+)?(px'|[,} ]|\$)|fontSize: ?[A-Za-z_.]+ ?\\* ?[0-9.]+|fontSize: [^,}]*[?:] ?(1[01]|[0-9])([,} ]|\$)"
+TINY_TEXT_PAT="text-\\[(1[01]|[0-9])(\\.[0-9]+)?px\\]|$TINY_STYLE_PAT"
 # Shared by the scan and its self-test so the two can never diverge. Input is
 # `path:line:content` (grep -rIn form).
 #   1. tests/specs/stories (the global EXCLUDE);
@@ -549,7 +577,8 @@ TINY_TEXT_PAT='text-\[(1[01]|[0-9])(\.[0-9]+)?px\]'
 tiny_text_filter() {
   g -vE "$EXCLUDE" \
     | g -vE "^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*|\{/\*)" \
-    | g -vE "^$WEB_SRC/features/settings/.*text-\[1[01](\.[0-9]+)?px\]"
+    | g -vE "^$WEB_SRC/features/settings/.*(text-\[1[01](\.[0-9]+)?px\]|fontSize: ?'?1[01](\.[0-9]+)?(px'|[,} ]|\$))" \
+    | g -vE "tiny-text-ok:"
 }
 tiny_text_offenders() {
   g -rInE "$TINY_TEXT_PAT" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
@@ -818,7 +847,13 @@ pipeline_self_test() {
     "$web_src"'/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
     "$web_src"'/features/me/MyWorkFocusCards.tsx:64:  className="text-[10.5px]"' \
     "$web_src"'/features/board/QueueLayout.tsx:498:  className="text-[9.5px]"' \
-    "$web_src"'/features/settings/X.tsx:9:  className="text-[9.5px]"'; do
+    "$web_src"'/features/settings/X.tsx:9:  className="text-[9.5px]"' \
+    "$web_src"'/features/board/BacklogBand.tsx:84:  style={{ width: size, fontSize: size <= 18 ? 9 : 10 }}' \
+    "$web_src"'/features/board/QueueLayout.tsx:289:        fontSize: 10,' \
+    "$web_src"'/features/board/ReadinessChip.tsx:34:        fontSize: '"'10px'"',' \
+    "$web_src"'/features/board/Foo.tsx:5:  style={{ fontSize: 11, lineHeight: 1 }}' \
+    "$web_src"'/features/settings/X.tsx:9:  style={{ fontSize: 9 }}' \
+    "$web_src"'/features/settings/workspace/WorkspaceMembersPage.tsx:74:  style={{ fontSize: size * 0.42 }}'; do
     grep -q . <<<"$(printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter)" \
       || { echo "::error:: tiny-text pipeline MISSED an offender: $s" >&2; rc=1; }
   done
@@ -830,7 +865,12 @@ pipeline_self_test() {
     "$web_src"'/features/schedule/BulkEditSheet.tsx:446:        {/* text-xs, not text-[11px]: rationale */}' \
     "$web_src"'/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
     "$web_src"'/features/foo/Bar.tsx:3:  className="text-[12.5px]"' \
-    "$web_src"'/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
+    "$web_src"'/features/foo/Bar.tsx:3:  className="text-[12px]"' \
+    "$web_src"'/features/settings/X.tsx:9:  style={{ fontSize: 10 }}' \
+    "$web_src"'/features/settings/X.tsx:9:  style={{ fontSize: '"'11px'"' }}' \
+    "$web_src"'/features/board/Foo.tsx:5:  style={{ fontSize: 12, lineHeight: 1 }}' \
+    "$web_src"'/features/board/Foo.tsx:5:  style={{ fontSize: 14 }}' \
+    "$web_src"'/features/board/FlowCharts.tsx:38:  fontSize: 11, // tiny-text-ok: SVG chart axis tick'; do
     grep -q . <<<"$(printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter)" \
       && { echo "::error:: tiny-text pipeline COUNTED a sanctioned line: $s" >&2; rc=1; }
   done
@@ -894,6 +934,15 @@ dark_chrome_offenders() {
     | grep -vE "dark:bg-(navy-[789]00|gantt-surface)|dark:bg-\[#" || true
 }
 
+# `role="switch"` outside the shared Toggle (#4621). Prose naming the attribute is
+# skipped via the same comment-line filter the tiny-text scan uses.
+raw_switch_offenders() {
+  g -rInE 'role="switch"' "$WEB_SRC" --include="*.tsx" 2>/dev/null \
+    | g -vE "$EXCLUDE" \
+    | g -vE "^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*|\{/\*)" \
+    | g -vE "^$WEB_SRC/features/settings/components/Toggle\.tsx:" || true
+}
+
 fail=0
 hex=$(hex_count)
 arb=$(arbitrary_count)
@@ -906,8 +955,9 @@ bare_suspense=$(bare_suspense_fallback_offenders | wc -l | tr -d ' ')
 sem_tint=$(sem_tint_offenders | wc -l | tr -d ' ')
 query_error=$(query_error_offenders | wc -l | tr -d ' ')
 skeleton_stall=$(skeleton_stall_offenders | wc -l | tr -d ' ')
+raw_switch=$(raw_switch_offenders | wc -l | tr -d ' ')
 
-echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · style-color=$style_color (≤$BASELINE_STYLE_COLOR) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0)" >&2
+echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · style-color=$style_color (≤$BASELINE_STYLE_COLOR) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0) · raw-switch=$raw_switch (≤$BASELINE_RAW_SWITCH)" >&2
 
 if (( arb > BASELINE_ARBITRARY )); then
   {
@@ -1013,6 +1063,17 @@ if (( query_error > BASELINE_QUERY_ERROR )); then
   fail=1
 elif (( query_error < BASELINE_QUERY_ERROR )); then
   echo "::notice:: unhandled query errors dropped to $query_error — lower BASELINE_QUERY_ERROR in $(basename "$0") to $query_error to lock the gain."
+fi
+
+if (( raw_switch > BASELINE_RAW_SWITCH )); then
+  {
+    echo "::error:: $raw_switch hand-rolled role=\"switch\" control(s) (baseline $BASELINE_RAW_SWITCH, #4621)."
+    echo "  Use the shared Toggle (features/settings/components/Toggle.tsx): one knob size, one focus ring, one disabled/busy treatment. Offenders:"
+    raw_switch_offenders | sed "$SED_INDENT4"
+  } >&2
+  fail=1
+elif (( raw_switch < BASELINE_RAW_SWITCH )); then
+  echo "::notice:: raw role=switch controls dropped to $raw_switch — lower BASELINE_RAW_SWITCH in $(basename "$0") to $raw_switch."
 fi
 
 if (( skeleton_stall > 0 )); then

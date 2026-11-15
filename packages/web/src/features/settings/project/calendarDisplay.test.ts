@@ -70,12 +70,12 @@ describe('summarizeWorkingCalendar', () => {
 describe('calendarSourceCopy', () => {
   it('names the program when inherited from a program', () => {
     expect(calendarSourceCopy('program', eff({ name: 'Delivery Team', holiday_count: 3 }))).toBe(
-      'Inherited from program (Delivery Team). Mon – Fri · 8h/day · 3 holidays.',
+      'Inherited from the program default (Delivery Team). Mon – Fri · 8h/day · 3 holidays.',
     );
   });
   it('names the workspace when inherited from the workspace', () => {
     expect(calendarSourceCopy('workspace', eff({ name: 'Standard 5-day (US)' }))).toBe(
-      'Inherited from workspace (Standard 5-day (US)). Mon – Fri · 8h/day.',
+      'Inherited from the workspace default (Standard 5-day (US)). Mon – Fri · 8h/day.',
     );
   });
   it('describes the system default without a calendar name', () => {

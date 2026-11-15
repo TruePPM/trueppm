@@ -1,3 +1,4 @@
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
@@ -240,11 +241,7 @@ export function resizeMoveFinishIso(right: number, scales: GanttScaleData): stri
 
 /** "Aug 15" — UTC-parsed to match this module's date arithmetic (rule 56). */
 function formatDayLabel(iso: string): string {
-  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
+  return fmtUtcShort(iso);
 }
 
 /**

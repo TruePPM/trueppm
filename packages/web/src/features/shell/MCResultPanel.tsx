@@ -1,3 +1,4 @@
+import { fmtUtcMedium } from '@/lib/formatUtcDate';
 import { useEffect, useRef } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from '@/features/schedule/MonteCarloHistogram';
@@ -15,12 +16,7 @@ interface Props {
 function fmtDate(iso: string) {
   // Server MC forecast dates are UTC calendar dates — pin timeZone:'UTC' so the
   // rendered day does not shift one earlier for viewers west of UTC (#1927).
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
+  return fmtUtcMedium(iso);
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   useProjectNotificationPreferences,
 } from '@/hooks/useProjectNotificationPreferences';
 import { SettingsPageTitle } from '../SettingsShell';
+import { Toggle as SwitchControl } from '../components/Toggle';
 import { FieldHelp } from '@/components/FieldHelp';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { quietHoursTimezoneCopy } from './quietHoursTimezone';
@@ -337,25 +338,7 @@ export function formatList(items: string[]): string {
 
 function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void; ariaLabel: string }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={ariaLabel}
-      onClick={onToggle}
-      className={[
-        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-        on ? 'bg-brand-primary border-brand-primary' : 'bg-neutral-surface-sunken border-neutral-border',
-      ].join(' ')}
-    >
-      <span
-        className={[
-          'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform',
-          on ? 'translate-x-3.5' : 'translate-x-0.5',
-        ].join(' ')}
-      />
-    </button>
+    <SwitchControl on={on} onChange={() => onToggle()} onLabel="" offLabel="" ariaLabel={ariaLabel} />
   );
 }
 

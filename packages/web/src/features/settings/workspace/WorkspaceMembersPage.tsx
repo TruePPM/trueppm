@@ -121,8 +121,8 @@ function Avatar({
 }) {
   return (
     <span
-      className="rounded-full inline-flex items-center justify-center text-white font-semibold shrink-0"
-      style={{ width: size, height: size, background: color, fontSize: size * 0.42 }}
+      className="rounded-full inline-flex items-center justify-center text-xs text-white font-semibold shrink-0"
+      style={{ width: size, height: size, background: color }}
       aria-hidden="true"
     >
       {initials}

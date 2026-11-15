@@ -161,7 +161,7 @@ describe('ProgramCalendarPage', () => {
     expect(screen.queryByRole('combobox', { name: /Working calendar override/i })).toBeNull();
     expect(
       screen.getByLabelText(
-        'Working calendar: Inherited from workspace, program is closed — reopen it to change this. View only.',
+        'Working calendar: Inherited from the workspace default, program is closed — reopen it to change this. View only.',
       ),
     ).toBeInTheDocument();
     expect(
@@ -235,7 +235,7 @@ describe('ProgramCalendarPage', () => {
     expect(screen.queryByRole('combobox', { name: /Working calendar override/i })).toBeNull();
     expect(
       screen.getByLabelText(
-        'Working calendar: Inherited from workspace, managed by the program manager or above. View only.',
+        'Working calendar: Inherited from the workspace default, managed by the program manager or above. View only.',
       ),
     ).toBeInTheDocument();
   });

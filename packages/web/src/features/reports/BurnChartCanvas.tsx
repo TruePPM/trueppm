@@ -44,7 +44,7 @@ export function BurnChartCanvas({
   today,
 }: BurnChartCanvasProps) {
   const axisStyle = {
-    fontSize: 11,
+    fontSize: 11, // tiny-text-ok: SVG chart axis tick, not DOM copy (#3506)
     fill: CHART_COLORS.axisTick,
     fontFamily: 'JetBrains Mono, monospace',
   };

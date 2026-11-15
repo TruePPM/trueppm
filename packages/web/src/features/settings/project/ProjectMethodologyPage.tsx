@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { INHERIT_SOURCE, inheritedFromLead } from '../components/provenance';
 import { SettingsPageTitle, SettingsSubHeading, type SettingsBlockProps } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { QueryErrorState } from '@/components/QueryErrorState';
@@ -450,7 +451,7 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
             </p>
           ) : (
             <p className="text-[13px] text-neutral-text-secondary">
-              Inherited from the {inheritedScope} default:{' '}
+              {inheritedFromLead(INHERIT_SOURCE[inheritedScope])}{' '}
               <span className="font-semibold text-neutral-text-primary">
                 {METHOD_LABEL[inherited]}
               </span>

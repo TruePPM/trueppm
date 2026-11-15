@@ -8,6 +8,7 @@ import {
   capacityPointsChip,
   predecessorsInSprint,
 } from './sprintMath';
+import { setActiveDateFormat } from '@/lib/formatUtcDate';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -136,5 +137,16 @@ describe('predecessorsInSprint', () => {
   it('treats null/undefined inputs as empty', () => {
     expect(predecessorsInSprint(undefined, ['a'])).toEqual({ inSprint: 0, total: 0 });
     expect(predecessorsInSprint(['a'], null)).toEqual({ inSprint: 0, total: 1 });
+  });
+});
+
+describe('formatShortDate honors the user date_format (#4394)', () => {
+  afterEach(() => setActiveDateFormat('us'));
+
+  it('renders day-first for eu and month-first for us, never rolling the UTC day back', () => {
+    setActiveDateFormat('eu');
+    expect(formatShortDate('2026-03-19')).toBe('19 Mar');
+    setActiveDateFormat('us');
+    expect(formatShortDate('2026-03-19')).toBe('Mar 19');
   });
 });

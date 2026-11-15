@@ -8,7 +8,7 @@ import { PencilIcon, WarningIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
 import { Tooltip } from '@/components/Tooltip';
 import { ABBREVIATIONS } from '@/lib/abbreviations';
-import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { fmtUtcMedium, fmtUtcShort } from '@/lib/formatUtcDate';
 import { HowDatesWorkLink } from './HowDatesWorkLink';
 import { parseDurationInput } from './buildMode/EditableCell';
 import { DurationUnitPicker } from './duration/DurationUnitPicker';
@@ -34,12 +34,7 @@ import { isMissingCommittedStart, isStartComputed } from './missingCommittedStar
 function formatDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00Z');
   const currentYear = new Date().getUTCFullYear();
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    ...(d.getUTCFullYear() === currentYear ? {} : { year: 'numeric' }),
-    timeZone: 'UTC',
-  });
+  return d.getUTCFullYear() === currentYear ? fmtUtcShort(iso) : fmtUtcMedium(iso);
 }
 
 interface CellProps {

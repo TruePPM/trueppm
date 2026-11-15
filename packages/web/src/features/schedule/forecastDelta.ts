@@ -1,3 +1,4 @@
+import { fmtUtcMedium } from '@/lib/formatUtcDate';
 /**
  * Formatting for Monte Carlo forecast-drift deltas (ADR-0175, issue 961).
  *
@@ -69,10 +70,5 @@ export function deltaToneClass(tone: DeltaTone): string {
  */
 export function fmtForecastDate(iso: string | null | undefined): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
+  return fmtUtcMedium(iso);
 }

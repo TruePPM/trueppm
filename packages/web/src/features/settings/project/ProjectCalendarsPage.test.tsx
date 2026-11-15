@@ -263,7 +263,7 @@ describe('ProjectCalendarsPage', () => {
       'aria-pressed',
       'true',
     );
-    expect(screen.getByText(/Inherited from workspace \(Workspace default\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Inherited from the workspace default \(Workspace default\)/i)).toBeInTheDocument();
   });
 
   it('renders the base as a read-only summary for a Viewer — no picker or toggle (#2009)', () => {
@@ -480,7 +480,7 @@ describe('ProjectCalendarsPage — base picker library states', () => {
     });
     renderPage();
 
-    expect(screen.getByText(/Inherited from program \(Program calendar\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Inherited from the program default \(Program calendar\)/)).toBeInTheDocument();
   });
 });
 

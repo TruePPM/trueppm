@@ -1,3 +1,4 @@
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 /**
  * Pure date math for the sprint header components.
  * Kept in a separate module so it is trivial to unit-test without a render.
@@ -48,12 +49,7 @@ export function daysUntil(targetIso: string, today: Date = new Date()): number {
 
 /** Format an ISO date as ``Mon D`` (e.g. ``Apr 7``). */
 export function formatShortDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00Z');
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
+  return fmtUtcShort(iso);
 }
 
 /** Format an ISO date range as ``Apr 7 – Apr 21``. */

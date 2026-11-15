@@ -75,8 +75,8 @@ Each program or project stores its calendar assignment as a nullable field:
 - **Calendar set** → the scope uses that calendar, regardless of the parent.
 
 Choosing **Inherit** on the settings page clears the override and the scope falls back
-to the parent's resolved calendar. The settings page shows an **"Inherited from
-{scope}"** indicator naming where the current calendar actually comes from — which may
+to the parent's resolved calendar. The settings page shows an **"Inherited from the
+program default"** (or **"workspace default"**, **"system default"**) indicator naming where the current calendar actually comes from — which may
 be the program, the workspace, or the system default — and overriding is presented as a
 first-class, equal choice, not a warning-worthy exception.
 
@@ -154,7 +154,7 @@ Open **Settings → Working calendar** at the scope you want to configure:
 - **Workspace** — the root default for the whole workspace. Also carries the override
   policy above.
 - **Program** — overrides the workspace for every project in the program that inherits.
-  Shows "Inherited from workspace ({name})" when no override is set.
+  Shows "Inherited from the workspace default ({name})" when no override is set.
 - **Project** — overrides the program (or workspace) for that one project.
   `General → Working calendar` shows the true resolved source, which may now be the
   project's program rather than the workspace.
@@ -169,7 +169,7 @@ the effective calendar without re-implementing the precedence chain itself:
 |---|---|---|
 | `effective_calendar` | Project, Program | The resolved calendar that actually applies at this scope. |
 | `calendar_source` | Project, Program | Where the effective calendar came from: `project`, `program`, `workspace`, or `system_default`. |
-| `inherited_calendar` | Program | The calendar the program would use if its own `calendar` override were cleared — what drives the "Inherited from workspace" indicator. |
+| `inherited_calendar` | Program | The calendar the program would use if its own `calendar` override were cleared — what drives the "Inherited from the workspace default" indicator. |
 | `scheduling_calendar` | Project (detail only) | The calendar the schedule is actually computed on: the effective calendar plus any layered calendars, as one weekday mask (`working_days`) and the list of non-working date ranges (`exceptions`, inclusive `start`/`end`). The Schedule's drag preview steps on it. |
 
 :::note[Ships in 0.5]

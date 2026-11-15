@@ -15,6 +15,7 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import axios from 'axios';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SettingsPageTitle, SettingsCard } from '../../SettingsShell';
+import { Toggle as SwitchControl } from '../../components/Toggle';
 import {
   useRetentionSettings,
   useUpdateRetention,
@@ -43,7 +44,7 @@ function toEditable(policies: RetentionPolicyRow[]): EditablePolicy[] {
 }
 
 // ---------------------------------------------------------------------------
-// Toggle (role="switch") — mirrors the WorkspaceGeneralPage pattern.
+// Toggle — thin adapter over the shared settings switch (one knob, one ring).
 // ---------------------------------------------------------------------------
 
 function Toggle({
@@ -58,29 +59,14 @@ function Toggle({
   label: string;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
+    <SwitchControl
+      on={on}
+      onChange={onChange}
+      onLabel=""
+      offLabel=""
+      ariaLabel={label}
       disabled={disabled}
-      onClick={() => onChange(!on)}
-      className="inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-      <span
-        className={[
-          'relative w-8 h-[18px] rounded-full border transition-colors shrink-0',
-          on ? 'bg-brand-primary border-brand-primary-dark' : 'bg-neutral-surface-sunken border-neutral-border',
-        ].join(' ')}
-      >
-        <span
-          className={[
-            'absolute top-[2px] w-3 h-3 rounded-full bg-white transition-[left] duration-150',
-            on ? 'left-[14px]' : 'left-[2px]',
-          ].join(' ')}
-        />
-      </span>
-    </button>
+    />
   );
 }
 
