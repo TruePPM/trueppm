@@ -72,7 +72,10 @@ export function isExceptionCard(task: Task, myResourceId: string | null): boolea
  * The caller must NOT invoke this for a WIP-breached cell (breach exemption) —
  * that decision belongs upstream so `tasks.length` still drives the breach chip.
  */
-export function selectVisibleCards(tasks: Task[], { cap, myResourceId }: CellCapInput): CellCapResult {
+export function selectVisibleCards(
+  tasks: Task[],
+  { cap, myResourceId }: CellCapInput,
+): CellCapResult {
   // Fast path: the whole cell fits, or hiding would collapse < MIN cards.
   if (tasks.length <= cap + MIN_OVERFLOW_TO_COLLAPSE - 1) {
     return { visible: tasks, overflow: [] };
@@ -110,4 +113,46 @@ export function selectVisibleCards(tasks: Task[], { cap, myResourceId }: CellCap
     }
   }
   return { visible, overflow };
+}
+
+/**
+ * Always-on render ceiling (#1538, #2340). Independent of the opt-in `cellCap`
+ * density pref: that pref tidies a tall cell, this one bounds how many
+ * `BoardCard` instances a single cell (desktop) or status column (mobile) ever
+ * mounts, so DOM size stops scaling with project size. Reveal is progressive
+ * (`RENDER_CEILING_STEP` per click) rather than all-at-once.
+ */
+export const BOARD_RENDER_CEILING = 50;
+export const RENDER_CEILING_STEP = 50;
+
+export interface RenderWindow {
+  visible: Task[];
+  hiddenCount: number;
+}
+
+/**
+ * Window `tasks` to at most `limit` calm cards, reusing `selectVisibleCards` so
+ * exception cards (critical / blocked / late / mine) are never hidden and order
+ * is preserved. `pinnedId` (the keyboard-focused or just-dropped card) is added
+ * to the window in its original position — exactly that one card, never every
+ * card ahead of it — so a focused card is never stranded out of reach (rule 105)
+ * and a card moved to the tail of a huge cell still mounts only `limit + 1` cards.
+ */
+export function selectRenderWindow(
+  tasks: Task[],
+  opts: { limit: number; myResourceId: string | null; pinnedId?: string | null },
+): RenderWindow {
+  const { visible, overflow } = selectVisibleCards(tasks, {
+    cap: opts.limit,
+    myResourceId: opts.myResourceId,
+  });
+  if (opts.pinnedId == null || !overflow.some((t) => t.id === opts.pinnedId)) {
+    return { visible, hiddenCount: overflow.length };
+  }
+  const keep = new Set(visible.map((t) => t.id));
+  keep.add(opts.pinnedId);
+  return {
+    visible: tasks.filter((t) => keep.has(t.id)),
+    hiddenCount: overflow.length - 1,
+  };
 }

@@ -437,3 +437,60 @@ test.describe('Board viewability — per-cell card cap (#1967, ADR-0420)', () =>
     await expect(page.getByRole('checkbox', { name: /Cap tall cells/ })).toBeVisible();
   });
 });
+
+test.describe('Board viewability — render ceiling on a large board (#1538, #2340)', () => {
+  const BIG_PHASE = {
+    id: 'big-phase', wbs_path: '8', name: 'Big Phase',
+    early_start: '2026-01-05', early_finish: '2026-02-14',
+    duration: 30, percent_complete: 0, is_critical: false,
+    is_milestone: false, is_summary: true, parent_id: null,
+    status: 'NOT_STARTED', assignees: [], total_float: null,
+    predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
+  };
+  const BIG_TASKS = [
+    BIG_PHASE,
+    ...Array.from({ length: 120 }, (_, i) =>
+      leaf(`big${i}`, 'big-phase', `8.${i + 1}`, 'NOT_STARTED', `Big Card ${i + 1}`),
+    ),
+  ];
+
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: BIG_TASKS,
+      statusSummary: { task_count: 120 },
+    });
+    await page.route('**/api/v1/tasks/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: BIG_TASKS.length, next: null, previous: null, results: BIG_TASKS }),
+      }),
+    );
+    await page.route('**/api/v1/dependencies/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('Big Phase')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('default (cap off) mounts 50 cards of 120 and reveals more in steps', async ({ page }) => {
+    const cards = page.getByRole('button', { name: /% complete/i });
+    await expect(cards).toHaveCount(50);
+    const more = page.getByTestId('cell-ceiling-more');
+    await expect(more).toHaveAccessibleName('Showing 50 of 120 cards. Show 50 more');
+    await more.click();
+    await expect(cards).toHaveCount(100);
+    await page.getByTestId('cell-ceiling-more').click();
+    await expect(cards).toHaveCount(120);
+    await expect(page.getByTestId('cell-ceiling-more')).toHaveCount(0);
+  });
+});

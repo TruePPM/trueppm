@@ -1,6 +1,7 @@
 ---
 title: Board (Kanban)
 description: Kanban board with a backlog rail, phase swimlanes, and configurable working columns for tracking task execution within a project or sprint.
+documentedFor: "0.5"
 ---
 
 The **Board** tab is where the whole team — PM, Scrum Master, and every contributor
@@ -389,6 +390,27 @@ A **dot-strip** above the board names every column with its task count and a hea
 The backlog rail and drawer are both desktop-only surfaces and never render on a phone, even if you picked **Rail** or **Drawer** from the toolbar before switching to a narrower screen — that choice is preserved and takes effect again once you're back above 768px. The snap-scroll columns only ever show tasks already in a workflow status, so a phone with **Rail** or **Drawer** selected has no way to see or triage existing Backlog items — switch to **Queue** to work the backlog on a phone. The floating **+** still covers new-task capture under any layout, landing new entries in Backlog by default under Queue.
 
 The floating **+** opens a **compose bar** across the bottom of the screen rather than a full-screen form. It is one field, it names where a committed row will land ("Lands in To Do" — the column in view, or **Backlog** under the Queue layout), and it stays open after each entry so a run of items can be captured without reopening anything. The bar is not shown at all to a Viewer, or on a closed sprint.
+
+## Large boards
+
+:::note[Ships in 0.5]
+The per-cell and per-column render ceiling described here ships in 0.5. In 0.4 every
+card in a cell is drawn at once, so a board with several hundred tasks in one status
+is slow to open and to drag on.
+:::
+
+A single board cell (one phase in one status column) or, on a phone, one status
+column never draws more than **50 cards** at a time. When a cell holds more, a
+button at the bottom reads "50 of 120 shown · show 50 more"; each press reveals
+another 50. Cards that need attention are never hidden behind it: critical,
+blocked, and running-late cards always stay on screen (plus, on the desktop board,
+your own cards), and a card you focus or just moved into the cell is kept on
+screen too. This ceiling covers board cells and phone status columns; other
+lists, such as the Queue and Backlog views, are not windowed yet. The cell's task count and
+any WIP-limit warning always count every card, shown or not.
+
+This ceiling is separate from **Cap tall cells** in the More menu, which is an
+optional tidy-up that collapses a cell to six cards. Both can be on together.
 
 ## Permissions
 
