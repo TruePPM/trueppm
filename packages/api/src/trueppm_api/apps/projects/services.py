@@ -232,21 +232,27 @@ def enqueue_sprint_close(
 
 
 def enqueue_project_cascade_soft_delete(project_id: str | uuid.UUID) -> None:
-    """Defer a soft-deleted project's child-tombstone cascade to Celery (#1112).
+    """Defer a soft-deleted project's child-tombstone cascade to Celery (#1112, #1602).
 
     The project row itself is tombstoned synchronously by the caller
     (``perform_destroy``); this only offloads the potentially huge child cascade
     (tasks, dependency edges, sprints, risks, baselines) so a 1000-task project
     does not run ~24k round-trips inside the request transaction.
 
+    A ``ProjectCascadeRequest`` outbox row is written in the caller's transaction,
+    so the delete and the obligation to cascade commit or roll back together.
     Dispatch is deferred with ``transaction.on_commit`` — a rolled-back delete
-    (e.g. a later exception in the same ATOMIC_REQUESTS request) must never leave
-    a worker cascading children of a project that was never actually deleted. If
-    the broker is down at commit time the dispatch is swallowed; the cascade task
-    is idempotent, so a manual re-dispatch or retry is always safe.
+    must never leave a worker cascading children of a project that was never
+    deleted. If the broker is down at commit time the row stays PENDING and
+    ``drain_project_cascade_requests`` dispatches it once the broker recovers; the
+    cascade task is idempotent, so a duplicate dispatch is a no-op.
     """
+    from trueppm_api.apps.projects.models import ProjectCascadeRequest
+
+    req = ProjectCascadeRequest.objects.create(project_id=project_id)
 
     def _dispatch() -> None:
+        from trueppm_api.apps.projects.models import ProjectCascadeRequestStatus
         from trueppm_api.apps.projects.tasks import cascade_project_soft_delete
 
         try:
@@ -254,9 +260,14 @@ def enqueue_project_cascade_soft_delete(project_id: str | uuid.UUID) -> None:
         except Exception:
             logger.warning(
                 "enqueue_project_cascade_soft_delete: could not dispatch cascade for "
-                "project=%s — children stay live until a re-dispatch (task is idempotent)",
+                "project=%s — drain_project_cascade_requests will re-dispatch it",
                 project_id,
             )
+            return
+        # Conditional: the worker may already have finished and marked it DONE.
+        ProjectCascadeRequest.objects.filter(
+            pk=req.pk, status=ProjectCascadeRequestStatus.PENDING
+        ).update(status=ProjectCascadeRequestStatus.DISPATCHED, dispatched_at=timezone.now())
 
     transaction.on_commit(_dispatch)
 

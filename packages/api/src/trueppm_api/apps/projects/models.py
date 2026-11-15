@@ -6379,6 +6379,57 @@ class ConfigNoticeRequest(models.Model):
         return f"ConfigNoticeRequest({self.kind}, {self.status})"
 
 
+class ProjectCascadeRequestStatus(models.TextChoices):
+    """Lifecycle of a project soft-delete cascade outbox row (#1602)."""
+
+    PENDING = "pending", "Pending"
+    DISPATCHED = "dispatched", "Dispatched"
+    DONE = "done", "Done"
+
+
+class ProjectCascadeRequest(models.Model):
+    """Transactional outbox for a soft-deleted project's child cascade (#1602).
+
+    ``soft_delete_project`` writes the row in the same transaction as the project
+    tombstone and dispatches ``cascade_project_soft_delete`` on commit. If the
+    broker is down at that instant the row stays PENDING and
+    ``drain_project_cascade_requests`` dispatches it, so a project that reads as
+    gone cannot keep live children for want of one broker round-trip (#1111).
+    The cascade task is idempotent, so a drain re-dispatch racing the on-commit
+    one is harmless; the task marks the row DONE when the cascade completes.
+
+    The FK cascades on hard delete: a purged project needs no further cascade.
+
+    Does NOT inherit VersionedModel — not synced to mobile clients.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project", on_delete=models.CASCADE, related_name="cascade_requests"
+    )
+    status = models.CharField(
+        max_length=12,
+        choices=ProjectCascadeRequestStatus.choices,
+        default=ProjectCascadeRequestStatus.PENDING,
+    )
+    attempt_count = models.PositiveIntegerField(default=0)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["requested_at"]
+        indexes = [
+            # Serves the drain's pending sweep and its stuck-dispatched recovery
+            # (status equality + range on requested_at / dispatched_at).
+            models.Index(fields=["status", "requested_at"], name="proj_cascade_status_idx"),
+            models.Index(fields=["status", "dispatched_at"], name="proj_cascade_recovery_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProjectCascadeRequest({self.project_id}, {self.status})"
+
+
 class SprintCloseRequestStatus(models.TextChoices):
     """Lifecycle of a transactional outbox row for sprint close (ADR-0037)."""
 

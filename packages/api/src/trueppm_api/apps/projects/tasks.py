@@ -18,6 +18,7 @@ from typing import Any
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from trueppm_api.core.idempotent import idempotent_task
@@ -1252,14 +1253,25 @@ def cascade_project_soft_delete(self: object, project_id: str) -> None:
     """
     from trueppm_api.apps.projects.models import (
         Project,
+        ProjectCascadeRequest,
+        ProjectCascadeRequestStatus,
         cascade_project_children_soft_delete,
     )
 
-    if not Project.objects.filter(pk=project_id).exists():
+    project_state = Project.objects.filter(pk=project_id).values_list("is_deleted", flat=True)
+    if not project_state:
         logger.info(
             "cascade_project_soft_delete: project %s gone (hard-deleted?) — skipping",
             project_id,
         )
+        return
+    if not project_state[0]:
+        # Restored before this (possibly drain-re-dispatched) run: tombstoning the
+        # children of a live project would be data loss. The obligation is void.
+        logger.info("cascade_project_soft_delete: project %s restored — skipping", project_id)
+        ProjectCascadeRequest.objects.filter(project_id=project_id).exclude(
+            status=ProjectCascadeRequestStatus.DONE
+        ).update(status=ProjectCascadeRequestStatus.DONE, completed_at=timezone.now())
         return
 
     from trueppm_api.apps.projects.models import cross_project_edge_rows
@@ -1273,7 +1285,114 @@ def cascade_project_soft_delete(self: object, project_id: str) -> None:
         cross_edges = cross_project_edge_rows(project_id=project_id)
         cascade_project_children_soft_delete(project_id)
         fan_out_cross_project_edges(cross_edges, created=False, skip_project_ids={str(project_id)})
+    ProjectCascadeRequest.objects.filter(project_id=project_id).exclude(
+        status=ProjectCascadeRequestStatus.DONE
+    ).update(status=ProjectCascadeRequestStatus.DONE, completed_at=timezone.now())
     logger.info("cascade_project_soft_delete: cascaded children for project %s", project_id)
+
+
+# Pending rows younger than this are left to their own on-commit dispatch, which
+# may still be in flight; the drain only picks up what that dispatch stranded.
+PROJECT_CASCADE_ORPHAN_WINDOW = timedelta(minutes=2)
+# Past this a dispatched row is presumed lost. Well clear of the cascade task's
+# 600 s hard limit, so a live cascade is not re-driven underneath itself (and the
+# task's own lock would skip it anyway).
+PROJECT_CASCADE_RECOVERY_WINDOW = timedelta(minutes=15)
+PROJECT_CASCADE_DRAIN_BATCH_SIZE = 100
+PROJECT_CASCADE_RETENTION = timedelta(days=7)
+
+
+@idempotent_task(
+    lock_key_template="drain_project_cascade_requests",
+    lock_ttl=60,
+    on_contention="skip",
+    soft_time_limit=25,
+    time_limit=30,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.drain_project_cascade_requests",
+)
+def drain_project_cascade_requests(self: object) -> None:
+    """Re-dispatch stranded project soft-delete cascades (#1602). Beat: every 30 s."""
+    _do_project_cascade_drain()
+
+
+@idempotent_task(
+    lock_key_template="purge_old_project_cascade_requests",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.purge_old_project_cascade_requests",
+)
+def purge_old_project_cascade_requests(self: object) -> None:
+    """Delete DONE ProjectCascadeRequest rows older than seven days. Nightly."""
+    from trueppm_api.apps.projects.models import (
+        ProjectCascadeRequest,
+        ProjectCascadeRequestStatus,
+    )
+
+    deleted, _ = ProjectCascadeRequest.objects.filter(
+        status=ProjectCascadeRequestStatus.DONE,
+        requested_at__lt=timezone.now() - PROJECT_CASCADE_RETENTION,
+    ).delete()
+    logger.info("purge_old_project_cascade_requests: deleted %d row(s)", deleted)
+
+
+def _do_project_cascade_drain() -> None:
+    """Business logic for drain_project_cascade_requests — extracted for testability.
+
+    Dispatches PENDING rows past the orphan window and re-queues DISPATCHED rows
+    whose cascade never completed. There is no DEAD state: the cascade is
+    idempotent and the project is already hidden, so retrying forever costs one
+    no-op task per window, whereas abandoning would strand live children.
+    """
+    from trueppm_api.apps.projects.models import (
+        ProjectCascadeRequest,
+        ProjectCascadeRequestStatus,
+    )
+
+    now = timezone.now()
+    recovered = ProjectCascadeRequest.objects.filter(
+        status=ProjectCascadeRequestStatus.DISPATCHED,
+        dispatched_at__lt=now - PROJECT_CASCADE_RECOVERY_WINDOW,
+    ).update(status=ProjectCascadeRequestStatus.PENDING)
+    if recovered:
+        logger.warning("drain_project_cascade_requests: recovered %d lost cascade(s)", recovered)
+
+    # Recovered rows carry an old requested_at, so they fall inside the same sweep.
+    pending = list(
+        ProjectCascadeRequest.objects.filter(
+            status=ProjectCascadeRequestStatus.PENDING,
+            requested_at__lt=now - PROJECT_CASCADE_ORPHAN_WINDOW,
+        )
+        .order_by("requested_at")
+        .values_list("pk", "project_id")[:PROJECT_CASCADE_DRAIN_BATCH_SIZE]
+    )
+    dispatched = 0
+    for pk, project_id in pending:
+        try:
+            cascade_project_soft_delete.delay(str(project_id))
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception:
+            logger.warning(
+                "drain_project_cascade_requests: broker unavailable — %d cascade(s) stay pending",
+                len(pending) - dispatched,
+            )
+            break
+        ProjectCascadeRequest.objects.filter(
+            pk=pk, status=ProjectCascadeRequestStatus.PENDING
+        ).update(
+            status=ProjectCascadeRequestStatus.DISPATCHED,
+            dispatched_at=now,
+            attempt_count=F("attempt_count") + 1,
+        )
+        dispatched += 1
+    if dispatched:
+        logger.info("drain_project_cascade_requests: dispatched=%d", dispatched)
 
 
 # ---------------------------------------------------------------------------

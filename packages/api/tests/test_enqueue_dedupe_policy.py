@@ -55,7 +55,8 @@ POLICY: dict[str, tuple[str, str]] = {
     ),
     "enqueue_project_cascade_soft_delete": (
         NO_DEDUPE,
-        "Writes no outbox row at all — it only defers an idempotent cascade, so a repeat "
+        "Writes a ProjectCascadeRequest row per soft-delete (#1602), but a project is "
+        "soft-deleted once per delete event and the cascade is idempotent, so a repeat "
         "dispatch is a no-op rather than duplicated work.",
     ),
     "enqueue_template_apply": (

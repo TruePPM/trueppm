@@ -634,6 +634,17 @@ CELERY_BEAT_SCHEDULE = {
         "task": "projects.purge_old_config_notice_requests",
         "schedule": crontab(hour=2, minute=55),
     },
+    # Project soft-delete cascade outbox drain (#1602): re-dispatches cascades whose
+    # on-commit dispatch was lost to a broker outage, so children are not orphaned.
+    "drain-project-cascade-requests": {
+        "task": "projects.drain_project_cascade_requests",
+        "schedule": 30.0,
+    },
+    # Nightly cleanup: deletes DONE ProjectCascadeRequest rows older than 7 days.
+    "project-cascade-requests-purge-nightly": {
+        "task": "projects.purge_old_project_cascade_requests",
+        "schedule": crontab(hour=3, minute=5),
+    },
     # Nightly cleanup: deletes acknowledged / auto-resolved CrossProjectSlipConflict
     # rows 90 days past their resolution (ADR-0120 D4). Unresolved + unacknowledged
     # conflicts are kept indefinitely — they are still live.
