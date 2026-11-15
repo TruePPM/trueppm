@@ -403,7 +403,10 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    only round 1's line. Do not invent a marker that file doesn't define.
    If round 2 (Opus) still reports a BLOCKER after an Opus implementer's fix round, do not
    loop: ask the *Rescue escalation* question (Step 4, trigger 2); its Fable or Opus-again agent
-   fixes the BLOCKER, and a re-check of that fix is never a third audit round.
+   fixes the BLOCKER, and a re-check of that fix is never a third audit round. It is a round-2
+   fix, so the fix-diff re-check applies to it only where it applies to any round-2 fix
+   (`completeness-check/SKILL.md` § After round 1 and § Fix-diff re-check); otherwise its
+   result goes to the user with the MR.
 
 **Cost figures, snapshotted when you give the go-ahead.** Run `scripts/cost-ledger enabled`
 in the worktree first (`docs/harness/cost-ledger.md`), on its own line with no command before it
