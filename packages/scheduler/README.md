@@ -602,8 +602,9 @@ capped at `_MAX_SAMPLE_CELLS`, so a large run count on a large project is refuse
 with `SimulationCapExceeded` rather than exhausting memory. `monte_carlo(max_runs=…, max_tasks=…)` are opt-in,
 caller-supplied ceilings that default to `None` (no limit beyond that ceiling).
 That default is correct for a batch script or notebook that owns the whole machine, and wrong for a synchronous web request:
-**`schedule()` and `monte_carlo()` are CPU-bound** (a day-by-day calendar walk,
-plus a numpy-vectorized sampling pass), so a request handler that calls either
+**`schedule()` and `monte_carlo()` are CPU-bound** (CPM passes over every task
+and link, plus a numpy-vectorized sampling pass; from 0.5 a task's duration will
+be laid out arithmetically rather than by a day-by-day calendar walk), so a request handler that calls either
 directly on untrusted or unbounded input ties up a worker thread or process for
 as long as the input demands. Pass `max_runs` and `max_tasks` whenever the
 caller is untrusted (and a smaller `max_index_cells` if it supplies a `calendars` registry; the default 25M cells is 200 MB of index arrays alone at 8 bytes per cell, and the whole process runs larger: the issue's 32-calendar maximum-span repro peaks near 220 MB RSS, and about 63 calendars would be 400+ MB. For a request-scoped caller handling untrusted registries, `max_index_cells=5_000_000` is a sensible start: 40 MB of index arrays, about 12 calendars at the maximum span of ~366k days, roughly 100 MB for the process), and run the call off the request thread with a wall-clock
@@ -845,11 +846,7 @@ they will ship with 0.5 or that release will slip:
   with measured numbers in this README
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); the Monte Carlo
   memory footprint above is chunked over runs and dropped to float32
-  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)); the CPM
-  duration-expansion day-walk (the per-day calendar walk that makes `schedule()`
-  CPU-bound, see [Limits for embedders](#limits-for-embedders)) moves off
-  O(duration)
-  ([#1531](https://gitlab.com/trueppm/trueppm/-/issues/1531)).
+  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
