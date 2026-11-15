@@ -1031,6 +1031,8 @@ export type CommitmentDeltaReason = 'no_commitment' | 'no_forecast';
 
 export interface MonteCarloResult {
   projectId: string;
+  /** Simulation count. Canonical name for the server's `n_simulations` (#4663); `runs` is its deprecated alias. */
+  nSimulations?: number;
   runs: number;
   /** P50 completion date, ISO string */
   p50: string;

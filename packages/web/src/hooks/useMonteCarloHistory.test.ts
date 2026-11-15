@@ -35,6 +35,7 @@ describe('buildResultFromRun', () => {
     expect(result.p80).toBe('2026-06-08');
     expect(result.p95).toBe('2026-06-15');
     expect(result.runs).toBe(1000);
+    expect(result.nSimulations).toBe(1000);
     expect(result.lastRunAt).toBe('2026-03-01T12:00:00Z');
     expect(result.cpmFinish).toBe('2026-05-25');
   });

@@ -66,7 +66,7 @@ export function MCResultPanel({ result, onClose }: Props) {
             Monte Carlo confidence
           </h2>
           <p className="mt-0.5 text-xs text-neutral-text-secondary">
-            {result.runs.toLocaleString()} simulated runs
+            {(result.nSimulations ?? result.runs).toLocaleString()} simulated runs
           </p>
         </div>
         <button

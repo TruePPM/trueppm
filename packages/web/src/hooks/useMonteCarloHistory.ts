@@ -154,6 +154,7 @@ export function buildResultFromRun(
   return {
     projectId: '',
     runs: run.nSimulations,
+    nSimulations: run.nSimulations,
     // The histogram only reads p50/p80/p95 + buckets; a baseline run may carry
     // null percentiles, in which case the empty-state prose path renders.
     p50: run.p50 ?? '',

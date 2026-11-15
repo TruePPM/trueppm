@@ -30,6 +30,9 @@ export interface UseMonteCarloResultReturn {
 // pre-bucketed distribution under a `date` key per bucket.
 interface MonteCarloLatestResponse {
   project_id: string;
+  /** Canonical count (#4663); absent only on a pre-#4663 payload. */
+  n_simulations?: number;
+  /** Deprecated alias of `n_simulations`. */
   runs: number;
   p50: string;
   p80: string;
@@ -166,6 +169,7 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
   };
   return {
     projectId: api.project_id,
+    nSimulations: api.n_simulations ?? api.runs,
     runs: api.runs,
     p50: api.p50,
     p80: api.p80,

@@ -166,6 +166,7 @@ class TestJiraImportViewRBAC:
                 format="multipart",
             )
         assert r.status_code == 202
+        assert r.data["queued"] is True  # #4661: same 202 envelope as CSV import
         assert "import_request_id" in r.data
         req = JiraImportRequest.objects.get(project=project)
         assert req.status == JiraImportStatus.PENDING

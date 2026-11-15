@@ -666,13 +666,20 @@ async def _whatif(
 async def _get_schedule_derivation(
     client: TruePPMClient,
     project_id: str,
-    task_id: str,
+    task_id: str | None,
     quantity: str,
 ) -> dict[str, Any]:
-    """The server-computed *why* behind one computed schedule value (ADR-0218)."""
+    """The server-computed *why* behind one computed schedule value (ADR-0218).
+
+    ``task_id`` is omitted from the request when ``None`` — the server ignores it for a
+    Monte Carlo percentile, so an agent asking "what drives P80" need not invent one.
+    """
+    params: dict[str, Any] = {"quantity": quantity}
+    if task_id is not None:
+        params["task_id"] = task_id
     payload = await client.get(
         f"projects/{project_id}/schedule/derivation/",
-        params={"task_id": task_id, "quantity": quantity},
+        params=params,
     )
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
@@ -972,7 +979,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
     @server.tool()
     async def get_schedule_derivation(
-        project_id: str, task_id: str, quantity: str
+        project_id: str, quantity: str, task_id: str | None = None
     ) -> dict[str, Any]:
         """The *why* behind a computed schedule value — cite the reason, not just the number.
 
@@ -987,8 +994,6 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
         Args:
             project_id: The project's UUID.
-            task_id: The task whose computed value is being explained. Required for
-                a CPM quantity; ignored for a Monte Carlo percentile.
             quantity: A CPM quantity (early_start, early_finish, late_start,
                 late_finish, total_float, free_float, scheduled_start) or a Monte
                 Carlo percentile (p50, p80, p95). ``early_start``/``early_finish``
@@ -998,6 +1003,8 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
                 actually begin", not "when does its remaining work start".
                 ``scheduled_finish`` is not a separate quantity — it always
                 equals ``early_finish`` (ADR-0752).
+            task_id: The task whose computed value is being explained. Required for
+                a CPM quantity; omit it for a Monte Carlo percentile (ignored).
         """
         return await _get_schedule_derivation(client, project_id, task_id, quantity)
 

@@ -304,6 +304,82 @@ class TestScheduleDerivationResponseSchema:
 
         declared = set(ScheduleMonteCarloDerivationSerializer().fields)
         assert set(data.keys()) == declared
+        assert data["n_simulations"] == data["runs"]  # #4663
+
+
+class TestMonteCarloSimulationCountSchema:
+    def test_post_body_is_a_named_component_and_old_names_are_deprecated(self) -> None:
+        """#4663: POST /monte-carlo/ publishes n_simulations; `runs` is a deprecated alias."""
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        comps = schema["components"]["schemas"]
+        body = schema["paths"]["/api/v1/projects/{id}/monte-carlo/"]["post"]["requestBody"]
+        ref = body["content"]["application/json"]["schema"]["$ref"]
+        assert "n_simulations" in comps[ref.rsplit("/", 1)[1]]["properties"]
+        for name in (
+            "MonteCarloForecast",
+            "MonteCarloWhatIfResponse",
+            "ScheduleMonteCarloDerivation",
+        ):
+            props = comps[name]["properties"]
+            assert "n_simulations" in props and props["runs"]["deprecated"] is True
+        snap = comps["ProjectForecastSnapshot"]["properties"]
+        assert "n_simulations" in snap and snap["mc_iterations"]["deprecated"] is True
+
+
+class TestScheduleDerivationTaskIdContract:
+    def test_percentile_without_task_id_is_200(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """#4660: p50/p80/p95 are project-level, so no task_id is needed."""
+        Task.objects.create(
+            project=project,
+            name="Estimate",
+            duration=5,
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=10,
+        )
+        run = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 100}, format="json"
+        )
+        assert run.status_code == 200
+        assert member_client.get(url(project.pk), {"quantity": "p80"}).status_code == 200
+
+    def test_cpm_quantity_without_task_id_is_400(
+        self, member_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        res = member_client.get(url(project.pk), {"quantity": "early_finish"})
+        assert res.status_code == 400
+
+    def test_cached_derivation_echoes_n_simulations(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """#4663: the derivation's cached branch carries the canonical count."""
+        Task.objects.create(
+            project=project,
+            name="Estimate",
+            duration=5,
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=10,
+        )
+        member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 100}, format="json"
+        )
+        data = member_client.get(url(project.pk), {"quantity": "p80"}).json()
+        assert data["n_simulations"] == data["runs"] == 100
+
+    def test_task_id_is_declared_optional(self) -> None:
+        """#4660: the server ignores task_id for p50/p80/p95, so it is not `required`."""
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        op = schema["paths"]["/api/v1/projects/{id}/schedule/derivation/"]["get"]
+        params = {p["name"]: p for p in op["parameters"]}
+        assert not params["task_id"].get("required", False)
+        assert params["quantity"]["required"] is True
 
 
 @pytest.mark.django_db

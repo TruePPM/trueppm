@@ -457,6 +457,22 @@ Also deprecated, outside those four: `detail` and `cycle` on the `cyclic_depende
 (#3800) are replaced by `code` and `offending`. No removal date is set; it was announced
 as "one minor".
 
+### Simulation count published as `n_simulations` (#4663)
+
+The Monte Carlo simulation count shipped under three names. `n_simulations` is now the
+one canonical name (it matches the request parameter and the `MonteCarloRun` column), and
+the two older spellings are `deprecated: true` in the OpenAPI schema and carry the same
+value. The scheduler library's `monte_carlo(runs=...)` argument is the library's own API
+and is unchanged.
+
+| Element | Replacement | Removal |
+|---------|-------------|---------|
+| `runs` on the Monte Carlo forecast (`POST` and `GET .../monte-carlo/`, `.../latest/`), the what-if response, and the percentile derivation | `n_simulations` | no date set; announced as "a later minor" |
+| `mc_iterations` on forecast snapshots (`GET .../forecast-snapshots/`) | `n_simulations` | no date set; announced as "a later minor" |
+
+`POST .../monte-carlo/` now declares its request body (`n_simulations`, optional) instead
+of a free-form object. That is documentation of what the endpoint already accepted.
+
 ### Timer and timesheet-submit paths published with a trailing slash (#3792)
 
 `POST /api/v1/me/timer/start`, `POST /api/v1/me/timer/stop` and
@@ -651,6 +667,16 @@ role that was valid before is still valid.
 | Behavior during the window | none — the component is replaced in the same release |
 | Wire values | unchanged; the Community edition still sends and accepts only `1`, `100`, `200`, `300`, `400` |
 | Migration | type role fields as an integer, not as a five-member enum. Compare with `>=` against the built-in ordinals, and accept any integer from 1 to 400 |
+
+## Async endpoints: the `202 Accepted` contract
+
+A new endpoint that queues work and returns `202` follows one shape, so an integrator can write a single submit-then-poll helper:
+
+- The body carries `queued: true`, always. (`detail` is optional.)
+- The job handle has one name per resource family and a `description` that names the endpoint that polls it. Prefer `Location` or a status URL over a bare id on new endpoints.
+- There is one polling resource. A handle that nothing can poll does not ship.
+
+Existing endpoints predate this rule and are not renamed before 1.0 (tracked with the route-shape batch in #2844). Today the handles are `import_request_id` (CSV import polls `GET /projects/{id}/import/csv/{import_request_id}/`, seed import polls `GET /programs/{id}/import/jobs/{import_request_id}/`), `run_id` (retention purge, read from `GET /health/retention/`), and `id` (project, program and workspace export jobs, which are full job resources). MS Project import returns an `import_request_id` that you find by id in `GET /projects/{project_id}/imports/` (its `status` is pending, dispatched, done or dead). Jira import returns an `import_request_id` that is only a correlation handle: it has no status resource of its own, so follow its progress through task-run events. A test fails any new `202` JSON body that omits `queued`, except the three export job resources, the `CeilingProposal` created resource and the `WebhookTestPingResponse` receipt it names; it also fails any `202` with no body outside a short pinned list.
 
 ## Surfaces with their own policy / not covered
 

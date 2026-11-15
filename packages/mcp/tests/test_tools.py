@@ -696,6 +696,22 @@ async def test_get_schedule_derivation_returns_why(settings: Settings) -> None:
     assert result["pass"] == "forward"
 
 
+async def test_get_schedule_derivation_omits_task_id_for_percentile(settings: Settings) -> None:
+    """#4660: a Monte Carlo percentile needs no task id — none is sent."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return _json({"quantity": "p80", "value": "2026-09-08"})
+
+    routes: Routes = {"projects/p-1/schedule/derivation/": handler}
+    async with _client(settings, routes) as client:
+        result = await _get_schedule_derivation(client, "p-1", None, "p80")
+
+    assert seen == {"quantity": "p80"}
+    assert result["quantity"] == "p80"
+
+
 async def test_get_schedule_driving_chain_keeps_provenance_and_depth(settings: Settings) -> None:
     """ADR-1381: the tool forwards depth and returns the server payload, _provenance
     included — the stamp is what makes the chain citable."""

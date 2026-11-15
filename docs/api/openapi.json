@@ -23205,20 +23205,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/MonteCarloSimulateRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/MonteCarloSimulateRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/MonteCarloSimulateRequest"
                             }
                         }
                     }
@@ -25324,8 +25321,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "The task whose computed value is being explained.",
-                        "required": true
+                        "description": "The task whose computed value is being explained. Required for CPM quantities; ignored for p50/p80/p95."
                     }
                 ],
                 "tags": [
@@ -62451,7 +62447,8 @@
                     },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import. Poll GET /projects/{project_id}/import/csv/{import_request_id}/ until its status is terminal."
                     }
                 },
                 "required": [
@@ -64831,14 +64828,20 @@
                     "detail": {
                         "type": "string"
                     },
+                    "queued": {
+                        "type": "boolean",
+                        "description": "Always true: the import was accepted and is queued."
+                    },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import (the outbox row id). This import has no status resource of its own: follow progress through the project's task-run events (GET /task-runs/active/ and the task_run_* WebSocket events). The id is a correlation handle, not a task-run id."
                     }
                 },
                 "required": [
                     "detail",
-                    "import_request_id"
+                    "import_request_id",
+                    "queued"
                 ]
             },
             "KeyEnum": {
@@ -66649,8 +66652,14 @@
                     "project_id": {
                         "type": "string"
                     },
+                    "n_simulations": {
+                        "type": "integer",
+                        "description": "Number of Monte Carlo simulations the result was computed from."
+                    },
                     "runs": {
-                        "type": "integer"
+                        "type": "integer",
+                        "deprecated": true,
+                        "description": "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later minor release."
                     },
                     "p50": {
                         "type": "string",
@@ -66782,6 +66791,7 @@
                     "forecast_staleness",
                     "histogram_buckets",
                     "last_run_at",
+                    "n_simulations",
                     "p50",
                     "p50_at_day_start",
                     "p80",
@@ -67069,6 +67079,17 @@
                     "task_id"
                 ]
             },
+            "MonteCarloSimulateRequest": {
+                "type": "object",
+                "description": "Request body of ``POST /projects/{id}/monte-carlo/`` (schema only).\n\nThe view reads and validates the body by hand (cap admission needs the project's\ntask count), so this serializer exists to publish the one accepted input rather\nthan to validate it.",
+                "properties": {
+                    "n_simulations": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Number of simulations. Omitted: the largest count this project's size admits. An explicit value is honored exactly or refused with a 4xx cap error."
+                    }
+                }
+            },
             "MonteCarloWhatIfApplied": {
                 "type": "object",
                 "description": "The resolved perturbation the what-if endpoint applied to the target task (#993).",
@@ -67200,8 +67221,14 @@
                     "delta_vs_current": {
                         "$ref": "#/components/schemas/MonteCarloWhatIfDelta"
                     },
+                    "n_simulations": {
+                        "type": "integer",
+                        "description": "Number of Monte Carlo simulations the result was computed from."
+                    },
                     "runs": {
-                        "type": "integer"
+                        "type": "integer",
+                        "deprecated": true,
+                        "description": "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later minor release."
                     },
                     "seed": {
                         "type": "integer",
@@ -67223,6 +67250,7 @@
                     "current",
                     "delta_vs_current",
                     "mc_status_date",
+                    "n_simulations",
                     "runs",
                     "seed",
                     "task_id",
@@ -67241,7 +67269,8 @@
                     },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import (the ImportRequest id). Find it by id in `GET /projects/{project_id}/imports/`; its `status` is one of pending, dispatched, done or dead."
                     }
                 },
                 "required": [
@@ -67256,14 +67285,20 @@
                     "detail": {
                         "type": "string"
                     },
+                    "queued": {
+                        "type": "boolean",
+                        "description": "Always true: the import was accepted and is queued."
+                    },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import (the ImportRequest id). Find it by id in `GET /projects/{project_id}/imports/`; its `status` is one of pending, dispatched, done or dead."
                     }
                 },
                 "required": [
                     "detail",
-                    "import_request_id"
+                    "import_request_id",
+                    "queued"
                 ]
             },
             "MyApiToken": {
@@ -76641,8 +76676,16 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "n_simulations": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Number of Monte Carlo simulations the result was computed from. Null when no simulation had run."
+                    },
                     "mc_iterations": {
                         "type": "integer",
+                        "deprecated": true,
+                        "description": "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later minor release.",
                         "readOnly": true,
                         "nullable": true
                     },
@@ -76665,6 +76708,7 @@
                     "mc_p50_finish",
                     "mc_p80_finish",
                     "mc_p95_finish",
+                    "n_simulations",
                     "task_count",
                     "total_float_days",
                     "triggered_by"
@@ -79262,7 +79306,8 @@
                     },
                     "run_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued purge run. Find it by id in the `runs` list of GET /health/retention/ to read its status."
                     }
                 },
                 "required": [
@@ -81156,8 +81201,14 @@
                             "$ref": "#/components/schemas/MonteCarloSensitivity"
                         }
                     },
+                    "n_simulations": {
+                        "type": "integer",
+                        "description": "Number of Monte Carlo simulations the result was computed from."
+                    },
                     "runs": {
-                        "type": "integer"
+                        "type": "integer",
+                        "deprecated": true,
+                        "description": "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later minor release."
                     },
                     "last_run_at": {
                         "type": "string",
@@ -81174,6 +81225,7 @@
                     "drivers",
                     "forecast_staleness",
                     "last_run_at",
+                    "n_simulations",
                     "pass",
                     "plan_version",
                     "plan_version_current",
@@ -81406,7 +81458,8 @@
                     },
                     "import_request_id": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "description": "Handle of the queued import. Poll GET /programs/{program_id}/import/jobs/{import_request_id}/ until its status is terminal."
                     },
                     "replaced_program_id": {
                         "type": "string",

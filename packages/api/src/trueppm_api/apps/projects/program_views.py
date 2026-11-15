@@ -573,7 +573,13 @@ SEED_IMPORT_QUEUED_RESPONSE = inline_serializer(
     {
         "queued": serializers.BooleanField(),
         "program_id": serializers.UUIDField(),
-        "import_request_id": serializers.UUIDField(),
+        "import_request_id": serializers.UUIDField(
+            help_text=(
+                "Handle of the queued import. Poll "
+                "GET /programs/{program_id}/import/jobs/{import_request_id}/ until "
+                "its status is terminal."
+            )
+        ),
         "replaced_program_id": serializers.UUIDField(allow_null=True),
     },
 )

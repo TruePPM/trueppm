@@ -55,6 +55,15 @@ _ALLOWED_EXTENSIONS = {"mpp", "xml"}
 _FILENAME_BANNED = re.compile(r"[^A-Za-z0-9._\- ()]")
 
 
+# The handle is the ImportRequest id; unlike Jira import it has a status resource
+# (the per-project provenance list), so say where to find it (#4661).
+_IMPORT_HANDLE_HELP = (
+    "Handle of the queued import (the ImportRequest id). Find it by id in "
+    "`GET /projects/{project_id}/imports/`; its `status` is one of pending, "
+    "dispatched, done or dead."
+)
+
+
 def _sanitize_filename(raw: str) -> str:
     """Return a safe stored form of ``raw``.
 
@@ -176,7 +185,10 @@ class MsProjectImportView(IdempotencyMixin, APIView):
                 name="MsProjectImportQueuedResponse",
                 fields={
                     "detail": serializers.CharField(),
-                    "import_request_id": serializers.UUIDField(),
+                    "queued": serializers.BooleanField(
+                        help_text="Always true: the import was accepted and is queued."
+                    ),
+                    "import_request_id": serializers.UUIDField(help_text=_IMPORT_HANDLE_HELP),
                 },
             ),
             400: OpenApiResponse(description="Missing or invalid upload (wrong type/too large)."),
@@ -212,6 +224,7 @@ class MsProjectImportView(IdempotencyMixin, APIView):
         return Response(
             {
                 "detail": "Import queued.",
+                "queued": True,
                 "import_request_id": req_id,
             },
             status=status.HTTP_202_ACCEPTED,
@@ -249,7 +262,7 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
                 fields={
                     "queued": serializers.BooleanField(),
                     "project_id": serializers.UUIDField(),
-                    "import_request_id": serializers.UUIDField(),
+                    "import_request_id": serializers.UUIDField(help_text=_IMPORT_HANDLE_HELP),
                 },
             ),
             400: OpenApiResponse(

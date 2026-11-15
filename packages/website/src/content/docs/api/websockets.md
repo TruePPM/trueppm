@@ -227,8 +227,17 @@ The set is open-ended and grows as features land; current event types include:
   Payload is `{"id": <policy id>}` only — never the levels map — so a client
   re-reads `GET /api/v1/projects/{id}/guardrail-policy/`, which re-applies the
   sovereignty gate for the reading identity
+- **Mention groups**: `mention_group_changed` — one event for every mutation of a
+  user-defined @mention group (ADR-0212, ADR-0248). The payload is `{"id": <group id>,
+  "group_id": <same>, "change": <string>}`, plus `scope: "program"` and `program_id`
+  when the group is program-scoped (such a group fans out on every live project
+  channel in the program). `change` is a closed enum and part of the stable
+  contract: `created`, `updated`, `deleted`, `member_added`, `member_removed`. A new
+  value is an additive change announced in the changelog; treat an unrecognized
+  value as "refetch the group list". There is no per-verb event family for groups,
+  unlike `task_created` / `task_updated` / `task_deleted`.
 - **Membership / project**: `member_added`, `member_role_changed`,
-  `member_removed`, `mention_group_changed`, `project_updated`,
+  `member_removed`, `project_updated`,
   `project_archived`, `project_unarchived`, `project_transferred`,
   `project_deleted`, `project_hard_deleted`. `project_restored` is emitted but
   **not deliverable**: the

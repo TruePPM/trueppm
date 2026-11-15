@@ -109,8 +109,10 @@ Content-Type: application/json
 The `n_simulations` field is optional; it defaults to the server's
 `MC_SIMULATION_CAP` setting (1,000 on OSS; operators can raise it). On a large
 project the default is lower: runs × tasks is capped (`MC_CELL_CAP`, 2.5M on OSS),
-so a 5,000-task project gets 500 runs. The response's `runs` field always reports
-how many runs were simulated. An explicit `n_simulations` that is too large for the
+so a 5,000-task project gets 500 runs. The response's `n_simulations` field always
+reports how many runs were simulated (`runs` carries the same value and is
+deprecated; the scheduler library's own `monte_carlo(runs=...)` argument keeps its
+name, and the API maps it to `n_simulations`). An explicit `n_simulations` that is too large for the
 project returns HTTP 400 with the largest count allowed (`max_runs`); it is never
 reduced without telling you. If the server is already running its limit of
 simultaneous simulations, it returns HTTP 503 with a `Retry-After` header. See
@@ -129,6 +131,7 @@ operators can raise or remove it.
 ```json
 {
   "project_id": "...",
+  "n_simulations": 1000,
   "runs": 1000,
   "p50": "2025-11-14",
   "p80": "2025-12-02",
@@ -254,8 +257,8 @@ Supply exactly one of:
 | `new_duration` | Absolute day count to set the task's duration to (`>= 0`). |
 
 An optional `n_simulations` controls the iteration count (default and caps are the
-same as a normal run, including the runs × tasks cap; `runs` in the response reports
-the count simulated). The response carries:
+same as a normal run, including the runs × tasks cap; `n_simulations` in the response reports
+the count simulated; `runs` is a deprecated alias). The response carries:
 
 | Field | Meaning |
 |---|---|
