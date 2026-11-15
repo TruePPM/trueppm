@@ -9,6 +9,7 @@ import {
 import { MobileColumnStrip, type MobileColumnStripSegment } from '../MobileColumnStrip';
 import type { ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import { wipState, wipTrend } from '../wip';
+import { selectRenderWindow, BOARD_RENDER_CEILING, RENDER_CEILING_STEP } from '../cellCap';
 import { WipBreachChip, WipTrendArrow } from './columnHeaderParts';
 
 interface MobileBoardProps {
@@ -86,6 +87,9 @@ export function MobileBoard({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<(HTMLElement | null)[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+  // Per-status render limit (#1538, #2340): a status column never mounts more
+  // than this many cards until the user asks for another step.
+  const [limits, setLimits] = useState<Partial<Record<TaskStatus, number>>>({});
 
   // Keep the parent's FAB target in sync with the column in view (issue 605).
   // Reports on mount and on every swipe / tap-jump so a create always lands in
@@ -128,6 +132,13 @@ export function MobileBoard({
     return () => observer.disconnect();
   }, [columns.length]);
 
+  const renderCards = (status: TaskStatus, cards: Task[]) =>
+    selectRenderWindow(cards, {
+      limit: limits[status] ?? BOARD_RENDER_CEILING,
+      myResourceId: null,
+      pinnedId: focusedCardId,
+    });
+
   const jumpToColumn = useCallback((index: number) => {
     const el = columnRefs.current[index];
     if (!el) return;
@@ -158,6 +169,7 @@ export function MobileBoard({
           // Shared wipState() so the mobile column header shows the at-limit
           // breach chip too, not only over-limit (issue 1358 F6).
           const wipBand = col.wipLimit != null ? wipState(cards.length, col.wipLimit) : 'none';
+          const win = renderCards(col.status, cards);
           return (
             <section
               key={col.status}
@@ -208,7 +220,7 @@ export function MobileBoard({
                   Nothing here yet — drag a card in.
                 </div>
               ) : (
-                cards.map((task) => (
+                win.visible.map((task) => (
                   <div
                     key={task.id}
                     onPointerDown={() => onCardFocus(task.id, col.status, task.parentId ?? 'root')}
@@ -233,6 +245,22 @@ export function MobileBoard({
                     />
                   </div>
                 ))
+              )}
+              {win.hiddenCount > 0 && (
+                <button
+                  type="button"
+                  data-testid="mobile-column-more"
+                  onClick={() =>
+                    setLimits((l) => ({
+                      ...l,
+                      [col.status]: (l[col.status] ?? BOARD_RENDER_CEILING) + RENDER_CEILING_STEP,
+                    }))
+                  }
+                  className="w-full min-h-[44px] rounded-card border border-neutral-border bg-neutral-surface text-xs text-neutral-text-secondary"
+                >
+                  {cards.length - win.hiddenCount} of {cards.length} shown · show{' '}
+                  {Math.min(RENDER_CEILING_STEP, win.hiddenCount)} more
+                </button>
               )}
             </section>
           );

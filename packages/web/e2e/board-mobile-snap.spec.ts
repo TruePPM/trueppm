@@ -338,3 +338,39 @@ test.describe('Board mobile — hidden backlog is explained (#4305)', () => {
     await expect(page.getByTestId('mobile-backlog-notice')).toHaveCount(0);
   });
 });
+
+test.describe('Board mobile — large column is windowed (#1538, #2340)', () => {
+  test('a 120-card status column mounts 50 cards and reveals more in steps', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm.board.toolbarPrefs.v1',
+        JSON.stringify({ layout: 'rail', backlogDensity: 'comfortable' }),
+      );
+    });
+    const big = [
+      FIXTURE_TASKS[0],
+      ...Array.from({ length: 120 }, (_, i) => ({
+        ...FIXTURE_TASKS[1],
+        id: `mbig${i}`,
+        wbs_path: `1.${i + 10}`,
+        name: `Mobile Big ${i + 1}`,
+      })),
+    ];
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: big,
+      statusSummary: { task_count: 120 },
+    });
+    await page.goto(`${BASE_URL}/board`);
+    const col = page.locator('[data-mobile-column="true"][data-status="NOT_STARTED"]');
+    await expect(col.getByRole('button', { name: /% complete/i })).toHaveCount(50, {
+      timeout: 10_000,
+    });
+    await col.getByTestId('mobile-column-more').click();
+    await expect(col.getByRole('button', { name: /% complete/i })).toHaveCount(100);
+  });
+});

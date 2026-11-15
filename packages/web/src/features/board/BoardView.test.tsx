@@ -1996,6 +1996,27 @@ describe('per-cell card cap (issue 1967, ADR-0420)', () => {
     expect(screen.queryByTestId('cell-overflow-toggle')).toBeNull();
   });
 
+  it('bounds a huge cell to the render ceiling and reveals more in steps (#1538, #2340)', async () => {
+    const user = userEvent.setup();
+    mockTasks = Array.from({ length: 130 }, (_, i) => leaf(`big${i}`, `Big ${i + 1}`));
+    renderBoard();
+    expect(cardCount()).toBe(50);
+    const more = screen.getByTestId('cell-ceiling-more');
+    expect(more).toHaveAccessibleName('Showing 50 of 130 cards. Show 50 more');
+    await user.click(more);
+    expect(cardCount()).toBe(100);
+    await user.click(screen.getByTestId('cell-ceiling-more'));
+    expect(cardCount()).toBe(130);
+    expect(screen.queryByTestId('cell-ceiling-more')).toBeNull();
+  });
+
+  it('does not show the ceiling control for a cell at the ceiling', () => {
+    mockTasks = Array.from({ length: 51 }, (_, i) => leaf(`edge${i}`, `Edge ${i + 1}`));
+    renderBoard();
+    expect(cardCount()).toBe(51);
+    expect(screen.queryByTestId('cell-ceiling-more')).toBeNull();
+  });
+
   it('collapses the calm overflow behind a "+N more" disclosure when the cap is on', () => {
     enableCap(6);
     mockTasks = Array.from({ length: 8 }, (_, i) => leaf(`c${i}`, `Card ${i + 1}`));

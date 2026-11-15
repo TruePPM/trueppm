@@ -5,6 +5,8 @@ import {
   MIN_OVERFLOW_TO_COLLAPSE,
   isExceptionCard,
   selectVisibleCards,
+  selectRenderWindow,
+  BOARD_RENDER_CEILING,
 } from './cellCap';
 
 let seq = 0;
@@ -137,5 +139,43 @@ describe('selectVisibleCards', () => {
     // Both of my cards are visible; none of mine is hidden.
     expect(overflow.some((t) => t.assignees.some((a) => a.resourceId === 'me'))).toBe(false);
     expect(visible.filter((t) => t.assignees.some((a) => a.resourceId === 'me'))).toHaveLength(2);
+  });
+});
+
+describe('selectRenderWindow (#1538, #2340)', () => {
+  const calmN = (n: number) => Array.from({ length: n }, () => makeTask());
+
+  it('windows a huge list to the limit, preserving order', () => {
+    const tasks = calmN(200);
+    const { visible, hiddenCount } = selectRenderWindow(tasks, {
+      limit: BOARD_RENDER_CEILING,
+      myResourceId: null,
+    });
+    expect(visible).toHaveLength(BOARD_RENDER_CEILING);
+    expect(visible).toEqual(tasks.slice(0, BOARD_RENDER_CEILING));
+    expect(hiddenCount).toBe(150);
+  });
+
+  it('keeps exception cards past the limit', () => {
+    const tasks = calmN(100);
+    tasks[90] = makeTask({ isCritical: true });
+    const { visible } = selectRenderWindow(tasks, { limit: 50, myResourceId: null });
+    expect(visible).toContain(tasks[90]);
+    expect(visible).toHaveLength(50);
+  });
+
+  it('raises the limit to keep the pinned (focused) card mounted', () => {
+    const tasks = calmN(100);
+    const { visible } = selectRenderWindow(tasks, {
+      limit: 50,
+      myResourceId: null,
+      pinnedId: tasks[70].id,
+    });
+    expect(visible).toContain(tasks[70]);
+  });
+
+  it('hides nothing at or just over the limit', () => {
+    const { hiddenCount } = selectRenderWindow(calmN(51), { limit: 50, myResourceId: null });
+    expect(hiddenCount).toBe(0);
   });
 });

@@ -18,7 +18,13 @@
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
-import { selectVisibleCards, DEFAULT_CELL_CAP } from './cellCap';
+import {
+  selectVisibleCards,
+  selectRenderWindow,
+  DEFAULT_CELL_CAP,
+  BOARD_RENDER_CEILING,
+  RENDER_CEILING_STEP,
+} from './cellCap';
 import { buildLaneIndex, collectLaneHeads, ROOT_LANE_ID } from './laneAssignment';
 import {
   buildLaneKeyIndex,
@@ -588,8 +594,24 @@ function useCellOverflow(opts: {
   const overflowIds = useMemo(() => new Set(overflow.map((t) => t.id)), [overflow]);
   const toggleOverflow = useCallback(() => setManualExpanded((v) => !v), []);
 
+  // Always-on render ceiling (#1538, #2340): even when the user cap is off or the
+  // cell is expanded / a drag hovers it (both of which want "every card"), a cell
+  // never mounts more than `ceilingLimit` cards. Applies to WIP-breached cells too
+  // — the breach notice reads the full `tasks.length`, and exception cards plus
+  // the focused card stay mounted via selectRenderWindow.
+  const [ceilingLimit, setCeilingLimit] = useState(BOARD_RENDER_CEILING);
+  const base = showAll ? tasks : visible;
+  const { visible: windowed, hiddenCount: ceilingHidden } = useMemo(
+    () => selectRenderWindow(base, { limit: ceilingLimit, myResourceId, pinnedId: focusedCardId }),
+    [base, ceilingLimit, myResourceId, focusedCardId],
+  );
+  const showMoreCeiling = useCallback(() => setCeilingLimit((l) => l + RENDER_CEILING_STEP), []);
+
   return {
-    renderedTasks: showAll ? tasks : visible,
+    ceilingHidden,
+    ceilingTotal: base.length,
+    showMoreCeiling,
+    renderedTasks: windowed,
     overflowIds,
     overflowCount: overflow.length,
     expanded,
@@ -726,6 +748,9 @@ function BoardCellImpl({
     expanded,
     showOverflowToggle,
     toggleOverflow,
+    ceilingHidden,
+    ceilingTotal,
+    showMoreCeiling,
   } = useCellOverflow({
     tasks,
     cellCap,
@@ -821,6 +846,23 @@ function BoardCellImpl({
           controlsId={overflowId}
           onToggle={toggleOverflow}
         />
+      )}
+      {ceilingHidden > 0 && (
+        <button
+          type="button"
+          data-testid="cell-ceiling-more"
+          aria-label={`Showing ${ceilingTotal - ceilingHidden} of ${ceilingTotal} cards. Show ${Math.min(RENDER_CEILING_STEP, ceilingHidden)} more`}
+          onClick={showMoreCeiling}
+          className="w-full min-h-[36px] flex items-center justify-center gap-1.5 rounded-card
+            border border-neutral-border bg-neutral-surface text-neutral-text-secondary text-xs
+            hover:bg-neutral-surface-raised hover:text-neutral-text-primary transition-colors
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
+        >
+          <span className="tppm-mono tabular-nums font-semibold">
+            {ceilingTotal - ceilingHidden} of {ceilingTotal}
+          </span>
+          <span>shown · show {Math.min(RENDER_CEILING_STEP, ceilingHidden)} more</span>
+        </button>
       )}
     </div>
   );

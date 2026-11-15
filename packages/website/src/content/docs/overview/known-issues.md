@@ -267,7 +267,6 @@ specific defects behind them.
 | [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) | The Schedule view loads the whole project before it draws anything — about 2.3 KB of JSON per task, 229 MB at 100 000 tasks | 0.5 |
 | [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) | Schedule recalculation holds about 30 KB of memory per task, so the chart's 2 GiB Celery worker limit is exceeded near 60 000 tasks in one project or one cross-linked program. Raise `resources.limits.memory` on the worker before then | 0.5 |
 | [#3832](https://gitlab.com/trueppm/trueppm/-/issues/3832) | The Schedule has never been measured in a browser at scale: heap size, first paint, and interaction latency above a few thousand tasks are unknown | 0.5 |
-| [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) | The Kanban board renders every card as a DOM node with no virtualization | 0.5 |
 
 **What to do:** below roughly 2 000 tasks per project none of these bite. Above that,
 split work across projects in a program rather than one large project, raise the Celery
