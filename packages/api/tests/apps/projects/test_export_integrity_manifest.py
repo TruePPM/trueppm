@@ -311,6 +311,51 @@ def test_import_rejects_decompression_bomb_over_http(
     assert not Program.objects.exists()
 
 
+def _skipped_entry_archive(typeflag: bytes, size: int) -> bytes:
+    """gzip(tar) holding ONE entry of ``typeflag`` declaring ``size`` bytes of zeros.
+
+    Built by streaming zero chunks so the construction itself stays cheap; tar
+    skips (or, for ``x``/``L``, buffers) the data of such an entry without ever
+    handing it to the per-member hashing loop.
+    """
+    info = tarfile.TarInfo("skipped")
+    info.type = typeflag
+    info.size = size
+    out = io.BytesIO()
+    with gzip.GzipFile(fileobj=out, mode="wb") as gz:
+        gz.write(info.tobuf(tarfile.GNU_FORMAT))
+        chunk = b"\0" * (1024 * 1024)
+        left = size
+        while left > 0:
+            gz.write(chunk[: min(left, len(chunk))])
+            left -= len(chunk)
+        gz.write(b"\0" * (-size % 512))
+        gz.write(b"\0" * 1024)
+    return out.getvalue()
+
+
+@pytest.mark.parametrize("typeflag", [b"Z", b"x", b"L"])
+def test_skipped_or_extended_header_entries_are_charged_to_the_cap(typeflag: bytes) -> None:
+    raw = _skipped_entry_archive(typeflag, 40 * 1024 * 1024)
+    assert len(raw) < 256 * 1024
+    with pytest.raises(ArchiveIntegrityError, match="decompressed size"):
+        verify_archive(io.BytesIO(raw), max_decompressed_bytes=4 * 1024 * 1024)
+
+
+def test_import_rejects_unknown_typeflag_bomb_over_http(
+    owner: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.projects import export_integrity
+    from trueppm_api.apps.projects.models import Program
+
+    monkeypatch.setattr(export_integrity, "_DECOMPRESSED_FACTOR", 1)
+    monkeypatch.setattr(export_integrity, "_MIN_DECOMPRESSED_BYTES", 1024 * 1024)
+    resp = _post(owner, _skipped_entry_archive(b"Z", 40 * 1024 * 1024))
+    assert resp.status_code == 400
+    assert "decompressed" in json.dumps(resp.json()).lower()
+    assert not Program.objects.exists()
+
+
 def test_legit_bundle_passes_under_default_caps(project: Project, owner: Any) -> None:
     _, raw = _build(project, owner)
     assert verify_archive(io.BytesIO(raw), seed_max_bytes=5 * 1024 * 1024).verified is True

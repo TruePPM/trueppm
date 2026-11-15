@@ -21,6 +21,7 @@ dragging in the export builder.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import tarfile
@@ -105,9 +106,31 @@ class _Budget:
             raise ArchiveIntegrityError("Archive expands beyond the allowed decompressed size.")
 
 
-def _read_manifest(src: IO[bytes], budget: _Budget) -> dict[str, Any]:
+class _CountingReader:
+    """Read-only file wrapper that charges every inflated byte to a :class:`_Budget`.
+
+    Counting at the source (rather than per member) is what makes the cap total: tar
+    skips the data of a directory, link, or unknown-typeflag entry by *reading and
+    discarding* it, and a PAX/GNU extended header is read whole, so neither ever
+    reaches the per-member hashing loop. Every one of them pulls through ``read``.
+    ``read`` is clamped to one chunk so a header declaring a huge size cannot make
+    gzip inflate it in a single call before the budget is consulted.
+    """
+
+    def __init__(self, raw: gzip.GzipFile, budget: _Budget) -> None:
+        self._raw = raw
+        self._budget = budget
+
+    def read(self, size: int, /) -> bytes:
+        if size < 0 or size > _CHUNK:
+            size = _CHUNK
+        data = self._raw.read(size)
+        self._budget.spend(len(data))
+        return data
+
+
+def _read_manifest(src: IO[bytes]) -> dict[str, Any]:
     raw = src.read(_MAX_MANIFEST_BYTES + 1)
-    budget.spend(len(raw))
     if len(raw) > _MAX_MANIFEST_BYTES:
         raise ArchiveIntegrityError("manifest.json is too large.")
     try:
@@ -119,12 +142,11 @@ def _read_manifest(src: IO[bytes], budget: _Budget) -> dict[str, Any]:
     return parsed
 
 
-def _hash_member(src: IO[bytes], keep_max: int | None, budget: _Budget) -> tuple[str, bytes | None]:
+def _hash_member(src: IO[bytes], keep_max: int | None) -> tuple[str, bytes | None]:
     """Stream ``src`` through SHA-256; also keep its bytes when ``keep_max`` is set."""
     digest = hashlib.sha256()
     buf = bytearray()
     while chunk := src.read(_CHUNK):
-        budget.spend(len(chunk))
         digest.update(chunk)
         if keep_max is not None:
             buf += chunk
@@ -143,7 +165,9 @@ def _scan(
     budget = _Budget(max_decompressed_bytes)
     members_seen = 0
     try:
-        with tarfile.open(fileobj=fileobj, mode="r|gz") as tar:
+        counted = _CountingReader(gzip.GzipFile(fileobj=fileobj, mode="rb"), budget)
+        # typeshed types fileobj as a seekable r/w protocol; stream mode only reads.
+        with tarfile.open(fileobj=counted, mode="r|") as tar:  # type: ignore[call-overload]
             for info in tar:
                 members_seen += 1
                 if members_seen > _MAX_MEMBERS:
@@ -157,10 +181,10 @@ def _scan(
                 if src is None:
                     continue
                 if name == MANIFEST_NAME:
-                    manifest = _read_manifest(src, budget)
+                    manifest = _read_manifest(src)
                     continue
                 keep = seed_max_bytes if name == "seed.json" else None
-                actual[name], kept = _hash_member(src, keep, budget)
+                actual[name], kept = _hash_member(src, keep)
                 if kept is not None:
                     seed = kept
     except ArchiveIntegrityError:
