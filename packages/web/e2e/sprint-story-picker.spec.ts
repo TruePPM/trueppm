@@ -149,7 +149,10 @@ function productBacklogBody(stories: ReturnType<typeof apiStory>[]) {
   };
 }
 
-async function setupPage(page: import('@playwright/test').Page) {
+async function setupPage(
+  page: import('@playwright/test').Page,
+  opts: { demoReadOnly?: boolean } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -266,7 +269,7 @@ async function setupPage(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ edition: 'community' }),
+      body: JSON.stringify({ edition: 'community', demo_read_only: opts.demoReadOnly ?? false }),
     }),
   );
   await page.route('**/api/v1/auth/me/', (route) =>
@@ -413,6 +416,28 @@ async function routeBulk(
     });
   });
 }
+
+test.describe('Sprint story picker — read-only demo (#4115)', () => {
+  test('says up front that committing is unavailable and keeps Commit disabled', async ({
+    page,
+  }) => {
+    await setupPage(page, { demoReadOnly: true });
+    const batches: BulkOp[][] = [];
+    await routeBulk(page, batches);
+
+    await page.goto(BASE_URL);
+    const backlog = page.getByRole('region', { name: /Sprint Backlog/i });
+    await backlog.getByRole('button', { name: 'Pull from backlog →', exact: true }).click();
+
+    const dialog = page.getByRole('dialog', { name: /Pull stories into SP-D00D/i });
+    await expect(dialog.getByTestId('story-picker-demo-note')).toContainText(
+      'Not available in the read-only demo.',
+    );
+    await dialog.getByRole('button', { name: 'Ready story A' }).click();
+    await expect(dialog.getByRole('button', { name: /Commit 1 story/i })).toBeDisabled();
+    expect(batches).toEqual([]);
+  });
+});
 
 test.describe('Sprint story picker (#2670, #2914)', () => {
   test('golden path — open the picker, see DoR badges, commit a Ready story', async ({ page }) => {

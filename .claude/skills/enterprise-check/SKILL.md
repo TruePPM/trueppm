@@ -162,8 +162,10 @@ OSS feature list (non-exhaustive):
 - **Outbound integration extension points** — task carries external URL with
   on-demand preview, board posts one-way events to webhook URL, user opts into
   SMTP notifications. Read-on-demand pulls from external systems are also OK
-  here (e.g. fetch current Jira state when a linked task opens). Webhook ingest,
-  bidirectional sync workers, OAuth flows, and conflict resolution are Enterprise.
+  here (e.g. fetch current Jira state when a linked task opens). Broad,
+  multi-provider webhook ingest, bidirectional sync workers, OAuth flows, and
+  conflict resolution are Enterprise; narrow token/HMAC one-way ingest is OSS
+  (ADR-0068/0148/0158, see the "Bidirectional integration sync" row below).
 
 ### Enterprise — goes in `trueppm-enterprise`
 A feature belongs in the enterprise edition if it requires **portfolio-level coordination
@@ -237,6 +239,12 @@ Enterprise feature list (non-exhaustive):
   replay protection, OAuth flows, conflict resolution policy, reconciliation loop,
   per-tenant rate-limit budgets, audit trail of every inbound/outbound mutation.
   (OSS has outbound + read-on-demand; this is the durable two-way machinery.)
+  **Narrow inbound ingest is not this row.** A single-purpose, token- or
+  HMAC-authenticated, one-way inbound path with no conflict resolution or
+  reconciliation is **OSS**: project-token inbound task push (ADR-0068, `apps/projects/inbound_sync.py`),
+  inbound CI acceptance-result ingestion (ADR-0148), and the HMAC git-event
+  receiver (ADR-0158, `apps/integrations/git_automation_services.py`, which carves
+  out of ADR-0049). Only the multi-provider, bidirectional hub is Enterprise.
 - Advanced report builder (custom queries, scheduled PDF delivery, executive templates)
 - White-label / custom domain (consulting firms branding the tool for clients)
 - Data retention policy controls (7-year archive, GDPR deletion workflows)
@@ -314,8 +322,10 @@ Ask in order:
 6. Would a freelance PM using the free tier miss this? → OSS
 7. Is this a compliance, audit, or governance feature? → Enterprise
 8. Is it a core scheduling algorithm? → OSS (scheduling is TruePPM's OSS differentiator)
-9. Does it require durable two-way machinery (webhook ingest, OAuth flows, conflict
-   resolution, reconciliation loops, audit trail of inbound events)? → Enterprise
+9. Does it require durable two-way machinery (broad multi-provider webhook ingest,
+   OAuth flows, conflict resolution, reconciliation loops, audit trail of inbound
+   events)? → Enterprise. Narrow token/HMAC one-way ingest with none of that is OSS
+   (ADR-0068/0148/0158; see the "Bidirectional integration sync" row).
 
 ## Output Format
 

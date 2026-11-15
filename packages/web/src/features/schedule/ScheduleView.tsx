@@ -5024,6 +5024,7 @@ export function ScheduleView() {
           error={bulkEdit.error}
           result={bulkEdit.result}
           skippedLocallyIds={bulkEdit.skippedLocallyIds}
+          demoReadOnly={isDemoReadOnly}
           onApply={bulkEdit.apply}
           onReviewFailed={bulkEdit.reviewFailed}
           onDone={bulkEdit.done}

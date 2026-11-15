@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
 import { RefusalAlert } from '@/components/dialog';
 import type { WriteRefusal } from '@/lib/writeRefusal';
+import { DEMO_DISABLED_NOTE } from '@/lib/demoReadOnly';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { TaskBulkResponse } from '@/hooks/useTaskMutations';
 import type { ApiSprint, DeliveryMode, GovernanceClass, ProjectResource, Task } from '@/types';
@@ -78,6 +79,7 @@ const REVIEW_ID = 'bulk-edit-review-block';
 
 /** Rule 335(a) — the seat target's `aria-describedby` points here. */
 const RESULT_PANEL_ID = 'bulk-edit-result-panel';
+const DEMO_NOTE_ID = 'bulk-edit-demo-note';
 
 /** The system default forms, so the sheet renders standalone in a test. */
 const DEFAULT_ITERATION_FORMS = iterationLabelForms(null);
@@ -134,6 +136,14 @@ export interface BulkEditSheetProps {
   result: TaskBulkResponse | null;
   /** Rows the sheet dropped before sending (see `buildBulkEditOperations`). */
   skippedLocallyIds?: string[];
+  /**
+   * The deployment is the read-only demo (ADR-1197), which refuses every write.
+   * Unlike a single-row edit or a drag, a bulk write is not captured into the
+   * demo preview overlay, so Apply would fail and leave nothing on screen. The
+   * sheet therefore opens, says so up front, and disables Apply (#4115). A prop
+   * rather than a `useDemoMode()` call for the same reason as `iterationLabel`.
+   */
+  demoReadOnly?: boolean;
   onApply: (spec: BulkEditSpec, ctx: ProjectionContext) => void;
   /** Re-select exactly the rows that did not apply, and focus the first. */
   onReviewFailed: (taskIds: string[]) => void;
@@ -152,6 +162,7 @@ export function BulkEditSheet({
   error,
   result,
   skippedLocallyIds = [],
+  demoReadOnly = false,
   onApply,
   onReviewFailed,
   onDone,
@@ -191,7 +202,7 @@ export function BulkEditSheet({
   const preflight = useMemo(() => preflightSelection(tasks), [tasks]);
   const projection = useMemo(() => buildFieldProjection(spec, tasks, ctx), [spec, tasks, ctx]);
   const reviewLines = useMemo(() => buildReviewLines(projection, ctx), [projection, ctx]);
-  const canApply = hasAnyChange(spec) && !isPending;
+  const canApply = hasAnyChange(spec) && !isPending && !demoReadOnly;
 
   const applyRef = useRef<HTMLButtonElement | null>(null);
 
@@ -455,6 +466,17 @@ export function BulkEditSheet({
               which, before #3332, nothing on this sheet ever was.
             */}
             <RefusalAlert refusal={error} testId="bulk-edit-error" persistent />
+            {demoReadOnly && (
+              <p
+                id={DEMO_NOTE_ID}
+                role="note"
+                data-testid="bulk-edit-demo-note"
+                className="leading-snug text-neutral-text-secondary"
+              >
+                {DEMO_DISABLED_NOTE} Bulk edit saves to the server, and the demo refuses every
+                write. Drag a bar on the Schedule to preview a change instead.
+              </p>
+            )}
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
                 Cancel
@@ -464,7 +486,7 @@ export function BulkEditSheet({
                 variant="primary"
                 size="sm"
                 disabled={!canApply}
-                aria-describedby={REVIEW_ID}
+                aria-describedby={demoReadOnly ? `${REVIEW_ID} ${DEMO_NOTE_ID}` : REVIEW_ID}
                 onClick={submit}
                 data-testid="bulk-edit-apply"
               >

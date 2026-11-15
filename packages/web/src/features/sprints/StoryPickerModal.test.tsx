@@ -7,6 +7,11 @@ import type { ProductBacklog } from '@/features/project/backlog/types';
 import { StoryPickerModal } from './StoryPickerModal';
 import { makeSprint } from './sprintTestFixtures';
 
+const demoModeMock = vi.hoisted(() => ({ isDemoReadOnly: false }));
+vi.mock('@/hooks/useDemoMode', () => ({
+  useDemoMode: () => ({ ...demoModeMock, loginHint: null, resetSchedule: null, isLoading: false }),
+}));
+
 const mutateAsyncMock = vi.fn();
 vi.mock('@/hooks/useTaskMutations', () => ({
   useBulkUpdateTasks: () => ({ mutateAsync: mutateAsyncMock }),
@@ -90,6 +95,7 @@ function backlog(overrides: Partial<ProductBacklog> = {}): ProductBacklog {
 const SPRINT = makeSprint({ id: 'sp-1', short_id_display: 'SP-A1', capacity_points: 20 });
 
 beforeEach(() => {
+  demoModeMock.isDemoReadOnly = false;
   mutateAsyncMock.mockReset();
   mutateAsyncMock.mockResolvedValue(
     bulk207({
@@ -117,6 +123,27 @@ function renderModal(props: Partial<Parameters<typeof StoryPickerModal>[0]> = {}
     />,
   );
 }
+
+describe('StoryPickerModal — read-only demo (#4115)', () => {
+  it('says up front that committing is unavailable and disables the commit control', async () => {
+    demoModeMock.isDemoReadOnly = true;
+    const user = userEvent.setup();
+    renderModal();
+    const note = screen.getByTestId('story-picker-demo-note');
+    expect(note).toHaveTextContent('Not available in the read-only demo.');
+    await user.click(screen.getByRole('button', { name: 'Ready story A' }));
+    const commit = screen.getByRole('button', { name: /Commit 1 story/i });
+    expect(commit).toBeDisabled();
+    expect(commit.getAttribute('aria-describedby')).toBe(note.id);
+    await user.click(commit);
+    expect(mutateAsyncMock).not.toHaveBeenCalled();
+  });
+
+  it('shows no demo note on a normal install', () => {
+    renderModal();
+    expect(screen.queryByTestId('story-picker-demo-note')).toBeNull();
+  });
+});
 
 describe('StoryPickerModal', () => {
   it('shows the truncation notice with load-more so stories past the cap can be picked (#2344)', async () => {

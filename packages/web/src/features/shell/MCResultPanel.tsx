@@ -3,6 +3,7 @@ import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from '@/features/schedule/MonteCarloHistogram';
 import { ForecastHistorySection } from '@/features/schedule/ForecastHistorySection';
 import { CloseIcon } from '@/components/Icons';
+import { useForecastPresentation } from '@/features/schedule/useForecastPresentation';
 
 interface Props {
   result: MonteCarloResult;
@@ -37,6 +38,9 @@ function fmtDate(iso: string) {
  */
 export function MCResultPanel({ result, onClose }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  // Same derivation as the Schedule bar and the mobile card: a run with no date
+  // spread collapses to one chip instead of three identical P50/P80/P95 dates (#3890).
+  const forecast = useForecastPresentation(result);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -83,36 +87,57 @@ export function MCResultPanel({ result, onClose }: Props) {
         </button>
       </div>
 
-      {/* Percentile chips */}
-      <div className="flex items-center gap-3 px-5 pt-4 pb-2 flex-wrap">
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P50</span>
-          <span
-            className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-on-track/40 text-semantic-on-track text-xs tppm-mono"
-            aria-label={`P50: ${fmtDate(result.p50)}`}
-          >
-            {fmtDate(result.p50)}
-          </span>
+      {/* Percentile chips — a flat run has no percentiles to label (#3890). The
+          reason sentence is the histogram's own, directly below. */}
+      {forecast.state === 'zeroSpread' ? (
+        <div className="flex items-center gap-3 px-5 pt-4 pb-2 flex-wrap">
+          {forecast.chips.map((chip) => (
+            <span
+              key={chip.key}
+              data-testid="mc-forecast-chip"
+              className={`inline-flex items-center px-2 py-0.5 rounded-chip border ${chip.border} ${chip.textClass} text-xs tppm-mono`}
+            >
+              {chip.text}
+            </span>
+          ))}
         </div>
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P80</span>
-          <span
-            className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-at-risk/40 text-semantic-at-risk text-xs tppm-mono"
-            aria-label={`P80: ${fmtDate(result.p80)}`}
-          >
-            {fmtDate(result.p80)}
-          </span>
+      ) : (
+        <div className="flex items-center gap-3 px-5 pt-4 pb-2 flex-wrap">
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">
+              P50
+            </span>
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-on-track/40 text-semantic-on-track text-xs tppm-mono"
+              aria-label={`P50: ${fmtDate(result.p50)}`}
+            >
+              {fmtDate(result.p50)}
+            </span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">
+              P80
+            </span>
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-at-risk/40 text-semantic-at-risk text-xs tppm-mono"
+              aria-label={`P80: ${fmtDate(result.p80)}`}
+            >
+              {fmtDate(result.p80)}
+            </span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">
+              P95
+            </span>
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-critical/40 text-semantic-critical text-xs tppm-mono"
+              aria-label={`P95: ${fmtDate(result.p95)}`}
+            >
+              {fmtDate(result.p95)}
+            </span>
+          </div>
         </div>
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P95</span>
-          <span
-            className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-critical/40 text-semantic-critical text-xs tppm-mono"
-            aria-label={`P95: ${fmtDate(result.p95)}`}
-          >
-            {fmtDate(result.p95)}
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* Histogram */}
       <div className="px-5 pb-6 mt-2 overflow-x-auto">
