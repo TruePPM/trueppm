@@ -435,11 +435,11 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, variant = 'do
                   Finish-date forecast
                 </h3>
                 <p className="mb-3 text-xs text-neutral-text-secondary">
-                  Monte Carlo · {result.runs.toLocaleString()} runs · P50–P80 band
+                  Monte Carlo · {(result.nSimulations ?? result.runs).toLocaleString()} runs · P50–P80 band
                 </p>
                 <VelocitySaturationNote
                   saturatedRuns={result.velocitySaturatedRuns}
-                  runs={result.runs}
+                  runs={result.nSimulations ?? result.runs}
                   projectId={projectId}
                 />
                 <MonteCarloHistogram result={result} />

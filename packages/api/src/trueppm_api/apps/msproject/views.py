@@ -55,13 +55,12 @@ _ALLOWED_EXTENSIONS = {"mpp", "xml"}
 _FILENAME_BANNED = re.compile(r"[^A-Za-z0-9._\- ()]")
 
 
-# Jira and MS Project import have no status resource of their own (#4661), so the
-# handle is documented as a correlation id rather than as a pollable one.
+# The handle is the ImportRequest id; unlike Jira import it has a status resource
+# (the per-project provenance list), so say where to find it (#4661).
 _IMPORT_HANDLE_HELP = (
-    "Handle of the queued import (the outbox row id). This import has no status "
-    "resource of its own: follow progress through the project's task-run events "
-    "(GET /task-runs/active/ and the task_run_* WebSocket events). The id is a "
-    "correlation handle, not a task-run id."
+    "Handle of the queued import (the ImportRequest id). Find it by id in "
+    "`GET /projects/{project_id}/imports/`; its `status` is one of pending, "
+    "dispatched, done or dead."
 )
 
 

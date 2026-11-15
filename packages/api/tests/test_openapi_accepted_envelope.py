@@ -21,12 +21,24 @@ _NOT_AN_ACK = {
     "WebhookTestPingResponse": "delivery receipt; tracked for 1.0 shape batch (#2844)",
 }
 
+# Operations that return 202 with no declared body. Pinned so a NEW bare 202 fails
+# instead of passing vacuously: give it a `queued: true` body schema, or (only if it
+# genuinely has none) add it here with a reason.
+_EMPTY_202_OPERATIONS = {
+    ("POST", "/api/v1/project-templates/{id}/apply/"),
+    ("POST", "/api/v1/projects/{project_pk}/task-runs/{id}/cancel/"),
+    ("POST", "/api/v1/sprints/{id}/close/"),
+    ("POST", "/api/v1/workspace/invites/{invite_id}/resend/"),
+    ("POST", "/api/v1/workspace/invites/resend-all/"),
+}
+
 
 @pytest.mark.django_db
 def test_every_202_json_body_declares_queued() -> None:
     schema = SchemaGenerator().get_schema(request=None, public=True)
     comps = schema["components"]["schemas"]
     missing: list[str] = []
+    empty: set[tuple[str, str]] = set()
     for path, item in schema["paths"].items():
         for method, op in item.items():
             if not isinstance(op, dict):
@@ -39,7 +51,9 @@ def test_every_202_json_body_declares_queued() -> None:
                 .get("schema")
             )
             if not body:
-                continue  # empty 202
+                if "202" in op.get("responses", {}):
+                    empty.add((method.upper(), path))
+                continue
             # An inline schema would skip the `queued` check below vacuously.
             assert "$ref" in body, f"{method.upper()} {path}: 202 body must be a $ref"
             name = body["$ref"].rsplit("/", 1)[1]
@@ -48,3 +62,7 @@ def test_every_202_json_body_declares_queued() -> None:
             if "queued" not in comps[name].get("properties", {}):
                 missing.append(f"{method.upper()} {path} -> {name}")
     assert not missing, missing
+    assert empty == _EMPTY_202_OPERATIONS, (
+        f"unexpected bare 202s: {sorted(empty - _EMPTY_202_OPERATIONS)}; "
+        f"stale allowlist entries: {sorted(_EMPTY_202_OPERATIONS - empty)}"
+    )

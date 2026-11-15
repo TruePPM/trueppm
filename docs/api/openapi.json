@@ -67270,7 +67270,7 @@
                     "import_request_id": {
                         "type": "string",
                         "format": "uuid",
-                        "description": "Handle of the queued import (the outbox row id). This import has no status resource of its own: follow progress through the project's task-run events (GET /task-runs/active/ and the task_run_* WebSocket events). The id is a correlation handle, not a task-run id."
+                        "description": "Handle of the queued import (the ImportRequest id). Find it by id in `GET /projects/{project_id}/imports/`; its `status` is one of pending, dispatched, done or dead."
                     }
                 },
                 "required": [
@@ -67292,7 +67292,7 @@
                     "import_request_id": {
                         "type": "string",
                         "format": "uuid",
-                        "description": "Handle of the queued import (the outbox row id). This import has no status resource of its own: follow progress through the project's task-run events (GET /task-runs/active/ and the task_run_* WebSocket events). The id is a correlation handle, not a task-run id."
+                        "description": "Handle of the queued import (the ImportRequest id). Find it by id in `GET /projects/{project_id}/imports/`; its `status` is one of pending, dispatched, done or dead."
                     }
                 },
                 "required": [
