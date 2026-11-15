@@ -11164,7 +11164,7 @@
                                 }
                             }
                         },
-                        "description": "The program export .tar.gz as a file attachment."
+                        "description": "The program export .tar.gz as a file attachment. The `X-Export-SHA256` header carries the archive's lowercase hex SHA-256 (absent for exports built before digests existed)."
                     },
                     "409": {
                         "content": {
@@ -22764,7 +22764,7 @@
                                 }
                             }
                         },
-                        "description": "The project export .tar.gz as a file attachment."
+                        "description": "The project export .tar.gz as a file attachment. The `X-Export-SHA256` header carries the archive's lowercase hex SHA-256 (absent for exports built before digests existed)."
                     },
                     "409": {
                         "content": {
@@ -73125,6 +73125,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "file_sha256": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "error_detail": {
                         "type": "string",
                         "readOnly": true
@@ -73164,6 +73168,7 @@
                     "download_url",
                     "error_detail",
                     "expires_at",
+                    "file_sha256",
                     "file_size",
                     "id",
                     "program",
@@ -76537,6 +76542,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "file_sha256": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "error_detail": {
                         "type": "string",
                         "readOnly": true
@@ -76576,6 +76585,7 @@
                     "download_url",
                     "error_detail",
                     "expires_at",
+                    "file_sha256",
                     "file_size",
                     "id",
                     "project",

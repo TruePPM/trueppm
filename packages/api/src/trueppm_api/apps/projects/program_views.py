@@ -463,8 +463,33 @@ def _read_seed_multipart(
     # to exhaust memory with a giant upload (mirrors the MSP importer).
     if upload.size is not None and upload.size > max_bytes:
         return None, too_large
+    # An export bundle (.tar.gz, gzip magic) is verified against its integrity
+    # manifest before anything is read from it (#2399): a mismatch is a 400 at file
+    # level, so nothing is persisted. A bundle without digests still imports.
+    if upload.read(2) == b"\x1f\x8b":
+        upload.seek(0)
+        from trueppm_api.apps.projects.export_integrity import (
+            ArchiveIntegrityError,
+            verify_archive,
+        )
+
+        try:
+            result = verify_archive(upload, seed_max_bytes=max_bytes)
+        except ArchiveIntegrityError as exc:
+            return None, _SeedPayloadProblem(
+                detail=f"Export bundle failed its integrity check: {exc}",
+                is_document_level=False,
+            )
+        if result.seed_bytes is None:
+            return None, _SeedPayloadProblem(
+                detail="Export bundle contains no seed.json.", is_document_level=False
+            )
+        raw = result.seed_bytes
+    else:
+        upload.seek(0)
+        raw = upload.read()
     try:
-        return json.loads(upload.read().decode("utf-8")), None
+        return json.loads(raw.decode("utf-8")), None
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         return None, _SeedPayloadProblem(
             detail=f"Uploaded file is not valid JSON: {exc}",
@@ -1742,7 +1767,11 @@ class ProgramViewSet(
         responses={
             (200, "application/gzip"): OpenApiResponse(
                 response=OpenApiTypes.BINARY,
-                description="The program export .tar.gz as a file attachment.",
+                description=(
+                    "The program export .tar.gz as a file attachment. The `X-Export-SHA256` "
+                    "header carries the archive's lowercase hex SHA-256 (absent for "
+                    "exports built before digests existed)."
+                ),
             ),
             409: OpenApiResponse(
                 response=OpenApiTypes.OBJECT, description="Export is not ready yet."

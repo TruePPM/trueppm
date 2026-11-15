@@ -152,7 +152,7 @@ so a job and its archive are visible only to their own requester.
 | `attachments/…` | Every task attachment binary, plus an `index.json` manifest. |
 | `time_entries.json` | All logged time entries for the project's tasks. |
 | `history/*.json` | The project's change history (tasks, dependencies, risks, sprints, project). |
-| `manifest.json` / `counts.json` | Archive metadata and per-member row counts. |
+| `manifest.json` / `counts.json` | Archive metadata, per-member row counts, and (from 0.5) the [integrity manifest](#encryption-and-integrity-checks). |
 
 :::note
 The MS Project artifact is **MS Project XML** (`.xml`, the MSPDI interchange
@@ -222,9 +222,8 @@ responsibility.
 
 ## Encryption and integrity checks
 
-**Exported files are not encrypted, and they carry no checksum.** That is a
-deliberate position for this release, not an oversight — but you should plan
-around it rather than discover it.
+**Exported files are not encrypted.** That is a deliberate position for this
+release, not an oversight — but you should plan around it rather than discover it.
 
 What does protect an artifact today:
 
@@ -244,14 +243,47 @@ team-private story points and velocity. If you move an export offsite — to a
 laptop, a backup service, a ticket attachment — encrypt it yourself at that
 point, and treat it as you would any file containing contact information.
 
-Two capabilities are planned for **0.5**:
+### Integrity manifest
+
+:::note[Ships in 0.5]
+The integrity manifest ships in 0.5. Bundles built by 0.4 carry no digests; they still import, but cannot be verified.
+:::
+
+From 0.5, every export bundle records SHA-256 digests so you can prove an archive
+is intact before restoring from it. A digest detects **corruption and casual
+editing**; it is not a signature, so it does not prove who made the file.
+
+- **Per member.** `manifest.json` carries `members`, a map of every other file in
+  the bundle (its path inside the archive) to its lowercase hex SHA-256.
+  `manifest.json` is the last file in the archive, because it records the files
+  before it.
+- **Over the manifest.** `manifest_sha256` is the SHA-256 of the manifest with the
+  `manifest_sha256` key removed, serialized as UTF-8 JSON with sorted keys, no
+  whitespace (`,` and `:` separators) and ASCII escapes. Because `members` is
+  inside that form, one digest covers the whole bundle.
+- **Whole artifact.** The export job's `file_sha256` field and the download
+  response's `X-Export-SHA256` header carry the SHA-256 of the `.tar.gz` file
+  itself. Check it before you move the file:
+
+```bash
+sha256sum project-APOLLO.tar.gz     # compare with the X-Export-SHA256 header / file_sha256
+```
+
+The `.tar.gz` digest differs between two builds of identical data (the gzip header
+holds a timestamp); the per-member digests of unchanged content do not.
+
+**On import.** Uploading a bundle (`.tar.gz`) to the program import endpoint
+verifies the manifest first. A digest mismatch, a file missing from or not listed in
+the manifest, or a truncated archive is refused with `400` before anything is
+written. A bundle with no digests (built before 0.5) is imported without the check.
+
+Optional encryption is still planned for **0.5**:
 
 | Planned | What it will add | Issue |
 |---|---|---|
-| **Integrity manifest** | A SHA-256 digest for every file inside a bundle plus one over the manifest, surfaced on download and verified on import — so you can prove an archive is intact before restoring from it | [#2399](https://gitlab.com/trueppm/trueppm/-/issues/2399) |
 | **Optional encryption** | Opt-in encryption of the artifact at generation time, with a passphrase or a recipient key that TruePPM never stores | [#2400](https://gitlab.com/trueppm/trueppm/-/issues/2400) |
 
-Both land in 0.5 — plan around their absence until then.
+Plan around its absence until then.
 
 ## Round-trip guarantee
 
