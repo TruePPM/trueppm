@@ -153,10 +153,29 @@ def split_summary_start_links(
 
 
 def skipped_link_warning(predecessor_name: str, successor_name: str, dep_type: str) -> str:
-    """The import warning for one skipped SS/SF-from-summary link (#4830)."""
-    return (
+    """The import warning for one skipped summary link (#4830, #4437).
+
+    An SS link can only be skipped for its summary predecessor and an FF link only
+    for its summary successor; an SF link can be either, so its warning names both.
+    """
+    head = (
         f"Task '{printable_label(predecessor_name)}': {dep_type} link to "
-        f"'{printable_label(successor_name)}' skipped — a summary task cannot drive a "
+        f"'{printable_label(successor_name)}' skipped — "
+    )
+    if dep_type == "FF":
+        return head + (
+            "a summary task cannot be the successor of a Finish-to-Finish or "
+            "Start-to-Finish link. Re-add it to one of the summary's subtasks, or as "
+            "Finish-to-Start or Start-to-Start."
+        )
+    if dep_type == "SF":
+        return head + (
+            "a summary task cannot drive a Start-to-Start or Start-to-Finish link, or "
+            "be the successor of a Finish-to-Finish or Start-to-Finish link. Re-add it "
+            "between subtasks."
+        )
+    return head + (
+        "a summary task cannot drive a "
         "Start-to-Start or Start-to-Finish link. Re-add it from one of the summary's "
         "subtasks, or as Finish-to-Start or Finish-to-Finish."
     )

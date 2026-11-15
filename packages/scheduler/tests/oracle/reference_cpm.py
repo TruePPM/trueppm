@@ -550,6 +550,12 @@ def _pinned(project: RefProject, tid: str) -> tuple[Span, date]:
     SNET), never the data date — completed work is history. A completed milestone
     with no actuals is an instant at the start of that day, and its links measure
     from its SNET when one is set (#4343, #4225).
+
+    With no actuals the span is also capped at the data date (#4539): complete work
+    has finished by then, so it ends no later than the close of the last working day
+    on or before ``status_date``, laid back by its full duration from there. The SNET
+    yields to that cap; a data date at or before the project start caps nothing
+    (#4635).
     """
     cal = project.calendar_of(tid)
     n = project.durations[tid]
@@ -564,6 +570,8 @@ def _pinned(project: RefProject, tid: str) -> tuple[Span, date]:
             )
         # An SNET at or before the start is no floor (#4635): link from the shown day.
         shown = base if snet is None else max(base, start_at_or_after(snet, cal))
+        if project.status_date is not None and start_at_or_after(project.status_date, cal) > base:
+            shown = min(shown, last_working_on_or_before(project.status_date, cal))
         return (shown, shown), shown
     if recorded.actual_finish is not None:
         finish = recorded.actual_finish + ONE_DAY
@@ -573,7 +581,13 @@ def _pinned(project: RefProject, tid: str) -> tuple[Span, date]:
         start = recorded.actual_start
         return (start, finish_from_start(start, n, cal)), start
     start = base if snet is None else max(base, start_at_or_after(snet, cal))
-    return (start, finish_from_start(start, n, cal)), start
+    finish = finish_from_start(start, n, cal)
+    if project.status_date is not None and start_at_or_after(project.status_date, cal) > base:
+        cap = last_working_on_or_before(project.status_date, cal) + ONE_DAY
+        if finish > cap:
+            finish = cap
+            start = start_from_finish(finish, n, cal)
+    return (start, finish), start
 
 
 # ---------------------------------------------------------------------------

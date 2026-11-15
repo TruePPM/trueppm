@@ -1,0 +1,22 @@
+{
+  "id": "p-progress-completed-no-actuals-capped",
+  "name": "Completed work with no actuals never finishes after the data date (#4539)",
+  "start_date": "2026-03-02",
+  "status_date": "2026-03-14",
+  "tasks": [
+    {"id": "A", "name": "Live before", "duration": 172800.0},
+    {"id": "B", "name": "Done, no actuals, SNET past the data date", "duration": 432000.0, "percent_complete": 100.0, "planned_start": "2026-03-11"},
+    {"id": "C", "name": "Next", "duration": 172800.0},
+    {"id": "D", "name": "Done, no actuals, inside the data date", "duration": 172800.0, "percent_complete": 100.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "C", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

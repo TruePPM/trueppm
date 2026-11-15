@@ -249,7 +249,9 @@ def _mc_pre_start_pad_days(
     for tid in topo_order:
         task = task_map[tid]
         cal = cal_of[tid]
-        pinned = _pinned_placement(task, cal, _next_working_day(project.start_date, cal))
+        pinned = _pinned_placement(
+            task, cal, _next_working_day(project.start_date, cal), project.status_date
+        )
         if pinned is not None:
             lo[tid] = pinned[0]
             record_link_lo(tid)

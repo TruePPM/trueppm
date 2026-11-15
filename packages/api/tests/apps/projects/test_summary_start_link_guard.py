@@ -89,9 +89,66 @@ def test_only_ss_and_sf_out_of_a_summary_are_reported() -> None:
         ("S", "X", "FS"),
         ("S", "X", "FF"),
         ("L", "X", "SS"),  # a leaf may drive SS
-        ("X", "S", "SS"),  # INTO a summary is not the forbidden direction
+        ("X", "S", "SS"),  # SS/FS INTO a summary anchor on its start: allowed
+        ("X", "S", "FS"),
     ]
     assert find_summary_start_links(edges, {"S"}) == [("S", "X", "SS"), ("S", "X", "SF")]
+
+
+def test_ff_and_sf_into_a_summary_are_reported() -> None:
+    """#4437, the successor-side twin: FF/SF constrain the summary's finish."""
+    edges = [("X", "S", "FF"), ("X", "S", "SF"), ("X", "S", "FS"), ("X", "L", "FF")]
+    assert find_summary_start_links(edges, {"S"}) == [("X", "S", "FF"), ("X", "S", "SF")]
+
+
+@pytest.mark.django_db
+def test_ff_into_a_summary_dependency_write_is_a_400(
+    project: Project, owner_client: APIClient
+) -> None:
+    """The engine's refusal reaches the write boundary as a 400, not a later 500."""
+    x = _task(project, "X", "1")
+    s = _task(project, "Phase", "2")
+    _task(project, "Work", "2.1")
+    resp = owner_client.post(
+        "/api/v1/dependencies/",
+        {"predecessor": str(x.pk), "successor": str(s.pk), "dep_type": "FF"},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert "into summary task" in str(resp.json())
+    assert not Dependency.objects.filter(successor=s).exists()
+
+
+@pytest.mark.django_db
+def test_ms_project_import_skips_an_ff_link_into_a_summary_and_warns(project: Project) -> None:
+    data = ProjectData(
+        tasks=[
+            TaskData(uid=1, name="Before", outline_number="1", outline_level=1),
+            TaskData(
+                uid=2,
+                name="Phase",
+                outline_number="2",
+                outline_level=1,
+                predecessor_links=[
+                    PredecessorLinkData(predecessor_uid=1, dep_type="FF"),
+                    PredecessorLinkData(predecessor_uid=1, dep_type="FS"),
+                ],
+            ),
+            TaskData(uid=3, name="Work", outline_number="2.1", outline_level=2),
+        ]
+    )
+
+    summary = import_project(str(project.pk), data)
+
+    kept = sorted(
+        (d.successor.name, d.dep_type)
+        for d in Dependency.objects.filter(predecessor__project=project)
+    )
+    assert kept == [("Phase", "FS")]
+    assert any(
+        "FF link to 'Phase' skipped" in w and "cannot be the successor" in w
+        for w in summary["warnings"]
+    ), summary["warnings"]
 
 
 def test_summary_ids_use_direct_parent_semantics() -> None:

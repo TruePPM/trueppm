@@ -17,6 +17,7 @@ from trueppm_scheduler.engine.calendar_math import (
     _finish_from_start,
     _is_complete,
     _next_working_day,
+    _prev_working_day,
     _safe_offset,
     _start_from_finish,
 )
@@ -106,7 +107,7 @@ def _forward_pass(
         # reset first so an input carrying a previous run's value cannot leak.
         task.milestone_at_day_end = False
 
-        pinned = _pinned_placement(task, cal, start_base)
+        pinned = _pinned_placement(task, cal, start_base, status_date)
         if pinned is not None:
             task.early_start, task.early_finish = pinned
             if task.duration.days == 0:
@@ -421,7 +422,9 @@ def _compute_scheduled_start(task: Task, cal: Calendar) -> date:
     return _start_from_finish(task.early_finish, full_days, cal)
 
 
-def _pinned_placement(task: Task, cal: Calendar, start_base: date) -> tuple[date, date] | None:
+def _pinned_placement(
+    task: Task, cal: Calendar, start_base: date, status_date: date | None = None
+) -> tuple[date, date] | None:
     """Early window for a completed task, which is pinned out of network logic.
 
     A completed task (``actual_finish`` set, or ``percent_complete >= 100``) is laid
@@ -439,6 +442,19 @@ def _pinned_placement(task: Task, cal: Calendar, start_base: date) -> tuple[date
     network); placing it through the network here instead made the two halves of the
     engine disagree about the same task, inflating its predecessors' float and
     dropping them off the critical path.
+
+    That span is capped at the data date (#4539): when ``status_date`` is set and the
+    span would finish after it, the task is laid back to finish on the data date (the
+    working day before it when the data date is not a working day). Work that is
+    complete finished by the data date; without the cap, recording *no* actuals could
+    slip the task and its successors further than recording an ``actual_finish`` on
+    the data date, the latest one the user could truthfully record. The cap only
+    ever moves the task earlier, and the SNET yields to it, because a completed task
+    cannot still be waiting to start. The full duration is kept (ADR-0136), so a span
+    longer than the time between the project start and the data date starts before
+    the project start, as one laid back from a recorded ``actual_finish`` does. A
+    data date at or before the project start caps nothing, as it floors nothing
+    (:func:`_floor_above_start`, #4635).
 
     Returns ``None`` — "schedule this one through the network" — only when the task
     is not complete.
@@ -473,7 +489,15 @@ def _pinned_placement(task: Task, cal: Calendar, start_base: date) -> tuple[date
     start = start_base
     if task.planned_start is not None:
         start = max(start, _next_working_day(task.planned_start, cal))
-    return start, _finish_from_start(start, full_days, cal)
+    finish = _finish_from_start(start, full_days, cal)
+    if (
+        status_date is not None
+        and finish > status_date
+        and _floor_above_start(status_date, cal, start_base) is not None
+    ):
+        finish = _prev_working_day(status_date, cal)
+        start = _start_from_finish(finish, full_days, cal)
+    return start, finish
 
 
 def _live_milestone_edge(

@@ -2193,6 +2193,27 @@ COMPLETE_WITHOUT_ACTUALS_PINNED = RefProject(
     links=(RefLink("A", "B", "FS", 0), RefLink("B", "C", "FS", 0)),
     progress={"B": RefProgress(percent_complete=100.0)},
 )
+#: #4539 — completed work with no actuals whose SNET span would run past the data
+#: date: it is laid back to finish on the data date (Wed 03-11), so ``C`` is not
+#: slipped further than an ``actual_finish`` of 03-11 would slip it.
+COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_DATA_DATE = RefProject(
+    start=date(2026, 3, 2),
+    durations={"A": 2, "B": 5, "C": 2},
+    links=(RefLink("A", "B", "FS", 0), RefLink("B", "C", "FS", 0)),
+    status_date=date(2026, 3, 11),
+    planned_start={"B": date(2026, 3, 9)},
+    progress={"B": RefProgress(percent_complete=100.0)},
+)
+#: #4539 on a data date that is not a working day (Sat 03-14): the cap is the
+#: close of Friday 03-13.
+COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_A_WEEKEND_DATA_DATE = RefProject(
+    start=date(2026, 3, 2),
+    durations={"B": 5, "C": 2},
+    links=(RefLink("B", "C", "FS", 0),),
+    status_date=date(2026, 3, 14),
+    planned_start={"B": date(2026, 3, 11)},
+    progress={"B": RefProgress(percent_complete=100.0)},
+)
 #: #4332 — a Saturday ``actual_start`` kept verbatim, with a data date the Monday
 #: after: the remaining window opens on the data date.
 SATURDAY_ACTUAL_START = RefProject(
@@ -2266,6 +2287,8 @@ PROGRESS_EXAMPLES = (
     SS_OUT_OF_A_DERIVED_START,
     START_FIXED_LINK_LEAVES_FLOAT,
     COMPLETE_WITHOUT_ACTUALS_PINNED,
+    COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_DATA_DATE,
+    COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_A_WEEKEND_DATA_DATE,
     SATURDAY_ACTUAL_START,
     COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
     SUNDAY_FINISH_BEHIND_A_MILESTONE,
@@ -2313,6 +2336,23 @@ def test_the_reference_states_the_adr_0132_and_0136_rules() -> None:
     assert pinned["B"].total_float == 0 and not pinned["B"].is_critical
     assert pinned["C"].early_start == date(2026, 3, 5)  # behind B, not behind A
     assert pinned["A"].free_float == pinned["A"].total_float  # B does not bound A
+
+    # #4539: no actuals never finishes after the data date, and lands exactly where
+    # an actual_finish on the data date would.
+    capped = reference_schedule(COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_DATA_DATE).tasks
+    assert (capped["B"].early_start, capped["B"].early_finish) == (
+        date(2026, 3, 5),
+        date(2026, 3, 11),
+    )
+    assert capped["C"].early_start == date(2026, 3, 12)
+    recorded = replace(
+        COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_DATA_DATE,
+        progress={"B": RefProgress(percent_complete=100.0, actual_finish=date(2026, 3, 11))},
+    )
+    assert reference_schedule(recorded).tasks["C"].early_start == capped["C"].early_start
+    weekend = reference_schedule(COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_A_WEEKEND_DATA_DATE).tasks
+    assert weekend["B"].early_finish == date(2026, 3, 13)
+    assert weekend["C"].early_start == date(2026, 3, 16)
 
     saturday = reference_schedule(SATURDAY_ACTUAL_START).tasks
     assert (saturday["A"].early_start, saturday["A"].early_finish) == (
