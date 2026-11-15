@@ -12,6 +12,7 @@ use petgraph::graph::NodeIndex;
 use crate::backward::backward_pass;
 use crate::floats::compute_floats;
 use crate::forward::forward_pass;
+use crate::error::SchedulerError;
 use crate::graph::{build_graph, ProjectGraph};
 use crate::models::{Project, ScheduleResult, Task, TaskResult};
 
@@ -22,17 +23,41 @@ use crate::models::{Project, ScheduleResult, Task, TaskResult};
 ///
 /// This is simpler and more correct than a partial forward pass — the full CPM
 /// is fast enough (<10ms for 5k tasks) and avoids subtle bugs from partial recalc.
+///
+/// Returns the error message only; [`incremental_checked`] is the same call with
+/// the structured [`SchedulerError`] the JS entry points throw.
 pub fn incremental_update(
     project: &Project,
     changed_task_id: &str,
 ) -> Result<ScheduleResult, String> {
-    if project.tasks.is_empty() {
-        return Err("Project must have at least one task.".to_string());
-    }
-    crate::validate::validate_project(project)?;
+    incremental_checked(project, changed_task_id).map_err(|e| e.to_string())
+}
 
-    let pg = build_graph(project).map_err(|e| e.to_string())?;
-    compute_downstream(project, &pg, changed_task_id)
+/// [`incremental_update`] with a structured error (#4474). A `changed_task_id`
+/// not in the project is `unknown_task`.
+pub fn incremental_checked(
+    project: &Project,
+    changed_task_id: &str,
+) -> Result<ScheduleResult, SchedulerError> {
+    crate::check_schedulable(project)?;
+    let pg = build_graph(project)?;
+    check_known_task(&pg, changed_task_id)?;
+    compute_downstream(project, &pg, changed_task_id).map_err(SchedulerError::schedule)
+}
+
+/// Reject a `changed_task_id` that is not in the graph as `unknown_task`, with
+/// the same message [`downstream_mask`] gives, so the structured paths can tell
+/// it apart from a pass failure.
+pub(crate) fn check_known_task(pg: &ProjectGraph, changed_task_id: &str) -> Result<(), SchedulerError> {
+    if pg.node_index.contains_key(changed_task_id) {
+        Ok(())
+    } else {
+        Err(SchedulerError::unknown_task(unknown_task_message(changed_task_id)))
+    }
+}
+
+fn unknown_task_message(changed_task_id: &str) -> String {
+    format!("changed_task_id {changed_task_id:?} does not exist in the project.")
 }
 
 /// Run the full CPM over an already-built graph and return the tasks
@@ -153,9 +178,7 @@ pub(crate) fn downstream_mask(
     node_count: usize,
 ) -> Result<Vec<bool>, String> {
     let Some(&changed_idx) = pg.node_index.get(changed_task_id) else {
-        return Err(format!(
-            "changed_task_id {changed_task_id:?} does not exist in the project."
-        ));
+        return Err(unknown_task_message(changed_task_id));
     };
     Ok(bfs_downstream(pg, changed_idx, node_count))
 }

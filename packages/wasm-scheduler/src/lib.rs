@@ -30,6 +30,7 @@
 
 mod backward;
 mod calendar;
+mod error;
 mod floats;
 mod forward;
 mod graph;
@@ -40,7 +41,9 @@ mod validate;
 
 // Re-exported so the conformance suite can cross-check the incremental
 // drag-preview recompute against a full schedule (#1505).
-pub use incremental::incremental_update;
+pub use incremental::{incremental_checked, incremental_update};
+
+pub use error::{ErrorKind, SchedulerError};
 
 use std::cell::RefCell;
 
@@ -59,15 +62,22 @@ use crate::typed::{compute_downstream_typed, compute_full_typed, TypedResult};
 /// Input: JSON string matching `Project.to_json()` from the Python scheduler.
 /// Output: JSON string with `ScheduleResult` (project dates, per-task CPM fields, critical path).
 ///
-/// Errors are returned as a JS exception with the error message.
+/// Errors are thrown as a [`SchedulerError`] (`{ kind, message, cycle }`, #4474).
 #[wasm_bindgen(js_name = computeSchedule)]
-pub fn compute_schedule(project_json: &str) -> Result<String, JsValue> {
+pub fn compute_schedule(project_json: &str) -> Result<String, SchedulerError> {
     let project: Project =
-        serde_json::from_str(project_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        serde_json::from_str(project_json).map_err(|e| SchedulerError::parse(&e))?;
 
-    let result = schedule_impl(&project).map_err(|e| JsValue::from_str(&e))?;
+    let result = schedule_checked(&project)?;
 
-    serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+    to_json(&result)
+}
+
+/// Serialize a result. A `ScheduleResult` holds only strings, dates, numbers and
+/// booleans, so this does not fail in practice; it is still mapped, not unwrapped,
+/// because a panic traps the whole WASM module (#1087).
+fn to_json(result: &ScheduleResult) -> Result<String, SchedulerError> {
+    serde_json::to_string(result).map_err(|e| SchedulerError::schedule(e.to_string()))
 }
 
 /// Run an incremental CPM update for a changed task and return the changed rows as JSON.
@@ -86,14 +96,13 @@ pub fn compute_schedule(project_json: &str) -> Result<String, JsValue> {
 pub fn wasm_incremental_update(
     project_json: &str,
     changed_task_id: &str,
-) -> Result<String, JsValue> {
+) -> Result<String, SchedulerError> {
     let project: Project =
-        serde_json::from_str(project_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        serde_json::from_str(project_json).map_err(|e| SchedulerError::parse(&e))?;
 
-    let result = incremental::incremental_update(&project, changed_task_id)
-        .map_err(|e| JsValue::from_str(&e))?;
+    let result = incremental::incremental_checked(&project, changed_task_id)?;
 
-    serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+    to_json(&result)
 }
 
 /// A resident scheduling session for drag-preview recalculation (#1533).
@@ -256,18 +265,15 @@ impl SchedulerSession {
     /// Parse, validate, and build the dependency graph once. Every subsequent
     /// `set_task_start` + `recalc*` call reuses all three.
     ///
-    /// Returns `Err` (a JS exception) for malformed JSON, an empty project, a
+    /// Throws a [`SchedulerError`] for malformed JSON, an empty project, a
     /// validation failure, or an unbuildable graph — the same rejections the
     /// stateless entry points make, just paid up front rather than per frame.
     #[wasm_bindgen(constructor)]
-    pub fn new(project_json: &str) -> Result<SchedulerSession, JsValue> {
+    pub fn new(project_json: &str) -> Result<SchedulerSession, SchedulerError> {
         let project: Project =
-            serde_json::from_str(project_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        if project.tasks.is_empty() {
-            return Err(JsValue::from_str("Project must have at least one task."));
-        }
-        validate::validate_project(&project).map_err(|e| JsValue::from_str(&e))?;
-        let graph = build_graph(&project).map_err(|e| JsValue::from_str(&e.to_string()))?;
+            serde_json::from_str(project_json).map_err(|e| SchedulerError::parse(&e))?;
+        check_schedulable(&project)?;
+        let graph = build_graph(&project)?;
         // Clone the task set into the resident scratch buffer ONCE (#1856); every
         // frame reuses it, so the per-frame deep clone the JSON paths pay is gone.
         let scratch = RefCell::new(project.tasks.clone());
@@ -312,10 +318,10 @@ impl SchedulerSession {
     /// which only the JSON path returns; with no per-frame
     /// task clone and no JSON serialization/parse. Prefer this on the drag path.
     #[wasm_bindgen(js_name = recalcTyped)]
-    pub fn recalc_typed(&self) -> Result<DragResult, JsValue> {
+    pub fn recalc_typed(&self) -> Result<DragResult, SchedulerError> {
         let mut scratch = self.scratch.borrow_mut();
         let inner = compute_full_typed(&self.project, &self.graph, &mut scratch, self.epoch)
-            .map_err(|e| JsValue::from_str(&e))?;
+            .map_err(SchedulerError::schedule)?;
         Ok(DragResult { inner })
     }
 
@@ -326,7 +332,11 @@ impl SchedulerSession {
     /// [`recalc_incremental`](SchedulerSession::recalc_incremental), with no
     /// per-frame clone and no JSON.
     #[wasm_bindgen(js_name = recalcIncrementalTyped)]
-    pub fn recalc_incremental_typed(&self, changed_task_id: &str) -> Result<DragResult, JsValue> {
+    pub fn recalc_incremental_typed(
+        &self,
+        changed_task_id: &str,
+    ) -> Result<DragResult, SchedulerError> {
+        incremental::check_known_task(&self.graph, changed_task_id)?;
         let mut scratch = self.scratch.borrow_mut();
         let inner = compute_downstream_typed(
             &self.project,
@@ -335,7 +345,7 @@ impl SchedulerSession {
             self.epoch,
             changed_task_id,
         )
-        .map_err(|e| JsValue::from_str(&e))?;
+        .map_err(SchedulerError::schedule)?;
         Ok(DragResult { inner })
     }
 
@@ -349,7 +359,7 @@ impl SchedulerSession {
     /// WASM trap poisons the whole module until reload, #1087). On a rejected
     /// date the mutation is rolled back, so the session stays valid and usable.
     #[wasm_bindgen(js_name = setTaskStart)]
-    pub fn set_task_start(&mut self, task_id: &str, new_start: &str) -> Result<(), JsValue> {
+    pub fn set_task_start(&mut self, task_id: &str, new_start: &str) -> Result<(), SchedulerError> {
         set_task_start_impl(
             &mut self.project,
             &self.graph,
@@ -357,24 +367,24 @@ impl SchedulerSession {
             task_id,
             new_start,
         )
-        .map_err(|e| JsValue::from_str(&e))
     }
 
     /// Full CPM over the cached graph → `ScheduleResult` JSON. Identical to
     /// `compute_schedule` on the current (possibly drag-mutated) project.
-    pub fn recalc(&self) -> Result<String, JsValue> {
-        let result = compute_full(&self.project, &self.graph).map_err(|e| JsValue::from_str(&e))?;
-        serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+    pub fn recalc(&self) -> Result<String, SchedulerError> {
+        let result = compute_full(&self.project, &self.graph).map_err(SchedulerError::schedule)?;
+        to_json(&result)
     }
 
     /// Incremental CPM over the cached graph → `ScheduleResult` JSON (downstream
     /// tasks plus every task whose output moved, #4101).
     /// Identical to `wasm_incremental_update` on the current project.
     #[wasm_bindgen(js_name = recalcIncremental)]
-    pub fn recalc_incremental(&self, changed_task_id: &str) -> Result<String, JsValue> {
+    pub fn recalc_incremental(&self, changed_task_id: &str) -> Result<String, SchedulerError> {
+        incremental::check_known_task(&self.graph, changed_task_id)?;
         let result = incremental::compute_downstream(&self.project, &self.graph, changed_task_id)
-            .map_err(|e| JsValue::from_str(&e))?;
-        serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+            .map_err(SchedulerError::schedule)?;
+        to_json(&result)
     }
 }
 
@@ -399,28 +409,47 @@ fn set_task_start_impl(
     bounds: &mut validate::SessionBounds,
     task_id: &str,
     new_start: &str,
-) -> Result<(), String> {
-    let date = models::date_serde::parse_strict(new_start)
-        .map_err(|e| format!("invalid start date {new_start:?}: {e}"))?;
+) -> Result<(), SchedulerError> {
+    let date = models::date_serde::parse_strict(new_start).map_err(|e| {
+        SchedulerError::invalid_input(format!("invalid start date {new_start:?}: {e}"))
+    })?;
     // `node_index[id].index()` is the task's dense position: nodes are added
     // in `project.tasks` order (#1535), so this indexes the same task.
-    let &idx = graph
-        .node_index
-        .get(task_id)
-        .ok_or_else(|| format!("task_id {task_id:?} does not exist in the project."))?;
-    bounds.try_set_planned_start(project, idx.index(), date)
+    let &idx = graph.node_index.get(task_id).ok_or_else(|| {
+        SchedulerError::unknown_task(format!("task_id {task_id:?} does not exist in the project."))
+    })?;
+    bounds
+        .try_set_planned_start(project, idx.index(), date)
+        .map_err(SchedulerError::invalid_input)
 }
 
 /// Internal implementation of the full CPM schedule (no wasm-bindgen dependency).
 /// Used by `compute_schedule`, [`SchedulerSession`], and tests.
+///
+/// Returns the error message only; [`schedule_checked`] is the same call with
+/// the structured [`SchedulerError`] the JS entry points throw.
 pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
-    if project.tasks.is_empty() {
-        return Err("Project must have at least one task.".to_string());
-    }
-    validate::validate_project(project)?;
+    schedule_checked(project).map_err(|e| e.to_string())
+}
 
-    let pg = build_graph(project).map_err(|e| e.to_string())?;
-    compute_full(project, &pg)
+/// [`schedule_impl`] with a structured error (#4474): the error's `kind` says
+/// whether the project was empty or out of range, cyclic (with the cycle), or
+/// failed in a pass.
+pub fn schedule_checked(project: &Project) -> Result<ScheduleResult, SchedulerError> {
+    check_schedulable(project)?;
+    let pg = build_graph(project)?;
+    compute_full(project, &pg).map_err(SchedulerError::schedule)
+}
+
+/// The input checks every entry point makes before building the graph: a
+/// non-empty task list and [`validate::validate_project`].
+pub(crate) fn check_schedulable(project: &Project) -> Result<(), SchedulerError> {
+    if project.tasks.is_empty() {
+        return Err(SchedulerError::invalid_input(
+            "Project must have at least one task.",
+        ));
+    }
+    validate::validate_project(project).map_err(SchedulerError::invalid_input)
 }
 
 /// Run the three CPM passes (forward → backward → floats) over an already-built
@@ -1332,7 +1361,7 @@ mod tests {
         // still covered by the in-range 9500-01-01 cases below.
         let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T", &max_start).unwrap_err();
         assert!(
-            err.contains("invalid start date"),
+            err.message_str().contains("invalid start date"),
             "MAX string must be refused by the strict date parse: {err}"
         );
         assert_eq!(
@@ -1353,7 +1382,7 @@ mod tests {
         let err =
             set_task_start_impl(&mut project, &pg, &mut bounds, "T", "9999-12-31").unwrap_err();
         assert!(
-            !err.contains("invalid start date"),
+            !err.message_str().contains("invalid start date"),
             "9999-12-31 parses; validation must be what refuses it: {err}"
         );
         assert_eq!(
@@ -1929,7 +1958,7 @@ mod tests {
                 "{d}: {got:?} vs {expected:?}"
             );
             if let (Err(a), Err(b)) = (&got, &expected) {
-                assert_eq!(a, b, "{d}: message parity");
+                assert_eq!(a.message_str(), b, "{d}: message parity");
                 assert_eq!(project.tasks[i % 5].planned_start, before);
             }
         }
@@ -1949,7 +1978,7 @@ mod tests {
         let pin = project.start_date + chrono::Duration::days(365_999);
         let s = format!("{:04}-{:02}-{:02}", pin.year(), pin.month(), pin.day());
         let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T0", &s).unwrap_err();
-        assert!(err.contains("Total project span"), "{err}");
+        assert!(err.message_str().contains("Total project span"), "{err}");
         assert_eq!(project.tasks[0].planned_start, None);
         // Dropping the furthest pin back down frees the bound again.
         let ok = set_task_start_impl(&mut project, &pg, &mut bounds, "T0", "2026-04-08");
@@ -2010,7 +2039,7 @@ mod tests {
                 "{id}@{off}: {got:?} vs {expected:?}"
             );
             if let (Err(a), Err(b)) = (&got, &expected) {
-                assert_eq!(a, b, "{id}@{off}: message parity");
+                assert_eq!(a.message_str(), b, "{id}@{off}: message parity");
                 assert_eq!(project.tasks[i].planned_start, before);
             }
         }
@@ -2018,7 +2047,7 @@ mod tests {
         // fine but 365_600 + 60 (lag dropped) would pass while 365_600 + 460 must fail.
         let d = start + chrono::Duration::days(365_600);
         let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T1", &fmt(d)).unwrap_err();
-        assert!(err.contains("Total project span"), "{err}");
+        assert!(err.message_str().contains("Total project span"), "{err}");
     }
 
     #[test]
