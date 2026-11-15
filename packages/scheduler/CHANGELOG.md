@@ -18,6 +18,20 @@ change between releases. Pin an exact version (e.g.
 
 ### Added
 
+- **Public working-day helpers in `trueppm_scheduler.calendar`
+  ([#5009](https://gitlab.com/trueppm/trueppm/-/issues/5009)).**
+  `working_day_count(start, finish, calendar)` (inclusive on both ends),
+  `next_working_day` / `previous_working_day` (strictly after / before, or the day
+  itself with `inclusive=True`) and `nth_working_day(start, n, calendar)` (the
+  "add working days" rule that lays a duration onto a calendar) expose the
+  engine's own walks, so an embedder stops re-deriving them with `date +
+  timedelta` loops. All four are also exported from `trueppm_scheduler`.
+  Scheduling results are unchanged.
+- **`roll_up_summary(task_id, leaves, name=None)`
+  ([#5010](https://gitlab.com/trueppm/trueppm/-/issues/5010)).** Derives a
+  summary task's row from its scheduled leaves: earliest starts, latest
+  finishes, the tightest leaf `total_float`, zero `free_float`, critical when any
+  leaf is. Exported from `trueppm_scheduler`. Scheduling results are unchanged.
 - **`WorkingDayCounter` and `collect_leaves` are public API
   ([#4158](https://gitlab.com/trueppm/trueppm/-/issues/4158)).** Both are
   exported from `trueppm_scheduler` and listed in `__all__`, with Google-style

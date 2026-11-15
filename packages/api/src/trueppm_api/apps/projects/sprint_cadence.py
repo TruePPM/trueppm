@@ -153,6 +153,10 @@ def render_sprint_name(pattern: str, index: int) -> str:
     return pattern.replace(NAME_TOKEN, str(index))
 
 
+# TODO(#5009): the three walks below become trueppm_scheduler.next_working_day,
+# nth_working_day and working_day_count once scheduler 0.5 is on PyPI (keep this
+# module's tighter MAX_CALENDAR_SCAN_DAYS bound and CadenceError messages);
+# tests/apps/projects/test_calendar_walks_match_library.py pins them together.
 def _next_working_day(cal: Any, d: date) -> date:
     """``d`` itself when it is a working day, else the first working day after it."""
     scanned = 0

@@ -11,6 +11,12 @@ try:
 except PackageNotFoundError:  # running from an un-installed source tree
     __version__ = "0.0.0+unknown"
 
+from trueppm_scheduler.calendar import (
+    next_working_day,
+    nth_working_day,
+    previous_working_day,
+    working_day_count,
+)
 from trueppm_scheduler.derive import (
     Derivation,
     DerivationContribution,
@@ -67,6 +73,7 @@ from trueppm_scheduler.models import (
     Project,
     Task,
 )
+from trueppm_scheduler.summary_rollup import roll_up_summary
 
 # Flat, alphabetically sorted (RUF022). The ``MAX_*`` / ``MC_*`` validator caps
 # are exported so downstream validators (e.g. the TruePPM API) enforce the *same*
@@ -117,7 +124,12 @@ __all__ = [
     "expand_summary_dependencies",
     "find_cycle",
     "monte_carlo",
+    "next_working_day",
+    "nth_working_day",
     "perturb_task_duration",
+    "previous_working_day",
+    "roll_up_summary",
     "schedule",
     "to_graph",
+    "working_day_count",
 ]
