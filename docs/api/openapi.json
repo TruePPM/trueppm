@@ -9271,7 +9271,7 @@
                         "schema": {
                             "type": "boolean"
                         },
-                        "description": "`true`/`1` excludes COMPLETE tasks, returning only the caller's open work (#4783). Narrows the caller's own assignments; never widens whose tasks are returned. `due_today_count` already counts open tasks only and is unaffected; `server_version_high_water` reflects the filtered row set."
+                        "description": "`true`/`1` excludes COMPLETE tasks, returning only the caller's open work (#4783). Narrows the caller's own assignments; never widens whose tasks are returned. `due_today_count` already counts open tasks only and is unaffected."
                     },
                     {
                         "name": "ordering",
@@ -49278,7 +49278,7 @@
                             "type": "integer",
                             "default": 0
                         },
-                        "description": "WatermelonDB high-water mark. Returns only Program / ProgramMembership rows whose `server_version` is strictly greater than this value. Omit (or pass `0`) for a full initial sync; adopt the previous response's `timestamp` for the delta."
+                        "description": "WatermelonDB high-water mark. Returns only Program / ProgramMembership rows whose `sync_seq` (the installation-wide program sequence) is strictly greater than this value. Omit (or pass `0`) for a full initial sync; adopt the previous response's `timestamp` for the delta."
                     }
                 ],
                 "tags": [
@@ -65716,10 +65716,6 @@
                         "type": "integer",
                         "description": "Count of the caller's own non-BACKLOG, non-COMPLETE tasks due today — drives the sidebar My Work badge."
                     },
-                    "server_version_high_water": {
-                        "type": "integer",
-                        "description": "Largest server_version in the caller's currently-visible task set. Offline/mobile clients persist this and pass it back as ?since= on the next delta sync pull."
-                    },
                     "retro_action_items": {
                         "type": "array",
                         "items": {
@@ -65757,8 +65753,7 @@
                     "next",
                     "previous",
                     "results",
-                    "retro_action_items",
-                    "server_version_high_water"
+                    "retro_action_items"
                 ]
             },
             "MeWorkRetroActionItem": {
@@ -84674,7 +84669,7 @@
                     },
                     "timestamp": {
                         "type": "integer",
-                        "description": "High-water mark to adopt as `since` once the delta is fully drained (after the last page). Pinned when the session's first page is served and identical on every page of that session. On the project pull, whose cursor is the project's monotonic `sync_seq`, that means a row written into an already-drained collection mid-drain still falls above the adopted checkpoint and arrives on the next pull. The program pull keys on the per-row `server_version` rather than a session sequence, so pinning stops its checkpoint climbing mid-drain but does not yet deliver that guarantee — see issue #2498."
+                        "description": "High-water mark to adopt as `since` once the delta is fully drained (after the last page). Pinned when the session's first page is served and identical on every page of that session. On the project pull, whose cursor is the project's monotonic `sync_seq`, that means a row written into an already-drained collection mid-drain still falls above the adopted checkpoint and arrives on the next pull. The program pull gives the same guarantee on its own installation-wide program `sync_seq`."
                     },
                     "next_cursor": {
                         "type": "string",

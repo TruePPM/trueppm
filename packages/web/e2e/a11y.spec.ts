@@ -272,7 +272,6 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
         previous: null,
         active_sprints: [],
         due_today_count: 0,
-        server_version_high_water: 0,
       }),
     }),
   );
@@ -1176,7 +1175,6 @@ test.describe('accessibility @a11y — expanded route coverage (#3482)', () => {
           previous: null,
           active_sprints: [MYWORK_ACTIVE_SPRINT],
           due_today_count: 0,
-          server_version_high_water: 1,
         }),
       }),
     );

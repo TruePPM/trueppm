@@ -65,7 +65,6 @@ async function setup(page: Page) {
         previous: null,
         active_sprints: [],
         due_today_count: 3,
-        server_version_high_water: 0,
         retro_action_items: [],
       }),
     }),

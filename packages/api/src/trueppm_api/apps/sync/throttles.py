@@ -17,6 +17,7 @@ costs a retry, whereas failing open costs an unbounded authenticated write flood
 from __future__ import annotations
 
 import logging
+import uuid
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -27,7 +28,7 @@ from rest_framework.throttling import BaseThrottle
 
 from trueppm_api.core import valkey
 from trueppm_api.core.ratelimit import bypass_when_disabled
-from trueppm_api.core.redis_throttle import incr_with_ttl, incrby_with_ttl
+from trueppm_api.core.redis_throttle import incr_with_ttl
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -100,61 +101,81 @@ class SyncUploadThrottle(BaseThrottle):
         return getattr(self, "wait_seconds", None)
 
 
+# Per-holder lease semaphore (#2287). KEYS[1] is a sorted set of holder ids
+# scored by lease expiry (Redis server time, so every API pod reads one clock).
+# Reaping expired leases, counting, and admitting run in ONE script, so two
+# concurrent acquires can never both see "cap - 1" and both enter. The whole-key
+# EXPIRE is only a backstop: it is set to the newest lease's expiry, which is at
+# or after every member's, so it can never drop a live lease.
+# ARGV: [1] lease seconds, [2] cap, [3] holder id. Returns 1 admitted, 0 refused.
+_ACQUIRE_SLOT_LUA = """
+local now = tonumber(redis.call('TIME')[1])
+local lease = tonumber(ARGV[1])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then
+    return 0
+end
+redis.call('ZADD', KEYS[1], now + lease, ARGV[3])
+redis.call('EXPIRE', KEYS[1], lease)
+return 1
+"""
+
+
 @contextmanager
 def sync_batch_concurrency_slot(user_pk: object) -> Iterator[None]:
-    """Bound simultaneously in-flight sync-upload batches per user (#1756).
+    """Bound simultaneously in-flight sync-upload batches per user (#1756, #2287).
 
     The ``SyncUploadThrottle`` caps requests/minute, but each accepted batch is a
     heavy ``transaction.atomic()`` (up to ``TRUEPPM_SYNC_BATCH_MAX_ROWS`` row locks
     plus a CPM recalc enqueue). Under lock contention a burst of *concurrent*
     batches from one user can still tie up worker/DB resources within the rate cap.
-    This is a per-user Redis semaphore around the batch apply: INCR a slot on entry,
-    DECR it in a ``finally``. When the count exceeds
-    ``TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES`` the slot is immediately released and the
+    This is a per-user Redis semaphore around the batch apply. When
+    ``TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES`` holders are already in flight the
     request is rejected with a 429 (``Throttled``) carrying a short ``Retry-After``.
 
-    Two safety properties:
+    **Per-holder leases, not a shared counter (#2287).** Each admitted batch adds
+    its own random holder id to a sorted set, scored by a lease expiry
+    ``TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS`` ahead; release removes exactly that id.
+    The earlier INCR/DECR counter shared one TTL between every holder, which drifted
+    both ways: a key that expired under a long apply was re-created from 0 and the
+    original holder's DECR then drove it negative (over-admit), and because every
+    entry refreshed the TTL a crash-leaked +1 survived as long as uploads kept
+    arriving (under-admit). With leases:
 
-    - **Slot-leak guard.** The counter carries a TTL
-      (``TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS``), refreshed on every entry via
-      :func:`incrby_with_ttl`, so a worker that dies mid-apply (never reaching the
-      ``finally`` DECR) cannot leak its slot permanently — the whole counter is
-      reclaimed once no further batch refreshes it within the window.
-    - **Fail open.** Any Redis error degrades to running the batch *without* the
-      concurrency guard rather than blocking a legitimate upload. Unlike the rate
-      throttle (which fails closed because it is the only global DoS bound), the
-      per-minute rate cap here remains fully in force, so failing open on this
-      defense-in-depth layer never removes the hard bound.
+    - a release can never undercount — removing an id that is gone is a no-op;
+    - a crash-leaked slot frees itself when *its own* lease ends, however busy the
+      user is, because every acquire reaps expired leases before counting;
+    - a holder that outlives its lease stops being counted from that moment, so
+      the cap may admit one extra batch per such holder. That is the one residual
+      imprecision, it cannot compound, and it is why the TTL should sit above the
+      p99 contended apply time.
 
-    Known precision limit (tracked in #2287): a single TTL-refreshed counter can
-    drift if an apply outlives ``TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS`` (over-admit) or
-    a crash-leaked slot persists under sustained load (under-admit). Both are
-    bounded to this defense-in-depth layer — the fail-closed rate cap stays the hard
-    bound — so it ships as-is; a per-holder-token semaphore would make it exact.
+    **Fail open.** Any Redis error degrades to running the batch *without* the
+    concurrency guard rather than blocking a legitimate upload. Unlike the rate
+    throttle (which fails closed because it is the only global DoS bound), the
+    per-minute rate cap here remains fully in force, so failing open on this
+    defense-in-depth layer never removes the hard bound.
     """
     cap = getattr(settings, "TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES", 4)
     ttl = getattr(settings, "TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS", 120)
-    key = f"inflight:sync_upload:user:{user_pk}"
+    # A new key name, not the old counter's: during a rolling update an old pod
+    # still INCRs ``inflight:sync_upload:user:<pk>`` as a string, and a ZADD on
+    # that key would fail with WRONGTYPE. Separate keys only cost the cap being
+    # counted twice for the length of the rollout.
+    key = f"inflight:sync_upload:holders:user:{user_pk}"
+    holder = uuid.uuid4().hex
 
     try:
         client = _client()
-        # INCRBY 1 + refresh TTL atomically (#1757 helper): the slot count and its
-        # leak-guard TTL are set together, so a crash can't strand a wedged counter.
-        count = incrby_with_ttl(client, key, 1, ttl)
+        admitted = int(client.eval(_ACQUIRE_SLOT_LUA, 1, key, ttl, cap, holder))  # type: ignore[arg-type]
     except redis.RedisError:
         # Fail open — proceed without the guard; the rate throttle still bounds abuse.
         logger.warning("sync_batch_concurrency_slot: Redis error, proceeding without slot")
         yield
         return
 
-    if count > cap:
-        # Over cap: release our own increment immediately (we are rejecting, not
-        # holding a slot) and ask the client to retry once in-flight work drains.
-        try:
-            client.decr(key)
-        except redis.RedisError:
-            # The TTL will reclaim the over-count; nothing else to do.
-            logger.warning("sync_batch_concurrency_slot: Redis error releasing over-cap slot")
+    if not admitted:
+        # Refused inside the script, so no lease was taken and nothing to refund.
         raise Throttled(
             wait=1,
             detail=(
@@ -166,10 +187,11 @@ def sync_batch_concurrency_slot(user_pk: object) -> Iterator[None]:
     try:
         yield
     finally:
-        # Release the held slot. A failure here is non-fatal: the TTL reclaims it.
+        # Release exactly our own lease. A failure here is non-fatal: the lease
+        # expires on its own and the next acquire reaps it.
         try:
-            client.decr(key)
+            client.zrem(key, holder)
         except redis.RedisError:
             logger.warning(
-                "sync_batch_concurrency_slot: Redis error releasing slot; TTL will reclaim"
+                "sync_batch_concurrency_slot: Redis error releasing slot; lease will expire"
             )

@@ -114,7 +114,6 @@ async function setupWithTask(page: Page): Promise<void> {
         previous: null,
         active_sprints: [],
         due_today_count: 1,
-        server_version_high_water: 100,
       }),
     }),
   );
@@ -155,7 +154,6 @@ async function setupNoAssignedWithSearch(page: Page): Promise<void> {
         previous: null,
         active_sprints: [],
         due_today_count: 0,
-        server_version_high_water: 0,
       }),
     }),
   );
@@ -217,7 +215,7 @@ test.describe('Global quick-log time popover (#1416, ADR-0185 §C)', () => {
     });
 
     await page.goto('/me/work');
-    await page.getByRole('button', { name: 'Log time' }).click();
+    await page.getByRole('button', { name: 'Log time', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Log time' });
     await expect(dialog).toBeVisible();
 
@@ -271,7 +269,7 @@ test.describe('Global quick-log time popover (#1416, ADR-0185 §C)', () => {
     await page.goto('/me/work');
 
     // Open the global "Log time" popover from the top bar.
-    await page.getByRole('button', { name: 'Log time' }).click();
+    await page.getByRole('button', { name: 'Log time', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Log time' });
     await expect(dialog).toBeVisible();
 
@@ -321,7 +319,7 @@ test.describe('Global quick-log time popover (#1416, ADR-0185 §C)', () => {
 
     await page.goto('/me/work');
 
-    await page.getByRole('button', { name: 'Log time' }).click();
+    await page.getByRole('button', { name: 'Log time', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Log time' });
     await expect(dialog).toBeVisible();
     // The scrim is the tell that the mobile surface is the shared BottomSheet.
@@ -361,7 +359,7 @@ test.describe('Global quick-log time popover (#1416, ADR-0185 §C)', () => {
 
     await page.goto('/me/work');
 
-    await page.getByRole('button', { name: 'Log time' }).click();
+    await page.getByRole('button', { name: 'Log time', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Log time' });
     await dialog.getByRole('button', { name: /^Log/ }).click();
 

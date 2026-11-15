@@ -374,6 +374,29 @@ class VersionedModel(models.Model):
         if known_exists is None:
             known_exists = getattr(self, "_sync_known_exists", None)
 
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = list(kwargs["update_fields"])
+            if not kwargs["update_fields"]:
+                # Django documents ``update_fields=[]`` as a no-op save. Honor it
+                # *before* the counters move: otherwise the version and the cursor
+                # would advance for a write that never happens (#2514).
+                return
+            named_counters = set(kwargs["update_fields"])
+            if named_counters <= _SERVER_OWNED_FIELDS and not named_counters <= {"server_version"}:
+                # Every name is a server-owned counter, so the filter below would
+                # strip the list to empty and Django would skip the UPDATE: the
+                # caller's ``last_sync_version`` / ``tombstone_floor`` write would
+                # vanish while the version and cursor moved (#2514). Those two are
+                # written only by their own queryset ``.update()`` paths, so a
+                # ``save()`` naming them is a bug in the caller — refuse it before
+                # any counter moves. ``["server_version"]`` alone is the touch
+                # idiom and is handled on the UPDATE path below.
+                raise ValueError(
+                    f"{type(self).__name__}.save(update_fields={sorted(named_counters)!r}) "
+                    "names only server-owned counters, which save() never writes; "
+                    "write them with a queryset-level .update() call."
+                )
+
         if kwargs.get("force_insert"):
             # Django/DRF ``create()`` always passes ``force_insert=True`` — this is
             # unambiguously an INSERT, so never spend a query probing for a row that
@@ -401,6 +424,21 @@ class VersionedModel(models.Model):
                 # cursor, leaving the row invisible to the delta pull (ADR-0686).
                 if fields and "sync_seq" not in fields:
                     fields.append("sync_seq")
+                if not fields and self.sync_seq:
+                    # The caller named only ``server_version`` — the "touch"
+                    # idiom ``save(update_fields=["server_version"])`` used to
+                    # announce an M2M change on the parent row (``Task.save``
+                    # widens it with ``edited_at``, so tasks never reach here). The
+                    # version bump above already landed, but an empty list makes
+                    # Django skip the UPDATE, which silently dropped the cursor just
+                    # drawn: on a synced row the touch moved ``server_version`` and
+                    # never reached the delta pull (#2514). Persist the cursor with
+                    # a plain UPDATE so the touch is delivered, and keep Django's
+                    # no-op for the rest — no signals, no history row, exactly as
+                    # the touch behaved before. A model outside the sync union
+                    # (``MentionGroup``) draws no cursor, so there is nothing to
+                    # persist and no UPDATE is issued.
+                    type(self)._base_manager.filter(pk=self.pk).update(sync_seq=self.sync_seq)
                 kwargs["update_fields"] = fields
             else:
                 kwargs["update_fields"] = [
@@ -1903,8 +1941,9 @@ class Project(VersionedModel):
         once per instance, turning any ``.only()``/``.defer()`` queryset into an
         N+1 — e.g. the stale-task digest, which iterates every live project with
         ``.only("id", "stale_task_threshold_days")``. When it is deferred the
-        attribute stays unset and the receiver simply re-allocates, which is
-        wasted work on a rare path rather than a query on a hot one.
+        attribute stays unset and the sync ``pre_save`` receiver reads the stored
+        FK with one SELECT at save time (#2513) — a query only on a save of such
+        an instance that writes ``calendar``, rather than one per loaded row.
         """
         # `**kwargs` forwarded blind rather than named: Django 6.0 adds a
         # keyword-only `fetch_mode` to this hook and the stubs already describe it,
@@ -2263,7 +2302,9 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
     * ``deleted_at`` — the nightly reap's retention clock;
     * ``edited_at`` is left alone: deleting is not editing (ADR-0786 §4);
     * the Task post_save soft-delete receivers' effects, which ``update()`` would
-      otherwise skip: ``RetroActionItem.promoted_task_id`` is cleared (ADR-0071) and a
+      otherwise skip: ``RetroActionItem.promoted_task_id`` is cleared (ADR-0071) with
+      a bumped ``server_version`` and a fresh ``sync_seq``, through the same helper
+      the receiver uses (:func:`~.retro_services.clear_promoted_task_links`), and a
       ``BacklogItem`` still ``PULLED`` from a victim goes back to ``PROPOSED``
       (ADR-0069). Both cost one query when nothing matches.
 
@@ -2334,13 +2375,15 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
         cascade_task_synced_children_soft_delete(ids, project_id, now=now)
 
     # The Task post_save soft-delete receivers never fire for ``update()``; run their
-    # effects set-wise. Retro action items are one UPDATE (the receiver sets only
-    # ``promoted_task_id``). Backlog items keep the service's own ``save()`` so
-    # ``server_version`` and the program's ``sync_seq`` are drawn exactly as before;
-    # only items actually still PULLED from a victim are visited.
+    # effects set-wise. Retro action items go through the receiver's own helper, so
+    # the cleared link carries a bumped ``server_version`` and a fresh ``sync_seq``
+    # drawn before the item UPDATE (#2514, #4628). Backlog items keep the service's
+    # own ``save()`` so ``server_version`` and the program's ``sync_seq`` are drawn
+    # exactly as before; only items actually still PULLED from a victim are visited.
     from trueppm_api.apps.projects.backlog_services import reset_pulled_item_on_task_delete
+    from trueppm_api.apps.projects.retro_services import clear_promoted_task_links
 
-    RetroActionItem.objects.filter(promoted_task_id__in=victim_ids).update(promoted_task_id=None)
+    clear_promoted_task_links(victim_ids)
     pulled_task_ids = list(
         BacklogItem.objects.filter(
             pulled_task_id__in=victim_ids,

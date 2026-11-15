@@ -143,7 +143,6 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
         previous: null,
         active_sprints: [],
         due_today_count: 0,
-        server_version_high_water: 0,
       }),
     }),
   );

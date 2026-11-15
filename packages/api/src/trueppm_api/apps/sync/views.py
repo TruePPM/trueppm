@@ -45,7 +45,12 @@ from trueppm_api.apps.projects.models import (
     TaskRelation,
     TaskSuggestedAssignee,
 )
-from trueppm_api.apps.sync.pagination import SyncCursor, SyncSource, paginate_changes
+from trueppm_api.apps.sync.pagination import (
+    SyncCursor,
+    SyncSource,
+    paginate_changes,
+    parse_since,
+)
 from trueppm_api.apps.sync.serializers import (
     SyncCalendarSerializer,
     SyncDependencySerializer,
@@ -245,13 +250,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
     )
     def get(self, request: Request, pk: str) -> Response:
         # Validate `since` parameter.
-        since_raw = request.query_params.get("since", "0")
-        try:
-            since = int(since_raw)
-            if since < 0:
-                raise ValueError
-        except (ValueError, TypeError) as err:
-            raise ValidationError({"since": "Must be a non-negative integer."}) from err
+        since = parse_since(request.query_params.get("since", "0"))
 
         # Validate the optional continuation cursor and page size (#1013).
         cursor_raw = request.query_params.get("cursor")
@@ -878,9 +877,10 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
                 default=0,
                 description=(
                     "WatermelonDB high-water mark. Returns only Program / "
-                    "ProgramMembership rows whose `server_version` is strictly "
-                    "greater than this value. Omit (or pass `0`) for a full initial "
-                    "sync; adopt the previous response's `timestamp` for the delta."
+                    "ProgramMembership rows whose `sync_seq` (the installation-wide "
+                    "program sequence) is strictly greater than this value. Omit "
+                    "(or pass `0`) for a full initial sync; adopt the previous "
+                    "response's `timestamp` for the delta."
                 ),
             ),
             OpenApiParameter(
@@ -912,13 +912,7 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
     )
     def get(self, request: Request) -> Response:
         # Validate `since` — identical contract to ProjectSyncView.
-        since_raw = request.query_params.get("since", "0")
-        try:
-            since = int(since_raw)
-            if since < 0:
-                raise ValueError
-        except (ValueError, TypeError) as err:
-            raise ValidationError({"since": "Must be a non-negative integer."}) from err
+        since = parse_since(request.query_params.get("since", "0"))
 
         cursor_raw = request.query_params.get("cursor")
         cursor = SyncCursor.decode(cursor_raw) if cursor_raw else None
@@ -931,10 +925,10 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
             user=cast("_User", request.user), is_deleted=False
         ).values("program_id")
 
-        # Snapshot the high-water mark BEFORE the delta queries. server_version is
+        # Snapshot the high-water mark BEFORE the delta queries. sync_seq is
         # monotonic, so a write landing after this snapshot moves the row forward in
-        # (server_version, id) order — delivered this pull (re-applied under upsert)
-        # or the next (its version > timestamp = next since); never lost. This is
+        # (sync_seq, id) order — delivered this pull (re-applied under upsert) or the
+        # next (its sync_seq > timestamp = next since); never lost. This is
         # the same concurrency argument pagination.py makes, and the same
         # watermark-before-rows ordering ProjectSyncView relies on. Neither view
         # opens a REPEATABLE READ block; both run at READ COMMITTED, and the

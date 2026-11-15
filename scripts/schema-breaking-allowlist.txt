@@ -11,6 +11,10 @@
 # The baseline is the latest v* release tag, so entries go stale harmlessly when the
 # next tag is cut and can be pruned then (the gate reports stale entries).
 
+# #2512 - MeWorkView's MAX(server_version) "cursor" withdrawn: not a valid ordering and
+# no consumer (policy exception recorded in stability.md, same reasoning as #3137).
+property-removed | response #/MeWorkListPage.server_version_high_water | my-work-delta-high-water-mark-removed-2512 | unsafe cursor instruction with no consumer
+
 # #4578 - email dropped from mention-group member payloads (security).
 property-removed | response #/*MentionGroupRead.members*.email | mention-group-member-email-removed-4578 | cross-boundary email disclosure (ADR-0070)
 

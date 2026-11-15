@@ -53,8 +53,8 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     "/api/v1/projects/{id}/sync/": "offline-sync delta (bucket map, not a list)",
     "/api/v1/sync/user/programs/": "offline-sync delta (bucket map, not a list)",
     # My Work (#3650) hand-adds five aggregate/badge fields alongside the page
-    # envelope (active_sprints, due_today_count, server_version_high_water,
-    # retro_action_items, signals, external_items, external_sources) so the one
+    # envelope (active_sprints, due_today_count, retro_action_items,
+    # signals, external_items, external_sources) so the one
     # call a contributor's shell makes on every route carries the sidebar badge
     # count and cross-cutting signals too — splitting them into a second request
     # would cost every page load a round trip for data the shell always needs

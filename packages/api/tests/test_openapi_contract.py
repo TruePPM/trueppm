@@ -850,7 +850,7 @@ def test_me_work_declares_all_hand_added_top_level_keys(schema: dict) -> None:
 
     ``MeWorkView.list()`` hand-adds five keys on top of the base
     ``{count, next, previous, results}`` pagination envelope: ``active_sprints``,
-    ``due_today_count``, ``server_version_high_water``, ``retro_action_items``, and
+    ``due_today_count``, ``retro_action_items``, and
     the first-page-only ``signals``/``external_items``/``external_sources``. Before
     #3650 the ``@extend_schema`` override decorated ``list()`` — a ``ListModelMixin``
     method a bare ``ListAPIView.get()`` only delegates to internally — so
@@ -875,7 +875,6 @@ def test_me_work_declares_all_hand_added_top_level_keys(schema: dict) -> None:
         "results",
         "active_sprints",
         "due_today_count",
-        "server_version_high_water",
         "retro_action_items",
         "signals",
         "external_items",

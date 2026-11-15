@@ -66,7 +66,6 @@ async function setup(page: Page, tasks: ReturnType<typeof task>[]) {
         previous: null,
         active_sprints: [],
         due_today_count: tasks.length,
-        server_version_high_water: 1,
       }),
     }),
   );

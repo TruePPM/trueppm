@@ -523,7 +523,6 @@ test.describe('Contributor-surface exclusion — a phase never appears in Quick 
           previous: null,
           active_sprints: [],
           due_today_count: 0,
-          server_version_high_water: 1,
         }),
       }),
     );

@@ -189,6 +189,42 @@ def test_sync_invalid_since_returns_400(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("since", [str(2**63), str(10**30)])
+def test_sync_out_of_range_since_returns_400(
+    authed_client: APIClient, project: Project, membership: ProjectMembership, since: str
+) -> None:
+    """#2514: a `since` past the bigint range is a 400, not a driver-error 500."""
+    resp = authed_client.get(_url(project), {"since": since})
+    assert resp.status_code == 400, resp.data
+    assert "since" in resp.data
+
+
+@pytest.mark.django_db
+def test_sync_since_at_bigint_max_is_accepted(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """The bound refuses nothing a real sequence can produce: 2**63 - 1 is valid."""
+    resp = authed_client.get(_url(project), {"since": str(2**63 - 1)})
+    assert resp.status_code == 200, resp.data
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("field", ["v", "w", "i"])
+def test_sync_cursor_out_of_range_component_returns_400(
+    authed_client: APIClient, project: Project, membership: ProjectMembership, field: str
+) -> None:
+    """#2514: a cursor carrying `{"v": 10**30}` (or `w`, `i`) is a 400, not a 500."""
+    _seed_tasks(project, 20, sync_seq=1)
+    first = authed_client.get(_url(project), {"since": "0", "page_size": "3"})
+    payload = _decode_token(first.data["next_cursor"])
+    payload[field] = 10**30
+    resp = authed_client.get(
+        _url(project), {"since": "0", "page_size": "3", "cursor": _encode_token(payload)}
+    )
+    assert resp.status_code == 400, resp.data
+
+
+@pytest.mark.django_db
 def test_sync_delta_respects_since(
     authed_client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
