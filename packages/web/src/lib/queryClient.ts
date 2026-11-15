@@ -45,6 +45,11 @@ export const queryClient = new QueryClient({
 
 // What the auth store needs to know about the data layer when a session ends. The
 // store cannot import this module (it imports the store), so it is registered here.
+// Reads that succeed before anyone has signed in (the edition/demo flags drive the
+// login page itself), so a success here says nothing about content a user could keep
+// viewing. Counting them made every cold load look warm and skipped the modal.
+const PUBLIC_QUERY_ROOTS = new Set(['edition']);
+
 registerSessionBridge({
   inspect: () => ({
     // `pending` covers paused mutations too (offline-queued writes sit pending).
@@ -60,7 +65,12 @@ registerSessionBridge({
     hasContent: queryClient
       .getQueryCache()
       .getAll()
-      .some((q) => q.state.status === 'success' && q.state.data !== undefined),
+      .some(
+        (q) =>
+          q.state.status === 'success' &&
+          q.state.data !== undefined &&
+          !PUBLIC_QUERY_ROOTS.has(String(q.queryKey[0])),
+      ),
   }),
   clearCache: () => queryClient.clear(),
 });

@@ -157,6 +157,13 @@ describe('queryClient — session bridge (#4316, #4313)', () => {
     expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
   });
 
+  it('a cache holding only the public edition read is still a cold load', () => {
+    queryClient.setQueryData(['edition'], { edition: 'community' });
+    useAuthStore.getState().markSessionExpired({ broadcast: false });
+    expect(useAuthStore.getState().sessionExpiredCanView).toBe(false);
+    expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+  });
+
   it('a warm cache and no pending write goes straight to the read-only banner', () => {
     queryClient.setQueryData(['tasks', 'p1'], [{ id: 't1' }]);
     useAuthStore.getState().markSessionExpired({ broadcast: false });
