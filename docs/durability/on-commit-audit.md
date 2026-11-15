@@ -35,6 +35,7 @@ Beat drain task that re-dispatches stranded PENDING rows:
 | `ImportRequest` (msproject) | `enqueue_import()` | import drain | MS Project import |
 | `SprintCloseRequest` (projects) | `enqueue_sprint_close()` | `drain_sprint_close_requests` | sprint close transition |
 | `ConfigNoticeRequest` (projects) | `config_notice.notify_board_config_change()` / `notify_surface_changes()` | `drain_config_notice_requests` | config-change inbox notices (ADR-1174) |
+| `ProjectCascadeRequest` (projects) | `enqueue_project_cascade_soft_delete()` | `drain_project_cascade_requests` | project soft-delete child tombstone cascade (#1602) |
 
 Any callback that calls one of these helpers is outbox-protected *by definition*
 — the helper writes the durable row before (or instead of) dispatching.

@@ -251,6 +251,15 @@ risks, baselines) are retained so the deletion can be reviewed and — until it 
 recovered. The **Trash** (below) is the recovery surface; a `?force=true` delete is the
 manual *permanent* removal.
 
+Tombstoning a trashed project's children runs in the background, tracked by a small
+outbox row written in the same transaction as the delete. If the message broker is down
+at that moment the row stays pending, and the Celery Beat task
+`projects.drain_project_cascade_requests` (every 30 seconds) re-dispatches it once the
+broker recovers, so no child rows are left live under a project that reads as gone. A project restored from the Trash before the cascade runs is not cascaded.
+Finished rows are deleted after seven days by the nightly
+`projects.purge_old_project_cascade_requests` task; they are not governed by the
+retention window above.
+
 `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` (default `30`) will bound that grace period.
 Once a project has been in the trash longer than the window, the retention coordinator will
 **hard-delete** it: the project row and, via database `CASCADE`, its entire child subtree

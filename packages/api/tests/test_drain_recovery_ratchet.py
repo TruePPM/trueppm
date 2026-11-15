@@ -24,7 +24,12 @@ from __future__ import annotations
 from django.apps import apps
 from django.db import models
 
-from trueppm_api.apps.projects.models import SprintCloseRequest, SprintCloseRequestStatus
+from trueppm_api.apps.projects.models import (
+    ProjectCascadeRequest,
+    ProjectCascadeRequestStatus,
+    SprintCloseRequest,
+    SprintCloseRequestStatus,
+)
 from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
 
 # status value -> how the drain treats it.
@@ -40,6 +45,15 @@ _TABLES: list[tuple[type[models.Model], type[models.TextChoices], dict[str, str]
             SprintCloseRequestStatus.IN_FLIGHT.value: "in_progress",
             SprintCloseRequestStatus.COMPLETED.value: "success",
             SprintCloseRequestStatus.FAILED.value: "retried",
+        },
+    ),
+    (
+        ProjectCascadeRequest,
+        ProjectCascadeRequestStatus,
+        {
+            ProjectCascadeRequestStatus.PENDING.value: "in_progress",
+            ProjectCascadeRequestStatus.DISPATCHED.value: "in_progress",
+            ProjectCascadeRequestStatus.DONE.value: "success",
         },
     ),
     (
