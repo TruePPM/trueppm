@@ -6442,19 +6442,23 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     def get_remaining_duration(self, obj: Task) -> int:
         """Working days of REMAINING work (ADR-0752 §2).
 
-        ``duration - floor(duration * percent_complete / 100)``, mirroring the
-        engine's ``_effective_duration_days`` exactly — the same rule that
-        makes ``early_start``/``early_finish`` name the remaining-work window.
-        Serializer-computed, not persisted: unlike ``scheduled_start`` (which
-        utilization, #2623, needs to filter on in the database), nothing queries
-        this value, so no column is needed for it.
+        ``duration - elapsed``, where ``elapsed`` is the scheduler's own
+        elapsed-days rule (``_elapsed_working_days``): the exact decimal
+        ``duration * percent_complete / 100``, snapped to a whole day within
+        1e-9 and otherwise floored, leaving an open task at least one day. It
+        is called, not restated, so this value cannot drift from the engine rule
+        that makes ``early_start``/``early_finish`` name the remaining-work
+        window (#5034). Serializer-computed, not persisted: unlike
+        ``scheduled_start`` (which utilization, #2623, needs to filter on in the
+        database), nothing queries this value, so no column is needed for it.
         """
+        from trueppm_scheduler.engine import _elapsed_working_days
+
         duration = obj.duration or 0
         pct = obj.percent_complete or 0.0
         if pct <= 0:
             return duration
-        elapsed = int(duration * min(pct, 100.0) / 100.0)
-        return max(0, duration - elapsed)
+        return max(0, duration - _elapsed_working_days(duration, pct))
 
     @extend_schema_field(_EXTERNAL_LINK_SUMMARY_SCHEMA)
     def get_external_link_summary(self, obj: Task) -> dict[str, object]:

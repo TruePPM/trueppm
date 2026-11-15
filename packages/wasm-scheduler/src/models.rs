@@ -371,21 +371,31 @@ impl Task {
     }
 }
 
-/// A precedence relationship between two tasks.
+/// Days within which an elapsed-day product snaps to the nearest whole day:
+/// `1 / ELAPSED_DAY_TOLERANCE_DENOMINATOR` = 1e-9 (ADR-0132, #5034). Twin of the
+/// Python `ELAPSED_DAY_TOLERANCE_DENOMINATOR`; an integer so the comparison is exact.
+const ELAPSED_DAY_TOLERANCE_DENOMINATOR: u128 = 1_000_000_000;
+
 /// Working days of `full` already done at `pct` percent (ADR-0132, #5034).
 ///
-/// Twin of the Python `_elapsed_working_days`: the *exact* `floor(full * P / 100)`,
-/// where `P` is the decimal `pct` prints as — its shortest round-trip form, which
-/// Rust's `{:e}` and Python's `repr` both produce — after clamping `pct` to
-/// `[0, 100]`. The decimal rather than the stored double because `18.4` is stored
-/// as `18.3999…`, which floors a 375-day task to 68 elapsed days where the entered
-/// percentage means 69; exact rather than a fixed precision because rounding could
-/// lift a value below 100 to 100 and leave an in-progress task with no remaining
-/// work. Integer percents take an integer fast path with the same result.
+/// Twin of the Python `_elapsed_working_days`, in exact integer arithmetic: let `P`
+/// be the decimal `pct` prints as — its shortest round-trip form, which Rust's `{:e}`
+/// and Python's `repr` both produce — after clamping `pct` to `[0, 100]`, and
+/// `x = full * P / 100`. If `x` is within 1e-9 days of its nearest integer, elapsed
+/// is that integer; otherwise it is `floor(x)`. Below 100% the result is capped at
+/// `full - 1`, so an in-progress task always keeps a remaining day.
+///
+/// The decimal rather than the stored double because `18.4` is stored as
+/// `18.3999…`, which floors a 375-day task to 68 elapsed days where the entered
+/// percentage means 69. The tolerance because a `100 * k / n` percent prints as a
+/// repeating decimal cut at 17 digits (`11.11111111111111` for 1 of 9 days) whose
+/// exact product falls a hair short of `k`. Integer percents take an integer fast
+/// path: their `x` is a multiple of 1/100, so the tolerance never fires.
 ///
 /// The arithmetic fits `u128`: at most 17 significant digits (`< 2^57`) times
-/// `full` (`< 2^31`). A non-integer percent below 100 always has a decimal scale of
-/// at least 3, and a scale past 38 means a quotient below one.
+/// `full` (`< 2^31`), over a power of ten of at most `10^38`. A non-integer percent
+/// below 100 always has a decimal scale of at least 3; a scale past 38 means
+/// `x < 1e-12`, whose nearest integer, 0, is within the tolerance.
 pub(crate) fn elapsed_days(full: i32, pct: f64) -> i32 {
     // NaN is routed to zero as well; validation rejects it upstream.
     if full <= 0 || pct.is_nan() || pct <= 0.0 {
@@ -422,14 +432,22 @@ pub(crate) fn elapsed_days(full: i32, pct: f64) -> i32 {
     if scale > 38 {
         return 0;
     }
+    let scale = u32::try_from(scale).expect("a non-integer percent below 100 has a positive scale");
+    let denominator = 10u128.pow(scale);
     let numerator = full_wide * digits;
-    match u32::try_from(scale) {
-        Ok(scale) => (numerator / 10u128.pow(scale)) as i32,
-        // Unreachable for a non-integer percent below 100; kept total for safety.
-        Err(_) => (numerator * 10u128.pow(scale.unsigned_abs())) as i32,
+    let mut elapsed = numerator / denominator;
+    let remainder = numerator % denominator;
+    // `x` is within the tolerance below `elapsed + 1`: snap up. `(d - r) * 10^9 <= d`
+    // is `d - r <= floor(d / 10^9)` for integers, which cannot overflow.
+    if remainder != 0 && denominator - remainder <= denominator / ELAPSED_DAY_TOLERANCE_DENOMINATOR
+    {
+        elapsed += 1;
     }
+    // A non-integer `pct` is below 100 here: the task is open.
+    (elapsed as i32).min(full - 1)
 }
 
+/// A precedence relationship between two tasks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dependency {
@@ -691,9 +709,25 @@ mod tests {
         }
         // #5015 boundary values: just above and just below a whole day.
         assert_eq!(elapsed_days(39, 12.820512820512821), 5);
-        assert_eq!(elapsed_days(39, 12.82051282051282), 4);
-        // Below 100 always leaves a remaining day.
+        // 1.6e-15 below a whole day: within the 1e-9 tolerance, snaps up (#5034).
+        assert_eq!(elapsed_days(39, 12.82051282051282), 5);
+        // 100 * k / n percents count all k days (#5034).
+        assert_eq!(elapsed_days(9, 11.11111111111111), 1);
+        assert_eq!(elapsed_days(6, 83.33333333333333), 5);
+        for n in 1..=400 {
+            for k in 1..n {
+                let pct = 100.0 * f64::from(k) / f64::from(n);
+                assert_eq!(elapsed_days(n, pct), k, "n={n} k={k}");
+            }
+        }
+        // The tolerance boundary: exactly 1e-9 below a day snaps, 1.2e-9 does not.
+        assert_eq!(elapsed_days(2, 49.99999995), 1);
+        assert_eq!(elapsed_days(2, 49.999999951), 1);
+        assert_eq!(elapsed_days(2, 49.99999994), 0);
+        // Below 100 always leaves a remaining day, even where the snap reaches it.
         assert_eq!(elapsed_days(5, 99.99999999999999), 4);
+        assert_eq!(elapsed_days(1, 99.9999999), 0);
+        assert_eq!(elapsed_days(i32::MAX, 99.99999999999999), i32::MAX - 1);
         assert_eq!(elapsed_days(5, 100.0), 5);
         // Tiny and subnormal percents, and the non-positive guards.
         assert_eq!(elapsed_days(10, 1e-300), 0);

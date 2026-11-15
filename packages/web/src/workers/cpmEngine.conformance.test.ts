@@ -184,6 +184,7 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_fractional_percent_parse: 'engine: reads remainingDuration, not percent_complete',
   progress_fractional_percent_decimal_floor:
     'engine: reads remainingDuration, not percent_complete',
+  progress_k_of_n_percent_tolerance: 'engine: reads remainingDuration, not percent_complete',
   progress_actual_start_floors_early_start: 'adapter: does not thread actuals/status date',
   progress_out_of_sequence: 'adapter: does not thread actuals/status date',
   progress_status_date_floor: 'adapter: does not thread actuals/status date',

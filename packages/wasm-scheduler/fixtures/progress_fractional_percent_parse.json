@@ -5,7 +5,7 @@
   "tasks": [
     {"id": "A", "name": "39 days at 12.820512820512821% (5 elapsed, 34 remaining: 2e-16 above a whole day)", "duration": 3369600.0, "percent_complete": 12.820512820512821},
     {"id": "B", "name": "5 days at 99.99999999999999% (still open, 1 remaining)", "duration": 432000.0, "percent_complete": 99.99999999999999},
-    {"id": "C", "name": "43 days at 11.627906976744185% (4 elapsed, 39 remaining: 1e-17 below a whole day)", "duration": 3715200.0, "percent_complete": 11.627906976744185}
+    {"id": "C", "name": "43 days at 11.627906976744185% (5 elapsed, 38 remaining: 4.5e-16 below a whole day, inside the 1e-9 snap)", "duration": 3715200.0, "percent_complete": 11.627906976744185}
   ],
   "dependencies": [],
   "calendar": {

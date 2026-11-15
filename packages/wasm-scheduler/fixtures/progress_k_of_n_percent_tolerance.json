@@ -1,0 +1,19 @@
+{
+  "id": "p-progress-k-of-n-percent-tolerance",
+  "name": "A product within 1e-9 days of a whole day snaps to it; below 100% one day always remains (#5034)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "9 days at 11.11111111111111% (1 of 9: 1 elapsed, 8 remaining)", "duration": 777600.0, "percent_complete": 11.11111111111111},
+    {"id": "B", "name": "6 days at 83.33333333333333% (5 of 6: 5 elapsed, 1 remaining)", "duration": 518400.0, "percent_complete": 83.33333333333333},
+    {"id": "C", "name": "2 days at 49.99999995% (exactly 1e-9 below a day: snaps, 1 remaining)", "duration": 172800.0, "percent_complete": 49.99999995},
+    {"id": "D", "name": "2 days at 49.99999994% (1.2e-9 below a day: floors, 2 remaining)", "duration": 172800.0, "percent_complete": 49.99999994},
+    {"id": "E", "name": "1 day at 99.9999999% (snaps to the whole day, capped: 1 remaining)", "duration": 86400.0, "percent_complete": 99.9999999}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

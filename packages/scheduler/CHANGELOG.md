@@ -147,21 +147,29 @@ change between releases. Pin an exact version (e.g.
   `from trueppm_scheduler import MAX_PROJECT_WORK_DAYS` raised `ImportError`. It is
   now imported at the package root and listed in `__all__`; its value is unchanged.
 
-- **The elapsed portion of an in-progress task is now the exact decimal floor
+- **The elapsed portion of an in-progress task is now computed exactly
   ([#5034](https://gitlab.com/trueppm/trueppm/-/issues/5034)).** It was
   `int(duration * pct / 100.0)`, which floors a day short on some fractional
   percents: a 375-day task at 18.4% counted 68 elapsed days instead of 69. It is
-  now `floor(duration × P / 100)` with `P` the decimal the percentage prints as
-  (its `repr`), in `schedule()`, `monte_carlo()` and `perturb_task_duration`.
-  Whole-number percents schedule exactly as before, and a percentage below 100
-  still leaves at least one remaining working day.
+  now exact rational arithmetic on `x = duration × P / 100`, with `P` the decimal
+  the percentage prints as (its `repr`): the nearest whole day when `x` is within
+  1e-9 days of it, else `floor(x)`, capped at `duration − 1` below 100%. The
+  tolerance keeps `100 × k / n` percents (`11.11111111111111` for 1 of 9 days,
+  `83.33333333333333` for 5 of 6) at exactly `k` elapsed days. It applies in
+  `schedule()`, `monte_carlo()` and `perturb_task_duration`. Whole-number
+  percents schedule exactly as before, and a percentage below 100 still leaves at
+  least one remaining working day.
 
 - **The Rust/WASM engine now parses `percent_complete` to the same double as
   Python ([#5015](https://gitlab.com/trueppm/trueppm/-/issues/5015)).** Its JSON
   parser was not correctly rounded, so `99.99999999999999` was read as `100.0`
   (the task pinned as complete) and `12.820512820512821` one ULP low (a 39-day
   task finishing a day later than in Python). Both engines also apply the exact
-  rule above, so the same JSON schedules identically in each.
+  rule above, so the same JSON schedules identically in each. Enabling
+  `serde_json`'s `float_roundtrip` and the exact rule grow the release wasm
+  bundle from 340,959 to 372,873 bytes (+31,914 raw; gzip -9 144,657 to 157,202, +12,545;
+  `float_roundtrip` alone is +25,861 raw); the engine is frozen and wired into
+  no client (ADR-0015), so no shipped bundle grows.
 
 - **A closed milestone whose `actual_start` and `actual_finish` differ is now
   shown on its `actual_finish` day

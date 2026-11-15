@@ -164,6 +164,15 @@ scheduling output, and it is written by the same `bulk_update` that already writ
 **`remaining_duration` is serializer-computed**, not persisted: it is
 `duration − floor(duration × pct/100)` with no query behind it.
 
+> **Amendment (2026-11-15, #5034) — the serializer calls the engine's rule.** The
+> serializer had restated the rule as `int(duration * pct / 100.0)` and claimed to
+> mirror `_effective_duration_days`; when the engine's elapsed days became exact
+> (rational arithmetic on the decimal `pct` prints as, snapped to the nearest whole
+> day within 1e-9 days and otherwise floored, capped at `duration − 1` below 100%),
+> the two disagreed (375 days at 18.4%: engine window 306, served 307). It now calls
+> `trueppm_scheduler.engine._elapsed_working_days`, so there is one implementation.
+> The `floor(...)` formulas in this ADR describe the 0.4 rule.
+
 ### 3. Two named fields, not a mode discriminator
 
 #2622 offered `schedule_window_type: full_span | remaining_work` as an alternative. Rejected.

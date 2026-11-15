@@ -80,8 +80,10 @@ a committed, seeded corpus generated *by the reference*
 (``packages/wasm-scheduler/fixtures/oracle/corpus.json``), asserted by
 ``packages/wasm-scheduler/tests/oracle_conformance.rs`` under ``wasm:test``. It
 holds 160 planning networks, since #4633 80 progress networks drawn the way
-``progress_projects(modeled=True)`` drew them before #4671, and since #4785 the named
-shapes in ``NAMED_CORPUS_CASES``. The corpus mirror is deliberately NOT widened with
+``progress_projects(modeled=True)`` drew them before #4671, since #5034 80 more
+progress networks whose live percents are fractional (``fraction_*``, a separate seed
+so the earlier blocks stay byte-stable), and since #4785 the named shapes in
+``NAMED_CORPUS_CASES``. The corpus mirror is deliberately NOT widened with
 the live generators (#4671): that would change the committed fixture, so Rust is held
 in CI to the narrow corpus only, and the widened live properties (the 25-task profile
 included) run against Rust only where a Rust runner exists. The
@@ -163,6 +165,10 @@ CORPUS_SIZE = 160
 # them left the first 160 byte-identical.
 PROGRESS_CORPUS_SEED = 4633
 PROGRESS_CORPUS_SIZE = 80
+# A third seeded block whose live tasks carry fractional percents (#5034): the
+# progress block above draws only 0/20/50/80 and is kept byte-stable (#4671).
+FRACTION_CORPUS_SEED = 5034
+FRACTION_CORPUS_SIZE = 80
 # Same monorepo detection as test_wasm_conformance.py (#3856): outside the monorepo
 # (an unpacked sdist) the corpus is absent and its tests skip; inside it, a missing
 # corpus must fail loudly rather than silently skip (#1506).
@@ -466,10 +472,55 @@ def random_progress_project(rng: random.Random) -> RefProject:
             return project
 
 
-def _random_progress_project(rng: random.Random) -> RefProject:
+def _fractional_percent(rng: random.Random, dur: int) -> float:
+    """A live task's percent for the fractional corpus block (#5034).
+
+    Weighted toward the shapes that separate the rules: ``100 * k / n`` on the
+    task's own duration (a repeating decimal whose exact product lands a hair off
+    ``k``) and its neighbors one ULP away, which exercise the 1e-9 snap and the
+    ``n - 1`` cap; short decimals such as ``18.4``, whose double is not the decimal;
+    and arbitrary doubles.
+    """
+    shape = rng.randrange(4)
+    if shape == 0:
+        pct = 100 * rng.randint(1, dur) / dur
+        pct = rng.choice((pct, math.nextafter(pct, 0.0), math.nextafter(pct, 200.0)))
+        return min(pct, 100.0)
+    if shape == 1:
+        return round(rng.uniform(0.1, 99.9), rng.randint(1, 3))
+    if shape == 2:
+        n = rng.randint(7, 13)
+        return 100 * rng.randint(1, n - 1) / n
+    return rng.uniform(0.0, 100.0)
+
+
+def _started_percent(rng: random.Random, dur: int, *, fractional: bool) -> float:
+    """A started task's percent: 0/20/50/80 in the byte-stable block, else fractional."""
+    if dur == 0:
+        return 0.0
+    if fractional:
+        return _fractional_percent(rng, dur)
+    return rng.choice((0.0, 20.0, 50.0, 80.0))
+
+
+def random_fractional_progress_project(rng: random.Random) -> RefProject:
+    """The corpus's fractional-percent cases (#5034).
+
+    :func:`random_progress_project`'s shape with tasks up to twelve days, most of
+    them live, and every live percent drawn by :func:`_fractional_percent`.
+    """
+    while True:
+        project = _random_progress_project(rng, fractional=True)
+        if not _ff_out_of_a_non_working_actual_finish(project):
+            return project
+
+
+def _random_progress_project(rng: random.Random, *, fractional: bool = False) -> RefProject:
     start = _EPOCH + timedelta(days=rng.randint(0, 6))
     n = rng.randint(1, 6)
-    durations = {f"T{i}": rng.randint(0, 5) for i in range(n)}
+    # The fractional block draws longer tasks, so ``100 * k / n`` has more repeating
+    # decimals to land on, and mostly live ones; the other blocks keep their draw.
+    durations = {f"T{i}": rng.randint(0, 12 if fractional else 5) for i in range(n)}
 
     def calendar(mask: int) -> RefCalendar:
         ranges = []
@@ -510,8 +561,10 @@ def _random_progress_project(rng: random.Random) -> RefProject:
             # progress_projects, which found #4635.
             planned_start[tid] = day(-21, 12)
         state = rng.choice(("none", "none", "started", "done", "done_recorded"))
+        if fractional and rng.random() < 0.6:
+            state = "started"
         if state == "started":
-            pct = 0.0 if dur == 0 else rng.choice((0.0, 20.0, 50.0, 80.0))
+            pct = _started_percent(rng, dur, fractional=fractional)
             actual_start = day(-6, 4) if rng.random() < 0.5 else None
             if pct or actual_start is not None:
                 progress[tid] = RefProgress(percent_complete=pct, actual_start=actual_start)
@@ -2715,13 +2768,17 @@ def _one_live_task(days: int, pct: float) -> RefProject:
 
 
 #: Fractional percents the seeded progress draw never produces (#5015, #5034): one a
-#: hair above a whole day, the double serde_json misread it as (a hair below), one a
-#: hair below 100, and the 375-day case float math floored a day short.
+#: hair above a whole day, the double serde_json misread it as (a hair below, which
+#: the 1e-9 snap counts as the whole day), one a hair below 100 (snapped, then
+#: capped to leave a day), the 375-day case float math floored a day short, and two
+#: ``100 * k / n`` percents a bare exact floor counted a day short.
 FRACTIONAL_PERCENT_CASES: tuple[tuple[str, RefProject], ...] = (
     ("fractional_percent_just_above_a_day", _one_live_task(39, 12.820512820512821)),
     ("fractional_percent_just_below_a_day", _one_live_task(39, 12.82051282051282)),
     ("fractional_percent_just_below_complete", _one_live_task(5, 99.99999999999999)),
     ("fractional_percent_decimal_floor", _one_live_task(375, 18.4)),
+    ("fractional_percent_one_of_nine_days", _one_live_task(9, 11.11111111111111)),
+    ("fractional_percent_five_of_six_days", _one_live_task(6, 83.33333333333333)),
 )
 
 
@@ -2757,18 +2814,26 @@ def build_corpus() -> dict[str, Any]:
         _corpus_case(f"progress_{k:03d}", random_progress_project(rng))
         for k in range(PROGRESS_CORPUS_SIZE)
     ]
+    rng = random.Random(FRACTION_CORPUS_SEED)
+    cases += [
+        _corpus_case(f"fraction_{k:03d}", random_fractional_progress_project(rng))
+        for k in range(FRACTION_CORPUS_SIZE)
+    ]
     cases += [_corpus_case(f"named_{name}", project) for name, project in NAMED_CORPUS_CASES]
     return {
         "_comment": (
             "Generated by the independent reference CPM (packages/scheduler/tests/oracle/"
             "reference_cpm.py), NOT by either engine (#3987). case_* are planning "
             "networks; progress_* carry progress, a data date, SNETs and per-task "
-            "calendars (#4633); named_* are hand-built shapes the random draw "
-            "rarely reaches (#4785). Regenerate with "
+            "calendars (#4633); fraction_* are progress networks whose live tasks "
+            "carry fractional, 100*k/n and one-ULP-off percents (#5034); named_* "
+            "are hand-built shapes the random draw rarely reaches (#4785). "
+            "Regenerate with "
             "REGEN_ORACLE_CORPUS=1 pytest packages/scheduler/tests/test_cpm_oracle.py -k corpus"
         ),
         "seed": CORPUS_SEED,
         "progress_seed": PROGRESS_CORPUS_SEED,
+        "fraction_seed": FRACTION_CORPUS_SEED,
         "cases": cases,
     }
 
@@ -2822,7 +2887,9 @@ def _corpus_row_mismatches(row: dict[str, Any], got: EngineTask) -> list[str]:
 def test_python_engine_matches_the_oracle_corpus() -> None:
     """The same check ``oracle_conformance.rs`` runs on Rust, run on Python."""
     corpus = _load_corpus()
-    assert len(corpus["cases"]) == CORPUS_SIZE + PROGRESS_CORPUS_SIZE + len(NAMED_CORPUS_CASES)
+    assert len(corpus["cases"]) == (
+        CORPUS_SIZE + PROGRESS_CORPUS_SIZE + FRACTION_CORPUS_SIZE + len(NAMED_CORPUS_CASES)
+    )
     problems = []
     for case in corpus["cases"]:
         result = schedule(Project.from_dict(case["project"]))

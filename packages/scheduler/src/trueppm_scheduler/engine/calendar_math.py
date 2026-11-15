@@ -446,27 +446,39 @@ def _nth_working_day(anchor: date, n: int, calendar: Calendar, *, forward: bool)
     return date.fromordinal(a + hi_off if forward else a - hi_off)
 
 
+#: Absolute tolerance, in days, within which an elapsed-day product snaps to the
+#: nearest whole day (ADR-0132, #5034): ``1 / ELAPSED_DAY_TOLERANCE_DENOMINATOR``,
+#: i.e. 1e-9. An integer so both engines compare it exactly.
+ELAPSED_DAY_TOLERANCE_DENOMINATOR = 10**9
+
+
 def _elapsed_working_days(duration_days: int, pct: float) -> int:
     """Working days of ``duration_days`` already done at ``pct`` percent (ADR-0132).
 
-    The rule is the *exact* ``floor(duration_days * P / 100)``, where ``P`` is the
-    decimal number ``pct`` prints as: its shortest round-trip representation
-    (``repr``), the digits a user typed or the API serialized. ``pct`` is clamped to
-    ``[0, 100]`` first.
+    The rule, all in exact rational arithmetic: let ``P`` be the decimal ``pct``
+    prints as (its shortest round-trip ``repr``, the digits a user typed or the API
+    serialized), clamped to ``[0, 100]``, and ``x = duration_days * P / 100``. If
+    ``x`` is within ``1e-9`` days of its nearest integer ``k``, elapsed is ``k``;
+    otherwise it is ``floor(x)``. Below 100% the result is then capped at
+    ``duration_days - 1``.
 
     Why the decimal and not the double: ``18.4`` is stored as
-    ``18.39999999999999857...``, so both float math (``int(375 * 18.4 / 100.0)``) and
-    an exact floor of the stored double give 68 elapsed days on a 375-day task where
-    the percentage the user entered means 69 (#5034). Why exact and not a fixed
-    precision: rounding ``pct`` to N places can round a value below 100 up to 100,
-    which would leave an in-progress task with no remaining work; the exact decimal
-    keeps the invariant that any ``pct < 100`` leaves at least one remaining day on a
-    task with a positive duration. The Rust engine reproduces the rule bit for bit
-    (``elapsed_days`` in ``models.rs``) from Rust's shortest float formatting, which
-    yields the same digits as ``repr``.
+    ``18.39999999999999857...``, so float math (``int(375 * 18.4 / 100.0)``) gives
+    68 elapsed days on a 375-day task where the entered percentage means 69 (#5034).
+    Why the tolerance: a percent derived as ``100 * k / n`` (a UI that stores
+    "k of n days done") prints as a repeating decimal cut at 17 digits, such as
+    ``11.11111111111111`` for 1 of 9 days, whose exact product falls a hair short of
+    ``k``; a bare floor would count one day fewer in about half of those cases. A
+    gap of ``1e-9`` days is far below anything a real percentage expresses and far
+    above the ~1e-14 such truncation leaves. Why the cap: snapping can lift a value
+    just below 100% to the whole duration; an in-progress task must keep at least
+    one remaining day (``_shift_remaining_work`` relies on it).
 
-    Integer percents take a pure-integer fast path; the result is identical to the
-    general branch and to the previous float expression for every integer percent.
+    Integer percents take a pure-integer fast path: ``x`` is then a multiple of
+    1/100, so the tolerance never fires and the result is identical to the previous
+    float expression for every integer percent. The Rust engine reproduces the rule
+    bit for bit (``elapsed_days`` in ``models.rs``) from Rust's shortest float
+    formatting, which yields the same digits as ``repr``.
     """
     if pct <= 0 or duration_days <= 0:
         return 0
@@ -475,7 +487,14 @@ def _elapsed_working_days(duration_days: int, pct: float) -> int:
     if pct.is_integer():
         return duration_days * int(pct) // 100
     exact = Fraction(repr(pct))
-    return (duration_days * exact.numerator) // (100 * exact.denominator)
+    denominator = 100 * exact.denominator
+    elapsed, remainder = divmod(duration_days * exact.numerator, denominator)
+    # ``x`` is within the tolerance below ``elapsed + 1``: snap up. Within it above
+    # ``elapsed``, floor and nearest already agree.
+    if remainder and (denominator - remainder) * ELAPSED_DAY_TOLERANCE_DENOMINATOR <= denominator:
+        elapsed += 1
+    # A non-integer ``pct`` is below 100 here: the task is open.
+    return min(elapsed, duration_days - 1)
 
 
 def _effective_duration_days(task: Task) -> int:
@@ -484,7 +503,7 @@ def _effective_duration_days(task: Task) -> int:
     A task that has not started (``percent_complete == 0``) contributes its full
     estimate. An in-progress task contributes only the portion not yet done:
     ``duration - elapsed``, clamped to ``[0, duration]``, where ``elapsed`` is the
-    exact decimal floor of :func:`_elapsed_working_days`. That rule is unambiguous
+    tolerance-snapped exact decimal rule of :func:`_elapsed_working_days`. That rule is unambiguous
     and reproducible across the Python and Rust engines (the conformance contract).
     A completed task (see :func:`_is_complete`) is laid out at its full duration by
     the caller and never routed through this function.

@@ -1174,9 +1174,12 @@ def test_duration_walk_spends_only_working_days(project: Project) -> None:
         duration_days = t.duration.days
         pct = t.percent_complete or 0.0
         if 0 < pct < 100:
-            # The exact decimal floor (#5034), not float math: the widened percent
-            # draw lands on day boundaries where the two differ by a day.
-            duration_days -= math.floor(duration_days * Fraction(repr(pct)) / 100)
+            # The exact decimal rule (#5034), not float math: the widened percent
+            # draw lands on day boundaries where the two differ by a day. Within
+            # 1e-9 days of a whole day it snaps to it; an open task keeps a day.
+            x = duration_days * Fraction(repr(pct)) / 100
+            elapsed = round(x) if abs(x - round(x)) <= Fraction(1, 10**9) else math.floor(x)
+            duration_days -= min(elapsed, duration_days - 1)
         if duration_days <= 0:
             # A milestone (or fully-burned remaining work) is a single pinned day.
             assert t.early_start == t.early_finish, f"{t.id}: zero-duration span is not a point"
