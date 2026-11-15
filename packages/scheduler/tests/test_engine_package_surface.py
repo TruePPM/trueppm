@@ -337,6 +337,7 @@ _ALL_ADDED_IN_05 = (
     "GraphEdge",
     "GraphExport",
     "GraphNode",
+    "MAX_PROJECT_WORK_DAYS",
     "SimulationTimeExceeded",
     "WorkingDayCounter",
     "collect_leaves",
