@@ -169,6 +169,7 @@ class TestWhatIfHappyPath:
         assert body["whatif"]["cpm_finish"] > body["current"]["cpm_finish"]
         assert body["critical_path_changed"] is False
         assert body["runs"] == 100
+        assert body["n_simulations"] == body["runs"]  # #4663
         assert str(long_task.pk) in body["current"]["critical_path"]
 
     def test_new_duration_absolute_form(

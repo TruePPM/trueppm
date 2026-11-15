@@ -538,6 +538,14 @@ class TestEndpoint:
         row = res.json()["results"][0]
         assert (row["cpm_finish"], row["cpm_finish_at_day_start"]) == ("2026-08-10", True)
 
+    def test_n_simulations_mirrors_the_deprecated_mc_iterations(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        # #4663: one concept, one canonical name; the old spelling stays as an alias.
+        ProjectForecastSnapshot.objects.create(project=project, mc_iterations=500)
+        row = member_client.get(url(project.pk)).json()["results"][0]
+        assert row["n_simulations"] == row["mc_iterations"] == 500
+
     def test_empty_returns_empty_results(self, member_client: APIClient, project: Project) -> None:
         res = member_client.get(url(project.pk))
         assert res.status_code == 200

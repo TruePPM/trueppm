@@ -105,6 +105,7 @@ from trueppm_api.apps.scheduling.serializers import (
     FailedTaskSerializer,
     MonteCarloForecastSerializer,
     MonteCarloRunSerializer,
+    MonteCarloSimulateSerializer,
     MonteCarloWhatIfRequestSerializer,
     MonteCarloWhatIfResponseSerializer,
     ProjectForecastSnapshotSerializer,
@@ -627,7 +628,7 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
 
 
 @extend_schema(
-    request=OpenApiTypes.OBJECT,
+    request=MonteCarloSimulateSerializer,
     responses={
         200: OpenApiResponse(
             response=MonteCarloForecastSerializer,
@@ -1041,6 +1042,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     run_at = timezone.now()
     result_dict = {
         **mc_result.to_dict(),
+        # Canonical name for the simulation count (#4663); the library's own `runs`
+        # key stays alongside it as a deprecated alias.
+        "n_simulations": mc_result.runs,
         "cpm_finish": cpm_finish.isoformat() if cpm_finish else None,
         "cpm_finish_at_day_start": cpm_finish_at_day_start,
         "delta_vs_cpm": _mc_deltas_vs_cpm(
@@ -1237,6 +1241,8 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
             return Response(
                 {
                     **cached,
+                    # An entry written before #4663 carries only `runs`.
+                    "n_simulations": cached.get("n_simulations", cached.get("runs")),
                     **risk_premium_for_forecast_payload(
                         cached,
                         today=timezone.localdate(),
@@ -1307,6 +1313,7 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 ),
                 "confidence_curve": dist.get("confidence_curve", []),
                 "runs": latest.n_simulations,
+                "n_simulations": latest.n_simulations,
                 "histogram_buckets": dist.get("histogram_buckets", []),
                 "sensitivity": dist.get("sensitivity", []),
                 # Persisted with the run since #2483, so the "why is this flat"
@@ -1773,6 +1780,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     ),
                 },
                 "runs": n_simulations,
+                "n_simulations": n_simulations,
                 "seed": WHATIF_MC_SEED,
                 # The data dates fed to each engine for both the current and whatif
                 # passes (ADR-0132, floor armed on the CPM path by ADR-0752 §4) —
@@ -2989,6 +2997,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     "delta_vs_cpm_days": (cached.get("delta_vs_cpm") or {}).get(quantity),
                     "drivers": cached.get("sensitivity", []),
                     "runs": cached.get("runs"),
+                    "n_simulations": cached.get("n_simulations", cached.get("runs")),
                     "last_run_at": cached.get("last_run_at"),
                     **forecast_staleness_for_payload(
                         cached,
@@ -3024,6 +3033,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                 # finish — the honest "why" behind a probabilistic date.
                 "drivers": dist.get("sensitivity", []),
                 "runs": latest.n_simulations,
+                "n_simulations": latest.n_simulations,
                 "last_run_at": latest.taken_at.isoformat(),
                 **forecast_staleness_from_run(
                     latest,

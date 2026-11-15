@@ -457,6 +457,22 @@ Also deprecated, outside those four: `detail` and `cycle` on the `cyclic_depende
 (#3800) are replaced by `code` and `offending`. No removal date is set; it was announced
 as "one minor".
 
+### Simulation count published as `n_simulations` (#4663)
+
+The Monte Carlo simulation count shipped under three names. `n_simulations` is now the
+one canonical name (it matches the request parameter and the `MonteCarloRun` column), and
+the two older spellings are `deprecated: true` in the OpenAPI schema and carry the same
+value. The scheduler library's `monte_carlo(runs=...)` argument is the library's own API
+and is unchanged.
+
+| Element | Replacement | Removal |
+|---------|-------------|---------|
+| `runs` on the Monte Carlo forecast (`POST` and `GET .../monte-carlo/`, `.../latest/`), the what-if response, and the percentile derivation | `n_simulations` | no date set; announced as "a later minor" |
+| `mc_iterations` on forecast snapshots (`GET .../forecast-snapshots/`) | `n_simulations` | no date set; announced as "a later minor" |
+
+`POST .../monte-carlo/` now declares its request body (`n_simulations`, optional) instead
+of a free-form object. That is documentation of what the endpoint already accepted.
+
 ### Timer and timesheet-submit paths published with a trailing slash (#3792)
 
 `POST /api/v1/me/timer/start`, `POST /api/v1/me/timer/stop` and

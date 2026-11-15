@@ -304,6 +304,28 @@ class TestScheduleDerivationResponseSchema:
 
         declared = set(ScheduleMonteCarloDerivationSerializer().fields)
         assert set(data.keys()) == declared
+        assert data["n_simulations"] == data["runs"]  # #4663
+
+
+class TestMonteCarloSimulationCountSchema:
+    def test_post_body_is_a_named_component_and_old_names_are_deprecated(self) -> None:
+        """#4663: POST /monte-carlo/ publishes n_simulations; `runs` is a deprecated alias."""
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        comps = schema["components"]["schemas"]
+        body = schema["paths"]["/api/v1/projects/{id}/monte-carlo/"]["post"]["requestBody"]
+        ref = body["content"]["application/json"]["schema"]["$ref"]
+        assert "n_simulations" in comps[ref.rsplit("/", 1)[1]]["properties"]
+        for name in (
+            "MonteCarloForecast",
+            "MonteCarloWhatIfResponse",
+            "ScheduleMonteCarloDerivation",
+        ):
+            props = comps[name]["properties"]
+            assert "n_simulations" in props and props["runs"]["deprecated"] is True
+        snap = comps["ProjectForecastSnapshot"]["properties"]
+        assert "n_simulations" in snap and snap["mc_iterations"]["deprecated"] is True
 
 
 class TestScheduleDerivationTaskIdContract:

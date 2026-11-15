@@ -89,6 +89,8 @@ class TestMonteCarloEndpoint:
         assert "p80" in r.data
         assert "p95" in r.data
         assert r.data["runs"] == 100
+        # #4663: canonical name alongside the deprecated `runs` alias.
+        assert r.data["n_simulations"] == 100
 
     def test_response_includes_sensitivity_tornado(
         self,

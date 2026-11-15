@@ -23205,20 +23205,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/MonteCarloSimulateRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/MonteCarloSimulateRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "$ref": "#/components/schemas/MonteCarloSimulateRequest"
                             }
                         }
                     }
@@ -66648,8 +66645,14 @@
                     "project_id": {
                         "type": "string"
                     },
+                    "n_simulations": {
+                        "type": "integer",
+                        "description": "Number of Monte Carlo simulations the result was computed from."
+                    },
                     "runs": {
-                        "type": "integer"
+                        "type": "integer",
+                        "deprecated": true,
+                        "description": "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later minor release."
                     },
                     "p50": {
                         "type": "string",
@@ -66781,6 +66784,7 @@
                     "forecast_staleness",
                     "histogram_buckets",
                     "last_run_at",
+                    "n_simulations",
                     "p50",
                     "p50_at_day_start",
                     "p80",
@@ -67068,6 +67072,17 @@
                     "task_id"
                 ]
             },
+            "MonteCarloSimulateRequest": {
+                "type": "object",
+                "description": "Request body of ``POST /projects/{id}/monte-carlo/`` (schema only).\n\nThe view reads and validates the body by hand (cap admission needs the project's\ntask count), so this serializer exists to publish the one accepted input rather\nthan to validate it.",
+                "properties": {
+                    "n_simulations": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Number of simulations. Omitted: the largest count this project's size admits. An explicit value is honored exactly or refused with a 4xx cap error."
+                    }
+                }
+            },
             "MonteCarloWhatIfApplied": {
                 "type": "object",
                 "description": "The resolved perturbation the what-if endpoint applied to the target task (#993).",
@@ -67199,8 +67214,14 @@
                     "delta_vs_current": {
                         "$ref": "#/components/schemas/MonteCarloWhatIfDelta"
                     },
+                    "n_simulations": {
+                        "type": "integer",
+                        "description": "Number of Monte Carlo simulations the result was computed from."
+                    },
                     "runs": {
-                        "type": "integer"
+                        "type": "integer",
+                        "deprecated": true,
+                        "description": "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later minor release."
                     },
                     "seed": {
                         "type": "integer",
@@ -67222,6 +67243,7 @@
                     "current",
                     "delta_vs_current",
                     "mc_status_date",
+                    "n_simulations",
                     "runs",
                     "seed",
                     "task_id",
@@ -76640,8 +76662,16 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "n_simulations": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Number of Monte Carlo simulations the result was computed from. Null when no simulation had run."
+                    },
                     "mc_iterations": {
                         "type": "integer",
+                        "deprecated": true,
+                        "description": "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later minor release.",
                         "readOnly": true,
                         "nullable": true
                     },
@@ -76664,6 +76694,7 @@
                     "mc_p50_finish",
                     "mc_p80_finish",
                     "mc_p95_finish",
+                    "n_simulations",
                     "task_count",
                     "total_float_days",
                     "triggered_by"
@@ -81155,8 +81186,14 @@
                             "$ref": "#/components/schemas/MonteCarloSensitivity"
                         }
                     },
+                    "n_simulations": {
+                        "type": "integer",
+                        "description": "Number of Monte Carlo simulations the result was computed from."
+                    },
                     "runs": {
-                        "type": "integer"
+                        "type": "integer",
+                        "deprecated": true,
+                        "description": "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later minor release."
                     },
                     "last_run_at": {
                         "type": "string",
@@ -81173,6 +81210,7 @@
                     "drivers",
                     "forecast_staleness",
                     "last_run_at",
+                    "n_simulations",
                     "pass",
                     "plan_version",
                     "plan_version_current",

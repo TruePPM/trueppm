@@ -32,6 +32,46 @@ from trueppm_api.apps.scheduling.services import (
     FORECAST_NO_VELOCITY_HISTORY,
 )
 
+_SIMULATION_COUNT_HELP = "Number of Monte Carlo simulations the result was computed from."
+
+
+@extend_schema_field(
+    {
+        "type": "integer",
+        "deprecated": True,
+        "description": (
+            "Deprecated alias of `n_simulations` (#4663); same value. Removed in a later "
+            "minor release."
+        ),
+    }
+)
+class DeprecatedSimulationCountField(serializers.IntegerField):
+    """The pre-#4663 spelling of ``n_simulations`` (``runs`` / ``mc_iterations``).
+
+    One concept shipped under three names; ``n_simulations`` is canonical because it
+    matches the ``MonteCarloRun`` column and the request parameter. The old names stay
+    for a deprecation window so published clients keep working, and the schema marks
+    them ``deprecated`` so a generated client can warn.
+    """
+
+
+class MonteCarloSimulateSerializer(serializers.Serializer[dict[str, Any]]):
+    """Request body of ``POST /projects/{id}/monte-carlo/`` (schema only).
+
+    The view reads and validates the body by hand (cap admission needs the project's
+    task count), so this serializer exists to publish the one accepted input rather
+    than to validate it.
+    """
+
+    n_simulations = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text=(
+            "Number of simulations. Omitted: the largest count this project's size admits. "
+            "An explicit value is honored exactly or refused with a 4xx cap error."
+        ),
+    )
+
 
 class MonteCarloWhatIfRequestSerializer(serializers.Serializer[dict[str, Any]]):
     """Validate the non-mutating Monte Carlo what-if query (#993).
@@ -299,7 +339,8 @@ class ScheduleMonteCarloDerivationSerializer(ForecastStalenessFieldsSerializer):
         help_text=f"The percentile minus the deterministic CPM finish. {_WORKING_TIME_DELTA_HELP}",
     )
     drivers = MonteCarloSensitivitySerializer(many=True)
-    runs = serializers.IntegerField()
+    n_simulations = serializers.IntegerField(help_text=_SIMULATION_COUNT_HELP)
+    runs = DeprecatedSimulationCountField()
     last_run_at = serializers.DateTimeField()
 
 
@@ -338,7 +379,8 @@ class MonteCarloForecastSerializer(
     """
 
     project_id = serializers.CharField()
-    runs = serializers.IntegerField()
+    n_simulations = serializers.IntegerField(help_text=_SIMULATION_COUNT_HELP)
+    runs = DeprecatedSimulationCountField()
     # Nullable: a project with no committed tasks yields no distribution to
     # anchor the percentiles on (mirrors MonteCarloRun.p50/p80/p95).
     p50 = serializers.DateField(allow_null=True)
@@ -480,7 +522,8 @@ class MonteCarloWhatIfResponseSerializer(serializers.Serializer[dict[str, Any]])
     whatif = MonteCarloWhatIfLegSerializer()
     critical_path_changed = serializers.BooleanField()
     delta_vs_current = MonteCarloWhatIfDeltaSerializer()
-    runs = serializers.IntegerField()
+    n_simulations = serializers.IntegerField(help_text=_SIMULATION_COUNT_HELP)
+    runs = DeprecatedSimulationCountField()
     seed = serializers.IntegerField(
         help_text="Fixed RNG seed shared by both runs so the delta isolates the perturbation."
     )
@@ -512,6 +555,14 @@ class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForec
         ),
     )
 
+    n_simulations = serializers.IntegerField(
+        source="mc_iterations",
+        read_only=True,
+        allow_null=True,
+        help_text=_SIMULATION_COUNT_HELP + " Null when no simulation had run.",
+    )
+    mc_iterations = DeprecatedSimulationCountField(read_only=True, allow_null=True)
+
     class Meta:
         model = ProjectForecastSnapshot
         fields = [
@@ -524,6 +575,7 @@ class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForec
             "mc_p50_finish",
             "mc_p80_finish",
             "mc_p95_finish",
+            "n_simulations",
             "mc_iterations",
             "task_count",
             "completed_task_count",
