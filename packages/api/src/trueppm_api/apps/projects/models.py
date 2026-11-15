@@ -394,7 +394,7 @@ class VersionedModel(models.Model):
                 raise ValueError(
                     f"{type(self).__name__}.save(update_fields={sorted(named_counters)!r}) "
                     "names only server-owned counters, which save() never writes; "
-                    "update them with a queryset .update()."
+                    "write them with a queryset-level .update() call."
                 )
 
         if kwargs.get("force_insert"):
