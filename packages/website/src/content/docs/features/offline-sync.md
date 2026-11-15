@@ -19,7 +19,7 @@ Any project member (Viewer+) may call this endpoint.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `since` | integer | `0` | Opaque cursor from a previous response's `timestamp`. Returns rows changed strictly after it. Use `0` for a full sync. Keep constant for the whole paging session. |
+| `since` | integer | `0` | Opaque cursor from a previous response's `timestamp`. Returns rows changed strictly after it. Use `0` for a full sync. Keep constant for the whole paging session. Must be between `0` and `2^63 - 1`; anything else, including a value past that range, is a `400`. |
 | `cursor` | string | — | Opaque continuation token for the next page. Omit on the first request; pass the previous response's `next_cursor` on each subsequent one. |
 | `page_size` | integer | `TRUEPPM_SYNC_PULL_PAGE_SIZE` (1000) | Maximum rows returned across all collections in one page. Clamped to `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE` (5000). |
 

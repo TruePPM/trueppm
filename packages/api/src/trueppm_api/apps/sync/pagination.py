@@ -58,7 +58,7 @@ import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db.models import F
 from django.db.models.fields.tuple_lookups import TupleGreaterThan
@@ -71,6 +71,30 @@ if TYPE_CHECKING:
 # base queryset already carries the project scope, the ``<version_field>__gt=since``
 # floor, and any RBAC/visibility filters (retro visibility, per-user time entries).
 SyncSource = tuple[str, "QuerySet[Any]", Any]
+
+#: Largest value a cursor component may take: the ceiling of the signed 64-bit
+#: ``BigIntegerField`` the ``sync_seq`` columns it is compared against are stored
+#: in. A larger literal reaches PostgreSQL as an out-of-range ``bigint`` and the
+#: driver error surfaces as a 500, so it is rejected here as a 400 instead (#2514).
+#: Nothing legitimate is refused: no sequence can ever exceed its own column.
+MAX_SYNC_CURSOR_VALUE = 2**63 - 1
+
+
+def parse_since(raw: object) -> int:
+    """Validate a client-supplied ``since`` query parameter (both sync pulls).
+
+    ``since`` must be an integer in ``[0, 2**63 - 1]``. Anything else — a
+    non-integer, a negative value, or one past the ``bigint`` range the
+    ``sync_seq__gt=since`` filter is evaluated in — is a 400, never a 500.
+    """
+    try:
+        since = int(cast("str", raw))
+    except (ValueError, TypeError) as err:
+        raise ValidationError({"since": "Must be a non-negative integer."}) from err
+    if not 0 <= since <= MAX_SYNC_CURSOR_VALUE:
+        raise ValidationError({"since": "Must be a non-negative integer."})
+    return since
+
 
 # Callable that splits a materialized row list into WatermelonDB
 # created/updated/deleted buckets (``ProjectSyncView._collect``).
@@ -146,10 +170,12 @@ class SyncCursor:
             UnicodeDecodeError,
         ) as err:
             raise ValidationError({"cursor": "Malformed pagination cursor."}) from err
+        # Magnitude as well as sign (#2514): ``v`` and ``w`` are compared against a
+        # ``bigint`` column, and a value past its range is a driver error (500).
         if (
-            index < 0
-            or version < 0
-            or watermark < 0
+            not 0 <= index <= MAX_SYNC_CURSOR_VALUE
+            or not 0 <= version <= MAX_SYNC_CURSOR_VALUE
+            or not 0 <= watermark <= MAX_SYNC_CURSOR_VALUE
             or (row_id is not None and not isinstance(row_id, str))
         ):
             raise ValidationError({"cursor": "Malformed pagination cursor."})

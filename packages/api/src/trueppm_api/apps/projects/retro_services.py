@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -326,10 +327,28 @@ def reset_promoted_task_on_delete(task_id: str) -> None:
     Wired to the ``Task`` post_delete (or post_save when ``is_deleted=True``)
     signal so a re-deleted Task automatically frees the originating action
     item to be re-promoted. ADR-0071 §2 rollback.
+
+    ``retro_action_items`` is a sync delta collection, and a bulk ``.update()``
+    runs no ``save()`` — so the cleared link has to carry a fresh cursor and
+    version itself, or an offline client keeps showing the item as promoted to a
+    task that no longer exists (#2514). The cursor is drawn *before* the item
+    UPDATE, keeping the global retro lock order: project row, then items (#4628).
     """
     from trueppm_api.apps.projects.models import RetroActionItem
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
 
-    updated = RetroActionItem.objects.filter(promoted_task_id=task_id).update(promoted_task_id=None)
+    linked = RetroActionItem.objects.filter(promoted_task_id=task_id)
+    project_ids = list(
+        linked.order_by().values_list("retro__sprint__project_id", flat=True).distinct()
+    )
+    if not project_ids:
+        return
+    seq = allocate_for_projects(project_ids)
+    updated = linked.update(
+        promoted_task_id=None,
+        server_version=F("server_version") + 1,
+        sync_seq=seq,
+    )
     if updated:
         logger.info(
             "reset_promoted_task_on_delete: freed %s action items linked to task %s",

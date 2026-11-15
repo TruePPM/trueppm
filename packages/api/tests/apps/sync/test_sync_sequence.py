@@ -315,3 +315,62 @@ def test_repointing_a_project_calendar_delivers_the_new_one(project: Project) ->
 
     assert _seq(replacement) > since
     assert _seq(replacement) <= _watermark(project)
+
+
+# ---------------------------------------------------------------------------
+# ``update_fields`` naming only server-owned counters (#2514)
+# ---------------------------------------------------------------------------
+
+
+def _sprint(project: Project) -> Sprint:
+    return Sprint.objects.create(
+        project=project, name="S", start_date=date(2026, 1, 1), finish_date=date(2026, 1, 14)
+    )
+
+
+@pytest.mark.django_db
+def test_touch_save_on_server_owned_fields_is_delivered(project: Project) -> None:
+    """``save(update_fields=["server_version"])`` must persist the cursor it draws.
+
+    It is the "touch" idiom used to announce an M2M change on the parent row. The
+    filtered list empties, Django skips the UPDATE, and before #2514 the cursor
+    drawn for the touch was dropped with it: the version moved and the row never
+    reached the delta pull. (``Task.save`` widens the list with ``edited_at``, so
+    a non-task synced row is what exercises the empty branch.)
+    """
+    sprint = _sprint(project)
+    sprint.refresh_from_db()
+    version = sprint.server_version
+    since = _watermark(project)
+
+    sprint.save(update_fields=["server_version"])
+
+    sprint.refresh_from_db()
+    assert sprint.server_version == version + 1
+    assert _seq(sprint) > since
+    assert _seq(sprint) <= _watermark(project)
+    assert list(Sprint.objects.filter(project=project, sync_seq__gt=since)) == [sprint]
+
+
+@pytest.mark.django_db
+def test_touch_save_on_last_sync_version_is_delivered(project: Project) -> None:
+    """The issue's own example: only ``last_sync_version`` is named."""
+    since = _watermark(project)
+    project.save(update_fields=["last_sync_version"])
+    assert _seq(project) > since
+    assert _seq(project) <= _watermark(project)
+
+
+@pytest.mark.django_db
+def test_empty_update_fields_moves_no_counter(project: Project) -> None:
+    """``update_fields=[]`` is Django's documented no-op: no version, no cursor."""
+    sprint = _sprint(project)
+    sprint.refresh_from_db()
+    version, seq, head = sprint.server_version, _seq(sprint), _watermark(project)
+
+    sprint.save(update_fields=[])
+
+    sprint.refresh_from_db()
+    assert sprint.server_version == version
+    assert _seq(sprint) == seq
+    assert _watermark(project) == head

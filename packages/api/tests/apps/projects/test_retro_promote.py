@@ -239,6 +239,55 @@ def test_soft_delete_promoted_task_resets_promoted_task_id(
     assert item.promoted_task_id is None
 
 
+@pytest.mark.django_db
+def test_cleared_promoted_link_is_delivered_on_next_delta_pull(
+    project: Project, member: object
+) -> None:
+    """#2514: the bulk ``.update()`` that clears the link must carry a cursor.
+
+    Without one the item keeps a ``sync_seq`` at or below the client's checkpoint,
+    so the next delta pull never returns it and an offline client keeps showing the
+    action item as promoted to a task that no longer exists.
+    """
+    sprint, _, item = _retro_with_item(project)
+    client = _client(member)
+    client.post(
+        f"/api/v1/sprints/{sprint.pk}/retrospective/action-items/{item.pk}/promote/",
+        {},
+        format="json",
+    )
+    item.refresh_from_db()
+    task = Task.objects.get(pk=item.promoted_task_id)
+    version_before = item.server_version
+    since = client.get(f"/api/v1/projects/{project.pk}/sync/").json()["timestamp"]
+
+    task.soft_delete()
+
+    item.refresh_from_db()
+    assert item.server_version == version_before + 1
+    changes = client.get(f"/api/v1/projects/{project.pk}/sync/?since={since}").json()["changes"]
+    delivered = {
+        row["id"]: row
+        for bucket in ("created", "updated")
+        for row in changes["retro_action_items"][bucket]
+    }
+    assert str(item.pk) in delivered
+    assert delivered[str(item.pk)]["promoted_task_id"] is None
+
+
+@pytest.mark.django_db
+def test_soft_delete_of_unpromoted_task_draws_no_retro_cursor(
+    project: Project, member: object
+) -> None:
+    """No linked item → no allocation: an ordinary task delete stays one cursor draw."""
+    task = Task.objects.create(project=project, name="plain", duration=1)
+    with patch("trueppm_api.apps.sync.sequence.allocate_for_projects") as allocate:
+        from trueppm_api.apps.projects.retro_services import reset_promoted_task_on_delete
+
+        reset_promoted_task_on_delete(str(task.pk))
+    allocate.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Pull-to-sprint — SCHEDULER+ only
 # ---------------------------------------------------------------------------

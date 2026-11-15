@@ -165,6 +165,12 @@ def test_negative_since_rejected(authed_client: APIClient) -> None:
 
 
 @pytest.mark.django_db
+def test_out_of_range_since_rejected(authed_client: APIClient) -> None:
+    """#2514: past the bigint range is a 400, not a driver-error 500."""
+    assert authed_client.get(f"{URL}?since={10**30}").status_code == 400
+
+
+@pytest.mark.django_db
 def test_malformed_cursor_rejected(authed_client: APIClient) -> None:
     assert authed_client.get(f"{URL}?cursor=not-base64!!").status_code == 400
 

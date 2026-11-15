@@ -45,7 +45,12 @@ from trueppm_api.apps.projects.models import (
     TaskRelation,
     TaskSuggestedAssignee,
 )
-from trueppm_api.apps.sync.pagination import SyncCursor, SyncSource, paginate_changes
+from trueppm_api.apps.sync.pagination import (
+    SyncCursor,
+    SyncSource,
+    paginate_changes,
+    parse_since,
+)
 from trueppm_api.apps.sync.serializers import (
     SyncCalendarSerializer,
     SyncDependencySerializer,
@@ -245,13 +250,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
     )
     def get(self, request: Request, pk: str) -> Response:
         # Validate `since` parameter.
-        since_raw = request.query_params.get("since", "0")
-        try:
-            since = int(since_raw)
-            if since < 0:
-                raise ValueError
-        except (ValueError, TypeError) as err:
-            raise ValidationError({"since": "Must be a non-negative integer."}) from err
+        since = parse_since(request.query_params.get("since", "0"))
 
         # Validate the optional continuation cursor and page size (#1013).
         cursor_raw = request.query_params.get("cursor")
@@ -912,13 +911,7 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
     )
     def get(self, request: Request) -> Response:
         # Validate `since` — identical contract to ProjectSyncView.
-        since_raw = request.query_params.get("since", "0")
-        try:
-            since = int(since_raw)
-            if since < 0:
-                raise ValueError
-        except (ValueError, TypeError) as err:
-            raise ValidationError({"since": "Must be a non-negative integer."}) from err
+        since = parse_since(request.query_params.get("since", "0"))
 
         cursor_raw = request.query_params.get("cursor")
         cursor = SyncCursor.decode(cursor_raw) if cursor_raw else None

@@ -374,6 +374,14 @@ class VersionedModel(models.Model):
         if known_exists is None:
             known_exists = getattr(self, "_sync_known_exists", None)
 
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = list(kwargs["update_fields"])
+            if not kwargs["update_fields"]:
+                # Django documents ``update_fields=[]`` as a no-op save. Honor it
+                # *before* the counters move: otherwise the version and the cursor
+                # would advance for a write that never happens (#2514).
+                return
+
         if kwargs.get("force_insert"):
             # Django/DRF ``create()`` always passes ``force_insert=True`` — this is
             # unambiguously an INSERT, so never spend a query probing for a row that
@@ -401,6 +409,19 @@ class VersionedModel(models.Model):
                 # cursor, leaving the row invisible to the delta pull (ADR-0686).
                 if fields and "sync_seq" not in fields:
                     fields.append("sync_seq")
+                if not fields:
+                    # The caller named only server-owned counters — the "touch"
+                    # idiom ``save(update_fields=["server_version"])`` used to
+                    # announce an M2M change on the parent row (``Task.save``
+                    # widens it with ``edited_at``, so tasks never reach here). The
+                    # version bump above already landed, but an empty list makes
+                    # Django skip the UPDATE, which silently dropped the cursor just
+                    # drawn: on a synced row the touch moved ``server_version`` and
+                    # never reached the delta pull (#2514). Persist the cursor with
+                    # a plain UPDATE so the touch is delivered, and keep Django's
+                    # no-op for the rest — no signals, no history row, exactly as
+                    # the touch behaved before.
+                    type(self)._base_manager.filter(pk=self.pk).update(sync_seq=self.sync_seq)
                 kwargs["update_fields"] = fields
             else:
                 kwargs["update_fields"] = [
