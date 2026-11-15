@@ -165,6 +165,14 @@ change between releases. Pin an exact version (e.g.
   diamond `children_map` whose summed products pass the limit can be refused where
   it was previously accepted; forest-shaped WBS maps are unaffected.
 
+- **`GraphExport` loading is bounded
+  ([#5016](https://gitlab.com/trueppm/trueppm/-/issues/5016)).** The duplicate-id
+  check is linear (a 40,000-node document took 10 s to refuse), `from_dict` refuses
+  more than `MAX_DEPENDENCIES` nodes or edges before parsing any, and `from_json`
+  raises `InvalidScheduleInput` for deeply nested JSON instead of `RecursionError`.
+  The loader also now refuses a float `format_version`, duplicate JSON keys, and
+  keys the format does not define.
+
 - **A closed milestone whose `actual_start` and `actual_finish` differ is now
   shown on its `actual_finish` day
   ([#4458](https://gitlab.com/trueppm/trueppm/-/issues/4458)).** Its successors

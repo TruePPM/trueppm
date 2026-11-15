@@ -234,6 +234,17 @@ is not a node, or a result that does not match the project raises
 (`CyclicDependencyError` or `InvalidScheduleInput`, naming the ids); a partial
 graph is never returned.
 
+A result "matches" when its project id and its task ids equal the project's and
+every driving edge in it is still a dependency of the project. The result keeps no
+copy of the dependency list, so a changed lag, or a non-driving link added,
+removed or retyped after scheduling, is not detected: re-run `schedule()` after
+editing a project. Loading is bounded too: `from_dict` and `from_json` refuse more
+than `MAX_DEPENDENCIES` nodes or edges, deeply nested or duplicate-key JSON, a
+`format_version` that is not the integer `1`, and keys the format does not define.
+Node and edge order, a node whose `early_start` follows its `early_finish`, and a
+`project_start` after `project_finish` are accepted: the loader checks structure,
+not schedule plausibility.
+
 ## Mixing agile and waterfall in one schedule
 
 Real programs are rarely pure CPM or pure Scrum. A task can opt into
@@ -599,7 +610,7 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_LAG_DAYS` | `36525` | A single dependency's lag, either direction |
 | `MAX_PROJECT_SPAN_DAYS` | `366000` | Cumulative span in 0.4: every task's worst-case duration plus every lag. From 0.5, longest dependency chain — worst-case task durations plus lags along it plus the furthest pin, data date or actual (~1000 years; see Project span above) |
 | `MAX_PROJECT_WORK_DAYS` | `3660000` | From 0.5 (not in 0.4): total work — the sum of every task's worst-case duration plus every lag's magnitude, parallel or not (10x the span cap; see Project work above) |
-| `MAX_DEPENDENCIES` | `100000` | Raw dependency-edge count, before summary expansion |
+| `MAX_DEPENDENCIES` | `100000` | Raw dependency-edge count, before summary expansion; from 0.5 also the node and the edge count `GraphExport.from_dict` / `from_json` accept |
 | `MAX_EXPANDED_EDGES` | `100000` | Leaf-level edges after expanding a summary↔summary dependency |
 | `MAX_CALENDAR_EXCEPTIONS` | `100000` | Exception ranges on one `Calendar` |
 | `MAX_CALENDAR_SCAN_DAYS` | `36600` | Longest run of consecutive non-working days before a calendar is declared degenerate |
