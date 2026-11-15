@@ -28,12 +28,14 @@ limits are read only under their bare names.
 :::
 
 New TruePPM-specific settings are read as `TRUEPPM_<NAME>`. Bare names are reserved for
-Django and 12-factor conventions (`SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`,
-`CSRF_TRUSTED_ORIGINS`, `DATABASE_URL`, `REDIS_URL`, `EMAIL_*`) and for a short
+Django, 12-factor and OpenTelemetry conventions (`SECRET_KEY`, `ALLOWED_HOSTS`,
+`CSRF_TRUSTED_ORIGINS`, `DATABASE_URL`, `REDIS_URL`, `EMAIL_*`, `DEFAULT_FROM_EMAIL`,
+`DJANGO_LOG_LEVEL`, `STATIC_ROOT`, the standard `OTEL_*` variables, and `SQL_LOG_LEVEL`
+in development) and for a short
 **grandfathered** list of TruePPM settings that shipped bare and have not been renamed
 yet: `MSPROJECT_MAX_UPLOAD_MB`, `SEED_MAX_UPLOAD_MB`, `IMPORT_MAX_RESOURCES_CREATED`,
 `RETENTION_PURGE_INFLIGHT_SECONDS`, `SIGNAL_CEILING_PROPOSAL_TTL_HOURS`,
-`CSP_CONNECT_SRC` and `JWT_SIGNING_KEY`. Those will gain the `TRUEPPM_` prefix with the
+`CSP_CONNECT_SRC`, `JWT_SIGNING_KEY` and `INTEGRATION_ENCRYPTION_KEY`. Those will gain the `TRUEPPM_` prefix with the
 same legacy fallback described below; until then, set them under the bare name.
 
 Settings that shipped under a bare name keep working as a **deprecated fallback**, with

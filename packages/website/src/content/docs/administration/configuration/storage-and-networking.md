@@ -200,7 +200,7 @@ an `Access-Control-Allow-Origin` header. Without that header the browser blocks
 every cross-origin XHR and every cross-origin WebSocket upgrade the SPA attempts,
 before any of TruePPM's own configuration is consulted.
 
-`CSRF_TRUSTED_ORIGINS`, `AUTH_REFRESH_COOKIE_SAMESITE`, and `CSP_CONNECT_SRC`
+`CSRF_TRUSTED_ORIGINS`, `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE`, and `CSP_CONNECT_SRC`
 govern CSRF token validation, cookie scope, and Content-Security-Policy — three
 different layers, none of them CORS. Relaxing them weakens the install and
 changes nothing about the block.
@@ -232,4 +232,4 @@ settings remain useful for narrower cases on a single-origin deploy:
 | `CSRF_TRUSTED_ORIGINS` | A proxy in front of TruePPM rewrites the `Origin` or `Referer` header, so Django's CSRF check sees an origin that is not the one it served. Add the origin the browser actually sends. |
 | `CSP_CONNECT_SRC` | The page must open connections to something other than TruePPM — an analytics endpoint, or an object store you serve attachment downloads from directly. Add that origin; do not remove `'self'`. |
 | `TRUEPPM_WS_ALLOWED_ORIGINS` | A proxy in front of TruePPM rewrites the `Host` or `Origin` the API sees, so the WebSocket handshake Origin check fails and sockets close with `1006` (0.5 and later). Add the origin the browser actually sends. |
-| `AUTH_REFRESH_COOKIE_SAMESITE` | You embed TruePPM in an iframe on another site, where `SameSite=Strict` suppresses the refresh cookie. `None` requires `Secure`, which is already enforced, **and** the `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE_NONE_ACK` sentinel (0.4) or it is refused at boot. Note the default CSP sets `frame-ancestors 'none'`, so framing needs that changed too. **Relaxing this setting does not relax the refresh/logout endpoints' independent `Sec-Fetch-Site` / `Origin` check (0.4)** — a cross-site `Sec-Fetch-Site`, or an `Origin` matching neither same-origin nor `CSRF_TRUSTED_ORIGINS`, is still rejected regardless of `SameSite`. A request with neither header (the mobile app, a non-browser API client) is unaffected either way. |
+| `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE` | You embed TruePPM in an iframe on another site, where `SameSite=Strict` suppresses the refresh cookie. `None` requires `Secure`, which is already enforced, **and** the `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE_NONE_ACK` sentinel (0.4) or it is refused at boot. Note the default CSP sets `frame-ancestors 'none'`, so framing needs that changed too. **Relaxing this setting does not relax the refresh/logout endpoints' independent `Sec-Fetch-Site` / `Origin` check (0.4)** — a cross-site `Sec-Fetch-Site`, or an `Origin` matching neither same-origin nor `CSRF_TRUSTED_ORIGINS`, is still rejected regardless of `SameSite`. A request with neither header (the mobile app, a non-browser API client) is unaffected either way. |

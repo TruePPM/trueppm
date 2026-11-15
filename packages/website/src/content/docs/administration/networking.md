@@ -58,7 +58,7 @@ work**. TruePPM ships no CORS support — there is no `django-cors-headers`
 dependency and no `CORS_*` setting, so Django never emits an
 `Access-Control-Allow-Origin` header and the browser blocks every cross-origin
 XHR and WebSocket upgrade from the SPA. `CSRF_TRUSTED_ORIGINS`,
-`CSP_CONNECT_SRC`, and `AUTH_REFRESH_COOKIE_SAMESITE` address CSRF, CSP, and
+`CSP_CONNECT_SRC`, and `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE` address CSRF, CSP, and
 cookie scope — three different layers, none of them CORS — so relaxing them
 changes nothing about the block. Use one hostname.
 

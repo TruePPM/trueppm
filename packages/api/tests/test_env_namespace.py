@@ -258,8 +258,86 @@ _GRANDFATHERED_BARE = frozenset(
         "SIGNAL_CEILING_PROPOSAL_TTL_HOURS",
         "CSP_CONNECT_SRC",
         "JWT_SIGNING_KEY",
+        "INTEGRATION_ENCRYPTION_KEY",
     }
 )
+
+# Bare names that are legitimately unprefixed: Django / 12-factor / OpenTelemetry
+# conventions. Anything else read bare must be in _GRANDFATHERED_BARE.
+_CONVENTION_BARE_EXACT = frozenset(
+    {
+        "SECRET_KEY",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "ALLOWED_HOSTS",
+        "CSRF_TRUSTED_ORIGINS",
+        "DEFAULT_FROM_EMAIL",
+        "DJANGO_LOG_LEVEL",
+        "STATIC_ROOT",
+        "SQL_LOG_LEVEL",
+        "PYTEST_CURRENT_TEST",
+    }
+)
+_CONVENTION_BARE_PREFIXES = ("EMAIL_", "OTEL_")
+
+
+def _bare_env_reads(source: str) -> set[str]:
+    """Names passed as the first literal arg of ``env*(...)`` without a TRUEPPM_ prefix."""
+    import ast
+
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and node.args):
+            continue
+        func = node.func
+        callee = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if not callee.startswith("env"):
+            continue
+        arg = node.args[0]
+        if (
+            isinstance(arg, ast.Constant)
+            and isinstance(arg.value, str)
+            and not arg.value.startswith("TRUEPPM_")
+        ):
+            names.add(arg.value)
+    return names
+
+
+def _unaccounted(names: set[str]) -> set[str]:
+    return {
+        n
+        for n in names
+        if n not in _CONVENTION_BARE_EXACT
+        and not n.startswith(_CONVENTION_BARE_PREFIXES)
+        and n not in _GRANDFATHERED_BARE
+    }
+
+
+def _settings_sources() -> dict[str, str]:
+    import pathlib
+
+    d = pathlib.Path(base.__file__).parent
+    return {f: (d / f).read_text() for f in ("base.py", "dev.py")}
+
+
+def test_no_new_bare_env_name_in_settings() -> None:
+    # Pairs (``env("TRUEPPM_X", default=env("X"))``) read the legacy name bare on
+    # purpose; those are accepted through ``_PAIRS`` / ``_TWELVE``.
+    migrated = set(_PAIRS) | set(_TWELVE)
+    for fname, src in _settings_sources().items():
+        stray = _unaccounted(_bare_env_reads(src)) - migrated
+        assert not stray, (
+            f"{fname} reads {sorted(stray)} without the TRUEPPM_ prefix: prefix it "
+            "(with env_with_legacy if it shipped bare) or, deliberately, add it to "
+            "_GRANDFATHERED_BARE and the docs"
+        )
+
+
+def test_bare_env_scan_catches_an_injected_new_bare_read() -> None:
+    """Negative control: the scan fails on a fake new bare read in a temp copy."""
+    src = _settings_sources()["base.py"] + '\nBRAND_NEW = env("BRAND_NEW_SETTING", default=1)\n'
+    migrated = set(_PAIRS) | set(_TWELVE)
+    assert _unaccounted(_bare_env_reads(src)) - migrated == {"BRAND_NEW_SETTING"}
 
 
 @pytest.mark.parametrize("name", sorted(_GRANDFATHERED_BARE))
@@ -274,3 +352,54 @@ def test_grandfathered_bare_names_are_read_bare_and_documented(name: str) -> Non
         / "packages/website/src/content/docs/administration/configuration/index.md"
     ).read_text()
     assert f"`{name}`" in docs
+
+
+# --- #4482 test plan: four cases over every converted name -------------------
+
+# name -> (legacy raw, legacy expected, prefixed raw, prefixed expected)
+_FOUR_CASE: dict[str, tuple[str, object, str, object]] = {n: ("7", 7, "9", 9) for n in _TWELVE}
+_FOUR_CASE.update(
+    {
+        "FRONTEND_BASE_URL": (
+            "https://l.example",
+            "https://l.example",
+            "https://p.example",
+            "https://p.example",
+        ),
+        "WORKFLOW_BACKEND": ("l.Backend", "l.Backend", "p.Backend", "p.Backend"),
+        "AUTH_REFRESH_COOKIE_NAME": ("l_cookie", "l_cookie", "p_cookie", "p_cookie"),
+        "AUTH_REFRESH_COOKIE_PATH": ("/l/", "/l/", "/p/", "/p/"),
+        "AUTH_REFRESH_COOKIE_SAMESITE": ("Lax", "Lax", "Strict", "Strict"),
+        "AUTH_REFRESH_COOKIE_SECURE": ("false", False, "true", True),
+    }
+)
+for _n in _PAIRS:
+    if _n not in _FOUR_CASE:
+        _FOUR_CASE[_n] = ("11", 11, "21", 21)
+
+
+@pytest.mark.parametrize(
+    "case", ["prefixed_only", "legacy_only", "both_prefixed_wins", "prefixed_empty"]
+)
+@pytest.mark.parametrize("name", sorted(_FOUR_CASE))
+def test_four_case_precedence(name: str, case: str) -> None:
+    legacy_raw, legacy_exp, pref_raw, pref_exp = _FOUR_CASE[name]
+    with mock.patch.dict(os.environ):
+        os.environ.pop(name, None)
+        os.environ.pop(f"TRUEPPM_{name}", None)
+        if case == "prefixed_only":
+            os.environ[f"TRUEPPM_{name}"] = pref_raw
+            expected = pref_exp
+        elif case == "legacy_only":
+            os.environ[name] = legacy_raw
+            expected = legacy_exp
+        elif case == "both_prefixed_wins":
+            os.environ[name] = legacy_raw
+            os.environ[f"TRUEPPM_{name}"] = pref_raw
+            expected = pref_exp
+        else:
+            os.environ[name] = legacy_raw
+            os.environ[f"TRUEPPM_{name}"] = ""
+            expected = legacy_exp
+        importlib.reload(base)
+        assert getattr(base, name) == expected

@@ -72,7 +72,7 @@ your project.
 Use the export to hand someone a status table. Use a
 [JSON seed](/administration/data-export/) to move the project.
 
-The file is named `tasks-view-<project>.csv` so it is not mistaken for a portable
+The file is named `tasks-view-<project>.csv` (from 0.5; earlier releases name it differently) so it is not mistaken for a portable
 export, and its header spellings (`Duration (days)`, `Progress (%)`) are ones the
 importer already recognizes, so a round trip is *attemptable*; only the committed-versus-
 calculated dates make it lossy. Making the two into genuine counterparts is part of the
@@ -87,7 +87,7 @@ exported from one project imports cleanly into another. See
 Columns: `ID`, `Title`, `Status`, `Category`, `Response`, `P`, `I`, `Severity`,
 `Owner`, `Mitigation Due Date`, `Trigger`, `Contingency`, `Description`.
 
-The export follows the interchange dialect: UTF-8 with no byte-order mark, dates as
+From 0.5 the export follows the interchange dialect (earlier releases, including 0.4, export display labels and `Jun 9, 2026`-style dates): UTF-8 with no byte-order mark, dates as
 ISO `YYYY-MM-DD`, and `Status`, `Category` and `Response` as their stored values
 (`MITIGATING`, `PROJECT_MANAGEMENT`) rather than display labels. The importer still
 accepts the older display labels and `Jun 9, 2026`-style dates, so files exported
@@ -635,9 +635,9 @@ column is mapped to a date field.
 
 | Limit | Default | Setting |
 |---|---|---|
-| Task import upload size | 10 MB | `TRUEPPM_CSV_IMPORT_MAX_UPLOAD_MB` |
-| Task import data rows | 5 000 | `TRUEPPM_CSV_IMPORT_MAX_ROWS` |
-| Task import `.xlsx` uncompressed size | 100 MB | `TRUEPPM_CSV_IMPORT_MAX_UNCOMPRESSED_MB` |
+| Task import upload size | 10 MB | `TRUEPPM_CSV_IMPORT_MAX_UPLOAD_MB` (0.4: `CSV_IMPORT_MAX_UPLOAD_MB`) |
+| Task import data rows | 5 000 | `TRUEPPM_CSV_IMPORT_MAX_ROWS` (0.4: `CSV_IMPORT_MAX_ROWS`) |
+| Task import `.xlsx` uncompressed size | 100 MB | `TRUEPPM_CSV_IMPORT_MAX_UNCOMPRESSED_MB` (0.4: `CSV_IMPORT_MAX_UNCOMPRESSED_MB`) |
 | Risk import upload size | 2 MB | — |
 | Risk import data rows | 500 | — |
 | Characters in a single cell (task and risk import) | 131 072 | — |
@@ -651,7 +651,7 @@ than partially imported. See
 for operator configuration.
 
 :::note[Ships in 0.5]
-The per-cell and WBS-code limits in this table ship in 0.5. From then, a cell over
+The `TRUEPPM_`-prefixed task-import setting names and the per-cell and WBS-code limits in this table ship in 0.5; 0.4 reads the three task-import settings without the prefix. From then, a cell over
 the limit is **rejected with a 400** that names the limit, rather than failing with a
 server error, and a WBS code over its limits is ignored with a warning and the task
 placed at the top level. Until then, the current release fails the import with a

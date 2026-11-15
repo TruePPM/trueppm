@@ -29,11 +29,13 @@ env = environ.Env()
 # Env-var naming rule (#3791): every NEW TruePPM-invented operator setting is read
 # as ``TRUEPPM_<NAME>``. Bare names are reserved for Django / 12-factor conventions
 # (``ALLOWED_HOSTS``, ``CSRF_TRUSTED_ORIGINS``, ``DATABASE_URL``, ``EMAIL_*``,
-# ``REDIS_URL``, ``SECRET_KEY``, ``DEBUG``) and for a fixed grandfathered list of
-# TruePPM names that shipped bare and have not been migrated yet:
+# ``DEFAULT_FROM_EMAIL``, ``REDIS_URL``, ``SECRET_KEY``, ``DJANGO_LOG_LEVEL``,
+# ``STATIC_ROOT``, the standard ``OTEL_*`` variables, and ``SQL_LOG_LEVEL`` in dev.py) and for a
+# fixed grandfathered list of TruePPM names that shipped bare and have not been migrated yet:
 # ``MSPROJECT_MAX_UPLOAD_MB``, ``SEED_MAX_UPLOAD_MB``, ``IMPORT_MAX_RESOURCES_CREATED``,
 # ``RETENTION_PURGE_INFLIGHT_SECONDS``, ``SIGNAL_CEILING_PROPOSAL_TTL_HOURS``,
-# ``CSP_CONNECT_SRC``, ``JWT_SIGNING_KEY``. They will gain the prefix with the same
+# ``CSP_CONNECT_SRC``, ``JWT_SIGNING_KEY``,
+# ``INTEGRATION_ENCRYPTION_KEY``. They will gain the prefix with the same
 # legacy fallback; ``tests/test_env_namespace.py`` pins the list so it only changes
 # deliberately. A setting that shipped bare and HAS been migrated keeps working as a
 # deprecated fallback through ``env_with_legacy`` (one precedence rule, one-time

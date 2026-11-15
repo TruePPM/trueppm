@@ -133,7 +133,7 @@ TruePPM must be served from a **single hostname** — the SPA, the API, and the
 WebSocket endpoint routed by path on one origin. There is no CORS support in the
 codebase (no `django-cors-headers`, no `CORS_*` setting), so a browser blocks
 every cross-origin request from a SPA served elsewhere, and no combination of
-`CSRF_TRUSTED_ORIGINS`, `AUTH_REFRESH_COOKIE_SAMESITE`, or `CSP_CONNECT_SRC`
+`CSRF_TRUSTED_ORIGINS`, `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE`, or `CSP_CONNECT_SRC`
 changes that. The secure defaults — `SameSite=Strict` on the refresh cookie and
 `connect-src 'self' wss:` — are correct as shipped for that topology and need no
 relaxing. See [Split-origin deploys](/administration/configuration/storage-and-networking/#split-origin-deploys)
