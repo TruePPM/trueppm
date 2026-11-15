@@ -27,8 +27,9 @@
 //!   bitset: at one byte per task it is ~5 KB for 5k tasks (negligible) and needs
 //!   no bit-unpacking on the JS side.
 //! - `node_indices` — the dense node position of each row. For a full recalc this
-//!   is `0..N`; for the downstream-only (incremental) recalc it is the subset of
-//!   nodes reachable from the dragged task — i.e. this array *is* the delta-emit.
+//!   is `0..N`; for the incremental recalc it is the nodes reachable from the
+//!   dragged task plus every node whose output moved relative to the input
+//!   project (#4101) — i.e. this array *is* the delta-emit.
 //!
 //! The driving-edge set (`ScheduleResult.driving_edges`) is deliberately not a
 //! column: a preview that draws the link hierarchy must take it from the JSON path.
@@ -50,7 +51,7 @@ use crate::backward::backward_pass;
 use crate::floats::compute_floats;
 use crate::forward::forward_pass;
 use crate::graph::ProjectGraph;
-use crate::incremental::downstream_mask;
+use crate::incremental::{downstream_mask, emit_mask};
 use crate::models::{Project, Task};
 
 /// Columnar CPM result for a set of tasks, indexed by their row position.
@@ -61,7 +62,8 @@ use crate::models::{Project, Task};
 /// to JS as typed arrays.
 pub(crate) struct TypedResult {
     /// Dense node position of each row (row → node). `0..N` for a full recalc;
-    /// the downstream subset for an incremental recalc (the delta).
+    /// for an incremental recalc, the downstream subset plus every task whose
+    /// output moved (the delta, #4101).
     pub node_indices: Vec<u32>,
     /// Day ordinals relative to the session epoch.
     pub early_start: Vec<i32>,
@@ -237,9 +239,10 @@ pub(crate) fn compute_full_typed(
     Ok(result)
 }
 
-/// Downstream-only CPM over the cached graph, emitted as columnar typed arrays.
-/// Only tasks reachable from `changed_task_id` (inclusive) are pushed, so
-/// `node_indices` is the drag delta. Whole-project aggregates are still computed
+/// Incremental CPM over the cached graph, emitted as columnar typed arrays.
+/// Tasks reachable from `changed_task_id` (inclusive) and every task whose
+/// output moved relative to the input project are pushed, so `node_indices` is
+/// the drag delta (#4101). Whole-project aggregates are still computed
 /// over the full task set, matching the JSON path.
 pub(crate) fn compute_downstream_typed(
     project: &Project,
@@ -256,10 +259,15 @@ pub(crate) fn compute_downstream_typed(
     let project_finish = run_passes(scratch, project, pg)?;
     let project_start = scratch.iter().filter_map(|t| t.early_start).min().unwrap();
 
-    let downstream_count = mask.iter().filter(|&&d| d).count();
-    let mut result = TypedResult::with_capacity(downstream_count);
+    // Same emitted set as the JSON path (#4101): downstream, plus every task whose
+    // output moved relative to the input project — not relative to the scratch
+    // buffer, which holds the previous frame and would make the set depend on
+    // the call history.
+    let emit = emit_mask(mask, &project.tasks, scratch);
+    let emit_count = emit.iter().filter(|&&d| d).count();
+    let mut result = TypedResult::with_capacity(emit_count);
     for (node, t) in scratch.iter().enumerate() {
-        if mask[node] {
+        if emit[node] {
             result.push(node, t, epoch);
         }
     }

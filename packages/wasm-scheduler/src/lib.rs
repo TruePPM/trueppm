@@ -3,7 +3,7 @@
 //! Exposes two stateless functions via wasm-bindgen (JS names in parentheses):
 //! - `compute_schedule(project_json)` (`computeSchedule`) — full CPM (forward + backward + floats)
 //! - `wasm_incremental_update(project_json, changed_task_id)` (`incrementalUpdate`) —
-//!   downstream-only recalc
+//!   full recalc that returns the downstream tasks plus every task whose output moved
 //!
 //! Both re-parse the whole project and rebuild the graph on every call. For a
 //! drag preview — where the same project is recalculated every animation frame —
@@ -70,11 +70,14 @@ pub fn compute_schedule(project_json: &str) -> Result<String, JsValue> {
     serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
-/// Run an incremental CPM update for a changed task and return downstream results as JSON.
+/// Run an incremental CPM update for a changed task and return the changed rows as JSON.
 ///
 /// Input: JSON string matching `Project.to_json()` with the changed task's dates
 /// already modified, plus the ID of the changed task.
-/// Output: JSON string with `ScheduleResult` containing only downstream tasks.
+/// Output: JSON string with `ScheduleResult` containing every task downstream of
+/// the changed one plus every task whose CPM output differs from what the input
+/// carried for it — upstream and parallel rows whose float moved with the finish
+/// included (#4101).
 ///
 /// The `wasm_` prefix is a Rust-side disambiguator only — it keeps this entry
 /// point from colliding with the crate-root [`incremental_update`] re-export. JS
@@ -316,8 +319,9 @@ impl SchedulerSession {
         Ok(DragResult { inner })
     }
 
-    /// Downstream-only CPM over the cached graph → typed-array [`DragResult`]
-    /// (#1856). Only tasks reachable from `changed_task_id` are emitted, so
+    /// Incremental CPM over the cached graph → typed-array [`DragResult`]
+    /// (#1856). Tasks reachable from `changed_task_id`, and every task whose
+    /// output moved relative to the session's project (#4101), are emitted, so
     /// `nodeIndices` is the drag delta. Same per-task values as
     /// [`recalc_incremental`](SchedulerSession::recalc_incremental), with no
     /// per-frame clone and no JSON.
@@ -363,7 +367,8 @@ impl SchedulerSession {
         serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Downstream-only CPM over the cached graph → `ScheduleResult` JSON.
+    /// Incremental CPM over the cached graph → `ScheduleResult` JSON (downstream
+    /// tasks plus every task whose output moved, #4101).
     /// Identical to `wasm_incremental_update` on the current project.
     #[wasm_bindgen(js_name = recalcIncremental)]
     pub fn recalc_incremental(&self, changed_task_id: &str) -> Result<String, JsValue> {

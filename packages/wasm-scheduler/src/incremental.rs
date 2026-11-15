@@ -1,7 +1,9 @@
-//! Incremental CPM update — subgraph extraction and forward-only recalc.
+//! Incremental CPM update — the drag-preview recalc and its emitted delta.
 //!
-//! Used for drag preview: only recomputes tasks downstream of the changed task.
-//! Mirrors the BFS approach in `buildSubgraph.ts` combined with a forward pass.
+//! Used for drag preview. The full CPM runs every time; what is incremental is
+//! the *set of tasks returned*: every task downstream of the changed one, plus
+//! every task whose CPM output moved relative to what the input carried for it
+//! (see [`emit_mask`]).
 
 use std::collections::VecDeque;
 
@@ -11,11 +13,12 @@ use crate::backward::backward_pass;
 use crate::floats::compute_floats;
 use crate::forward::forward_pass;
 use crate::graph::{build_graph, ProjectGraph};
-use crate::models::{Project, ScheduleResult, TaskResult};
+use crate::models::{Project, ScheduleResult, Task, TaskResult};
 
-/// Run an incremental update: override the changed task's start, then recompute
-/// the full CPM for the project (forward + backward + floats) and return only
-/// tasks that are downstream of the changed task.
+/// Run an incremental update: recompute the full CPM for the project (forward +
+/// backward + floats) and return the tasks [`emit_mask`] selects — those
+/// downstream of the changed task, plus any other task whose CPM output differs
+/// from the values the input carried for it.
 ///
 /// This is simpler and more correct than a partial forward pass — the full CPM
 /// is fast enough (<10ms for 5k tasks) and avoids subtle bugs from partial recalc.
@@ -32,8 +35,9 @@ pub fn incremental_update(
     compute_downstream(project, &pg, changed_task_id)
 }
 
-/// Run the full CPM over an already-built graph and return only the tasks
-/// downstream of `changed_task_id` (inclusive).
+/// Run the full CPM over an already-built graph and return the tasks
+/// [`emit_mask`] selects: those downstream of `changed_task_id` (inclusive),
+/// plus every task whose CPM output moved relative to the input.
 ///
 /// This is the single implementation of the downstream recalc: `incremental_update`
 /// builds the graph fresh each call, while `SchedulerSession` reuses one cached
@@ -91,11 +95,11 @@ pub(crate) fn compute_downstream(
         &float_lates,
     )?;
 
-    // Collect results for downstream tasks only
+    let emit = emit_mask(downstream, &project.tasks, &tasks);
     let task_results: Vec<TaskResult> = pg
         .topo_order
         .iter()
-        .filter(|&&i| downstream[i.index()])
+        .filter(|&&i| emit[i.index()])
         .map(|&i| {
             let t = &tasks[i.index()];
             TaskResult {
@@ -154,6 +158,47 @@ pub(crate) fn downstream_mask(
         ));
     };
     Ok(bfs_downstream(pg, changed_idx, node_count))
+}
+
+/// Which tasks an incremental recalc returns (#4101): every task downstream of
+/// the changed one, plus every task whose CPM output differs from the value the
+/// input carried for it.
+///
+/// The downstream cone alone is the *forward* pass's reach. The backward pass
+/// reaches further: when a drag moves the project finish, every task's late
+/// dates are measured back from the new finish, so `late_start`, `late_finish`,
+/// `total_float` and `is_critical` change on upstream and parallel tasks that no
+/// path from the changed task touches. Returning only the cone left those rows
+/// showing the float of the previous frame until the server reconciled.
+///
+/// The comparison baseline is the input task (`before`, indexed by node
+/// position like `after`). A caller that passes its previous run's output back
+/// gets a true delta; one whose input carries no computed values gets every
+/// task, because each output differs from an absent one. Both are complete: no
+/// task whose values moved is ever left out.
+pub(crate) fn emit_mask(downstream: Vec<bool>, before: &[Task], after: &[Task]) -> Vec<bool> {
+    let mut emit = downstream;
+    for (i, (b, a)) in before.iter().zip(after.iter()).enumerate() {
+        if !emit[i] && cpm_output_changed(b, a) {
+            emit[i] = true;
+        }
+    }
+    emit
+}
+
+/// Whether any field the engine writes differs between `before` and `after`.
+/// Floats are compared exactly: both sides come from the same integer
+/// working-day count times 86 400, so equal values are bit-identical.
+fn cpm_output_changed(before: &Task, after: &Task) -> bool {
+    before.early_start != after.early_start
+        || before.early_finish != after.early_finish
+        || before.late_start != after.late_start
+        || before.late_finish != after.late_finish
+        || before.scheduled_start != after.scheduled_start
+        || before.milestone_at_day_end != after.milestone_at_day_end
+        || before.total_float.to_bits() != after.total_float.to_bits()
+        || before.free_float.to_bits() != after.free_float.to_bits()
+        || before.is_critical != after.is_critical
 }
 
 /// BFS forward from `start` to mark all downstream nodes (inclusive) in a dense
@@ -246,5 +291,62 @@ mod tests {
     #[test]
     fn known_changed_task_id_succeeds() {
         assert!(incremental_update(&project(), "A").is_ok());
+    }
+
+    /// #4101: lengthening the downstream end of a chain moves the finish, so a
+    /// parallel task that no path from the changed task reaches gains float. The
+    /// preview must return that task with the full run's float, not drop it.
+    #[test]
+    fn parallel_branch_float_follows_a_finish_the_drag_moved() {
+        // A(5) -> B(3) is the critical chain; P(2) runs in parallel off nothing.
+        let mut base = project();
+        base.tasks.push(task("P", 2));
+        let before = crate::schedule_impl(&base).unwrap();
+
+        // Prime the input with the previous run's output, as the preview does.
+        let mut dragged = base.clone();
+        for t in dragged.tasks.iter_mut() {
+            let b = before.tasks.iter().find(|r| r.id == t.id).unwrap();
+            t.early_start = Some(b.early_start);
+            t.early_finish = Some(b.early_finish);
+            t.late_start = Some(b.late_start);
+            t.late_finish = Some(b.late_finish);
+            t.scheduled_start = Some(b.scheduled_start);
+            t.total_float = b.total_float;
+            t.free_float = b.free_float;
+            t.is_critical = b.is_critical;
+            if t.id == "B" {
+                t.duration += 4.0 * 86_400.0;
+            }
+        }
+
+        let full = crate::schedule_impl(&dragged).unwrap();
+        let incr = incremental_update(&dragged, "B").unwrap();
+        let full_p = full.tasks.iter().find(|t| t.id == "P").unwrap();
+        let before_p = before.tasks.iter().find(|t| t.id == "P").unwrap();
+        assert!(
+            full_p.total_float > before_p.total_float,
+            "fixture must move P's float, or the test proves nothing"
+        );
+        let incr_p = incr
+            .tasks
+            .iter()
+            .find(|t| t.id == "P")
+            .expect("P's float moved, so the incremental result must carry it");
+        assert_eq!(incr_p.total_float, full_p.total_float);
+        assert_eq!(incr_p.late_finish, full_p.late_finish);
+        // A is upstream of B and stays critical with zero float: nothing moved,
+        // so the delta leaves it out.
+        assert!(incr.tasks.iter().all(|t| t.id != "A"));
+    }
+
+    /// Without prior output in the input, every task's output "moved", so every
+    /// task is returned (#4101).
+    #[test]
+    fn unprimed_input_returns_every_task() {
+        let mut p = project();
+        p.tasks.push(task("P", 2));
+        let incr = incremental_update(&p, "B").unwrap();
+        assert_eq!(incr.tasks.len(), 3);
     }
 }

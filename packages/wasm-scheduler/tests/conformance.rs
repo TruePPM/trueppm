@@ -207,9 +207,10 @@ fn conformance_all_fixtures() {
 }
 
 /// Property test (#1505): for every fixture and every possible drag target, the
-/// downstream-only result of `incremental_update` must equal the corresponding
-/// tasks from a fresh full `schedule_impl`. `incremental_update` runs the full
-/// CPM internally and returns only downstream tasks, so a divergence here means
+/// result of `incremental_update` must equal the corresponding
+/// tasks from a fresh full `schedule_impl`, and it must return every task whose
+/// values moved (#4101). `incremental_update` runs the full CPM internally, so a
+/// divergence here means
 /// the incremental drag-preview path (the browser/offline recompute) disagrees
 /// with a full recompute — the exact silent-drift risk `wasm_incremental_update`
 /// had zero coverage for. Each iteration perturbs the changed task's duration
@@ -311,6 +312,79 @@ fn assert_incremental_matches_full(stem: &str, base: &Project, changed: &str) {
             it.is_critical, ft.is_critical,
             "{stem}/{changed}/{id}: is_critical"
         );
+    }
+
+    // Coverage, not just agreement (#4101): every value the full recompute
+    // reports must be reachable from the incremental output. The fixture input
+    // carries no computed values, so every task's output "moved" and all of them
+    // must come back.
+    assert_eq!(
+        incr.tasks.len(),
+        full.tasks.len(),
+        "{stem}/{changed}: an input with no prior output must get every task back"
+    );
+
+    // Primed with the unperturbed run's output — the drag-preview caller's
+    // situation — the result must still contain every task whose values the
+    // perturbation moved, upstream and parallel rows included, and those values
+    // must equal the full recompute's.
+    let before = schedule_impl(base)
+        .unwrap_or_else(|e| panic!("{stem}: full schedule of the base failed: {e}"));
+    let mut primed = project.clone();
+    let before_by_id: HashMap<&str, &_> =
+        before.tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+    for t in primed.tasks.iter_mut() {
+        let b = before_by_id[t.id.as_str()];
+        t.early_start = Some(b.early_start);
+        t.early_finish = Some(b.early_finish);
+        t.late_start = Some(b.late_start);
+        t.late_finish = Some(b.late_finish);
+        t.scheduled_start = Some(b.scheduled_start);
+        t.milestone_at_day_end = b.milestone_at_day_end;
+        t.total_float = b.total_float;
+        t.free_float = b.free_float;
+        t.is_critical = b.is_critical;
+    }
+    let delta = incremental_update(&primed, changed)
+        .unwrap_or_else(|e| panic!("{stem}: primed incremental_update({changed}) failed: {e}"));
+    let delta_by_id: HashMap<&str, &_> = delta.tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+    for ft in &full.tasks {
+        let b = before_by_id[ft.id.as_str()];
+        let moved = (
+            b.early_start,
+            b.early_finish,
+            b.late_start,
+            b.late_finish,
+            b.scheduled_start,
+            b.milestone_at_day_end,
+            b.total_float.to_bits(),
+            b.free_float.to_bits(),
+            b.is_critical,
+        ) != (
+            ft.early_start,
+            ft.early_finish,
+            ft.late_start,
+            ft.late_finish,
+            ft.scheduled_start,
+            ft.milestone_at_day_end,
+            ft.total_float.to_bits(),
+            ft.free_float.to_bits(),
+            ft.is_critical,
+        );
+        let id = &ft.id;
+        match delta_by_id.get(id.as_str()) {
+            Some(dt) => {
+                assert_eq!(dt.late_start, ft.late_start, "{stem}/{changed}/{id}: primed LS");
+                assert_eq!(dt.late_finish, ft.late_finish, "{stem}/{changed}/{id}: primed LF");
+                assert_eq!(dt.total_float, ft.total_float, "{stem}/{changed}/{id}: primed TF");
+                assert_eq!(dt.free_float, ft.free_float, "{stem}/{changed}/{id}: primed FF");
+                assert_eq!(dt.is_critical, ft.is_critical, "{stem}/{changed}/{id}: primed crit");
+            }
+            None => assert!(
+                !moved,
+                "{stem}/{changed}/{id}: output moved but the incremental result left it out"
+            ),
+        }
     }
 }
 
