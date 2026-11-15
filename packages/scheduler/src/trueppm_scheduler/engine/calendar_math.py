@@ -259,6 +259,11 @@ _MASK_TABLES: dict[int, tuple[int, tuple[int, ...], tuple[int, ...]]] = {}
 
 
 def _mask_table(mask: int) -> tuple[int, tuple[int, ...], tuple[int, ...]]:
+    # Only bits 0-6 are weekdays (``Calendar.is_working_day`` shifts by ``weekday()``
+    # and tests bit 0; a negative int reads as its two's-complement low bits, so
+    # ``-1 & 0x7F`` is 127 as well). Keying on the raw int would let distinct
+    # high-bit masks grow the cache without bound for one and the same table.
+    mask &= 0x7F
     table = _MASK_TABLES.get(mask)
     if table is None:
         offs = tuple(w for w in range(7) if (mask >> w) & 1)

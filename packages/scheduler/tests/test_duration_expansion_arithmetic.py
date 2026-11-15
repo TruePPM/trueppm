@@ -56,10 +56,43 @@ def _outcome(fn: object, *args: object) -> tuple[str, object]:
 
 
 @st.composite
-def _calendars(draw: st.DrawFn, base: date = _BASE, *, budget_runs: bool = True) -> Calendar:
-    mask = draw(st.integers(min_value=1, max_value=127))
+def _calendars(
+    draw: st.DrawFn,
+    base: date = _BASE,
+    *,
+    budget_runs: bool = True,
+    range_edges: bool = False,
+    dense: bool = False,
+    wide_masks: bool = True,
+) -> Calendar:
+    # Bits above 6 and negative ints are accepted by ``Calendar`` and only the low
+    # seven bits are ever read, so they must lay out exactly like their 7-bit twin.
+    # ``schedule()`` rejects them at validation, so only helper-level tests draw them.
+    mask = draw(
+        st.one_of(
+            st.integers(min_value=1, max_value=127),
+            st.integers(min_value=1, max_value=127),
+            st.sampled_from([255, -1, -2, 128 | 5, (1 << 40) | 5, (1 << 40) | 127]),
+        )
+        if wide_masks
+        else st.integers(min_value=1, max_value=127)
+    )
+    if wide_masks and draw(st.integers(0, 20)) == 0:
+        mask = 128  # no weekday bit set: the walk's own "no working day" error
+    count = draw(st.integers(min_value=0, max_value=12))
+    if dense and draw(st.booleans()):
+        count = draw(st.integers(min_value=100, max_value=300))
     exceptions = []
-    for _ in range(draw(st.integers(min_value=0, max_value=12))):
+    if range_edges:
+        # Runs touching the representable ends: the landing/push loop must hand
+        # these to the walk (or land inside them) exactly as the walk does.
+        if draw(st.booleans()):
+            n = draw(st.one_of(st.integers(0, 6), st.integers(7, 30)))
+            exceptions.append(DateRange(start=date.max - timedelta(days=n), end=date.max))
+        if draw(st.booleans()):
+            n = draw(st.one_of(st.integers(0, 6), st.integers(7, 30)))
+            exceptions.append(DateRange(start=date.min, end=date.min + timedelta(days=n)))
+    for _ in range(count):
         start = base + timedelta(days=draw(st.integers(min_value=-400, max_value=900)))
         lengths = [st.integers(min_value=0, max_value=20), st.integers(min_value=21, max_value=400)]
         if budget_runs:
@@ -81,11 +114,11 @@ _EDGE_ANCHORS = st.sampled_from(
 
 
 @given(
-    cal=_calendars(),
+    cal=_calendars(dense=True),
     offset=st.integers(min_value=-500, max_value=1500),
     duration=st.integers(min_value=0, max_value=600),
 )
-@settings(max_examples=600, deadline=None)
+@settings(max_examples=600, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @example(cal=Calendar(), offset=3, duration=10)  # Sunday start, Mon-Fri
 @example(cal=Calendar(working_days=0b1000000), offset=0, duration=53)
 def test_arithmetic_layout_equals_the_walk(cal: Calendar, offset: int, duration: int) -> None:
@@ -97,8 +130,24 @@ def test_arithmetic_layout_equals_the_walk(cal: Calendar, offset: int, duration:
         assert _outcome(new, anchor, duration, cal) == _outcome(old, anchor, duration, cal)
 
 
-@given(cal=_calendars(base=date(5000, 1, 1)), anchor=_EDGE_ANCHORS, duration=st.integers(0, 40))
-@settings(max_examples=150, deadline=None)
+@given(
+    cal=_calendars(base=date(5000, 1, 1), range_edges=True),
+    anchor=_EDGE_ANCHORS,
+    duration=st.integers(0, 40),
+)
+@settings(max_examples=300, deadline=None)
+# A short run touching each end, with the anchor just inside it: the landing is
+# pushed over the run and off the representable range, where the walk raises.
+@example(
+    cal=Calendar(working_days=127, exceptions=[DateRange(date.min, date.min + timedelta(days=1))]),
+    anchor=date.min + timedelta(days=3),
+    duration=3,
+)
+@example(
+    cal=Calendar(working_days=127, exceptions=[DateRange(date.max - timedelta(days=1), date.max)]),
+    anchor=date.max - timedelta(days=3),
+    duration=3,
+)
 def test_arithmetic_layout_equals_the_walk_at_the_date_range_edges(
     cal: Calendar, anchor: date, duration: int
 ) -> None:
@@ -107,6 +156,13 @@ def test_arithmetic_layout_equals_the_walk_at_the_date_range_edges(
         (cm._start_from_finish, cm._start_from_finish_walk),
     ):
         assert _outcome(new, anchor, duration, cal) == _outcome(old, anchor, duration, cal)
+
+
+def test_mask_tables_are_keyed_on_the_seven_weekday_bits() -> None:
+    """High-bit and negative masks share their 7-bit twin's table (bounded cache)."""
+    for wide, narrow in ((255, 127), (-1, 127), ((1 << 40) | 5, 5), (128 | 5, 5)):
+        assert cm._mask_table(wide) is cm._mask_table(narrow)
+    assert set(cm._MASK_TABLES) <= set(range(128))
 
 
 def test_a_run_past_the_scan_budget_raises_the_walks_error() -> None:
@@ -134,20 +190,20 @@ def _walk_patched() -> Iterator[None]:
         cm._start_from_finish: cm._start_from_finish_walk,
     }
     patched: list[tuple[object, str, object]] = []
-    for name, mod in list(sys.modules.items()):
-        if not name.startswith("trueppm_scheduler") or mod is None:
+    for name, module in list(sys.modules.items()):
+        if not name.startswith("trueppm_scheduler") or module is None:
             continue
         for attr in ("_finish_from_start", "_start_from_finish"):
-            current = getattr(mod, attr, None)
+            current = getattr(module, attr, None)
             if current in swaps:
-                patched.append((mod, attr, current))
-                setattr(mod, attr, swaps[current])
+                patched.append((module, attr, current))
+                setattr(module, attr, swaps[current])
     assert len(patched) >= 4, "the patch reached too few modules to compare anything"
     try:
         yield
     finally:
-        for mod, attr, original in patched:
-            setattr(mod, attr, original)
+        for restored, attr, original in patched:
+            setattr(restored, attr, original)
 
 
 def _snapshot(project: Project) -> tuple[str, object]:
@@ -167,8 +223,8 @@ def _projects(draw: st.DrawFn) -> Project:
     per_task = draw(st.booleans())
     calendars = (
         {
-            "a": draw(_calendars(base=start, budget_runs=False)),
-            "b": draw(_calendars(base=start, budget_runs=False)),
+            "a": draw(_calendars(base=start, budget_runs=False, wide_masks=False)),
+            "b": draw(_calendars(base=start, budget_runs=False, wide_masks=False)),
         }
         if per_task
         else None
@@ -220,7 +276,7 @@ def _projects(draw: st.DrawFn) -> Project:
         dependencies=deps,
         # Budget-length runs are swept by the helper-level tests; here they would
         # make most projects unschedulable and starve the comparison.
-        calendar=draw(_calendars(base=start, budget_runs=False)),
+        calendar=draw(_calendars(base=start, budget_runs=False, wide_masks=False)),
         status_date=draw(st.none() | day),
         calendars=calendars,
     )
