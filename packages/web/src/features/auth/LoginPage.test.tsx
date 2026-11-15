@@ -227,6 +227,28 @@ describe('LoginPage', () => {
     expect(password).toHaveAttribute('aria-describedby', errorId);
   });
 
+  it('explains a 429 with the Retry-After wait and holds the form (#3563)', async () => {
+    mockedAxios.post.mockRejectedValueOnce(
+      Object.assign(new Error('Too Many Requests'), {
+        isAxiosError: true,
+        response: { status: 429, headers: { 'retry-after': '23' }, data: {} },
+      }),
+    );
+    vi.spyOn(axios, 'isAxiosError').mockReturnValue(true);
+
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Email'), 'anna@example.com');
+    await user.type(screen.getByLabelText('Password'), 'pw');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Too many attempts. Try again in 23 seconds.',
+    );
+    expect(screen.queryByText(/unexpected error/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+  });
+
   it('shows generic error on unexpected failure', async () => {
     mockedAxios.post.mockRejectedValueOnce(new Error('Network error'));
     vi.spyOn(axios, 'isAxiosError').mockReturnValue(false);
@@ -333,6 +355,39 @@ describe('LoginPage', () => {
       configurable: true,
       value: originalLocation,
     });
+  });
+
+  it('parks a safe ?next= for the SSO round-trip and drops an unsafe one (#3563)', async () => {
+    const originalLocation = window.location;
+    const assign = vi.fn();
+    // `origin` is a prototype getter, so spreading Location drops it and
+    // loginRedirectDest's same-origin check would reject every target. Carry it over.
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, origin: originalLocation.origin, assign },
+    });
+    try {
+      ssoProviders = [{ slug: 'keycloak', display_name: 'Keycloak' }];
+      sessionStorage.clear();
+
+      const { unmount } = renderWithRouter(<LoginPage />, {
+        initialEntries: ['/login?next=%2Fprojects%2Fp1%2Frisk%23r-7'],
+      });
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
+      expect(
+        (JSON.parse(sessionStorage.getItem('tppm.sso.next') ?? '{}') as { next?: string }).next,
+      ).toBe('/projects/p1/risk#r-7');
+      unmount();
+
+      renderWithRouter(<LoginPage />, { initialEntries: ['/login?next=%2F%2Fevil.example'] });
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
+      expect(sessionStorage.getItem('tppm.sso.next')).toBeNull();
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
   });
 
   it('shows no SSO section when no provider is configured (password-only install)', async () => {
@@ -512,7 +567,9 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
   it('shows the provider button, not the docs link, when the demo has a provider (#3972)', async () => {
     ssoProviders = [{ slug: 'keycloak', display_name: 'Keycloak' }];
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
-    expect(await screen.findByRole('button', { name: 'Continue with Keycloak' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Continue with Keycloak' }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /see the docs/i })).not.toBeInTheDocument();
   });
 
@@ -541,7 +598,7 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     await waitFor(() => expect(screen.getByText('Read-only demo')).toBeInTheDocument());
     expect(
       screen.getByText(
-        "The Schedule is the only interactive part of this demo — drag a task to a new date, or resize its bar to change its duration, and watch the critical path recompute live in your browser. Nothing you do here is saved.",
+        'The Schedule is the only interactive part of this demo — drag a task to a new date, or resize its bar to change its duration, and watch the critical path recompute live in your browser. Nothing you do here is saved.',
       ),
     ).toBeInTheDocument();
     expect(

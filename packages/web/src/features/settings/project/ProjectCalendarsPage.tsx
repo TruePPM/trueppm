@@ -865,6 +865,7 @@ function LockGlyph() {
 function rangeLabel(start: string, end: string, isMobile: boolean): string {
   const fmt = (iso: string) => {
     const [y, m] = iso.split('-').map(Number);
+    // eslint-disable-next-line no-restricted-properties -- month+year label has no day, so the user's day-order preference does not apply
     return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', {
       month: 'short',
       year: 'numeric',

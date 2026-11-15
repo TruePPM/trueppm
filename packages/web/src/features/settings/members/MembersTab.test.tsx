@@ -5,6 +5,10 @@ import { renderWithRouter } from '@/test/utils';
 import { MembersTab } from './MembersTab';
 import type { ProjectMembership } from '@/api/types';
 
+vi.mock('@/hooks/useUserDateFormat', async () =>
+  (await import('@/test/mockUserDateFormat')).userDateFormatModule(),
+);
+
 // ---------------------------------------------------------------------------
 // Hook mocks
 // ---------------------------------------------------------------------------

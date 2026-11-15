@@ -4,6 +4,8 @@ import { AuthShell } from './passwordReset/AuthShell';
 import { bootstrapAccessToken } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { CheckIcon } from '@/components/Icons';
+import { loginRedirectDest } from './LoginPage';
+import { takeSsoNext } from './ssoNext';
 
 /**
  * SSO completion landing — the SPA route the OIDC callback 302s to (issue 1392,
@@ -181,7 +183,9 @@ export function SsoCompletePage() {
         // Clear any stale unauthenticated cache, then defer to RootRedirect,
         // which resolves the server-decided landing (ADR-0129) once `me` loads.
         queryClient.clear();
-        void navigate('/', { replace: true });
+        // A deep link parked at the SSO click wins (#3563), re-validated by the same
+        // open-redirect guard the password path uses; otherwise `/` resolves the landing.
+        void navigate(loginRedirectDest(takeSsoNext() ?? ''), { replace: true });
       } else {
         setBootstrapFailed(true);
       }

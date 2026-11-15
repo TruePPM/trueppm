@@ -29,7 +29,10 @@ import {
 export function useUserDateFormat(): {
   prefs: ResolvedDatePrefs;
   formatInstant: (iso: string | null | undefined) => string;
-  formatInstantDate: (iso: string | null | undefined) => string;
+  formatInstantDate: (
+    iso: string | null | undefined,
+    variant?: 'short' | 'medium' | 'long',
+  ) => string;
   formatInstantTime: (iso: string | null | undefined) => string;
   fmtDateShort: (iso: string | null | undefined) => string;
   fmtDateLong: (iso: string | null | undefined) => string;
@@ -43,7 +46,7 @@ export function useUserDateFormat(): {
     () => ({
       prefs,
       formatInstant: (iso) => formatInstant(iso, prefs),
-      formatInstantDate: (iso) => formatInstantDate(iso, prefs),
+      formatInstantDate: (iso, variant) => formatInstantDate(iso, prefs, variant),
       formatInstantTime: (iso) => formatInstantTime(iso, prefs),
       fmtDateShort: (iso) => fmtUtcShort(iso, prefs.dateFormat),
       fmtDateLong: (iso) => fmtUtcLong(iso, prefs.dateFormat),

@@ -20,6 +20,7 @@ import { ImportDropzone, type ImportRejectReason } from './ImportDropzone';
 import { FormatPicker, type ImportFormat } from './FormatPicker';
 import { SeedReplaceConfirmDialog } from './SeedReplaceConfirmDialog';
 import { getFocusable } from '@/hooks/useFocusTrap';
+import { isRateLimited, retryAfterSeconds, waitPhrase } from '@/lib/rateLimit';
 
 interface Props {
   onClose: () => void;
@@ -79,6 +80,10 @@ function resolveErrorLines(
 ): string[] {
   if (!isTruePpm) return [msProjectErrorMessage(msError)];
   if (jobError) return [jobError];
+  // A throttle is a wait, not a fault in the file (#2432).
+  if (isRateLimited(seedError)) {
+    return [`Too many imports in a row. Try again ${waitPhrase(retryAfterSeconds(seedError))}.`];
+  }
   const lines = seedImportErrors(seedError);
   return lines.length > 0 ? lines : [SEED_GENERIC_FAILURE];
 }

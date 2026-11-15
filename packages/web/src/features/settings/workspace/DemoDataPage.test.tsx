@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SampleInfo, SampleCatalogStatus } from '@/hooks/useProgramSeedIo';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { DemoDataPage, formatBytes } from './DemoDataPage';
 
 // Isolate the listing from the settings shell chrome.
@@ -203,5 +204,26 @@ describe('DemoDataPage', () => {
     renderPage();
     await userEvent.click(screen.getByRole('button', { name: 'Load' }));
     expect(loadMutate).toHaveBeenCalledWith('atlas-platform-launch', expect.anything());
+  });
+
+  it('names the wait and holds the Load button on a 429 (#2432)', async () => {
+    loadMutate.mockImplementation((_key: string, opts: { onError: (e: unknown) => void }) => {
+      opts.onError(
+        new AxiosError('throttled', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status: 429,
+    statusText: 'Too Many Requests',
+    data: {},
+    headers: new AxiosHeaders({ 'retry-after': '17' }),
+    config: { headers: new AxiosHeaders() },
+  }),
+      );
+    });
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: 'Load' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'You\u2019ve loaded several demos in a row. Try again in 17 seconds.',
+    );
+    expect(screen.queryByText(/Could not load the demo/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load' })).toBeDisabled();
   });
 });

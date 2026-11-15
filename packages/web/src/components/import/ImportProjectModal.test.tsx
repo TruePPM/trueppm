@@ -355,6 +355,22 @@ describe('ImportProjectModal — native TruePPM seed path', () => {
     expect(alert).toHaveTextContent('Row 8: bad date');
   });
 
+  it('names the wait on a 429 instead of the generic seed error (#2432)', async () => {
+    seedState.isError = true;
+    seedState.error = new AxiosError('throttled', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status: 429,
+    statusText: 'Too Many Requests',
+    data: {},
+    headers: new AxiosHeaders({ 'retry-after': '17' }),
+    config: { headers: new AxiosHeaders() },
+  });
+    setup();
+    await switchToTruePpm();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Too many imports in a row. Try again in 17 seconds.');
+    expect(alert).not.toHaveTextContent("Couldn't import");
+  });
+
   it('truncates a long validation report to 8 lines with an overflow note', async () => {
     const lines = Array.from({ length: 11 }, (_, i) => `Error line ${i + 1}`);
     seedState.isError = true;

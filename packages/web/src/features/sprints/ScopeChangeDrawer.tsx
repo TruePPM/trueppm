@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import {
   useSprintScopeChanges,
   useSprintDurationChanges,
@@ -132,13 +133,11 @@ const STATUS_LABEL: Record<ScopeChangeEvent['status'], string> = {
 };
 
 function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
+  const { formatInstantDate } = useUserDateFormat();
   const itl = useIterationLabel();
   const removed = event.status === 'rejected';
   const points = event.story_points ?? 0;
-  const when = new Date(event.added_at).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
+  const when = formatInstantDate(event.added_at, 'short');
   return (
     <li className="px-4 py-2.5 flex items-start gap-3 border-b border-neutral-border/60 last:border-b-0">
       <span
@@ -186,10 +185,8 @@ function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
  * only when the policy prorated the value (percent_complete_after set).
  */
 function DurationChangeRow({ event }: { event: SprintDurationChangeEvent }) {
-  const when = new Date(event.created_at).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
+  const { formatInstantDate } = useUserDateFormat();
+  const when = formatInstantDate(event.created_at, 'short');
   const recalculated =
     event.percent_complete_after !== null &&
     event.percent_complete_after !== event.percent_complete_at_change;

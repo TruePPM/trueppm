@@ -1,4 +1,5 @@
 import type { Task, TaskStatus } from '@/types';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { Tooltip } from '@/components/Tooltip';
 
 /**
@@ -113,6 +114,5 @@ export function GridFloatCell({
 
 export function fmtDate(iso: string | undefined): string {
   if (!iso) return '—';
-  const d = new Date(`${iso}T00:00:00Z`);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return fmtUtcShort(iso);
 }

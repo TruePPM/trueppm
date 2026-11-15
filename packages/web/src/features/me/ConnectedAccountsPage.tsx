@@ -13,6 +13,7 @@
  */
 
 import { type FormEvent, useEffect, useId, useState } from 'react';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import {
   type IntegrationCredentialSummary,
@@ -186,7 +187,8 @@ interface ProviderCardProps {
 }
 
 function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCardProps) {
-  const expiresLabel = formatExpiresLabel(credential.expires_at);
+  const { formatInstantDate } = useUserDateFormat();
+  const expiresLabel = formatExpiresLabel(credential.expires_at, (iso) => formatInstantDate(iso, 'medium'));
   return (
     <li
       id={`provider-${credential.provider}`}
@@ -213,13 +215,13 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
           {credential.exists && credential.last_used_at ? (
             <div className="flex gap-1">
               <dt className="font-medium">Last used:</dt>
-              <dd>{formatRelativeDate(credential.last_used_at)}</dd>
+              <dd>{formatInstantDate(credential.last_used_at, 'medium')}</dd>
             </div>
           ) : null}
           {credential.exists && credential.created_at ? (
             <div className="flex gap-1">
               <dt className="font-medium">Connected:</dt>
-              <dd>{formatRelativeDate(credential.created_at)}</dd>
+              <dd>{formatInstantDate(credential.created_at, 'medium')}</dd>
             </div>
           ) : null}
           {!credential.exists && !credential.requires_credential ? (
@@ -684,6 +686,7 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
  * failure when it is normal.
  */
 function ConnectionDetailLine({ connection }: { connection: ExternalConnectionSummary }) {
+  const { formatInstantDate } = useUserDateFormat();
   // The count is what turns "synced 5 minutes ago" into a statement about the
   // pull rather than about the clock — the same line said the same thing for a
   // 200-item pull, an empty one, and a failed one before #2925.
@@ -693,7 +696,7 @@ function ConnectionDetailLine({ connection }: { connection: ExternalConnectionSu
       Linked as {connection.account_email || 'your account'}
       {connection.base_url ? <> · {connection.base_url}</> : null}
       {connection.last_synced_at ? (
-        <> · synced {formatRelativeDate(connection.last_synced_at)}</>
+        <> · synced {formatInstantDate(connection.last_synced_at, 'medium')}</>
       ) : (
         <> · first sync in progress…</>
       )}
@@ -1189,21 +1192,6 @@ function EmptyStateHint() {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatRelativeDate(value: string): string {
-  // Lightweight relative-date formatter — keeps the bundle small and
-  // matches the elsewhere-in-app convention from NotificationListPage.
-  try {
-    const date = new Date(value);
-    return date.toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return value;
-  }
-}
-
 // Opt-in polling defaults off (ADR-0097 §5 — a source only auto-refreshes if
 // the owner turns polling on; `BackgroundPollToggle` is the switch), so for
 // anyone who has not opted in "Sync now" is the only refresh path. A day-scale threshold flags a
@@ -1218,17 +1206,16 @@ function isStaleSync(lastSyncedAt: string | null): boolean {
   return Date.now() - synced > STALE_SYNC_THRESHOLD_MS;
 }
 
-function formatExpiresLabel(value: string | null): string | null {
+function formatExpiresLabel(
+  value: string | null,
+  formatDate: (iso: string) => string,
+): string | null {
   if (!value) return null;
   try {
     const date = new Date(value);
     const now = new Date();
     const days = Math.round((date.getTime() - now.getTime()) / 86_400_000);
-    const formatted = date.toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    const formatted = formatDate(value);
     if (days < 0) return `${formatted} (expired)`;
     if (days <= 14) return `${formatted} (in ${days} days)`;
     return formatted;

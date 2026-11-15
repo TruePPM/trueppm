@@ -96,7 +96,7 @@ export function RequireAuth() {
   if (sessionExpired) return <Outlet />;
 
   if (!isAuthenticated) {
-    const next = encodeURIComponent(location.pathname + location.search);
+    const next = encodeURIComponent(location.pathname + location.search + location.hash);
     return <Navigate to={`/login?next=${next}`} replace />;
   }
 

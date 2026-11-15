@@ -15,6 +15,7 @@
  */
 
 import { type FormEvent, useId, useState } from 'react';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import {
   MAX_PERSONAL_ACCESS_TOKENS,
   isTokenActive,
@@ -147,6 +148,7 @@ export function PersonalAccessTokensPage() {
 // ---------------------------------------------------------------------------
 
 function TokenRow({ token, onRevoke }: { token: MyApiToken; onRevoke: () => void }) {
+  const { formatInstantDate } = useUserDateFormat();
   const active = isTokenActive(token);
   return (
     <li
@@ -164,11 +166,11 @@ function TokenRow({ token, onRevoke }: { token: MyApiToken; onRevoke: () => void
       <div className="flex flex-col items-end text-right shrink-0">
         <StatusChip token={token} />
         <span className="text-xs text-neutral-text-secondary">
-          {token.last_used_at ? `Last used ${formatDate(token.last_used_at)}` : 'Never used'}
+          {token.last_used_at ? `Last used ${formatInstantDate(token.last_used_at, 'medium')}` : 'Never used'}
         </span>
         {token.expires_at && (
           <span className="text-xs text-neutral-text-secondary">
-            {expiryLabel(token.expires_at)}
+            {expiryLabel(token.expires_at, (iso) => formatInstantDate(iso, 'medium'))}
           </span>
         )}
       </div>
@@ -609,19 +611,7 @@ function CopyButton({ value }: { value: string }) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(value: string): string {
-  try {
-    return new Date(value).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return value;
-  }
-}
-
-function expiryLabel(value: string): string {
+function expiryLabel(value: string, formatDate: (iso: string) => string): string {
   try {
     const date = new Date(value);
     const days = Math.round((date.getTime() - Date.now()) / 86_400_000);

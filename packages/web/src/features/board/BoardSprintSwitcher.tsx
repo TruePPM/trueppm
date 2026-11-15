@@ -12,6 +12,7 @@
  * sprints are omitted.
  */
 import { useEffect, useId, useRef, useState } from 'react';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import type { ApiSprint, SprintState } from '@/types';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { CheckIcon } from '@/components/Icons';
@@ -32,9 +33,7 @@ const STATE_CHIP: Partial<Record<SprintState, { label: string; cls: string }>> =
 const STATE_ORDER: SprintState[] = ['ACTIVE', 'PLANNED', 'COMPLETED'];
 
 function dateRange(s: ApiSprint): string {
-  const fmt = (iso: string) =>
-    new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  return `${fmt(s.start_date)} – ${fmt(s.finish_date)}`;
+  return `${fmtUtcShort(s.start_date)} – ${fmtUtcShort(s.finish_date)}`;
 }
 
 // How many sprints the "Recent" group shows before the rest collapse behind

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { apiClient } from '@/api/client';
 import { CloseIcon } from '@/components/Icons';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -46,13 +47,10 @@ export function statusLabel(s: string): string {
 
 function formatDateRange(start: string | null, end: string | null): string {
   if (!start && !end) return '—';
-  const fmt = (d: string) => {
-    const dt = new Date(d + 'T00:00:00');
-    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+  const fmt = fmtUtcShort;
   if (start && end) return `${fmt(start)} → ${fmt(end)}`;
   if (start) return `from ${fmt(start)}`;
-  return `until ${end ? new Date(end + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}`;
+  return `until ${end ? fmt(end) : '—'}`;
 }
 
 /**

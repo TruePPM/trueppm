@@ -8,6 +8,8 @@ import {
   type ImportProgramSeedInput,
   type SeedReplaceConflict,
 } from '@/hooks/useProgramSeedIo';
+import { useRateLimitCooldown } from '@/hooks/useRateLimitCooldown';
+import { waitPhrase } from '@/lib/rateLimit';
 import { SeedReplaceConfirmDialog } from '@/components/import/SeedReplaceConfirmDialog';
 
 interface ImportProgramButtonProps {
@@ -37,6 +39,7 @@ export function ImportProgramButton({ variant = 'header' }: ImportProgramButtonP
   const navigate = useNavigate();
   const importSeed = useImportProgramSeed();
   const [errors, setErrors] = useState<string[]>([]);
+  const cooldown = useRateLimitCooldown();
   const [conflict, setConflict] = useState<SeedReplaceConflict | null>(null);
   // Held across the 409 so the confirmation can re-submit the very same bytes —
   // the file input has already been cleared to allow re-picking after a fix.
@@ -59,11 +62,13 @@ export function ImportProgramButton({ variant = 'header' }: ImportProgramButtonP
 
   const submit = (input: ImportProgramSeedInput) => {
     setErrors([]);
+    cooldown.clear();
     importSeed.mutate(input, {
       onSuccess: (queued) => {
         setJob({ programId: queued.program_id, jobId: queued.import_request_id });
       },
       onError: (error) => {
+        if (cooldown.start(error)) return; // 429: the cooldown note below says when to retry
         const replaces = seedReplaceConflict(error);
         if (replaces) {
           setConflict(replaces);
@@ -91,7 +96,7 @@ export function ImportProgramButton({ variant = 'header' }: ImportProgramButtonP
   };
 
   const building = job !== null;
-  const busy = importSeed.isPending || building;
+  const busy = importSeed.isPending || building || cooldown.active;
   const label = importSeed.isPending ? 'Importing…' : building ? 'Building…' : 'Import from JSON';
   const className =
     variant === 'header'
@@ -130,6 +135,12 @@ export function ImportProgramButton({ variant = 'header' }: ImportProgramButtonP
       {building && (
         <p role="status" className="mt-3 text-xs text-neutral-text-secondary">
           Building the imported program…
+        </p>
+      )}
+      {cooldown.active && (
+        <p role="alert" className="mt-3 max-w-md text-left text-xs text-neutral-text-secondary">
+          You&rsquo;ve imported several programs in a row. Pick the file again{' '}
+          {waitPhrase(cooldown.waitSeconds)}.
         </p>
       )}
       {errors.length > 0 && (

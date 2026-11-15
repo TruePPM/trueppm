@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router';
 import { registry } from '@/lib/widget-registry';
 import { useShellStore, selectSidebarWidth } from '@/stores/shellStore';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { Sidebar } from './Sidebar';
 
 // Spy on navigation so post-create / loadDemo / go() route changes are observable
@@ -1492,6 +1493,26 @@ describe('Sidebar zero-project first run (#2034)', () => {
     });
     expect(toastError).toHaveBeenCalledWith("Couldn't load the demo — please try again.");
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('names the wait in the toast when the demo load is throttled (#2432)', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Load a demo' }));
+
+    act(() => {
+      loadSampleMutate.mock.calls[0][1].onError(
+        new AxiosError('throttled', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status: 429,
+    statusText: 'Too Many Requests',
+    data: {},
+    headers: new AxiosHeaders({ 'retry-after': '17' }),
+    config: { headers: new AxiosHeaders() },
+  }),
+      );
+    });
+    expect(toastError).toHaveBeenCalledWith(
+      "You've loaded several demos in a row. Try again in 17 seconds.",
+    );
   });
 
   it('disables the demo action while the sample is loading', () => {

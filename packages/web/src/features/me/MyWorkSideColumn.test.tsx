@@ -1,8 +1,12 @@
 import { screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { MyWorkSideColumn } from './MyWorkSideColumn';
 import type { MyWorkTask, MyWorkActiveSprint } from '@/hooks/useMyWork';
+
+vi.mock('@/hooks/useUserDateFormat', async () =>
+  (await import('@/test/mockUserDateFormat')).userDateFormatModule(),
+);
 
 function task(overrides: Partial<MyWorkTask> = {}): MyWorkTask {
   return {

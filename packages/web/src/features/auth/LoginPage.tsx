@@ -9,6 +9,9 @@ import { OSSChip } from '@/components/OSSChip';
 import { discoverSsoProviders, ssoLoginUrl, type SsoProviderSummary } from '@/hooks/ssoLogin';
 import { useDemoMode } from '@/hooks/useDemoMode';
 import { docsUrl } from '@/lib/docsUrl';
+import { useRateLimitCooldown } from '@/hooks/useRateLimitCooldown';
+import { retryAfterSeconds, waitPhrase, isRateLimited } from '@/lib/rateLimit';
+import { clearSsoNext, stashSsoNext } from './ssoNext';
 import { DemoLoginHint } from './DemoLoginHint';
 import { requestSession } from './demoSession';
 import { clearDemoSessionMarker, markDemoSession } from './demoMarker';
@@ -118,6 +121,7 @@ export function LoginPage() {
   const [email, setEmail] = useState(() => searchParams.get('u') ?? '');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
+  const cooldown = useRateLimitCooldown();
   const [error, setError] = useState<string | null>(null);
   // Which attempt produced the current `error`, so the email/password inputs are
   // marked `aria-invalid` only when the credential the visitor typed was refused —
@@ -216,7 +220,14 @@ export function LoginPage() {
       const next = searchParams.get('next') ?? '';
       void navigate(loginRedirectDest(next, landingPath), { replace: true });
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
+      if (isRateLimited(err)) {
+        // The stacked login throttles answer 429 with a Retry-After (#3563). Say it is
+        // a wait, not a fault, and hold the form for that long so the user is not left
+        // resubmitting into the same refusal.
+        cooldown.start(err);
+        setError(`Too many attempts. Try again ${waitPhrase(retryAfterSeconds(err))}.`);
+        setErrorSource(source);
+      } else if (axios.isAxiosError(err) && err.response?.status === 401) {
         if (source === 'demo') {
           // The shared demo credential is only ever refused when a sample reset
           // (#4152) is mid-cycle — the visitor typed nothing, so "Invalid email or
@@ -267,10 +278,15 @@ export function LoginPage() {
    */
   function startSso(slug: string) {
     setRedirectingSlug(slug);
+    // `?next=` is lost across the IdP round-trip; park the validated target for
+    // SsoCompletePage to pick up (#3563). No (or an unsafe) target clears any stale one.
+    const dest = loginRedirectDest(searchParams.get('next') ?? '');
+    if (dest !== '/') stashSsoNext(dest);
+    else clearSsoNext();
     window.location.assign(ssoLoginUrl(slug));
   }
 
-  const canSubmit = email.trim() !== '' && password !== '' && !isSubmitting;
+  const canSubmit = email.trim() !== '' && password !== '' && !isSubmitting && !cooldown.active;
 
   return (
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-neutral-surface">

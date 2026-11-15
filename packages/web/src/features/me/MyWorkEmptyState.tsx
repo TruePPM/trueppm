@@ -24,6 +24,8 @@ import { useEmptyStateAnnouncement } from '@/components/emptyStateAnnouncements'
 import { InboxIcon } from '@/components/Icons';
 import { docsUrl } from '@/lib/docsUrl';
 import { useLoadSampleProgram } from '@/hooks/useProgramSeedIo';
+import { useRateLimitCooldown } from '@/hooks/useRateLimitCooldown';
+import { waitPhrase } from '@/lib/rateLimit';
 import { NewProjectModal } from '@/features/shell/NewProjectModal';
 import { createdProjectDestination } from '@/features/shell/createdProjectDestination';
 
@@ -103,9 +105,11 @@ function ExploreDemoButton({
   const navigate = useNavigate();
   const loadSample = useLoadSampleProgram();
   const [failed, setFailed] = useState(false);
+  const cooldown = useRateLimitCooldown();
 
   function explore() {
     setFailed(false);
+    cooldown.clear();
     loadSample.mutate(undefined, {
       onSuccess: (result) => {
         // Land a contributor on the board holding their freshly-assigned open
@@ -117,7 +121,9 @@ function ExploreDemoButton({
           : `/programs/${result.program.id}/overview`;
         void navigate(dest, { state: { startExploringSample: result.sample_key } });
       },
-      onError: () => setFailed(true),
+      onError: (err) => {
+        if (!cooldown.start(err)) setFailed(true);
+      },
     });
   }
 
@@ -127,11 +133,16 @@ function ExploreDemoButton({
         variant={variant}
         size="lg"
         onClick={explore}
-        disabled={disabled === true || loadSample.isPending}
+        disabled={disabled === true || loadSample.isPending || cooldown.active}
         title={disabled === true ? "You're offline — reconnect to load the demo" : undefined}
       >
         {loadSample.isPending ? 'Loading demo…' : 'Explore a demo project'}
       </Button>
+      {cooldown.active && (
+        <p role="alert" className="text-xs text-neutral-text-secondary">
+          You&rsquo;ve loaded several demos in a row. Try again {waitPhrase(cooldown.waitSeconds)}.
+        </p>
+      )}
       {failed && (
         <p role="alert" className="text-xs text-semantic-critical">
           Couldn&rsquo;t load the demo — please try again.

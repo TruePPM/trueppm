@@ -12,6 +12,7 @@
  */
 
 import { useRef, type RefObject } from 'react';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -55,13 +56,7 @@ interface ResolvedTask {
 }
 
 function formatDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
+  return fmtUtcShort(iso);
 }
 
 // Hoisted to module scope so React does not re-create the component type on every

@@ -24,6 +24,19 @@ vi.mock('@/hooks/useMyApiTokens', async (importActual) => {
   };
 });
 
+// useUserDateFormat reads the current user via TanStack Query; these tests render
+// without a QueryClient, so bind the real formatters to default prefs instead.
+vi.mock('@/hooks/useUserDateFormat', async () => {
+  const { formatInstantDate } = await import('@/lib/formatUserDateTime');
+  const prefs = { timeZone: 'UTC', dateFormat: 'us' as const };
+  return {
+    useUserDateFormat: () => ({
+      prefs,
+      formatInstantDate: (iso: string | null | undefined) => formatInstantDate(iso, prefs),
+    }),
+  };
+});
+
 vi.mock('@/lib/docsUrl', () => ({ docsUrl: (p: string) => `https://docs.example/${p}` }));
 
 function token(overrides: Partial<MyApiToken> = {}): MyApiToken {
@@ -834,20 +847,6 @@ describe('PersonalAccessTokensPage', () => {
     await waitFor(() =>
       expect(within(dialog).getByRole('alert')).toHaveTextContent(/Something went wrong/i),
     );
-  });
-
-  it('renders the raw timestamp when locale date formatting is unavailable', () => {
-    vi.spyOn(Date.prototype, 'toLocaleDateString').mockImplementation(() => {
-      throw new Error('Intl unavailable');
-    });
-    useMyApiTokens.mockReturnValue({
-      data: [token({ last_used_at: '2026-06-02T00:00:00Z' })],
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    });
-    renderPage();
-    expect(screen.getByText('Last used 2026-06-02T00:00:00Z')).toBeInTheDocument();
   });
 
   it('renders the raw expiry value when the expiry math throws', () => {
