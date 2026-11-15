@@ -276,7 +276,7 @@ other task in the same run still uses its three-point estimate.
 
 **`sprint_length_days` is required.** It defaults to `None`, and without it no
 sprint has a length, so every SCRUM task falls back to its three-point estimate or
-its fixed `duration`. A value of `0` or below is refused with
+its fixed `duration`. From 0.5, a value of `0` or below will be refused with
 `InvalidScheduleInput`. From 0.5, a fallback will no longer be silent:
 `MonteCarloResult.velocity_fallback_reasons` will say why a supplied history was
 not used: `"sprint_length_days_missing"`, or `"velocity_history_unusable"` when no
@@ -306,8 +306,16 @@ From 0.5 the semantics will be:
   `story_points * (1 - percent_complete / 100)` points; no elapsed days are read
   off `duration`, so the forecast shrinks as points burn down
   ([#5012](https://gitlab.com/trueppm/trueppm/-/issues/5012)).
-- **The plan is still the floor.** A story never takes less than its `duration`
-  less its elapsed days, so Monte Carlo never lands before `schedule()`.
+- **The plan is still the floor, with one known exception.** A story never takes
+  less than its `duration` less its elapsed days, so on a network of FS and SS links
+  Monte Carlo does not land before `schedule()`. An FF or SF link that pulls a
+  story's start earlier, and an SS successor that inherits that start, can still
+  land a run before the CPM finish ([#5042](https://gitlab.com/trueppm/trueppm/-/issues/5042)).
+  A test pins that behavior so it flips when the issue is fixed.
+- **Why 0% and 50% can forecast the same date.** The data date moves with progress:
+  a story that is 50% done at a later `status_date` needs half the points but starts
+  later, so at a data date that follows the progress the two can land together.
+  Hold the data date fixed and the forecast shrinks as progress grows.
 
 Worked examples, with a team that delivers exactly 20 points every sprint and
 10-working-day sprints from Monday 2026-01-05:

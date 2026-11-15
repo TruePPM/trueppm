@@ -314,23 +314,20 @@ the current finish. On a start-to-finish link the finish can move by a different
 of days than you pulled in.
 :::
 
-On a sprint-delivered task, Monte Carlo counts whole sprints, so its bands move in
-sprint-sized steps rather than day by day. When a pull-in uses up the remaining work
-of a task that has already started, its bands can move further than the days you pulled
-in. The days already worked are taken off the task's story points, and the what-if
-removes enough points that a bigger pull-in does not land a band later than the last
-pull-in that leaves work open, even if the team delivers its fastest sprint. That
-ordering holds across the sampled runs, and in the seeded output for the default
-velocity settings in the range the test sweep covers.
+On a sprint-delivered task, a what-if pull-in will move the story's remaining points at
+the team's mean pace from 0.5, so its bands will move day by day on the shared team
+capacity rather than in sprint-sized steps
+([ADR-1412](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1412-shared-team-capacity-velocity-forecasting.md)).
+When a pull-in uses up the remaining work of a task that has already started, its bands
+can still move further than the days you pulled in.
 
-Do not rely on that ordering in three cases. A deep-tail run that the sprint-horizon cap
-clamps can break it. So can a task that has a three-point estimate and whose story
-points the what-if reduces to zero: it falls back to the estimate, and a bigger pull-in
-can land a band later
+Do not rely on a bigger pull-in never landing a band later in two cases. A task that has
+a three-point estimate and whose story points the what-if reduces to zero falls back to
+the estimate, and a bigger pull-in can land a band later
 ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)). And because the number of
-sprints sampled depends on the story points, a what-if that changes the points can change
-the sampled runs, so seeded percentiles for a velocity history or sprint length outside
-the tested range need not be ordered by the pull-in
+sprints sampled depends on the backlog's total story points, a what-if that changes the
+points can change the sampled runs, so seeded percentiles for a velocity history or
+sprint length outside the tested range need not be ordered by the pull-in
 ([#4910](https://gitlab.com/trueppm/trueppm/-/issues/4910)).
 
 Before the fix
@@ -343,9 +340,9 @@ on a project that has a velocity history, is simulated from that team's throughp
 rather than from a duration estimate — so a day offset is translated into the
 equivalent story points at the team's mean pace before the simulation runs. The
 `cpm_finish` still moves by exactly the days you asked for; the `p50`/`p80`/`p95`
-bands move by that much *on average*, rounded to whole sprints, because that is how a
-sprint-delivered task's finish date actually behaves. A one-day slip on a two-week
-cadence either changes nothing or costs a sprint, and the forecast says so.
+bands move by about that much on average. In the current release they move in whole
+sprints, so a one-day slip on a two-week cadence either changes nothing or costs a
+sprint; from 0.5 they will move by the remaining points at the team's mean pace.
 
 This is the endpoint behind the MCP `whatif` read tool: because it is a pure,
 side-effect-free `GET`, an AI client with a read-only token can ask "what happens to
@@ -588,6 +585,15 @@ is no pace to project a finish from) — falls back to each task's deterministic
 `duration`, exactly as a waterfall task with no estimate does. So an agile
 project with no sprint history yet still simulates (to a single deterministic
 date) rather than failing.
+
+From 0.5, velocity forecasting will require `sprint_length_days` on the project: it
+defaults to `None`, without it no sprint has a length, and a value of zero or below will
+be refused with `InvalidScheduleInput`. A fallback will also stop being silent. The
+result's `velocity_fallback_reasons` field (also in the API response) will list why a
+supplied velocity history was not used: `"sprint_length_days_missing"` when the sprint
+length is absent, and `"velocity_history_unusable"` when no observation is usable or the
+mean is not positive (an all-zero history). It will be empty when the history was used
+or when no story would have read it.
 
 Degenerate cases are handled explicitly:
 

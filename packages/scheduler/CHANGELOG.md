@@ -288,21 +288,16 @@ change between releases. Pin an exact version (e.g.
   ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
 
 - **A what-if pull-in no longer moves a sprint-delivered task's bands later at exhaustion.** When a
-  pull-in used up the remaining work of a started velocity-sampled task, the
-  elapsed days Monte Carlo stops subtracting were converted to story points at the
-  team's mean pace, and whole-sprint rounding could leave a run on the same sprint
-  count. A band could then step backward as the pull-in grew (P80 from -10 to -6
-  working days on a 10-day task at 40% with 40 points) or land later than the
-  current forecast. The exhausted task now keeps at most the points of the last
-  pull-in that leaves work open, less one fastest observed sprint for every sprint
-  the elapsed days span, so on a fixed run layout a bigger pull-in never lands a band
-  later than the last pull-in that leaves work open. That ordering holds in
-  distribution, and in the seeded output for the default velocity settings in the
-  tested sweep. It is not guaranteed for a task that also has a three-point estimate
-  once its points reach zero (#4909), nor when the what-if changes the sampled-run
-  layout under other velocity histories or sprint lengths (#4910). At exhaustion the
-  bands can move further than the days pulled in
-  ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)).
+  pull-in used up the remaining work of a started velocity-sampled task, a band could
+  step backward as the pull-in grew (P80 from -10 to -6 working days on a 10-day task
+  at 40% with 40 points) or land later than the current forecast. The what-if now moves
+  the remaining story points by the pulled-in days at the team's mean pace (ADR-1412),
+  so a bigger pull-in does not land a band later than the last pull-in that leaves work
+  open. It is not guaranteed for a task that also has a three-point estimate once its
+  points reach zero (#4909), nor when the what-if changes the sampled-run layout under
+  other velocity histories or sprint lengths (#4910), because the capacity horizon
+  depends on the backlog's total points. At exhaustion the bands can move further than
+  the days pulled in ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)).
 
 ## [0.4.0] - 2026-10-31
 

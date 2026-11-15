@@ -68,7 +68,11 @@ A velocity task needs `story_points * (1 - percent_complete / 100)` points. Elap
 read off `duration` are **not** subtracted on this path. The forecast is therefore
 non-increasing in `percent_complete` for a fixed seed and data date, and a 99% story
 needs a hundredth of its points. `duration` less its elapsed days stays a floor on the
-claimed duration (#3765), so Monte Carlo never lands before `schedule()`.
+claimed duration (#3765), so on a network of FS and SS links Monte Carlo does not land
+before `schedule()`. It can in a known class: an FF/SF link that pulls a story's start
+earlier, with an SS successor inheriting it, and (already on main) for large stories
+(#5042). The progress rows 0%, 50% and 99% of #5012 forecast equal dates at 0% and 50%
+because the data date moves with progress; at a fixed data date the forecast shrinks.
 `perturb_task_duration` moves the remaining points by `delta_days` at the mean pace, so
 the #4820 whole-sprint exhaustion ceiling is no longer needed and is removed.
 
@@ -114,6 +118,8 @@ gives identical results, chunked and unchunked runs are bit-identical, and the
   day.
 - Hybrid velocity forecasting is marked **experimental** in the README and on the
   website until the model has been checked against real projects.
+- Monte Carlo can land before `schedule()` behind an FF/SF link (#5042); the floor holds
+  for FS and SS networks only.
 - `_sample_velocity_durations` (the per-task primitive) is no longer called by
   `monte_carlo()`. It stays because the API's sprint-forecast sampler is held to it by
   `packages/api/tests/apps/projects/test_velocity_sampler_conformance.py`.

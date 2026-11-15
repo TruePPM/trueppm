@@ -545,8 +545,9 @@ def monte_carlo(
 
     1. **Agile / velocity** — a task with ``delivery_mode=SCRUM`` and
        ``story_points``, on a project carrying ``velocity_samples`` +
-       ``sprint_length_days``, samples sprints-to-completion from the team's
-       throughput distribution (see :func:`_sample_velocity_durations`). This is how
+       ``sprint_length_days``, draws one per-sprint velocity vector per run and
+       lets every such task claim the team's shared capacity in topological order
+       (ADR-1412; see ``capacity.py``). This is how
        sprint-delivered work contributes real velocity-driven risk to a mixed-mode
        schedule rather than being invisible to the simulation.
     2. **Three-point PERT** — a task with all of (optimistic, most_likely,

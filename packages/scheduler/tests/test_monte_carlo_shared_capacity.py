@@ -10,6 +10,7 @@ from trueppm_scheduler import (
     Calendar,
     DeliveryMode,
     Dependency,
+    DependencyType,
     InvalidScheduleInput,
     Project,
     Task,
@@ -197,3 +198,42 @@ def test_a_non_positive_sprint_length_is_refused_everywhere(bad: int) -> None:
     data["sprint_length_days"] = bad
     with pytest.raises(InvalidScheduleInput, match="positive integer"):
         Project.from_dict(data)
+
+
+# --- #5042: the plan is not a floor behind an FF/SF link -----------------------------
+
+
+def test_known_gap_monte_carlo_can_land_before_schedule_behind_an_ff_link() -> None:
+    """Pins the CURRENT behavior of #5042; flip the final assertion when it is fixed.
+
+    An FF link pulls the story's start earlier and an SS successor inherits it, so the
+    simulated finish lands before the CPM finish even though every story's duration is
+    floored. The README and ADR-1412 state the floor only for the cases where it holds.
+    """
+    t0 = Task(id="t0", name="t0", duration=timedelta(days=12), percent_complete=30)
+    deps = [
+        Dependency(
+            predecessor_id="t0",
+            successor_id="t2",
+            dep_type=DependencyType.FF,
+            lag=timedelta(days=2),
+        ),
+        Dependency(
+            predecessor_id="t2",
+            successor_id="t4",
+            dep_type=DependencyType.SS,
+            lag=timedelta(days=2),
+        ),
+    ]
+    project = _project(
+        [t0, _story("t2", 14), _story("t4", 25, duration=timedelta(days=5))],
+        deps,
+        velocity_samples=[20, 20],
+        sprint_length_days=5,
+        status_date=date(2026, 1, 14),
+    )
+    cpm_finish = max(t.early_finish for t in schedule(project).tasks)
+    result = monte_carlo(project, runs=200, seed=1)
+    assert cpm_finish == date(2026, 2, 5)
+    assert min(result.distribution) == date(2026, 2, 3)
+    assert min(result.distribution) < cpm_finish  # #5042: should become >= when fixed

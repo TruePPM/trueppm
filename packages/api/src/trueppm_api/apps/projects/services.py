@@ -922,7 +922,8 @@ def scheduler_velocity_inputs(
     The ADR-0065/0106 wiring promised in :func:`velocity_eligible_sprints`: the last
     eight eligible sprints' completed-point totals become the engine's bootstrap
     population, so a SCRUM/story-point task samples sprints-to-completion from real
-    throughput variance (``_sample_velocity_durations``, #411) instead of collapsing
+    throughput variance (the engine's shared-capacity velocity model, ADR-1412) instead of
+    collapsing
     to its deterministic placeholder duration. Without these inputs the engine's
     agile path can never fire and an all-agile project — every story a one-day
     placeholder — forecasts a single flat date with no uncertainty band.
