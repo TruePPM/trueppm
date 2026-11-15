@@ -14,6 +14,14 @@ export interface ToggleProps {
    *  yet known — a switch that paints "on" from an unanswered query and silently
    *  ignores the click is a worse affordance than one that is visibly not ready. */
   disabled?: boolean;
+  /** A write is in flight: announces `aria-busy`, dims the switch and blocks re-entry. */
+  busy?: boolean;
+  /** Id of a caption that describes the switch (resolved timezone, enforced-by note). */
+  describedBy?: string;
+  /** Dim and ignore clicks but keep the switch focusable and announced as
+   *  `aria-disabled` — for a switch whose "why not" is explained in `describedBy`,
+   *  where a native `disabled` would drop it from the tab order. */
+  softDisabled?: boolean;
 }
 
 /**
@@ -31,6 +39,9 @@ export function Toggle({
   hint,
   ariaLabel,
   disabled = false,
+  busy = false,
+  describedBy,
+  softDisabled = false,
 }: ToggleProps) {
   const label = on ? onLabel : offLabel;
   return (
@@ -39,9 +50,19 @@ export function Toggle({
       role="switch"
       aria-checked={on}
       aria-label={ariaLabel}
+      aria-describedby={describedBy}
+      aria-busy={busy || undefined}
+      aria-disabled={softDisabled || undefined}
       disabled={disabled}
-      onClick={() => onChange(!on)}
-      className="inline-flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:opacity-60 disabled:cursor-not-allowed"
+      onClick={() => {
+        if (softDisabled || busy) return;
+        onChange(!on);
+      }}
+      className={[
+        'inline-flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:opacity-60 disabled:cursor-not-allowed',
+        softDisabled ? 'opacity-60 cursor-not-allowed' : '',
+        busy ? 'opacity-70 cursor-progress' : '',
+      ].join(' ')}
     >
       <span
         className={[

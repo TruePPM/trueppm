@@ -205,6 +205,12 @@ describe('ProjectSignalPrivacyPage', () => {
     expect(ratchetMutate).toHaveBeenCalled();
   });
 
+  it('the ratchet control uses the shared Button, so it carries a focus ring (#4621)', () => {
+    renderWithRouter(<ProjectSignalPrivacyPage />);
+    const ratchet = screen.getByRole('button', { name: 'Make everything team-only' });
+    expect(ratchet.className).toContain('focus:ring-2');
+  });
+
   it('switches to the read-only matrix lens', async () => {
     const user = userEvent.setup();
     renderWithRouter(<ProjectSignalPrivacyPage />);

@@ -6,6 +6,7 @@
  * the posture read-only. Methodology-gated to agile/hybrid by the nav.
  */
 
+import { Button } from '@/components/Button';
 import { useMemo, useState } from 'react';
 import type { AxiosError } from 'axios';
 import { SettingsPageTitle } from '../SettingsShell';
@@ -102,34 +103,27 @@ export function ProjectSignalPrivacyPage() {
                   <span className="text-neutral-text-secondary">
                     Set every signal back to team-only?
                   </span>
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
                     onClick={() => {
                       ratchetDown.mutate();
                       setConfirmRatchet(false);
                     }}
-                    className="h-7 rounded bg-brand-primary px-3 font-medium text-neutral-text-inverse"
                   >
                     Confirm
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmRatchet(false)}
-                    className="h-7 rounded border border-neutral-border px-3 text-neutral-text-secondary"
-                  >
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setConfirmRatchet(false)}>
                     Cancel
-                  </button>
+                  </Button>
                 </span>
               ) : (
-                <button
-                  type="button"
+                <Button
                   onClick={() => setConfirmRatchet(true)}
                   disabled={allTeamOnly || saving}
                   title={allTeamOnly ? 'Already all team-only' : undefined}
-                  className="h-8 rounded bg-brand-primary px-3 text-[12px] font-medium text-neutral-text-inverse disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
                 >
                   Make everything team-only
-                </button>
+                </Button>
               )
             ) : (
               <span />
@@ -148,7 +142,7 @@ export function ProjectSignalPrivacyPage() {
                   aria-selected={view === v}
                   onClick={() => setView(v)}
                   className={[
-                    'h-6 rounded px-2 text-[11px] font-medium',
+                    'h-6 rounded px-2 text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     view === v
                       ? 'bg-sage-500 text-navy-900'
                       : 'text-neutral-text-secondary hover:bg-neutral-surface-sunken',
