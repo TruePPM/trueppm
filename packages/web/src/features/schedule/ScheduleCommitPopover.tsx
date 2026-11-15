@@ -1,3 +1,4 @@
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
@@ -65,12 +66,7 @@ const ANCHOR_BAR_HEIGHT = 18;
 
 function formatShortDate(iso: string): string {
   // Parse as UTC midnight to match the canvas's date arithmetic (rule 56).
-  const d = new Date(iso + 'T00:00:00Z');
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
+  return fmtUtcShort(iso);
 }
 
 export function ScheduleCommitPopover({
