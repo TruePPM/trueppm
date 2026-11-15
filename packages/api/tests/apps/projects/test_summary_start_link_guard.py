@@ -1174,3 +1174,213 @@ def test_restore_does_not_refuse_a_project_that_was_already_cyclic(
     response = _post(owner_client, f"/api/v1/tasks/{c.pk}/restore/")
 
     assert response.status_code == 200, response.content
+
+
+# ---------------------------------------------------------------------------
+# #4437 — FF/SF links INTO a task that is about to become a summary
+#
+# ``summary_start_link_block`` originally read only the links a task DRIVES, and
+# several structural paths run no both-sides graph guard, so an indent under a
+# leaf that already had ``X -FF-> leaf`` persisted a link every recalculation refused.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("dep_type", ["FF", "SF"])
+class TestInboundLinkRefusesNewSummary:
+    def test_indent_under_a_leaf_with_an_inbound_link_is_refused(
+        self, project: Project, owner_client: APIClient, dep_type: str
+    ) -> None:
+        leaf = _task(project, "Leaf", "1")
+        b = _task(project, "B", "2")
+        x = _task(project, "X", "3")
+        link = Dependency.objects.create(predecessor=x, successor=leaf, dep_type=dep_type)
+        before = _outline(project)
+
+        response = _post(owner_client, INDENT_URL.format(pk=project.pk, task_id=b.pk))
+
+        assert response.status_code == 400, response.data
+        body = response.json()
+        assert body["code"] == "summary_start_link"
+        assert "“X”" in body["detail"]
+        assert body["blocking_dependencies"] == [
+            {"id": str(link.pk), "dep_type": dep_type, "successor_id": str(leaf.pk)}
+        ]
+        assert _outline(project) == before
+
+    def test_outdent_that_adopts_followers_under_an_inbound_target_is_refused(
+        self, project: Project, owner_client: APIClient, dep_type: str
+    ) -> None:
+        _task(project, "P", "1")
+        t = _task(project, "T", "1.1")
+        _task(project, "F", "1.2")
+        x = _task(project, "X", "2")
+        Dependency.objects.create(predecessor=x, successor=t, dep_type=dep_type)
+        before = _outline(project)
+
+        response = _post(owner_client, OUTDENT_URL.format(pk=project.pk, task_id=t.pk))
+
+        assert response.status_code == 400, response.data
+        assert response.json()["code"] == "summary_start_link"
+        assert _outline(project) == before
+
+    def test_reparent_under_a_leaf_with_an_inbound_link_is_refused(
+        self, project: Project, owner_client: APIClient, dep_type: str
+    ) -> None:
+        leaf = _task(project, "Leaf", "1")
+        moved = _task(project, "Moved", "2")
+        x = _task(project, "X", "3")
+        Dependency.objects.create(predecessor=x, successor=leaf, dep_type=dep_type)
+        before = _outline(project)
+
+        response = _post(
+            owner_client,
+            REPARENT_URL.format(pk=project.pk, task_id=moved.pk),
+            {"new_parent_id": str(leaf.pk)},
+        )
+
+        assert response.status_code == 400, response.data
+        assert response.json()["code"] == "summary_start_link"
+        assert _outline(project) == before
+
+    def test_create_with_parent_id_under_a_leaf_with_an_inbound_link_is_refused(
+        self, project: Project, owner_client: APIClient, dep_type: str
+    ) -> None:
+        leaf = _task(project, "Leaf", "1")
+        x = _task(project, "X", "2")
+        Dependency.objects.create(predecessor=x, successor=leaf, dep_type=dep_type)
+
+        response = _post(
+            owner_client,
+            "/api/v1/tasks/",
+            {
+                "project": str(project.pk),
+                "name": "Child",
+                "duration": 1,
+                "parent_id": str(leaf.pk),
+            },
+        )
+
+        assert response.status_code == 400, response.data
+        assert "cannot become a summary task" in str(response.data["parent_id"][0])
+        assert not Task.objects.filter(project=project, name="Child").exists()
+
+
+@pytest.mark.django_db
+def test_an_inbound_link_from_another_project_is_listed_but_not_named(
+    project: Project, owner_client: APIClient
+) -> None:
+    leaf = _task(project, "Leaf", "1")
+    b = _task(project, "B", "2")
+    elsewhere = Project.objects.create(
+        name="Elsewhere", start_date=date(2026, 1, 5), calendar=project.calendar
+    )
+    secret = _task(elsewhere, "Secret launch", "1")
+    link = Dependency.objects.create(predecessor=secret, successor=leaf, dep_type="FF")
+
+    response = _post(owner_client, INDENT_URL.format(pk=project.pk, task_id=b.pk))
+
+    assert response.status_code == 400
+    body = response.json()
+    assert "Secret launch" not in body["detail"]
+    assert "a task in another project (FF)" in body["detail"]
+    assert [d["id"] for d in body["blocking_dependencies"]] == [str(link.pk)]
+
+
+@pytest.mark.django_db
+def test_restoring_a_project_does_not_revive_an_ff_link_into_a_new_summary(
+    project: Project, owner_client: APIClient
+) -> None:
+    """X (project 2) -FF-> L (project 1); project 2 trashed; L becomes a summary; restore 2."""
+    from trueppm_api.apps.projects.models import cascade_project_children_soft_delete
+
+    leaf = _task(project, "L", "1")
+    elsewhere = Project.objects.create(
+        name="Elsewhere", start_date=date(2026, 1, 5), calendar=project.calendar
+    )
+    ProjectMembership.objects.create(
+        project=elsewhere, user=User.objects.get(username="owner"), role=Role.OWNER
+    )
+    x = _task(elsewhere, "X", "1")
+    ff = Dependency.objects.create(predecessor=x, successor=leaf, dep_type="FF")
+    fs = Dependency.objects.create(predecessor=x, successor=leaf, dep_type="FS")
+    assert owner_client.delete(f"/api/v1/projects/{elsewhere.pk}/").status_code == 204
+    cascade_project_children_soft_delete(elsewhere.pk)
+    b = _task(project, "B", "2")
+    assert _post(owner_client, INDENT_URL.format(pk=project.pk, task_id=b.pk)).status_code == 200
+
+    restored = _post(owner_client, f"/api/v1/projects/{elsewhere.pk}/restore/")
+
+    assert restored.status_code == 200, restored.content
+    ff.refresh_from_db()
+    fs.refresh_from_db()
+    assert ff.is_deleted is True, "an FF link into the new summary must stay deleted"
+    assert fs.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_restoring_a_predecessor_does_not_revive_an_ff_link_into_a_new_summary(
+    project: Project, owner_client: APIClient
+) -> None:
+    """X -FF-> L; X trashed; L gains a child; restoring X must not revive the link."""
+    leaf = _task(project, "L", "1")
+    x = _task(project, "X", "2")
+    ff = Dependency.objects.create(predecessor=x, successor=leaf, dep_type="FF")
+    sf = Dependency.objects.create(predecessor=x, successor=leaf, dep_type="SF")
+    fs = Dependency.objects.create(predecessor=x, successor=leaf, dep_type="FS")
+    x.soft_delete()
+    _task(project, "L child", "1.1")
+
+    response = _post(owner_client, f"/api/v1/tasks/{x.pk}/restore/")
+
+    assert response.status_code == 200, response.data
+    for dep in (ff, sf, fs):
+        dep.refresh_from_db()
+    assert ff.is_deleted is True
+    assert sf.is_deleted is True
+    assert fs.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_undoing_an_ungroup_does_not_revive_an_ff_link_into_the_container(
+    project: Project, owner_client: APIClient
+) -> None:
+    container = _task(project, "Phase", "1")
+    _task(project, "Inner", "1.1")
+    before = _task(project, "Before", "2")
+    ff = Dependency.objects.create(predecessor=before, successor=container, dep_type="FF")
+    fs = Dependency.objects.create(predecessor=before, successor=container, dep_type="FS")
+
+    ungrouped = _post(
+        owner_client, UNGROUP_URL.format(pk=project.pk), {"task_id": str(container.pk)}
+    )
+    assert ungrouped.status_code == 200, ungrouped.data
+
+    undone = _post(owner_client, UNDO_URL.format(pk=ungrouped.json()["operation_id"]))
+
+    assert undone.status_code == 200, undone.data
+    ff.refresh_from_db()
+    fs.refresh_from_db()
+    assert ff.is_deleted is True
+    assert fs.is_deleted is False
+    assert undone.json()["undo"]["dependencies_skipped"] == 1
+
+
+@pytest.mark.django_db
+def test_undoing_an_outdent_that_would_re_summarize_an_inbound_target_names_the_link(
+    project: Project, owner_client: APIClient
+) -> None:
+    """The undo's 409 names the inbound link in ``blocking_dependencies``, not a generic body."""
+    p = _task(project, "P", "1")
+    x = _task(project, "X", "1.1")
+    other = _task(project, "Other", "2")
+    outdented = _post(owner_client, OUTDENT_URL.format(pk=project.pk, task_id=x.pk))
+    assert outdented.status_code == 200, outdented.data
+    link = Dependency.objects.create(predecessor=other, successor=p, dep_type="FF")
+
+    response = _undo(owner_client, outdented.json()["operation_id"])
+
+    assert response.status_code == 409, response.content
+    body = response.json()
+    assert body["code"] == "summary_start_link"
+    assert [d["id"] for d in body["blocking_dependencies"]] == [str(link.pk)]

@@ -230,6 +230,20 @@ password is unchanged, so your existing database volume will keep working. If yo
 ran the demo stack on a reachable host before 0.5, treat the old public key as
 exposed and restart it on 0.5 so the key is replaced.
 
+### Finish-to-Finish and Start-to-Finish links into summary tasks are retired (`projects.0173`)
+
+From 0.5, the scheduler refuses a Finish-to-Finish or Start-to-Finish link whose
+successor is a summary task (ADR-0370): it would force every subtask, even a short
+unrelated one, to finish with the predecessor, and the engine cannot model it. Plans
+written before that rule can already hold such a link, and an unmodified one would make
+every recalculation of that project fail. The migration therefore soft-deletes each
+one, the same tombstone a user delete leaves, so offline clients receive the removal on
+their next sync. It writes one `retired ... link ... into summary task ...` warning per
+link to the migration log, naming the project, the link and both tasks, so you can
+redraw it between subtasks. It touches no other link type, no link out of a summary
+that was already legal, and nothing else, and it is safe to run more than once. Read
+those lines after the upgrade if a plan shows a dependency missing from a phase.
+
 ### New API tokens carry `api:full` (`projects.0170`)
 
 From 0.5, a token minted without `scopes` will carry `["api:full"]` instead of

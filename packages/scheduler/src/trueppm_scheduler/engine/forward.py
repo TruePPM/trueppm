@@ -446,7 +446,9 @@ def _pinned_placement(
     That span is capped at the data date (#4539): when ``status_date`` is set and the
     span would finish after it, the task is laid back to finish on the data date (the
     working day before it when the data date is not a working day). Work that is
-    complete finished by the data date; without the cap, recording *no* actuals could
+    complete finished by the data date. That is the no-actuals case only: a task
+    that records an ``actual_start`` but no ``actual_finish`` takes a different
+    branch and is not capped here (#5043). Without the cap, recording *no* actuals could
     slip the task and its successors further than recording an ``actual_finish`` on
     the data date, the latest one the user could truthfully record. The cap only
     ever moves the task earlier, and the SNET yields to it, because a completed task

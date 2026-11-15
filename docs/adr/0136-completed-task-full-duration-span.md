@@ -117,12 +117,20 @@ Rules:
 - **Derive the missing endpoint.** When exactly one actual is recorded, the other is
   derived from full working-day duration via the existing
   `_start_from_finish`/`_finish_from_start` helpers.
-- **No actuals → pinned at the project start or its SNET, unfloored.** A completed task
+- **No actuals → pinned at the project start or its SNET, capped at the data date.** A completed task
   with no actuals is pinned like every other completed task: its full duration is laid
   out from the project start (snapped to the task's calendar), or from its
   `planned_start` when that is later. No predecessor link of any type moves it — the work
   is done, so nothing upstream can delay it — and it is **not** floored at the data date,
-  because completed work is historical. (Superseded rule, before #4343: "positioned by its
+  because completed work is historical. *Amendment (#4539):* it is capped at the data
+  date: when the laid-out span would finish after it, the task is laid back to finish
+  on the data date (the working day before it when that is not a working day), keeping
+  its full duration, so that recording no actuals never slips the schedule further than
+  recording an `actual_finish` on the data date would. A data date at or before the
+  project start caps nothing. The Python engine, the Monte Carlo index and the Rust/WASM
+  engine all apply it; the in-browser drag preview does not yet mirror it, so a
+  100%-complete task with no actuals dropped past the data date previews uncapped until
+  the server reconciles. (Superseded rule, before #4343: "positioned by its
   FS/SS predecessor constraints, `planned_start`, and project start". The forward pass
   applied it while the backward pass did not, which is the defect #4343 fixed.)
 - **A completed milestone with no actuals stays an instant.** Pinning takes a

@@ -1345,6 +1345,16 @@
       "provenance": "hand-verified",
       "issue": "#4539",
       "evidence": "#4539: regenerated with REGEN_EXPECTED=1, then checked by hand: B (5d, SNET Wed 03-11) would end Tue 03-17; capped at Sat 03-14 data date it ends Fri 03-13 and starts Mon 03-09; C and A start Mon 03-16; D unchanged at 03-02..03-03"
+    },
+    "progress_completed_milestone_capped_at_data_date.json": {
+      "provenance": "unknown",
+      "issue": "#4539",
+      "evidence": "added with the #4539 milestone case; input fixture"
+    },
+    "expected/progress_completed_milestone_capped_at_data_date.json": {
+      "provenance": "hand-verified",
+      "issue": "#4539",
+      "evidence": "#4539: regenerated with REGEN_EXPECTED=1, then checked by hand against the independent oracle: M (SNET Wed 03-18, data date Wed 03-11) is held at 03-11, so C starts 03-11 instead of the 03-18 week"
     }
   }
 }

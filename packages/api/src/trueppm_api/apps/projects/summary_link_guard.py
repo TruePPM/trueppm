@@ -32,7 +32,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
+from django.db.models import Q
+
 from trueppm_api.apps.scheduling.graph_guard import (
+    SUMMARY_FORBIDDEN_INBOUND_LINK_TYPES,
     SUMMARY_FORBIDDEN_LINK_TYPES,
     find_summary_start_links,
     printable_label,
@@ -74,8 +77,9 @@ BLOCKING_DEPENDENCIES_SCHEMA: dict[str, Any] = {
         "description": (
             "Present only with code ``summary_start_link`` or "
             "``summary_descendant_link``. For ``summary_start_link``: every "
-            "Start-to-Start or Start-to-Finish link that stops the task becoming a "
-            "summary (ADR-0370); ``successor_id`` is null when the successor is in "
+            "Start-to-Start or Start-to-Finish link the task drives, and every "
+            "Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a "
+            "summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in "
             "another project. For ``summary_descendant_link``: every link the move "
             "would leave between a summary task and one of its own subtasks, which "
             "the scheduler treats as a cycle (#4705)."
@@ -182,63 +186,79 @@ def skipped_link_warning(predecessor_name: str, successor_name: str, dep_type: s
 
 
 def retire_revived_summary_start_links(scope: QuerySet[Task]) -> list[Any]:
-    """Re-remove SS/SF links out of a summary that a trash restore just revived.
+    """Re-remove summary-illegal links that a trash restore just revived.
 
     Restoring a task (its subtree) or a whole project revives the tombstoned edges
-    touching the restored rows. One of them can be a link out of a task that was a
-    leaf when the rows were deleted and has become a summary since — legal then,
-    forbidden now (ADR-0370, #4830). ``scope`` is the restored rows. Every live edge
-    touching them right after the restore was revived by it (an edge cannot be
-    created against a deleted task, and deleting a task or a project tombstones every
-    edge touching it), so retiring the offending ones takes back only what this
-    restore wrote; the rest of the restore stands.
+    touching the restored rows. One of them can touch a task that was a leaf when the
+    rows were deleted and has become a summary since — legal then, forbidden now: an
+    SS/SF link *out of* a summary (ADR-0370, #4830) or an FF/SF link *into* one
+    (#4437). ``scope`` is the restored rows. Every live edge touching them right after
+    the restore was revived by it (an edge cannot be created against a deleted task,
+    and deleting a task or a project tombstones every edge touching it), so retiring
+    the offending ones takes back only what this restore wrote; the rest of the
+    restore stands.
 
-    Summary status is read from each predecessor's own project's children map —
-    the CPM's notion of a summary — once per project, not once per edge, so a project
-    restore with many SS links stays a bounded number of queries.
+    Summary status is read from each endpoint's own project's children map — the
+    CPM's notion of a summary — once per project, not once per edge, so a project
+    restore with many links stays a bounded number of queries. The rule itself is
+    :func:`~trueppm_api.apps.scheduling.graph_guard.find_summary_start_links`.
 
     Returns the retired rows so the caller can report them.
     """
-    from django.db.models import Q
-
     from trueppm_api.apps.projects.models import Dependency
     from trueppm_api.apps.projects.serializers import _load_project_tasks_and_children_map
 
     candidates = list(
         Dependency.live.filter(
             Q(predecessor__in=scope) | Q(successor__in=scope),
-            dep_type__in=sorted(SUMMARY_FORBIDDEN_LINK_TYPES),
-        ).select_related("predecessor")
+            dep_type__in=sorted(
+                SUMMARY_FORBIDDEN_LINK_TYPES | SUMMARY_FORBIDDEN_INBOUND_LINK_TYPES
+            ),
+        ).select_related("predecessor", "successor")
     )
     if not candidates:
         return []
-    # Same row lock the structural guards and the SS/SF dependency write take on the
+    # Same row lock the structural guards and the dependency write take on the
     # would-be summary, held before its children are read, so a concurrent indent
-    # under one of these predecessors cannot slip between the read and the retire.
-    # Ordered by pk so two restores sharing predecessors lock them in one order.
+    # under one of these endpoints cannot slip between the read and the retire.
+    # Ordered by pk so two restores sharing endpoints lock them in one order.
     from django.db import transaction
 
     from trueppm_api.apps.projects.models import Task as TaskModel
 
     if transaction.get_connection().in_atomic_block:
+        endpoint_ids = {dep.predecessor_id for dep in candidates} | {
+            dep.successor_id for dep in candidates
+        }
         list(
             TaskModel.objects.select_for_update()
-            .filter(pk__in={dep.predecessor_id for dep in candidates})
+            .filter(pk__in=endpoint_ids)
             .order_by("pk")
             .values_list("pk", flat=True)
         )
     summaries: set[str] = set()
-    for project_id in {dep.predecessor.project_id for dep in candidates}:
+    project_ids = {dep.predecessor.project_id for dep in candidates} | {
+        dep.successor.project_id for dep in candidates
+    }
+    for project_id in project_ids:
         _, children_map = _load_project_tasks_and_children_map(project_id)
         summaries.update(children_map)
+    offending = set(
+        find_summary_start_links(
+            ((str(d.predecessor_id), str(d.successor_id), str(d.dep_type)) for d in candidates),
+            summaries,
+        )
+    )
     retired: list[Any] = []
     for dep in candidates:
-        if str(dep.predecessor_id) in summaries:
+        if (str(dep.predecessor_id), str(dep.successor_id), str(dep.dep_type)) in offending:
             dep.soft_delete()
             logger.warning(
-                "restore: SS/SF link %s from summary %s not revived (ADR-0370)",
+                "restore: %s link %s (%s -> %s) touching a summary not revived (ADR-0370, #4437)",
+                dep.dep_type,
                 dep.pk,
                 dep.predecessor_id,
+                dep.successor_id,
             )
             retired.append(dep)
     return retired
@@ -247,58 +267,92 @@ def retire_revived_summary_start_links(scope: QuerySet[Task]) -> list[Any]:
 def summary_start_link_block(task: Task) -> SummaryStartLinkBlock | None:
     """The refusal for making ``task`` a summary, or ``None`` when it may become one.
 
-    One indexed query on the ``predecessor`` FK, run only by a caller that has
-    established ``task`` is about to gain its first child — so a restructure that
-    does not create a summary pays nothing.
+    Two indexed queries (one per FK), run only by a caller that has established
+    ``task`` is about to gain its first child — so a restructure that does not
+    create a summary pays nothing. The links that block it are the ones the engine
+    refuses around a summary: SS/SF the task *drives* (ADR-0370) and FF/SF *into*
+    the task (#4437). Several of these callers never run the both-sides
+    ``assert_graph_feasible``, so this is the only thing standing between an indent
+    and a project that cannot be recalculated.
 
     Every live edge counts, cross-project ones included: the program schedule
     expands cross-project edges through the same summary rule and refuses them the
-    same way. A successor outside ``task``'s project is not named, because the
-    caller is authorized on this project and not necessarily on that one; it is
-    still listed by link id so a client can offer to retype or delete the link,
-    which the caller may do — the link's predecessor is a task in this project.
+    same way. A task outside ``task``'s project is not named, because the caller is
+    authorized on this project and not necessarily on that one; the link is still
+    listed by id so a client can offer to retype or delete it, which the caller may
+    do — one of its endpoints is a task in this project.
     """
     from trueppm_api.apps.projects.models import Dependency
 
     links = list(
         Dependency.live.filter(
-            predecessor_id=task.pk, dep_type__in=sorted(SUMMARY_FORBIDDEN_LINK_TYPES)
+            Q(predecessor_id=task.pk, dep_type__in=sorted(SUMMARY_FORBIDDEN_LINK_TYPES))
+            | Q(successor_id=task.pk, dep_type__in=sorted(SUMMARY_FORBIDDEN_INBOUND_LINK_TYPES))
         )
-        .select_related("successor")
-        .only("id", "dep_type", "successor_id", "successor__name", "successor__project_id")
-        .order_by("successor__name", "pk")
+        .select_related("predecessor", "successor")
+        .only(
+            "id",
+            "dep_type",
+            "predecessor_id",
+            "successor_id",
+            "predecessor__name",
+            "predecessor__project_id",
+            "successor__name",
+            "successor__project_id",
+        )
+        .order_by("successor__name", "predecessor__name", "pk")
     )
     if not links:
         return None
 
-    described: list[str] = []
+    outbound: list[str] = []
+    inbound: list[str] = []
     payload: list[dict[str, Any]] = []
     for link in links:
-        same_project = link.successor.project_id == task.project_id
+        is_inbound = link.successor_id == task.pk
+        other = link.predecessor if is_inbound else link.successor
+        same_project = other.project_id == task.project_id
         payload.append(
             {
                 "id": str(link.pk),
                 "dep_type": link.dep_type,
-                "successor_id": str(link.successor_id) if same_project else None,
+                "successor_id": (str(link.successor_id) if (is_inbound or same_project) else None),
             }
         )
-        successor = (
-            f"“{printable_label(link.successor.name)}”"
-            if same_project
-            else "a task in another project"
-        )
-        described.append(f"{successor} ({link.dep_type})")
+        label = f"“{printable_label(other.name)}”" if same_project else "a task in another project"
+        (inbound if is_inbound else outbound).append(f"{label} ({link.dep_type})")
 
+    clauses: list[str] = []
+    fixes: list[str] = []
+    if outbound:
+        clauses.append(
+            f"it drives {_name_links(outbound)} with a Start-to-Start or "
+            "Start-to-Finish link, and a summary cannot drive a successor from "
+            "its start"
+        )
+        fixes.append("Start-to-Start or Start-to-Finish")
+    if inbound:
+        clauses.append(
+            f"{_name_links(inbound)} link into it with a Finish-to-Finish or "
+            "Start-to-Finish link, and a summary cannot be the successor of one "
+            "that constrains its finish"
+        )
+        fixes.append("Finish-to-Finish or Start-to-Finish")
+    detail = (
+        f"“{printable_label(task.name)}” cannot become a summary task: "
+        + "; and ".join(clauses)
+        + ". Change those links to Finish-to-Start (or, for a Start-to-Start link, "
+        "Finish-to-Finish), or delete them, first."
+    )
+    return SummaryStartLinkBlock(detail=detail, blocking_dependencies=payload)
+
+
+def _name_links(described: list[str]) -> str:
+    """Join described links for a refusal sentence, collapsing the tail into a count."""
     named = ", ".join(described[:MAX_NAMED_LINKS])
     if len(described) > MAX_NAMED_LINKS:
         named += f" and {len(described) - MAX_NAMED_LINKS} more"
-    detail = (
-        f"“{printable_label(task.name)}” cannot become a summary task: it drives {named} "
-        "with a Start-to-Start or Start-to-Finish link, and a summary cannot drive a "
-        "successor from its start. Change those links to Finish-to-Start or "
-        "Finish-to-Finish, or delete them, first."
-    )
-    return SummaryStartLinkBlock(detail=detail, blocking_dependencies=payload)
+    return named
 
 
 def summary_descendant_link_block(

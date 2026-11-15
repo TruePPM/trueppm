@@ -2214,6 +2214,31 @@ COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_A_WEEKEND_DATA_DATE = RefProject(
     planned_start={"B": date(2026, 3, 11)},
     progress={"B": RefProgress(percent_complete=100.0)},
 )
+#: #4539 for a completed milestone with no actuals: its SNET (Wed 03-18) is past the
+#: data date (Wed 03-11), so the instant is held at the data date and ``C`` is not
+#: pushed to the 03-18 week.
+COMPLETE_MILESTONE_WITHOUT_ACTUALS_CAPPED_AT_DATA_DATE = RefProject(
+    start=date(2026, 3, 2),
+    durations={"M": 0, "C": 2},
+    links=(RefLink("M", "C", "FS", 0),),
+    status_date=date(2026, 3, 11),
+    planned_start={"M": date(2026, 3, 18)},
+    progress={"M": RefProgress(percent_complete=100.0)},
+)
+#: #4539 on the task's OWN calendar: ``B`` works Sunday to Thursday, so a Friday data
+#: date (03-13, a day off for ``B``) caps it at the close of Thursday 03-12, and the
+#: full 5-day span is laid back across its own week, starting Sunday 03-08. The project
+#: calendar (Monday to Friday) would have capped it a day later.
+COMPLETE_WITHOUT_ACTUALS_CAPPED_ON_ITS_OWN_CALENDAR = RefProject(
+    start=date(2026, 3, 2),
+    durations={"B": 5, "C": 2},
+    links=(RefLink("B", "C", "FS", 0),),
+    status_date=date(2026, 3, 13),
+    planned_start={"B": date(2026, 3, 9)},
+    progress={"B": RefProgress(percent_complete=100.0)},
+    calendars={"sun_thu": RefCalendar(working_mask=0b1001111)},
+    task_calendar={"B": "sun_thu"},
+)
 #: #4332 — a Saturday ``actual_start`` kept verbatim, with a data date the Monday
 #: after: the remaining window opens on the data date.
 SATURDAY_ACTUAL_START = RefProject(
@@ -2289,6 +2314,8 @@ PROGRESS_EXAMPLES = (
     COMPLETE_WITHOUT_ACTUALS_PINNED,
     COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_DATA_DATE,
     COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_A_WEEKEND_DATA_DATE,
+    COMPLETE_MILESTONE_WITHOUT_ACTUALS_CAPPED_AT_DATA_DATE,
+    COMPLETE_WITHOUT_ACTUALS_CAPPED_ON_ITS_OWN_CALENDAR,
     SATURDAY_ACTUAL_START,
     COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
     SUNDAY_FINISH_BEHIND_A_MILESTONE,
@@ -2353,6 +2380,11 @@ def test_the_reference_states_the_adr_0132_and_0136_rules() -> None:
     weekend = reference_schedule(COMPLETE_WITHOUT_ACTUALS_CAPPED_AT_A_WEEKEND_DATA_DATE).tasks
     assert weekend["B"].early_finish == date(2026, 3, 13)
     assert weekend["C"].early_start == date(2026, 3, 16)
+    milestone = reference_schedule(COMPLETE_MILESTONE_WITHOUT_ACTUALS_CAPPED_AT_DATA_DATE).tasks
+    assert milestone["M"].early_start == date(2026, 3, 11)
+    assert milestone["C"].early_start == date(2026, 3, 11)
+    own = reference_schedule(COMPLETE_WITHOUT_ACTUALS_CAPPED_ON_ITS_OWN_CALENDAR).tasks
+    assert (own["B"].early_start, own["B"].early_finish) == (date(2026, 3, 8), date(2026, 3, 12))
 
     saturday = reference_schedule(SATURDAY_ACTUAL_START).tasks
     assert (saturday["A"].early_start, saturday["A"].early_finish) == (
