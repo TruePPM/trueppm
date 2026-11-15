@@ -27,7 +27,7 @@ change between releases. Pin an exact version (e.g.
   engine's own walks, so an embedder stops re-deriving them with `date +
   timedelta` loops. All four are also exported from `trueppm_scheduler`.
   Scheduling results are unchanged.
-- **`roll_up_summary(task_id, leaves, name=None)`
+- **`roll_up_summary(task_id, leaves, *, name=None)`
   ([#5010](https://gitlab.com/trueppm/trueppm/-/issues/5010)).** Derives a
   summary task's row from its scheduled leaves: earliest starts, latest
   finishes, the tightest leaf `total_float`, zero `free_float`, critical when any

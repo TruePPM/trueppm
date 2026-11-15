@@ -70,6 +70,19 @@ def test_missing_late_and_scheduled_dates_fall_back_to_the_early_dates() -> None
     assert rolled.is_critical is False
 
 
+def test_leaves_without_total_float_roll_up_to_zero_float() -> None:
+    # Documented: total_float is the tightest leaf float, "zero when no leaf has one".
+    a = _leaf("a", early_start=date(2026, 3, 2), early_finish=date(2026, 3, 4), total_float=None)
+    summary = roll_up_summary("s", [a])
+    assert summary is not None
+    assert summary.total_float == timedelta(days=0)
+    # A leaf with a float alongside one without: the None is ignored, not treated as zero.
+    b = _leaf("b", early_start=date(2026, 3, 3), early_finish=date(2026, 3, 5), total_float=2 * _D)
+    mixed = roll_up_summary("s", [a, b])
+    assert mixed is not None
+    assert mixed.total_float == 2 * _D
+
+
 def test_no_leaf_with_both_early_dates_rolls_up_to_none() -> None:
     assert roll_up_summary("s", []) is None
     assert roll_up_summary("s", [_leaf("a", early_start=date(2026, 3, 2))]) is None

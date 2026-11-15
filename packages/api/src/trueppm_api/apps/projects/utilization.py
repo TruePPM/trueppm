@@ -66,6 +66,12 @@ def _load_band(load_pct: float) -> str:
     return "on-track"
 
 
+# TODO(#5009): once scheduler 0.5 is on PyPI the walks in this module can become
+# Calendar(...).is_working_day / working_day_count / next_working_day. They read the RAW
+# ``project.calendar`` mask + exceptions, not ``compose_project_calendar()``, so swapping
+# to a composed Calendar is a behavior change; build the Calendar from the same raw
+# mask/exceptions. tests/apps/projects/test_calendar_walks_match_library.py pins
+# ``_is_working_day`` to ``Calendar.is_working_day``.
 def _is_working_day(
     working_days_mask: int,
     exception_ranges: list[tuple[datetime.date, datetime.date]],
@@ -115,6 +121,7 @@ def first_working_day(project: Any) -> datetime.date:
     mask = cal.working_days if cal is not None else _DEFAULT_WORKING_DAYS
     ranges = _exception_ranges(cal.exceptions) if cal is not None else []
 
+    # TODO(#5009): per-day walk over the raw calendar; see the note on ``_is_working_day``.
     start: datetime.date = project.start_date
     d = start
     for _ in range(_MAX_FLOOR_SCAN_DAYS):
@@ -158,6 +165,7 @@ def _first_working_day_in(
     bitmask, or exceptions blanketing the span) cannot spin across a multi-year
     span — the same guard ``first_working_day`` applies.
     """
+    # TODO(#5009): per-day walk over the raw calendar; see the note on ``_is_working_day``.
     d = start
     for _ in range(_MAX_FLOOR_SCAN_DAYS):
         if d > end:
@@ -441,6 +449,7 @@ def _count_working_days_in_range(
     end: datetime.date,
 ) -> int:
     """Count working days between start and end inclusive under the given calendar."""
+    # TODO(#5009): per-day walk over the raw calendar; see the note on ``_is_working_day``.
     count = 0
     d = start
     while d <= end:
@@ -754,6 +763,7 @@ def _accumulate_days(
     task_pk: str,
 ) -> None:
     """Add ``daily_hours`` (and the task id) to every working day in the task window."""
+    # TODO(#5009): per-day walk over the raw calendar; see the note on ``_is_working_day``.
     d = task_start
     while d <= task_end:
         if _is_working_day(mask, exc_ranges, d):

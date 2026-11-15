@@ -101,6 +101,15 @@ def test_count_reaches_date_max_without_overflow() -> None:
     assert working_day_count(date.max - timedelta(days=2), date.max, cal) == 3
 
 
+def test_count_reaches_date_max_with_exceptions() -> None:
+    # date.max is a Friday: Mon-Fri of its week minus a Wednesday holiday is 4.
+    friday = date.max
+    cal = Calendar(exceptions=[DateRange(friday - timedelta(days=2), friday - timedelta(days=2))])
+    start = friday - timedelta(days=4)
+    assert start.weekday() == 0 and friday.weekday() == 4  # hand count: 5 weekdays - 1 holiday
+    assert working_day_count(start, friday, cal) == 4
+
+
 def test_next_and_previous_skip_a_holiday_and_weekend() -> None:
     friday = date(2026, 11, 20)
     monday = date(2026, 11, 23)
@@ -125,6 +134,8 @@ def test_degenerate_calendar_raises_the_documented_error() -> None:
         next_working_day(_BASE, cal, inclusive=True)
     with pytest.raises(InvalidScheduleInput):
         previous_working_day(blanket.end, cal, inclusive=True)
+    with pytest.raises(InvalidScheduleInput):
+        nth_working_day(_BASE, 2, cal)
 
 
 def test_helpers_are_public_from_the_root_and_the_module() -> None:

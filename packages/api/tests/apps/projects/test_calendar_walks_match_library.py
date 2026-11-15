@@ -25,7 +25,7 @@ from trueppm_scheduler.calendar import (
     working_day_count,
 )
 
-from trueppm_api.apps.projects import sprint_cadence
+from trueppm_api.apps.projects import sprint_cadence, utilization
 from trueppm_api.apps.projects.services import _layered_working_days, _working_days
 from trueppm_api.apps.scheduling.finish_reading import working_time_end_day
 
@@ -87,3 +87,14 @@ def test_working_time_end_day_is_the_library_previous_working_day(seed: int) -> 
     start, _, _ = _span(seed)
     assert working_time_end_day((start, True), cal) == previous_working_day(start, cal)
     assert working_time_end_day((start, False), cal) == start
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_utilization_is_working_day_is_the_library_predicate(seed: int) -> None:
+    # utilization reads the raw mask + exception ranges (not the composed calendar).
+    cal = _calendar(seed)
+    ranges = [(r.start, r.end) for r in cal.exceptions]
+    rng = random.Random(seed * 31 + 7)
+    for _ in range(40):
+        d = _BASE + timedelta(days=rng.randint(-10, 200))
+        assert utilization._is_working_day(cal.working_days, ranges, d) == cal.is_working_day(d)
