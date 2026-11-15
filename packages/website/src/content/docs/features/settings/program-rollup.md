@@ -55,7 +55,7 @@ page. The rollup response carries the same sentences in its `definitions` map.
 | KPI | Identifier | What it shows |
 |-----|-----------|---------------|
 | Cost variance (CV) | `cost_variance` | Earned value minus actual cost, summed across the program's projects (negative = over budget) |
-| Budget utilization | `budget_utilization` | Total actual cost ÷ total budget across the program's projects |
+| Budget utilization | `budget_utilization` | Total actual cost ÷ total budget across the program's projects, a ratio of sums, not an average of project ratios. It is spend against budget, not a cost performance index (CPI) |
 
 :::note[Ships in 0.5]
 The two cost KPIs compute in 0.5, from the [cost model](/features/cost-model/). In the current release both are locked in the picker with the reason `no_cost_data` ("needs project cost data"), and **Budget-weighted** always falls back to the average.

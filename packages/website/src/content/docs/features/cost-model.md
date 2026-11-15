@@ -54,6 +54,35 @@ All amounts are in the workspace currency. Set it with the `currency` field on `
 | **Cost variance (CV)** | EV − AC. **Negative means over budget** |
 | **Budget utilization** | AC ÷ budget. `1.0` (100 %) means the whole budget has been spent |
 
+### Forecast measures
+
+:::note[Ships in 0.5]
+The forecast measures and the `provenance` block described here ship in 0.5, like the rest of this page.
+:::
+
+From the same inputs the cost breakdown also reports the standard earned value forecasts. These are the commonly published definitions, and they have not yet been confirmed against the PMI Practice Standard for EVM; the forecast uses the **typical variance** method, which assumes the cost efficiency so far continues for the rest of the work.
+
+| Figure | Formula | Reads as |
+|---|---|---|
+| **Cost performance index (CPI)** | EV ÷ AC | Above `1.0`, the work done cost less than budgeted |
+| **Estimate at completion (EAC)** | budget ÷ CPI | Forecast total cost at the current efficiency |
+| **Estimate to complete (ETC)** | EAC − AC | Forecast cost of the remaining work |
+| **Variance at completion (VAC)** | budget − EAC | Negative means a forecast overrun |
+| **To-complete performance index (TCPI)** | (budget − EV) ÷ (budget − AC) | The efficiency the remaining work needs to finish exactly on budget |
+
+**Budget utilization is not CPI.** Utilization (AC ÷ budget) says how much of the budget is spent; CPI says how much work that money bought. The `budget` field is the budget at completion (BAC), the total planned cost, not the money remaining. At program level, utilization is total actual cost ÷ total budget, a ratio of sums, not an average of project ratios.
+
+A forecast is never shown as `0` or infinity when it cannot be computed. It reports `available: false` with a reason:
+
+| Reason | Applies to | Why |
+|---|---|---|
+| `no_budget`, `missing_rates` | all | Same as the other figures |
+| `no_actual_cost` | CPI, EAC, ETC, VAC | No cost yet, so CPI (EV ÷ AC) is undefined |
+| `no_earned_value` | EAC, ETC, VAC | Cost with no progress gives CPI 0, so EAC would be infinite |
+| `budget_exhausted` | TCPI | Actual cost has reached the budget, so the denominator is 0 |
+
+The `provenance` block names what computed each figure: the computing function, a contract version, the rate source (the resource's **current** rate, with no rate history, so a rate change re-costs past hours and `as_of` is the only datum saying when a figure was true), the percent-complete basis (the **unweighted** mean of task percent complete, so every task counts equally), the EAC method, and for each figure whether it was `computed` or `restricted` with its reason. Rate-change history is not recorded, by design: a resource has one current rate (see [One rate per resource, no history](#one-rate-per-resource-no-history)). The program rollup's cost KPIs do not carry this block: they already report `available`/`reason` per KPI with the missing-budget and missing-rate counts, and their inputs are the per-project figures described here.
+
 Example: a project has a budget of 10,000 and is 50 % complete, so EV is 5,000. Two people have logged 11.5 h at 100/h and 0.75 h at 80.50/h, so AC is 1,150.00 + 60.38 = 1,210.38. CV is 5,000 − 1,210.38 = **3,789.62** (under budget), and utilization is **12 %**.
 
 Each line is rounded to the cent and the lines are then added together, so the breakdown always adds up to the total.
@@ -85,7 +114,8 @@ Actual cost is still shown while rates are missing, but it covers only the price
 Project Managers can read a project's cost at `GET /api/v1/projects/{id}/cost/`. The response returns:
 
 - the budget, actual cost, percent complete and earned value
-- cost variance and budget utilization, each with a reason when it cannot be computed
+- cost variance, budget utilization, CPI, EAC, ETC, VAC and TCPI, each with a reason when it cannot be computed
+- a `provenance` block naming the inputs and method behind each figure
 - `cost_computable`, which is false when anyone in scope has no rate, and `missing_rate_count`
 - the people with no rate
 - logged, priced and unpriced hours

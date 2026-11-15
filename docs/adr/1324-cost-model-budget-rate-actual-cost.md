@@ -388,3 +388,19 @@ unweighted task mean, and whether per-role default rates are needed in 0.5.
 
 - [x] Open issues naming this ADR re-read: 0. The ADR is new; #754, #3426, #4809 and #4810
       already carry the post-decision scope (#754's 2026-09-17 and 2026-09-26 comments).
+
+### Addendum: forecast measures (#4852, #4848)
+
+**Status: UNVERIFIED against the PMBOK / PMI Practice Standard for EVM, awaiting human confirmation (#4852 AC1).**
+
+`GET /projects/{id}/cost/` now also reports, each as `{available, value | reason}`:
+
+- CPI = EV / AC
+- EAC = BAC / CPI (the typical-variance variant: cost efficiency so far continues)
+- ETC = EAC − AC
+- VAC = BAC − EAC
+- TCPI = (BAC − EV) / (BAC − AC)
+
+The typical-variance EAC was chosen because it needs no input beyond BAC, EV and AC, and it is the most commonly published default. The sources consulted were secondary only (PMI library articles and practitioner sites, per #4852); the standard itself was not retrieved. EV is unchanged: unweighted mean percent complete (the basis decision is #4853).
+
+Undefined denominators return no value with a reason (`no_actual_cost`, `no_earned_value`, `budget_exhausted`), never 0 or infinity. Rate-change history is not recorded because rates have no history (this ADR, §2), a deliberate limit. A `provenance` block (#4848) names the inputs and marks each figure computed or restricted. The program rollup cost KPIs do not carry it: they already report `available`/`reason` and the missing-budget and missing-rate counts per KPI, and their inputs are the per-project figures.

@@ -108,7 +108,7 @@ const KPI_GROUPS: KpiGroup[] = [
       {
         id: 'budget_utilization',
         label: 'Budget utilization',
-        description: 'Actual cost as a share of total budget across all projects.',
+        description: 'Actual cost as a share of total budget across all projects (a ratio of sums). Spend against budget, not a CPI.',
       },
     ],
   },

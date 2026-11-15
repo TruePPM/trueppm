@@ -251,6 +251,114 @@ def test_cost_endpoint_payload(scenario: dict[str, Any]) -> None:
     assert "cost_variance" in d["definitions"]
 
 
+def test_forecast_measures_match_hand_computation(scenario: dict[str, Any]) -> None:
+    """BAC 10,000, EV 5,000, AC 1,210.38 (scenario docstring), computed by hand:
+
+    CPI  = 5,000 / 1,210.38           = 4.130934 -> 4.1309
+    EAC  = BAC / CPI = 10,000 x 1,210.38 / 5,000 = 2,420.76
+    ETC  = EAC - AC = 2,420.76 - 1,210.38        = 1,210.38
+    VAC  = BAC - EAC = 10,000 - 2,420.76         = 7,579.24
+    TCPI = (10,000 - 5,000) / (10,000 - 1,210.38) = 5,000 / 8,789.62 = 0.5689
+    """
+    cost = project_cost_facts([scenario["p"].pk])[scenario["p"].pk]
+    assert cost.cpi_result() == (4.1309, None)
+    assert cost.eac_result() == (Decimal("2420.76"), None)
+    assert cost.etc_result() == (Decimal("1210.38"), None)
+    assert cost.vac_result() == (Decimal("7579.24"), None)
+    assert cost.tcpi_result() == (0.5689, None)
+
+
+def test_forecasts_are_null_with_a_reason_never_zero_or_infinite(db: object) -> None:
+    """Every undefined denominator yields ``available: false`` + a reason."""
+    alice = h.user("alice")
+    h.resource("Alice", alice, "100.00")
+
+    # No time logged: AC = 0, so CPI (and EAC, ETC, VAC) is undefined. TCPI is fine:
+    # (1,000 - 500) / (1,000 - 0) = 0.5.
+    p = h.project("NoSpend", budget="1000.00")
+    h.task(p, "T", 50)
+    c = project_cost_facts([p.pk])[p.pk]
+    assert c.cpi_result() == (None, "no_actual_cost")
+    assert c.eac_result() == (None, "no_actual_cost")
+    assert c.etc_result() == (None, "no_actual_cost")
+    assert c.vac_result() == (None, "no_actual_cost")
+    assert c.tcpi_result() == (0.5, None)
+
+    # Money spent, nothing earned: CPI is a real 0.0, but EAC = BAC / 0 is infinite.
+    q = h.project("NoProgress", budget="1000.00")
+    h.log(h.task(q, "T", 0), alice, 60)
+    c = project_cost_facts([q.pk])[q.pk]
+    assert c.cpi_result() == (0.0, None)
+    assert c.eac_result() == (None, "no_earned_value")
+    assert c.vac_result() == (None, "no_earned_value")
+
+    # AC (1,000) has reached BAC (1,000): TCPI's denominator is 0.
+    r = h.project("Spent", budget="1000.00")
+    h.log(h.task(r, "T", 50), alice, 600)
+    c = project_cost_facts([r.pk])[r.pk]
+    assert c.actual == Decimal("1000.00")
+    assert c.tcpi_result() == (None, "budget_exhausted")
+    assert c.cpi_result() == (0.5, None)  # EV 500 / AC 1,000
+    assert c.eac_result() == (Decimal("2000.00"), None)  # 1,000 x 1,000 / 500
+
+
+def test_forecasts_inherit_no_budget_and_missing_rates(scenario: dict[str, Any]) -> None:
+    p = scenario["p"]
+    h.log(scenario["t3"], h.user("dave"), 60)  # no resource -> unpriced
+    c = project_cost_facts([p.pk])[p.pk]
+    for result in (c.cpi_result, c.eac_result, c.etc_result, c.vac_result, c.tcpi_result):
+        assert result() == (None, "missing_rates")
+    Project.objects.filter(pk=p.pk).update(budget=None)
+    c = project_cost_facts([p.pk])[p.pk]
+    assert c.eac_result() == (None, "no_budget")
+
+
+def test_cost_endpoint_forecasts_and_provenance(scenario: dict[str, Any]) -> None:
+    p = scenario["p"]
+    owner = h.user("owner")
+    h.member(p, owner, Role.OWNER)
+    d = h.client(owner).get(f"/api/v1/projects/{p.pk}/cost/").json()
+    assert d["cpi"] == {"available": True, "value": 4.1309}
+    assert d["eac"] == {"available": True, "value": "2420.76"}
+    assert d["etc"] == {"available": True, "value": "1210.38"}
+    assert d["vac"] == {"available": True, "value": "7579.24"}
+    assert d["tcpi"] == {"available": True, "value": 0.5689}
+    for key in ("cpi", "eac", "etc", "vac", "tcpi", "provenance"):
+        assert key in d["definitions"] or key == "provenance"
+    assert "typical" in d["definitions"]["eac"]
+    assert "not the cost performance index" in d["definitions"]["budget_utilization"]
+    prov = d["provenance"]
+    assert prov["computed_by"].endswith("project_cost_facts")
+    assert prov["contract_version"] == "1"
+    assert prov["as_of"] == d["as_of"]
+    assert prov["inputs"]["percent_complete_source"] == "unweighted_mean_task_percent_complete"
+    assert prov["inputs"]["rate_source"] == "current_resource_rate"
+    assert prov["inputs"]["eac_method"] == "typical_variance"
+    assert set(prov["figures"]) == {
+        "earned_value",
+        "cost_variance",
+        "budget_utilization",
+        "cpi",
+        "eac",
+        "etc",
+        "vac",
+        "tcpi",
+    }
+    assert all(f == {"status": "computed"} for f in prov["figures"].values())
+
+
+def test_provenance_marks_a_restricted_figure_not_zero(scenario: dict[str, Any]) -> None:
+    p = scenario["p"]
+    Project.objects.filter(pk=p.pk).update(budget=None)
+    owner = h.user("owner")
+    h.member(p, owner, Role.OWNER)
+    d = h.client(owner).get(f"/api/v1/projects/{p.pk}/cost/").json()
+    assert (d["eac"]["available"], d["eac"]["reason"]) == (False, "no_budget")
+    assert d["eac"]["value"] is None
+    assert d["provenance"]["figures"]["eac"] == {"status": "restricted", "reason": "no_budget"}
+    assert d["provenance"]["figures"]["earned_value"]["status"] == "restricted"
+
+
 # ---------------------------------------------------------------------------
 # Rate re-cost: preview equals save
 # ---------------------------------------------------------------------------

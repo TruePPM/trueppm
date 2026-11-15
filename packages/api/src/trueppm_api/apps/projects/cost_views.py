@@ -45,14 +45,26 @@ class CostKpiSerializer(serializers.Serializer[dict[str, Any]]):
         allow_null=True,
         help_text=(
             "cost_variance: a decimal string in the workspace currency. "
-            "budget_utilization: a number, 1.0 = whole budget spent."
+            "budget_utilization, cpi, tcpi: a number (ratio). "
+            "eac, etc, vac: a decimal string in the workspace currency."
         ),
     )
     reason = serializers.ChoiceField(
-        choices=["no_budget", "missing_rates", "cost_restricted"],
+        choices=[
+            "no_budget",
+            "missing_rates",
+            "cost_restricted",
+            "no_actual_cost",
+            "no_earned_value",
+            "budget_exhausted",
+        ],
         read_only=True,
         required=False,
-        help_text="Why there is no value: no_budget, missing_rates, or cost_restricted.",
+        help_text=(
+            "Why there is no value: no_budget, missing_rates, cost_restricted, "
+            "no_actual_cost (AC is 0, CPI undefined), no_earned_value (EV is 0, EAC "
+            "would be infinite) or budget_exhausted (AC has reached BAC, TCPI undefined)."
+        ),
     )
 
 
@@ -76,6 +88,23 @@ class CostLineSerializer(serializers.Serializer[dict[str, Any]]):
     cost = _money(allow_null=True)
 
 
+class CostFigureProvenanceSerializer(serializers.Serializer[dict[str, Any]]):
+    """Whether one figure was computed or restricted, and why when restricted."""
+
+    status = serializers.ChoiceField(choices=["computed", "restricted"], read_only=True)
+    reason = serializers.CharField(read_only=True, required=False)
+
+
+class CostProvenanceSerializer(serializers.Serializer[dict[str, Any]]):
+    """What computed the cost figures and from which inputs (#4848, ADR-1314 pattern)."""
+
+    computed_by = serializers.CharField(read_only=True)
+    contract_version = serializers.CharField(read_only=True)
+    as_of = serializers.DateTimeField(read_only=True)
+    inputs = serializers.DictField(child=serializers.CharField(), read_only=True)
+    figures = serializers.DictField(child=CostFigureProvenanceSerializer(), read_only=True)
+
+
 class ProjectCostSerializer(serializers.Serializer[dict[str, Any]]):
     """Response for ``GET /api/v1/projects/{id}/cost/`` (ADR-1324 §6).
 
@@ -95,6 +124,12 @@ class ProjectCostSerializer(serializers.Serializer[dict[str, Any]]):
     earned_value = _money(allow_null=True)
     cost_variance = CostKpiSerializer(read_only=True)
     budget_utilization = CostKpiSerializer(read_only=True)
+    cpi = CostKpiSerializer(read_only=True)
+    eac = CostKpiSerializer(read_only=True)
+    etc = CostKpiSerializer(read_only=True)
+    vac = CostKpiSerializer(read_only=True)
+    tcpi = CostKpiSerializer(read_only=True)
+    provenance = CostProvenanceSerializer(read_only=True)
     cost_computable = serializers.BooleanField(read_only=True)
     missing_rate_count = serializers.IntegerField(read_only=True)
     missing_rate_resources = MissingRateSerializer(many=True, read_only=True)
