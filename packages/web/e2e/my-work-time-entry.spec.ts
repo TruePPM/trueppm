@@ -119,7 +119,6 @@ async function setupWithTask(page: Page): Promise<void> {
         previous: null,
         active_sprints: [],
         due_today_count: 1,
-        server_version_high_water: 100,
       }),
     }),
   );

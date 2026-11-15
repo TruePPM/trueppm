@@ -90,7 +90,6 @@ async function setup(page: Page, initial: TokenRow[] = []) {
         results: [],
         active_sprints: [],
         due_today_count: 0,
-        server_version_high_water: 0,
         retro_action_items: [],
       }),
     }),

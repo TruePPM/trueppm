@@ -269,7 +269,6 @@ export interface MyWorkPage {
   previous: string | null;
   active_sprints: MyWorkActiveSprint[];
   due_today_count: number;
-  server_version_high_water: number;
   /** Retro action items relevant to the requesting user (ADR-0071 §4c). */
   retro_action_items: MyWorkRetroActionItem[];
   /**

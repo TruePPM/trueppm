@@ -437,6 +437,14 @@ tracking is deferred (would require a Task field).
 (cacheable shape, cursor pagination, `server_version_high_water`) but the
 React Native client is deferred to a follow-up issue when ADR-0026 lands.
 
+> **Amended (#2512):** `server_version_high_water` was withdrawn from the
+> response. It was `MAX(server_version)` over a cross-project task set, which is
+> not a valid ordering (`server_version` counts one row's saves — the #2491
+> defect, ADR-0686), and `sync_seq` cannot stand in for it because each project
+> draws from its own sequence. No client consumed it and no `?since=` was ever
+> parsed. Offline clients pull per project; an incremental My Work pull needs a
+> cursor designed for a per-user, cross-project scope (compare ADR-0747) first.
+
 ### Zero state
 
 The /me/work page distinguishes two empty states:

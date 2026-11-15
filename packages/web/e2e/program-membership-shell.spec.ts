@@ -154,7 +154,6 @@ async function setupMyWorkReads(page: Page) {
         previous: null,
         active_sprints: [],
         due_today_count: 0,
-        server_version_high_water: 0,
         retro_action_items: [],
         external_items: [],
         external_sources: [],

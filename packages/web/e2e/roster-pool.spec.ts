@@ -91,7 +91,7 @@ async function seedAuthAndNavigate(page: import('@playwright/test').Page) {
   // The rail also reads /me/work (You-card badge) and /programs (Jump switcher);
   // mock both so their fetches resolve instead of hanging on the proxy.
   await page.route('**/api/v1/me/work/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [], next: null, previous: null, active_sprints: [], due_today_count: 0, server_version_high_water: 0, retro_action_items: [] }) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [], next: null, previous: null, active_sprints: [], due_today_count: 0, retro_action_items: [] }) }),
   );
   await page.route('**/api/v1/programs/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),

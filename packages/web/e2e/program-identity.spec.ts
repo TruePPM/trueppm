@@ -94,7 +94,6 @@ test.beforeEach(async ({ page }) => {
         previous: null,
         due_today_count: 0,
         active_sprints: [],
-        server_version_high_water: 0,
         retro_action_items: [],
       }),
     }),

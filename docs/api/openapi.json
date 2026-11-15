@@ -9271,7 +9271,7 @@
                         "schema": {
                             "type": "boolean"
                         },
-                        "description": "`true`/`1` excludes COMPLETE tasks, returning only the caller's open work (#4783). Narrows the caller's own assignments; never widens whose tasks are returned. `due_today_count` already counts open tasks only and is unaffected; `server_version_high_water` reflects the filtered row set."
+                        "description": "`true`/`1` excludes COMPLETE tasks, returning only the caller's open work (#4783). Narrows the caller's own assignments; never widens whose tasks are returned. `due_today_count` already counts open tasks only and is unaffected."
                     },
                     {
                         "name": "ordering",
@@ -65716,10 +65716,6 @@
                         "type": "integer",
                         "description": "Count of the caller's own non-BACKLOG, non-COMPLETE tasks due today — drives the sidebar My Work badge."
                     },
-                    "server_version_high_water": {
-                        "type": "integer",
-                        "description": "Largest server_version in the caller's currently-visible task set. Offline/mobile clients persist this and pass it back as ?since= on the next delta sync pull."
-                    },
                     "retro_action_items": {
                         "type": "array",
                         "items": {
@@ -65757,8 +65753,7 @@
                     "next",
                     "previous",
                     "results",
-                    "retro_action_items",
-                    "server_version_high_water"
+                    "retro_action_items"
                 ]
             },
             "MeWorkRetroActionItem": {

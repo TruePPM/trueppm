@@ -541,15 +541,27 @@ def test_due_today_count(calendar: Calendar, alice: object) -> None:
 
 
 @pytest.mark.django_db
-def test_server_version_high_water(calendar: Calendar, alice: object) -> None:
+def test_me_work_publishes_no_delta_cursor(calendar: Calendar, alice: object) -> None:
+    """#2512: no ``MAX(server_version)`` cursor across a cross-project task set.
+
+    ``server_version`` counts one row's saves, so its maximum over the set is not
+    an ordering: a hot task drags it above every cold task's counter and a client
+    echoing it as ``?since=`` would drop those tasks permanently (the #2491
+    defect). The field is withdrawn from both response branches until a cursor
+    that is valid for a per-user, cross-project scope is designed.
+    """
     proj = _project(calendar, "P1")
     _member(proj, alice)
-    Task.objects.create(project=proj, name="T1", duration=1, assignee=alice)
-    Task.objects.create(project=proj, name="T2", duration=1, assignee=alice)
+    hot = Task.objects.create(project=proj, name="hot", duration=1, assignee=alice)
+    Task.objects.create(project=proj, name="cold", duration=1, assignee=alice)
+    for i in range(3):
+        hot.name = f"hot-{i}"
+        hot.save()
 
     resp = _client(alice).get("/api/v1/me/work/")
-    versions = [t["server_version"] for t in resp.data["results"]]
-    assert max(versions) == resp.data["server_version_high_water"]
+    assert resp.status_code == 200
+    assert "server_version_high_water" not in resp.data
+    assert {t["name"] for t in resp.data["results"]} == {"hot-2", "cold"}
 
 
 # ---------------------------------------------------------------------------

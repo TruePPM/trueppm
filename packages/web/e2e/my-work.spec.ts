@@ -141,7 +141,6 @@ async function setupWithTasks(page: Page) {
         previous: null,
         active_sprints: [ACTIVE_SPRINT],
         due_today_count: 1,
-        server_version_high_water: 100,
       }),
     }),
   );
@@ -245,7 +244,6 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
           previous: null,
           active_sprints: [ACTIVE_SPRINT],
           due_today_count: 1,
-          server_version_high_water: 100,
         }),
       }),
     );
@@ -395,7 +393,6 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
           previous: null,
           active_sprints: [],
           due_today_count: 0,
-          server_version_high_water: 0,
         }),
       }),
     );
@@ -433,7 +430,6 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
           previous: null,
           active_sprints: [],
           due_today_count: 0,
-          server_version_high_water: 0,
         }),
       }),
     );
@@ -481,7 +477,6 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
           previous: null,
           active_sprints: [],
           due_today_count: 0,
-          server_version_high_water: 0,
         }),
       }),
     );
@@ -539,7 +534,6 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
           previous: null,
           active_sprints: [],
           due_today_count: 0,
-          server_version_high_water: 0,
         }),
       }),
     );
@@ -624,7 +618,6 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
           previous: null,
           active_sprints: [ACTIVE_SPRINT],
           due_today_count: 1,
-          server_version_high_water: 100,
           signals: {
             schedule_health: { band: 'at_risk', project_count: 2 },
             forecast: {
@@ -736,7 +729,6 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
           previous: null,
           active_sprints: [ACTIVE_SPRINT],
           due_today_count: 1,
-          server_version_high_water: 100,
         }),
       }),
     );
@@ -796,7 +788,6 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
           previous: null,
           active_sprints: [ACTIVE_SPRINT],
           due_today_count: 0,
-          server_version_high_water: 100,
           external_items: [EXTERNAL_ITEM],
           external_sources: [JIRA_SOURCE],
         }),

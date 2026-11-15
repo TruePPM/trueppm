@@ -121,7 +121,6 @@ async function setup(page: Page): Promise<void> {
         previous: null,
         active_sprints: [ACTIVE_SPRINT],
         due_today_count: 0,
-        server_version_high_water: 100,
       }),
     }),
   );

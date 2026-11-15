@@ -19349,7 +19349,6 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             "previous": "<cursor>" | null,
             "active_sprints": [{ ...minimal sprint card... }],
             "due_today_count": 3,
-            "server_version_high_water": 12345,
             "signals": { ...cross-program focus-card aggregates, #1236... },
             "external_items": [{ ...read-only Jira/etc. item, #1422... }],
             "external_sources": [{ ...connected-source freshness + last-pull
@@ -19482,8 +19481,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                     "`true`/`1` excludes COMPLETE tasks, returning only the caller's "
                     "open work (#4783). Narrows the caller's own assignments; never "
                     "widens whose tasks are returned. `due_today_count` already counts "
-                    "open tasks only and is unaffected; `server_version_high_water` "
-                    "reflects the filtered row set."
+                    "open tasks only and is unaffected."
                 ),
             ),
         ],
@@ -19501,13 +19499,6 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                             help_text=(
                                 "Count of the caller's own non-BACKLOG, non-COMPLETE tasks due "
                                 "today — drives the sidebar My Work badge."
-                            ),
-                        ),
-                        "server_version_high_water": serializers.IntegerField(
-                            help_text=(
-                                "Largest server_version in the caller's currently-visible task "
-                                "set. Offline/mobile clients persist this and pass it back as "
-                                "?since= on the next delta sync pull."
                             ),
                         ),
                         "retro_action_items": inline_serializer(
@@ -19812,10 +19803,13 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             .count()
         )
 
-        # High-water mark for offline delta sync — the largest server_version
-        # in the user's currently-visible task set. Mobile clients persist this
-        # and pass it on the next pull as ``?since=`` to fetch only changes.
-        server_version_high_water = queryset.aggregate(_max=Max("server_version"))["_max"] or 0
+        # No delta cursor is published here (#2512). ``server_version`` counts one
+        # row's saves, so a maximum over this cross-project set is not an ordering
+        # (the #2491 defect), and ``sync_seq`` cannot replace it: each project draws
+        # from its own sequence, so a scalar maximum across several of them lets a
+        # hot project bury a cold one's edits. Offline clients pull per project
+        # (``/projects/{pk}/sync/``); an incremental My Work pull needs a cursor
+        # designed for a per-user cross-project scope before one is offered.
 
         # Materialize once: the serializer reads it and the cross-program signal
         # rollup (#1236) reuses the same Sprint rows to pick the lead sprint, so
@@ -19864,7 +19858,6 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             assert isinstance(paginated, dict)
             paginated["active_sprints"] = active_sprints_payload
             paginated["due_today_count"] = due_today_count
-            paginated["server_version_high_water"] = server_version_high_water
             paginated["retro_action_items"] = retro_items_payload
             # First page: always include the key (even ``{}``) for a stable shape.
             # Later pages omit it — the web reads signals from page 1 only.
@@ -19882,7 +19875,6 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                 "previous": None,
                 "active_sprints": active_sprints_payload,
                 "due_today_count": due_today_count,
-                "server_version_high_water": server_version_high_water,
                 "retro_action_items": retro_items_payload,
                 "signals": me_work_signals_payload,
                 **external_blocks,
