@@ -541,9 +541,8 @@ class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-a
             "whose cursor is the project's monotonic `sync_seq`, that means a row "
             "written into an already-drained collection mid-drain still falls above "
             "the adopted checkpoint and arrives on the next pull. The program pull "
-            "keys on the per-row `server_version` rather than a session sequence, "
-            "so pinning stops its checkpoint climbing mid-drain but does not yet "
-            "deliver that guarantee — see issue #2498."
+            "gives the same guarantee on its own installation-wide program "
+            "`sync_seq`."
         ),
     )
     next_cursor = serializers.CharField(

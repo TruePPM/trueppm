@@ -15,6 +15,10 @@ and a crash-leaked slot must free itself while uploads keep arriving.
 
 from __future__ import annotations
 
+import os
+import time
+import uuid
+
 import pytest
 import redis
 from django.test import override_settings
@@ -189,3 +193,49 @@ def test_release_error_is_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with sync_batch_concurrency_slot("u1"):
         pass
+
+
+# ---------------------------------------------------------------------------
+# The real Lua script against a real Valkey (#2287)
+# ---------------------------------------------------------------------------
+#
+# ``_FakeRedis.eval`` above re-implements ``_ACQUIRE_SLOT_LUA`` in Python, so the
+# tests above prove the context manager's wiring, not the script. This one runs
+# the script itself. It needs a Valkey/Redis the test may write to and is skipped
+# unless ``TRUEPPM_TEST_REAL_VALKEY_URL`` points at one — deliberately NOT the
+# app's ``REDIS_URL``, which on a shared dev host can belong to another stack. It
+# writes one random key and deletes it.
+
+_REAL_VALKEY_URL = os.environ.get("TRUEPPM_TEST_REAL_VALKEY_URL", "")
+
+
+@pytest.mark.skipif(
+    not _REAL_VALKEY_URL,
+    reason="set TRUEPPM_TEST_REAL_VALKEY_URL to a disposable Valkey to run the real Lua script",
+)
+def test_acquire_slot_lua_against_real_valkey(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Admit up to the cap, refuse over it, free on ZREM, free on lease expiry."""
+    client = redis.Redis.from_url(_REAL_VALKEY_URL)
+    monkeypatch.setattr(throttles, "_client", lambda: client)
+    user_pk = f"lua-test-{uuid.uuid4().hex}"
+    key = f"inflight:sync_upload:holders:user:{user_pk}"
+    try:
+        with override_settings(
+            TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES=2, TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS=60
+        ):
+            with sync_batch_concurrency_slot(user_pk), sync_batch_concurrency_slot(user_pk):
+                assert client.zcard(key) == 2
+                with pytest.raises(Throttled), sync_batch_concurrency_slot(user_pk):
+                    pass
+                assert client.zcard(key) == 2, "a refused acquire must take no lease"
+            assert client.zcard(key) == 0, "release (ZREM) must free both leases"
+
+        # Lease expiry: a holder that never releases stops counting once its own
+        # lease ends — the next acquire reaps it inside the script.
+        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 1, 1, "leaked") == 1
+        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 1, 1, "blocked") == 0
+        time.sleep(2.1)
+        assert client.eval(throttles._ACQUIRE_SLOT_LUA, 1, key, 1, 1, "after") == 1
+        assert client.zrange(key, 0, -1) == [b"after"]
+    finally:
+        client.delete(key)

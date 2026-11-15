@@ -11,8 +11,11 @@ The driving-chain read named under `TRUEPPM_THROTTLE_CPM_ON_READ_RATE` ships in
 0.5. In 0.4 that variable limits only the schedule derivation read. The
 per-surface egress allow-lists (`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SSO`, `_SMTP`,
 `_INTEGRATIONS`, `_WEBHOOKS`) also ship in 0.5. In 0.4 the single
-`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` list applies to every outbound caller. Every
-other setting on this page is in 0.4.
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` list applies to every outbound caller. The
+per-batch lease behavior described under `TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS` ships
+in 0.5. In 0.4 that variable is one TTL shared by a per-user counter, so a slot
+leaked by a worker that died mid-apply can persist while the user keeps uploading.
+Every other setting on this page is in 0.4.
 :::
 
 | Variable | Default | Description |

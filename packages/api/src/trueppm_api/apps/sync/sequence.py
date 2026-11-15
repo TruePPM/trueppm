@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -361,6 +361,11 @@ def seed_project_sequence(project: Any) -> None:
     """
     project.last_sync_version = 1
     project.sync_seq = 1
+    # A row being INSERTed has no stored calendar FK to compare against, and the
+    # calendar-link receiver allocates on ``created`` regardless. Recording "no
+    # prior FK" here lets ``_on_project_pre_save`` skip its lookup: the pk has a
+    # uuid4 default, so ``pk is None`` never short-circuits an INSERT (#2513).
+    project._sync_loaded_calendar_id = None
 
 
 @contextmanager
@@ -468,6 +473,11 @@ OWNER_RESOLVERS: dict[type[models.Model], Resolver] = {}
 PROGRAM_SEQUENCE_MODELS: set[type[models.Model]] = set()
 
 
+def _writes_calendar(update_fields: Collection[str] | None) -> bool:
+    """Whether a save with these ``update_fields`` can change ``Project.calendar``."""
+    return update_fields is None or bool({"calendar", "calendar_id"} & set(update_fields))
+
+
 def register_sequence_receivers() -> None:
     """Populate the resolver map and connect the calendar-link receiver.
 
@@ -499,7 +509,10 @@ def register_sequence_receivers() -> None:
         """
         if kwargs.get("raw") or "_sync_loaded_calendar_id" in instance.__dict__:
             return
-        if instance.pk is None:
+        # An INSERT records "no prior FK" in ``seed_project_sequence`` before this
+        # runs, so it returns above. ``_state.adding`` cannot stand in for that:
+        # ``Project(pk=existing.pk).save()`` is still "adding" but is an UPDATE.
+        if instance.pk is None or not _writes_calendar(kwargs.get("update_fields")):
             return
         instance._sync_loaded_calendar_id = (
             Project._base_manager.filter(pk=instance.pk)
@@ -519,6 +532,9 @@ def register_sequence_receivers() -> None:
         so skip — the backfill migration or a later real save establishes it.
         """
         if kwargs.get("raw") or instance.calendar_id is None:
+            return
+        if not created and not _writes_calendar(kwargs.get("update_fields")):
+            # A partial save that does not write the FK cannot repoint it.
             return
         previous = getattr(instance, "_sync_loaded_calendar_id", None)
         if not created and previous == instance.calendar_id:

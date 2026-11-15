@@ -353,12 +353,29 @@ def test_touch_save_on_server_owned_fields_is_delivered(project: Project) -> Non
 
 
 @pytest.mark.django_db
-def test_touch_save_on_last_sync_version_is_delivered(project: Project) -> None:
-    """The issue's own example: only ``last_sync_version`` is named."""
-    since = _watermark(project)
-    project.save(update_fields=["last_sync_version"])
-    assert _seq(project) > since
-    assert _seq(project) <= _watermark(project)
+@pytest.mark.parametrize(
+    "update_fields",
+    [["last_sync_version"], ["tombstone_floor"], ["server_version", "tombstone_floor"]],
+)
+def test_save_naming_only_non_touch_counters_raises(
+    project: Project, update_fields: list[str]
+) -> None:
+    """The issue's own example: ``save(update_fields=["last_sync_version"])``.
+
+    Those counters are never written through ``save()``, so the filtered list
+    empties and Django would skip the UPDATE — the caller's write silently
+    vanished while the version and cursor moved. It now raises, and raises
+    before either counter moves (#2514 AC2: "raises or performs the write").
+    """
+    project.refresh_from_db()
+    version, head = project.server_version, _watermark(project)
+
+    with pytest.raises(ValueError, match="server-owned counters"):
+        project.save(update_fields=update_fields)
+
+    project.refresh_from_db()
+    assert project.server_version == version
+    assert _watermark(project) == head
 
 
 @pytest.mark.django_db
@@ -417,3 +434,109 @@ def test_save_without_loaded_calendar_still_delivers_a_repointed_calendar(
 
     assert _seq(replacement) > since
     assert _seq(replacement) <= _watermark(project)
+
+
+def _in_memory_resave(existing: Project) -> None:
+    """``Project(pk=existing.pk, calendar_id=<same>).save()`` — the issue's case.
+
+    Django forces an INSERT for an instance still marked ``_state.adding`` whose
+    pk field has a default, so the bare constructor would hit the pk constraint;
+    clearing the flag is what a deserialized or otherwise hand-built instance of
+    an existing row looks like. It never went through ``from_db``.
+    """
+    instance = Project(
+        pk=existing.pk,
+        name=existing.name,
+        start_date=existing.start_date,
+        calendar_id=existing.calendar_id,
+    )
+    instance._state.adding = False
+    instance.save()
+
+
+@pytest.mark.django_db
+def test_in_memory_save_does_not_refan_an_unchanged_calendar(calendar: Calendar) -> None:
+    """An instance built in memory with the stored FK must not re-run the fan-out.
+
+    It never went through ``from_db``, so it carries no recorded prior FK; the
+    ``pre_save`` receiver reads the stored one instead of guessing "changed".
+    """
+    a = Project.objects.create(name="A", start_date=date(2026, 1, 1), calendar=calendar)
+    b = Project.objects.create(name="B", start_date=date(2026, 1, 1), calendar=calendar)
+    cal_seq, b_head = _seq(calendar), _watermark(b)
+
+    _in_memory_resave(a)
+
+    assert _seq(calendar) == cal_seq, "an unchanged FK must not re-allocate the calendar"
+    assert _watermark(b) == b_head, "a co-owner's allocator must not move"
+
+
+@pytest.mark.django_db
+def test_in_memory_resave_refans_without_the_pre_save_receiver(calendar: Calendar) -> None:
+    """Negative control: with the ``pre_save`` receiver gone, the guess comes back.
+
+    Proves the test above is sensitive to the receiver rather than passing for an
+    unrelated reason — the same save re-allocates the shared calendar.
+    """
+    from django.db.models.signals import pre_save
+
+    from trueppm_api.apps.sync.sequence import register_sequence_receivers
+
+    a = Project.objects.create(name="A", start_date=date(2026, 1, 1), calendar=calendar)
+    Project.objects.create(name="B", start_date=date(2026, 1, 1), calendar=calendar)
+    cal_seq = _seq(calendar)
+
+    assert pre_save.disconnect(sender=Project, dispatch_uid="sync_sequence_project_calendar_prior")
+    try:
+        _in_memory_resave(a)
+    finally:
+        register_sequence_receivers()
+
+    assert _seq(calendar) > cal_seq
+
+
+@pytest.mark.django_db
+def test_project_insert_does_not_read_the_stored_calendar(calendar: Calendar) -> None:
+    """An INSERT has no stored FK: the ``pre_save`` lookup must not run (#2513).
+
+    The pk has a uuid4 default, so ``pk is None`` never short-circuited it and
+    every ``Project.objects.create`` paid a SELECT whose result the ``created``
+    branch of the post-save receiver ignores.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    with CaptureQueriesContext(connection) as ctx:
+        Project.objects.create(name="New", start_date=date(2026, 1, 1), calendar=calendar)
+
+    assert [q["sql"] for q in ctx.captured_queries if _is_calendar_lookup(q["sql"])] == []
+
+
+@pytest.mark.django_db
+def test_partial_save_not_naming_calendar_skips_the_lookup(project: Project) -> None:
+    """``update_fields`` that cannot write the FK neither reads nor re-fans it."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    calendar_seq = _seq(project.calendar)
+    partial = Project.objects.only("id", "name").get(pk=project.pk)
+    partial.name = "Renamed"
+    with CaptureQueriesContext(connection) as ctx:
+        partial.save(update_fields=["name"])
+
+    # The history row's deferred-field refresh (``LIMIT 21``) reads calendar_id
+    # too; only the receiver's single-column lookup is under test.
+    assert not [q for q in ctx.captured_queries if _is_calendar_lookup(q["sql"])]
+    assert _seq(project.calendar) == calendar_seq
+
+
+def _is_calendar_lookup(sql: str) -> bool:
+    """The ``_on_project_pre_save`` stored-FK SELECT, and nothing else.
+
+    Pinned against the real compiled SQL (``values_list(...).first()``) with the
+    receiver's short-circuits removed, where both tests above fail.
+    """
+    return sql.startswith(
+        'SELECT "projects_project"."calendar_id" AS "calendar_id" FROM "projects_project" '
+        'WHERE "projects_project"."id" ='
+    )

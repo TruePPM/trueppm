@@ -877,9 +877,10 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
                 default=0,
                 description=(
                     "WatermelonDB high-water mark. Returns only Program / "
-                    "ProgramMembership rows whose `server_version` is strictly "
-                    "greater than this value. Omit (or pass `0`) for a full initial "
-                    "sync; adopt the previous response's `timestamp` for the delta."
+                    "ProgramMembership rows whose `sync_seq` (the installation-wide "
+                    "program sequence) is strictly greater than this value. Omit "
+                    "(or pass `0`) for a full initial sync; adopt the previous "
+                    "response's `timestamp` for the delta."
                 ),
             ),
             OpenApiParameter(

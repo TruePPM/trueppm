@@ -381,6 +381,21 @@ class VersionedModel(models.Model):
                 # *before* the counters move: otherwise the version and the cursor
                 # would advance for a write that never happens (#2514).
                 return
+            named_counters = set(kwargs["update_fields"])
+            if named_counters <= _SERVER_OWNED_FIELDS and not named_counters <= {"server_version"}:
+                # Every name is a server-owned counter, so the filter below would
+                # strip the list to empty and Django would skip the UPDATE: the
+                # caller's ``last_sync_version`` / ``tombstone_floor`` write would
+                # vanish while the version and cursor moved (#2514). Those two are
+                # written only by their own queryset ``.update()`` paths, so a
+                # ``save()`` naming them is a bug in the caller — refuse it before
+                # any counter moves. ``["server_version"]`` alone is the touch
+                # idiom and is handled on the UPDATE path below.
+                raise ValueError(
+                    f"{type(self).__name__}.save(update_fields={sorted(named_counters)!r}) "
+                    "names only server-owned counters, which save() never writes; "
+                    "update them with a queryset .update()."
+                )
 
         if kwargs.get("force_insert"):
             # Django/DRF ``create()`` always passes ``force_insert=True`` — this is
@@ -409,8 +424,8 @@ class VersionedModel(models.Model):
                 # cursor, leaving the row invisible to the delta pull (ADR-0686).
                 if fields and "sync_seq" not in fields:
                     fields.append("sync_seq")
-                if not fields:
-                    # The caller named only server-owned counters — the "touch"
+                if not fields and self.sync_seq:
+                    # The caller named only ``server_version`` — the "touch"
                     # idiom ``save(update_fields=["server_version"])`` used to
                     # announce an M2M change on the parent row (``Task.save``
                     # widens it with ``edited_at``, so tasks never reach here). The
@@ -420,7 +435,9 @@ class VersionedModel(models.Model):
                     # never reached the delta pull (#2514). Persist the cursor with
                     # a plain UPDATE so the touch is delivered, and keep Django's
                     # no-op for the rest — no signals, no history row, exactly as
-                    # the touch behaved before.
+                    # the touch behaved before. A model outside the sync union
+                    # (``MentionGroup``) draws no cursor, so there is nothing to
+                    # persist and no UPDATE is issued.
                     type(self)._base_manager.filter(pk=self.pk).update(sync_seq=self.sync_seq)
                 kwargs["update_fields"] = fields
             else:
@@ -1924,8 +1941,9 @@ class Project(VersionedModel):
         once per instance, turning any ``.only()``/``.defer()`` queryset into an
         N+1 — e.g. the stale-task digest, which iterates every live project with
         ``.only("id", "stale_task_threshold_days")``. When it is deferred the
-        attribute stays unset and the receiver simply re-allocates, which is
-        wasted work on a rare path rather than a query on a hot one.
+        attribute stays unset and the sync ``pre_save`` receiver reads the stored
+        FK with one SELECT at save time (#2513) — a query only on a save of such
+        an instance that writes ``calendar``, rather than one per loaded row.
         """
         # `**kwargs` forwarded blind rather than named: Django 6.0 adds a
         # keyword-only `fetch_mode` to this hook and the stubs already describe it,
