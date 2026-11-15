@@ -11,40 +11,6 @@ function csvCell(value: string | number | null | undefined): string {
   return escapeField(value == null ? '' : String(value));
 }
 
-// Format YYYY-MM-DD as "MMM D, YYYY" for human readability in the export.
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(`${iso}T00:00:00Z`);
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  TECHNICAL: 'Technical',
-  EXTERNAL: 'External',
-  ORGANIZATIONAL: 'Organizational',
-  PROJECT_MANAGEMENT: 'Project Management',
-};
-
-const RESPONSE_LABELS: Record<string, string> = {
-  AVOID: 'Avoid',
-  MITIGATE: 'Mitigate',
-  TRANSFER: 'Transfer',
-  ACCEPT: 'Accept',
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  OPEN: 'Open',
-  MITIGATING: 'Mitigating',
-  RESOLVED: 'Resolved',
-  ACCEPTED: 'Accepted',
-  CLOSED: 'Closed',
-};
-
 // Column order per ADR-0043: ID, Title, Status, Category, Response, P, I, Severity, Owner,
 // Mitigation Due Date, Trigger, Contingency, Description
 const HEADERS = [
@@ -69,14 +35,17 @@ function riskToRow(risk: Risk): string[] {
     // <PROJECT>-R-NNN form the server provides over the compact in-project one.
     risk.qualified_id,
     risk.title,
-    STATUS_LABELS[risk.status] ?? risk.status,
-    risk.category ? (CATEGORY_LABELS[risk.category] ?? risk.category) : '',
-    risk.response ? (RESPONSE_LABELS[risk.response] ?? risk.response) : '',
+    // Stored enum values, not display labels (data-interchange spec §5.5): the
+    // importer accepts either, but a portable file carries the stored value.
+    risk.status,
+    risk.category ?? '',
+    risk.response ?? '',
     String(risk.probability),
     String(risk.impact),
     String(risk.severity),
     risk.owner == null ? '' : String(risk.owner),
-    formatDate(risk.mitigation_due_date),
+    // ISO 8601 as the API stores it (spec §5.5), never a locale-formatted date.
+    risk.mitigation_due_date ?? '',
     risk.trigger ?? '',
     risk.contingency ?? '',
     risk.description ?? '',
@@ -84,7 +53,8 @@ function riskToRow(risk: Risk): string[] {
 }
 
 /**
- * Builds the CSV string (with UTF-8 BOM) from a list of risks.
+ * Builds the CSV string from a list of risks. UTF-8 with no BOM (spec §5.5: a BOM
+ * is accepted on read but never written on export).
  * Exported for unit testing — no side effects.
  */
 export function generateRisksCSV(risks: Risk[]): string {
@@ -92,8 +62,7 @@ export function generateRisksCSV(risks: Risk[]): string {
     HEADERS.map(csvCell).join(','),
     ...risks.map((r) => riskToRow(r).map(csvCell).join(',')),
   ];
-  // BOM prefix for Excel UTF-8 compatibility
-  return '﻿' + lines.join('\r\n');
+  return lines.join('\r\n');
 }
 
 /**

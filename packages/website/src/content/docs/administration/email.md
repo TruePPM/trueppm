@@ -371,7 +371,7 @@ the records are in place before mail goes out.
   notification still appears).
 - Bodies carry a direct deep-link to the affected task, workspace danger zone, or
   notification-preferences page when
-  [`FRONTEND_BASE_URL`](/administration/configuration/) is set (e.g. the
+  [`TRUEPPM_FRONTEND_BASE_URL`](/administration/configuration/) is set (e.g. the
   `task.blocked` email links straight to the blocked task). Leave it empty and
   every one of those emails still renders — it just omits the link line and
   substitutes plain prose (e.g. "Open the task in TruePPM" instead of a URL). No
@@ -382,8 +382,7 @@ the records are in place before mail goes out.
   **Workspace-invite email is the one case where this is not a graceful
   degradation.** An invited user has no account yet, so the accept link is the
   *only* way in — there is no "sign in and find it elsewhere" fallback the way
-  there is for task and settings deep-links. Set `FRONTEND_BASE_URL` (or the Helm
-  `TRUEPPM_FRONTEND_BASE_URL` value) **before** inviting anyone by email; any
+  there is for task and settings deep-links. Set `TRUEPPM_FRONTEND_BASE_URL` (the bare `FRONTEND_BASE_URL` is a deprecated fallback) **before** inviting anyone by email; any
   invite already sent while it was unset must be resent (**Workspace → Members →
   pending invite → Resend**) once you fix it, since resending mints a fresh
   token. Three things warn you it is unset outside local development: the API
@@ -400,7 +399,7 @@ the records are in place before mail goes out.
 
 Notification email carries a `List-Unsubscribe` header (RFC 2369) pointed at the
 recipient's **User → Settings → Notifications** page. The header is only added
-when [`FRONTEND_BASE_URL`](/administration/configuration/) is configured, since a
+when [`TRUEPPM_FRONTEND_BASE_URL`](/administration/configuration/) is configured, since a
 bare relative path is not a valid header value; leave it unset and the email
 still sends, just without it.
 

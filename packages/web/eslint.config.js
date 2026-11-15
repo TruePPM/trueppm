@@ -456,7 +456,6 @@ export default [
       'src/features/me/TimezoneFormatSection.tsx',
       'src/features/me/myWorkFocus.ts',
       'src/features/reports/burnChartData.ts',
-      'src/features/risk/riskExport.ts',
       'src/features/schedule/BaselineManagerModal.tsx',
       'src/features/schedule/BaselineTab.tsx',
       'src/features/schedule/DateInputPopover.tsx',

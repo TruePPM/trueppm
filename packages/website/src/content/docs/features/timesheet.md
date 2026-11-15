@@ -39,7 +39,7 @@ the work began, not the day it happened to stop.
 
 A timer left running is capped, not unbounded: if you forget to stop it, it keeps ticking visibly
 in the chip, but the value it eventually logs is **capped at a ceiling** (default 10 hours,
-`TIMETRACKING_TIMER_MAX_MINUTES`, operator-configurable) so a timer left running over a weekend
+`TRUEPPM_TIMETRACKING_TIMER_MAX_MINUTES`, operator-configurable) (the `TRUEPPM_` name ships in 0.5; 0.4 reads it without the prefix, as `TIMETRACKING_TIMER_MAX_MINUTES`) so a timer left running over a weekend
 logs the ceiling rather than thousands of minutes. Once elapsed time passes that ceiling, the chip
 flips from its running (on-track) tint to a critical tint — a "check me" signal rather than a
 silent overrun — while continuing to run until you stop it.

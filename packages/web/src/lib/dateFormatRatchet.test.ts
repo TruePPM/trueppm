@@ -12,7 +12,7 @@ import { ESLint } from 'eslint';
  */
 const WEB_ROOT = process.cwd();
 const RAW = /toLocaleDateString|toLocaleTimeString|Intl\.DateTimeFormat/;
-const MAX_GRANDFATHERED = 24;
+const MAX_GRANDFATHERED = 23;
 
 function grandfathered(): string[] {
   const cfg = readFileSync(resolve(WEB_ROOT, 'eslint.config.js'), 'utf8');

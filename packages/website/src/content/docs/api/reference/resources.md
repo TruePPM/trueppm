@@ -271,9 +271,9 @@ cross-contributor rollup in the community edition.
 | POST | `/api/v1/me/timer/stop/` | Stop the running timer and log it as a `TimeEntry` (`source: "timer"`); `409` if no timer is running, or if the timer's project is archived or your access there has lapsed — the timer is discarded, never finalized, and never answers `403` (there's no other way to clear a stuck timer) |
 
 A manual `entry_date` cannot be in the future, nor older than the backdate window
-(`TIMETRACKING_BACKDATE_DAYS`, default 60 days). A timer left running past the stale
-ceiling (`TIMETRACKING_TIMER_MAX_MINUTES`, default 600) is flagged `stale: true`, and
-on stop its logged minutes are capped at the ceiling rather than the raw elapsed time.
+(`TRUEPPM_TIMETRACKING_BACKDATE_DAYS`, default 60 days). A timer left running past the stale
+ceiling (`TRUEPPM_TIMETRACKING_TIMER_MAX_MINUTES`, default 600) is flagged `stale: true`, and
+on stop its logged minutes are capped at the ceiling rather than the raw elapsed time. Both settings ship under the `TRUEPPM_` prefix in 0.5; 0.4 reads them without the prefix (`TIMETRACKING_BACKDATE_DAYS`, `TIMETRACKING_TIMER_MAX_MINUTES`).
 
 Time cannot be logged against a **phase** (a task with structural children — see
 [Phase rollup locks](/api/reference/templates/#phase-rollup-locks)): a phase rolls up the logged time of its

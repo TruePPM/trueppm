@@ -6,6 +6,8 @@ preview endpoint and the Celery task can share one implementation.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from trueppm_api.apps.csvimport.mapping import (
@@ -260,3 +262,41 @@ class TestAllocationDetection:
         self, header: str, expected: str | None
     ) -> None:
         assert self._field(header) == expected
+
+
+class TestTaskExportHeadersMapToImporter:
+    """The web task export's header spellings are importer aliases (#2401).
+
+    ``packages/web/src/utils/exportCsv.ts`` writes these literals; the spec's
+    conformance register claimed they did not match the alias table. Pinning the
+    mapping here makes that a checked fact in both directions.
+    """
+
+    EXPORT_HEADERS: ClassVar[list[str]] = [
+        "WBS",
+        "Name",
+        "Start",
+        "Finish",
+        "Duration (days)",
+        "Progress (%)",
+        "Status",
+        "Critical",
+        "Total float (days)",
+        "Free float (days)",
+    ]
+
+    def test_committed_columns_map_exactly(self) -> None:
+        by_header = {m.header: m for m in detect_mapping(self.EXPORT_HEADERS)}
+        assert by_header["WBS"].field == "wbs"
+        assert by_header["Name"].field == "name"
+        assert by_header["Start"].field == "planned_start"
+        assert by_header["Finish"].field == "planned_finish"
+        assert by_header["Duration (days)"].field == "duration"
+        assert by_header["Progress (%)"].field == "percent_complete"
+        for header in ("WBS", "Name", "Start", "Finish", "Duration (days)", "Progress (%)"):
+            assert by_header[header].confidence == "exact"
+
+    def test_derived_columns_are_not_imported_as_fields(self) -> None:
+        by_header = {m.header: m for m in detect_mapping(self.EXPORT_HEADERS)}
+        for header in ("Critical", "Total float (days)", "Free float (days)"):
+            assert by_header[header].field is None

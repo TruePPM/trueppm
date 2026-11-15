@@ -148,7 +148,7 @@ in front of a stakeholder today. Nothing above touched the API.
 :::caution[Change history has a retention window]
 Every edit above — durations, dates, dependency changes — is recorded in the
 task's [change history](/features/change-history/), but those rows are purged
-nightly after `HISTORY_RETENTION_DAYS` (default **90 days**). A waterfall
+nightly after `TRUEPPM_HISTORY_RETENTION_DAYS` (default **90 days**). A waterfall
 project commonly runs longer than that. If you need the full edit trail to
 survive the life of the project — for an audit, a claim, or a post-mortem —
 raise the retention window before you rely on it; see [Outbox & Record

@@ -16,6 +16,7 @@ from trueppm_api.core.demo_read_only import (
     parse_demo_read_only,
     parse_demo_reset_schedule,
 )
+from trueppm_api.core.env_compat import env_with_legacy, parse_bool
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
 from trueppm_api.core.refresh_cookie_policy import resolve_refresh_cookie_samesite
 from trueppm_api.core.storage_config import S3_STORAGE_BACKENDS, build_s3_storage_options
@@ -24,6 +25,21 @@ from trueppm_api.core.valkey_config import parse_sentinels
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env()
+
+# Env-var naming rule (#3791): every NEW TruePPM-invented operator setting is read
+# as ``TRUEPPM_<NAME>``. Bare names are reserved for Django / 12-factor conventions
+# (``ALLOWED_HOSTS``, ``CSRF_TRUSTED_ORIGINS``, ``DATABASE_URL``, ``EMAIL_*``,
+# ``DEFAULT_FROM_EMAIL``, ``REDIS_URL``, ``SECRET_KEY``, ``DJANGO_LOG_LEVEL``,
+# ``STATIC_ROOT``, the standard ``OTEL_*`` variables, and ``SQL_LOG_LEVEL`` in dev.py) and for a
+# fixed grandfathered list of TruePPM names that shipped bare and have not been migrated yet:
+# ``MSPROJECT_MAX_UPLOAD_MB``, ``SEED_MAX_UPLOAD_MB``, ``IMPORT_MAX_RESOURCES_CREATED``,
+# ``RETENTION_PURGE_INFLIGHT_SECONDS``, ``SIGNAL_CEILING_PROPOSAL_TTL_HOURS``,
+# ``CSP_CONNECT_SRC``, ``JWT_SIGNING_KEY``,
+# ``INTEGRATION_ENCRYPTION_KEY``. They will gain the prefix with the same
+# legacy fallback; ``tests/test_env_namespace.py`` pins the list so it only changes
+# deliberately. A setting that shipped bare and HAS been migrated keeps working as a
+# deprecated fallback through ``env_with_legacy`` (one precedence rule, one-time
+# WARNING; removed at 1.0, #4405). Do not add a new bare name.
 
 # ---------------------------------------------------------------------------
 # Core
@@ -393,14 +409,10 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 # (zero-config): when unset, email bodies render without a link rather than emit a
 # broken relative URL. Trailing slash is stripped at use; do not include a path.
 # Env var standardized on the TRUEPPM_ prefix pre-0.3 (#1325, #1355); the legacy
-# bare name remains a fallback so existing deploys keep working. ``or`` (not a
-# nested default) so an *empty* TRUEPPM_ value — e.g. the chart's documented
-# ``TRUEPPM_FRONTEND_BASE_URL: ""`` default — falls through to a legacy override
-# rather than shadowing it. Empty means "no deep-links", so the fallthrough is
-# also semantically correct.
-FRONTEND_BASE_URL = env("TRUEPPM_FRONTEND_BASE_URL", default="") or env(
-    "FRONTEND_BASE_URL", default=""
-)
+# bare name remains a deprecated fallback (``core/env_compat.py`` owns the one
+# precedence rule: an *empty* TRUEPPM_ value — e.g. the chart's documented
+# ``TRUEPPM_FRONTEND_BASE_URL: ""`` default — falls through to the legacy name).
+FRONTEND_BASE_URL = env_with_legacy(env, "TRUEPPM_FRONTEND_BASE_URL", "FRONTEND_BASE_URL", "")
 
 # Public origin of the API itself, used only to derive the OIDC ``redirect_uri``
 # (ADR-0187): ``{TRUEPPM_PUBLIC_API_BASE_URL}/api/v1/auth/oidc/callback/``. The
@@ -978,9 +990,8 @@ SIMPLE_JWT = {
 #
 # Env vars standardized on the TRUEPPM_ prefix pre-0.3 (#1325, #1355); the legacy
 # bare names remain fallbacks so existing deploys keep working.
-AUTH_REFRESH_COOKIE_NAME = env(
-    "TRUEPPM_AUTH_REFRESH_COOKIE_NAME",
-    default=env("AUTH_REFRESH_COOKIE_NAME", default="trueppm_refresh"),
+AUTH_REFRESH_COOKIE_NAME = env_with_legacy(
+    env, "TRUEPPM_AUTH_REFRESH_COOKIE_NAME", "AUTH_REFRESH_COOKIE_NAME", "trueppm_refresh"
 )
 # Path-scoped so the cookie is never sent on ordinary API calls. It must cover
 # *every* endpoint that needs to read it, which is both the refresh endpoint and
@@ -988,9 +999,8 @@ AUTH_REFRESH_COOKIE_NAME = env(
 # pre-#2999 default) meant the browser never sent it to logout, so
 # ``CookieTokenLogoutView`` read ``None`` and revoked nothing (RFC 6265 §5.1.4).
 # ``/api/v1/auth/`` is the narrowest prefix covering both.
-AUTH_REFRESH_COOKIE_PATH = env(
-    "TRUEPPM_AUTH_REFRESH_COOKIE_PATH",
-    default=env("AUTH_REFRESH_COOKIE_PATH", default="/api/v1/auth/"),
+AUTH_REFRESH_COOKIE_PATH = env_with_legacy(
+    env, "TRUEPPM_AUTH_REFRESH_COOKIE_PATH", "AUTH_REFRESH_COOKIE_PATH", "/api/v1/auth/"
 )
 #
 # The resolved value is validated, not passed through verbatim (#3556): refresh
@@ -1000,9 +1010,8 @@ AUTH_REFRESH_COOKIE_PATH = env(
 # forced back to ``Strict``; ``Lax`` is accepted but logs a WARNING naming what
 # it gives up. See ``core/refresh_cookie_policy.py`` for the full resolution.
 _refresh_cookie_samesite_resolution = resolve_refresh_cookie_samesite(
-    requested=env(
-        "TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE",
-        default=env("AUTH_REFRESH_COOKIE_SAMESITE", default="Strict"),
+    requested=env_with_legacy(
+        env, "TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE", "AUTH_REFRESH_COOKIE_SAMESITE", "Strict"
     ),
     ack=env("TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE_NONE_ACK", default=""),
 )
@@ -1012,9 +1021,8 @@ if _refresh_cookie_samesite_resolution.warning:
 if _refresh_cookie_samesite_resolution.critical:
     _settings_log.critical(_refresh_cookie_samesite_resolution.critical)
 # Default Secure=True; dev settings flip this to False for plain-HTTP localhost.
-AUTH_REFRESH_COOKIE_SECURE = env.bool(
-    "TRUEPPM_AUTH_REFRESH_COOKIE_SECURE",
-    default=env.bool("AUTH_REFRESH_COOKIE_SECURE", default=True),
+AUTH_REFRESH_COOKIE_SECURE = env_with_legacy(
+    env, "TRUEPPM_AUTH_REFRESH_COOKIE_SECURE", "AUTH_REFRESH_COOKIE_SECURE", True, parse_bool
 )
 
 # Refresh-session lifetimes for the "remember me" choice (#2246, ADR-0544).
@@ -1467,14 +1475,18 @@ MSPROJECT_MAX_UPLOAD_MB: int = env.int("MSPROJECT_MAX_UPLOAD_MB", default=50)
 # outright (like the risk-CSV importer's MAX_ROWS) is safer than partially
 # processing. 20k tasks is far above any realistic hand-authored schedule while
 # bounding the object graph a single request can materialize.
-MSPROJECT_MAX_ROWS: int = env.int("MSPROJECT_MAX_ROWS", default=20_000)
+MSPROJECT_MAX_ROWS: int = env_with_legacy(
+    env, "TRUEPPM_MSPROJECT_MAX_ROWS", "MSPROJECT_MAX_ROWS", 20_000, int
+)
 
 # batch_size for the import bulk_create() calls (#1721). Without it, Django emits
 # one giant multi-row INSERT that pins the whole task/dependency set in a single
 # statement (and can exceed PostgreSQL parameter limits); chunking bounds the
 # per-statement memory and parameter count. Shared by the MS Project and Jira
 # import paths (both persist through msproject.importer.import_project).
-IMPORT_BULK_BATCH_SIZE: int = env.int("IMPORT_BULK_BATCH_SIZE", default=500)
+IMPORT_BULK_BATCH_SIZE: int = env_with_legacy(
+    env, "TRUEPPM_IMPORT_BULK_BATCH_SIZE", "IMPORT_BULK_BATCH_SIZE", 500, int
+)
 
 # Cap on new workspace Resource rows one import may create for people who match
 # nobody on the destination project's roster or member list (#2485). Resource is a
@@ -1487,19 +1499,25 @@ IMPORT_MAX_RESOURCES_CREATED: int = env.int("IMPORT_MAX_RESOURCES_CREATED", defa
 # buffering it unbounded (the old capture_output=True) OOMs the worker. We stream
 # stdout and abort past this many bytes. 512 MB is generous headroom for a
 # legitimate 50 MB .mpp (MSPDI XML is ~5-10x the binary) while still bounded.
-MPXJ_MAX_OUTPUT_MB: int = env.int("MPXJ_MAX_OUTPUT_MB", default=512)
+MPXJ_MAX_OUTPUT_MB: int = env_with_legacy(
+    env, "TRUEPPM_MPXJ_MAX_OUTPUT_MB", "MPXJ_MAX_OUTPUT_MB", 512, int
+)
 
 # Per-file cap for CSV/Excel imports (#743). Much lower than the MS Project
 # ceiling on purpose: a spreadsheet migration is a hand-maintained sheet, not a
 # generated plan, and 10 MB is already far past what any real one weighs. The
 # same base64-in-a-DB-row cost applies (~+33%).
-CSV_IMPORT_MAX_UPLOAD_MB: int = env.int("CSV_IMPORT_MAX_UPLOAD_MB", default=10)
+CSV_IMPORT_MAX_UPLOAD_MB: int = env_with_legacy(
+    env, "TRUEPPM_CSV_IMPORT_MAX_UPLOAD_MB", "CSV_IMPORT_MAX_UPLOAD_MB", 10, int
+)
 
 # Max data rows a single CSV/Excel import may contain (#743). The byte cap alone
 # is not enough — a 10 MB CSV can encode well over a million short rows, and the
 # parser builds one TaskData per row before anything is written. Rows past the
 # cap are reported back as `truncated_rows` rather than silently dropped.
-CSV_IMPORT_MAX_ROWS: int = env.int("CSV_IMPORT_MAX_ROWS", default=5_000)
+CSV_IMPORT_MAX_ROWS: int = env_with_legacy(
+    env, "TRUEPPM_CSV_IMPORT_MAX_ROWS", "CSV_IMPORT_MAX_ROWS", 5_000, int
+)
 
 # The tested-comfortable Schedule size (#3388, administration/sizing.md
 # "Tested envelope"): whole-project load is measured at 1.85s at 1,000 tasks and
@@ -1518,24 +1536,32 @@ SCHEDULE_TASK_CEILING: int = env.int("TRUEPPM_SCHEDULE_TASK_CEILING", default=1_
 # that stack bounds the *inflated* size, so a 1 MB upload can expand to
 # gigabytes and OOM the worker. The parser sums the zip central directory's
 # declared sizes — cheap, and before any XML is touched — and rejects above this.
-CSV_IMPORT_MAX_UNCOMPRESSED_MB: int = env.int("CSV_IMPORT_MAX_UNCOMPRESSED_MB", default=100)
+CSV_IMPORT_MAX_UNCOMPRESSED_MB: int = env_with_legacy(
+    env, "TRUEPPM_CSV_IMPORT_MAX_UNCOMPRESSED_MB", "CSV_IMPORT_MAX_UNCOMPRESSED_MB", 100, int
+)
 
 # JVM max-heap (-Xmx) for the MPXJ subprocess (#1722). Bounding the JVM heap is a
 # second line of defense: even if MPXJ tries to build a giant in-memory model
 # from a bomb file, the JVM dies with an OutOfMemoryError (caught as a non-zero
 # exit) instead of driving the host into swap.
-MPXJ_MAX_HEAP_MB: int = env.int("MPXJ_MAX_HEAP_MB", default=512)
+MPXJ_MAX_HEAP_MB: int = env_with_legacy(
+    env, "TRUEPPM_MPXJ_MAX_HEAP_MB", "MPXJ_MAX_HEAP_MB", 512, int
+)
 
 # Max size of an uploaded Jira XML export (#1664). Jira issue-navigator exports
 # are small relative to .mpp files; the 25 MB default is generous for the minimal
 # import slice and stays well under the 110 MiB upload-tier edge cap.
-JIRA_IMPORT_MAX_UPLOAD_MB: int = env.int("JIRA_IMPORT_MAX_UPLOAD_MB", default=25)
+JIRA_IMPORT_MAX_UPLOAD_MB: int = env_with_legacy(
+    env, "TRUEPPM_JIRA_IMPORT_MAX_UPLOAD_MB", "JIRA_IMPORT_MAX_UPLOAD_MB", 25, int
+)
 
 # Max number of issues a single Jira XML import may contain (#1721). Same
 # rationale as MSPROJECT_MAX_ROWS: the byte cap does not bound the derived task
 # count, and every issue becomes a Task object built and bulk-created through the
 # shared importer. Rejected outright over the limit.
-JIRA_IMPORT_MAX_ROWS: int = env.int("JIRA_IMPORT_MAX_ROWS", default=20_000)
+JIRA_IMPORT_MAX_ROWS: int = env_with_legacy(
+    env, "TRUEPPM_JIRA_IMPORT_MAX_ROWS", "JIRA_IMPORT_MAX_ROWS", 20_000, int
+)
 
 # Max size of an uploaded JSON program seed (ADR-0109, #615). Seeds are bounded
 # (the largest bundled sample is a few hundred KB); 5 MB is generous headroom
@@ -1549,7 +1575,9 @@ SEED_MAX_UPLOAD_MB: int = env.int("SEED_MAX_UPLOAD_MB", default=5)
 # request creates a fresh Program three lines earlier, so a brand-new program
 # has no prior job to de-dupe against. Without a per-user ceiling, six requests
 # a minute sustained becomes an unbounded worker backlog of full subtree builds.
-SEED_IMPORT_MAX_CONCURRENT_JOBS: int = env.int("SEED_IMPORT_MAX_CONCURRENT_JOBS", default=3)
+SEED_IMPORT_MAX_CONCURRENT_JOBS: int = env_with_legacy(
+    env, "TRUEPPM_SEED_IMPORT_MAX_CONCURRENT_JOBS", "SEED_IMPORT_MAX_CONCURRENT_JOBS", 3, int
+)
 
 # ---------------------------------------------------------------------------
 # Django REST Framework
@@ -2100,8 +2128,8 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="notifications@trueppm.lo
 # Operator env var standardized on the TRUEPPM_ prefix pre-0.3 (#1325) so all
 # tunables share one namespace in ConfigMaps/Secrets; the legacy bare name is read
 # as a fallback so deploys that already set it keep working until they migrate.
-HISTORY_RETENTION_DAYS: int | None = env.int(
-    "TRUEPPM_HISTORY_RETENTION_DAYS", default=env.int("HISTORY_RETENTION_DAYS", default=90)
+HISTORY_RETENTION_DAYS: int | None = env_with_legacy(
+    env, "TRUEPPM_HISTORY_RETENTION_DAYS", "HISTORY_RETENTION_DAYS", 90, int
 )
 
 # ---------------------------------------------------------------------------
@@ -2122,8 +2150,8 @@ SIGNAL_CEILING_PROPOSAL_TTL_HOURS: int = env.int("SIGNAL_CEILING_PROPOSAL_TTL_HO
 # Retention window in days for completed/failed/cancelled TaskRun records.
 # Set to None to disable automatic purging. Env var standardized on the TRUEPPM_
 # prefix pre-0.3 (#1325); legacy bare name read as a fallback.
-TASK_RUN_RETENTION_DAYS: int | None = env.int(
-    "TRUEPPM_TASK_RUN_RETENTION_DAYS", default=env.int("TASK_RUN_RETENTION_DAYS", default=30)
+TASK_RUN_RETENTION_DAYS: int | None = env_with_legacy(
+    env, "TRUEPPM_TASK_RUN_RETENTION_DAYS", "TASK_RUN_RETENTION_DAYS", 30, int
 )
 
 # ---------------------------------------------------------------------------
@@ -2134,12 +2162,16 @@ TASK_RUN_RETENTION_DAYS: int | None = env.int(
 # ``stale`` on GET /me/timer/, and ``stop`` caps the logged minutes at it rather
 # than the raw elapsed (so a timer left running over a weekend logs the ceiling,
 # not thousands of minutes). Default 600 = 10 h.
-TIMETRACKING_TIMER_MAX_MINUTES: int = env.int("TIMETRACKING_TIMER_MAX_MINUTES", default=600)
+TIMETRACKING_TIMER_MAX_MINUTES: int = env_with_legacy(
+    env, "TRUEPPM_TIMETRACKING_TIMER_MAX_MINUTES", "TIMETRACKING_TIMER_MAX_MINUTES", 600, int
+)
 
 # Manual-entry backdate window: a manual ``entry_date`` is rejected if it is in the
 # future or older than this many days, so a contributor can fill in last week but
 # not rewrite arbitrary history. Default 60 days.
-TIMETRACKING_BACKDATE_DAYS: int = env.int("TIMETRACKING_BACKDATE_DAYS", default=60)
+TIMETRACKING_BACKDATE_DAYS: int = env_with_legacy(
+    env, "TRUEPPM_TIMETRACKING_BACKDATE_DAYS", "TIMETRACKING_BACKDATE_DAYS", 60, int
+)
 
 # ---------------------------------------------------------------------------
 # Dead-letter inspector bulk actions (ADR-0210)
@@ -2303,34 +2335,32 @@ TRUEPPM_RECURRENCE_HORIZON_DAYS: int = env.int("TRUEPPM_RECURRENCE_HORIZON_DAYS"
 # (e.g. Temporal) by overriding this — the edition-routing pattern of ADR-0030.
 # Env vars standardized on the TRUEPPM_ prefix pre-0.3 (#1325); legacy bare names
 # read as a fallback so existing deploys keep working until they migrate.
-WORKFLOW_BACKEND = env.str(
+WORKFLOW_BACKEND = env_with_legacy(
+    env,
     "TRUEPPM_WORKFLOW_BACKEND",
-    default=env.str(
-        "WORKFLOW_BACKEND",
-        default="trueppm_api.workflows.backends.default.DefaultWorkflowBackend",
-    ),
+    "WORKFLOW_BACKEND",
+    "trueppm_api.workflows.backends.default.DefaultWorkflowBackend",
 )
 
 # Retention window in days for WorkflowHistoryEvent rows (purged nightly by
 # workflows.purge_old_records). Set to None / 0 to disable history purging.
-WORKFLOW_HISTORY_RETENTION_DAYS: int | None = env.int(
-    "TRUEPPM_WORKFLOW_HISTORY_RETENTION_DAYS",
-    default=env.int("WORKFLOW_HISTORY_RETENTION_DAYS", default=30),
+WORKFLOW_HISTORY_RETENTION_DAYS: int | None = env_with_legacy(
+    env, "TRUEPPM_WORKFLOW_HISTORY_RETENTION_DAYS", "WORKFLOW_HISTORY_RETENTION_DAYS", 30, int
 )
 
 # Max rows the workflow outbox/timer drains process per tick. Bounds the work
 # per run so a large backlog (e.g. after a broker outage) can't exceed the task
 # time_limit — subsequent ticks drain the remainder.
-WORKFLOW_DRAIN_BATCH_SIZE = env.int(
-    "TRUEPPM_WORKFLOW_DRAIN_BATCH_SIZE", default=env.int("WORKFLOW_DRAIN_BATCH_SIZE", default=200)
+WORKFLOW_DRAIN_BATCH_SIZE = env_with_legacy(
+    env, "TRUEPPM_WORKFLOW_DRAIN_BATCH_SIZE", "WORKFLOW_DRAIN_BATCH_SIZE", 200, int
 )
 
 # Rows deleted per statement by the nightly workflow retention purge. The purge
 # deletes in bounded chunks rather than one unbounded statement so the first run
 # on a mature install (e.g. after WORKFLOW_HISTORY_RETENTION_DAYS is first set)
 # cannot take a long lock over a large slice of the history/outbox tables.
-WORKFLOW_PURGE_BATCH_SIZE = env.int(
-    "TRUEPPM_WORKFLOW_PURGE_BATCH_SIZE", default=env.int("WORKFLOW_PURGE_BATCH_SIZE", default=500)
+WORKFLOW_PURGE_BATCH_SIZE = env_with_legacy(
+    env, "TRUEPPM_WORKFLOW_PURGE_BATCH_SIZE", "WORKFLOW_PURGE_BATCH_SIZE", 500, int
 )
 
 # ---------------------------------------------------------------------------
@@ -2342,16 +2372,14 @@ WORKFLOW_PURGE_BATCH_SIZE = env.int(
 # with the same key re-runs the mutation. Set to None to disable automatic purging.
 # Env vars standardized on the TRUEPPM_ prefix pre-0.3 (#1325); legacy bare names
 # read as a fallback so existing deploys keep working until they migrate.
-IDEMPOTENCY_RETENTION_HOURS: int | None = env.int(
-    "TRUEPPM_IDEMPOTENCY_RETENTION_HOURS",
-    default=env.int("IDEMPOTENCY_RETENTION_HOURS", default=24),
+IDEMPOTENCY_RETENTION_HOURS: int | None = env_with_legacy(
+    env, "TRUEPPM_IDEMPOTENCY_RETENTION_HOURS", "IDEMPOTENCY_RETENTION_HOURS", 24, int
 )
 # Maximum stored response body size (bytes). Responses larger than this are not stored
 # (the claim row is dropped, so a retry re-runs). Mutation responses are single objects
 # and effectively never approach this.
-IDEMPOTENCY_MAX_BODY_BYTES: int = env.int(
-    "TRUEPPM_IDEMPOTENCY_MAX_BODY_BYTES",
-    default=env.int("IDEMPOTENCY_MAX_BODY_BYTES", default=1 * 1024 * 1024),
+IDEMPOTENCY_MAX_BODY_BYTES: int = env_with_legacy(
+    env, "TRUEPPM_IDEMPOTENCY_MAX_BODY_BYTES", "IDEMPOTENCY_MAX_BODY_BYTES", 1 * 1024 * 1024, int
 )
 
 # ---------------------------------------------------------------------------

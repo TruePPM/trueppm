@@ -1,6 +1,7 @@
 ---
 title: Configuration
 description: Environment variables and settings for TruePPM.
+documentedFor: "0.5"
 ---
 
 This page is the reference for every environment variable and Django setting a
@@ -17,6 +18,38 @@ development, `docker-compose.yml` sets sensible defaults.
 - [Rate limits and import caps](/administration/configuration/limits/) — aPI and login rate limiting, the MCP read-surface limits, and the size caps on MS Project, Jira, CSV/Excel and seed imports and on Monte Carlo runs.
 - [Logging, telemetry and retention](/administration/configuration/logging-and-telemetry/) — log output, OpenTelemetry export, and data-retention settings.
 - [Object storage, TLS and split-origin deploys](/administration/configuration/storage-and-networking/) — S3-compatible (MinIO, SeaweedFS, etc.) object storage, the TLS redirect posture, and the settings for deploys that split the web and API origins.
+
+## Environment variable naming and precedence
+
+:::note[Ships in 0.5]
+The single precedence rule, the deprecation warning, and the `TRUEPPM_`-prefixed import,
+MPXJ, seed-import and time-tracking limits described here ship in 0.5. On 0.4 those
+limits are read only under their bare names.
+:::
+
+New TruePPM-specific settings are read as `TRUEPPM_<NAME>`. Bare names are reserved for
+Django, 12-factor and OpenTelemetry conventions (`SECRET_KEY`, `ALLOWED_HOSTS`,
+`CSRF_TRUSTED_ORIGINS`, `DATABASE_URL`, `REDIS_URL`, `EMAIL_*`, `DEFAULT_FROM_EMAIL`,
+`DJANGO_LOG_LEVEL`, `STATIC_ROOT`, the standard `OTEL_*` variables, and `SQL_LOG_LEVEL`
+in development) and for a short
+**grandfathered** list of TruePPM settings that shipped bare and have not been renamed
+yet: `MSPROJECT_MAX_UPLOAD_MB`, `SEED_MAX_UPLOAD_MB`, `IMPORT_MAX_RESOURCES_CREATED`,
+`RETENTION_PURGE_INFLIGHT_SECONDS`, `SIGNAL_CEILING_PROPOSAL_TTL_HOURS`,
+`CSP_CONNECT_SRC`, `JWT_SIGNING_KEY` and `INTEGRATION_ENCRYPTION_KEY`. Those will gain the `TRUEPPM_` prefix with the
+same legacy fallback described below; until then, set them under the bare name.
+
+Settings that shipped under a bare name keep working as a **deprecated fallback**, with
+one precedence rule for all of them:
+
+1. the `TRUEPPM_`-prefixed name, when set to a non-empty value;
+2. otherwise the legacy bare name, when set to a non-empty value. The API logs a one-time
+   `WARNING` at startup naming the prefixed replacement;
+3. otherwise the built-in default.
+
+An empty prefixed value counts as unset, so a `TRUEPPM_FRONTEND_BASE_URL: ""` placeholder
+in your values file never masks a legacy override. The legacy bare names are removed at
+1.0; rename them in your `values.yaml` (or `env`) before then. The renamed import limits
+are listed in [Rate limits and import caps](/administration/configuration/limits/).
 
 ## Required in production
 
