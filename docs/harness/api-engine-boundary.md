@@ -19,7 +19,7 @@ week snaps, constants and `lag=`/`duration=` engine-input construction). It runs
 
 It does **not** see semantics: hand-rolled `d += 1` calendar walks, float/criticality
 derivation and rollup math are invisible to it. The one-time audit inventory on #4688
-covers those; the summary-task `total_float` rollup is tracked in #5010. the header of the script lists every blind spot.
+covers those; the summary-task `total_float` rollup is tracked in #5010; the header of the script lists every blind spot.
 
 Further blind spots: aliased imports (`import statistics as st; st.quantiles(...)`), and
 `cutoff`/`retention`/`window` timedelta lines count as clock bookkeeping only when
