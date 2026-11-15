@@ -9,6 +9,7 @@ import { Button } from '@/components/Button';
 import { Tooltip } from '@/components/Tooltip';
 import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { fmtUtcMedium, fmtUtcShort } from '@/lib/formatUtcDate';
+import { FloatHelp } from './FloatHelp';
 import { HowDatesWorkLink } from './HowDatesWorkLink';
 import { parseDurationInput } from './buildMode/EditableCell';
 import { DurationUnitPicker } from './duration/DurationUnitPicker';
@@ -46,13 +47,25 @@ interface CellProps {
   last?: boolean;
   /** Plain-English reading for a jargon label, surfaced on hover/focus/tap. */
   explain?: string;
+  /** Contextual-help trigger (FieldHelp) shown beside the label. */
+  help?: ReactNode;
 }
 
-function Cell({ label, children, critical, last, explain }: CellProps) {
-  const heading = (
+function Cell({ label, children, critical, last, explain, help }: CellProps) {
+  const labelNode = (
     <div className="text-xs tracking-wider uppercase text-neutral-text-secondary mb-0.5">
       {label}
     </div>
+  );
+  // The help trigger rides beside the label rather than inside the Tooltip
+  // wrapper, so the hover definition and the popover stay separate targets.
+  const heading = help ? (
+    <div className="flex items-center gap-1">
+      {labelNode}
+      <span className="shrink-0 -mt-0.5">{help}</span>
+    </div>
+  ) : (
+    labelNode
   );
   return (
     <div
@@ -63,7 +76,18 @@ function Cell({ label, children, critical, last, explain }: CellProps) {
       {/* "Float" is scheduling jargon — a PM knows it, the team member reading
           their own task does not (rule 287). Only cells whose label is jargon
           take `explain`; "Start" and "Finish" say what they mean. */}
-      {explain ? <Tooltip content={explain}>{heading}</Tooltip> : heading}
+      {explain ? (
+        help ? (
+          <div className="flex items-center gap-1">
+            <Tooltip content={explain}>{labelNode}</Tooltip>
+            <span className="shrink-0 -mt-0.5">{help}</span>
+          </div>
+        ) : (
+          <Tooltip content={explain}>{heading}</Tooltip>
+        )
+      ) : (
+        heading
+      )}
       <div
         className={[
           'tppm-mono text-sm font-semibold',
@@ -581,6 +605,7 @@ function StripFrame({
           critical={task.isCritical || (typeof float === 'number' && float < 0)}
           last
           explain={ABBREVIATIONS.FLOAT}
+          help={<FloatHelp />}
         >
           {float === null || float === undefined ? (
             dash

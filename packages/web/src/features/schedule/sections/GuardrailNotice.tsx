@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { GuardrailWarning } from '@/hooks/useTaskMutations';
+import { GuardrailBreachHelp } from './GuardrailBreachHelp';
 import { WarningIcon } from '@/components/Icons';
 
 interface Props {
@@ -34,17 +35,20 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
       aria-live="polite"
       className="rounded-card border-l-2 border-semantic-at-risk bg-sem-at-risk-bg px-3 py-2 space-y-2"
     >
-      <ul className="space-y-1">
-        {warnings.map((w) => (
-          <li key={w.rule} className="flex items-start gap-1.5 text-xs text-neutral-text-primary">
-            <WarningIcon
-              aria-hidden="true"
-              className="mt-0.5 h-3 w-3 shrink-0 text-semantic-at-risk"
-            />
-            <span>{w.detail}</span>
-          </li>
-        ))}
-      </ul>
+      <div className="flex items-start justify-between gap-2">
+        <ul className="space-y-1">
+          {warnings.map((w) => (
+            <li key={w.rule} className="flex items-start gap-1.5 text-xs text-neutral-text-primary">
+              <WarningIcon
+                aria-hidden="true"
+                className="mt-0.5 h-3 w-3 shrink-0 text-semantic-at-risk"
+              />
+              <span>{w.detail}</span>
+            </li>
+          ))}
+        </ul>
+        <GuardrailBreachHelp />
+      </div>
 
       <div className="flex items-center gap-2">
         <button

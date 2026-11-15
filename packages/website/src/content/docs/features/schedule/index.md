@@ -93,6 +93,8 @@ only two before its own successor is pushed, so spending the other six costs
 somebody else their start date. See the [scheduler
 reference](/features/scheduler/#task-outputs) for how each is derived.
 
+On the Table/Grid view's column header and in a task's Float cell, the **?** button beside the label opens a short explanation of the two numbers, with a link back to this section.
+
 Both columns will be read-only, right-aligned, and set in tabular figures so a
 column of them scans. A task the scheduler has not reached yet will show an em
 dash rather than `0d` — no answer yet and no slack left are opposite readings, and

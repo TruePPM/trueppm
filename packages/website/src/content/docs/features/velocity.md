@@ -40,6 +40,8 @@ Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--mo
   - no committed points (none recorded, or zero) → neutral bar, labeled "no committed points"; never red, because there is no commitment to fall short of
 - **Footer:** the plain text `Velocity feeds CPM duration estimates` (a link to ADR-0036 before 0.5)
 
+The **?** button beside the panel heading explains what the average counts: closed sprints only, excluded sprints held out, and a forecast range that is the average plus or minus one standard deviation.
+
 ## On the Board sprint panel
 
 :::note[Added in 0.3]

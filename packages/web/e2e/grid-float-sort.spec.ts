@@ -291,3 +291,20 @@ test.describe('Table/Grid — float columns below the lg breakpoint (#3344)', ()
     await expect(page.getByText('Cladding order')).toBeVisible();
   });
 });
+
+test('float header opens contextual help that explains total vs free float (#3714)', async ({
+  page,
+}) => {
+  await setup(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(GRID_URL);
+  const trigger = page.getByRole('button', { name: 'About the Total float and free float options' });
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Total float and free float' });
+  await expect(dialog).toContainText('project finish');
+  await expect(dialog).toContainText('next task');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});

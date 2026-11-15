@@ -1,4 +1,5 @@
-import { type KeyboardEvent } from 'react';
+import { type KeyboardEvent, type ReactNode } from 'react';
+import { FloatHelp } from '../schedule/FloatHelp';
 import { ROW_VOCABULARY } from '../schedule/rowVocabulary';
 import { Tooltip } from '@/components/Tooltip';
 import { ABBREVIATIONS } from '@/lib/abbreviations';
@@ -39,6 +40,7 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
     className: string,
     explain?: string,
     ariaLabel?: string,
+    help?: ReactNode,
   ) => {
     const button = (
       /* Sort column-header button: focus: (not focus-visible:) so the ring shows on
@@ -69,7 +71,19 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
         aria-sort={sortCol === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
         className={className}
       >
-        {explain ? <Tooltip content={explain}>{button}</Tooltip> : button}
+        {help ? (
+          // Float help sits beside the sort button, never inside it: a nested
+          // interactive control in a button is invalid, and Enter on the help
+          // trigger must not sort the column.
+          <span className="flex items-center justify-end gap-0.5">
+            {explain ? <Tooltip content={explain}>{button}</Tooltip> : button}
+            <span className="shrink-0 normal-case tracking-normal">{help}</span>
+          </span>
+        ) : explain ? (
+          <Tooltip content={explain}>{button}</Tooltip>
+        ) : (
+          button
+        )}
       </span>
     );
   };
@@ -99,14 +113,15 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
       {colHeader(
         'totalFloat',
         'Float',
-        'w-16 flex-shrink-0 text-right pr-2 hidden lg:block',
+        'w-24 flex-shrink-0 text-right pr-2 hidden lg:block',
         ABBREVIATIONS.FLOAT,
         'Total float',
+        <FloatHelp />,
       )}
       {colHeader(
         'freeFloat',
         'Free',
-        'w-16 flex-shrink-0 text-right pr-2 hidden lg:block',
+        'w-24 flex-shrink-0 text-right pr-2 hidden lg:block',
         ABBREVIATIONS.FREE_FLOAT,
         'Free float',
       )}

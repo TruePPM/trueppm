@@ -18,6 +18,7 @@ import {
   isWeekend,
   todayISO,
 } from './resourceUtils';
+import { UtilizationHelp } from './UtilizationHelp';
 import type { UtilizationResource } from './resourceUtils';
 import type { OverallocationTarget } from './ResourceOverallocationDrawer';
 
@@ -42,11 +43,19 @@ export function ResourceGrid({ resources, windowStart, windowEnd, onOpenDrawer }
       <div className="sticky top-0 z-20 bg-neutral-surface border-b border-neutral-border">
         {/* Week header row */}
         <div className="flex">
-          {/* Empty cell above resource name column */}
+          {/* Utilization help rides the name-column corner: the percentages
+              below are the jargon, and this is the one cell that is not data. */}
           <div
-            className="sticky left-0 z-30 flex-none border-r border-neutral-border bg-neutral-surface"
+            className="sticky left-0 z-30 flex-none flex items-center px-3 border-r border-neutral-border bg-neutral-surface"
             style={{ width: NAME_COL_WIDTH }}
-          />
+          >
+            <span className="text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary">
+              Utilization
+            </span>
+            <span className="ml-1 shrink-0">
+              <UtilizationHelp />
+            </span>
+          </div>
           {weeks.map(({ weekStart, days: weekDays }) => (
             <div
               key={weekStart}
