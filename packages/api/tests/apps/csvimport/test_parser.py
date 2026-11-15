@@ -838,7 +838,9 @@ class TestAllocation:
         cell = ("a :" * 20000) + " x"
         start = time.perf_counter()
         _units(f'Task,Owner\nA,"{cell}"\n'.encode())
-        assert time.perf_counter() - start < 5.0
+        # Bound is 0.5 s: linear code takes <1 ms here and the old quadratic regex took
+        # ~1-4 s: ~500x headroom keeps it safe on a loaded runner, red on a regression.
+        assert time.perf_counter() - start < 0.5
 
     @pytest.mark.parametrize(
         "tail",
@@ -857,7 +859,9 @@ class TestAllocation:
         # `\s*(\d+)\s*%?\s*` tail backtracked quadratically here (python:S8786, #4998).
         start = time.perf_counter()
         assert _split_name_allocation("Ana:" + tail) is None
-        assert time.perf_counter() - start < 5.0
+        # Bound is 0.5 s: linear code takes <1 ms here and the old quadratic regex took
+        # ~1-4 s: ~500x headroom keeps it safe on a loaded runner, red on a regression.
+        assert time.perf_counter() - start < 0.5
 
     def test_whitespace_around_percent_still_splits(self) -> None:
         from trueppm_api.apps.csvimport.parser import _split_name_allocation
