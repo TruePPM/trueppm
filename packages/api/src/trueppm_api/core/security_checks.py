@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 import urllib.parse
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from django.core.checks import Error, register
@@ -793,6 +793,104 @@ def check_integration_encryption_key(
         getattr(settings, "INTEGRATION_ENCRYPTION_KEY", None),
         debug=bool(getattr(settings, "DEBUG", False)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Rotation fallbacks (#3406). Each ``*_FALLBACKS`` entry gets the SAME validation
+# as its primary key, re-labelled with the list name and index so the operator
+# can find the bad entry. A malformed fallback must stop the boot: silently
+# ignoring one would turn "zero-downtime rotation" into a surprise sign-out or
+# an undecryptable credential at the worst moment. Messages never echo a key.
+# ---------------------------------------------------------------------------
+
+
+def _validate_fallback_entries(
+    primary_name: str,
+    list_name: str,
+    fallbacks: Sequence[str] | None,
+    validator: Callable[[str], list[CheckMessage]],
+    *,
+    debug: bool,
+) -> list[CheckMessage]:
+    if debug or not fallbacks:
+        return []
+    errors: list[CheckMessage] = []
+    for index, entry in enumerate(fallbacks):
+        label = f"{list_name}[{index}]"
+        if not entry:
+            errors.append(
+                Error(
+                    f"{label} is empty (stray comma in {list_name}?).",
+                    hint=f"Remove the empty entry; every {list_name} item must be a valid key.",
+                    id="trueppm.E017",
+                )
+            )
+            continue
+        for err in validator(entry):
+            msg = str(err.msg).replace(repr(entry), "<redacted>").replace(primary_name, label, 1)
+            errors.append(Error(msg, hint=err.hint, id=err.id))
+    return errors
+
+
+def validate_secret_key_fallbacks(
+    fallbacks: Sequence[str] | None, *, debug: bool
+) -> list[CheckMessage]:
+    """Validate ``SECRET_KEY_FALLBACKS`` with the ``SECRET_KEY`` strength rules."""
+    return _validate_fallback_entries(
+        "SECRET_KEY",
+        "SECRET_KEY_FALLBACKS",
+        fallbacks,
+        lambda k: validate_secret_key(k, debug=False),
+        debug=debug,
+    )
+
+
+def validate_signing_key_fallbacks(
+    fallbacks: Sequence[str] | None, *, debug: bool
+) -> list[CheckMessage]:
+    """Validate ``JWT_SIGNING_KEY_FALLBACKS`` with the ``JWT_SIGNING_KEY`` rules."""
+    return _validate_fallback_entries(
+        "JWT_SIGNING_KEY",
+        "JWT_SIGNING_KEY_FALLBACKS",
+        fallbacks,
+        lambda k: validate_signing_key(k, None, debug=False),
+        debug=debug,
+    )
+
+
+def validate_integration_encryption_key_fallbacks(
+    fallbacks: Sequence[str] | None, *, debug: bool
+) -> list[CheckMessage]:
+    """Validate ``INTEGRATION_ENCRYPTION_KEY_FALLBACKS`` as Fernet keys."""
+    return _validate_fallback_entries(
+        "INTEGRATION_ENCRYPTION_KEY",
+        "INTEGRATION_ENCRYPTION_KEY_FALLBACKS",
+        fallbacks,
+        lambda k: validate_integration_encryption_key(k, debug=False),
+        debug=debug,
+    )
+
+
+@register(Tags.security, deploy=True)
+def check_key_fallbacks(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point for all three ``*_FALLBACKS`` lists."""
+    from django.conf import settings
+
+    debug = bool(getattr(settings, "DEBUG", False))
+    return [
+        *validate_secret_key_fallbacks(
+            getattr(settings, "SECRET_KEY_FALLBACKS", None), debug=debug
+        ),
+        *validate_signing_key_fallbacks(
+            getattr(settings, "JWT_SIGNING_KEY_FALLBACKS", None), debug=debug
+        ),
+        *validate_integration_encryption_key_fallbacks(
+            getattr(settings, "INTEGRATION_ENCRYPTION_KEY_FALLBACKS", None), debug=debug
+        ),
+    ]
 
 
 # ---------------------------------------------------------------------------

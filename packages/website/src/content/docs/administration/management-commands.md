@@ -1,7 +1,12 @@
 ---
 title: Management Commands
 description: Django management commands for bootstrapping an admin account and seeding demo data, plus the maintenance commands that ship with TruePPM.
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The `reencrypt_integration_secrets` command ships in 0.5. Every other command on this page is in 0.4.
+:::
 
 TruePPM ships a small set of **Django management commands** — one-off scripts you
 run from a shell inside the API container, for tasks that don't belong behind a
@@ -380,6 +385,15 @@ These exist for specific operational situations and are not part of routine use:
   (pinning their actual start to the planned date). Run it once after upgrading from a
   version that predated automatic in-progress transitions. Pass `--dry-run` to preview
   the affected rows without writing. It is idempotent and transaction-safe.
+- **`reencrypt_integration_secrets`** — rewrites every secret encrypted with
+  `INTEGRATION_ENCRYPTION_KEY` (SSO client secret, Jira credentials, webhook and
+  board-automation secrets, the SMTP password) under the current primary key, so an
+  old key in `INTEGRATION_ENCRYPTION_KEY_FALLBACKS` can be retired. Run it after
+  promoting a new key; see
+  [Rotating secrets without downtime](/administration/security/#rotating-secrets-without-downtime).
+  Pass `--dry-run` to count without writing and `--batch-size N` (default 500) to
+  size each transaction. It is idempotent, skips rows already on the primary key,
+  and exits non-zero if any value cannot be decrypted by any configured key.
 - **`prune_forecast_snapshots`** — applies the tiered retention curve to project
   forecast snapshots (added in 0.3): keeps every snapshot younger than `daily_days`,
   one-per-ISO-week up to `weekly_days`, and one-per-calendar-month beyond that. TruePPM

@@ -35,7 +35,7 @@ in development) and for a short
 **grandfathered** list of TruePPM settings that shipped bare and have not been renamed
 yet: `MSPROJECT_MAX_UPLOAD_MB`, `SEED_MAX_UPLOAD_MB`, `IMPORT_MAX_RESOURCES_CREATED`,
 `RETENTION_PURGE_INFLIGHT_SECONDS`, `SIGNAL_CEILING_PROPOSAL_TTL_HOURS`,
-`CSP_CONNECT_SRC`, `JWT_SIGNING_KEY` and `INTEGRATION_ENCRYPTION_KEY`. Those will gain the `TRUEPPM_` prefix with the
+`CSP_CONNECT_SRC`, `JWT_SIGNING_KEY`, `INTEGRATION_ENCRYPTION_KEY` and the `JWT_SIGNING_KEY_FALLBACKS` / `INTEGRATION_ENCRYPTION_KEY_FALLBACKS` rotation lists that accompany them. Those will gain the `TRUEPPM_` prefix with the
 same legacy fallback described below; until then, set them under the bare name.
 
 Settings that shipped under a bare name keep working as a **deprecated fallback**, with

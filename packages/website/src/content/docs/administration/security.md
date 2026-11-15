@@ -10,7 +10,11 @@ refusal to render an admin allowlist behind an Ingress without it, ship in 0.5
 (see [Reaching Django admin](#reaching-django-admin)). In 0.4 the web tier passes
 `X-Forwarded-Proto` through from any peer and matches `allowCIDRs` against the
 immediate peer's address. The per-surface scoping of the egress allow-lists also
-ships in 0.5 (see the SSRF section). Everything else on this page is in 0.4.
+ships in 0.5 (see the SSRF section). Zero-downtime secret rotation (the
+`*_FALLBACKS` variables and `reencrypt_integration_secrets`, see
+[Rotating secrets without downtime](#rotating-secrets-without-downtime)) also
+ships in 0.5. In 0.4 each key is single-valued: rotating it invalidates everything
+it protected. Everything else on this page is in 0.4.
 :::
 
 This page is the security reference for operating a self-hosted install: how
@@ -339,24 +343,72 @@ Never commit secrets to version control. Use environment variables, Docker secre
 
 ### One encryption key covers every stored third-party secret
 
-`INTEGRATION_ENCRYPTION_KEY` is a single key. It encrypts the OIDC/OAuth client
-secret you configure for single sign-on, each user's stored Jira credential, the
-secrets of your outgoing webhooks, your board-automation secrets, and the outbound
-SMTP password. There is no separate key per class and no
-key rotation in the open-source edition: stored values are encrypted with exactly
-one key, and nothing re-encrypts them. This is a known, accepted limitation, not
-a misconfiguration. Changing the key, or losing it, makes every stored value
-undecryptable.
+`INTEGRATION_ENCRYPTION_KEY` is a single primary key. It encrypts the OIDC/OAuth
+client secret you configure for single sign-on, each user's stored Jira credential,
+the secrets of your outgoing webhooks, your board-automation secrets, and the
+outbound SMTP password. There is no separate key per class, so treat its leak as
+the leak of every one of them at once. Nothing outside these five is encrypted with
+this key. Back the key up with your database backups.
 
-**Recovery after a lost or changed key** is to re-enter every secret: the SSO
-client secret (Settings, Single sign-on), each user's Jira connection, each
-webhook secret, each board-automation secret, and the SMTP password (if you
-configured outbound email). Nothing outside these five is encrypted with this key. Back the key up with your database backups
-so you never need this, and treat its leak as the leak of every one of them at
-once. Rotating the key without re-encrypting is a recovery event, not a routine
-rotation. A KMS-backed key with dual-key decryption and a re-encryption migration
-is an Enterprise hardening item (the design is recorded in the
+To rotate it without losing those values, keep the old key in
+`INTEGRATION_ENCRYPTION_KEY_FALLBACKS` and re-encrypt (see
+[Rotating secrets without downtime](#rotating-secrets-without-downtime)).
+Changing the key **without** a fallback is a recovery event: every stored value
+becomes undecryptable and an administrator must re-enter each secret (the SSO
+client secret, each user's Jira connection, each webhook secret, each
+board-automation secret, and the SMTP password). A KMS-backed key is an Enterprise
+hardening item (the design is recorded in the
 [auth architecture](/architecture/auth/#one-encryption-key-for-every-stored-third-party-secret)).
+
+### Rotating secrets without downtime
+
+Each of the three application secrets has a primary value and an optional
+comma-separated `*_FALLBACKS` list of **older** values. The primary is the only
+key ever used to sign or encrypt. Fallbacks are accepted for verification or
+decryption only, so you can roll a new primary out while values created under the
+old one keep working, then retire the old one.
+
+| Primary | Fallback list | What the fallback keeps working |
+|---|---|---|
+| `SECRET_KEY` | `SECRET_KEY_FALLBACKS` | Signed cookies, password-reset and email-verification links, `signing.loads` payloads (Django's own fallback mechanism) |
+| `JWT_SIGNING_KEY` | `JWT_SIGNING_KEY_FALLBACKS` | In-flight access and refresh tokens. When `JWT_SIGNING_KEY` is unset it inherits `SECRET_KEY`, and its fallbacks inherit `SECRET_KEY_FALLBACKS` |
+| `INTEGRATION_ENCRYPTION_KEY` | `INTEGRATION_ENCRYPTION_KEY_FALLBACKS` | Decrypting stored third-party secrets written under the old key |
+
+Every fallback entry is validated at boot exactly like its primary (length,
+placeholder, Fernet format). A malformed or empty entry (for example a stray comma)
+stops the process from starting with an error naming the list and the position
+(`SECRET_KEY_FALLBACKS[1]`); it is never silently ignored. Error messages never
+print the key.
+
+**Runbook (any of the three):**
+
+1. Generate the new key (`python3 -c "import secrets; print(secrets.token_urlsafe(50))"`, or a new Fernet key for `INTEGRATION_ENCRYPTION_KEY`).
+2. Set the new key as the primary **and** put the previous primary in the matching `*_FALLBACKS` variable. Update your Secret, then
+   [restart the api, celery-worker, and celery-beat Deployments](#restarting-pods-after-rotating-the-secret).
+   Pods that have not restarted yet still hold the old primary, so keep the old key in the fallback list until the rollout is complete everywhere.
+3. For `INTEGRATION_ENCRYPTION_KEY`, re-encrypt stored values under the new primary, then confirm the report shows nothing left to rewrite:
+
+   ```bash
+   python manage.py reencrypt_integration_secrets --dry-run   # counts only
+   python manage.py reencrypt_integration_secrets
+   ```
+
+   The command covers all five encrypted columns, runs in transactional batches
+   (`--batch-size`, default 500), reports per column how many rows it rewrote, found
+   already current, or could not decrypt, and is idempotent. It exits non-zero if
+   any value cannot be decrypted by any configured key; add the missing old key to
+   the fallback list and re-run rather than dropping anything.
+4. After the longest-lived value signed under the old key has expired (for JWTs, the refresh-token lifetime, 7 days by default and up to 30 days for "keep me signed in"; for `SECRET_KEY`, your longest password-reset or cookie lifetime), remove the old key from the fallback list and restart again. For `INTEGRATION_ENCRYPTION_KEY`, remove it only after step 3 reports zero rows rewritten.
+
+:::caution[Rotating with no fallback signs everyone out]
+Leaving the `*_FALLBACKS` list empty keeps the original behavior: rotating
+`JWT_SIGNING_KEY` (or `SECRET_KEY` when no separate JWT key is set) makes every
+outstanding access and refresh token fail verification, which
+[forces a global sign-out](#separating-the-jwt-signing-key-and-forcing-a-global-sign-out).
+That is the documented lever after a suspected token leak: in that case do **not**
+keep the leaked key as a fallback, because a fallback is still trusted for
+verification.
+:::
 
 ### Restarting pods after rotating the Secret
 
@@ -459,7 +511,8 @@ access and refresh token immediately fails signature verification; the web app
 treats the next call as a `401`, attempts one (also-failing) refresh, and
 routes users to the sign-in screen. No data is lost. If you have not set a
 separate `JWT_SIGNING_KEY`, rotating `SECRET_KEY` has the same effect but also
-rotates session/CSRF signing.
+rotates session/CSRF signing. Do not list the old key in `JWT_SIGNING_KEY_FALLBACKS`
+when the goal is to sign everyone out.
 
 :::caution[Sessions that predate server-side revocation]
 Logout, a password reset, and off-boarding revoke a user's refresh tokens by
