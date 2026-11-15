@@ -45,7 +45,11 @@ describe('date-format guard allowlist', () => {
     const [res] = await eslint.lintText(code, {
       filePath: resolve(WEB_ROOT, 'src/features/auth/ssoNext.ts'),
     });
-    expect(res.messages.some((m) => m.ruleId === 'no-restricted-properties')).toBe(true);
+    // Compare the rule ids as data so a failure prints what ESLint actually returned
+    // (a parse error or an ignored-file warning reads very differently from a missing rule).
+    expect(res.messages.map((m) => `${m.ruleId}: ${m.message.slice(0, 120)}`)).toEqual(
+      expect.arrayContaining([expect.stringContaining('no-restricted-properties')]),
+    );
     // A cold type-aware ESLint run (parser program build) costs 5+ s, which is the
     // default vitest timeout, so the timeout is explicit rather than left to race it.
   }, 60_000);
