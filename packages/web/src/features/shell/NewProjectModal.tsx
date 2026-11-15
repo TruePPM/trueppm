@@ -225,7 +225,7 @@ const CREATE_FIELD_LABELS: Record<string, string> = {
 };
 
 function humanizeField(field: string): string {
-  const spaced = field.replace(/_/g, ' ');
+  const spaced = field.replaceAll('_', ' ');
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
