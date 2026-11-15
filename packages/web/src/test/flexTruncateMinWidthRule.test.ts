@@ -67,6 +67,20 @@ describe('flex-1 truncate without min-w-0 rule (rule 393)', () => {
   });
 
   describe('reports a violation', () => {
+    it('the CONTAINER shape (#3508): flex-1 box whose direct child truncates', () => {
+      // Measured in Chromium: 307px inside a 300px row, 187px of overflow, fixed to
+      // 120px / 0px by `min-w-0`. Reached through attribute index, in every
+      // position and value shape the selector claims.
+      for (const jsx of [
+        `<div className="flex-1"><span className="truncate">{n}</span></div>`,
+        `<div id="a" title="b" className="flex items-center flex-1"><span className="truncate">{n}</span></div>`,
+        `<div className={'flex-1 gap-2'}><span className="truncate">{n}</span></div>`,
+        `<div className={\`flex-1 \${x}\`}><span className="truncate">{n}</span></div>`,
+      ]) {
+        expect(violations(`export const Q = () => (${jsx});`)).toBe(1);
+      }
+    });
+
     it('a plain string className (ProgramProjectsPage shape)', () => {
       expect(
         violations(
@@ -145,21 +159,21 @@ describe('flex-1 truncate without min-w-0 rule (rule 393)', () => {
       expect(violations(`export const K = () => <span title="flex-1 truncate" />;`)).toBe(0);
     });
 
-    it('the CONTAINER shape — deliberately out of scope, and the gap that matters most', () => {
-      // `flex-1` on a container whose truncating text is a descendant IS the
-      // shape that overflows a row (measured in Chromium: 307px inside a 300px
-      // row, 187px of overflow, fixed to 120px/0px by `min-w-0`). This rule does
-      // not report it, and 18 unreviewed sites in this tree carry it — see
-      // rule 393. Pinned as a fixture so the exemption is a recorded decision
-      // rather than something a future reader has to discover by testing.
+    it('a container that already clamps its minimum size is not reported', () => {
+      // `min-w-*` and `overflow-{hidden,auto,scroll,clip}` both zero min-width:auto,
+      // so the container shape is only a defect without them (#3508).
+      for (const cls of ['flex-1 min-w-0', 'min-w-0 flex-1', 'flex-1 overflow-hidden', 'overflow-x-auto flex-1']) {
+        expect(
+          violations(
+            `export const Q = () => (<div className="${cls}"><span className="truncate">{name}</span></div>);`,
+          ),
+        ).toBe(0);
+      }
+    });
+
+    it('a flex-1 container with no truncating child is not reported', () => {
       expect(
-        violations(
-          `export const Q = () => (
-            <div className="flex-1">
-              <span className="truncate">{name}</span>
-            </div>
-          );`,
-        ),
+        violations(`export const Q = () => (<div className="flex-1"><span>{name}</span></div>);`),
       ).toBe(0);
     });
 

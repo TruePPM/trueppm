@@ -154,13 +154,13 @@ export const NO_FOCUS_VISIBLE_ON_TRIGGER = [
 // fix is the wrap in `ProgramProjectsPage`, and `e2e/programs.spec.ts` is what
 // holds it — no lint rule can see "these siblings do not fit".
 //
-// The CONTAINER family is deliberately NOT enforced here. The selector for it
-// works (it is exercised in the self-test's documented-gap fixtures) and the
-// tree carries 18 candidate sites, none of them reviewed — turning it on in this
-// MR would red the pipeline for eighteen surfaces nobody has looked at, which is
-// how a rule gets reverted rather than adopted. It is its own sweep, and rule
-// 393 in `CLAUDE.md` records the measurement so the follow-up starts from
-// evidence rather than from this comment.
+// The CONTAINER family IS enforced (#3508) — it is the shape that genuinely overflows
+// a row. The 18 sites the first pass left unreviewed were each inspected and measured
+// in #3508, so the rule can be turned on without redding the tree for surfaces nobody
+// looked at. A `flex-1` element is exempt when it already carries `min-w-0`/any
+// `min-w-*`, or an `overflow-{hidden,auto,scroll,clip}` utility (those zero the
+// automatic minimum size exactly as `truncate` does), so only an element whose
+// minimum is still `auto` and whose direct child truncates is reported.
 //
 // This is a CLASS-STRING rule, so it is textual by nature (rule 300(b)) — but it
 // is written as an AST selector rather than a grep for two reasons that matter:
@@ -199,12 +199,38 @@ const FLEX_TRUNCATE_MESSAGE =
 // that caught this.
 const FLEX_TRUNCATE_PAT =
   String.raw`/^(?=[\s\S]*\bflex-1\b)(?=[\s\S]*\btruncate\b)(?![\s\S]*\bmin-w-0\b)/`;
+// The CONTAINER shape (#3508): a `flex-1` element that does NOT itself clamp its
+// minimum size and has a DIRECT child element that truncates. `min-width:auto`
+// resolves to the child's intrinsic text width, so the container overflows its row.
+// One level down only (see Known gaps). Anchored with `^` for the same RegExp.test
+// suffix-retry reason as FLEX_TRUNCATE_PAT.
+const FLEX_CONTAINER_PAT =
+  String.raw`/^(?=[\s\S]*\bflex-1\b)(?![\s\S]*\bmin-w-)(?![\s\S]*\btruncate\b)(?![\s\S]*\boverflow-(x-|y-)?(hidden|auto|scroll|clip)\b)/`;
+const TRUNCATE_PAT = String.raw`/\btruncate\b/`;
 const CLASS_NAME_VALUE = (pat) =>
   `JSXAttribute[name.name="className"] :matches(Literal[value=${pat}], TemplateElement[value.raw=${pat}])`;
+const FLEX_CONTAINER_MESSAGE =
+  '`flex-1` container with a truncating child but no `min-w-0` (rule 393, #3508). min-width:auto resolves to the child\'s intrinsic text width, so this box overflows its row instead of letting the child ellipsize. Add `min-w-0` (measured: 307px in a 300px row, fixed to 120px / 0px). If the container should wrap or size to content instead, say so with `// eslint-disable-next-line no-restricted-syntax` and a reason.';
+// esquery's `:has(> A > B)` silently matches nothing (measured at #3508: only a single
+// `> A` or a bare descendant works), so the className attribute is reached by index
+// through field-path attribute selectors instead. Three value shapes — a string
+// literal, a `{'...'}` expression, and the first quasi of a template literal — across
+// the first six attributes. A className on the seventh attribute or one whose
+// `min-w-0` sits in a later template quasi is the documented gap; the escape hatch is
+// the same `eslint-disable-next-line` as everywhere else in this rule.
+const CLASS_SHAPES = ['value.value', 'value.expression.value', 'value.expression.quasis.0.value.raw'];
+const attrClassMatch = (root, pat) =>
+  `:matches(${[0, 1, 2, 3, 4, 5]
+    .flatMap((i) => CLASS_SHAPES.map((sh) => `[${root}.attributes.${i}.${sh}=${pat}]`))
+    .join(', ')})`;
 export const NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0 = [
   {
     selector: CLASS_NAME_VALUE(FLEX_TRUNCATE_PAT),
     message: FLEX_TRUNCATE_MESSAGE,
+  },
+  {
+    selector: `JSXElement${attrClassMatch('openingElement', FLEX_CONTAINER_PAT)}:has(> JSXElement${attrClassMatch('openingElement', TRUNCATE_PAT)})`,
+    message: FLEX_CONTAINER_MESSAGE,
   },
 ];
 
