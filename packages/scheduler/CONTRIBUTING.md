@@ -308,5 +308,22 @@ At release time `scripts/release.sh` rotates `[Unreleased]` into a dated
 publish a tag whose version has no section), so the only manual step is writing
 the bullet during the cycle.
 
+### Keeping the README honest about unreleased behavior
+
+`README.md` is rendered on PyPI and read on `main`, and a user on the latest tag
+reads the `main` copy. While `[Unreleased]` in [`CHANGELOG.md`](./CHANGELOG.md) is
+non-empty, `main` describes behavior the latest tag does not have. Review checklist
+for any MR that adds an `[Unreleased]` entry or edits the README:
+
+- Every README sentence that states behavior absent at the latest `scheduler-v*`
+  tag uses explicit future tense ("From 0.5, X will ...") or sits under a
+  `Ships in 0.X` note. The statement of the current release (0.4 today) stays in
+  present tense and must be true at the tag.
+- Walk the `[Unreleased]` entries, and for each one `grep` the README for the name
+  or number it changes (a default, a cap, an exported name, an error message).
+  Check each hit against `git show scheduler-v<latest>:packages/scheduler/src/...`.
+- When a version ships, the release sweep rewrites the "From 0.X" phrases back to
+  present tense in the same MR that promotes the version.
+
 All scheduler MRs require a green `scheduler:lint`, `scheduler:type-check`,
 `scheduler:test`, and `scheduler:bench` pipeline.
