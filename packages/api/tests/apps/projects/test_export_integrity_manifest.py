@@ -356,6 +356,46 @@ def test_import_rejects_unknown_typeflag_bomb_over_http(
     assert not Program.objects.exists()
 
 
+def _sparse_archive(real_size: int) -> bytes:
+    """gzip(tar) with one PAX GNU-sparse member declaring a ``real_size`` hole.
+
+    The archive carries no data for the hole; tarfile synthesizes it as NULs
+    without reading the stream, which is what slipped past the stream-side cap.
+    """
+    info = tarfile.TarInfo("x.bin")
+    info.size = 0
+    info.pax_headers = {
+        "GNU.sparse.major": "0",
+        "GNU.sparse.minor": "1",
+        "GNU.sparse.realsize": str(real_size),
+        "GNU.sparse.map": "0,0",
+        "GNU.sparse.name": "x.bin",
+    }
+    out = io.BytesIO()
+    with gzip.GzipFile(fileobj=out, mode="wb") as gz:
+        gz.write(info.tobuf(tarfile.PAX_FORMAT, "utf-8", "surrogateescape"))
+        gz.write(b"\0" * 1024)
+    return out.getvalue()
+
+
+def test_sparse_member_is_refused_without_hashing_the_hole() -> None:
+    raw = _sparse_archive(2 * 1024**3)
+    assert len(raw) < 1024
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r|gz") as tar:  # type: ignore[call-overload]
+        assert next(iter(tar)).issparse()  # the fixture really is a sparse member
+    with pytest.raises(ArchiveIntegrityError, match="sparse"):
+        verify_archive(io.BytesIO(raw))
+
+
+def test_import_rejects_sparse_member_over_http(owner: Any) -> None:
+    from trueppm_api.apps.projects.models import Program
+
+    resp = _post(owner, _sparse_archive(2 * 1024**3))
+    assert resp.status_code == 400
+    assert "sparse" in json.dumps(resp.json()).lower()
+    assert not Program.objects.exists()
+
+
 def test_legit_bundle_passes_under_default_caps(project: Project, owner: Any) -> None:
     _, raw = _build(project, owner)
     assert verify_archive(io.BytesIO(raw), seed_max_bytes=5 * 1024 * 1024).verified is True

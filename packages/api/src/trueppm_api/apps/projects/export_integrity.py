@@ -174,6 +174,14 @@ def _scan(
                     raise ArchiveIntegrityError(f"Archive holds more than {_MAX_MEMBERS} members.")
                 if not info.isfile():
                     continue
+                if info.issparse():
+                    # tarfile synthesizes a sparse hole as NUL bytes without pulling
+                    # anything from the stream, so the decompression budget never sees
+                    # them and a tiny archive could pin a worker hashing terabytes of
+                    # zeros. TruePPM exports are never sparse.
+                    raise ArchiveIntegrityError(
+                        "Archive contains a sparse member, which is not allowed."
+                    )
                 name = info.name
                 if name in actual or (name == MANIFEST_NAME and manifest is not None):
                     raise ArchiveIntegrityError(f"Archive lists member {name!r} more than once.")
