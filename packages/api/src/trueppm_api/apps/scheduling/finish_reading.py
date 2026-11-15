@@ -185,6 +185,7 @@ def schedule_result_finish(result: Any) -> Finish | None:
     return latest_finish((t.early_finish, task_finish_at_day_start(t), None) for t in result.tasks)
 
 
+# TODO(#5009): use trueppm_scheduler.previous_working_day once scheduler 0.5 is on PyPI.
 def working_time_end_day(finish: Finish, calendar: Any) -> date:
     """The day whose end is the same working-time position as ``finish``.
 

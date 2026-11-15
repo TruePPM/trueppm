@@ -204,6 +204,13 @@ _SWEEP_EXEMPT: dict[str, str] = {
     "find_cycle": "edge-list helper with its own contract; not a Project entry point",
     "expand_summary_dependencies": "list-argument helper with its own contract",
     "collect_leaves": "children-map helper with its own contract; not a Project entry point",
+    # Calendar helpers: their only raise is InvalidScheduleInput on a degenerate
+    # calendar, pinned in tests/test_calendar_helpers.py.
+    "next_working_day": "calendar helper with its own contract; not a Project entry point",
+    "previous_working_day": "calendar helper with its own contract; not a Project entry point",
+    "nth_working_day": "calendar helper with its own contract; not a Project entry point",
+    "working_day_count": "calendar helper; total over any date pair, raises nothing",
+    "roll_up_summary": "leaf-row helper; total over any leaf list, raises nothing",
 }
 
 

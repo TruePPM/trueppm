@@ -266,6 +266,8 @@ def enqueue_project_cascade_soft_delete(project_id: str | uuid.UUID) -> None:
 # ---------------------------------------------------------------------------
 
 
+# TODO(#5009): call trueppm_scheduler.working_day_count once scheduler 0.5 is on PyPI;
+# tests/apps/projects/test_calendar_walks_match_library.py pins the two together.
 def _working_days(start: date, finish: date, working_days_mask: int = 31) -> int:
     """Count working days in [start, finish] inclusive using a weekday bitmask.
 
@@ -287,6 +289,7 @@ def _working_days(start: date, finish: date, working_days_mask: int = 31) -> int
     return total
 
 
+# TODO(#5009): call trueppm_scheduler.working_day_count once scheduler 0.5 is on PyPI.
 def _layered_working_days(cal: Any, start: date, finish: date) -> int:
     """Working-day count in ``[start, finish]`` inclusive under a composed calendar.
 

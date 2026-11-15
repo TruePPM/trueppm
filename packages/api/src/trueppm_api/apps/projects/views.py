@@ -3206,6 +3206,8 @@ class ProjectViewSet(
             for (_layer, role, calendar) in self._applied_calendars_with_roles(project)
         ]
 
+        # TODO(#5009): may legitimately stay hand-rolled — it evaluates each source calendar
+        # per day to attribute blocking sources, which no library count/walk helper returns.
         days: list[dict[str, Any]] = []
         day = start
         while day <= end:

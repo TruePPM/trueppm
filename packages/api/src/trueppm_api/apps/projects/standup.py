@@ -209,6 +209,9 @@ def _last_working_day_start(project: Project, sprint: Sprint, now: _dt.datetime)
     ranges = _exception_ranges(cal.exceptions) if cal is not None else []
 
     today = timezone.localdate(now)
+    # TODO(#5009): this scan becomes trueppm_scheduler.previous_working_day once scheduler 0.5
+    # is on PyPI. It reads the RAW ``project.calendar`` mask + exceptions, not
+    # ``compose_project_calendar()``, so swapping to a composed Calendar is a behavior change.
     day = today - _dt.timedelta(days=1)
     for _ in range(_MAX_BACK_SCAN_DAYS):
         if _is_working_day(mask, ranges, day):

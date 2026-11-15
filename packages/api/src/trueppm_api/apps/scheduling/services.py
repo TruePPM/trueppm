@@ -978,6 +978,8 @@ def forecast_diagnostic(
     }
 
 
+# TODO(#5010): call trueppm_scheduler.roll_up_summary once scheduler 0.5 is on PyPI;
+# tests/apps/scheduling/test_summary_rollup_matches_library.py pins the two together.
 def _rollup_one_summary(
     sid: str, leaf_results: list[Any], db_task_by_id: dict[str, Any]
 ) -> Any | None:
