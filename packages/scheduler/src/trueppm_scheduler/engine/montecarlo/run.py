@@ -567,13 +567,14 @@ def monte_carlo(
 
     .. note::
        An in-progress task's remaining work is **subtractive** (ADR-0132, #1495):
-       its elapsed portion is history — ``int(duration * percent_complete / 100)``
-       working days of the *planned* duration, as :func:`schedule` counts it — and
-       each run's sampled total less that fixed elapsed is the work still to do. A
-       run therefore equals :func:`schedule` of the task holding the same elapsed
-       days and the sampled total, not of a task whose percentage is applied to the
-       sampled total. Because sampled totals are floored at ``duration`` first,
-       remaining work is never below the deterministic remaining work, and a
+       its elapsed portion is history — the exact
+       ``floor(duration * percent_complete / 100)`` working days of the *planned*
+       duration, as :func:`schedule` counts it — and each run's sampled total
+       less that fixed elapsed is the work still to do. A run therefore equals
+       :func:`schedule` of the task holding the same elapsed days and the sampled
+       total, not of a task whose percentage is applied to the sampled total.
+       Because sampled totals are floored at ``duration`` first, remaining work is
+       never below the deterministic remaining work, and a
        nearly complete task keeps its estimate's whole spread on the work left.
 
     .. note::

@@ -1,0 +1,16 @@
+{
+  "id": "p-progress-fractional-percent-decimal-floor",
+  "name": "Elapsed days are the exact decimal floor of duration * percent / 100 (#5034)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "375 days at 18.4% (69 elapsed, 306 remaining)", "duration": 32400000.0, "percent_complete": 18.4},
+    {"id": "B", "name": "375 days at 77.6% (291 elapsed, 84 remaining)", "duration": 32400000.0, "percent_complete": 77.6}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

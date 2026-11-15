@@ -300,20 +300,18 @@ impl Task {
     /// Working-day duration of the *remaining* work on a task (ADR-0132).
     ///
     /// A not-started task (`percent_complete <= 0`) contributes its full
-    /// estimate; an in-progress task contributes `duration - floor(duration *
-    /// pct/100)`, clamped to `[0, duration]`. The elapsed portion truncates like
-    /// Python's `int(...)` so the two engines agree bit-for-bit (the conformance
-    /// contract). A completed task is laid out at full duration by the caller and
-    /// never routed through here.
+    /// estimate; an in-progress task contributes `duration - elapsed`, clamped to
+    /// `[0, duration]`, with `elapsed` from [`elapsed_days`] — the exact decimal
+    /// rule the Python `_effective_duration_days` applies, so the two engines
+    /// agree bit-for-bit (the conformance contract). A completed task is laid out
+    /// at full duration by the caller and never routed through here.
     pub fn effective_duration_days(&self) -> i32 {
         let full = self.duration_days();
         let pct = self.percent_complete;
         if pct <= 0.0 {
             return full;
         }
-        // Truncate toward zero, matching Python `int(full * min(pct,100)/100)`.
-        let elapsed = (f64::from(full) * pct.min(100.0) / 100.0) as i32;
-        (full - elapsed).max(0)
+        (full - elapsed_days(full, pct)).max(0)
     }
 
     /// Whether this is live work whose start is a recorded fact (#4523).
@@ -374,6 +372,64 @@ impl Task {
 }
 
 /// A precedence relationship between two tasks.
+/// Working days of `full` already done at `pct` percent (ADR-0132, #5034).
+///
+/// Twin of the Python `_elapsed_working_days`: the *exact* `floor(full * P / 100)`,
+/// where `P` is the decimal `pct` prints as — its shortest round-trip form, which
+/// Rust's `{:e}` and Python's `repr` both produce — after clamping `pct` to
+/// `[0, 100]`. The decimal rather than the stored double because `18.4` is stored
+/// as `18.3999…`, which floors a 375-day task to 68 elapsed days where the entered
+/// percentage means 69; exact rather than a fixed precision because rounding could
+/// lift a value below 100 to 100 and leave an in-progress task with no remaining
+/// work. Integer percents take an integer fast path with the same result.
+///
+/// The arithmetic fits `u128`: at most 17 significant digits (`< 2^57`) times
+/// `full` (`< 2^31`). A non-integer percent below 100 always has a decimal scale of
+/// at least 3, and a scale past 38 means a quotient below one.
+pub(crate) fn elapsed_days(full: i32, pct: f64) -> i32 {
+    // NaN is routed to zero as well; validation rejects it upstream.
+    if full <= 0 || pct.is_nan() || pct <= 0.0 {
+        return 0;
+    }
+    let pct = pct.min(100.0);
+    let full_wide = u128::from(full.unsigned_abs());
+    if pct.fract() == 0.0 {
+        // `pct` is an integer in [1, 100] here, so the cast is exact.
+        return (full_wide * pct as u128 / 100) as i32;
+    }
+    let text = format!("{pct:e}");
+    let (mantissa, exponent) = text
+        .split_once('e')
+        .expect("`{:e}` of a finite f64 always carries an exponent");
+    let exponent: i32 = exponent
+        .parse()
+        .expect("`{:e}` exponent is a decimal integer");
+    let mut digits: u128 = 0;
+    let mut fraction_len: i32 = 0;
+    let mut after_point = false;
+    for byte in mantissa.bytes() {
+        if byte == b'.' {
+            after_point = true;
+            continue;
+        }
+        digits = digits * 10 + u128::from(byte - b'0');
+        if after_point {
+            fraction_len += 1;
+        }
+    }
+    // pct = digits * 10^(exponent - fraction_len); divide by 100 as well.
+    let scale = fraction_len - exponent + 2;
+    if scale > 38 {
+        return 0;
+    }
+    let numerator = full_wide * digits;
+    match u32::try_from(scale) {
+        Ok(scale) => (numerator / 10u128.pow(scale)) as i32,
+        // Unreachable for a non-integer percent below 100; kept total for safety.
+        Err(_) => (numerator * 10u128.pow(scale.unsigned_abs())) as i32,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dependency {
@@ -622,6 +678,49 @@ mod tests {
         assert_eq!(task(10.0, 45.0).effective_duration_days(), 6);
         // Over-100 is capped, never negative.
         assert_eq!(task(10.0, 150.0).effective_duration_days(), 0);
+    }
+
+    #[test]
+    fn elapsed_days_is_the_exact_decimal_floor() {
+        // #5034: float math gives int(375 * 18.4 / 100.0) = 68; the decimal means 69.
+        assert_eq!(elapsed_days(375, 18.4), 69);
+        assert_eq!(task(375.0, 18.4).effective_duration_days(), 306);
+        for pct in [32.8, 36.8, 40.8, 65.6, 69.6, 73.6, 77.6] {
+            let exact = (375 * (pct * 10.0_f64).round() as i32) / 1000;
+            assert_eq!(elapsed_days(375, pct), exact, "pct={pct}");
+        }
+        // #5015 boundary values: just above and just below a whole day.
+        assert_eq!(elapsed_days(39, 12.820512820512821), 5);
+        assert_eq!(elapsed_days(39, 12.82051282051282), 4);
+        // Below 100 always leaves a remaining day.
+        assert_eq!(elapsed_days(5, 99.99999999999999), 4);
+        assert_eq!(elapsed_days(5, 100.0), 5);
+        // Tiny and subnormal percents, and the non-positive guards.
+        assert_eq!(elapsed_days(10, 1e-300), 0);
+        assert_eq!(elapsed_days(10, f64::from_bits(1)), 0);
+        assert_eq!(elapsed_days(0, 50.0), 0);
+        assert_eq!(elapsed_days(10, 0.0), 0);
+        assert_eq!(elapsed_days(10, f64::NAN), 0);
+        // Integer fast path agrees with the old float expression.
+        for full in 0..400 {
+            for pct in 1..=100 {
+                let old = (f64::from(full) * f64::from(pct) / 100.0) as i32;
+                assert_eq!(elapsed_days(full, f64::from(pct)), old);
+            }
+        }
+    }
+
+    #[test]
+    fn json_percent_parses_to_the_nearest_double() {
+        // #5015: without serde_json's `float_roundtrip`, these land 1 ULP off.
+        for text in [
+            "12.820512820512821",
+            "99.99999999999999",
+            "11.627906976744185",
+        ] {
+            let parsed: f64 = serde_json::from_str(text).unwrap();
+            assert_eq!(parsed, text.parse::<f64>().unwrap(), "{text}");
+        }
     }
 }
 

@@ -7,6 +7,7 @@ from datetime import (
     date,
     timedelta,
 )
+from fractions import Fraction
 
 from trueppm_scheduler.engine.errors import (
     InvalidScheduleInput,
@@ -445,14 +446,46 @@ def _nth_working_day(anchor: date, n: int, calendar: Calendar, *, forward: bool)
     return date.fromordinal(a + hi_off if forward else a - hi_off)
 
 
+def _elapsed_working_days(duration_days: int, pct: float) -> int:
+    """Working days of ``duration_days`` already done at ``pct`` percent (ADR-0132).
+
+    The rule is the *exact* ``floor(duration_days * P / 100)``, where ``P`` is the
+    decimal number ``pct`` prints as: its shortest round-trip representation
+    (``repr``), the digits a user typed or the API serialized. ``pct`` is clamped to
+    ``[0, 100]`` first.
+
+    Why the decimal and not the double: ``18.4`` is stored as
+    ``18.39999999999999857...``, so both float math (``int(375 * 18.4 / 100.0)``) and
+    an exact floor of the stored double give 68 elapsed days on a 375-day task where
+    the percentage the user entered means 69 (#5034). Why exact and not a fixed
+    precision: rounding ``pct`` to N places can round a value below 100 up to 100,
+    which would leave an in-progress task with no remaining work; the exact decimal
+    keeps the invariant that any ``pct < 100`` leaves at least one remaining day on a
+    task with a positive duration. The Rust engine reproduces the rule bit for bit
+    (``elapsed_days`` in ``models.rs``) from Rust's shortest float formatting, which
+    yields the same digits as ``repr``.
+
+    Integer percents take a pure-integer fast path; the result is identical to the
+    general branch and to the previous float expression for every integer percent.
+    """
+    if pct <= 0 or duration_days <= 0:
+        return 0
+    # ``float()``: an ``int`` percent has no ``is_integer`` before Python 3.12.
+    pct = min(float(pct), 100.0)
+    if pct.is_integer():
+        return duration_days * int(pct) // 100
+    exact = Fraction(repr(pct))
+    return (duration_days * exact.numerator) // (100 * exact.denominator)
+
+
 def _effective_duration_days(task: Task) -> int:
     """Working-day duration of the *remaining* work on a task (ADR-0132).
 
     A task that has not started (``percent_complete == 0``) contributes its full
     estimate. An in-progress task contributes only the portion not yet done:
-    ``duration - floor(duration * pct/100)``, clamped to ``[0, duration]``. The
-    elapsed portion uses integer truncation so the rule is unambiguous and
-    reproducible across the Python and Rust engines (the conformance contract).
+    ``duration - elapsed``, clamped to ``[0, duration]``, where ``elapsed`` is the
+    exact decimal floor of :func:`_elapsed_working_days`. That rule is unambiguous
+    and reproducible across the Python and Rust engines (the conformance contract).
     A completed task (see :func:`_is_complete`) is laid out at its full duration by
     the caller and never routed through this function.
     """
@@ -460,8 +493,7 @@ def _effective_duration_days(task: Task) -> int:
     pct = task.percent_complete
     if not pct or pct <= 0:
         return duration_days
-    elapsed = int(duration_days * min(pct, 100.0) / 100.0)
-    return max(0, duration_days - elapsed)
+    return max(0, duration_days - _elapsed_working_days(duration_days, pct))
 
 
 def _is_complete(task: Task) -> bool:

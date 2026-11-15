@@ -147,6 +147,22 @@ change between releases. Pin an exact version (e.g.
   `from trueppm_scheduler import MAX_PROJECT_WORK_DAYS` raised `ImportError`. It is
   now imported at the package root and listed in `__all__`; its value is unchanged.
 
+- **The elapsed portion of an in-progress task is now the exact decimal floor
+  ([#5034](https://gitlab.com/trueppm/trueppm/-/issues/5034)).** It was
+  `int(duration * pct / 100.0)`, which floors a day short on some fractional
+  percents: a 375-day task at 18.4% counted 68 elapsed days instead of 69. It is
+  now `floor(duration × P / 100)` with `P` the decimal the percentage prints as
+  (its `repr`), in `schedule()`, `monte_carlo()` and `perturb_task_duration`.
+  Whole-number percents schedule exactly as before, and a percentage below 100
+  still leaves at least one remaining working day.
+
+- **The Rust/WASM engine now parses `percent_complete` to the same double as
+  Python ([#5015](https://gitlab.com/trueppm/trueppm/-/issues/5015)).** Its JSON
+  parser was not correctly rounded, so `99.99999999999999` was read as `100.0`
+  (the task pinned as complete) and `12.820512820512821` one ULP low (a 39-day
+  task finishing a day later than in Python). Both engines also apply the exact
+  rule above, so the same JSON schedules identically in each.
+
 - **A closed milestone whose `actual_start` and `actual_finish` differ is now
   shown on its `actual_finish` day
   ([#4458](https://gitlab.com/trueppm/trueppm/-/issues/4458)).** Its successors

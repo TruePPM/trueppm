@@ -638,7 +638,7 @@ def _validate_task_numerics(t: Task) -> None:
     """``story_points`` (when set) and ``percent_complete`` must be finite numbers.
 
     ``percent_complete`` (ADR-0132/0136) feeds ``_effective_duration_days``
-    (``int(duration * pct/100)``) and ``_is_complete`` (``pct >= 100``); a NaN there
+    (``floor(duration * pct/100)``) and ``_is_complete`` (``pct >= 100``); a NaN there
     raised a bare ValueError from ``int(nan)`` and a non-numeric value a bare TypeError
     from the ``>= 100`` compare, while monte_carlo's own ``pct > 0`` gate silently
     ignored the same NaN — so ``schedule()`` and ``monte_carlo()`` diverged on

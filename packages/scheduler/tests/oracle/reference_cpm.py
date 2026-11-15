@@ -114,7 +114,11 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   a non-working day never ties.
 * **Remaining duration.** Live work at ``p`` percent schedules only its remaining
   ``n - floor(n * p / 100)`` working days (ADR-0132 §3): its early and late dates
-  are that remaining window.
+  are that remaining window. The floor is exact, with ``p`` read as the decimal it
+  prints as (its shortest round-trip ``repr``), not as the binary double nor through
+  float arithmetic (README, "Progress and actuals"; #5034). Computed here with
+  ``decimal.Decimal`` rather than the engines' ``Fraction`` so the two do not share
+  an implementation.
 * **Start-side links (ADR-0132 §2a).** SS and SF links out of live work measure
   from its *link start*: its recorded ``actual_start``; else, with elapsed work,
   its derived span start (the full duration backed off its early finish); else
@@ -166,6 +170,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from decimal import Decimal
 
 ONE_DAY = timedelta(days=1)
 LINK_TYPES = ("FS", "SS", "FF", "SF")
@@ -497,10 +502,17 @@ def is_complete(project: RefProject, tid: str) -> bool:
 
 
 def remaining_days(project: RefProject, tid: str) -> int:
-    """Working days of live work still to do: ``n - floor(n * pct / 100)`` (ADR-0132 §3)."""
+    """Working days of live work still to do: ``n - floor(n * pct / 100)`` (ADR-0132 §3).
+
+    Exact decimal arithmetic on ``repr(pct)`` (#5034): ``n * pct`` has at most 20
+    significant digits, inside ``Decimal``'s default 28, so the product and the
+    integer division are exact.
+    """
     n = project.durations[tid]
     pct = _progress(project, tid).percent_complete
-    return n - int(n * pct / 100) if pct > 0 else n
+    if pct <= 0:
+        return n
+    return n - int((n * Decimal(repr(min(pct, 100.0)))) // 100)
 
 
 def _start_is_recorded(project: RefProject, tid: str) -> bool:

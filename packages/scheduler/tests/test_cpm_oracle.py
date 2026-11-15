@@ -93,6 +93,7 @@ Python engine against it too. Regenerate with
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import shutil
@@ -916,6 +917,22 @@ def _calendar_with_exceptions(draw: st.DrawFn, mask: int, near: bool = False) ->
     return RefCalendar(working_mask=mask, exceptions=tuple(ranges))
 
 
+def _open_percents(n: int) -> st.SearchStrategy[float]:
+    """Percents below 100 for live work on an ``n``-day task, ``n > 0`` (#5015, #5034).
+
+    The round values the generator always drew, plus any float and the
+    day-boundary values ``100*k/n`` (and one ULP either side), where float math was
+    a day off and a parser one ULP off moved the remaining window.
+    """
+    rounds = st.sampled_from((0.0, 20.0, 50.0, 80.0, 99.0, 99.9))
+    anywhere = st.floats(min_value=0.0, max_value=100.0, exclude_max=True)
+    boundary = st.integers(0, n - 1).map(lambda k: 100 * k / n)
+    nudged = st.tuples(boundary, st.sampled_from((0.0, 100.0))).map(
+        lambda pair: math.nextafter(*pair)
+    )
+    return rounds | anywhere | boundary | nudged
+
+
 @st.composite
 def _progress(draw: st.DrawFn, start: date, n: int) -> RefProgress | None:
     """Recorded progress for one task, or ``None`` for an untouched one.
@@ -932,7 +949,7 @@ def _progress(draw: st.DrawFn, start: date, n: int) -> RefProgress | None:
     if state == "none":
         return None
     if state == "started":
-        pct = 0.0 if n == 0 else draw(st.sampled_from((0.0, 20.0, 50.0, 80.0, 99.0, 99.9)))
+        pct = 0.0 if n == 0 else draw(_open_percents(n))
         actual_start = draw(st.none() | st.just(day(-6, 4)))
         if pct == 0.0 and actual_start is None:
             return None
@@ -2688,9 +2705,30 @@ def _corpus_case(name: str, project: RefProject) -> dict[str, Any]:
     }
 
 
+def _one_live_task(days: int, pct: float) -> RefProject:
+    return RefProject(
+        start=date(2026, 3, 2),
+        durations={"T0": days},
+        links=(),
+        progress={"T0": RefProgress(percent_complete=pct)},
+    )
+
+
+#: Fractional percents the seeded progress draw never produces (#5015, #5034): one a
+#: hair above a whole day, the double serde_json misread it as (a hair below), one a
+#: hair below 100, and the 375-day case float math floored a day short.
+FRACTIONAL_PERCENT_CASES: tuple[tuple[str, RefProject], ...] = (
+    ("fractional_percent_just_above_a_day", _one_live_task(39, 12.820512820512821)),
+    ("fractional_percent_just_below_a_day", _one_live_task(39, 12.82051282051282)),
+    ("fractional_percent_just_below_complete", _one_live_task(5, 99.99999999999999)),
+    ("fractional_percent_decimal_floor", _one_live_task(375, 18.4)),
+)
+
+
 #: Shapes the seeded draw almost never reaches, held in the corpus by name so
 #: ``wasm:test`` checks Rust on them too: CI has no live Rust runner (#4785).
 NAMED_CORPUS_CASES: tuple[tuple[str, RefProject], ...] = (
+    *FRACTIONAL_PERCENT_CASES,
     *FLOORS_TYING_A_MILESTONE_LINK,
     (
         "milestone_started_on_its_shown_day_below_the_start",

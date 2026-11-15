@@ -142,7 +142,8 @@ const OUT_OF_SCOPE: Record<string, string> = {
   lagged_fs_into_a_milestone_on_a_closed_week: 'engine gap: per-task calendars not modeled',
   start_of_day_finish_beside_seven_day_work: 'engine gap: per-task calendars not modeled',
   start_of_day_finish_on_a_narrower_calendar: 'engine gap: per-task calendars not modeled',
-  start_of_day_milestone_past_work_on_its_own_calendar: 'engine gap: per-task calendars not modeled',
+  start_of_day_milestone_past_work_on_its_own_calendar:
+    'engine gap: per-task calendars not modeled',
   zero_lag_chain_reading_switched_by_a_narrower_week: 'engine gap: per-task calendars not modeled',
   zero_lag_milestone_chain_into_a_four_day_week: 'engine gap: per-task calendars not modeled',
   zero_lag_ss_chain_into_a_closed_week: 'engine gap: per-task calendars not modeled',
@@ -177,6 +178,12 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_completed_successor_no_backward_constraint:
     'adapter: does not thread actuals/status date',
   progress_in_progress_remaining: 'adapter: does not thread actuals/status date',
+  // #5015, #5034. The fractional-percent remaining-duration rule is computed by
+  // the server engines; this engine takes the server's `remainingDuration` as
+  // given and never derives it from percent_complete, so there is nothing to assert.
+  progress_fractional_percent_parse: 'engine: reads remainingDuration, not percent_complete',
+  progress_fractional_percent_decimal_floor:
+    'engine: reads remainingDuration, not percent_complete',
   progress_actual_start_floors_early_start: 'adapter: does not thread actuals/status date',
   progress_out_of_sequence: 'adapter: does not thread actuals/status date',
   progress_status_date_floor: 'adapter: does not thread actuals/status date',

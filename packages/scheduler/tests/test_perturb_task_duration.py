@@ -15,9 +15,11 @@ bug was "two of the three branches covered".
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, timedelta
+from fractions import Fraction
 from itertools import pairwise
 
 import pytest
@@ -391,7 +393,9 @@ def _working_day_shift(base: date, moved: date) -> int:
 
 
 def _elapsed_days(task: Task) -> int:
-    return int(task.duration.days * min(task.percent_complete or 0.0, 100.0) / 100.0)
+    # The engine's exact decimal floor (#5034), computed independently of it.
+    pct = min(task.percent_complete or 0.0, 100.0)
+    return math.floor(task.duration.days * Fraction(repr(float(pct))) / 100)
 
 
 def test_a_one_day_slip_on_an_in_progress_critical_task_moves_the_finish_one_day() -> None:

@@ -366,6 +366,16 @@
       "issue": "#4677",
       "evidence": "22cfcd34c: last change carries no regeneration or hand-derivation statement"
     },
+    "expected/progress_fractional_percent_decimal_floor.json": {
+      "provenance": "regenerated",
+      "issue": "#5034",
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; early dates hand-checked: 375d at 18.4% leaves 306 working days (Mon-Fri from 2026-03-02, finish 2027-05-03), at 77.6% leaves 84 (finish 2026-06-25)"
+    },
+    "expected/progress_fractional_percent_parse.json": {
+      "provenance": "regenerated",
+      "issue": "#5015",
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; early dates hand-checked against the exact decimal floor: A 34 remaining (2026-04-16), B 1 remaining (2026-03-02), C 39 remaining (2026-04-23)"
+    },
     "expected/progress_in_progress_remaining.json": {
       "provenance": "unknown",
       "issue": "#1186",
@@ -1115,6 +1125,16 @@
       "provenance": "unknown",
       "issue": "#4677",
       "evidence": "22cfcd34c: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_fractional_percent_decimal_floor.json": {
+      "provenance": "unknown",
+      "issue": "#5034",
+      "evidence": "added for #5034; inputs chosen where float math floors one day short of the exact decimal"
+    },
+    "progress_fractional_percent_parse.json": {
+      "provenance": "unknown",
+      "issue": "#5015",
+      "evidence": "added for #5015; percents that serde_json without float_roundtrip parsed 1 ULP off"
     },
     "progress_in_progress_remaining.json": {
       "provenance": "unknown",

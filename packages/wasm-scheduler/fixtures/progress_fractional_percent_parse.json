@@ -1,0 +1,17 @@
+{
+  "id": "p-progress-fractional-percent-parse",
+  "name": "Non-round percents both engines must parse to the same double (#5015)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "39 days at 12.820512820512821% (5 elapsed, 34 remaining: 2e-16 above a whole day)", "duration": 3369600.0, "percent_complete": 12.820512820512821},
+    {"id": "B", "name": "5 days at 99.99999999999999% (still open, 1 remaining)", "duration": 432000.0, "percent_complete": 99.99999999999999},
+    {"id": "C", "name": "43 days at 11.627906976744185% (4 elapsed, 39 remaining: 1e-17 below a whole day)", "duration": 3715200.0, "percent_complete": 11.627906976744185}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
