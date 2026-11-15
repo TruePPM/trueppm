@@ -1,10 +1,14 @@
 import axios from 'axios';
 import type { AxiosRequestConfig } from 'axios';
-import { useAuthStore } from '@/stores/authStore';
+import { clearSessionCache, useAuthStore } from '@/stores/authStore';
 // Imported from the module, not the barrel: the barrel also exports `ToastHost`, and
 // pulling a React component into the API client's module graph is a cycle waiting to
 // happen.
 import { toast } from '@/components/Toast/toast';
+import { subscribeAuthMessages } from '@/lib/authBroadcast';
+import { queryClient } from '@/lib/queryClient';
+import { isSameUser } from '@/lib/userId';
+import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
 import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
 
@@ -48,10 +52,22 @@ export const apiClient = axios.create({
  * `sessionExpired` store flag, and dispatches the legacy DOM event in one
  * step. The store flag drives the SessionExpiredBanner render; the event
  * survives for tests / non-React code that listens for it.
+ *
+ * `confirmed` says the server itself refused the session (a 401), as opposed to a
+ * refresh that failed on a network error, a timeout or a 5xx. Only a confirmed
+ * refusal is told to sibling tabs (#4296): they share the refresh cookie, so a
+ * real refusal is theirs too, but a server blip seen here says nothing about the
+ * cookie and must not sign out every healthy tab of the origin. This tab's own
+ * behavior is the same either way.
  */
-function expireSession(): void {
-  useAuthStore.getState().markSessionExpired();
+function expireSession(confirmed: boolean): void {
+  useAuthStore.getState().markSessionExpired({ broadcast: confirmed });
   window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+}
+
+/** The server answered 401: the session itself was refused, not merely unreachable. */
+function isConfirmedRefusal(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 401;
 }
 
 // Attach JWT access token to every request — and short-circuit when the
@@ -141,7 +157,47 @@ function withCrossTabRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
   const locks: LockManager | undefined =
     typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) return fn();
-  return locks.request(REFRESH_LOCK_NAME, fn);
+  return requestRefreshLock(locks, fn);
+}
+
+/** Wait on a sibling's refresh this long before saying so in the status bar (#4296). */
+export const LOCK_STALL_NOTICE_MS = 1_000;
+
+/**
+ * Give up waiting for the lock after this long and refresh anyway (#4296). A hung
+ * refresh in one tab holds the lock for up to `REFRESH_TIMEOUT_MS`, and every other
+ * tab used to sit silent behind it for that whole time. Shorter than the hold, so a
+ * waiter always outlives the stall. The worst case of falling through is the race
+ * the lock exists to prevent, which `postCookieRefreshWithSiblingRetry` already absorbs.
+ */
+export const LOCK_WAIT_MS = 6_000;
+
+async function requestRefreshLock<T>(locks: LockManager, fn: () => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let acquired = false;
+  const setWaiting = useAuthStore.getState().setWaitingOnSiblingTab;
+  const noticeTimer = setTimeout(() => setWaiting(true), LOCK_STALL_NOTICE_MS);
+  const giveUpTimer = setTimeout(() => controller.abort(), LOCK_WAIT_MS);
+  try {
+    return await (locks.request(REFRESH_LOCK_NAME, { signal: controller.signal }, () => {
+      acquired = true;
+      clearTimeout(noticeTimer);
+      clearTimeout(giveUpTimer);
+      setWaiting(false);
+      return fn();
+    }) as Promise<T>);
+  } catch (error: unknown) {
+    // Only an abort of the WAIT falls through; an error from `fn` itself propagates.
+    if (!acquired && error instanceof DOMException && error.name === 'AbortError') {
+      setWaiting(false);
+      return fn();
+    }
+    throw error;
+  } finally {
+    clearTimeout(noticeTimer);
+    clearTimeout(giveUpTimer);
+    setWaiting(false);
+  }
 }
 
 async function refreshAccessToken(): Promise<string> {
@@ -149,6 +205,41 @@ async function refreshAccessToken(): Promise<string> {
   const newAccessToken = response.data.access;
   useAuthStore.getState().setAccessToken(newAccessToken);
   return newAccessToken;
+}
+
+/**
+ * Re-mint this tab's token after a sibling tab signed in (#4296).
+ *
+ * The sibling may have signed in as a DIFFERENT user, and this tab's cache still
+ * holds the previous user's reads. So before the token is stored (which lifts the
+ * expired state and puts the cache back on screen as live), ask `/auth/me/` with
+ * the new token who it belongs to, and clear the cache unless it is provably the
+ * same user. A failed or impossible identity check counts as "changed": clearing costs a refetch,
+ * keeping the wrong user's data costs a disclosure. Plain `axios`, not `apiClient`:
+ * the latter refuses every request while `sessionExpired` is still true.
+ */
+async function adoptSiblingSession(): Promise<string> {
+  const previous = queryClient.getQueryData<CurrentUser>(['current-user']);
+  const response = await withCrossTabRefreshLock(postCookieRefreshWithSiblingRetry);
+  const token = response.data.access;
+  // No cached identity to compare against (the shell's `/auth/me/` read never
+  // landed) proves nothing either way, so it is treated as a change too.
+  let sameUser = false;
+  if (previous) {
+    try {
+      const me = await axios.get<CurrentUser>('/api/v1/auth/me/', {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: REFRESH_TIMEOUT_MS,
+      });
+      sameUser = isSameUser(me.data.id, previous.id);
+    } catch {
+      sameUser = false;
+    }
+  }
+  if (!sameUser) queryClient.clear();
+  // The sibling already announced the sign-in; do not echo it back.
+  useAuthStore.getState().setAccessToken(token, { broadcast: false });
+  return token;
 }
 
 /**
@@ -175,8 +266,8 @@ export async function bootstrapAccessToken(): Promise<boolean> {
     });
     await refreshPromise;
     return true;
-  } catch {
-    expireSession();
+  } catch (error: unknown) {
+    expireSession(isConfirmedRefusal(error));
     return false;
   }
 }
@@ -211,7 +302,8 @@ apiClient.interceptors.response.use(
 
     // Prevent infinite retry loops
     if (originalRequest._retried) {
-      expireSession();
+      // A freshly minted token was refused: the server's own answer.
+      expireSession(true);
       throw new Error('Signed out');
     }
 
@@ -231,9 +323,49 @@ apiClient.interceptors.response.use(
         `Bearer ${newAccessToken}`;
 
       return await apiClient(originalRequest);
-    } catch {
-      expireSession();
+    } catch (retryError: unknown) {
+      expireSession(isConfirmedRefusal(retryError));
       throw new Error('Signed out');
     }
   },
 );
+
+/**
+ * Mirror session changes made in a sibling tab (#4296). Messages carry no token: a
+ * restored tab re-mints its own from the shared refresh cookie. Each branch only
+ * acts when this tab is in a state the message changes, which also ends any
+ * ping-pong between tabs.
+ */
+subscribeAuthMessages((type) => {
+  const state = useAuthStore.getState();
+  switch (type) {
+    case 'expired':
+      // A tab sitting on /login holds no session to lose.
+      if (state.isAuthenticated && !state.sessionExpired)
+        state.markSessionExpired({ broadcast: false });
+      break;
+    case 'readonly':
+      // Honor the choice only where this tab has content to keep viewing.
+      if (state.sessionExpired && state.sessionExpiredCanView)
+        state.enterReadOnlyMode({ broadcast: false });
+      break;
+    case 'cleared':
+      // Same as this tab's own menu sign-out: the tokens AND the previous user's
+      // cached reads go, so nothing of theirs stays in this tab's memory.
+      if (state.isAuthenticated || state.sessionExpired) {
+        state.clearTokens({ broadcast: false });
+        clearSessionCache();
+      }
+      break;
+    case 'restored':
+      if (state.sessionExpired) {
+        // Failure leaves this tab expired: its own Sign in is still there, and a
+        // failed attempt here must not re-expire the tab that just signed in.
+        refreshPromise ??= adoptSiblingSession().finally(() => {
+          refreshPromise = null;
+        });
+        void refreshPromise.catch(() => undefined);
+      }
+      break;
+  }
+});

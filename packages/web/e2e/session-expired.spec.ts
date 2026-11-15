@@ -30,7 +30,9 @@ test.describe('Session expired banner', () => {
   test('renders the dialog when /api/v1 returns 401 with no recovery, and Sign in navigates to /login', async ({
     page,
   }) => {
-    await setupAuth(page);
+    // No in-memory token: RequireAuth's bootstrap refresh fails before any query has
+    // ever succeeded, so this is a cold load (#4313).
+    await setupAuth(page, { accessToken: null });
     await setupCatchAll(page);
 
     // Every authenticated API call returns 401, including the token refresh.
@@ -50,6 +52,10 @@ test.describe('Session expired banner', () => {
     const dialog = page.getByRole('dialog', { name: /You've been signed out/ });
     await expect(dialog).toBeVisible({ timeout: 10_000 });
     await expect(dialog.getByRole('button', { name: 'Sign in' })).toBeFocused();
+    // A cold load has nothing cached to look at, so the read-only escape hatch is not
+    // offered (#4313) — it would open onto error states.
+    await expect(dialog.getByRole('button', { name: /Continue viewing/ })).toHaveCount(0);
+    await expect(dialog).not.toContainText(/last change did not go through/);
 
     await dialog.getByRole('button', { name: 'Sign in' }).click();
     // Carries the interrupted location as ?next= so LoginPage returns the user
@@ -122,10 +128,16 @@ test.describe('Session expired banner', () => {
     await expect(page.getByText(PROJECT.name).first()).toBeVisible();
 
     // Attempting another write while read-only must NOT fire an unauthenticated
-    // request — the apiClient interceptor blocks it synchronously — and must
-    // re-open the blocking sign-in prompt rather than failing silently or
-    // looping. The status dialog is still open behind the (now-dismissed)
-    // scrim with "On track" still selected, so Save is still armed.
+    // request — the apiClient interceptor blocks it synchronously. The first one
+    // is answered with a light toast, not the full-viewport modal (#4316); a
+    // repeat re-opens the blocking sign-in prompt rather than looping. The status
+    // dialog is still open behind the (now-dismissed) scrim with "On track" still
+    // selected, so Save is still armed.
+    await statusDialog.getByRole('button', { name: 'Save status' }).click();
+    await expect(page.getByTestId('toast-pill')).toContainText("That change wasn't saved.");
+    await expect(gate).not.toBeVisible();
+    await expect(readOnlyBanner).toBeVisible();
+
     await statusDialog.getByRole('button', { name: 'Save status' }).click();
 
     await expect(gate).toBeVisible({ timeout: 10_000 });
@@ -135,6 +147,65 @@ test.describe('Session expired banner', () => {
     // From here Sign in is still the only way out.
     await gate.getByRole('button', { name: 'Sign in' }).click();
     await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('expiry in one tab reaches a sibling tab as the quiet banner, and a restore clears both (#4296)', async ({
+    context,
+  }) => {
+    let sessionAlive = false;
+    const prepare = async (page: import('@playwright/test').Page) => {
+      await setupAuth(page);
+      await setupCatchAll(page);
+      await setupApiMocks(page, { projects: [PROJECT], projectId: PROJECT_ID });
+      await page.route('**/api/v1/auth/token/refresh/', (route) =>
+        sessionAlive
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ access: 'e2e-restored-access' }),
+            })
+          : route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
+      );
+    };
+    const tabA = await context.newPage();
+    const tabB = await context.newPage();
+    await prepare(tabA);
+    await prepare(tabB);
+    await tabA.goto(`/projects/${PROJECT_ID}/overview`);
+    await tabB.goto(`/projects/${PROJECT_ID}/overview`);
+    await expect(tabA.getByText(PROJECT.name).first()).toBeVisible({ timeout: 10_000 });
+    await expect(tabB.getByText(PROJECT.name).first()).toBeVisible({ timeout: 10_000 });
+
+    // Tab A loses its session on a write (so the modal, not the quiet banner, shows).
+    await tabA.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({ status: 401, contentType: 'application/json', body: '{}' })
+        : route.fallback(),
+    );
+    await tabA.getByRole('button', { name: 'Update Status' }).click();
+    const dialogA = tabA.getByRole('dialog', { name: /Update project status/ });
+    await dialogA.getByRole('button', { name: 'On track' }).click();
+    await dialogA.getByRole('button', { name: 'Save status' }).click();
+
+    const modal = (p: typeof tabA) => p.getByRole('dialog', { name: /You've been signed out/ });
+    await expect(modal(tabA)).toBeVisible({ timeout: 10_000 });
+    // Tab B never made a request of its own: it learned from the broadcast. It has
+    // no write of its own at stake, so it gets the quiet banner rather than a modal.
+    const bannerB = tabB.getByRole('status', { name: /Signed out/ });
+    await expect(bannerB).toBeVisible({ timeout: 10_000 });
+    await expect(modal(tabB)).toHaveCount(0);
+
+    // The session comes back (the user signs in in a third tab) and says so. The
+    // channel opened here is a separate instance from the app's, so tab A hears it too.
+    sessionAlive = true;
+    await tabA.evaluate(() => {
+      const channel = new BroadcastChannel('trueppm-auth');
+      channel.postMessage({ type: 'restored' });
+      channel.close();
+    });
+    await expect(bannerB).toHaveCount(0, { timeout: 10_000 });
+    await expect(modal(tabA)).toHaveCount(0, { timeout: 10_000 });
+    await expect(tabA.getByRole('status', { name: /Signed out/ })).toHaveCount(0);
   });
 
   test('reload while a sibling tab rotates the refresh cookie restores the session silently (#4247)', async ({

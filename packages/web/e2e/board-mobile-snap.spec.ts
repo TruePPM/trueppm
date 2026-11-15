@@ -27,53 +27,108 @@ const FIXTURE_PROJECTS = [
 // has a non-zero count for the strip, plus one COMPLETE (Done) card.
 const FIXTURE_TASKS = [
   {
-    id: 'mb1', wbs_path: '1', name: 'Build Phase',
-    early_start: '2026-01-05', early_finish: '2026-02-14',
-    duration: 30, percent_complete: 40, is_critical: false,
-    is_milestone: false, is_summary: true, parent_id: null,
-    status: 'IN_PROGRESS', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    id: 'mb1',
+    wbs_path: '1',
+    name: 'Build Phase',
+    early_start: '2026-01-05',
+    early_finish: '2026-02-14',
+    duration: 30,
+    percent_complete: 40,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: true,
+    parent_id: null,
+    status: 'IN_PROGRESS',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
   {
-    id: 'mb2', wbs_path: '1.1', name: 'Spec the API',
-    early_start: '2026-01-05', early_finish: '2026-01-16',
+    id: 'mb2',
+    wbs_path: '1.1',
+    name: 'Spec the API',
+    early_start: '2026-01-05',
+    early_finish: '2026-01-16',
     planned_start: '2026-01-05',
-    duration: 10, percent_complete: 0, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: 'mb1',
-    status: 'NOT_STARTED', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 10,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: 'mb1',
+    status: 'NOT_STARTED',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
   {
-    id: 'mb3', wbs_path: '1.2', name: 'Wire the endpoint',
-    early_start: '2026-01-19', early_finish: '2026-01-30',
+    id: 'mb3',
+    wbs_path: '1.2',
+    name: 'Wire the endpoint',
+    early_start: '2026-01-19',
+    early_finish: '2026-01-30',
     planned_start: '2026-01-19',
-    duration: 10, percent_complete: 55, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: 'mb1',
-    status: 'IN_PROGRESS', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 10,
+    percent_complete: 55,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: 'mb1',
+    status: 'IN_PROGRESS',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
   {
-    id: 'mb4', wbs_path: '1.3', name: 'Review the PR',
-    early_start: '2026-02-01', early_finish: '2026-02-05',
+    id: 'mb4',
+    wbs_path: '1.3',
+    name: 'Review the PR',
+    early_start: '2026-02-01',
+    early_finish: '2026-02-05',
     planned_start: '2026-02-01',
-    duration: 5, percent_complete: 90, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: 'mb1',
-    status: 'REVIEW', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 5,
+    percent_complete: 90,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: 'mb1',
+    status: 'REVIEW',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
   {
-    id: 'mb5', wbs_path: '1.4', name: 'Ship it',
-    early_start: '2026-01-05', early_finish: '2026-01-20',
+    id: 'mb5',
+    wbs_path: '1.4',
+    name: 'Ship it',
+    early_start: '2026-01-05',
+    early_finish: '2026-01-20',
     planned_start: '2026-01-05',
-    duration: 12, percent_complete: 100, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: 'mb1',
-    status: 'COMPLETE', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 12,
+    percent_complete: 100,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: 'mb1',
+    status: 'COMPLETE',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
 ];
 
@@ -218,5 +273,68 @@ test.describe('Board mobile snap-scroll — last card clears the FAB (#4243)', (
     const cardBox = await lastCard.boundingBox();
     const fabBox = await fab.boundingBox();
     expect(cardBox && fabBox && cardBox.y + cardBox.height <= fabBox.y).toBe(true);
+  });
+});
+
+test.describe('Board mobile — hidden backlog is explained (#4305)', () => {
+  const BACKLOG_TASK = {
+    id: 'mbb1',
+    wbs_path: '2',
+    name: 'Parked idea',
+    early_start: '2026-01-05',
+    early_finish: '2026-01-16',
+    duration: 10,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'BACKLOG',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
+  };
+
+  async function open(page: import('@playwright/test').Page, tasks: unknown[]) {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm.board.toolbarPrefs.v1',
+        JSON.stringify({ layout: 'rail', backlogDensity: 'comfortable' }),
+      );
+    });
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: tasks as never,
+      statusSummary: { task_count: tasks.length },
+    });
+    await page.goto(`${BASE_URL}/board`);
+  }
+
+  test('an explicit Rail on a phone says the backlog is hidden and one tap reveals it', async ({
+    page,
+  }) => {
+    await open(page, [...FIXTURE_TASKS, BACKLOG_TASK]);
+    const notice = page.getByTestId('mobile-backlog-notice');
+    await expect(notice).toBeVisible({ timeout: 10_000 });
+    await expect(notice).toContainText('Backlog hidden on phone (1 item)');
+    await notice.getByRole('button', { name: 'Switch to Queue' }).click();
+    await expect(page.getByText('Parked idea')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('mobile-backlog-notice')).toHaveCount(0);
+    // A per-visit override: the stored Rail (the desktop choice) is untouched.
+    const stored = await page.evaluate(() => localStorage.getItem('trueppm.board.toolbarPrefs.v1'));
+    expect(JSON.parse(stored ?? '{}')).toMatchObject({ layout: 'rail' });
+  });
+
+  test('no notice when there is no backlog to hide', async ({ page }) => {
+    await open(page, FIXTURE_TASKS);
+    await expect(page.getByTestId('mobile-column-strip')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('mobile-backlog-notice')).toHaveCount(0);
   });
 });

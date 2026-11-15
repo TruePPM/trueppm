@@ -3,6 +3,7 @@ import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig 
 import { useAuthStore } from '@/stores/authStore';
 import { useToastStore } from '@/components/Toast/toastStore';
 import { queryClient } from '@/lib/queryClient';
+import * as authBroadcast from '@/lib/authBroadcast';
 
 // Re-import every time so each test gets the module-level interceptors registered
 // by client.ts. Module caching means the same apiClient instance is reused within
@@ -219,6 +220,38 @@ describe('apiClient', () => {
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
     });
 
+    // #4296: only the server's own refusal speaks for the shared cookie.
+    it.each([
+      [
+        'a 5xx',
+        new AxiosError('Bad Gateway', 'ERR_BAD_RESPONSE', undefined, undefined, {
+          status: 502,
+          data: {},
+        } as AxiosResponse),
+      ],
+      ['a network error', new AxiosError('Network Error', 'ERR_NETWORK')],
+      ['a timeout', new AxiosError('timeout', 'ECONNABORTED')],
+    ])('expires this tab but tells no sibling on %s', async (_label, failure) => {
+      const bootstrapAccessToken = await getBootstrap();
+      const post = vi.spyOn(authBroadcast, 'postAuthMessage');
+      vi.spyOn(axios, 'post').mockRejectedValue(failure);
+      await expect(bootstrapAccessToken()).resolves.toBe(false);
+      expect(useAuthStore.getState().sessionExpired).toBe(true);
+      expect(post).not.toHaveBeenCalledWith('expired');
+    });
+
+    it('tells sibling tabs when the refresh endpoint refuses the session with a 401', async () => {
+      const bootstrapAccessToken = await getBootstrap();
+      const post = vi.spyOn(authBroadcast, 'postAuthMessage');
+      const refused = new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 401,
+        data: {},
+      } as AxiosResponse);
+      vi.spyOn(axios, 'post').mockRejectedValue(refused);
+      await expect(bootstrapAccessToken()).resolves.toBe(false);
+      expect(post).toHaveBeenCalledWith('expired');
+    });
+
     it('marks the session expired and returns false when the cookie refresh fails', async () => {
       const bootstrapAccessToken = await getBootstrap();
       vi.spyOn(axios, 'post').mockRejectedValueOnce(new Error('no cookie'));
@@ -250,8 +283,13 @@ describe('apiClient', () => {
       let tail: Promise<unknown> = Promise.resolve();
       const requested: string[] = [];
       const locks = {
-        request: (name: string, cb: () => Promise<unknown>) => {
+        request: (
+          name: string,
+          optsOrCb: LockOptions | (() => Promise<unknown>),
+          maybeCb?: () => Promise<unknown>,
+        ) => {
           requested.push(name);
+          const cb = (typeof optsOrCb === 'function' ? optsOrCb : maybeCb)!;
           const run = tail.then(cb, cb);
           tail = run.catch(() => undefined);
           return run;
@@ -333,6 +371,173 @@ describe('apiClient', () => {
       expect(postSpy).toHaveBeenCalledTimes(1);
       expect(requested).toEqual([REFRESH_LOCK_NAME, REFRESH_LOCK_NAME]);
       expect(useAuthStore.getState().accessToken).toBe('after-sibling');
+    });
+
+    // #4296: a hung refresh in a sibling tab must not silence this one for the full
+    // refresh timeout, and the wait must be visible.
+    describe('held lock (#4296)', () => {
+      /** A lock that is held forever, honoring `signal` while a waiter queues. */
+      function installStuckLock() {
+        const locks = {
+          request: (_name: string, opts: LockOptions, cb: () => Promise<unknown>) =>
+            new Promise((resolve, reject) => {
+              void cb;
+              opts.signal?.addEventListener('abort', () =>
+                reject(new DOMException('The request was aborted.', 'AbortError')),
+              );
+              void resolve;
+            }),
+        };
+        Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+      }
+
+      it('shows "waiting on another tab" after 1s and falls through to its own refresh after 6s', async () => {
+        vi.useFakeTimers();
+        installStuckLock();
+        const { bootstrapAccessToken, LOCK_STALL_NOTICE_MS, LOCK_WAIT_MS } = await getModule();
+        const postSpy = vi
+          .spyOn(axios, 'post')
+          .mockResolvedValueOnce({ data: { access: 'own-attempt' } });
+
+        const pending = bootstrapAccessToken();
+        await vi.advanceTimersByTimeAsync(LOCK_STALL_NOTICE_MS - 1);
+        expect(useAuthStore.getState().waitingOnSiblingTab).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(useAuthStore.getState().waitingOnSiblingTab).toBe(true);
+        expect(postSpy).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(LOCK_WAIT_MS - LOCK_STALL_NOTICE_MS);
+        await expect(pending).resolves.toBe(true);
+        expect(postSpy).toHaveBeenCalledTimes(1);
+        expect(useAuthStore.getState().waitingOnSiblingTab).toBe(false);
+        expect(useAuthStore.getState().accessToken).toBe('own-attempt');
+      });
+
+      it('does not flag a wait that resolves inside the notice threshold', async () => {
+        installFakeLocks();
+        const { bootstrapAccessToken } = await getModule();
+        vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: { access: 'quick' } });
+        await expect(bootstrapAccessToken()).resolves.toBe(true);
+        expect(useAuthStore.getState().waitingOnSiblingTab).toBe(false);
+      });
+    });
+
+    // #4296: a sibling tab's session change reaches this tab. A second channel
+    // instance stands in for the sibling; a channel never hears its own posts.
+    describe('sibling tab messages (#4296)', () => {
+      let sibling: BroadcastChannel;
+      beforeEach(() => {
+        sibling = new BroadcastChannel('trueppm-auth');
+      });
+      afterEach(() => sibling.close());
+
+      it('expiry in a sibling tab shows the modal here, without echoing it back', async () => {
+        await getModule();
+        useAuthStore.setState({
+          isAuthenticated: true,
+          accessToken: 'live',
+          sessionExpired: false,
+        });
+        sibling.postMessage({ type: 'expired' });
+        // Installed after the sibling's own post, so it sees only what THIS tab sends.
+        const posted = vi.spyOn(BroadcastChannel.prototype, 'postMessage');
+        await vi.waitFor(() => expect(useAuthStore.getState().sessionExpired).toBe(true));
+        expect(posted).not.toHaveBeenCalled();
+      });
+
+      it("a sibling sign-out also drops this tab's cached reads", async () => {
+        await getModule();
+        queryClient.setQueryData(['projects'], [{ id: 'p1' }]);
+        useAuthStore.setState({
+          isAuthenticated: true,
+          accessToken: 'live',
+          sessionExpired: false,
+        });
+        sibling.postMessage({ type: 'cleared' });
+        await vi.waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(false));
+        expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+      });
+
+      describe('a sibling signs in as someone else', () => {
+        afterEach(() => queryClient.clear());
+
+        async function restoreWith(me: () => Promise<unknown>) {
+          await getModule();
+          queryClient.setQueryData(['current-user'], { id: '7' });
+          queryClient.setQueryData(['projects'], [{ id: 'p1' }]);
+          vi.spyOn(axios, 'post').mockResolvedValue({ data: { access: 'minted-here' } });
+          const get = vi.spyOn(axios, 'get').mockImplementation(me as never);
+          useAuthStore.setState({
+            isAuthenticated: false,
+            accessToken: null,
+            sessionExpired: true,
+          });
+          sibling.postMessage({ type: 'restored' });
+          await vi.waitFor(() => expect(useAuthStore.getState().accessToken).toBe('minted-here'));
+          return get;
+        }
+
+        it("clears the previous user's cache before the tab goes live", async () => {
+          const get = await restoreWith(() => Promise.resolve({ data: { id: '9' } }));
+          expect(get).toHaveBeenCalledWith(
+            '/api/v1/auth/me/',
+            expect.objectContaining({ headers: { Authorization: 'Bearer minted-here' } }),
+          );
+          expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+        });
+
+        it('keeps the cache when the same user signed back in', async () => {
+          await restoreWith(() => Promise.resolve({ data: { id: '7' } }));
+          expect(queryClient.getQueryData(['projects'])).toEqual([{ id: 'p1' }]);
+        });
+
+        it('clears the cache when there is no cached identity to compare against', async () => {
+          await getModule();
+          queryClient.setQueryData(['projects'], [{ id: 'p1' }]);
+          vi.spyOn(axios, 'post').mockResolvedValue({ data: { access: 'minted-here' } });
+          useAuthStore.setState({
+            isAuthenticated: false,
+            accessToken: null,
+            sessionExpired: true,
+          });
+          sibling.postMessage({ type: 'restored' });
+          await vi.waitFor(() => expect(useAuthStore.getState().accessToken).toBe('minted-here'));
+          expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+        });
+
+        it('clears the cache when the identity cannot be confirmed', async () => {
+          await restoreWith(() => Promise.reject(new Error('network')));
+          expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+        });
+      });
+
+      it('ignores a sibling expiry when this tab holds no session (e.g. on /login)', async () => {
+        await getModule();
+        useAuthStore.setState({ isAuthenticated: false, accessToken: null, sessionExpired: false });
+        sibling.postMessage({ type: 'expired' });
+        await new Promise((r) => setTimeout(r, 30));
+        expect(useAuthStore.getState().sessionExpired).toBe(false);
+      });
+
+      it("a sibling sign-in clears this tab's expired state by minting its own token", async () => {
+        await getModule();
+        vi.spyOn(axios, 'post').mockResolvedValue({ data: { access: 'minted-here' } });
+        useAuthStore.setState({ isAuthenticated: false, accessToken: null, sessionExpired: true });
+        sibling.postMessage({ type: 'restored' });
+        await vi.waitFor(() => expect(useAuthStore.getState().accessToken).toBe('minted-here'));
+        expect(useAuthStore.getState().sessionExpired).toBe(false);
+      });
+
+      it('a sibling sign-out signs this tab out too', async () => {
+        await getModule();
+        useAuthStore.setState({
+          isAuthenticated: true,
+          accessToken: 'live',
+          sessionExpired: false,
+        });
+        sibling.postMessage({ type: 'cleared' });
+        await vi.waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(false));
+      });
     });
 
     // The 401 response interceptor shares `refreshAccessToken()` (client.ts:219)

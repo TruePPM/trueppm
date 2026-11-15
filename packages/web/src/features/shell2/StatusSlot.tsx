@@ -17,6 +17,7 @@ import { resolveStatusSlot, type StatusSlotModel } from './statusSlotModel';
 const ANNOUNCEMENT: Record<StatusSlotModel['kind'], string> = {
   offline: 'You are offline. Changes will sync when you reconnect.',
   session: 'Your session has expired.',
+  'signing-in': 'Signing in.',
   demo: 'This is a read-only demo.',
   'rate-limit': 'API rate limiting is off on this server.',
   'sync-error': 'Some changes failed to save.',
@@ -41,6 +42,7 @@ export function StatusSlot() {
   const online = useOnlineStatus();
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const sessionReadOnly = useAuthStore((s) => s.sessionExpiredReadOnly);
+  const waitingOnSiblingTab = useAuthStore((s) => s.waitingOnSiblingTab);
   const { isDemoReadOnly } = useDemoMode();
   const { user } = useCurrentUser();
   const isOperator = user?.is_workspace_operator === true;
@@ -51,6 +53,7 @@ export function StatusSlot() {
     online,
     sessionExpired,
     sessionReadOnly,
+    waitingOnSiblingTab,
     demoReadOnly: isDemoReadOnly,
     // Strict `=== false`: an unresolved health read is "unknown", not "off" (rule 392).
     rateLimitDisabled: isOperator && health?.security?.rate_limiting_enabled === false,

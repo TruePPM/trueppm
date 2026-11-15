@@ -308,21 +308,36 @@ The hosted demo defaults to Light until you pick another theme.
 
 If your session ends while you're working — a timed-out token, a password
 reset, an admin deactivating your account, or a signed-out tab left open —
-TruePPM shows a "You've been signed out" prompt rather than silently dropping
-you onto the login screen with no explanation. From there you can:
+TruePPM tells you rather than silently dropping you onto the login screen with no
+explanation. What you see depends on what was at stake:
 
-- **Sign in** to re-authenticate immediately, or
-- **Continue viewing (read-only)** to keep looking at whatever the app already
-  has loaded in this tab — the schedule, a board, a report — without losing your
-  place. This dismisses the blocking prompt in favor of a slim banner pinned to
-  the top of the screen that stays visible while you browse.
+- **Nothing was being saved and the page has loaded.** A slim "You've been signed
+  out" banner appears at the top of the screen and the page stays readable. It
+  does not take focus from whatever you were typing into. Click **Sign in again**
+  when you are ready.
+- **A change was being saved, or nothing had loaded yet.** A "You've been signed
+  out" prompt blocks the screen. It says "Your last change did not go through"
+  only when a change really was interrupted. From there you can **Sign in**, or,
+  if the page has loaded, **Continue viewing (read-only)** to swap the prompt for
+  the slim banner without losing your place.
 
 Read-only mode never fetches new data (nothing more can load until you sign in
-again) and never sends writes: if you try to save, complete, or otherwise change
+again) and never sends writes. If you try to save, complete, or otherwise change
 anything while read-only, TruePPM blocks the attempt before it reaches the
-server and brings the sign-in prompt back rather than failing silently. Sign in
-again from either the original prompt or the persistent banner to resume normal
-work.
+server: the first attempt shows a short "That change wasn't saved" notice, and a
+second one brings the sign-in prompt back rather than failing silently.
+
+Cached content stays on screen for at most 15 minutes from the moment your
+session ended, whether the prompt or the banner is showing. Choosing **Continue
+viewing** or trying another change does not restart that time. When it is up, the
+cached content is cleared and only **Sign in** remains.
+
+If you have TruePPM open in several tabs, they move together. A session refused
+in one tab signs the others out too (a brief network or server error does not),
+signing out from the account menu signs out every tab, and signing in again in one
+tab brings the others back without a second sign-in. If you sign in as a different
+person, the other tabs drop what they had loaded for the previous account. A tab
+waiting on another tab's sign-in shows "Signing in…" in the status bar.
 
 ## Shell v2 preview (behind a flag)
 

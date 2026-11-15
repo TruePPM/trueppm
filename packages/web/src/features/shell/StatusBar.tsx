@@ -5,6 +5,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
+import { useAuthStore } from '@/stores/authStore';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import {
@@ -84,6 +85,8 @@ export function StatusBar() {
   const { data: projects } = useProjects();
   const onlineUsers = useProjectPresence(projectId);
   const connectionState = useWsConnectionStore((s) => s.state);
+  // Another tab holds the refresh lock and has for over a second (#4296).
+  const waitingOnSiblingTab = useAuthStore((s) => s.waitingOnSiblingTab);
   // Resolve the Sprints/Cycles label through the shared inheritance chokepoint
   // (ADR-0116, web rule 215b) so the bar shows the same iteration label as
   // ViewTabs/BottomNav even when it's inherited from the program or workspace.
@@ -203,6 +206,16 @@ export function StatusBar() {
               {presenceContract}
             </span>
           )}
+        </span>
+      )}
+
+      {waitingOnSiblingTab && (
+        <span role="status" aria-live="polite" className="flex items-center gap-1.5">
+          <span
+            className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-semantic-at-risk motion-safe:animate-pulse"
+            aria-hidden="true"
+          />
+          <span>Signing in…</span>
         </span>
       )}
 

@@ -3,17 +3,29 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { StatusBar } from './StatusBar';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import { useAuthStore } from '@/stores/authStore';
 
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
-    data: [{ id: 'p1', name: 'Alpha Platform Upgrade', healthState: 'on-track', colorDot: '#3E8C6D', methodology: 'HYBRID' }],
+    data: [
+      {
+        id: 'p1',
+        name: 'Alpha Platform Upgrade',
+        healthState: 'on-track',
+        colorDot: '#3E8C6D',
+        methodology: 'HYBRID',
+      },
+    ],
     isLoading: false,
     error: null,
   }),
 }));
 
 vi.mock('@/hooks/useProjectPresence', () => ({
-  useProjectPresence: () => [{ id: 'u1', name: 'Alice' }, { id: 'u2', name: 'Bob' }],
+  useProjectPresence: () => [
+    { id: 'u1', name: 'Alice' },
+    { id: 'u2', name: 'Bob' },
+  ],
 }));
 
 vi.mock('@/hooks/useProjectId', () => ({
@@ -191,7 +203,9 @@ describe('StatusBar', () => {
         screen.getByLabelText(/tasks and the forecast refresh every 5 minutes/i),
       ).toBeInTheDocument();
       // Not the stale/failed copy: a Viewer's edits are not "failing to save".
-      expect(screen.queryByText(/connection lost|disconnected|reconnecting/i)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/connection lost|disconnected|reconnecting/i),
+      ).not.toBeInTheDocument();
       expect(screen.queryByLabelText(/won't be saved|signed out/i)).not.toBeInTheDocument();
       // Calm-neutral dot, not at-risk/critical.
       const dot = screen.getByText('No live updates').previousElementSibling;
@@ -257,5 +271,19 @@ describe('StatusBar — project unavailable', () => {
     useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
     renderWithRouter(<StatusBar />, { initialEntries: ['/projects/p1/overview'] });
     expect(screen.getByLabelText(/connecting to live updates/i)).toBeInTheDocument();
+  });
+});
+
+describe('StatusBar — waiting on a sibling tab (#4296)', () => {
+  it('shows a polite "Signing in…" status only while the refresh lock is contended', () => {
+    renderWithRouter(<StatusBar />);
+    expect(screen.queryByText('Signing in…')).not.toBeInTheDocument();
+    act(() => useAuthStore.getState().setWaitingOnSiblingTab(true));
+    expect(screen.getByText('Signing in…').closest('[role="status"]')).toHaveAttribute(
+      'aria-live',
+      'polite',
+    );
+    act(() => useAuthStore.getState().setWaitingOnSiblingTab(false));
+    expect(screen.queryByText('Signing in…')).not.toBeInTheDocument();
   });
 });

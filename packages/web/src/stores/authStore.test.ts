@@ -1,6 +1,12 @@
-import { describe, expect, it, beforeEach } from 'vitest';
-import { useAuthStore } from './authStore';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+import { READ_ONLY_VIEW_WINDOW_MS, registerSessionBridge, useAuthStore } from './authStore';
+import * as authBroadcast from '@/lib/authBroadcast';
 import { useLastTaskStore } from './lastTaskStore';
+
+afterEach(() => {
+  registerSessionBridge(null);
+  vi.restoreAllMocks();
+});
 
 describe('useAuthStore', () => {
   beforeEach(() => {
@@ -66,13 +72,31 @@ describe('useAuthStore', () => {
       expect(sessionExpiredReadOnly).toBe(true);
     });
 
-    it('reassertSessionExpired flips read-only back off (blocked-write path)', () => {
+    it('reassertSessionExpired answers the first blocked write with a cue, the second with the modal (#4316)', () => {
+      vi.useFakeTimers();
       useAuthStore.getState().markSessionExpired();
       useAuthStore.getState().enterReadOnlyMode();
-      useAuthStore.getState().reassertSessionExpired();
+      expect(useAuthStore.getState().reassertSessionExpired()).toBe('cue');
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(true);
+      vi.runAllTimers(); // the repeat is a later action, not the same one
+      expect(useAuthStore.getState().reassertSessionExpired()).toBe('modal');
+      vi.useRealTimers();
+      expect(useAuthStore.getState().sessionExpiredInterrupted).toBe(true);
       const { sessionExpired, sessionExpiredReadOnly } = useAuthStore.getState();
       expect(sessionExpired).toBe(true);
       expect(sessionExpiredReadOnly).toBe(false);
+    });
+
+    it('two writes refused in the same tick are one action: the second does not escalate', () => {
+      vi.useFakeTimers();
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      expect(useAuthStore.getState().reassertSessionExpired()).toBe('cue');
+      expect(useAuthStore.getState().reassertSessionExpired()).toBe('none');
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(true);
+      vi.runAllTimers();
+      expect(useAuthStore.getState().reassertSessionExpired()).toBe('modal');
+      vi.useRealTimers();
     });
 
     it('reassertSessionExpired is a no-op when the modal is already blocking', () => {
@@ -116,6 +140,147 @@ describe('useAuthStore', () => {
       useLastTaskStore.getState().setOpened(TASK);
       signOut();
       expect(useLastTaskStore.getState().opened).toBeNull();
+    });
+  });
+
+  // #4316 / #4313: what the data layer saw when the session ended picks the surface.
+  describe('session end context (#4316, #4313)', () => {
+    it('skips the modal for a plain expiry with content loaded and no write in flight', () => {
+      registerSessionBridge({
+        inspect: () => ({ interrupted: false, hasContent: true }),
+        clearCache: () => {},
+      });
+      useAuthStore.getState().markSessionExpired();
+      const s = useAuthStore.getState();
+      expect(s.sessionExpiredReadOnly).toBe(true);
+      expect(s.sessionExpiredInterrupted).toBe(false);
+      // Focus must not be pulled out of whatever the user was typing into.
+      expect(s.focusReadOnlyBar).toBe(false);
+    });
+
+    it('keeps the modal, flagged interrupted, when a write was in flight', () => {
+      registerSessionBridge({
+        inspect: () => ({ interrupted: true, hasContent: true }),
+        clearCache: () => {},
+      });
+      useAuthStore.getState().markSessionExpired();
+      const s = useAuthStore.getState();
+      expect(s.sessionExpiredReadOnly).toBe(false);
+      expect(s.sessionExpiredInterrupted).toBe(true);
+      expect(s.sessionExpiredCanView).toBe(true);
+    });
+
+    it('keeps the modal and withdraws "Continue viewing" on a cold load', () => {
+      registerSessionBridge({
+        inspect: () => ({ interrupted: false, hasContent: false }),
+        clearCache: () => {},
+      });
+      useAuthStore.getState().markSessionExpired();
+      const s = useAuthStore.getState();
+      expect(s.sessionExpiredReadOnly).toBe(false);
+      expect(s.sessionExpiredCanView).toBe(false);
+    });
+
+    it('endReadOnlyViewing clears the cache and returns to a sign-in-only modal', () => {
+      const clearCache = vi.fn();
+      registerSessionBridge({
+        inspect: () => ({ interrupted: false, hasContent: true }),
+        clearCache,
+      });
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().endReadOnlyViewing();
+      const s = useAuthStore.getState();
+      expect(clearCache).toHaveBeenCalledOnce();
+      expect(s.sessionExpired).toBe(true);
+      expect(s.sessionExpiredReadOnly).toBe(false);
+      expect(s.sessionExpiredCanView).toBe(false);
+    });
+
+    it('endReadOnlyViewing does nothing when the session is fine', () => {
+      const clearCache = vi.fn();
+      registerSessionBridge({
+        inspect: () => ({ interrupted: false, hasContent: true }),
+        clearCache,
+      });
+      useAuthStore.getState().endReadOnlyViewing();
+      expect(clearCache).not.toHaveBeenCalled();
+    });
+
+    // The window is anchored to when the session ENDED, and nothing may move it (#4313).
+    it('records sessionEndedAt only on a fresh expiry; nothing afterwards moves it', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-14T12:00:00Z'));
+      registerSessionBridge({
+        inspect: () => ({ interrupted: false, hasContent: true }),
+        clearCache: () => {},
+      });
+      useAuthStore.getState().setAccessToken('live');
+      useAuthStore.getState().markSessionExpired();
+      const endedAt = useAuthStore.getState().sessionEndedAt;
+      expect(endedAt).toBe(Date.now());
+
+      vi.advanceTimersByTime(60_000);
+      useAuthStore.getState().markSessionExpired(); // a second 401 / a WS 4001
+      useAuthStore.getState().enterReadOnlyMode(); // this tab's choice
+      useAuthStore.getState().enterReadOnlyMode({ broadcast: false }); // a sibling's
+      useAuthStore.getState().reassertSessionExpired();
+      vi.runAllTimers();
+      useAuthStore.getState().reassertSessionExpired(); // back to the modal
+      useAuthStore.getState().enterReadOnlyMode();
+      expect(useAuthStore.getState().sessionEndedAt).toBe(endedAt);
+      vi.useRealTimers();
+    });
+
+    it('a second markSessionExpired does not re-open a modal the user already left', () => {
+      useAuthStore.getState().setAccessToken('live');
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      useAuthStore.getState().markSessionExpired();
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(true);
+    });
+
+    it('enterReadOnlyMode cannot bring the view back once the window lapsed', () => {
+      registerSessionBridge({
+        inspect: () => ({ interrupted: true, hasContent: true }),
+        clearCache: () => {},
+      });
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().endReadOnlyViewing();
+      useAuthStore.getState().enterReadOnlyMode({ broadcast: false });
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+      expect(useAuthStore.getState().sessionExpiredCanView).toBe(false);
+    });
+
+    it('exposes the view window as 15 minutes', () => {
+      expect(READ_ONLY_VIEW_WINDOW_MS).toBe(15 * 60 * 1000);
+    });
+  });
+
+  // #4296: which transitions tell sibling tabs.
+  describe('cross-tab broadcast (#4296)', () => {
+    it('broadcasts expiry, read-only, restore and an explicit sign-out', () => {
+      const post = vi.spyOn(authBroadcast, 'postAuthMessage').mockImplementation(() => {});
+      useAuthStore.getState().setAccessToken('a');
+      expect(post).toHaveBeenLastCalledWith('restored');
+      useAuthStore.getState().setAccessToken('b'); // a rotation, not news
+      expect(post).toHaveBeenCalledTimes(1);
+      useAuthStore.getState().markSessionExpired();
+      expect(post).toHaveBeenLastCalledWith('expired');
+      useAuthStore.getState().enterReadOnlyMode();
+      expect(post).toHaveBeenLastCalledWith('readonly');
+      useAuthStore.getState().setAccessToken('c');
+      post.mockClear();
+      useAuthStore.getState().clearTokens();
+      expect(post).toHaveBeenCalledWith('cleared');
+    });
+
+    it("does not broadcast when applying a sibling tab's message, or when leaving an expired session", () => {
+      const post = vi.spyOn(authBroadcast, 'postAuthMessage').mockImplementation(() => {});
+      useAuthStore.getState().markSessionExpired({ broadcast: false });
+      expect(post).not.toHaveBeenCalled();
+      // The modal's "Sign in" clears tokens from an expired state: siblings stay put.
+      useAuthStore.getState().clearTokens();
+      expect(post).not.toHaveBeenCalled();
     });
   });
 });

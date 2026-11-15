@@ -5,6 +5,7 @@ import { QueryClientProvider, useMutation } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { queryClient } from './queryClient';
 import { useAuthStore } from '@/stores/authStore';
+import { useToastStore } from '@/components/Toast/toastStore';
 
 describe('queryClient — retry policy', () => {
   // Pull the configured retry function back out of the QueryClient so we can
@@ -66,8 +67,12 @@ describe('queryClient — MutationCache session-expired gating (#1922)', () => {
     queryClient.getMutationCache().clear();
   });
 
-  it('re-opens the blocking re-auth modal when a mutation fails while in read-only mode', async () => {
-    useAuthStore.setState({ sessionExpired: true, sessionExpiredReadOnly: true });
+  it('answers the first refused write with a toast and a repeat with the blocking modal (#4316)', async () => {
+    useAuthStore.setState({
+      sessionExpired: true,
+      sessionExpiredReadOnly: true,
+      readOnlyWriteCueShown: false,
+    });
 
     const { result } = renderHook(
       () =>
@@ -80,10 +85,16 @@ describe('queryClient — MutationCache session-expired gating (#1922)', () => {
     );
 
     result.current.mutate();
-
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+    // First stray write: a light cue, the screen stays usable.
+    expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(true);
+    expect(useToastStore.getState().transient?.message).toBe(
+      "That change wasn't saved. Sign in again to make changes.",
+    );
+
+    result.current.mutate();
+    await waitFor(() => expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false));
     // The session is still expired — reassertSessionExpired only re-opens the
     // modal, it does not itself force a re-authentication.
     expect(useAuthStore.getState().sessionExpired).toBe(true);
@@ -125,5 +136,56 @@ describe('queryClient — MutationCache session-expired gating (#1922)', () => {
 
     expect(useAuthStore.getState().sessionExpired).toBe(true);
     expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+  });
+});
+
+describe('queryClient — session bridge (#4316, #4313)', () => {
+  beforeEach(() => {
+    queryClient.clear();
+    useAuthStore.setState({
+      accessToken: 'tok',
+      isAuthenticated: true,
+      sessionExpired: false,
+      sessionExpiredReadOnly: false,
+      sessionExpiredCanView: true,
+    });
+  });
+
+  it('a cold cache ends the session with no "Continue viewing"', () => {
+    useAuthStore.getState().markSessionExpired({ broadcast: false });
+    expect(useAuthStore.getState().sessionExpiredCanView).toBe(false);
+    expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+  });
+
+  it('a cache holding only the public edition read is still a cold load', () => {
+    queryClient.setQueryData(['edition'], { edition: 'community' });
+    useAuthStore.getState().markSessionExpired({ broadcast: false });
+    expect(useAuthStore.getState().sessionExpiredCanView).toBe(false);
+    expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+  });
+
+  it('a warm cache and no pending write goes straight to the read-only banner', () => {
+    queryClient.setQueryData(['tasks', 'p1'], [{ id: 't1' }]);
+    useAuthStore.getState().markSessionExpired({ broadcast: false });
+    expect(useAuthStore.getState().sessionExpiredCanView).toBe(true);
+    expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(true);
+  });
+
+  it('a pending mutation keeps the modal and flags the interruption', () => {
+    queryClient.setQueryData(['tasks', 'p1'], [{ id: 't1' }]);
+    void queryClient
+      .getMutationCache()
+      .build(queryClient, { mutationFn: () => new Promise<never>(() => {}) })
+      .execute(undefined);
+    useAuthStore.getState().markSessionExpired({ broadcast: false });
+    expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+    expect(useAuthStore.getState().sessionExpiredInterrupted).toBe(true);
+  });
+
+  it('endReadOnlyViewing empties the query cache', () => {
+    queryClient.setQueryData(['tasks', 'p1'], [{ id: 't1' }]);
+    useAuthStore.getState().markSessionExpired({ broadcast: false });
+    useAuthStore.getState().endReadOnlyViewing();
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
   });
 });
