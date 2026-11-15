@@ -306,6 +306,18 @@ class TestScheduleDerivationResponseSchema:
         assert set(data.keys()) == declared
 
 
+class TestScheduleDerivationTaskIdContract:
+    def test_task_id_is_declared_optional(self) -> None:
+        """#4660: the server ignores task_id for p50/p80/p95, so it is not `required`."""
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        op = schema["paths"]["/api/v1/projects/{id}/schedule/derivation/"]["get"]
+        params = {p["name"]: p for p in op["parameters"]}
+        assert not params["task_id"].get("required", False)
+        assert params["quantity"]["required"] is True
+
+
 @pytest.mark.django_db
 class TestScheduleDerivationThrottle:
     """A CPM quantity runs a full schedule() pass per call (#2839) — it is throttled.

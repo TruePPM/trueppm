@@ -25324,8 +25324,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "The task whose computed value is being explained.",
-                        "required": true
+                        "description": "The task whose computed value is being explained. Required for CPM quantities; ignored for p50/p80/p95."
                     }
                 ],
                 "tags": [

@@ -2816,8 +2816,11 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                 name="task_id",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                required=True,
-                description="The task whose computed value is being explained.",
+                required=False,
+                description=(
+                    "The task whose computed value is being explained. Required for "
+                    "CPM quantities; ignored for p50/p80/p95."
+                ),
             ),
             OpenApiParameter(
                 name="quantity",
