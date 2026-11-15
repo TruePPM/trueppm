@@ -68,6 +68,7 @@ describe('useMonteCarloResult', () => {
     expect(getMock).toHaveBeenCalledWith('/projects/proj-1/monte-carlo/latest/');
     expect(result.current.data).toEqual({
       projectId: 'proj-1',
+      nSimulations: 1000,
       runs: 1000,
       p50: '2026-10-05',
       p80: '2026-11-03',
@@ -328,6 +329,7 @@ describe('useMonteCarloResult', () => {
 
     expect(result.current.data).toEqual({
       projectId: 'proj-empty',
+      nSimulations: 0,
       runs: 0,
       p50: '2026-10-05',
       p80: '2026-10-05',
