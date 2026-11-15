@@ -461,3 +461,52 @@ class TestMonteCarloLatest:
         # No commitment date to act on: a flat run's "P80" is the CPM date under
         # another name.
         assert data["risk_premium_p80"] is None
+
+
+@pytest.mark.django_db
+class TestLatestNSimulationsAlias:
+    """#4663: `n_simulations` is the canonical name; `runs` is its deprecated alias."""
+
+    def _run(self, member_client: APIClient, project: Project) -> None:
+        Task.objects.create(
+            project=project,
+            name="Scheduled",
+            duration=5,
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=10,
+            early_start=date(2026, 1, 5),
+            early_finish=date(2026, 1, 9),
+        )
+        res = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 100}, format="json"
+        )
+        assert res.status_code == 200
+
+    def test_cached_branch_echoes_n_simulations(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        self._run(member_client, project)
+        data = member_client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+        assert data["n_simulations"] == data["runs"] == 100
+
+    def test_pre_4663_cache_entry_with_only_runs_derives_n_simulations(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        self._run(member_client, project)
+        key = mc_latest_cache_key(project.pk)
+        entry = dict(cache.get(key))
+        entry.pop("n_simulations", None)
+        entry["runs"] = 77
+        cache.set(key, entry, timeout=60)
+        data = member_client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+        assert data["n_simulations"] == 77
+
+    def test_db_branch_echoes_n_simulations(
+        self, member_client: APIClient, scheduler_client: APIClient, project: Project
+    ) -> None:
+        self._run(scheduler_client, project)
+        cache.clear()
+        data = member_client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+        assert data["from_history"] is True
+        assert data["n_simulations"] == data["runs"] == 100

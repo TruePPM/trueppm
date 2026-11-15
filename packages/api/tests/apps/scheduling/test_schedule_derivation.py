@@ -329,6 +329,48 @@ class TestMonteCarloSimulationCountSchema:
 
 
 class TestScheduleDerivationTaskIdContract:
+    def test_percentile_without_task_id_is_200(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """#4660: p50/p80/p95 are project-level, so no task_id is needed."""
+        Task.objects.create(
+            project=project,
+            name="Estimate",
+            duration=5,
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=10,
+        )
+        run = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 100}, format="json"
+        )
+        assert run.status_code == 200
+        assert member_client.get(url(project.pk), {"quantity": "p80"}).status_code == 200
+
+    def test_cpm_quantity_without_task_id_is_400(
+        self, member_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        res = member_client.get(url(project.pk), {"quantity": "early_finish"})
+        assert res.status_code == 400
+
+    def test_cached_derivation_echoes_n_simulations(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """#4663: the derivation's cached branch carries the canonical count."""
+        Task.objects.create(
+            project=project,
+            name="Estimate",
+            duration=5,
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=10,
+        )
+        member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 100}, format="json"
+        )
+        data = member_client.get(url(project.pk), {"quantity": "p80"}).json()
+        assert data["n_simulations"] == data["runs"] == 100
+
     def test_task_id_is_declared_optional(self) -> None:
         """#4660: the server ignores task_id for p50/p80/p95, so it is not `required`."""
         from drf_spectacular.generators import SchemaGenerator

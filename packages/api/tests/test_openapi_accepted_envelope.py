@@ -38,8 +38,10 @@ def test_every_202_json_body_declares_queued() -> None:
                 .get("application/json", {})
                 .get("schema")
             )
-            if not body or "$ref" not in body:
+            if not body:
                 continue  # empty 202
+            # An inline schema would skip the `queued` check below vacuously.
+            assert "$ref" in body, f"{method.upper()} {path}: 202 body must be a $ref"
             name = body["$ref"].rsplit("/", 1)[1]
             if name in _NOT_AN_ACK:
                 continue

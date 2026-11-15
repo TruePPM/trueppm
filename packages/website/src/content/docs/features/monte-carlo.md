@@ -257,8 +257,8 @@ Supply exactly one of:
 | `new_duration` | Absolute day count to set the task's duration to (`>= 0`). |
 
 An optional `n_simulations` controls the iteration count (default and caps are the
-same as a normal run, including the runs × tasks cap; `runs` in the response reports
-the count simulated). The response carries:
+same as a normal run, including the runs × tasks cap; `n_simulations` in the response reports
+the count simulated; `runs` is a deprecated alias). The response carries:
 
 | Field | Meaning |
 |---|---|

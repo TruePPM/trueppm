@@ -10,6 +10,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from trueppm_api.apps.access import views
 from trueppm_api.apps.access.services import MENTION_GROUP_CHANGES
 
@@ -43,10 +45,11 @@ def test_every_call_site_passes_a_frozen_value_and_all_are_used() -> None:
     assert used == FROZEN
 
 
-def test_unknown_change_is_refused() -> None:
-    import pytest
-
-    viewset = views.UserDefinedMentionGroupViewSet()
+@pytest.mark.parametrize(
+    "name", ["UserDefinedMentionGroupViewSet", "ProgramUserDefinedMentionGroupViewSet"]
+)
+def test_unknown_change_is_refused(name: str) -> None:
+    viewset = getattr(views, name)()
     with pytest.raises(ValueError):
         viewset._broadcast("p", "g", "renamed")
 
