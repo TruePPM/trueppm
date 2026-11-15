@@ -1,6 +1,10 @@
 /**
  * exportTasksToCsv — convert a task list to a CSV Blob and trigger a download.
  *
+ * T0 view snapshot (data-interchange spec §5.6.2): Start/Finish are CPM-computed and
+ * Critical is derived, so the file is not a portable export — GridView names it
+ * `tasks-view-<project>.csv` for that reason. Header spellings are importer aliases.
+ *
  * Column order: WBS, Name, Start, Finish, Duration (days), Progress (%), Status,
  * Critical, Total float (days), Free float (days).
  * Fields containing commas, double-quotes, or newlines are RFC 4180–escaped. Fields that

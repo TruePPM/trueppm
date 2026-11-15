@@ -153,6 +153,55 @@ class TestParseRiskCsv:
         assert plan.drafts[0].status == RiskStatus.OPEN
         assert any(w.field == "Status" for w in plan.warnings)
 
+    def test_current_export_shape_round_trips_without_warnings(self) -> None:
+        """The web exporter writes stored enum values and ISO dates (#2401).
+
+        Pinned beside the legacy-label/date tolerance tests so a change to either
+        side of the contract is caught: a file the exporter writes today must
+        import with no warnings at all.
+        """
+        raw = _csv(
+            [
+                "PLAT-R-007",
+                "A",
+                "MITIGATING",
+                "PROJECT_MANAGEMENT",
+                "TRANSFER",
+                "2",
+                "3",
+                "6",
+                "",
+                "2026-06-15",
+                "",
+                "",
+                "",
+            ],
+            header=[
+                "ID",
+                "Title",
+                "Status",
+                "Category",
+                "Response",
+                "P",
+                "I",
+                "Severity",
+                "Owner",
+                "Mitigation Due Date",
+                "Trigger",
+                "Contingency",
+                "Description",
+            ],
+        )
+        plan = parse_risk_csv(raw, {})
+        assert plan.errors == []
+        assert plan.warnings == []
+        draft = plan.drafts[0]
+        assert draft.status == RiskStatus.MITIGATING
+        assert draft.category == RiskCategory.PROJECT_MANAGEMENT
+        assert draft.response == RiskResponse.TRANSFER
+        assert draft.mitigation_due_date is not None
+        assert draft.mitigation_due_date.isoformat() == "2026-06-15"
+
     def test_unrecognized_category_and_response_warn_and_blank(self) -> None:
         plan = parse_risk_csv(_csv(["A", "Open", "Nope", "Huh", "2", "2", "", "", "", "", ""]), {})
         assert plan.drafts[0].category is None

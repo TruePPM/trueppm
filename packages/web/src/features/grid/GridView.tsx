@@ -659,7 +659,7 @@ export function GridView() {
   const exportFilteredTasks = useCallback(() => {
     if (!tasks) return;
     const filteredSorted = tasks.filter((t) => matchesFilters(t, filters));
-    exportTasksToCsv(filteredSorted, `tasks-${projectId ?? 'export'}.csv`);
+    exportTasksToCsv(filteredSorted, `tasks-view-${projectId ?? 'export'}.csv`);
   }, [tasks, filters, projectId]);
 
   const allSelected = (tasks ?? []).length > 0 && (tasks ?? []).every((t) => selectedIds.has(t.id));

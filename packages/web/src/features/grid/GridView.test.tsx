@@ -1272,7 +1272,7 @@ describe('GridView — no project in scope', () => {
     exportTasksToCsv.mockClear();
     await renderGrid();
     await user.click(await screen.findByRole('button', { name: /export tasks as csv/i }));
-    expect(exportTasksToCsv).toHaveBeenCalledWith(expect.any(Array), 'tasks-export.csv');
+    expect(exportTasksToCsv).toHaveBeenCalledWith(expect.any(Array), 'tasks-view-export.csv');
   });
 
   it('offers no label-settings shortcut without a project to route to', async () => {

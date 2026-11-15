@@ -86,8 +86,8 @@ class ImportPlan:
 def _reverse_label_map(choices: list[tuple[str, str]]) -> dict[str, str]:
     """Map both the stored value and the human label (lowercased) → value.
 
-    The export writes human labels ("In Progress"); a hand-edited CSV may carry
-    raw enum values instead. Accept either so the round-trip is forgiving.
+    The export writes stored values; files exported before #2401 and hand-edited
+    sheets carry display labels. Accept either so the round-trip is forgiving.
     """
     mapping: dict[str, str] = {}
     for value, label in choices:

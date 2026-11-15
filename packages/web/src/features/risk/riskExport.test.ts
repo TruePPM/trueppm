@@ -97,9 +97,10 @@ describe('parseCsvLine — test harness', () => {
 // ---------------------------------------------------------------------------
 
 describe('generateRisksCSV — CSV structure', () => {
-  it('starts with UTF-8 BOM', () => {
+  it('writes no UTF-8 BOM (data-interchange spec: accepted on read, never written)', () => {
     const csv = generateRisksCSV([makeRisk()]);
-    expect(csv.charCodeAt(0)).toBe(0xFEFF);
+    expect(csv.charCodeAt(0)).not.toBe(0xFEFF);
+    expect(csv.startsWith('ID,Title,')).toBe(true);
   });
 
   it('header row contains all expected columns', () => {
@@ -186,16 +187,16 @@ describe('generateRisksCSV — row content', () => {
     expect(row({ qualified_id: 'R-007' })[0]).toBe('R-007');
   });
 
-  it('translates status to human label', () => {
-    expect(row({ status: 'MITIGATING' })[2]).toBe('Mitigating');
+  it('writes the stored status value, not the display label', () => {
+    expect(row({ status: 'MITIGATING' })[2]).toBe('MITIGATING');
   });
 
-  it('translates category to human label', () => {
-    expect(row({ category: 'PROJECT_MANAGEMENT' })[3]).toBe('Project Management');
+  it('writes the stored category value, not the display label', () => {
+    expect(row({ category: 'PROJECT_MANAGEMENT' })[3]).toBe('PROJECT_MANAGEMENT');
   });
 
-  it('translates response to human label', () => {
-    expect(row({ response: 'MITIGATE' })[4]).toBe('Mitigate');
+  it('writes the stored response value, not the display label', () => {
+    expect(row({ response: 'MITIGATE' })[4]).toBe('MITIGATE');
   });
 
   it('P, I, Severity columns contain numeric strings', () => {
@@ -205,8 +206,8 @@ describe('generateRisksCSV — row content', () => {
     expect(r[7]).toBe('12');  // Severity
   });
 
-  it('formats mitigation_due_date as readable date', () => {
-    expect(row({ mitigation_due_date: '2026-06-15' })[9]).toBe('Jun 15, 2026');
+  it('writes mitigation_due_date as ISO 8601 YYYY-MM-DD', () => {
+    expect(row({ mitigation_due_date: '2026-06-15' })[9]).toBe('2026-06-15');
   });
 
   it('null risk framework fields produce empty strings', () => {

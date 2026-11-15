@@ -72,8 +72,11 @@ your project.
 Use the export to hand someone a status table. Use a
 [JSON seed](/administration/data-export/) to move the project.
 
-Making the two into genuine counterparts is planned — see
-[issue #2401](https://gitlab.com/trueppm/trueppm/-/issues/2401).
+The file is named `tasks-view-<project>.csv` so it is not mistaken for a portable
+export, and its header spellings (`Duration (days)`, `Progress (%)`) are ones the
+importer already recognizes, so a round trip is *attemptable*; only the committed-versus-
+calculated dates make it lossy. Making the two into genuine counterparts is part of the
+identity-preserving round trip planned for 0.5 (issue #1959).
 
 ## Risks
 
@@ -83,6 +86,14 @@ exported from one project imports cleanly into another. See
 
 Columns: `ID`, `Title`, `Status`, `Category`, `Response`, `P`, `I`, `Severity`,
 `Owner`, `Mitigation Due Date`, `Trigger`, `Contingency`, `Description`.
+
+The export follows the interchange dialect: UTF-8 with no byte-order mark, dates as
+ISO `YYYY-MM-DD`, and `Status`, `Category` and `Response` as their stored values
+(`MITIGATING`, `PROJECT_MANAGEMENT`) rather than display labels. The importer still
+accepts the older display labels and `Jun 9, 2026`-style dates, so files exported
+before this change import unchanged. Excel opens a BOM-less UTF-8 file as ANSI by
+default; if non-ASCII characters look garbled, use **Data > From Text/CSV** and pick
+UTF-8.
 
 Only `Title` is required. On import:
 

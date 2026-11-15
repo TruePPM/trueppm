@@ -658,9 +658,7 @@ fixed inside a docs change.
 
 | Surface | Non-conformance | Issue |
 |---|---|---|
-| `riskExport.ts` | Writes humanized dates (`Jun 9, 2026`) instead of ISO, and humanized enum labels instead of stored values. `risk_import.py`'s three-format date fallback exists solely to read this. | #2401 |
-| `exportCsv.ts` | Header spellings do not match the #743 importer's alias table, so the export is not readable by the import shipping beside it. (The computed/derived columns are **conformant** — this is a legitimate T0 surface, §5.6.2.) | #2401 |
-| Task CSV import ↔ export | Not inverses (§5.10.2). Correct as specified for 0.4; promoting the export to T1 is a scoped follow-up. | #2401 |
+| Task CSV import ↔ export | Not inverses (§5.10.2). Correct as specified: the export stays T0 (`tasks-view-<project>.csv`); promoting it to T1 with a portable column set is part of the identity-preserving round trip. | #1959 |
 | JSON seed validator | Emits unstructured `list[str]` diagnostics. No machine-readable code, no severity field, and the JSON path is embedded in the message prose rather than carried as a location — so a client cannot group or filter them the way it can CSV's (§6.6). | #2420 |
 | JSON seed import | No dry-run counterpart to CSV's `/import/csv/preview/`. The validation exists and is thorough; there is no way to run it without committing to the import. | #2418 |
 | JSON seed validator | Short-circuits on the `schema_version` checks, so a document missing its version reports one problem and hides the rest. §6.6 requires reporting the full set in one pass. | #2418 |
@@ -680,7 +678,7 @@ lands.
 |---|---|
 | **0.3 and earlier** (shipped) | JSON seed v1/v2 export + program import; async project and program bundles; risk CSV import/export; MS Project XML both directions |
 | **0.4** (underway) | Task CSV/Excel **import** with preview and fuzzy column mapping (#111 → #743 API, #746 wizard) · JSON seed dry-run validation (#2418) · confirmed, recoverable seed replacement and an asynchronous seed rebuild — `202` + job poll, `409 seed_replace_required`, soft-deleted replacement, `--no-replace` (#2581, #2574, ADR-0726). Artifacts remain unencrypted and unchecksummed — stated posture, §6.4 |
-| **0.5** (planned) | Identity-preserving round trip, T2 (#1959) · integrity manifest (#2399) · optional artifact encryption (#2400) · CSV exporter conformance (#2401) · shared diagnostic model across both importers, §6.6 (#2420) |
+| **0.5** (planned) | Identity-preserving round trip, T2 (#1959) · integrity manifest (#2399) · optional artifact encryption (#2400) · shared diagnostic model across both importers, §6.6 (#2420) |
 | **0.6** (planned) | Multi-format import breadth — Jira, Asana, Monday, Wrike, ClickUp, Trello, Notion, Linear, Basecamp (epic #624), each normalizing to one of the two shared interchange targets rather than inventing a persistence path (see below) |
 
 **Two normalization targets, split by what the import creates.** Epic #624 states that
