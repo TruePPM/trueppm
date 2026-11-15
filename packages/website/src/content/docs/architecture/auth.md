@@ -354,7 +354,7 @@ together. Rotation is supported without data loss, in two phases (add the new ke
 fallback and finish that rollout, then promote it): `INTEGRATION_ENCRYPTION_KEY_FALLBACKS`
 holds additional keys that a `MultiFernet` tries for decryption only (writes use the
 primary), and `manage.py reencrypt_integration_secrets` rewrites every stored
-ciphertext under the primary so a fallback can be dropped. Changing the key with no
+ciphertext under the primary (run it after the phase-2 rollout has finished) so a fallback can be dropped. Changing the key with no
 fallback still breaks every stored ciphertext and recovery is for an administrator
 to re-enter every secret. The operator-facing version of this is in
 [Secret management](/administration/security/#one-encryption-key-covers-every-stored-third-party-secret).

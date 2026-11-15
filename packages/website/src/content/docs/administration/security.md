@@ -363,7 +363,7 @@ hardening item (the design is recorded in the
 ### Rotating secrets without downtime
 
 Each of the three application secrets has a primary value and an optional
-comma-separated `*_FALLBACKS` list of **older** values. The primary is the only
+comma-separated `*_FALLBACKS` list of **additional** keys (the incoming key during phase 1, the outgoing key after phase 2). The primary is the only
 key ever used to sign or encrypt. Fallbacks are accepted for verification or
 decryption only, so you can roll a new primary out while values created under the
 old one keep working, then retire the old one.
@@ -394,20 +394,22 @@ missing the **new** key, so the new key must reach every pod as a fallback
 1. Generate the new key B (`python3 -c "import secrets; print(secrets.token_urlsafe(50))"`, or a new Fernet key for `INTEGRATION_ENCRYPTION_KEY`). The current key is A.
 2. **Phase 1 — distribute B.** Keep A as the primary and add B to the matching `*_FALLBACKS` variable. Update your Secret, then
    [restart the api, celery-worker, and celery-beat Deployments](#restarting-pods-after-rotating-the-secret). Wait until the rollout has finished and **every** pod of all three Deployments runs the new configuration. Nothing signs under B yet, so nothing can break.
-3. **Phase 2 — promote B.** Set B as the primary and A as the fallback, update the Secret, and restart the same three Deployments again. During this rollout both old and new pods know both keys, so each can verify what the other produced.
-4. For `INTEGRATION_ENCRYPTION_KEY`, re-encrypt stored values under the new primary, then confirm the report shows nothing left to rewrite:
+3. **Phase 2 — promote B.** Set B as the primary and A as the fallback, update the Secret, and restart the same three Deployments again. Wait until the rollout has finished and every pod of all three Deployments (api, celery-worker, celery-beat) runs B as primary. During this rollout both old and new pods know both keys, so each can verify what the other produced.
+4. For `INTEGRATION_ENCRYPTION_KEY`, re-encrypt stored values under the new primary. The command measures "already on primary" against the primary key of the pod it runs in, so run it only from a pod on the phase-2 configuration (check the pod's start time against the rollout first). A pod that has not restarted still holds A as primary and would rewrite B-encrypted values back to A. Then run `--dry-run` again to confirm nothing is left:
 
    ```bash
-   python manage.py reencrypt_integration_secrets --dry-run   # counts only
-   python manage.py reencrypt_integration_secrets
+   python manage.py reencrypt_integration_secrets             # rewrites; reports per column
+   python manage.py reencrypt_integration_secrets --dry-run   # confirm: would rewrite 0, undecryptable 0
    ```
 
    The command covers all five encrypted columns, runs in transactional batches
-   (`--batch-size`, default 500), reports per column how many rows it rewrote, found
-   already current, or could not decrypt, and is idempotent. It exits non-zero if
+   (`--batch-size`, default 500), and prints one line per column, for example
+   `Model.field: rewrote 3, already on primary 12, empty 0, undecryptable 0`
+   (`would rewrite N` under `--dry-run`). It is idempotent. It exits non-zero if
    any value cannot be decrypted by any configured key; add the missing old key to
-   the fallback list and re-run rather than dropping anything.
-5. **Retire A.** After the longest-lived value signed under A has expired, remove A from the fallback list and restart again. For JWTs that is the longer of `TRUEPPM_REFRESH_TOKEN_REMEMBER_DAYS` (default 30, the "Keep me signed in" refresh lifetime) and 7 days (the lifetime of refresh tokens issued before the remember-me change); a non-remembered session lasts 12 hours (`TRUEPPM_REFRESH_TOKEN_SESSION_HOURS`). For `SECRET_KEY`, use your longest password-reset or cookie lifetime. For `INTEGRATION_ENCRYPTION_KEY`, remove A only after step 4 reports zero rows rewritten.
+   the fallback list and re-run rather than dropping anything. The final dry-run must
+   report `would rewrite 0` and `undecryptable 0` for every column.
+5. **Retire A.** After the longest-lived value signed under A has expired, remove A from the fallback list and restart again. For JWTs that is the longer of `TRUEPPM_REFRESH_TOKEN_REMEMBER_DAYS` (default 30, the "Keep me signed in" refresh lifetime) and 7 days (the lifetime of refresh tokens issued before the remember-me change); a non-remembered session lasts 12 hours (`TRUEPPM_REFRESH_TOKEN_SESSION_HOURS`). For `SECRET_KEY`, use your longest password-reset or cookie lifetime; when `JWT_SIGNING_KEY` is unset, `SECRET_KEY` also signs JWTs and the JWT fallbacks inherit `SECRET_KEY_FALLBACKS`, so the wait also covers the refresh-token lifetime above, counted from the end of phase 2 (tokens are still signed under A until then). For `INTEGRATION_ENCRYPTION_KEY`, remove A only after the final `--dry-run` in step 4 reports `would rewrite 0` and `undecryptable 0` for every column.
 
 :::caution[Rotating with no fallback signs everyone out]
 Leaving the `*_FALLBACKS` list empty keeps the original behavior: rotating

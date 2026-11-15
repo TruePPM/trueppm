@@ -39,8 +39,9 @@ env = environ.Env()
 # gain the prefix with the same legacy fallback; ``tests/test_env_namespace.py`` pins the
 # list so it only changes deliberately. Two further names were added bare by #3406
 # because that issue names them: ``JWT_SIGNING_KEY_FALLBACKS`` and
-# ``INTEGRATION_ENCRYPTION_KEY_FALLBACKS`` (pending a decision on whether to prefix them
-# before 0.5 ships; ``SECRET_KEY_FALLBACKS`` follows the Django ``SECRET_KEY`` convention).
+# ``INTEGRATION_ENCRYPTION_KEY_FALLBACKS``. TODO(#5048): decide whether to prefix these
+# with TRUEPPM_ before 0.5 ships (``SECRET_KEY_FALLBACKS`` follows the Django
+# ``SECRET_KEY`` convention).
 # A setting that shipped bare and HAS been migrated keeps working as a
 # deprecated fallback through ``env_with_legacy`` (one precedence rule, one-time
 # WARNING; removed at 1.0, #4405). Do not add a new bare name.
