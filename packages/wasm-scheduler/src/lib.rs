@@ -184,8 +184,13 @@ pub struct DragResult {
 
 #[wasm_bindgen]
 impl DragResult {
-    /// Dense node position of each row (`row → node`). `0..N` for a full recalc;
-    /// the downstream subset (the delta) for an incremental recalc.
+    /// Dense node position of each row (`row → node`). `0..N` for a full recalc.
+    /// For an incremental recalc, the delta (#4101): every task downstream of the
+    /// changed one plus every task whose output differs from the session input.
+    /// Rows not listed equal the session input's values — draw the session
+    /// input and overlay this frame's rows on it; do not accumulate deltas
+    /// across frames. A session built from input with no computed values lists
+    /// every row.
     #[wasm_bindgen(getter, js_name = nodeIndices)]
     pub fn node_indices(&self) -> Vec<u32> {
         self.inner.node_indices.clone()
@@ -331,6 +336,14 @@ impl SchedulerSession {
     /// `nodeIndices` is the drag delta. Same per-task values as
     /// [`recalc_incremental`](SchedulerSession::recalc_incremental), with no
     /// per-frame clone and no JSON.
+    ///
+    /// **Delta contract (#4101).** Each frame is compared against the input this
+    /// session was built from, not against the previous frame: rows not returned
+    /// equal the session input's values. Draw the session input, then overlay
+    /// this frame's delta on it — do not accumulate deltas across frames, or a
+    /// row whose values return to the start-of-drag state keeps the stale value
+    /// of an earlier frame. A session built from input with no computed values
+    /// returns every row on every frame.
     #[wasm_bindgen(js_name = recalcIncrementalTyped)]
     pub fn recalc_incremental_typed(
         &self,
@@ -379,6 +392,14 @@ impl SchedulerSession {
     /// Incremental CPM over the cached graph → `ScheduleResult` JSON (downstream
     /// tasks plus every task whose output moved, #4101).
     /// Identical to `wasm_incremental_update` on the current project.
+    ///
+    /// **Delta contract (#4101).** Each frame is compared against the input this
+    /// session was built from, not against the previous frame: rows not returned
+    /// equal the session input's values. Draw the session input, then overlay
+    /// this frame's delta on it — do not accumulate deltas across frames, or a
+    /// row whose values return to the start-of-drag state keeps the stale value
+    /// of an earlier frame. A session built from input with no computed values
+    /// returns every row on every frame.
     #[wasm_bindgen(js_name = recalcIncremental)]
     pub fn recalc_incremental(&self, changed_task_id: &str) -> Result<String, SchedulerError> {
         incremental::check_known_task(&self.graph, changed_task_id)?;
@@ -416,7 +437,9 @@ fn set_task_start_impl(
     // `node_index[id].index()` is the task's dense position: nodes are added
     // in `project.tasks` order (#1535), so this indexes the same task.
     let &idx = graph.node_index.get(task_id).ok_or_else(|| {
-        SchedulerError::unknown_task(format!("task_id {task_id:?} does not exist in the project."))
+        SchedulerError::unknown_task(format!(
+            "task_id {task_id:?} does not exist in the project."
+        ))
     })?;
     bounds
         .try_set_planned_start(project, idx.index(), date)

@@ -10,9 +10,9 @@ use std::collections::VecDeque;
 use petgraph::graph::NodeIndex;
 
 use crate::backward::backward_pass;
+use crate::error::SchedulerError;
 use crate::floats::compute_floats;
 use crate::forward::forward_pass;
-use crate::error::SchedulerError;
 use crate::graph::{build_graph, ProjectGraph};
 use crate::models::{Project, ScheduleResult, Task, TaskResult};
 
@@ -48,11 +48,16 @@ pub fn incremental_checked(
 /// Reject a `changed_task_id` that is not in the graph as `unknown_task`, with
 /// the same message [`downstream_mask`] gives, so the structured paths can tell
 /// it apart from a pass failure.
-pub(crate) fn check_known_task(pg: &ProjectGraph, changed_task_id: &str) -> Result<(), SchedulerError> {
+pub(crate) fn check_known_task(
+    pg: &ProjectGraph,
+    changed_task_id: &str,
+) -> Result<(), SchedulerError> {
     if pg.node_index.contains_key(changed_task_id) {
         Ok(())
     } else {
-        Err(SchedulerError::unknown_task(unknown_task_message(changed_task_id)))
+        Err(SchedulerError::unknown_task(unknown_task_message(
+            changed_task_id,
+        )))
     }
 }
 

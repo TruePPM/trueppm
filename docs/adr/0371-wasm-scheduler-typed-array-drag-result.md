@@ -98,6 +98,15 @@ row maps to its id as `taskIds()[nodeIndices[row]]`. For a **full** recalc
 subset of nodes reachable from the dragged task — so `nodeIndices` **is the
 delta-emit**, and only changed tasks are materialized in the columns.
 
+> **Superseded 2026-11-14 (#4101):** the incremental result is no longer the
+> downstream cone only. It carries every task downstream of the changed one plus
+> every task whose CPM output differs from the input — a drag that moves the
+> project finish changes the late dates and float of upstream and parallel tasks
+> the cone never reaches. On a `SchedulerSession` the comparison baseline is the
+> input the session was built from (not the previous frame): rows not returned
+> equal that input, so a consumer overlays each frame on the session input rather
+> than accumulating deltas.
+
 ### Critical-path ordering dropped from the per-frame path
 
 The JSON result includes an ordered `critical_path: Vec<String>`, produced by
@@ -132,6 +141,8 @@ post-commit authoritative view) uses the JSON `recalc`, which is off the hot pat
 - **Delta-emit is implemented** for the incremental path via `nodeIndices` (only
   downstream rows are materialized). Whole-project aggregates (`projectStart` /
   `projectFinish`) are still computed over the full task set, matching the JSON path.
+  *Superseded 2026-11-14 (#4101): the incremental set is no longer downstream-only —
+  see the note under the column contract above.*
 
 ## Alternatives considered
 

@@ -331,8 +331,7 @@ fn assert_incremental_matches_full(stem: &str, base: &Project, changed: &str) {
     let before = schedule_impl(base)
         .unwrap_or_else(|e| panic!("{stem}: full schedule of the base failed: {e}"));
     let mut primed = project.clone();
-    let before_by_id: HashMap<&str, &_> =
-        before.tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+    let before_by_id: HashMap<&str, &_> = before.tasks.iter().map(|t| (t.id.as_str(), t)).collect();
     for t in primed.tasks.iter_mut() {
         let b = before_by_id[t.id.as_str()];
         t.early_start = Some(b.early_start);
@@ -374,11 +373,26 @@ fn assert_incremental_matches_full(stem: &str, base: &Project, changed: &str) {
         let id = &ft.id;
         match delta_by_id.get(id.as_str()) {
             Some(dt) => {
-                assert_eq!(dt.late_start, ft.late_start, "{stem}/{changed}/{id}: primed LS");
-                assert_eq!(dt.late_finish, ft.late_finish, "{stem}/{changed}/{id}: primed LF");
-                assert_eq!(dt.total_float, ft.total_float, "{stem}/{changed}/{id}: primed TF");
-                assert_eq!(dt.free_float, ft.free_float, "{stem}/{changed}/{id}: primed FF");
-                assert_eq!(dt.is_critical, ft.is_critical, "{stem}/{changed}/{id}: primed crit");
+                assert_eq!(
+                    dt.late_start, ft.late_start,
+                    "{stem}/{changed}/{id}: primed LS"
+                );
+                assert_eq!(
+                    dt.late_finish, ft.late_finish,
+                    "{stem}/{changed}/{id}: primed LF"
+                );
+                assert_eq!(
+                    dt.total_float, ft.total_float,
+                    "{stem}/{changed}/{id}: primed TF"
+                );
+                assert_eq!(
+                    dt.free_float, ft.free_float,
+                    "{stem}/{changed}/{id}: primed FF"
+                );
+                assert_eq!(
+                    dt.is_critical, ft.is_critical,
+                    "{stem}/{changed}/{id}: primed crit"
+                );
             }
             None => assert!(
                 !moved,

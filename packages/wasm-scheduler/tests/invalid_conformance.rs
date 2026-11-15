@@ -127,7 +127,11 @@ fn invalid_fixtures_reject_with_a_structured_kind() {
             "{stem}: a cycle chain must come with, and only with, kind cycle"
         );
         // The message is the one `schedule_impl` has always returned.
-        assert_eq!(schedule_impl(&project).unwrap_err(), err.to_string(), "{stem}");
+        assert_eq!(
+            schedule_impl(&project).unwrap_err(),
+            err.to_string(),
+            "{stem}"
+        );
     }
     let json = fs::read_to_string(dir.join("cycle.json")).unwrap();
     let project: Project = serde_json::from_str(&json).unwrap();
@@ -161,7 +165,11 @@ fn cycle_error_carries_the_canonical_chain() {
             assert_eq!(err.error_kind(), ErrorKind::Cycle, "{stem}");
             assert_eq!(err.kind(), "cycle", "{stem}");
             assert_eq!(err.cycle(), Some(want.clone()), "{stem}");
-            assert_eq!(err.message(), expected["message"].as_str().unwrap(), "{stem}");
+            assert_eq!(
+                err.message(),
+                expected["message"].as_str().unwrap(),
+                "{stem}"
+            );
         }
     }
 }
@@ -179,7 +187,11 @@ fn entry_points_classify_parse_input_and_unknown_task() {
     let dir = fixtures_dir().join("parse_rejects");
     for stem in &json_stems(&dir) {
         let json = fs::read_to_string(dir.join(format!("{stem}.json"))).unwrap();
-        assert_eq!(compute_schedule(&json).unwrap_err().kind(), "parse", "{stem}");
+        assert_eq!(
+            compute_schedule(&json).unwrap_err().kind(),
+            "parse",
+            "{stem}"
+        );
     }
 
     let empty = r#"{"id":"p","name":"p","start_date":"2026-04-01","tasks":[],"dependencies":[]}"#;
