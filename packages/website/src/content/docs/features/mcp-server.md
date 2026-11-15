@@ -184,7 +184,7 @@ only ever reflects data your token can already read.
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
-| `get_project_cost` | `project_id` | A project's budget, actual cost, earned value, cost variance and budget utilization, with the per-person lines and a one-sentence `definitions` entry for every figure. Check `cost_computable` first: when it is `false`, `missing_rate_count` people have no rate and each KPI reports why it has no value instead. |
+| `get_project_cost` | `project_id` | A project's budget, actual cost, earned value, cost variance, budget utilization (spend against budget, not a CPI), CPI, EAC, ETC, VAC and TCPI, and a `provenance` block naming the inputs behind each figure, with the per-person lines and a one-sentence `definitions` entry for every figure. Check `cost_computable` first: when it is `false`, `missing_rate_count` people have no rate and each KPI reports why it has no value instead. |
 
 Planned for 0.5: `get_project_cost` ships in 0.5, with the cost model. Cost is visible to project Admins and Owners only. Any other caller gets `{ "cost_restricted": true, "reason": "requires_project_admin" }` and no budget, rate or cost figure. That is a normal answer, not a failure, so an assistant should say cost is restricted for your role rather than retry. See [Cost model](/features/cost-model/).
 

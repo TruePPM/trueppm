@@ -24,7 +24,9 @@ Definitions (ADR-1324 §2–§3):
 - **CPI** = EV / AC; **EAC** = BAC / CPI (the "typical variance" forecast: the cost
   efficiency so far continues for the rest of the work); **ETC** = EAC − AC;
   **VAC** = BAC − EAC; **TCPI** = (BAC − EV) / (BAC − AC) (the efficiency needed on the
-  remaining work to finish on BAC). Textbook definitions; EV keeps the unweighted-mean
+  remaining work to finish on BAC). These are the commonly published definitions, taken
+  from secondary sources and NOT yet confirmed against the PMBOK / PMI Practice Standard
+  for EVM (ADR-1324 addendum, #4852); EV keeps the unweighted-mean
   percent-complete basis (the basis decision is #4853, not made here).
 
 Performance: a fixed number of queries for any number of projects (no per-project
@@ -563,9 +565,13 @@ def cost_provenance(cost: ProjectCost) -> dict[str, Any]:
     """The ``provenance`` block: what computed each figure, from which inputs (#4848).
 
     Follows the metric-provenance pattern (ADR-1314): the sentence that defines a figure
-    stays in ``definitions``; this block adds what a definition cannot — the computing
-    function, a contract version, the inputs and their basis, and per figure whether it
-    was ``computed`` or ``restricted`` (never silently zero). Rates carry no change
+    stays in ``definitions``. The shape is bespoke rather than built from
+    ``metric_provenance.py`` because that module only owns one-sentence definitions and the
+    forecast-commitment facts; it has no per-figure computed/restricted status or input
+    description to reuse, and bending it to carry them was not cheap. This block adds what a
+    definition cannot: the computing function, a contract version, the inputs and their
+    basis, and per figure whether it was ``computed`` or ``restricted`` (never silently
+    zero). Rates carry no change
     history today (one current rate per resource, ADR-1324), so ``as_of`` is the only
     datum saying when a figure was true, and a rate change re-costs past hours.
     """
