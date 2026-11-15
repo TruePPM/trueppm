@@ -840,6 +840,31 @@ class TestAllocation:
         _units(f'Task,Owner\nA,"{cell}"\n'.encode())
         assert time.perf_counter() - start < 5.0
 
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            "5" + " " * 40000 + "x",
+            "5" + " " * 20000 + "%" + " " * 20000 + "x",
+            "5" + " " * 40000 + "%x",
+        ],
+    )
+    def test_long_whitespace_run_after_digit_is_linear(self, tail: str) -> None:
+        import time
+
+        from trueppm_api.apps.csvimport.parser import _split_name_allocation
+
+        # A digit, a long whitespace run, then a non-matching character: the old
+        # `\s*(\d+)\s*%?\s*` tail backtracked quadratically here (python:S8786, #4998).
+        start = time.perf_counter()
+        assert _split_name_allocation("Ana:" + tail) is None
+        assert time.perf_counter() - start < 5.0
+
+    def test_whitespace_around_percent_still_splits(self) -> None:
+        from trueppm_api.apps.csvimport.parser import _split_name_allocation
+
+        assert _split_name_allocation("Ana : 50 % ") == ("Ana", "50")
+        assert _split_name_allocation("Ana:\t62.5\u00a0%\n") == ("Ana", "62.5")
+
     def test_repeated_name_in_one_cell_collapses_last_wins(self) -> None:
         assert _units(b"Task,Owner\nA,Ana; ana:50\n") == {("A", "Ana"): 0.5}
 

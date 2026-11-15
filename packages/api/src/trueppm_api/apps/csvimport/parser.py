@@ -1832,9 +1832,11 @@ _MIN_ALLOCATION_PERCENT = 1.0
 _MAX_ALLOCATION_PERCENT = 200.0
 
 #: The part after the last ``:`` of one assignee name: ``<number>`` with an
-#: optional ``%``. Anchored at both ends, with no unbounded run on either side of
-#: a repeated character class, so it cannot backtrack super-linearly.
-_ALLOCATION_TAIL_RE = re.compile(r"\s*(?P<pct>\d+(?:\.\d+)?)\s*%?\s*")
+#: optional ``%``. The caller ``strip()``s the tail first, so the only ``\s*`` left
+#: sits between the number and an optional ``%`` and abuts the end of the string.
+#: Leading and trailing ``\s*`` around that ``%?`` competed for the same run of
+#: whitespace and backtracked quadratically (python:S8786, #4998).
+_ALLOCATION_TAIL_RE = re.compile(r"(?P<pct>\d+(?:\.\d+)?)\s*%?")
 
 
 def _split_name_allocation(name: str) -> tuple[str, str] | None:
@@ -1851,7 +1853,7 @@ def _split_name_allocation(name: str) -> tuple[str, str] | None:
     base = head.rstrip()
     if not base or "\n" in base:
         return None
-    tail_match = _ALLOCATION_TAIL_RE.fullmatch(tail)
+    tail_match = _ALLOCATION_TAIL_RE.fullmatch(tail.strip())
     if tail_match is None:
         return None
     return base, tail_match.group("pct")
