@@ -315,7 +315,7 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
     {
         ("delete", "/api/v1/me/connections/{source}/"),
         ("delete", "/api/v1/me/credentials/{provider}/"),
-        ("delete", "/api/v1/me/timesheets/{week_start}/submit"),
+        ("delete", "/api/v1/me/timesheets/{week_start}/submit/"),
         ("delete", "/api/v1/programs/{program_pk}/members/{id}/"),
         ("delete", "/api/v1/projects/{id}/"),
         ("delete", "/api/v1/projects/{project_pk}/members/{id}/"),
@@ -334,7 +334,7 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("post", "/api/v1/dependencies/{id}/accept/"),
         ("post", "/api/v1/dependencies/{id}/reject/"),
         ("post", "/api/v1/me/connections/{source}/sync/"),
-        ("post", "/api/v1/me/timesheets/{week_start}/submit"),
+        ("post", "/api/v1/me/timesheets/{week_start}/submit/"),
         ("post", "/api/v1/paste-many-operations/{id}/undo/"),
         ("post", "/api/v1/programs/{id}/shift-sample-dates/"),
         # #4858: a project restore that would revive a summary-to-own-descendant

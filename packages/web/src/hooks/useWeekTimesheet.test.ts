@@ -162,7 +162,7 @@ describe('useSubmitWeek', () => {
     const { Wrapper } = wrapper();
     const { result } = renderHook(() => useSubmitWeek('2026-06-15'), { wrapper: Wrapper });
     result.current.mutate(true);
-    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/me/timesheets/2026-06-15/submit'));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/me/timesheets/2026-06-15/submit/'));
     expect(toastInfo).toHaveBeenCalledWith('Week submitted.');
   });
 
@@ -170,6 +170,6 @@ describe('useSubmitWeek', () => {
     const { Wrapper } = wrapper();
     const { result } = renderHook(() => useSubmitWeek('2026-06-15'), { wrapper: Wrapper });
     result.current.mutate(false);
-    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/me/timesheets/2026-06-15/submit'));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/me/timesheets/2026-06-15/submit/'));
   });
 });

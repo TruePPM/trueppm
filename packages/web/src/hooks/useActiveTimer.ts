@@ -189,7 +189,7 @@ export function useActiveTimer() {
 
   const start = useMutation({
     mutationFn: async ({ taskId, note }: StartVars): Promise<StartResponse> => {
-      const { data } = await apiClient.post<StartResponse>('/me/timer/start', {
+      const { data } = await apiClient.post<StartResponse>('/me/timer/start/', {
         task: taskId,
         ...(note ? { note } : {}),
       });
@@ -217,7 +217,7 @@ export function useActiveTimer() {
 
   const stop = useMutation({
     mutationFn: async (): Promise<LoggedEntry> => {
-      const { data } = await apiClient.post<LoggedEntry>('/me/timer/stop');
+      const { data } = await apiClient.post<LoggedEntry>('/me/timer/stop/');
       return data;
     },
     onMutate: async () => {

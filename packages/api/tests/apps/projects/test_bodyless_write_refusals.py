@@ -504,13 +504,13 @@ class TestFieldKeyedRefusals:
         The body is keyed by ``week_start``, not a flat ``detail`` — declaring the
         detail shape here would mis-type the refusal for every client.
         """
-        response = getattr(client, method)("/api/v1/me/timesheets/not-a-date/submit")
+        response = getattr(client, method)("/api/v1/me/timesheets/not-a-date/submit/")
 
         assert response.status_code == 400, response.content
         body = response.json()
         assert "week_start" in body, body
         assert_matches_declared_400(
-            schema, method, "/api/v1/me/timesheets/{week_start}/submit", body
+            schema, method, "/api/v1/me/timesheets/{week_start}/submit/", body
         )
 
     def test_personal_token_cap_refusal_fits_the_declared_shape(

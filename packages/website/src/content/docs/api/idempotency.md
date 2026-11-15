@@ -34,6 +34,12 @@ The stored response is written inside the same database transaction as the mutat
 committed write always has a replayable response, and a failed (rolled-back) request
 stores nothing — a later retry re-runs it.
 
+The published OpenAPI schema declares this contract on every mutating operation that
+honors the header: an optional `Idempotency-Key` request header, an `Idempotent-Replay`
+response header on the success responses, and the shared `422` key-reuse response
+(`IdempotencyKeyConflict`). Operations that are exempt (see [Scope](#scope)) declare none
+of these.
+
 ## Rules and edge cases
 
 | Situation | Result |

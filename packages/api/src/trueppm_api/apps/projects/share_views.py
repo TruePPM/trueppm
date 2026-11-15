@@ -87,13 +87,16 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
     # re-serve it from IdempotencyKey.response_body for the retention window (#4531).
     # Same opt-out as the other one-time-secret mint paths.
     idempotency_exempt = True
+    # Read by the OpenAPI hook (``get_permissions`` is invisible to schema
+    # generation): POST refuses API tokens, so it must not advertise their schemes.
+    token_refused_methods = frozenset({"POST"})
 
     def get_permissions(self) -> list[BasePermission]:
         # Minting a new public link is a write, so block it on an archived
         # (hard read-only) project — matching the ProjectApiToken convention.
         # Listing stays allowed on an archived project (it is a read).
         perms: list[BasePermission] = [IsAuthenticated(), IsProjectAdmin()]
-        if self.request.method == "POST":
+        if self.request.method in self.token_refused_methods:
             perms.append(IsProjectNotArchived())
             # IsNotTokenAuthenticated (#2939): minting a share link is minting a
             # durable public-access grant, same shape as #2878's PAT-manages-PAT

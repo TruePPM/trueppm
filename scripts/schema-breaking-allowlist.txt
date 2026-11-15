@@ -107,3 +107,8 @@ became-required | request POST /api/v1/sprints/{id}/reorder/ body.tasks | no-bod
 body-required | POST /api/v1/sprints/{id}/reorder/ body | no-body-actions-no-longer-declare-a-request-body-2870 | an empty body was already rejected with 400
 became-required | request POST /api/v1/sprints/{id}/demo-list/reorder/ body.outcome_ids | no-body-actions-no-longer-declare-a-request-body-2870 | field was already required at runtime; the previous free-form object did not say so
 body-required | POST /api/v1/sprints/{id}/demo-list/reorder/ body | no-body-actions-no-longer-declare-a-request-body-2870 | an empty body was already rejected with 400
+# #3792 - the three unslashed time-tracking paths are published with the trailing slash.
+# Declaration change only; the server still routes the unslashed spelling.
+endpoint-removed | * /api/v1/me/timer/start | timer-and-timesheet-submit-paths-published-with-a-trailing-slash-3792 | path republished with the trailing slash; unslashed spelling still routes
+endpoint-removed | * /api/v1/me/timer/stop | timer-and-timesheet-submit-paths-published-with-a-trailing-slash-3792 | path republished with the trailing slash; unslashed spelling still routes
+endpoint-removed | * /api/v1/me/timesheets/{week_start}/submit | timer-and-timesheet-submit-paths-published-with-a-trailing-slash-3792 | path republished with the trailing slash; unslashed spelling still routes

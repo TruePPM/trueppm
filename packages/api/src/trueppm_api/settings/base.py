@@ -512,6 +512,7 @@ CHANNEL_LAYERS = {
 # #818). The fallback shipped deprecated-but-live for one release; it is now
 # OFF by default and must be explicitly opted into by an operator who still has
 # clients on the old path. It is removed entirely next release.
+# TODO(#4989): remove the setting and the legacy branch.
 TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED: bool = env.bool(
     "TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED", default=False
 )
@@ -2505,6 +2506,15 @@ SPECTACULAR_SETTINGS = {
     # stable `FrequencyEnum` component (a regression). Pin the retention enum back
     # to `FrequencyEnum` and the recurrence enum to `RecurrenceFrequencyEnum`.
     "ENUM_NAME_OVERRIDES": {
+        # #4091: the three components drf-spectacular named by a hash postfix because
+        # no override claimed them. The hash changes whenever an unrelated `status` /
+        # `role` choice set is added, which silently renames the type a generated
+        # client carries. Each is pinned to its CURRENT published name (no rename,
+        # no schema diff); moving them to readable names is a 1.0 contract-freeze
+        # item (#2844).
+        "Status9bdEnum": "trueppm_api.apps.taskruns.models.TaskRunStatus",
+        "RoleF2cEnum": "trueppm_api.apps.projects.models.CalendarRole",
+        "StatusE83Enum": "trueppm_api.apps.projects.models.SyncBatchOperationStatus",
         # #3037: the bulk refusal vocabulary. Pinned rather than left to
         # drf-spectacular's derived naming because these two names are the handle a
         # generated client's types carry — the whole point of publishing the enum is

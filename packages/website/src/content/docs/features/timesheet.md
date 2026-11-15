@@ -134,10 +134,10 @@ A **running timer** is treated differently from a logged entry, and the archived
 | `GET`/`POST` | `/api/v1/tasks/{task_id}/time-entries/` | Your own entries on a task, plus your `total_logged_minutes`. `POST` creates one. |
 | `PATCH`/`DELETE` | `/api/v1/me/time-entries/{id}/` | Author-only edit or (soft) delete of one entry. |
 | `GET` | `/api/v1/me/time-entries/?from=&to=` | The weekly cross-project rollup that backs the grid: entries in range plus precomputed daily/cell/week totals and the week's submission marker. |
-| `POST`/`DELETE` | `/api/v1/me/timesheets/{week_start}/submit` | Submit or un-submit a week (`week_start` is normalized to its ISO Monday). |
+| `POST`/`DELETE` | `/api/v1/me/timesheets/{week_start}/submit/` | Submit or un-submit a week (`week_start` is normalized to its ISO Monday). |
 | `GET` | `/api/v1/me/timer/` | The caller's running timer, if any, with server-computed `elapsed_seconds` and `stale`. |
-| `POST` | `/api/v1/me/timer/start` | Start a timer on a task (`403` if that project is archived or you're below Team Member); second-start atomically stops and logs the prior one, returned as `finalized_entry` — or discards it with `finalized_entry: null` if the prior timer's own project is archived or your access there has lapsed. |
-| `POST` | `/api/v1/me/timer/stop` | Stop the running timer and log it as a `TimeEntry`; `409` if none is running, including when the timer is discarded rather than logged because its project is archived or your access there has lapsed. |
+| `POST` | `/api/v1/me/timer/start/` | Start a timer on a task (`403` if that project is archived or you're below Team Member); second-start atomically stops and logs the prior one, returned as `finalized_entry` — or discards it with `finalized_entry: null` if the prior timer's own project is archived or your access there has lapsed. |
+| `POST` | `/api/v1/me/timer/stop/` | Stop the running timer and log it as a `TimeEntry`; `409` if none is running, including when the timer is discarded rather than logged because its project is archived or your access there has lapsed. |
 
 Every read and write here is scoped to the authenticated caller — there is no cross-project rollup
 of *other* people's time and no admin surface to log or edit on someone else's behalf.
