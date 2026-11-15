@@ -306,6 +306,7 @@ These rules are enforced at review time. Violations block merge.
 409. **A shared notice's remediation sentence ("narrow the window", "use the filter", "try searching") is a claim about the CALLER's affordances, not the component's — parameterize it per mount, never hardcode one sentence for all of them.** → [rule](../../docs/design/invariants/409-a-shared-notice-s-remediation-sentence-narrow-the-window.md)
 446. **Server-explanation surfaces render the payload, nothing else.** → [rule](../../docs/design/invariants/446-server-explanation-surfaces-render-the-payload-only.md)
 455. **A setting that feeds a server computation is shown on the consuming surface as the payload's value, never re-read from settings.** → [rule](../../docs/design/invariants/455-a-setting-feeding-a-server-computation-shows-the-payload-value.md)
+458. **A term of art on a read surface gets a `FieldHelp` beside the label, never inside a sort button or tooltip wrapper.** → [rule](../../docs/design/invariants/458-a-term-of-art-on-a-read-surface-gets-a-fieldhelp-beside-the-label.md)
 
 ---
 

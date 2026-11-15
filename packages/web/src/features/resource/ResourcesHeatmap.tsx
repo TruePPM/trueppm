@@ -1,3 +1,4 @@
+import { UtilizationHelp } from './UtilizationHelp';
 import { useState } from 'react';
 import type { HeatmapResource } from '@/hooks/useResourceHeatmap';
 import { HeatmapCell } from './HeatmapCell';
@@ -102,6 +103,9 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
           <div role="columnheader" className="flex items-center px-[14px]">
             <span className="text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary">
               Resource
+            </span>
+            <span className="ml-1 shrink-0 normal-case tracking-normal">
+              <UtilizationHelp />
             </span>
           </div>
           {weeks.map((w) => {

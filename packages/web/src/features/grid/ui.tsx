@@ -103,7 +103,7 @@ export function GridFloatCell({
       }
       className={[
         'hidden lg:flex items-center justify-end flex-shrink-0 tppm-mono text-xs',
-        'lg:w-16 lg:text-right lg:pr-2',
+        'lg:w-24 lg:text-right lg:pr-2',
         late ? 'text-semantic-critical font-semibold' : 'text-neutral-text-secondary',
       ].join(' ')}
     >

@@ -1,5 +1,6 @@
 import type { ProjectVelocity } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { VelocityHelp } from './VelocityHelp';
 import { VelocityTeamPrivateNote } from './VelocityTeamPrivateNote';
 
 interface Props {
@@ -79,12 +80,15 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
       className="rounded-card border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
     >
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <h2
-          id="velocity-panel-heading"
-          className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-        >
-          Velocity
-        </h2>
+        <div className="flex items-center gap-1">
+          <h2
+            id="velocity-panel-heading"
+            className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+          >
+            Velocity
+          </h2>
+          <VelocityHelp />
+        </div>
         <div className="flex items-baseline gap-2">
           {/* In-flight "this sprint N/M" stat (issue 1230) — the ACTIVE sprint's
               completed-of-committed points, so the panel shows where the team is

@@ -4,6 +4,7 @@ import { MIN_COL_WIDTHS, type ColumnKey, type ColumnWidths } from '@/hooks/useCo
 import { Tooltip } from '@/components/Tooltip';
 import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { ROW_VOCABULARY } from './rowVocabulary';
+import { FloatHelp } from './FloatHelp';
 
 interface ResizeHandleProps {
   colKey: ColumnKey;
@@ -335,12 +336,13 @@ export function TaskListHeader({
       {visible.totalFloat && (
         <Tooltip content={ABBREVIATIONS.FLOAT}>
           <span
-            className="relative text-right shrink-0 pr-2"
+            className="relative inline-flex items-center justify-end gap-0.5 shrink-0 pr-2"
             style={{ width: widths.totalFloat }}
             role="columnheader"
             aria-label="Total float"
           >
             Float
+            <FloatHelp />
             <ResizeHandle
               colKey="totalFloat"
               setWidth={setWidth}
@@ -353,12 +355,13 @@ export function TaskListHeader({
       {visible.freeFloat && (
         <Tooltip content={ABBREVIATIONS.FREE_FLOAT}>
           <span
-            className="relative text-right shrink-0 pr-2"
+            className="relative inline-flex items-center justify-end gap-0.5 shrink-0 pr-2"
             style={{ width: widths.freeFloat }}
             role="columnheader"
             aria-label="Free float"
           >
             Free
+            <FloatHelp />
             <ResizeHandle colKey="freeFloat" setWidth={setWidth} currentWidth={widths.freeFloat} />
           </span>
         </Tooltip>

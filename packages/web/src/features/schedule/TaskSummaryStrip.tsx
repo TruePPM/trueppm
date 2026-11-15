@@ -3,6 +3,7 @@ import type { Task } from '@/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { baselineFinishVariance } from '@/lib/baselineFinishVariance';
 import { Tooltip } from '@/components/Tooltip';
+import { BaselineVarianceHelp } from './BaselineVarianceHelp';
 import { TaskFlagsSection } from './TaskFlagsSection';
 
 /**
@@ -60,14 +61,31 @@ function Overline({ children }: { children: ReactNode }) {
   );
 }
 
-function Cell({ label, first, children }: { label: string; first?: boolean; children: ReactNode }) {
+function Cell({
+  label,
+  first,
+  help,
+  children,
+}: {
+  label: string;
+  first?: boolean;
+  help?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div
       role="group"
       aria-label={label}
       className={`flex-1 min-w-0 px-3 py-2.5 ${first ? '' : 'border-l border-neutral-border'}`}
     >
-      <Overline>{label}</Overline>
+      {help ? (
+        <div className="flex items-center gap-1">
+          <Overline>{label}</Overline>
+          <span className="shrink-0">{help}</span>
+        </div>
+      ) : (
+        <Overline>{label}</Overline>
+      )}
       <div className="flex items-center gap-1.5 min-h-5">{children}</div>
     </div>
   );
@@ -151,7 +169,7 @@ export function TaskSummaryStrip({ task }: { task: Task }) {
           )}
         </Cell>
 
-        <Cell label="Baseline">
+        <Cell label="Baseline" help={<BaselineVarianceHelp />}>
           <BaselineCell task={task} />
         </Cell>
       </div>

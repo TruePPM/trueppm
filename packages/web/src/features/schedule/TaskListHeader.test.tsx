@@ -236,3 +236,21 @@ describe('TaskListHeader — Float/Free headers surface their definition via Too
     expect(screen.getByRole('tooltip')).toHaveTextContent('Free float');
   });
 });
+
+describe('TaskListHeader — Float/Free headers host the FloatHelp popover (#3714)', () => {
+  it('keeps the header names and opens the shared float help from a named trigger', () => {
+    renderHeader();
+    expect(screen.getByRole('columnheader', { name: 'Total float' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Free float' })).toBeInTheDocument();
+    const triggers = screen.getAllByRole('button', {
+      name: 'About the Total float and free float options',
+    });
+    expect(triggers).toHaveLength(2);
+    // A popover trigger is a real button inside the header span, never nested in another button.
+    for (const t of triggers) expect(t.closest('button')).toBe(t);
+    fireEvent.click(triggers[1]);
+    expect(screen.getByRole('dialog', { name: 'Total float and free float' })).toHaveTextContent(
+      /working days/i,
+    );
+  });
+});
