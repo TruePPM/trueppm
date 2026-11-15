@@ -8,7 +8,7 @@ documentedFor: "0.5"
 The per-route [request body ceilings](#request-body-ceilings) ship in 0.5. In 0.4
 every endpoint parses a JSON body of up to 100 MB (`DATA_UPLOAD_MAX_MEMORY_SIZE`)
 and the reference nginx configs allow 110M on every route. The five `TRUEPPM_WS_*` WebSocket Origin, frame-size and frame-rate settings
-`IMPORT_MAX_RESOURCES_CREATED` and `MC_WALL_CLOCK_BUDGET_SECONDS` also ship in 0.5. The `TRUEPPM_` prefix on the MS Project, MPXJ, Jira, CSV/Excel, seed-import and bulk-batch limits also ships in 0.5; on 0.4 they are read under the bare names (`MSPROJECT_MAX_ROWS`, `CSV_IMPORT_MAX_ROWS`, and so on), which 0.5 keeps as deprecated fallbacks. Every other limit on this page is in 0.4.
+`IMPORT_MAX_RESOURCES_CREATED` and `MC_WALL_CLOCK_BUDGET_SECONDS` also ship in 0.5. The `TRUEPPM_` prefix on the MS Project, MPXJ, Jira, CSV/Excel, seed-import and bulk-batch limits also ships in 0.5; on 0.4 they are read under the bare names (`MSPROJECT_MAX_ROWS`, `CSV_IMPORT_MAX_ROWS`, and so on), which 0.5 keeps as deprecated fallbacks. `MSPROJECT_MAX_UPLOAD_MB`, `SEED_MAX_UPLOAD_MB` and `IMPORT_MAX_RESOURCES_CREATED` keep their bare names for now; see [naming and precedence](/administration/configuration/#environment-variable-naming-and-precedence). Every other limit on this page is in 0.4.
 :::
 
 ## Rate limiting and access

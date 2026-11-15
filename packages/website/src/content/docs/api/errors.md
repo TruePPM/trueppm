@@ -569,7 +569,7 @@ bare `413`, which carries no `code`. The per-route ceilings ship in 0.5; see
 | Code | Meaning | Extra keys |
 |------|---------|-----------|
 | `sync_cooldown` | The connection was refreshed too recently to sync again | `retry_after` (seconds) |
-| `seed_import_concurrency_limit` | The caller already has the maximum number of concurrent seed imports queued or running (`SEED_IMPORT_MAX_CONCURRENT_JOBS`, default 3) — wait for one to finish, then re-send | — |
+| `seed_import_concurrency_limit` | The caller already has the maximum number of concurrent seed imports queued or running (`TRUEPPM_SEED_IMPORT_MAX_CONCURRENT_JOBS` from 0.5, unprefixed on 0.4, default 3) — wait for one to finish, then re-send | — |
 
 The **general** rate limiter is different: it returns a bare `detail` with **no
 `code`**, plus a `Retry-After` header. See

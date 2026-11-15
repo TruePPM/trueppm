@@ -1324,7 +1324,7 @@ class ProgramViewSet(
                 description=(
                     "Either the `seed_import` rate bucket is exhausted (no `code`; retry "
                     "after the interval in `Retry-After`), or you already have "
-                    "`SEED_IMPORT_MAX_CONCURRENT_JOBS` imports queued or running "
+                    "`TRUEPPM_SEED_IMPORT_MAX_CONCURRENT_JOBS` imports queued or running "
                     "(`code: seed_import_concurrency_limit`). The second is cleared by an "
                     "outstanding import finishing, not by waiting out a window."
                 ),

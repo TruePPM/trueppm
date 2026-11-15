@@ -222,7 +222,7 @@ form-data in the `file` field, and requires **Project Manager** or above.
 
 ```bash
 # POST a Jira Server/DC XML export as multipart form-data (field: "file").
-# Requires project Admin. Default upload cap 25 MB (JIRA_IMPORT_MAX_UPLOAD_MB).
+# Requires project Admin. Default upload cap 25 MB (TRUEPPM_JIRA_IMPORT_MAX_UPLOAD_MB).
 curl -X POST \
   -H "Authorization: Bearer $JWT" \
   -F "file=@jira-export.xml" \
@@ -243,8 +243,8 @@ configured limit; a caller below Project Manager gets `403`.
 
 ## Configuration
 
-The only operator-facing knob is the upload size cap, `JIRA_IMPORT_MAX_UPLOAD_MB`
-(default **25** MB), documented in the
+The only operator-facing knob is the upload size cap, `TRUEPPM_JIRA_IMPORT_MAX_UPLOAD_MB`
+(default **25** MB; ships in 0.5 under the `TRUEPPM_` prefix, 0.4 reads it without the prefix), documented in the
 [configuration reference](/administration/configuration/limits/#jira-import-limit).
 
 Like the MS Project importer, Jira XML is parsed through `defusedxml`, which

@@ -527,7 +527,7 @@ reason for §1.
    the 0.4 importer is a T1 creator that reads committed dates. Exporting tasks to CSV and
    re-importing that file does **not** reconstruct the project — it creates new tasks with
    CPM output mistaken for committed input. Do not describe them as a round trip.
-   Conformance work: #2401.
+   Promotion of the export to T1 is the identity-preserving round trip, #1959.
 
 3. **Comma delimiter breaks in `;`-list-separator locales.** In those locales Excel opens
    a comma-delimited file as a single column until the user runs Data → Text to Columns.

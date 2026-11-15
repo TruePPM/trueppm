@@ -71,5 +71,13 @@ def env_with_legacy(
 
 
 def parse_bool(raw: str) -> bool:
-    """Parse an env string with the same truthiness ``environ.Env.bool`` uses."""
+    """Parse an env string with the same truthiness ``environ.Env.bool`` uses.
+
+    Anything outside the truthy set (including a typo such as ``"flase"``) is
+    ``False``, exactly as ``environ.Env.bool`` behaves. That is intended to stay
+    behavior-compatible with the pre-#4482 ``env.bool`` reads, but note the
+    asymmetry for ``AUTH_REFRESH_COOKIE_SECURE``: a garbage value drops the
+    ``Secure`` flag. Tightening it to raise is a behavior change tracked
+    separately, not done here.
+    """
     return raw.strip().lower() in {"true", "on", "ok", "y", "yes", "1"}

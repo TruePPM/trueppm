@@ -184,3 +184,93 @@ def test_legacy_use_warns_once_prefixed_use_is_silent(caplog: pytest.LogCaptureF
         with caplog.at_level("WARNING", logger="trueppm.settings"):
             assert env_compat.env_with_legacy(env, "TRUEPPM_X", "LEGACY_X", 1, int) == 6
         assert not caplog.records
+
+
+# --- #4482 audit: every converted pair, garbage bool, real-reload warning -----
+
+_PAIRS: dict[str, tuple[str, str]] = {
+    # attr -> (raw legacy value, expected attr value)
+    "FRONTEND_BASE_URL": ("https://legacy.example", "https://legacy.example"),
+    "HISTORY_RETENTION_DAYS": ("11", 11),
+    "TASK_RUN_RETENTION_DAYS": ("12", 12),
+    "WORKFLOW_BACKEND": ("legacy.Backend", "legacy.Backend"),
+    "WORKFLOW_HISTORY_RETENTION_DAYS": ("13", 13),
+    "WORKFLOW_DRAIN_BATCH_SIZE": ("14", 14),
+    "WORKFLOW_PURGE_BATCH_SIZE": ("15", 15),
+    "IDEMPOTENCY_RETENTION_HOURS": ("16", 16),
+    "IDEMPOTENCY_MAX_BODY_BYTES": ("17", 17),
+    "AUTH_REFRESH_COOKIE_NAME": ("legacy_cookie", "legacy_cookie"),
+    "AUTH_REFRESH_COOKIE_PATH": ("/legacy/", "/legacy/"),
+    "AUTH_REFRESH_COOKIE_SAMESITE": ("Lax", "Lax"),
+    "AUTH_REFRESH_COOKIE_SECURE": ("false", False),
+}
+
+
+@pytest.mark.parametrize("attr", sorted(_PAIRS))
+def test_empty_prefixed_with_legacy_set_legacy_wins(attr: str) -> None:
+    legacy_raw, expected = _PAIRS[attr]
+    with mock.patch.dict(os.environ):
+        os.environ[f"TRUEPPM_{attr}"] = ""
+        os.environ[attr] = legacy_raw
+        importlib.reload(base)
+        assert getattr(base, attr) == expected
+
+
+@pytest.mark.parametrize("garbage", ["flase", "maybe", "2"])
+def test_legacy_secure_flag_garbage_is_false_via_parse_bool(garbage: str) -> None:
+    """Pins current behavior: a non-truthy token is False, as ``env.bool`` was."""
+    with mock.patch.dict(os.environ):
+        os.environ.pop("TRUEPPM_AUTH_REFRESH_COOKIE_SECURE", None)
+        os.environ["AUTH_REFRESH_COOKIE_SECURE"] = garbage
+        importlib.reload(base)
+        assert base.AUTH_REFRESH_COOKIE_SECURE is False
+
+
+def test_real_reload_with_legacy_name_logs_exactly_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from trueppm_api.core import env_compat
+
+    env_compat._warned.discard("TASK_RUN_RETENTION_DAYS")
+    with mock.patch.dict(os.environ):
+        os.environ.pop("TRUEPPM_TASK_RUN_RETENTION_DAYS", None)
+        os.environ["TASK_RUN_RETENTION_DAYS"] = "7"
+        with caplog.at_level("WARNING", logger="trueppm.settings"):
+            importlib.reload(base)
+        hits = [
+            r
+            for r in caplog.records
+            if r.name == "trueppm.settings" and "TASK_RUN_RETENTION_DAYS" in r.getMessage()
+        ]
+        assert len(hits) == 1
+        assert "TRUEPPM_TASK_RUN_RETENTION_DAYS" in hits[0].getMessage()
+    env_compat._warned.discard("TASK_RUN_RETENTION_DAYS")
+
+
+# Names that shipped bare and are NOT yet TRUEPPM_-prefixed. Changing this set is a
+# deliberate act: update the naming docs (administration/configuration/index.md) too.
+_GRANDFATHERED_BARE = frozenset(
+    {
+        "MSPROJECT_MAX_UPLOAD_MB",
+        "SEED_MAX_UPLOAD_MB",
+        "IMPORT_MAX_RESOURCES_CREATED",
+        "RETENTION_PURGE_INFLIGHT_SECONDS",
+        "SIGNAL_CEILING_PROPOSAL_TTL_HOURS",
+        "CSP_CONNECT_SRC",
+        "JWT_SIGNING_KEY",
+    }
+)
+
+
+@pytest.mark.parametrize("name", sorted(_GRANDFATHERED_BARE))
+def test_grandfathered_bare_names_are_read_bare_and_documented(name: str) -> None:
+    import pathlib
+
+    src = pathlib.Path(base.__file__).read_text()
+    assert f'"{name}"' in src, f"{name} no longer read bare: migrate it and update the list"
+    assert f'"TRUEPPM_{name}"' not in src, f"{name} gained a prefix: drop it from the list"
+    docs = (
+        pathlib.Path(base.__file__).parents[5]
+        / "packages/website/src/content/docs/administration/configuration/index.md"
+    ).read_text()
+    assert f"`{name}`" in docs
