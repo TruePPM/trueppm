@@ -151,14 +151,23 @@ points with nothing catching it pre-merge (#4147). An MR that does not touch
 any of these five files does not run this job at all and still waits for the
 nightly.
 
-`check_mutation_score.py` exits `0` when the score meets the floor, `1` when it is
-measured and below, and **`2` when it could not be measured at all** — a missing,
+`check_mutation_score.py` exits `0` when the score meets the floor and the share of
+untested mutants is within its ceiling, `1` when it is measured and either below the
+floor or over the `no_tests` ceiling, and **`2` when it could not be measured at all** — a missing,
 unparseable or empty stats file. That last state used to exit `0`, and it hid
 thirteen consecutive nightlies that measured nothing (a test read a repo file that
 was not listed in `[tool.mutmut] also_copy`, so mutmut's stats pass died inside its
 sandbox and every mutant came back `not checked`). If you add a test under
 `packages/scheduler/` that reads a file from the package root, add that file to
 `also_copy`.
+
+The score excludes `no_tests` mutants, so deleting the test that covers a function
+would leave it unchanged. A second gate closes that hole: the share of checked
+mutants that no test reached (`no_tests` over every mutant that was generated and
+checked; `skipped` mutants are not counted) must stay at or below 5%. Override the
+ceiling with `--max-no-tests-share` or the `MUTATION_MAX_NO_TESTS_SHARE` variable.
+Like the floor, it only gates when `MUTATION_MIN` is above 0; at `0` the job is
+report-only.
 
 mutmut itself is pinned to an exact version in the scheduler's `dev` extra, unlike
 its neighbors, because a minor mutmut release changes *what* gets measured. 3.8.0

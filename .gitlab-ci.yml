@@ -4986,6 +4986,13 @@ scheduler:mutation:
   # `if s < e else 0` guards, a dead `first` offset, a no-op conditional and a
   # no-op `default=None` were deleted rather than excluded. The floor stays at 0.92.
   #
+  # THE no_tests CEILING (#5032). The score excludes no_tests mutants, so deleting
+  # the test that covers a function leaves it unchanged. check_mutation_score.py
+  # therefore also exits 1 when no_tests exceeds 5% of the mutants generated and
+  # checked (skipped mutants are not counted). Override with
+  # MUTATION_MAX_NO_TESTS_SHARE (--max-no-tests-share). Like MUTATION_MIN it only
+  # gates when MUTATION_MIN is above 0; at 0 the job reports and never fails.
+  #
   # Scope is the beachhead in [tool.mutmut]: models.py, derive.py, cli.py. The
   # engine expansion is tracked as phase 2; #4550 split engine.py into the
   # engine/ package so phase 2 can add it one module at a time. Name those
