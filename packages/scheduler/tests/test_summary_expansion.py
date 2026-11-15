@@ -313,10 +313,11 @@ class TestDuplicateLeafPairResolution:
             assert "'S' → 'C' (FS, lag 7d)" in msg
 
     def test_nested_summaries_with_many_colliding_links(self) -> None:
-        """Nested summaries and 3+ links on one pair: largest lag wins in every order.
+        """Nested summaries and 3 links on one pair: largest lag wins in every order.
 
-        ``O ⊃ {I, X}``, ``I ⊃ {A, B}``. ``O → C`` (1d), ``I → C`` (5d), ``A → C`` at -3d
-        and +2d all land on ``A → C``; ``O`` and ``I`` both land on ``B → C``. Adding one
+        ``O ⊃ {I, X}``, ``I ⊃ {A, B}``. ``O → C`` (1d), ``I → C`` (5d) and ``A → C`` (-3d)
+        all land on ``A → C``; ``O`` and ``I`` both land on ``B → C``. (Two plain
+        ``A → C`` links are refused, not merged, #5019.) Adding one
         FF link on the same pair must reject in every order.
         """
         tasks = [task(t) for t in ("O", "I", "X", "A", "B", "C")]
@@ -325,7 +326,6 @@ class TestDuplicateLeafPairResolution:
             Dependency(predecessor_id="O", successor_id="C", lag=timedelta(days=1)),
             Dependency(predecessor_id="I", successor_id="C", lag=timedelta(days=5)),
             Dependency(predecessor_id="A", successor_id="C", lag=timedelta(days=-3)),
-            Dependency(predecessor_id="A", successor_id="C", lag=timedelta(days=2)),
         ]
 
         for perm in itertools.permutations(deps):
@@ -554,3 +554,145 @@ class TestChildrenMapUnknownChild:
         deps = [Dependency(predecessor_id="S1", successor_id="X")]
         result = expand_summary_dependencies(tasks, deps, {"S1": ["A"], "S2": ["A"]})
         assert [(d.predecessor_id, d.successor_id) for d in result.dependencies] == [("A", "X")]
+
+
+class TestNestedChainRefusalIsCheap:
+    """The expansion bound refuses from counts, not from materialized leaf lists (#5014)."""
+
+    @staticmethod
+    def _chain(k: int, m: int) -> tuple[dict[str, list[str]], list[Dependency]]:
+        children_map = {f"S{i}": [f"S{i + 1}"] for i in range(k - 1)}
+        children_map[f"S{k - 1}"] = [f"L{j}" for j in range(m)]
+        deps = [Dependency(f"S{i}", "X", DependencyType.FS) for i in range(k)]
+        return children_map, deps
+
+    def test_refusal_materializes_no_leaf_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Operation-count bound: no endpoint walk happens before the refusal.
+
+        The old code called ``_collect_leaves`` once per summary endpoint (k walks of
+        O(k + m) each) before the bound could refuse; a count is immune to runner load.
+        """
+        from trueppm_scheduler.engine import graph as graph_mod
+        from trueppm_scheduler.engine import summary as summary_mod
+
+        calls: list[str] = []
+
+        def spy(task_id: str, children_map: dict[str, list[str]]) -> list[str]:
+            calls.append(task_id)
+            raise AssertionError("leaf list materialized before the bound refused")
+
+        monkeypatch.setattr(summary_mod, "_collect_leaves", spy)
+        monkeypatch.setattr(graph_mod, "_collect_leaves", spy)
+        children_map, deps = self._chain(400, 400)  # 400 * 400 = 160k > MAX_EXPANDED_EDGES
+
+        with pytest.raises(InvalidScheduleInput, match="would exceed 100,000 edges"):
+            expand_summary_dependencies([], deps, children_map)
+        with pytest.raises(InvalidScheduleInput, match="would exceed 100,000 edges"):
+            find_cycle([(d.predecessor_id, d.successor_id) for d in deps], children_map)
+        assert calls == []
+
+    def test_large_chain_refused_within_generous_wall_clock(self) -> None:
+        """k = m = 6000 took ~11-18 s on the old code; allow 5 s so a loaded runner passes."""
+        import time
+
+        children_map, deps = self._chain(6000, 6000)
+        start = time.monotonic()
+        with pytest.raises(InvalidScheduleInput, match="would exceed 100,000 edges"):
+            expand_summary_dependencies([], deps, children_map)
+        with pytest.raises(InvalidScheduleInput, match="would exceed 100,000 edges"):
+            find_cycle([(d.predecessor_id, d.successor_id) for d in deps], children_map)
+        assert time.monotonic() - start < 5.0
+
+    def test_message_names_the_bound_as_an_upper_bound(self) -> None:
+        """Two links expanding onto the same 60k pairs sum to 120k, so the cap says so (BACK-6)."""
+        children_map = {"P": [f"p{i}" for i in range(300)], "Q": [f"q{i}" for i in range(200)]}
+        deps = [Dependency("P", "Q"), Dependency("P", "Q", DependencyType.FS, timedelta(days=1))]
+        with pytest.raises(InvalidScheduleInput, match="an upper bound"):
+            expand_summary_dependencies([], deps, children_map)
+
+    def test_valid_deep_chain_still_expands(self) -> None:
+        children_map, deps = self._chain(50, 3)
+        _, expanded = expand_summary_dependencies([], deps[:1], children_map)
+        assert [(d.predecessor_id, d.successor_id) for d in expanded] == [
+            ("L0", "X"),
+            ("L1", "X"),
+            ("L2", "X"),
+        ]
+
+
+class TestUnreferencedChildrenMapCycle:
+    """A cyclic children_map is refused whatever links exist (#5018)."""
+
+    @pytest.mark.parametrize(
+        "children_map",
+        [
+            {"A": ["A"]},
+            {"A": ["B"], "B": ["A"]},
+            {"A": ["B"], "B": ["C"], "C": ["A"], "Z": ["Y"]},
+        ],
+    )
+    def test_expand_and_find_cycle_raise_with_no_touching_link(
+        self, children_map: dict[str, list[str]]
+    ) -> None:
+        tasks = [task(t) for t in "ABCDYZ"]
+        with pytest.raises(InvalidScheduleInput, match="cycle through task"):
+            expand_summary_dependencies(tasks, [Dependency("C", "D")], children_map)
+        with pytest.raises(InvalidScheduleInput, match="cycle through task"):
+            find_cycle([("C", "D")], children_map)
+        with pytest.raises(InvalidScheduleInput, match="cycle through task"):
+            find_cycle([], children_map)
+
+    def test_deep_cycle_does_not_recurse(self) -> None:
+        n = 5000
+        children_map = {f"n{i}": [f"n{(i + 1) % n}"] for i in range(n)}
+        with pytest.raises(InvalidScheduleInput, match="cycle through task"):
+            find_cycle([("a", "b")], children_map)
+
+    def test_diamond_is_still_accepted(self) -> None:
+        tasks = [task(t) for t in ("R", "L", "Rr", "leaf", "X")]
+        children_map = {"R": ["L", "Rr"], "L": ["leaf"], "Rr": ["leaf"]}
+        result = expand_summary_dependencies(tasks, [Dependency("R", "X")], children_map)
+        assert [(d.predecessor_id, d.successor_id) for d in result.dependencies] == [("leaf", "X")]
+        assert not find_cycle([("R", "X")], children_map)
+
+
+class TestLeafToLeafDuplicates:
+    """Duplicate plain-task links are refused with or without a children_map (#5019)."""
+
+    def _dups(self) -> list[Dependency]:
+        return [
+            Dependency("A", "B", DependencyType.FS),
+            Dependency("A", "B", DependencyType.FS, timedelta(days=3)),
+        ]
+
+    @pytest.mark.parametrize("children_map", [{}, {"S": ["a"]}])
+    def test_refused_on_both_paths(self, children_map: dict[str, list[str]]) -> None:
+        tasks = [task("A"), task("B"), task("S"), task("a")]
+        with pytest.raises(InvalidScheduleInput, match="Duplicate dependency 'A' → 'B'"):
+            expand_summary_dependencies(tasks, self._dups(), children_map)
+
+    def test_different_type_duplicate_refused_on_both_paths(self) -> None:
+        deps = [Dependency("A", "B"), Dependency("A", "B", DependencyType.SS)]
+        for children_map in ({}, {"S": ["a"]}):
+            with pytest.raises(InvalidScheduleInput, match="Duplicate dependency"):
+                expand_summary_dependencies([task("A"), task("B")], deps, children_map)
+
+    def test_summary_expanded_pairs_still_merge_by_max_lag(self) -> None:
+        deps = [
+            Dependency("A", "C", DependencyType.FS, timedelta(days=1)),
+            Dependency("S", "C", DependencyType.FS, timedelta(days=7)),
+        ]
+        tasks = [task(t) for t in ("A", "B", "C", "S")]
+        result = expand_summary_dependencies(tasks, deps, {"S": ["A", "B"]})
+        assert {(d.predecessor_id, d.successor_id): d.lag.days for d in result.dependencies} == {
+            ("A", "C"): 7,
+            ("B", "C"): 7,
+        }
+
+    def test_empty_children_map_returns_fresh_lists(self) -> None:
+        tasks = [task("A"), task("B")]
+        deps = [Dependency("A", "B")]
+        result = expand_summary_dependencies(tasks, deps, {})
+        assert result.tasks == tasks
+        assert result.tasks is not tasks
+        assert result.dependencies is not deps

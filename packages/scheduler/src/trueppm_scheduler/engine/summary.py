@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import (
+    Iterable,
     Iterator,
 )
 from dataclasses import (
@@ -118,6 +119,43 @@ def _check_children_map(children_map: dict[str, list[str]]) -> None:
                     f"children_map[{_short_repr(sid)}] contains a non-string child id "
                     f"(got {type(child_id).__name__}: {_short_repr(child_id)})."
                 )
+    _reject_children_cycle(children_map)
+
+
+def _reject_children_cycle(children_map: dict[str, list[str]]) -> None:
+    """Refuse a parent-child cycle anywhere in ``children_map`` (#5018).
+
+    The cycle used to be found only lazily, inside the leaf walk of a summary that
+    some dependency happened to name, so the same malformed map was accepted — and
+    its tasks silently dropped from the result — whenever no link touched the
+    cycle. One iterative three-colour DFS over the whole map makes the verdict a
+    property of the map alone, independent of the links. Iterative so a map nested
+    deeper than Python's recursion limit still raises cleanly.
+    """
+    visiting, done = 1, 2
+    state: dict[str, int] = {}
+    for root in children_map:
+        if root in state:
+            continue
+        state[root] = visiting
+        stack: list[tuple[str, Iterator[str]]] = [(root, iter(children_map[root]))]
+        while stack:
+            node, kids = stack[-1]
+            for child_id in kids:
+                if child_id not in children_map:
+                    continue  # a leaf cannot close a cycle
+                mark = state.get(child_id)
+                if mark == visiting:
+                    raise InvalidScheduleInput(
+                        f"children_map contains a cycle through task {_short_repr(child_id)}."
+                    )
+                if mark is None:
+                    state[child_id] = visiting
+                    stack.append((child_id, iter(children_map[child_id])))
+                    break
+            else:
+                state[node] = done
+                stack.pop()
 
 
 def _check_children_exist(tasks: list[Task], children_map: dict[str, list[str]]) -> None:
@@ -227,6 +265,90 @@ def collect_leaves(
 _collect_leaves = collect_leaves
 
 
+def _path_counts(
+    roots: set[str],
+    children_map: dict[str, list[str]],
+) -> dict[str, int]:
+    """Count root-to-leaf paths below every node reachable from ``roots``, once (#5014).
+
+    One memoized post-order pass shared by every endpoint, so the cost is
+    O(reachable nodes + edges) however many endpoints there are and however deep
+    the nesting — a per-endpoint walk that materialized each leaf list was
+    quadratic in depth, and did that work *before* the edge bound could refuse the
+    input. For a forest the path count equals the distinct-leaf count; for a diamond
+    it is an upper bound on it, which is the safe direction for a cap. ``children_map``
+    must already be cycle-free (:func:`_check_children_map`).
+
+    A node whose own path count passes ``MAX_EXPANDED_EDGES`` raises the same error
+    :func:`collect_leaves` does (#1822), so a doubling map is refused here in O(1) per
+    node.
+
+    Returns:
+        Path count per node, leaves (nodes absent from ``children_map``) counting 1.
+    """
+    counts: dict[str, int] = {}
+    for root in roots:
+        if root in counts:
+            continue
+        stack: list[tuple[str, bool]] = [(root, False)]
+        while stack:
+            node, is_exit = stack.pop()
+            if is_exit:
+                total = sum(counts[c] for c in children_map[node])
+                if total > MAX_EXPANDED_EDGES:
+                    raise InvalidScheduleInput(
+                        f"Expanding summary dependencies would exceed {MAX_EXPANDED_EDGES:,} "
+                        "leaf-level edges: a summary task fans out to that many root-to-leaf "
+                        "paths (typically a summary→summary dependency crossing a deep or "
+                        "wide WBS). Depend on specific leaf tasks, or split the summary edge."
+                    )
+                counts[node] = total
+                continue
+            if node in counts:
+                continue
+            kids = children_map.get(node)
+            if not kids:
+                counts[node] = 1
+                continue
+            stack.append((node, True))
+            stack.extend((c, False) for c in kids if c not in counts)
+    return counts
+
+
+def _check_expansion_bound(deps: list[Dependency], counts: dict[str, int]) -> None:
+    """Refuse an expansion whose leaf-count cross products pass ``MAX_EXPANDED_EDGES``.
+
+    Takes path counts, not leaf lists (#1208, #5014), so nothing is materialized
+    before the refusal. The sum is an upper bound on the distinct edges.
+    """
+    if _expansion_exceeds_bound(((d.predecessor_id, d.successor_id) for d in deps), counts):
+        raise InvalidScheduleInput(
+            f"Expanding summary dependencies to leaf level would exceed "
+            f"{MAX_EXPANDED_EDGES:,} edges (an upper bound: links that expand onto the "
+            "same leaf pair are counted separately). A summary→summary dependency is "
+            "fanning out to the cross product of both summaries' leaves — depend on "
+            "specific leaf tasks, or split the wide summary edge, and retry."
+        )
+
+
+def _expansion_exceeds_bound(
+    pairs: Iterable[tuple[str, str]],
+    counts: dict[str, int],
+) -> bool:
+    """Whether the summed leaf-count cross products pass ``MAX_EXPANDED_EDGES``.
+
+    Computed from counts alone, before any leaf list exists. The sum is an upper
+    bound on the distinct edges: it counts a pair twice when two links expand onto it
+    (#5014), which is the safe direction for a cap.
+    """
+    estimated = 0
+    for pred_id, succ_id in pairs:
+        estimated += counts.get(pred_id, 1) * counts.get(succ_id, 1)
+        if estimated > MAX_EXPANDED_EDGES:
+            return True
+    return False
+
+
 def expand_summary_dependencies(
     tasks: list[Task],
     deps: list[Dependency],
@@ -246,7 +368,8 @@ def expand_summary_dependencies(
     :class:`InvalidScheduleInput` for it, whatever its successor. Links that
     expand onto the same leaf pair are merged by meaning, not list order: same
     type keeps the largest (most binding) lag; different types raise
-    :class:`InvalidScheduleInput` (#4434).
+    :class:`InvalidScheduleInput` (#4434). Two links the caller wrote on the same
+    pair of plain tasks are refused, not merged (#5019).
 
     Args:
         tasks: All tasks including summaries.
@@ -275,11 +398,15 @@ def expand_summary_dependencies(
               when ``tasks`` is non-empty; the error names the ``children_map``
               entry, not a synthesized edge).
             * ``children_map`` contains a parent-child cycle (including a task
-              listed as its own child).
+              listed as its own child), wherever in the map it sits and whether
+              or not any link touches it (#5018).
             * A Start-to-Start or Start-to-Finish link from a summary task
               (ADR-0370), checked before the shared-leaf rule below, so an SS/SF
               link from a summary to its own descendant raises this rather than
               ``CyclicDependencyError``.
+            * Two links between the same pair of plain (non-summary) tasks, whether
+              or not ``children_map`` is empty (#5019); the message matches
+              ``schedule()``'s "Duplicate dependency".
             * Two links that expand onto the same leaf pair carry different
               dependency types (#4434).
             * The leaf cross product would exceed ``MAX_EXPANDED_EDGES``
@@ -289,21 +416,47 @@ def expand_summary_dependencies(
             ``[pred, succ, pred]``, or ``[pred, pred]`` when both endpoints are
             the same id.
     """
+    summary_ids = set(children_map) if isinstance(children_map, dict) else set()
+    # Leaf-to-leaf duplicates are a user error whether or not the WBS has a summary
+    # (#5019): schedule() refuses them, so the verdict must not hinge on children_map.
+    _reject_duplicate_leaf_links(deps, summary_ids)
     if not children_map:
-        return SummaryExpansion(tasks=tasks, dependencies=deps)
+        # Fresh containers, never the caller's own list objects.
+        return SummaryExpansion(tasks=list(tasks), dependencies=list(deps))
     _check_children_map(children_map)
     _check_children_exist(tasks, children_map)
 
-    summary_ids = set(children_map.keys())
     leaf_tasks = [t for t in tasks if t.id not in summary_ids]
 
     _reject_summary_start_links(deps, summary_ids)
 
     leaves = _resolve_endpoint_leaves(deps, summary_ids, children_map)
-    _check_expansion_bound(deps, leaves)
     _reject_overlapping_links(deps, leaves)
 
     return SummaryExpansion(tasks=leaf_tasks, dependencies=_cross_product_edges(deps, leaves))
+
+
+def _reject_duplicate_leaf_links(deps: list[Dependency], summary_ids: set[str]) -> None:
+    """Refuse two links on one leaf-to-leaf pair, as ``schedule()`` does (#5019).
+
+    Only links that expand from a summary merge by meaning (see
+    :func:`_cross_product_edges`); two links the caller wrote on the same pair of
+    plain tasks are a mistake the engine rejects everywhere else, so a populated
+    ``children_map`` must not turn it into a silent max-lag merge.
+    """
+    seen: set[tuple[str, str]] = set()
+    for dep in deps:
+        if dep.predecessor_id in summary_ids or dep.successor_id in summary_ids:
+            continue
+        key = (dep.predecessor_id, dep.successor_id)
+        if key in seen:
+            raise InvalidScheduleInput(
+                f"Duplicate dependency {_short_repr(dep.predecessor_id)} → "
+                f"{_short_repr(dep.successor_id)}; "
+                "each task pair may carry at most one dependency (declare a single "
+                "relationship per predecessor/successor pair)."
+            )
+        seen.add(key)
 
 
 def _reject_summary_start_links(deps: list[Dependency], summary_ids: set[str]) -> None:
@@ -341,40 +494,21 @@ def _resolve_endpoint_leaves(
     summary_ids: set[str],
     children_map: dict[str, list[str]],
 ) -> dict[str, list[str]]:
-    """Resolve every edge endpoint to its leaves, once per distinct id (#1208).
+    """Bound the expansion from counts, then resolve each endpoint to its leaves (#1208, #5014).
 
-    An endpoint id recurs across many edges and ``_collect_leaves`` walks the subtree
-    on each call, so resolving per distinct id rather than per edge is what keeps a
-    wide WBS cheap. Mirrors the caching the cycle-check twin
-    (:func:`_expand_edges_for_cycle_check`) already did — the asymmetry was a missed
-    optimization here.
+    The bound is applied on shared path counts *before* any leaf list is built, so a
+    pathological ``children_map`` is refused without the per-endpoint walk and
+    materialization that made refusal itself quadratic in nesting depth. An endpoint
+    id recurs across many edges, so leaves are then resolved per distinct id rather
+    than per edge.
     """
     endpoint_ids = {d.predecessor_id for d in deps} | {d.successor_id for d in deps}
+    counts = _path_counts(endpoint_ids & summary_ids, children_map)
+    _check_expansion_bound(deps, counts)
     return {
         nid: (_collect_leaves(nid, children_map) if nid in summary_ids else [nid])
         for nid in endpoint_ids
     }
-
-
-def _check_expansion_bound(deps: list[Dependency], leaves: dict[str, list[str]]) -> None:
-    """Bound the cross product from leaf *counts* before materialising a Dependency (#1208).
-
-    A summary→summary edge fans out to ``len(L(pred)) * len(L(succ))`` objects, so
-    without this a wide top-of-WBS edge produces millions of Dependency objects (and a
-    graph that then chokes ``schedule()``). The cheap cycle-check path already enforced
-    ``MAX_EXPANDED_EDGES`` this way; the expensive real-expansion path was the one
-    missing the guard.
-    """
-    estimated = 0
-    for dep in deps:
-        estimated += len(leaves[dep.predecessor_id]) * len(leaves[dep.successor_id])
-        if estimated > MAX_EXPANDED_EDGES:
-            raise InvalidScheduleInput(
-                f"Expanding summary dependencies to leaf level would exceed "
-                f"{MAX_EXPANDED_EDGES:,} edges. A summary→summary dependency is fanning "
-                "out to the cross product of both summaries' leaves — depend on specific "
-                "leaf tasks, or split the wide summary edge, and retry."
-            )
 
 
 def _reject_overlapping_links(deps: list[Dependency], leaves: dict[str, list[str]]) -> None:

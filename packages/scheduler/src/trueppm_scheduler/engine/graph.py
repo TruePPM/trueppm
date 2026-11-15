@@ -23,6 +23,8 @@ from trueppm_scheduler.engine.limits import (
 from trueppm_scheduler.engine.summary import (
     _check_children_map,
     _collect_leaves,
+    _expansion_exceeds_bound,
+    _path_counts,
 )
 from trueppm_scheduler.engine.validate import (
     _unknown_calendar_id_message,
@@ -328,31 +330,30 @@ def _expand_edges_for_cycle_check(
         return edges
     _check_children_map(children_map)
 
-    # Resolve each endpoint to its leaves once: an endpoint id can recur across many
-    # edges, and _collect_leaves walks the subtree each call.
+    # Bound the cross product from shared leaf *counts* before materialising a
+    # single leaf list or tuple (#357, #5014). The worst case — a wide
+    # summary→summary edge — is O(P*S) per edge, and resolving each endpoint's leaves
+    # first made refusal itself quadratic in nesting depth. The estimate is an upper
+    # bound (it ignores cross-edge dedup), which is the safe direction: we never
+    # under-count and let a blowup through.
     endpoint_ids = {pid for pid, _ in edges} | {sid for _, sid in edges}
+    counts = _path_counts(endpoint_ids & summary_ids, children_map)
+    if _expansion_exceeds_bound(edges, counts):
+        raise InvalidScheduleInput(
+            f"Cannot validate cycles: expanding summary dependencies to leaf "
+            f"level would exceed {MAX_EXPANDED_EDGES:,} edges (an upper bound: edges "
+            "that expand onto the same leaf pair are counted separately). A "
+            "summary→summary dependency is fanning out to the cross product of both "
+            "summaries' leaves — simplify the structure (depend on specific leaf "
+            "tasks, or split the wide summary edge) and retry."
+        )
+
+    # An endpoint id can recur across many edges and _collect_leaves walks the
+    # subtree each call, so resolve once per distinct id.
     leaves = {
         nid: (_collect_leaves(nid, children_map) if nid in summary_ids else [nid])
         for nid in endpoint_ids
     }
-
-    # Bound the cross product from leaf *counts* before materialising a single
-    # tuple (#357). The worst case — a wide summary→summary edge — is O(P*S) per
-    # edge; summing the per-edge products up front lets us reject a pathological
-    # graph in O(edges + leaves) instead of after building millions of tuples (or
-    # timing out). The estimate is an upper bound (it ignores cross-edge dedup),
-    # which is the safe direction: we never under-count and let a blowup through.
-    estimated = 0
-    for pred_id, succ_id in edges:
-        estimated += len(leaves[pred_id]) * len(leaves[succ_id])
-        if estimated > MAX_EXPANDED_EDGES:
-            raise InvalidScheduleInput(
-                f"Cannot validate cycles: expanding summary dependencies to leaf "
-                f"level would exceed {MAX_EXPANDED_EDGES:,} edges. A summary→summary "
-                "dependency is fanning out to the cross product of both summaries' "
-                "leaves — simplify the structure (depend on specific leaf tasks, or "
-                "split the wide summary edge) and retry."
-            )
 
     seen: set[tuple[str, str]] = set()
     expanded: list[tuple[str, str]] = []
