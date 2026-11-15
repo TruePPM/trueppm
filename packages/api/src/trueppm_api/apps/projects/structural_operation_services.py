@@ -551,11 +551,20 @@ def _retire_restored_summary_start_links(locked: Any, restored: list[Any]) -> in
     ]
     if not candidates:
         return 0
-    _, children_map = _load_project_tasks_and_children_map(locked.project_id)
+    # Each endpoint's own project, not just the locked one: a cross-project link's
+    # other end can be a summary in a different project (as the restore guard does).
+    project_ids = {locked.project_id}
+    for d in candidates:
+        project_ids.add(d.predecessor.project_id)
+        project_ids.add(d.successor.project_id)
+    summaries: set[str] = set()
+    for project_id in project_ids:
+        _, children_map = _load_project_tasks_and_children_map(project_id)
+        summaries.update(children_map)
     offending = set(
         find_summary_start_links(
             ((str(d.predecessor_id), str(d.successor_id), d.dep_type) for d in candidates),
-            children_map.keys(),
+            summaries,
         )
     )
     retired = 0

@@ -10,6 +10,12 @@ Lives outside the migration so a test can exercise it: importing a migration mod
 couples the suite to migration file names, which a squash deletes. It touches only the
 model classes it is handed, never live model code, so it runs against migration-state
 models.
+
+Only links that make every recalculation raise are retired, judged by the CPM feed's
+definition of a summary. The repair writes no ``HistoricalDependency`` row (it matches
+``Dependency.soft_delete``'s column writes, not its history); a stale offline push
+touching a retired link gets a 409 conflict (``sync/conflict.py``), which is acceptable.
+The structural guard's broader definition and its status-transition hole are #5046.
 """
 
 from __future__ import annotations
@@ -29,8 +35,17 @@ logger = logging.getLogger(__name__)
 INBOUND_FORBIDDEN_TYPES = ("FF", "SF")
 
 
+#: Literals, not live enum imports, for the same reason as above: ``TaskType.EPIC`` and
+#: ``TaskStatus.BACKLOG`` as of the release that shipped the repair.
+_EPIC_TYPE = "epic"
+_BACKLOG_STATUS = "BACKLOG"
+
+
 def _summary_ids(rows: Any) -> set[str]:
     """Ids among ``(id, wbs_path)`` rows with a direct child — the engine's definition.
+
+    The caller passes only the CPM feed's rows (no recurring, EPIC, BACKLOG or deleted
+    task), so a parent whose only children are such rows is not a summary here.
 
     Same rule as ``summary_link_guard.summary_ids_from_paths``, restated here so the
     migration depends on no other module that a later refactor could move.
@@ -49,13 +64,20 @@ def retire_inbound_summary_links(
 ) -> list[Any]:
     """Tombstone every live FF/SF dependency whose successor is a summary task.
 
-    A summary is a live task with a live direct child by WBS path — the CPM's own
-    children map (:func:`_summary_ids`), computed per project because WBS paths
-    are only unique within one. The retire mirrors ``Dependency.soft_delete``: the
-    row is kept as a tombstone with ``server_version`` bumped, ``deleted_version`` and
-    ``deleted_at`` stamped, and a fresh ``sync_seq`` drawn from the owning (predecessor's)
-    project so an offline client's next delta delivers the tombstone. Idempotent: a
-    second run finds no live offending link.
+    A summary is a task with a direct child by WBS path *within the CPM feed*
+    (``scheduling/tasks.py`` drops deleted, recurring, EPIC-type and BACKLOG-status
+    rows before ``build_children_map``), computed per project because WBS paths are
+    only unique within one. Only links that make every recalculation raise are retired:
+    a link into a parent whose only children are backlog/recurring/epic rows is
+    accepted by the engine today and is left alone (the structural guard's broader
+    definition, and its status-transition hole, are tracked in #5046).
+
+    The retire matches the columns ``Dependency.soft_delete`` writes on the row
+    (``server_version`` bumped, ``deleted_version`` and ``deleted_at`` stamped, a fresh
+    ``sync_seq`` from the owning predecessor's project so an offline client's next delta
+    delivers the tombstone) but writes NO ``HistoricalDependency`` row. A stale offline
+    push touching a retired link gets a 409 conflict (``sync/conflict.py``), which is
+    acceptable. Idempotent: a second run finds no live offending link.
 
     Args:
         dependency_model: ``Dependency`` (live class or migration-state model).
@@ -79,8 +101,11 @@ def retire_inbound_summary_links(
 
     summaries_by_project: dict[Any, set[str]] = {}
     for project_id in {dep.successor.project_id for dep in candidates}:
-        rows = task_model.objects.filter(project_id=project_id, is_deleted=False).values_list(
-            "pk", "wbs_path"
+        rows = (
+            task_model.objects.filter(project_id=project_id, is_deleted=False, is_recurring=False)
+            .exclude(type=_EPIC_TYPE)
+            .exclude(status=_BACKLOG_STATUS)
+            .values_list("pk", "wbs_path")
         )
         summaries_by_project[project_id] = _summary_ids(rows)
 

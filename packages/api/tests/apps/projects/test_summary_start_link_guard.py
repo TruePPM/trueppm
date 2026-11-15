@@ -1367,6 +1367,32 @@ def test_undoing_an_ungroup_does_not_revive_an_ff_link_into_the_container(
 
 
 @pytest.mark.django_db
+def test_undoing_an_ungroup_does_not_revive_a_cross_project_ff_into_a_summary(
+    project: Project, owner_client: APIClient
+) -> None:
+    """The revived edge's successor is a summary in ANOTHER project: still retired."""
+    container = _task(project, "Phase", "1")
+    _task(project, "Inner", "1.1")
+    other_project = Project.objects.create(
+        name="Elsewhere", start_date=project.start_date, calendar=project.calendar
+    )
+    remote_summary = _task(other_project, "Remote phase", "1")
+    _task(other_project, "Remote inner", "1.1")
+    ff = Dependency.objects.create(predecessor=container, successor=remote_summary, dep_type="FF")
+
+    ungrouped = _post(
+        owner_client, UNGROUP_URL.format(pk=project.pk), {"task_id": str(container.pk)}
+    )
+    assert ungrouped.status_code == 200, ungrouped.data
+
+    undone = _post(owner_client, UNDO_URL.format(pk=ungrouped.json()["operation_id"]))
+
+    assert undone.status_code == 200, undone.data
+    ff.refresh_from_db()
+    assert ff.is_deleted is True
+
+
+@pytest.mark.django_db
 def test_undoing_an_outdent_that_would_re_summarize_an_inbound_target_names_the_link(
     project: Project, owner_client: APIClient
 ) -> None:

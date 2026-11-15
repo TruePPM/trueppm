@@ -109,3 +109,33 @@ def test_a_deleted_child_does_not_make_a_summary(project: Project) -> None:
     assert _run() == []
     link.refresh_from_db()
     assert link.is_deleted is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("child_kwargs", "retired"),
+    [
+        ({"status": "BACKLOG"}, False),
+        ({"type": "epic"}, False),
+        ({"is_recurring": True}, False),
+        ({"status": "NOT_STARTED"}, True),
+    ],
+)
+def test_only_cpm_feed_children_make_a_summary(
+    project: Project, child_kwargs: dict[str, object], retired: bool
+) -> None:
+    """A parent whose only child the engine drops is no summary; a committed child is."""
+    summary = _task(project, "Phase", "1")
+    Task.objects.create(
+        project=project,
+        name="Inner",
+        duration=2,
+        wbs_path="1.1",
+        **child_kwargs,  # type: ignore[arg-type]
+    )
+    other = _task(project, "Other", "2")
+    link = Dependency.objects.create(predecessor=other, successor=summary, dep_type="FF")
+
+    assert bool(_run()) is retired
+    link.refresh_from_db()
+    assert link.is_deleted is retired
