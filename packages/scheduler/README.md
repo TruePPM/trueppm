@@ -824,11 +824,9 @@ release it is scheduled for:
   (`DerivationContribution.kind`, `Derivation.quantity`/`pass_`) is still an
   open string, not a published enum
   ([#4291](https://gitlab.com/trueppm/trueppm/-/issues/4291)).
-- **WASM engine** — `wasm-scheduler` errors are untyped strings at 17 call
-  sites rather than a structured error type
-  ([#4474](https://gitlab.com/trueppm/trueppm/-/issues/4474)), and the CPM
-  invariant-property suite that fuzzes the Python engine has no Rust port
-  yet, so a Rust-only regression would not be caught the same way
+- **WASM engine** — the CPM invariant-property suite that fuzzes the Python
+  engine has no Rust port yet, so a Rust-only regression would not be caught
+  the same way
   ([#4270](https://gitlab.com/trueppm/trueppm/-/issues/4270)).
 
 **Committed for 0.5.** 0.5 will run a hardening pass over the engine
