@@ -14027,9 +14027,9 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         from trueppm_api.apps.projects.utilization import compute_team_utilization
 
         week_start = today - datetime.timedelta(days=today.weekday())
-        team_utilization = compute_team_utilization(
-            project, week_start, week_start + datetime.timedelta(days=6)
-        )
+        # engine-boundary-ok: calendar bookkeeping, not schedule math
+        week_end = week_start + datetime.timedelta(days=6)
+        team_utilization = compute_team_utilization(project, week_start, week_end)
 
         # ── Added time (schedule risk premium) ─────────────────────────────
         # The gap between the CPM finish and the P80 commitment, promoted off the
@@ -14268,6 +14268,7 @@ class ProjectAttentionView(APIView):
         self, project: Project, today: datetime.date
     ) -> list[dict[str, Any]]:
         """Not-started, unassigned tasks whose CPM start falls in the next 7 days."""
+        # engine-boundary-ok: calendar bookkeeping, not schedule math
         soon = today + datetime.timedelta(days=7)
         unassigned_soon = Task.committed.filter(
             project=project,
@@ -14649,6 +14650,7 @@ class ProjectMyTasksView(APIView):
         today = timezone.localdate()
         # ISO week: Monday = 0
         week_start = today - datetime.timedelta(days=today.weekday())
+        # engine-boundary-ok: calendar bookkeeping, not schedule math
         week_end = week_start + datetime.timedelta(days=6)
 
         tasks = (
@@ -20603,6 +20605,7 @@ class ProjectBurnView(APIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            # engine-boundary-ok: calendar bookkeeping, not schedule math
             since = until - datetime.timedelta(days=MAX_BURN_WINDOW_DAYS)
             clamped = True
 

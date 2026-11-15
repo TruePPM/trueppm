@@ -19,17 +19,23 @@ docstrings and string literals are ignored), four rules:
   (``now()``/``localdate()`` cutoffs, ``weekday()`` week snaps, UPPER_CASE constants,
   ``lag=``/``duration=`` engine-input construction, ``days=0``)
 
-A line may opt out with ``# engine-boundary-ok: <reason>`` (reason required).
+A line may opt out with ``# engine-boundary-ok: <reason>`` on it or on the comment
+line directly above (reason required).
 Every remaining hit must be covered by an entry in ``ALLOWLIST`` (``packages/api/
 api-engine-boundary-allowlist.txt``): ``path | rule | max-count | issue | reason``.
 
 Ratchet. A count ABOVE the entry fails (a new hit); a count BELOW it fails too (lower
 the number — the list only shrinks); an entry matching nothing fails (delete it).
-Each entry must name an issue as ``#NNNN``; the temporary ``TODO-ISSUE`` marker is
-accepted locally with a warning and FAILS when ``CI`` is set.
+Each entry must name an issue as ``#NNNN``.
 
 What it deliberately does NOT check — read this before citing a green run:
 
+* **Aliased imports.** ``import statistics as st; st.quantiles(...)`` and
+  ``import numpy as n; n.percentile(...)`` are not matched (only ``np``/``numpy``/
+  ``statistics`` spellings and the ``from X import Y`` forms are).
+* **Clock keywords.** ``cutoff``/``retention``/``window`` exempt a ``timedelta`` line
+  only when ``now``/``today`` is on the same line; ``w = now_ish_task_finish + ...``
+  style names containing ``now``/``today`` could still slip through.
 * **Semantics.** It matches spellings. Working-day walks written as ``d += 1`` loops,
   ``date.fromordinal`` arithmetic, ``calendar.monthrange``, hand-rolled mean/median,
   float/criticality derivation (``total_float <= 0``) and milestone rollup math are
@@ -70,12 +76,17 @@ ALLOWLIST = Path(
 SKIP_PARTS = ("/migrations/", "/seed/", "/management/commands/", "/settings/")
 
 RULES: dict[str, re.Pattern[str]] = {
-    "np-random": re.compile(r"\b(?:np|numpy)\.random\b|\bdefault_rng\b"),
+    "np-random": re.compile(
+        r"\b(?:np|numpy)\.random\b|\bdefault_rng\b"
+        r"|^from(?:np|numpy)(?:\.random)?import(?:random|default_rng)\b|^importnumpy\.random"
+    ),
     "stdlib-random": re.compile(
         r"^(?:importrandom|fromrandomimport)|(?<![\w.])random\.[A-Za-z_]+\("
     ),
     "percentile": re.compile(
         r"\b(?:np|numpy)\.(?:nan)?(?:percentile|quantile)\b|\bstatistics\.(?:quantiles|median)\b"
+        r"|^from(?:np|numpy)import(?:nan)?(?:percentile|quantile)\b"
+        r"|^fromstatisticsimport(?:quantiles|median)\b"
     ),
     "timedelta-days": re.compile(r"\btimedelta\(days="),
 }
@@ -83,9 +94,13 @@ RULES: dict[str, re.Pattern[str]] = {
 # A timedelta(days=…) on these lines is wall-clock / calendar bookkeeping, not
 # schedule math: cutoffs, week snaps, constants, and building engine INPUTS.
 TIMEDELTA_BENIGN = re.compile(
-    r"now\(\)|localdate\(\)|cutoff|weekday\(\)|\blag=|\bduration=|\bdays=0\)|^[A-Z_][A-Z0-9_]*(?::[^=]+)?=|retention|window",
+    r"now\(\)|(?<![A-Za-z_])now[-+]|localdate\(\)|cutoff|weekday\(\)|\blag=|\bduration=|\bdays=0\)|(?-i:^[A-Z_][A-Z0-9_]*(?::[^=]+)?=)|^\w+(?::[^=]+)?=(?:datetime\.)?timedelta\(",
     re.IGNORECASE,
 )
+# cutoff/retention/window only count as bookkeeping when anchored to the wall clock on
+# the same line, so ``window_start = task_finish + timedelta(days=n)`` is still flagged.
+TIMEDELTA_CLOCK_KEYWORD = re.compile(r"cutoff|retention|window", re.IGNORECASE)
+TIMEDELTA_CLOCK_ANCHOR = re.compile(r"now|today|utcnow", re.IGNORECASE)
 
 
 # Per-line opt-out for a use that is provably not engine math (e.g. a timesheet's
@@ -134,12 +149,22 @@ def scan(src: Path) -> Counter[tuple[str, str]]:
         source = path.read_text(encoding="utf-8", errors="replace")
         raw = source.splitlines()
         for lineno, text in code_lines(source).items():
-            if OPT_OUT.search(raw[lineno - 1]):
+            if OPT_OUT.search(raw[lineno - 1]) or (
+                lineno > 1
+                and raw[lineno - 2].lstrip().startswith("#")
+                and OPT_OUT.search(raw[lineno - 2])
+            ):
                 continue
             for rule, pat in RULES.items():
                 if not pat.search(text):
                     continue
-                if rule == "timedelta-days" and TIMEDELTA_BENIGN.search(text):
+                if rule == "timedelta-days" and (
+                    TIMEDELTA_BENIGN.search(text)
+                    or (
+                        TIMEDELTA_CLOCK_KEYWORD.search(text)
+                        and TIMEDELTA_CLOCK_ANCHOR.search(text)
+                    )
+                ):
                     continue
                 hits[(rel, rule)] += 1
     return hits
@@ -165,12 +190,8 @@ def load_allowlist(
         file, rule, count, issue, _reason = parts
         if rule not in RULES:
             problems.append(f"{path.name}:{n}: unknown rule {rule!r}")
-        if not (re.fullmatch(r"#\d+", issue) or issue.startswith("TODO-ISSUE")):
+        if not (re.fullmatch(r"#\d+", issue)):
             problems.append(f"{path.name}:{n}: issue must be '#NNNN', got {issue!r}")
-        if issue.startswith("TODO-ISSUE") and os.environ.get("CI"):
-            problems.append(
-                f"{path.name}:{n}: placeholder {issue!r} must be a real issue in CI"
-            )
         entries[(file, rule)] = (int(count), issue)
     return entries, problems
 
@@ -199,11 +220,6 @@ def evaluate(
 def main() -> int:
     entries, problems = load_allowlist(ALLOWLIST)
     errors = problems + evaluate(scan(SRC), entries)
-    placeholders = [k for k, (_, i) in entries.items() if i.startswith("TODO-ISSUE")]
-    if placeholders:
-        print(
-            f"warning: {len(placeholders)} allow-list entries carry a TODO-ISSUE placeholder"
-        )
     if errors:
         print("api-engine-boundary: FAIL")
         for e in errors:
@@ -255,6 +271,26 @@ def self_test() -> int:
         allow[("apps/x/bad.py", "np-random")] = (5, "#1")
         if not evaluate(hits, allow):
             failures.append("stale (too-high) entry did not fail")
+        forms = {
+            "np-random": [
+                "from numpy.random import default_rng",
+                "from numpy import random",
+                "import numpy.random as r",
+            ],
+            "percentile": [
+                "from numpy import percentile",
+                "from numpy import quantile",
+                "from statistics import quantiles",
+            ],
+            "timedelta-days": ["window_start = task_finish + timedelta(days=n)"],
+        }
+        for rule, lines in forms.items():
+            for i, line in enumerate(lines):
+                d = Path(tmp) / f"forms_{rule}_{i}" / "trueppm_api"
+                d.mkdir(parents=True)
+                (d / "m.py").write_text(line + "\n")
+                if ("m.py", rule) not in scan(d):
+                    failures.append(f"{rule} form not detected: {line}")
         bad.write_text("x = 1\n")
         if not evaluate(scan(src), {("apps/x/bad.py", "np-random"): (1, "#1")}):
             failures.append("entry matching nothing did not fail")

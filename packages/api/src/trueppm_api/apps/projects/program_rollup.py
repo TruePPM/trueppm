@@ -843,6 +843,7 @@ def _milestone_health_by_project(project_ids: list[Any], today: datetime.date) -
     ).values("project_id", "early_finish", "status", "percent_complete"):
         grouped[r["project_id"]].append(r)
 
+    # engine-boundary-ok: calendar bookkeeping, not schedule math
     soon = today + datetime.timedelta(days=7)
     return {pid: _milestone_band(ms, today, soon) for pid, ms in grouped.items()}
 

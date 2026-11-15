@@ -103,6 +103,7 @@ def _resolve_snooze_preset(preset: str, now: datetime.datetime) -> datetime.date
             tz = datetime.UTC if not settings.TIME_ZONE else ZoneInfo(settings.TIME_ZONE)
         except Exception:
             tz = datetime.UTC
+        # engine-boundary-ok: calendar bookkeeping, not schedule math
         local_tomorrow = (now.astimezone(tz) + datetime.timedelta(days=1)).replace(
             hour=9, minute=0, second=0, microsecond=0
         )

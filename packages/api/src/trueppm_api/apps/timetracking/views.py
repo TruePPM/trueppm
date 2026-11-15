@@ -302,6 +302,7 @@ class MeTimeEntryWeeklyView(APIView):
             # Default to the current ISO week (Monday..Sunday).
             today = timezone.localdate()
             start = today - timedelta(days=today.weekday())
+            # engine-boundary-ok: calendar bookkeeping, not schedule math
             end = start + timedelta(days=6)
         else:
             start = _parse_iso_date(from_raw, "from")

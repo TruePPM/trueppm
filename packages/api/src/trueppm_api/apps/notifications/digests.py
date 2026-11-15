@@ -191,6 +191,7 @@ def build_resource_overallocation_digest(
     i.e. the same ``load_pct > 100`` threshold the heat map colors red.
     """
     window_start = local_now.date()
+    # engine-boundary-ok: calendar bookkeeping, not schedule math
     window_end = window_start + datetime.timedelta(days=6)
 
     # Drafts are excluded (#2962/#3128): a resource "overallocated" by a plan nobody
