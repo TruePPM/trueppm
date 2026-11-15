@@ -237,3 +237,80 @@ def test_import_accepts_legacy_bundle_without_digest(owner: Any) -> None:
 def test_import_rejects_truncated_gzip(owner: Any) -> None:
     resp = _post(owner, gzip.compress(b"not a tar")[:20])
     assert resp.status_code == 400
+
+
+def test_import_rejects_bundle_without_seed_json(owner: Any) -> None:
+    manifest = {"archive_version": 1}
+    resp = _post(owner, _repack({"manifest.json": json.dumps(manifest).encode()}))
+    assert resp.status_code == 400
+    assert "seed.json" in json.dumps(resp.json())
+
+
+def test_import_rejects_seed_json_over_the_upload_cap(owner: Any, settings: Any) -> None:
+    from trueppm_api.apps.projects.models import Program
+
+    settings.SEED_MAX_UPLOAD_MB = 1
+    big = {**_program_seed(), "padding": "x" * (2 * 1024 * 1024)}
+    resp = _post(owner, _bundle(big, digest=True))
+    assert resp.status_code == 400
+    assert "too large" in json.dumps(resp.json()).lower()
+    assert not Program.objects.filter(code="atlas").exists()
+
+
+def test_dry_run_rejects_tampered_bundle(owner: Any) -> None:
+    client = APIClient()
+    client.force_authenticate(owner)
+    payload = _bundle(_program_seed(), digest=True, tamper=True)
+    resp = client.post(
+        "/api/v1/programs/import/validate/",
+        {"file": SimpleUploadedFile("b.tar.gz", payload, content_type="application/gzip")},
+        format="multipart",
+    )
+    assert resp.status_code == 400
+    assert "integrity" in json.dumps(resp.json()).lower()
+
+
+# ---- decompression-bomb bounds ----------------------------------------------------
+
+
+def _bomb(size: int) -> bytes:
+    """A tiny gzip whose single member inflates to ``size`` zero bytes."""
+    return _repack({"seed.json": b"\0" * size})
+
+
+def test_decompression_bomb_is_refused() -> None:
+    raw = _bomb(8 * 1024 * 1024)
+    assert len(raw) < 64 * 1024  # the point: tiny on the wire
+    with pytest.raises(ArchiveIntegrityError, match="decompressed size"):
+        verify_archive(io.BytesIO(raw), max_decompressed_bytes=1024 * 1024)
+
+
+def test_member_count_over_the_cap_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    from trueppm_api.apps.projects import export_integrity
+
+    monkeypatch.setattr(export_integrity, "_MAX_MEMBERS", 5)
+    raw = _repack({f"m{i}.json": b"{}" for i in range(6)})
+    with pytest.raises(ArchiveIntegrityError, match="more than 5 members"):
+        verify_archive(io.BytesIO(raw))
+
+
+def test_import_rejects_decompression_bomb_over_http(
+    owner: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.projects import export_integrity
+    from trueppm_api.apps.projects.models import Program
+
+    monkeypatch.setattr(export_integrity, "_DECOMPRESSED_FACTOR", 1)
+    monkeypatch.setattr(export_integrity, "_MIN_DECOMPRESSED_BYTES", 1024 * 1024)
+    # 5 MiB default upload cap -> cap of 5 MiB inflated; this inflates to 12 MiB.
+    # seed.json over the seed cap would trip first, so spread it across members.
+    raw = _repack({f"pad{i}.bin": b"\0" * (3 * 1024 * 1024) for i in range(4)})
+    resp = _post(owner, raw)
+    assert resp.status_code == 400
+    assert "decompressed" in json.dumps(resp.json()).lower()
+    assert not Program.objects.exists()
+
+
+def test_legit_bundle_passes_under_default_caps(project: Project, owner: Any) -> None:
+    _, raw = _build(project, owner)
+    assert verify_archive(io.BytesIO(raw), seed_max_bytes=5 * 1024 * 1024).verified is True

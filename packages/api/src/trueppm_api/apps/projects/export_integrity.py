@@ -32,6 +32,15 @@ MANIFEST_NAME = "manifest.json"
 DIGEST_ALGORITHM = "sha256"
 _CHUNK = 1024 * 1024
 _MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+# Decompression-bomb bounds for verification. The upload cap (SEED_MAX_UPLOAD_MB)
+# limits only the *compressed* bytes, and gzip reaches ~1000:1, so a few MB can
+# inflate to gigabytes that this scan would hash inside the request thread. The
+# total inflated bytes are therefore capped at max(factor * upload cap, floor): a
+# real bundle (JSON, ~10:1) sits far below it, a bomb far above. The member count
+# bounds tar-header churn, which costs CPU without costing inflated bytes.
+_DECOMPRESSED_FACTOR = 64
+_MIN_DECOMPRESSED_BYTES = 256 * 1024 * 1024
+_MAX_MEMBERS = 10_000
 
 
 class ArchiveIntegrityError(Exception):
@@ -83,8 +92,22 @@ def sha256_stream(fileobj: IO[bytes]) -> str:
     return digest.hexdigest()
 
 
-def _read_manifest(src: IO[bytes]) -> dict[str, Any]:
+class _Budget:
+    """Running total of decompressed bytes; raises once ``limit`` is exceeded."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.used = 0
+
+    def spend(self, n: int) -> None:
+        self.used += n
+        if self.used > self.limit:
+            raise ArchiveIntegrityError("Archive expands beyond the allowed decompressed size.")
+
+
+def _read_manifest(src: IO[bytes], budget: _Budget) -> dict[str, Any]:
     raw = src.read(_MAX_MANIFEST_BYTES + 1)
+    budget.spend(len(raw))
     if len(raw) > _MAX_MANIFEST_BYTES:
         raise ArchiveIntegrityError("manifest.json is too large.")
     try:
@@ -96,11 +119,12 @@ def _read_manifest(src: IO[bytes]) -> dict[str, Any]:
     return parsed
 
 
-def _hash_member(src: IO[bytes], keep_max: int | None) -> tuple[str, bytes | None]:
+def _hash_member(src: IO[bytes], keep_max: int | None, budget: _Budget) -> tuple[str, bytes | None]:
     """Stream ``src`` through SHA-256; also keep its bytes when ``keep_max`` is set."""
     digest = hashlib.sha256()
     buf = bytearray()
     while chunk := src.read(_CHUNK):
+        budget.spend(len(chunk))
         digest.update(chunk)
         if keep_max is not None:
             buf += chunk
@@ -110,15 +134,20 @@ def _hash_member(src: IO[bytes], keep_max: int | None) -> tuple[str, bytes | Non
 
 
 def _scan(
-    fileobj: IO[bytes], seed_max_bytes: int | None
+    fileobj: IO[bytes], seed_max_bytes: int | None, max_decompressed_bytes: int
 ) -> tuple[dict[str, str], dict[str, Any] | None, bytes | None]:
     """One streaming pass: ``(member digests, parsed manifest, seed bytes)``."""
     actual: dict[str, str] = {}
     manifest: dict[str, Any] | None = None
     seed: bytes | None = None
+    budget = _Budget(max_decompressed_bytes)
+    members_seen = 0
     try:
         with tarfile.open(fileobj=fileobj, mode="r|gz") as tar:
             for info in tar:
+                members_seen += 1
+                if members_seen > _MAX_MEMBERS:
+                    raise ArchiveIntegrityError(f"Archive holds more than {_MAX_MEMBERS} members.")
                 if not info.isfile():
                     continue
                 name = info.name
@@ -128,10 +157,10 @@ def _scan(
                 if src is None:
                     continue
                 if name == MANIFEST_NAME:
-                    manifest = _read_manifest(src)
+                    manifest = _read_manifest(src, budget)
                     continue
                 keep = seed_max_bytes if name == "seed.json" else None
-                actual[name], kept = _hash_member(src, keep)
+                actual[name], kept = _hash_member(src, keep, budget)
                 if kept is not None:
                     seed = kept
     except ArchiveIntegrityError:
@@ -157,7 +186,12 @@ def _check_manifest(manifest: dict[str, Any], recorded: str, actual: dict[str, s
         raise ArchiveIntegrityError(f"Member {extra[0]!r} is not listed in the manifest.")
 
 
-def verify_archive(fileobj: IO[bytes], *, seed_max_bytes: int | None = None) -> ArchiveVerification:
+def verify_archive(
+    fileobj: IO[bytes],
+    *,
+    seed_max_bytes: int | None = None,
+    max_decompressed_bytes: int | None = None,
+) -> ArchiveVerification:
     """Verify a ``.tar.gz`` bundle's integrity manifest in one streaming pass.
 
     The manifest is the last member, so the archive is read once in stream mode,
@@ -167,9 +201,16 @@ def verify_archive(fileobj: IO[bytes], *, seed_max_bytes: int | None = None) -> 
     archive that cannot be read to its end (truncation). An archive whose manifest
     is absent or carries no ``manifest_sha256`` is returned ``verified=False``.
 
-    ``seed_max_bytes`` asks for ``seed.json`` to be captured (and bounds it).
+    ``seed_max_bytes`` asks for ``seed.json`` to be captured (and bounds it). Total
+    decompressed bytes are capped at ``max_decompressed_bytes`` (default
+    ``max(64 * seed_max_bytes, 256 MiB)``) and members at 10,000, so a
+    decompression bomb is an :class:`ArchiveIntegrityError`, not hours of hashing.
     """
-    actual, manifest, seed = _scan(fileobj, seed_max_bytes)
+    if max_decompressed_bytes is None:
+        max_decompressed_bytes = max(
+            _DECOMPRESSED_FACTOR * (seed_max_bytes or 0), _MIN_DECOMPRESSED_BYTES
+        )
+    actual, manifest, seed = _scan(fileobj, seed_max_bytes, max_decompressed_bytes)
     recorded = manifest.get("manifest_sha256") if manifest is not None else None
     if manifest is None or not isinstance(recorded, str):
         return ArchiveVerification(verified=False, seed_bytes=seed)

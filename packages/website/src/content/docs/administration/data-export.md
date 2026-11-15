@@ -269,13 +269,18 @@ editing**; it is not a signature, so it does not prove who made the file.
 sha256sum project-APOLLO.tar.gz     # compare with the X-Export-SHA256 header / file_sha256
 ```
 
-The `.tar.gz` digest differs between two builds of identical data (the gzip header
-holds a timestamp); the per-member digests of unchanged content do not.
+The whole-artifact (`.tar.gz`) digest is **not** stable across two builds of identical
+data: the gzip header and each tar entry header carry a build timestamp, and
+`manifest.json` records a `generated_at` time. Treat it as a fingerprint of one specific
+file, not of the data. The per-member digests in `members` cover decompressed content
+only, so they are identical across two builds of unchanged data.
 
 **On import.** Uploading a bundle (`.tar.gz`) to the program import endpoint
 verifies the manifest first. A digest mismatch, a file missing from or not listed in
 the manifest, or a truncated archive is refused with `400` before anything is
-written. A bundle with no digests (built before 0.5) is imported without the check.
+written. Verification also refuses an archive that inflates past a size bound
+(the larger of 64 times `SEED_MAX_UPLOAD_MB` and 256 MiB) or holds more than 10,000
+members, so a small crafted upload cannot force the server to hash gigabytes. A bundle with no digests (built before 0.5) is imported without the check.
 
 Optional encryption is still planned for **0.5**:
 
