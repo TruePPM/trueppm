@@ -16,8 +16,8 @@ export function FloatHelp() {
       body={
         <div className="flex flex-col gap-2">
           <p>
-            Both count <strong>working days</strong> a task can slip. They differ in whose
-            deadline moves first.
+            Both count <strong>working days</strong> a task can slip. They differ in whose deadline
+            moves first.
           </p>
           <ul className="flex flex-col gap-1 text-xs text-neutral-text-secondary">
             <li>
@@ -35,9 +35,8 @@ export function FloatHelp() {
             row cannot both use all of theirs.
           </p>
           <p className="text-xs text-neutral-text-secondary">
-            A negative value means the task is already late against the project finish. A dash
-            means the schedule has not been calculated for this row yet, which is not the same as
-            zero.
+            A negative value means the task is already late against the project finish. A dash means
+            the schedule has not been calculated for this row yet, which is not the same as zero.
           </p>
         </div>
       }

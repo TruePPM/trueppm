@@ -19,13 +19,17 @@ export function UtilizationHelp() {
           </p>
           <ul className="flex flex-col gap-1 text-xs text-neutral-text-secondary">
             <li>
-              <strong className="text-neutral-text-primary">Load comes from resource assignments</strong>{' '}
-              (the units on a task). A person named only as a task&apos;s owner, with no
-              resource assignment, adds nothing here.
+              <strong className="text-neutral-text-primary">
+                Load comes from resource assignments
+              </strong>{' '}
+              (the units on a task). A person named only as a task&apos;s owner, with no resource
+              assignment, adds nothing here.
             </li>
             <li>
-              <strong className="text-neutral-text-primary">A task counts over its full span</strong>,
-              not just its remaining work, so reporting progress does not make a person look free.
+              <strong className="text-neutral-text-primary">
+                A task counts over its full span
+              </strong>
+              , not just its remaining work, so reporting progress does not make a person look free.
             </li>
             <li>
               Capacity follows the resource&apos;s own calendar, then the project&apos;s. Leave and

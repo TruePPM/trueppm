@@ -1,4 +1,5 @@
 import { FieldHelp } from '@/components/FieldHelp';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 /**
  * Contextual help for the guardrail notice (#3714). The notice carries the
@@ -6,6 +7,7 @@ import { FieldHelp } from '@/components/FieldHelp';
  * already succeeded, which the line cannot.
  */
 export function GuardrailBreachHelp() {
+  const itl = useIterationLabel();
   return (
     <FieldHelp
       label="Sprint guardrails"
@@ -14,7 +16,7 @@ export function GuardrailBreachHelp() {
       body={
         <div className="flex flex-col gap-2">
           <p>
-            A guardrail is a sprint-composition rule your project set. The line beside this
+            A guardrail is a {itl.lower}-composition rule your project set. The line beside this
             button names the rule that tripped and why it matters.
           </p>
           <ul className="flex flex-col gap-1 text-xs text-neutral-text-secondary">

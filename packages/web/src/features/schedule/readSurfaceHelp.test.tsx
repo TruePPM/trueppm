@@ -15,11 +15,41 @@ import { VelocityHelp } from '../sprints/VelocityHelp';
  * into a docs page that exists.
  */
 const CASES = [
-  { name: 'FloatHelp', node: <FloatHelp />, label: 'Total float and free float', text: /working days/i, doc: 'features/schedule/' },
-  { name: 'BaselineVarianceHelp', node: <BaselineVarianceHelp />, label: 'Baseline variance', text: /active baseline/i, doc: 'features/baselines/' },
-  { name: 'UtilizationHelp', node: <UtilizationHelp />, label: 'Utilization', text: /resource assignments/i, doc: 'features/resources/' },
-  { name: 'VelocityHelp', node: <VelocityHelp />, label: 'Velocity', text: /closed sprints only/i, doc: 'features/velocity/' },
-  { name: 'GuardrailBreachHelp', node: <GuardrailBreachHelp />, label: 'Sprint guardrails', text: /sprint-composition rule/i, doc: 'administration/project-settings/' },
+  {
+    name: 'FloatHelp',
+    node: <FloatHelp />,
+    label: 'Total float and free float',
+    text: /working days/i,
+    doc: 'features/schedule/',
+  },
+  {
+    name: 'BaselineVarianceHelp',
+    node: <BaselineVarianceHelp />,
+    label: 'Baseline variance',
+    text: /active baseline/i,
+    doc: 'features/baselines/',
+  },
+  {
+    name: 'UtilizationHelp',
+    node: <UtilizationHelp />,
+    label: 'Utilization',
+    text: /resource assignments/i,
+    doc: 'features/resources/',
+  },
+  {
+    name: 'VelocityHelp',
+    node: <VelocityHelp />,
+    label: 'Velocity',
+    text: /closed sprints only/i,
+    doc: 'features/velocity/',
+  },
+  {
+    name: 'GuardrailBreachHelp',
+    node: <GuardrailBreachHelp />,
+    label: 'Sprint guardrails',
+    text: /sprint-composition rule/i,
+    doc: 'administration/project-settings/',
+  },
 ];
 
 describe.each(CASES)('$name', ({ node, label, text, doc }) => {
