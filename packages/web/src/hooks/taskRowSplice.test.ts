@@ -3,6 +3,8 @@ import { QueryClient } from '@tanstack/react-query';
 import {
   createTaskRowSplicer,
   isSpliceableChange,
+  isRollupChange,
+  cachedAncestorIds,
   TASK_SPLICE_COALESCE_MS,
   TASK_SPLICE_CONCURRENCY,
   TASK_SPLICE_MAX_BURST,
@@ -45,6 +47,26 @@ describe('isSpliceableChange', () => {
     expect(isSpliceableChange(['wbs_path'])).toBe(false);
     expect(isSpliceableChange(['sort_order'])).toBe(false);
     expect(isSpliceableChange(['board_rank'])).toBe(false);
+  });
+});
+
+describe('isRollupChange / cachedAncestorIds', () => {
+  it('flags rollup inputs (alone or with row-local fields) but nothing cross-row', () => {
+    expect(isRollupChange(['status'])).toBe(true);
+    expect(isRollupChange(['name', 'percent_complete'])).toBe(true);
+    expect(isRollupChange(['name'])).toBe(false);
+    expect(isRollupChange(['status', 'assignee'])).toBe(false);
+    expect(isRollupChange(['status', 'sprint'])).toBe(false);
+    expect(isRollupChange(['status', 'parent'])).toBe(false);
+    expect(isRollupChange(undefined)).toBe(false);
+    expect(isRollupChange([])).toBe(false);
+  });
+
+  it('walks cached parent links nearest-first and survives a cycle / missing parent', () => {
+    const r = (id: string, parentId: string | null) => ({ id, parentId }) as unknown as Task;
+    expect(cachedAncestorIds([r('c', 'b'), r('b', 'a'), r('a', null)], 'c')).toEqual(['b', 'a']);
+    expect(cachedAncestorIds([r('c', 'b'), r('b', 'c')], 'c')).toEqual(['b']);
+    expect(cachedAncestorIds([r('c', 'zzz')], 'c')).toEqual([]);
   });
 });
 
@@ -220,5 +242,35 @@ describe('createTaskRowSplicer', () => {
     s.dispose();
     await flush();
     expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('requestWithAncestors reads the child and every cached ancestor with no list refetch', async () => {
+    const r = (id: string, parentId: string | null, pc: number) =>
+      ({
+        id,
+        name: id,
+        serverVersion: 1,
+        wbs: `W-${id}`,
+        parentId,
+        progress: pc,
+      }) as unknown as Task;
+    qc.setQueryData<Task[]>(
+      ['tasks', 'p1'],
+      [r('top', null, 0), r('mid', 'top', 0), r('kid', 'mid', 0)],
+    );
+    getMock.mockImplementation(async (url: string) => {
+      const id = url.split('/')[2];
+      return { data: { ...api(id, id, 2), percent_complete: 50 } };
+    });
+    make().requestWithAncestors('kid', 2);
+    await flush();
+    expect(getMock.mock.calls.map((c) => c[0]).sort()).toEqual([
+      '/tasks/kid/',
+      '/tasks/mid/',
+      '/tasks/top/',
+    ]);
+    const rows = qc.getQueryData<Task[]>(['tasks', 'p1'])!;
+    expect(rows.every((t) => t.progress === 50)).toBe(true);
+    expect(fallback).not.toHaveBeenCalled();
   });
 });

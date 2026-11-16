@@ -39,7 +39,9 @@ export const TASK_SPLICE_MAX_BURST = 20;
 //  - cross-row derived state (blocking_task, blocked_by, assignee, owners): they
 //    change another row's `is_blocked` / `assignee_is_overallocated` (`owners` upserts
 //    TaskResource rows, so the same resource's OTHER tasks can flip overallocated).
-// TODO(#4950): rollup-input and cross-row edits still take the full refetch.
+// Rollup inputs that only move ANCESTOR summaries (ROLLUP_FIELDS below) are spliced
+// together with their ancestor chain (#4950); cross-row and structural edits still
+// take the full refetch.
 const SPLICEABLE_FIELDS: ReadonlySet<string> = new Set([
   'name',
   'description',
@@ -50,6 +52,49 @@ const SPLICEABLE_FIELDS: ReadonlySet<string> = new Set([
   'custom_fields',
   'custom_field_values',
 ]);
+
+// Fields whose change moves the edited row and (via the serializer's rollup) every
+// ancestor summary above it, and nothing else. `sprint`, `is_milestone` and
+// `story_points` are NOT here: a milestone's sprint rollup is derived from children
+// the client cannot identify from the cached parent chain, so they take the full refetch.
+const ROLLUP_FIELDS: ReadonlySet<string> = new Set([
+  'percent_complete',
+  'status',
+  'duration',
+  'duration_unit',
+  'actual_start',
+  'actual_finish',
+]);
+
+/**
+ * True when the frame is made only of row-local fields plus ancestor-rollup inputs,
+ * with at least one rollup input — i.e. the edited row AND its ancestor summaries
+ * must be re-read, but no other row can change.
+ */
+export function isRollupChange(changedFields: unknown): boolean {
+  if (!Array.isArray(changedFields) || changedFields.length === 0) return false;
+  return (
+    changedFields.every(
+      (f) => typeof f === 'string' && (SPLICEABLE_FIELDS.has(f) || ROLLUP_FIELDS.has(f)),
+    ) && changedFields.some((f) => ROLLUP_FIELDS.has(f as string))
+  );
+}
+
+/** Ancestor ids of `taskId` (nearest first) from the cached list's `parentId` links. */
+export function cachedAncestorIds(rows: readonly Task[], taskId: string): string[] {
+  const byId = new Map(rows.map((t) => [t.id, t]));
+  const out: string[] = [];
+  const seen = new Set<string>([taskId]);
+  let parent = byId.get(taskId)?.parentId ?? null;
+  while (parent !== null && !seen.has(parent)) {
+    const row = byId.get(parent);
+    if (!row) break;
+    out.push(parent);
+    seen.add(parent);
+    parent = row.parentId ?? null;
+  }
+  return out;
+}
 
 /**
  * True when the frame names a concrete set of changed fields that are ALL known
@@ -64,6 +109,12 @@ export function isSpliceableChange(changedFields: unknown): boolean {
 export interface TaskRowSplicer {
   /** Queue a read-back of `taskId`; `version` is the frame's server_version. */
   request(taskId: string, version: number | null): void;
+  /**
+   * Like `request`, plus a read-back of every cached ancestor summary, whose
+   * rolled-up values move with the edited row (#4950). Ancestors have no frame
+   * version, so they are only protected by the newer-write race check.
+   */
+  requestWithAncestors(taskId: string, version: number | null): void;
   /** Cancel pending work; in-flight results are discarded. */
   dispose(): void;
 }
@@ -156,12 +207,22 @@ export function createTaskRowSplicer(opts: {
     }
   }
 
+  function enqueue(taskId: string, version: number | null): void {
+    const prev = pending.get(taskId);
+    pending.set(taskId, prev == null || version === null ? version : Math.max(prev, version));
+    timer ??= setTimeout(() => void flush(), TASK_SPLICE_COALESCE_MS);
+  }
+
   return {
     request(taskId, version) {
       if (disposed) return;
-      const prev = pending.get(taskId);
-      pending.set(taskId, prev == null || version === null ? version : Math.max(prev, version));
-      timer ??= setTimeout(() => void flush(), TASK_SPLICE_COALESCE_MS);
+      enqueue(taskId, version);
+    },
+    requestWithAncestors(taskId, version) {
+      if (disposed) return;
+      enqueue(taskId, version);
+      const rows = queryClient.getQueryData<Task[]>(['tasks', getProjectId()]) ?? [];
+      for (const id of cachedAncestorIds(rows, taskId)) enqueue(id, null);
     },
     dispose() {
       disposed = true;
