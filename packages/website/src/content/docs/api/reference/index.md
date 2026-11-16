@@ -80,7 +80,7 @@ Kubernetes should point a readiness probe at.
 
 ## Pagination
 
-Five pagination dialects ship today. The generated
+Four pagination dialects ship today; a fifth, keyset on the task list, ships in 0.5. The generated
 [OpenAPI schema](#interactive-schema) is authoritative per endpoint: read the
 parameters the operation declares rather than assuming one convention.
 
@@ -104,6 +104,8 @@ A sixth, bespoke shape, `{results, next_until}`, is used by the board activity f
 (`/projects/{id}/board/activity/`): pass the returned `next_until` back as the
 upper time bound of the next request.
 
+Page-number response:
+
 ```json
 {"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
 ```
@@ -115,8 +117,8 @@ its `cursor` value back unchanged; `page_size` is honored up to 500, `previous` 
 always `null`, and combining it with `ordering` returns `400`. Unlike page numbers,
 a keyset walk neither repeats nor skips a row when tasks are plainly added or removed
 between requests, and a deep page costs about what the first one does. A structural
-move (indent, outdent, reparent) or a rename during a walk changes the sort key of
-rows already served, so it can repeat or skip a row; restart the walk if that matters. Without
+move (such as indent, outdent, reparent, group, ungroup) or a rename during a walk changes the sort key of
+rows already served, so it can repeat or skip a row; restart the walk if that matters. The response schema marks `count` required for both modes; keyset responses omit it (tracked in #5053). Without
 `pagination=keyset` the endpoint keeps its page-number envelope.
 
 Cursor endpoints cover unbounded, append-only logs. A cursor envelope has no

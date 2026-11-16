@@ -6711,8 +6711,8 @@ class TaskListPagination(ScheduleFetchPagination):
                     "(tie-broken on `id`): follow `next` to the end; the response omits "
                     "`count` and `page` is ignored. Plain inserts and deletes during a "
                     "walk neither repeat nor skip a row; structural moves "
-                    "(indent, outdent, reparent) and renames can. Cannot be "
-                    "combined with `ordering`."
+                    "(such as indent, outdent, reparent, group, ungroup) and renames can. "
+                    "Cannot be combined with `ordering`."
                 ),
                 "schema": {"type": "string", "enum": [KEYSET_MODE_VALUE]},
             },

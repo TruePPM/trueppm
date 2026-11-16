@@ -647,6 +647,11 @@ function mapDependency(d: ApiDependency): TaskLink {
  */
 const SCHEDULE_KEYSET_PAGE_SIZE = 500;
 
+/** Whether a keyset `next` link carries a non-empty `cursor` parameter. */
+function hasCursor(next: string): boolean {
+  return !!new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
+}
+
 /**
  * The `cursor` query parameter of a keyset `next` link, or `null` at the end.
  *
@@ -655,10 +660,6 @@ const SCHEDULE_KEYSET_PAGE_SIZE = 500;
  * from the host it saw and can name an internal host or the wrong scheme behind a
  * TLS-terminating proxy.
  */
-function hasCursor(next: string): boolean {
-  return !!new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
-}
-
 export function keysetCursorFromNext(next: string | null): string | null {
   if (next === null) return null;
   const cursor = new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
