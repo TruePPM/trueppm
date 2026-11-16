@@ -34,17 +34,16 @@ What is compared, exactly
   FF/SF link across two calendars (``_on_one_calendar`` makes it FS/SS; the rule is
   undecided, #4639) and a completed milestone with recorded actuals (its actuals are
   dropped; it keeps the day edge it had live, which is ``live_day_end_on`` history,
-  #4684).
+  #4684). A link out of a non-working actual is read in working time by all three
+  (#4631, #4702) and compared like any other input. The last planning-network shapes
+  the engines disagreed with the reference on — a lagged FF/SF link into a milestone
+  (#4272) and an FF link out of one (#4273) — were fixed in the engines, not
+  excluded here.
 * Summary tasks (#4684): a summary tree over a planning network, with links at a
   summary end of every type, is expanded by ``expand_summary_dependencies`` and
   scheduled, against :func:`tests.oracle.reference_cpm.expand_summaries` — the same
   refusals, the same leaf links, the same schedule. Python only; the Rust engine does
-  not expand summaries. A link out
-  of a non-working actual is read in working time by all three (#4631, #4702) and
-  compared like any other input. The last planning-network shapes the
-  engines disagreed with the reference on — a lagged FF/SF link into a milestone
-  (#4272) and an FF link out of one (#4273) — were fixed in the engines, not
-  excluded here.
+  not expand summaries.
 
 The perturbation oracle (#4439)
 -------------------------------

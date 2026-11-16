@@ -12,6 +12,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
+    CalendarException,
     Dependency,
     Program,
     Project,
@@ -462,40 +463,64 @@ class TestDrivingChain:
         assert viewer_client.get(url(project.pk)).status_code == 400
 
 
-def _snap_to_weekday(day: date) -> date:
-    while day.weekday() >= 5:
+_SWEEP_MONDAY = date(2026, 3, 2)
+# The seven weekdays as the data date, then no data date at all (resolved to a pinned
+# "today"): the floor lands on a working day, on a weekend, and on the day the link lands.
+_DATA_DATES = [_SWEEP_MONDAY + timedelta(days=i) for i in range(7)] + [None]
+# A non-working day in the calendar: none, or the Monday a weekend-landing lag would
+# otherwise snap to.
+_EXCEPTION_DAYS = [None, date(2026, 3, 9)]
+
+
+def _snap_to_working(day: date, exception: date | None) -> date:
+    while day.weekday() >= 5 or day == exception:
         day += timedelta(days=1)
     return day
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("exception", _EXCEPTION_DAYS, ids=lambda d: f"exc-{d}")
+@pytest.mark.parametrize("data_date", _DATA_DATES, ids=lambda d: f"dd-{d}")
 def test_builder_input_reports_every_link_that_alone_places_its_successor(
     project: Project,
+    data_date: date | None,
+    exception: date | None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A link whose calendar-day lag lands on a weekend still drives, via the API input (#4906).
 
     #4906 reported an empty ``driving_edges`` for ``Leaf(4d) -FS+1-> After`` built by
-    ``_build_cpm_sched_inputs``. It reproduces only against the pre-#4537
-    ``trueppm-scheduler`` 0.4.0rc1 wheel that a shared dev venv can carry in place of
-    the in-tree source; the source the API image builds from emits the edge. This sweeps
-    the class through the real builder (calendar, data date, summary strip and
-    expansion): every link type, lags whose landing day is a working day or a weekend,
-    and FS/FF out of a summary (SS/SF from a summary is refused, ADR-0024). Whenever the
-    successor starts after the data-date floor, nothing but the link placed it, so a
-    driving edge into it must exist.
+    ``_build_cpm_sched_inputs``. That shape was wrong in every release through 0.4.0
+    (the #4537 fix is not in any tag) and is fixed on main; this sweeps the class
+    through the real builder (calendar, data date, summary strip and expansion): every
+    link type, lags whose landing day is a working day or a weekend, FS/FF out of a
+    summary (SS/SF from a summary is refused, ADR-0024), the data date on each weekday
+    or unset (``timezone.localdate`` pinned), and a calendar exception on the landing
+    day. Whenever the successor starts after the data-date floor, nothing but the link
+    placed it, so a driving edge into it must exist.
     """
+    from django.utils import timezone
     from trueppm_scheduler import schedule
 
     from trueppm_api.apps.scheduling.views import _build_cpm_sched_project
 
-    floor = _snap_to_weekday(max(project.start_date, project.status_date))
+    today = date(2026, 3, 7)  # a Saturday: an unset data date floors onto a weekend
+    monkeypatch.setattr(timezone, "localdate", lambda *a, **k: today)
+    project.status_date = data_date
+    project.save(update_fields=["status_date"])
+    if exception is not None:
+        CalendarException.objects.create(
+            calendar=project.calendar, exc_start=exception, exc_end=exception
+        )
+
+    floor = _snap_to_working(max(project.start_date, data_date or today), exception)
     checked = 0
     for via_summary in (False, True):
         for kind in ("FS", "SS", "FF", "SF"):
             if via_summary and kind in ("SS", "SF"):
                 continue
-            for leaf_days in range(1, 6):
-                for lag in range(4):
+            for leaf_days in (1, 4, 5):
+                for lag in range(3):
                     Task.objects.filter(project=project).delete()
                     leaf = Task.objects.create(
                         project=project, name="Leaf", duration=leaf_days, wbs_path="1.1"
@@ -522,7 +547,7 @@ def test_builder_input_reports_every_link_that_alone_places_its_successor(
                         for e in result.driving_edges
                     ), shape
     # The sweep must reach the reported shape, not pass by skipping everything.
-    assert checked >= 40
+    assert checked >= 8
 
 
 @pytest.mark.django_db

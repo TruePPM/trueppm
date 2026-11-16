@@ -84,8 +84,9 @@ network it returns is scheduled against the reference (Python only, #4684). Not
 generated: `live_day_end_on`. Two inputs the reference refuses rather than answer, so the
 progress generator does not draw them: an FF or SF link between tasks on
 different calendars (the generator makes it FS/SS — which calendar reads its
-anchor is not documented) and a completed milestone with recorded actuals
-(the generator drops the actuals — its day edge is a display rule, #4433/#4525).
+anchor is not documented, #4639) and a completed milestone with recorded actuals
+(the generator drops the actuals — its day edge is a display rule, #4433/#4525;
+issue to be filed before merge).
 Every link shape is otherwise generated, and none is excluded: when the engines
 disagree with the reference on one, fix the engine (or, with a concrete reason,
 the documented rule and the reference together) — do not carve the shape out of

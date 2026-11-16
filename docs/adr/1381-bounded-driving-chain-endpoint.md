@@ -150,7 +150,6 @@ threshold setting and its default are the maintainer's decision.
 - `driving_edges` includes zero-free-float links that do not bind (#4704), so a merge
   can show two driving predecessors; the payload says so rather than picking one.
 - `driving_edges` includes a link whose calendar-day lag lands on a weekend (#4537). The
-  empty `driving_edges` once reported for that shape through the API input builder (#4906)
-  came from a stale pre-#4537 `trueppm-scheduler` wheel in a shared dev venv, not from the
-  builder or the engine; `test_schedule_driving_chain.py` sweeps the class through the
-  builder.
+  empty `driving_edges` reported for that shape through the API input builder (#4906) was
+  present in every release through 0.4.0, since the #4537 fix is in no tag; it is fixed on
+  main, and `test_schedule_driving_chain.py` now sweeps the class through the builder.
