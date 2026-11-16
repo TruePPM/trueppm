@@ -1201,6 +1201,24 @@ async def test_replay_beyond_the_cap_resyncs(user: object, project: Project) -> 
     assert sent[0]["payload"] == {"latest_seq": 4}
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_replay_beyond_the_byte_cap_resyncs(user: object, project: Project) -> None:
+    """A window within the row cap but over the byte cap resyncs instead of streaming (#4467)."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    persist = database_sync_to_async(_persist)
+    for i in range(3):
+        await persist(project, "task_updated", {"id": f"t{i}", "pad": "x" * 100})
+
+    with patch("trueppm_api.apps.sync.consumers._REPLAY_MAX_BYTES", 150):
+        sent = await _connect_capturing(str(project.pk), user, since=1)
+
+    assert [f["event_type"] for f in sent] == ["resync_required"]
+    assert sent[0]["payload"] == {"latest_seq": 3}
+
+
 def _upgrade_with_old_rows(project: Project, other: Project) -> dict[str, int]:
     """Write pre-#4386 rows (global ids, no seq), then run the migration's seeding.
 
