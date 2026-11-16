@@ -111,12 +111,11 @@ test.describe('Project Settings → Labels (#1089)', () => {
   // user still had no error and no way forward.
   test('a failed labels GET surfaces Retry, not "No labels yet"', async ({ page }) => {
     await setup(page);
-    let requestCount = 0;
+    let serverRecovered = false;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/labels/`, (r) => {
-      requestCount += 1;
       // The query client retries a failed GET once before settling into
       // `isError` (src/lib/queryClient.ts).
-      if (requestCount <= 2) {
+      if (!serverRecovered) {
         return r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -136,6 +135,7 @@ test.describe('Project Settings → Labels (#1089)', () => {
     await expect(labels.getByText("Couldn't load labels.")).toBeVisible();
     await expect(labels.getByText(/No labels yet/i)).not.toBeVisible();
 
+    serverRecovered = true;
     await labels.getByRole('button', { name: 'Retry' }).click();
     await expect(labels.getByTestId('label-row-label-bug')).toBeVisible();
   });

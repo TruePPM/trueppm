@@ -207,12 +207,11 @@ test.describe('Workspace methodology defaults', () => {
   }) => {
     await baseSetup(page);
 
-    let attempts = 0;
+    let serverRecovered = false;
     await page.route('**/api/v1/workspace/', async (r) => {
-      attempts += 1;
-      // The query client retries once (`failureCount < 1`), so the initial load is
-      // two attempts — fail both, then serve the request the Retry button fires.
-      if (attempts <= 2) {
+      // Fail every GET until the Retry click: the query client's automatic retry has a
+      // backoff, so "fail the first two" is a race under load (#3349).
+      if (!serverRecovered) {
         await r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -232,6 +231,7 @@ test.describe('Workspace methodology defaults', () => {
     await expect(methodology.getByRole('heading', { name: 'Methodology defaults' })).toBeVisible();
 
     // Retry re-runs just this request and the section recovers in place.
+    serverRecovered = true;
     await methodology.getByRole('button', { name: 'Retry' }).click();
     await expect(
       methodology.getByRole('radio', { name: /Waterfall/i, checked: true }),

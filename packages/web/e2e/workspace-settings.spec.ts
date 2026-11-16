@@ -448,14 +448,15 @@ test.describe('Workspace General page', () => {
     page,
   }) => {
     await setup(page);
-    let requestCount = 0;
-    // The query client retries a failed GET once before settling into `isError`
-    // (src/lib/queryClient.ts) — fail the first two requests (initial + the
-    // automatic retry) so the page actually reaches the error state before the
-    // test's own explicit Retry click issues the third, successful request.
+    // Fail EVERY /workspace/ GET until the test's own Retry click flips this flag.
+    // The query client retries a failed GET once, after a backoff delay
+    // (src/lib/queryClient.ts); counting attempts ("fail the first two") made the
+    // error state depend on when that automatic retry landed, which loses the race
+    // under worker contention (#3349). A flag expresses "the server is down until
+    // the user retries" without depending on how many attempts react-query makes.
+    let serverRecovered = false;
     await page.route('**/api/v1/workspace/', (r) => {
-      requestCount += 1;
-      if (requestCount <= 2) {
+      if (!serverRecovered) {
         return r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -480,6 +481,7 @@ test.describe('Workspace General page', () => {
     await expect(page.locator('input[value="TrueScope Aerospace"]')).not.toBeVisible();
 
     // Retry re-issues the GET; once it succeeds the form renders normally.
+    serverRecovered = true;
     await general.getByRole('button', { name: 'Retry' }).click();
     await expect(page.locator('input[value="TrueScope Aerospace"]')).toBeVisible();
   });
@@ -523,12 +525,11 @@ test.describe('Workspace Attachments / Calendar / Feedback / Groups — failed G
     page,
   }) => {
     await setup(page);
-    let requestCount = 0;
+    let serverRecovered = false;
     // Same retry accounting as the General-page #2656 spec: the query client
     // retries a failed GET once before settling into `isError`.
     await page.route('**/api/v1/workspace/', (r) => {
-      requestCount += 1;
-      if (requestCount <= 2) {
+      if (!serverRecovered) {
         return r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -556,6 +557,7 @@ test.describe('Workspace Attachments / Calendar / Feedback / Groups — failed G
 
     // Retrying Attachments' own card re-issues the shared GET; once it succeeds
     // every section fed by it — Calendar and Feedback included — recovers too.
+    serverRecovered = true;
     await attachments.getByRole('button', { name: 'Retry' }).click();
     await expect(attachments.getByRole('switch', { name: 'Allow file attachments' })).toBeVisible();
     await expect(calendar.getByRole('combobox', { name: /Default working calendar/i })).toBeVisible();
@@ -567,10 +569,9 @@ test.describe('Workspace Attachments / Calendar / Feedback / Groups — failed G
     await page.route('**/api/v1/workspace/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
     );
-    let requestCount = 0;
+    let serverRecovered = false;
     await page.route('**/api/v1/workspace/groups/**', (r) => {
-      requestCount += 1;
-      if (requestCount <= 2) {
+      if (!serverRecovered) {
         return r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -588,6 +589,7 @@ test.describe('Workspace Attachments / Calendar / Feedback / Groups — failed G
     await expect(groups.getByText("Couldn't load groups.")).toBeVisible();
     await expect(groups.getByText(/No groups yet/i)).not.toBeVisible();
 
+    serverRecovered = true;
     await groups.getByRole('button', { name: 'Retry' }).click();
     await expect(groups.getByText('Avionics')).toBeVisible();
   });

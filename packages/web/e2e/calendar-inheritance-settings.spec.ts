@@ -223,12 +223,11 @@ test.describe('Program working calendar', () => {
     await baseSetup(page);
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) => r.fulfill(json(program())));
 
-    let attempts = 0;
+    let serverRecovered = false;
     await page.route('**/api/v1/workspace/', async (r) => {
-      attempts += 1;
-      // The query client retries a 5xx once, so the initial load makes two
-      // attempts — fail both, then serve the request the Retry button fires.
-      if (attempts <= 2) {
+      // Fail every GET until the Retry click: the query client's automatic retry has a
+      // backoff, so "fail the first two" is a race under load (#3349).
+      if (!serverRecovered) {
         await r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -249,6 +248,7 @@ test.describe('Program working calendar', () => {
     // Load-bearing: "an error is shown" would also pass if the skeleton rendered too.
     await expect(cal.locator('[class*="animate-pulse"]')).toHaveCount(0);
 
+    serverRecovered = true;
     await cal.getByRole('button', { name: 'Retry' }).click();
     await expect(cal.getByRole('combobox', { name: 'Working calendar override' })).toBeVisible();
   });

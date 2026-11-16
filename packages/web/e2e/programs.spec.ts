@@ -1155,13 +1155,13 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
   test('surfaces a retryable error state when the projects list fails to load', async ({
     page,
   }) => {
-    let attempts = 0;
+    let serverRecovered = false;
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     // The queryClient retries a 5xx once (retry: failureCount < 1), so the
-    // initial load makes two attempts — fail both, then succeed on the Retry.
+    // initial load makes two attempts. Fail every GET until Retry (not the first N:
+    // the retry's backoff makes an attempt count a race under load, #3349).
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) => {
-      attempts += 1;
-      if (attempts <= 2) {
+      if (!serverRecovered) {
         return r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -1185,6 +1185,7 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
     await expect(errorState).toBeVisible();
 
     // Retry re-runs just the failed request; the second attempt succeeds.
+    serverRecovered = true;
     await errorState.getByRole('button', { name: /^Retry$/i }).click();
     await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
   });
