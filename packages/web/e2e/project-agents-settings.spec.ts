@@ -160,6 +160,10 @@ test.describe('Project Settings → Agents', () => {
     // Inheriting, and nothing above objected → no blocked explanation yet.
     await expect(section.getByTestId('agent-access-blocked-note')).toHaveCount(0);
 
+    const logLink = section.getByRole('link', { name: 'View the agent activity log' });
+    await expect(logLink).toBeVisible();
+    await expect(logLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/activity?view=agents`);
+
     const group = section.getByRole('radiogroup', { name: 'Agent read access' });
     await expect(group).toBeVisible();
     // Click the LABEL, not the radio: InheritableToggleField renders the input as
@@ -183,6 +187,12 @@ test.describe('Project Settings → Agents', () => {
     const section = page.locator('[data-settings-section="agents"]');
     await expect(section.getByTestId('agent-access-blocked-note')).toBeVisible();
     await expect(section.getByTestId('agent-access-blocked-note')).toContainText('blocked');
+    const refusals = section.getByTestId('agent-refusals-link');
+    await expect(refusals).toBeVisible();
+    await expect(refusals).toHaveAttribute(
+      'href',
+      /^\/projects\/[^/]+\/activity\?.*view=agents.*refused=1/,
+    );
   });
 
   test('shows the blocked note when the block is INHERITED, not set here', async ({ page }) => {
