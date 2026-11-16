@@ -54,6 +54,33 @@ check() {
   return "$rc"
 }
 
+# docker-compose.yml (the dev stack, #4672): no service may pin a literal
+# SECRET_KEY, and api/celery/celery-beat must each mount dev_secrets and wait for
+# secrets-init, or they boot on the image's baked default key.
+check_dev() {
+  local compose="$1" rc=0 svc
+  if grep -Eq '^[[:space:]]*SECRET_KEY:[[:space:]]*[^$[:space:]#]' "$compose"; then
+    echo "VIOLATION: $compose pins a literal SECRET_KEY; it must come from secrets-init" >&2
+    rc=1
+  fi
+  for svc in secrets-init api celery celery-beat; do
+    awk -v n="$svc" '$0 ~ "^  " n ":[[:space:]]*$" {f=1} END{exit !f}' "$compose" \
+      || { echo "VIOLATION: service '$svc' not found in $compose" >&2; rc=1; }
+  done
+  for svc in api celery celery-beat; do
+    awk -v n="$svc" '
+      $0 ~ "^  " n ":[[:space:]]*$" {s=1; next}
+      /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {s=0}
+      /^[a-z]/ {s=0}
+      { l=$0; sub(/(^|[[:space:]])#.*/,"",l) }
+      s && l ~ /^      - dev_secrets:\/secrets:ro/ {m=1}
+      s && l ~ /^      secrets-init:/ {d=1}
+      END { exit !(m && d) }' "$compose" \
+      || { echo "VIOLATION: dev service '$svc' must mount dev_secrets:/secrets:ro and depend on secrets-init" >&2; rc=1; }
+  done
+  return "$rc"
+}
+
 self_test() {
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
@@ -100,9 +127,38 @@ Y
   ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: trailing-comment entrypoint not caught" >&2; return 1; }
   good | awk '/^  api-init:/{s=1} s&&/demo_secrets:\/secrets:ro/{print "      # - demo_secrets:/secrets:ro"; s=0; next} {print}' > "$tmp/c.yml"
   ! check "$tmp/c.yml" "$tmp/Dockerfile" 2>/dev/null || { echo "SELF-TEST FAIL: commented-out mount not caught" >&2; return 1; }
+  cat > "$tmp/dev.yml" <<'Y'
+services:
+  secrets-init:
+    image: x
+  api:
+    volumes:
+      - dev_secrets:/secrets:ro
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+  celery:
+    volumes:
+      - dev_secrets:/secrets:ro
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+  celery-beat:
+    volumes:
+      - dev_secrets:/secrets:ro
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+Y
+  check_dev "$tmp/dev.yml" 2>/dev/null || { echo "SELF-TEST FAIL: compliant dev fixture rejected" >&2; return 1; }
+  sed 's/^  celery:/  celery:\n    environment:\n      SECRET_KEY: dev-secret-key-change-in-prod/' "$tmp/dev.yml" > "$tmp/d.yml"
+  ! check_dev "$tmp/d.yml" 2>/dev/null || { echo "SELF-TEST FAIL: literal dev SECRET_KEY not caught" >&2; return 1; }
+  awk '/dev_secrets/ && !d {d=1; next} {print}' "$tmp/dev.yml" > "$tmp/d.yml"
+  ! check_dev "$tmp/d.yml" 2>/dev/null || { echo "SELF-TEST FAIL: dev service missing the secrets mount not caught" >&2; return 1; }
   echo "SELF-TEST OK: compliant fixture passes; drifted CMD, missing mount, missing entrypoint, renamed image and comment-only entrypoint are each caught."
 }
 
 if [ "${1:-}" = "--self-test" ]; then self_test; exit $?; fi
 check "${COMPOSE_FILE:-$REPO_ROOT/docker-compose.demo.yml}" "${DOCKERFILE:-$REPO_ROOT/packages/api/Dockerfile}"
+check_dev "${DEV_COMPOSE_FILE:-$REPO_ROOT/docker-compose.yml}"
 echo "OK: docker-compose.demo.yml api command matches the Dockerfile CMD; every API-image service sources and mounts the demo secrets."

@@ -788,7 +788,7 @@ tracker-refs-check: ## Fail if this branch adds a reference to a closed issue, k
 	done
 
 compose-ports-check: ## Fail if docker-compose.yml publishes a port on a non-loopback interface (#4648)
-	@# The dev stack runs DEBUG + AllowAny + a public SECRET_KEY; #3189 loopback-bound
+	@# The dev stack runs DEBUG + AllowAny + a per-install generated SECRET_KEY (#4672); #3189 loopback-bound
 	@# db/mailpit but left api/web on 0.0.0.0. Pure text scan; no docker daemon.
 	@bash scripts/check-compose-ports.sh
 

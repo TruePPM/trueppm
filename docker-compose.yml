@@ -7,7 +7,7 @@
 # default clone, identical to prod — so this stack and the prod stack shared
 # `trueppm_postgres_data`: whichever came second met the other's Postgres
 # password, or `make up` landed on production data guarded only by the
-# hardcoded dev SECRET_KEY below.
+# dev SECRET_KEY (now generated per install, #4672).
 #
 # NOTE: a COMPOSE_PROJECT_NAME in your environment overrides this pin (Compose
 # precedence: -p > COMPOSE_PROJECT_NAME > name: > directory). scripts/wt exports
@@ -68,6 +68,26 @@ services:
       timeout: 5s
       retries: 5
 
+  # Generates SECRET_KEY once per volume (#4672) so no two dev stacks share a
+  # key published in this repo, and a restart keeps it (sessions and CSRF
+  # tokens stay valid). Reuses the pinned postgres:alpine image for its busybox
+  # sh so nothing extra is pulled or built; root only so it can hand the 0700
+  # directory on a fresh named volume to uid 1000, the api image's `trueppm`
+  # user. Set SECRET_KEY in the environment to override. `down -v` discards it.
+  secrets-init:
+    image: postgres:16-alpine@sha256:81e77a4833487b8132fe4b00bedd39dc3f74b8641e387f19312a48f7de218c2e
+    user: "0"
+    entrypoint: ["/bin/sh", "/demo-init-secrets.sh"]
+    environment:
+      SECRETS_SKIP_INTEGRATION_KEY: "1"
+      SECRET_KEY: ${SECRET_KEY:-}
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./scripts/demo-init-secrets.sh:/demo-init-secrets.sh:ro
+      - dev_secrets:/secrets
+    restart: "no"
+
   api:
     build:
       context: .
@@ -80,6 +100,7 @@ services:
     image: trueppm-api:local
     command: >
       sh -c "
+        . /secrets/env &&
         K=$$(python -c 'import secrets; print(secrets.token_urlsafe(48))') &&
         [ -n \"$$K\" ] &&
         export JWT_SIGNING_KEY=\"$$K\" &&
@@ -95,14 +116,13 @@ services:
       REDIS_URL: redis://valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
       TRUEPPM_ALLOW_DEV_SETTINGS: "1"
-      SECRET_KEY: dev-secret-key-change-in-prod
-      # JWT_SIGNING_KEY is NOT set here: the command above generates a random
-      # one per container start (#4648), so a JWT cannot be forged from the
-      # public SECRET_KEY, and the container refuses to start if generation
-      # fails. SECRET_KEY itself is STILL public (Django sessions and CSRF
-      # signing use it): this closes token forgery, not the whole key problem,
-      # which is why the ports stay on loopback. Restarting the api container
-      # signs everyone out. celery/celery-beat never sign or verify JWTs.
+      # SECRET_KEY is NOT set here: `secrets-init` generates it once per
+      # install (#4672) and the command above sources it from /secrets/env, so
+      # no key is published in this repo and a restart keeps it.
+      # JWT_SIGNING_KEY is NOT set here either: the command above generates a
+      # random one per container start (#4648), and the container refuses to
+      # start if generation fails. Restarting the api container signs everyone
+      # out. celery/celery-beat never sign or verify JWTs.
       TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
       # Fail startup if an overridden `command` drops the key generation above.
       TRUEPPM_REQUIRE_JWT_SIGNING_KEY: "1"
@@ -153,6 +173,7 @@ services:
       DEFAULT_FROM_EMAIL: dev@trueppm.local
     volumes:
       - ./packages/api/src:/app/src
+      - dev_secrets:/secrets:ro
     ports:
       # LOOPBACK by default (#4648): this service runs settings.dev (DEBUG,
       # AllowAny). TRUEPPM_DEV_BIND_ADDR=0.0.0.0 exposes it to the network; do
@@ -160,6 +181,8 @@ services:
       # from another machine, use docker-compose.prod.yml or Helm instead.
       - "${TRUEPPM_DEV_BIND_ADDR:-127.0.0.1}:8000:8000"
     depends_on:
+      secrets-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       valkey:
@@ -217,6 +240,7 @@ services:
   celery:
     image: trueppm-api:local
     # --concurrency=2 keeps dev memory under ~150 MB (default=10 caused OOM kills)
+    entrypoint: ["/bin/sh", "-c", ". /secrets/env && exec \"$$@\"", "--"]
     command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info", "--concurrency=2"]
     restart: unless-stopped
     environment:
@@ -224,7 +248,7 @@ services:
       REDIS_URL: redis://valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
       TRUEPPM_ALLOW_DEV_SETTINGS: "1"
-      SECRET_KEY: dev-secret-key-change-in-prod
+      # SECRET_KEY comes from secrets-init via the entrypoint (#4672).
       PYTHONPATH: /app/src
       # Read by workspace/notifications email builders (#4188): without it,
       # invite-accept, export-ready, and mention-notification emails the worker
@@ -250,7 +274,10 @@ services:
       DEFAULT_FROM_EMAIL: dev@trueppm.local
     volumes:
       - ./packages/api/src:/app/src
+      - dev_secrets:/secrets:ro
     depends_on:
+      secrets-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       valkey:
@@ -282,6 +309,7 @@ services:
     # `--schedule=/tmp/...` writes the persistent schedule DB to a writable path;
     # the container's working directory is owned by root so the default
     # `celerybeat-schedule` write fails with PermissionError (#314 follow-up).
+    entrypoint: ["/bin/sh", "-c", ". /secrets/env && exec \"$$@\"", "--"]
     command: ["celery", "-A", "trueppm_api.celery", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
     restart: unless-stopped
     environment:
@@ -289,14 +317,17 @@ services:
       REDIS_URL: redis://valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
       TRUEPPM_ALLOW_DEV_SETTINGS: "1"
-      SECRET_KEY: dev-secret-key-change-in-prod
+      # SECRET_KEY comes from secrets-init via the entrypoint (#4672).
       PYTHONPATH: /app/src
       # See the `celery` service's comment above (#4188) — Beat schedules the
       # same drain tasks the worker executes, so it needs this to match.
       TRUEPPM_FRONTEND_BASE_URL: http://localhost:5173
     volumes:
       - ./packages/api/src:/app/src
+      - dev_secrets:/secrets:ro
     depends_on:
+      secrets-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       valkey:
@@ -318,3 +349,4 @@ volumes:
   postgres_data:
   valkey_data:
   web_node_modules:
+  dev_secrets:

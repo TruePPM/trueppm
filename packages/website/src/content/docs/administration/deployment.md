@@ -1,6 +1,7 @@
 ---
 title: Deployment
 description: Deploy TruePPM with Docker Compose, the Kubernetes Helm chart, or a single server managed by systemd — plus how to verify image and chart signatures.
+documentedFor: "0.5"
 ---
 
 :::caution[Pre-GA]
@@ -72,9 +73,19 @@ the Vite dev server serves the SPA on `:5173`, and that both `celery` and
 it does not cover: multi-developer contention, sustained load, or any topology
 other than the single-machine one `docker compose up -d` gives you.
 
+:::note[Ships in 0.5]
+The development stack will stop shipping a published `SECRET_KEY` in 0.5. A
+one-shot `secrets-init` service will generate a random one on first boot, keep it
+in the `dev_secrets` volume, and share it with the api, celery and celery-beat
+services; `docker compose down -v` will discard it. Today the key is fixed in the
+compose file.
+A `docker compose exec api` shell will inherit the image's default `SECRET_KEY`,
+not the generated one, so run `. /secrets/env` first for anything that signs.
+:::
+
 **Not for shared or production use, even a small team.** This stack hardcodes
-`POSTGRES_PASSWORD: trueppm` and `SECRET_KEY: dev-secret-key-change-in-prod` in
-the tracked compose file, and it publishes PostgreSQL, the API (`:8000`) and the web server (`:5173`)
+`POSTGRES_PASSWORD: trueppm` in the tracked compose file (and, until 0.5, the
+Django `SECRET_KEY` `dev-secret-key-change-in-prod`), and it publishes PostgreSQL, the API (`:8000`) and the web server (`:5173`)
 on the host. The API and web ports bind to `127.0.0.1` by default; setting
 `TRUEPPM_DEV_BIND_ADDR=0.0.0.0` publishes them on every interface, so do that
 only on an isolated host, never on a shared network.

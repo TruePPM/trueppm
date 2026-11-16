@@ -3029,7 +3029,7 @@ compose:nginx-shutdown:
 
 compose:ports:
   extends: .fast-job
-  # docker-compose.yml runs settings.dev (DEBUG, AllowAny, public SECRET_KEY), so
+  # docker-compose.yml runs settings.dev (DEBUG, AllowAny), so
   # every published port must bind loopback or ${TRUEPPM_DEV_BIND_ADDR} (#4648).
   # Text scan only: no install, no build, no docker daemon.
   stage: lint

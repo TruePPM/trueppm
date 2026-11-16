@@ -24,6 +24,8 @@
 # Environment:
 #   SECRETS_DIR            target directory (default /secrets)
 #   SECRET_KEY, INTEGRATION_ENCRYPTION_KEY   optional overrides
+#   SECRETS_SKIP_INTEGRATION_KEY=1  generate/store SECRET_KEY only (the dev
+#                          stack, #4672, has no integration credentials)
 #   SECRETS_OWNER          uid:gid to chown to (default 1000:1000, the image's
 #                          `trueppm` user; set empty to skip, e.g. in tests)
 set -eu
@@ -67,14 +69,18 @@ resolve() {
 }
 
 resolve secret_key "${SECRET_KEY:-}" gen_secret_key
-resolve integration_encryption_key "${INTEGRATION_ENCRYPTION_KEY:-}" gen_fernet_key
+if [ "${SECRETS_SKIP_INTEGRATION_KEY:-}" != "1" ]; then
+  resolve integration_encryption_key "${INTEGRATION_ENCRYPTION_KEY:-}" gen_fernet_key
+fi
 
 # Assemble the file the other services source. Values are base64url (or an
 # operator-supplied string), single-quoted so the shell never interprets them.
 env_file="${SECRETS_DIR}/env"
 {
   printf "export SECRET_KEY='%s'\n" "$(cat "${SECRETS_DIR}/secret_key")"
-  printf "export INTEGRATION_ENCRYPTION_KEY='%s'\n" "$(cat "${SECRETS_DIR}/integration_encryption_key")"
+  if [ "${SECRETS_SKIP_INTEGRATION_KEY:-}" != "1" ]; then
+    printf "export INTEGRATION_ENCRYPTION_KEY='%s'\n" "$(cat "${SECRETS_DIR}/integration_encryption_key")"
+  fi
 } > "${env_file}"
 chmod 600 "${env_file}"
 

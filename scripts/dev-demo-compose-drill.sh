@@ -250,8 +250,11 @@ wait_http_200() {
 # ============================================================================
 if [ "${DRILL_MODE}" = "dev" ]; then
 
-  log "syncing bind-mount sources onto the dind daemon filesystem (packages/api/src, packages/web)"
-  sync_checkout_to_daemon packages/api/src packages/web
+  # scripts/demo-init-secrets.sh is the `secrets-init` service's bind source (#4672):
+  # unsynced, the daemon invents an empty directory there and /secrets/env is never
+  # written, so api and celery die sourcing it.
+  log "syncing bind-mount sources onto the dind daemon filesystem (packages/api/src, packages/web, demo-init-secrets.sh)"
+  sync_checkout_to_daemon packages/api/src packages/web scripts/demo-init-secrets.sh
 
   # Vite 5+'s server.allowedHosts rejects a Host header it does not
   # recognize (docker-compose.yml's own default covers localhost/127.0.0.1/
@@ -275,6 +278,15 @@ if [ "${DRILL_MODE}" = "dev" ]; then
   wait_healthy db
   wait_healthy valkey
   wait_healthy api
+
+  log "waiting for secrets-init to generate the per-install SECRET_KEY"
+  wait_exited_zero secrets-init
+  # #4672: the dev stack must run on a generated key, never the published
+  # default. Compare inside the container; the value is never echoed.
+  dev_key_out="$(compose exec -T api /bin/sh -c \
+      'if [ -s /secrets/secret_key ] && ! grep -q dev-secret-key-change-in-prod /secrets/env; then echo OK; else echo BAD; fi')" \
+    || fail "could not inspect /secrets in the api container"
+  [ "${dev_key_out}" = "OK" ] || fail "dev SECRET_KEY is missing or is the published default (got '${dev_key_out}')"
 
   log "asserting GET /api/v1/readyz reports ok"
   readyz="$(curl -s "${API_BASE_URL}/api/v1/readyz")"
