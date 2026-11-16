@@ -101,7 +101,7 @@ so every synced row in a project is ordered against every other one. This is wha
 treat `timestamp` as an opaque checkpoint and echo it back, which is what the
 protocol has always asked for.
 
-`since=0` returns all rows.
+`since=0` returns live rows only, with no tombstones. A cold start holds nothing to delete, and a client that has to rebuild discards its local store before pulling from 0 (see [Tombstone retention and `resync_required`](#tombstone-retention-and-resync_required)), so no stale row can survive. Any `since` above 0 returns tombstones as before. The user-scoped program pull (`/sync/user/programs/`) behaves the same way.
 
 ## Conflict resolution
 

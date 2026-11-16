@@ -9,7 +9,7 @@ import logging
 import sys
 import time
 from collections import deque
-from typing import Any, cast
+from typing import Any
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
@@ -46,6 +46,11 @@ _PRESENCE_REFRESH_INTERVAL = _PRESENCE_TTL // 2
 # a ``resync_required`` frame instead — matching the "since older than retention"
 # fallback.
 _REPLAY_CAP = 1000
+
+# Upper bound on the summed serialized payload size of one replay (#4467). The row
+# cap alone allows ~1000 x 130 KB ``task_dates_updated`` deltas in the shared ASGI
+# process; past this many bytes the client is cheaper to resync than to stream.
+_REPLAY_MAX_BYTES = 4 * 1024 * 1024
 
 # Close codes (#4375). Which side of the handshake a refusal happens on decides
 # whether a browser can ever see the code:
@@ -428,16 +433,20 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             owed = head - since
             if owed <= 0 or owed > _REPLAY_CAP:
                 return [], head
-            rows = cast(
-                "list[dict[str, Any]]",
-                list(
-                    BoardEvent.objects.filter(
-                        project_id=self.project_pk, seq__gt=since, seq__lte=head
-                    )
-                    .order_by("seq")
-                    .values("seq", "event_type", "payload")
-                ),
-            )
+            rows: list[dict[str, Any]] = []
+            total = 0
+            # Streamed so an oversized window is abandoned part-way instead of
+            # materialized whole; an empty result takes the resync path below.
+            for row in (
+                BoardEvent.objects.filter(project_id=self.project_pk, seq__gt=since, seq__lte=head)
+                .order_by("seq")
+                .values("seq", "event_type", "payload")
+                .iterator(chunk_size=100)
+            ):
+                total += len(json.dumps(row["payload"]))
+                if total > _REPLAY_MAX_BYTES:
+                    return [], head
+                rows.append(dict(row))
             return rows, head
 
         rows, head = await _fetch()

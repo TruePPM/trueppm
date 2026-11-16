@@ -144,6 +144,13 @@ def _below_tombstone_floor(since: int, floor: int) -> bool:
     return 0 < since < floor
 
 
+def _live_only(qs: Any) -> Any:
+    """Drop soft-deleted rows from a source queryset when its model has the flag."""
+    if any(f.name == "is_deleted" for f in qs.model._meta.concrete_fields):
+        return qs.filter(is_deleted=False)
+    return qs
+
+
 def _resync_required_response() -> Response:
     """The ``resync_required`` envelope (#2474), shaped to fail safe.
 
@@ -175,6 +182,11 @@ class ProjectSyncView(IdempotencyMixin, APIView):
     Returns all rows (live and soft-deleted) whose ``sync_seq`` is strictly
     greater than `since` for the given project, formatted for WatermelonDB's
     synchronize() helper.
+
+    A cold start (``since=0``) returns live rows only. The client holds nothing, so
+    a tombstone has nothing to delete; and a client that must rebuild is told to
+    discard its store first (``resync_required``), so no stale row survives the
+    pull from 0. Tombstones are served for any ``since > 0``.
 
     ``sync_seq`` — not ``server_version`` — is the cursor (ADR-0686, #2491). It is
     drawn from the project's own monotonic sequence, so every synced row in the
@@ -508,6 +520,12 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 SyncTaskRelationSerializer,
             ),
         ]
+
+        if since == 0:
+            # Cold start: the client holds nothing, so a tombstone has nothing to
+            # delete — yet it would count toward page_size and drag the
+            # label/custom-field prefetches over deleted rows (#4470).
+            sources = [(name, _live_only(qs), ser) for name, qs, ser in sources]
 
         changes, next_cursor, has_more = paginate_changes(
             sources,
@@ -857,6 +875,11 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
     re-sync. Full write-side offline for programs is out of scope for v1 (reads
     first, per #561).
 
+    A cold start (``since=0``) returns live rows only. The client holds nothing, so
+    a tombstone has nothing to delete; and a client that must rebuild is told to
+    discard its store first (``resync_required``), so no stale row survives the
+    pull from 0. Tombstones are served for any ``since > 0``.
+
     Usage:
         GET /api/v1/sync/user/programs/?since=0
     """
@@ -973,6 +996,11 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
                 SyncProgramMembershipSerializer,
             ),
         ]
+
+        if since == 0:
+            # Cold start: the client holds nothing, so a tombstone has nothing to
+            # delete (same reasoning as ProjectSyncView, #4470).
+            sources = [(name, _live_only(qs), ser) for name, qs, ser in sources]
 
         changes, next_cursor, has_more = paginate_changes(
             sources,

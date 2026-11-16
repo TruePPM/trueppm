@@ -1,6 +1,7 @@
 ---
 title: WebSocket event conventions
 description: The naming convention, frozen-contract guarantee, and registration steps for real-time board events.
+documentedFor: "0.5"
 ---
 
 The real-time layer broadcasts board and schedule changes over WebSocket. It has
@@ -71,10 +72,12 @@ a per-project `seq` (ADR-0236, ADR-1285). The mechanism:
   Replayed frames always precede live ones, and the client drops any `seq` it has
   already applied, so replay is idempotent.
 - **Gap fallback** — the consumer sends a single `resync_required` control frame
-  carrying `{ "latest_seq": <head> }` in three cases. The first is when some owed
+  carrying `{ "latest_seq": <head> }` in four cases. The first is when some owed
   rows were purged (the buffer keeps `TRUEPPM_BOARD_EVENT_RETENTION_HOURS`, default
   24h). The second is when the client is more than the replay cap behind. The third
   is when `since` is above the head, a value the project's sequence never reached.
+  The fourth is when the owed events would exceed the 4 MiB replay byte cap, since
+  past that size the client is cheaper to resync than to stream.
   A global-id cursor from before #4386 also resyncs, through the same count check
   rather than an actual purge. The upgrade seeded every existing project's counter
   at its highest old id plus 2³², so every pre-upgrade cursor is below the seed. It
@@ -84,6 +87,12 @@ a per-project `seq` (ADR-0236, ADR-1285). The mechanism:
 `resync_required` is a **consumer-emitted control frame**, not a broadcast event —
 it never passes through `broadcast_board_event()`, so it is deliberately *not* part
 of `FROZEN_WS_EVENT_TYPES`.
+
+:::note[Ships in 0.5]
+The fourth `resync_required` case, the 4 MiB replay byte cap, ships in 0.5. In
+v0.4.0 the consumer resyncs only when owed rows were purged, when the client is
+over the replay row cap behind, or when `since` is above the head.
+:::
 
 ## Naming convention
 

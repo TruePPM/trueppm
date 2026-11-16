@@ -333,8 +333,11 @@ def test_soft_deleted_link_is_a_sync_tombstone(
     link = TaskLink.objects.create(
         task=task, url="https://github.com/a/b/pull/1", provider="github"
     )
+    client = _client(member)
+    # since=0 ships live rows only (#4470), so take a checkpoint before the delete.
+    since = client.get(f"/api/v1/projects/{project.pk}/sync/?since=0").json()["timestamp"]
     link.soft_delete()
-    r = _client(member).get(f"/api/v1/projects/{project.pk}/sync/?since=0")
+    r = client.get(f"/api/v1/projects/{project.pk}/sync/?since={since}")
     task_links = r.json()["changes"]["task_links"]
     assert str(link.pk) in task_links["deleted"]
 
