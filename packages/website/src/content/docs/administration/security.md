@@ -278,10 +278,15 @@ Two behaviors to know:
   git link. A caller that declares no purpose honors no list. In 0.4 a single
   list applied to every caller.
 
-The SMTP relay is checked with the same deny-list at save and send time but uses
-Django's SMTP backend, which re-resolves the host when it connects, so it keeps a
-DNS-rebinding residual (tracked in #4647). Keep a NetworkPolicy denying internal
-ranges in front of mail egress if that matters to you.
+The SMTP relay is checked with the same deny-list at save and send time, and in
+0.5 its connection is dialed through the same connect-time guard: the relay name
+is resolved once, refused if any answer is non-public, and only those checked
+addresses are dialed, before STARTTLS or any SMTP byte. STARTTLS and implicit-TLS
+certificate verification are unchanged. Only
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS_SMTP` exempts a relay, by exact hostname. In 0.4
+the relay host was re-resolved when Django connected, which left a DNS-rebinding
+window; keep a NetworkPolicy denying internal ranges in front of mail egress as a
+layered defense.
 
 ## Browser-side third-party requests (none)
 

@@ -529,8 +529,9 @@ def assert_host_allowed(host: str, port: int, *, purpose: EgressPurpose | None =
     resolved address must be globally routable) but without the ``http``/
     ``https`` scheme gate, which would reject an SMTP target outright. Reused by
     the workspace-SMTP serializer (validate-at-save) *and* the connection
-    resolver (re-validate at send, which narrows but does not close the
-    DNS-rebinding window — the SMTP residual is tracked in #4647; ADR-0213 §4).
+    resolver (re-validate at send). It is a pre-flight only: the connect-time
+    DNS-rebinding window is closed by the guarded backend in
+    :mod:`trueppm_api.apps.integrations.smtp` (#4647; ADR-0213 §4).
 
     Raises:
         EgressBlocked: Missing host or a resolved address is private /

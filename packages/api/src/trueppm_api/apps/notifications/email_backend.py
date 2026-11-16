@@ -10,8 +10,10 @@ global backend, so a fresh install behaves exactly as it did before #712.
 
 Security posture (ADR-0213 §4, security review C1/H1/H2/M1):
 - The custom SMTP / SES host is SSRF-checked with ``assert_host_allowed`` both
-  at save (serializer) *and* here at send time — closing the DNS-rebinding
-  window where a host resolves public at save and private at send.
+  at save (serializer) *and* here at send time, and the connection itself is
+  dialed through the connect-time guard (:mod:`...integrations.smtp`, #4647), so
+  a host that resolves public at the pre-flight and private at connect is
+  refused before any SMTP byte.
 - The Fernet-encrypted password is decrypted only here, server-side, never
   logged and never returned by the API.
 - Connection-build failures raise :class:`EmailTransportError` carrying a
@@ -54,7 +56,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_SMTP_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# Dialed through the egress guard (#4647): re-checks the connected peer so a
+# DNS answer that flipped between the save/send pre-flight and the connect cannot
+# reach an internal address. Dotted path, not an import: the class lives with the
+# HTTP guard it reuses in ``integrations``.
+_SMTP_BACKEND = "trueppm_api.apps.integrations.smtp.GuardedSMTPEmailBackend"
 
 # Provider-fixed relay parameters. SendGrid's SMTP relay uses a constant host and
 # the literal username "apikey" (the API key travels as the password); SES uses a
