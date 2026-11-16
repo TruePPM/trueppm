@@ -25,7 +25,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.access.permissions import IsProjectMember
+from trueppm_api.apps.access.permissions import (
+    IsProjectMember,
+    McpReadableViewMixin,
+    McpScope,
+)
 from trueppm_api.apps.history import changelog
 from trueppm_api.apps.history.diff_policy import (
     HISTORY_DIFF_NOISE,
@@ -215,10 +219,16 @@ def _history_page_response(
     return response
 
 
-class ProjectHistoryListView(APIView):
+class ProjectHistoryListView(McpReadableViewMixin, APIView):
     """Paginated change history for a project (project-level fields only).
 
     GET /api/v1/projects/{project_pk}/history/
+
+    Readable by an ``mcp:read`` token (#5006), so an agent that sees
+    ``health_band_source: reported`` can learn who reported it and when. The token
+    acts as its owner: the role gate and the Owner/Admin-only ``history_user``
+    redaction both key on ``request.user``, so an agent never sees an actor its
+    owner could not.
 
     At most ``_MAX_HISTORY_ROWS`` records are materialized; ``count_truncated``
     in the response is ``true`` when the cap was hit.
@@ -228,6 +238,8 @@ class ProjectHistoryListView(APIView):
     # surface that must stay accessible after a project is archived. Do not add it
     # "for consistency" — archived projects still need their audit trail readable.
     permission_classes = [IsAuthenticated, IsProjectMember]
+    # ADR-0678: the project is the ``project_pk`` URL kwarg.
+    mcp_scope = McpScope.PATH
 
     @extend_schema(
         # Same class of defect as #2583's two named instances: a plain APIView that
@@ -288,6 +300,10 @@ class ProjectChangelogView(APIView):
     # surface that must stay accessible after a project is archived (matching the
     # per-object history views above).
     permission_classes = [IsAuthenticated, IsProjectMember]
+    # Deliberately NOT MCP-readable (#5006): this stream aggregates every source's
+    # history (task assignee changes, sprint, risk, privacy-policy rows), a much
+    # wider surface than the project-row history an agent needs. Opening it is a
+    # separate decision with its own review of the per-person/velocity-signal rows.
 
     @extend_schema(
         summary="Unified project changelog (aggregated, filterable, cursor-paginated)",

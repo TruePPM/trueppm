@@ -145,7 +145,7 @@ clear message rather than letting every later query fail.
 
 ## What you can ask
 
-The server exposes **19 read-only tools** (a 20th, `get_project_cost`, lands in 0.5), each mapping to one existing REST
+The server exposes **19 read-only tools** (seven more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `list_dependencies`, `list_baselines`, `list_phases`, and `list_calendars`), each mapping to one existing REST
 endpoint and returning only what your role permits:
 
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,
@@ -154,6 +154,8 @@ endpoint and returning only what your role permits:
 - **Tasks & work** — `list_tasks` (filterable by status, sprint,
   criticality, and type), `get_task`, `get_board_state`,
   `list_my_work`.
+- **Planned for 0.5: schedule structure** — `list_dependencies`, `list_baselines`, `list_phases`,
+  `list_calendars`, and `get_project_history` (who changed the project's own fields, and when).
 - **Schedule & risk** — `get_schedule_summary`, `get_monte_carlo_forecast`
   (latest persisted run; read-only, never triggers a new simulation),
   `get_release_forecast`, `whatif`
