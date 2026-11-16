@@ -855,9 +855,7 @@ release it is scheduled for:
   its lagged successors
   ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), and which calendar anchors and snaps an FF/SF link across
   different calendars is still undecided
-  ([#4639](https://gitlab.com/trueppm/trueppm/-/issues/4639)); a start-of-day milestone's total float can run to a
-  non-working midnight, so TF differs from LS-ES
-  ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)); the Python engine and the reference oracle disagree on
+  ([#4639](https://gitlab.com/trueppm/trueppm/-/issues/4639)); the Python engine and the reference oracle disagree on
   `free_float` for an FF-1 link into a four-day-calendar task with actuals
   ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790), [#4789](https://gitlab.com/trueppm/trueppm/-/issues/4789)); and several
   MS-Project-parity cases — SF out of a milestone, mixed SF+FS/SS/FF at the
