@@ -446,7 +446,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                 total += len(json.dumps(row["payload"]))
                 if total > _REPLAY_MAX_BYTES:
                     return [], head
-                rows.append(row)
+                rows.append(dict(row))
             return rows, head
 
         rows, head = await _fetch()
