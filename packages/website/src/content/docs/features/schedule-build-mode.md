@@ -347,7 +347,7 @@ Two other cases produce a refusal:
 
 ### How long an undo lasts
 
-The panel is scoped to your current session and holds the last ten changes. The server
+The panel is scoped to your current session and holds the last 50 changes. The server
 keeps the underlying record for **7 days**, so an undo is still possible through the API
 after a reload — but the panel itself starts empty in a new session.
 

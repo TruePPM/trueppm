@@ -18,8 +18,14 @@
  */
 import { create } from 'zustand';
 
-/** Entries older than this fall off the end; the trail is a recent-history view. */
-export const TRAIL_CAP = 10;
+/**
+ * Entries older than this fall off the end; the trail is a recent-history view.
+ *
+ * Ten ran out inside one ordinary restructuring pass (#3804). Entries are a few
+ * dozen bytes of text in memory and the panel scrolls, so depth is nearly free;
+ * the real limit on an undo is the server ledger's window, not this number.
+ */
+export const TRAIL_CAP = 50;
 
 export interface TrailEntry {
   id: number;
