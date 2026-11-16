@@ -63,8 +63,15 @@ a per-project `seq` (ADR-0236, ADR-1285). The mechanism:
   When the window expires, it applies the held frames in order rather than dropping
   them, and moves the cursor past the hole. That window is the bound: a predecessor
   arriving more than 750 ms late finds `seq <= cursor` and is dropped. A reconnect
-  cannot recover it, because `?since=` starts above the hole. Until #2848 adds a
-  gap → resync, only a later refetch repairs it.
+  cannot recover it, because `?since=` starts above the hole.
+- **Gap detection on the client** — a hole that survives the window, on a cursor
+  that was already baselined, is a frame the channel layer dropped (an overfull
+  consumer inbox or an expired message). The client runs the same project-scoped
+  refetch as `resync_required`, without moving the cursor. A hole is never reported
+  for a fresh mount's first frame, or for held frames discarded because the socket
+  closed (the reconnect replays those). As a second safety net, the task list keeps
+  polling every 120 s while the socket is `live` (30 s while it is down), so a socket
+  that is open but silently dropping frames still self-heals (#2848).
 - **The handshake** — on reconnect the client opens the socket with
   `?since=<cursor>`. The consumer reads the project's head (its counter value).
   The client is owed exactly `head - since` events, and the consumer streams them

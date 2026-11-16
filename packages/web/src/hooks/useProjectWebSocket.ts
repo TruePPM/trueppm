@@ -140,12 +140,14 @@ const WS_BASE = (() => {
 const MAX_BACKOFF_MS = 30_000;
 
 /**
- * Trailing-debounce window for coalescing a burst of Gantt-data invalidations
- * (`tasks`, `dependencies`). A sync batch broadcasts one mutation event per
- * row, and each event would otherwise trigger an independent multi-page refetch
- * of the tasks/dependencies queries. Collapsing a burst into a single trailing
- * invalidation turns N refetches into 1 while keeping live latency imperceptible
- * (the trailing call still fires ~300 ms after the last event in the burst).
+ * Throttle window (with a trailing flush) for coalescing a burst of Gantt-data
+ * invalidations (`tasks`, `dependencies`). A sync batch broadcasts one mutation
+ * event per row, and each event would otherwise trigger an independent multi-page
+ * refetch of the tasks/dependencies queries. The first event in a burst arms a
+ * timer that is never reset, so the flush fires this long after the FIRST event
+ * and a new window then opens: a long burst flushes about every 300 ms (a ~3.3 Hz
+ * throttle), not once after it ends. That is the intended shape — a debounce would
+ * starve the view for the whole of a continuous burst.
  */
 const TASKS_INVALIDATE_DEBOUNCE_MS = 300;
 
@@ -238,6 +240,17 @@ interface WsHandlerDeps {
   removePresenceUser: PresenceStoreState['removeUser'];
 }
 
+// Project-scoped refetch shared by resync_required and the seq-gap signal (#2848).
+function invalidateProjectCaches(
+  queryClient: QueryClient,
+  projectIdRef: MutableRefObject<string | null | undefined>,
+): void {
+  void queryClient.invalidateQueries({
+    predicate: (q) => q.queryKey.includes(projectIdRef.current),
+  });
+  void queryClient.invalidateQueries({ queryKey: ['projects'] });
+}
+
 // --- ADR-0236 (#321): server could not replay the full gap ---
 function registerReplayHandlers(on: OnFn, deps: WsHandlerDeps): void {
   const { queryClient, projectIdRef, lastSeqRef } = deps;
@@ -248,10 +261,7 @@ function registerReplayHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // gate in handleMessage never drops it.
   on('resync_required', (payload) => {
     const latest = (payload as { latest_seq?: unknown }).latest_seq;
-    void queryClient.invalidateQueries({
-      predicate: (q) => q.queryKey.includes(projectIdRef.current),
-    });
-    void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    invalidateProjectCaches(queryClient, projectIdRef);
     if (typeof latest === 'number') lastSeqRef.current = latest;
   });
 }
@@ -1271,8 +1281,8 @@ interface InvalidateTimerRefs {
 }
 
 /**
- * Build the trailing-debounce `scheduleInvalidate` used to coalesce a burst of
- * invalidations into a single trailing refetch per query key. High-frequency
+ * Build the throttled `scheduleInvalidate` used to coalesce a burst of
+ * invalidations into one refetch per query key per window. High-frequency
  * mutation events (task_*, dependency_*, cpm_complete, bulk/reorder,
  * assignment_*, sprint/rollup, board-activity) route through here instead of
  * invalidating immediately, so a sync batch of N row events produces 1 refetch
@@ -1325,6 +1335,8 @@ interface ProjectSocketConfig {
    * mid-session is not re-dialed on the next token refresh (#4375).
    */
   onRefused?: (projectId: string) => void;
+  // The seq gate confirmed a hole in the dense sequence (a dropped frame, #2848).
+  onSeqGap: () => void;
 }
 
 /**
@@ -1355,6 +1367,9 @@ class ProjectSocketController {
   constructor(private readonly cfg: ProjectSocketConfig) {
     this.gate = new SeqGate<WsEnvelope>({
       cursorRef: cfg.lastSeqRef,
+      // A confirmed hole in the dense sequence is a frame the channel layer
+      // dropped (#2848): refetch the project's caches, as resync_required does.
+      onGap: () => cfg.onSeqGap(),
       deliver: (envelope) => this.dispatch(envelope),
     });
   }
@@ -1694,6 +1709,7 @@ export function useProjectWebSocket(
       onRefused: (pid) => {
         void queryClient.invalidateQueries({ queryKey: ['project', pid] });
       },
+      onSeqGap: () => invalidateProjectCaches(queryClient, projectIdRef),
     });
     controller.start();
 

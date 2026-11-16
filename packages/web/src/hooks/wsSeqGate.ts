@@ -18,7 +18,8 @@
  *   ascending order and the cursor jumps past the hole, so a frame is not dropped
  *   for being early. The window is the bound: a predecessor arriving later than
  *   `windowMs` meets `seq <= cursor` and is dropped, and `?since=` cannot replay
- *   it, because the cursor is already past the hole (gap → resync is #2848).
+ *   it, because the cursor is already past the hole — so the gate reports the hole
+ *   through `onGap` and the hook refetches (#2848).
  *
  * A cursor of 0 means "not yet baselined" (a fresh mount that has never seen a
  * frame and holds no `since`). Unless that first frame is seq 1 — the project's
@@ -45,6 +46,11 @@ export interface SeqGateOptions<T> {
   deliver: (frame: T) => void;
   windowMs?: number;
   maxBuffered?: number;
+  /**
+   * Called when a flush skips a hole in a baselined sequence: a frame the channel
+   * layer genuinely lost (#2848). Fired before the held frames are applied.
+   */
+  onGap?: () => void;
 }
 
 export class SeqGate<T> {
@@ -132,13 +138,20 @@ export class SeqGate<T> {
   // The window expired or the buffer filled: apply what we have in order and move
   // the cursor past any hole. When the cursor was baselined, a hole here is a frame
   // the channel layer genuinely lost.
-  // TODO(#2848): signal that confirmed gap (cursor > 0 and a hole was skipped) so
-  // the hook can run the project-scoped resync invalidation.
+  // A hole after a baselined cursor (> 0) is reported through `onGap` so the hook
+  // can refetch (#2848). An unbaselined cursor owes nothing below its first frame.
   private flush(): void {
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     const pending = [...this.buffer.entries()].sort((a, b) => a[0] - b[0]);
     this.buffer.clear();
+    let expected = this.opts.cursorRef.current > 0 ? this.opts.cursorRef.current + 1 : null;
+    let gap = false;
+    for (const [seq] of pending) {
+      if (expected !== null && seq > expected) gap = true;
+      expected = seq + 1;
+    }
+    if (gap) this.opts.onGap?.();
     for (const [seq, frame] of pending) {
       if (seq > this.opts.cursorRef.current) this.apply(seq, frame);
     }

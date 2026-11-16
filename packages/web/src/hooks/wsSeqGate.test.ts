@@ -116,4 +116,67 @@ describe('SeqGate', () => {
     expect(delivered).toEqual([]);
     expect(cursorRef.current).toBe(1);
   });
+
+  describe('onGap (#2848)', () => {
+    let gaps: number;
+    beforeEach(() => {
+      gaps = 0;
+      gate = new SeqGate<number>({
+        cursorRef,
+        deliver: (seq) => delivered.push(seq),
+        onGap: () => {
+          gaps += 1;
+        },
+      });
+    });
+
+    it('reports a hole once the window expires, still advancing the cursor past it', () => {
+      cursorRef.current = 2;
+      gate.accept(5, 5);
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+      expect(gaps).toBe(1);
+      expect(delivered).toEqual([5]);
+      expect(cursorRef.current).toBe(5);
+    });
+
+    it('does not report a reversed pair that resolves inside the window', () => {
+      cursorRef.current = 9;
+      gate.accept(11, 11);
+      gate.accept(10, 10);
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+      expect(gaps).toBe(0);
+      expect(delivered).toEqual([10, 11]);
+    });
+
+    it('does not report in-order frames', () => {
+      cursorRef.current = 1;
+      gate.accept(2, 2);
+      gate.accept(3, 3);
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+      expect(gaps).toBe(0);
+    });
+
+    it('does not report an unbaselined first frame that is not seq 1', () => {
+      gate.accept(40, 40);
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+      expect(gaps).toBe(0);
+      expect(delivered).toEqual([40]);
+    });
+
+    it('reports a hole between two held frames on an unbaselined cursor', () => {
+      gate.accept(40, 40);
+      gate.accept(43, 43);
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+      expect(gaps).toBe(1);
+    });
+
+    it('does not report held frames dropped on socket loss (reconnect replays them)', () => {
+      cursorRef.current = 2;
+      gate.accept(5, 5);
+      gate.dropHeld();
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+      expect(gaps).toBe(0);
+      expect(cursorRef.current).toBe(2);
+    });
+  });
 });
