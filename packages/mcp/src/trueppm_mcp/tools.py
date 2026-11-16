@@ -710,7 +710,11 @@ async def _get_project_history(client: TruePPMClient, project_id: str) -> dict[s
 
 
 async def _list_dependencies(client: TruePPMClient, project_id: str) -> dict[str, Any]:
-    """Dependency edges touching the project (a cross-project edge appears once)."""
+    """Outgoing dependency edges: those whose predecessor is in this project.
+
+    Incoming cross-project edges (successor here, predecessor elsewhere) are not
+    returned yet (#5051).
+    """
     rows, total, truncated = await client.get_paginated(
         "dependencies/", params={"project": project_id}
     )
@@ -1097,10 +1101,11 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
     @server.tool()
     async def list_dependencies(project_id: str) -> dict[str, Any]:
-        """The dependency edges touching a project (predecessor, successor, type, lag).
+        """The outgoing dependency edges of a project (predecessor, successor, type, lag).
 
-        Lag is in CALENDAR days. A cross-project edge is included when either end
-        is in this project and readable to you. Returns an ``{items, total_count}``
+        Outgoing edges: those whose predecessor is in this project. Incoming
+        cross-project edges (successor here, predecessor in another project) are not
+        returned yet (#5051). Lag is in CALENDAR days. Returns an ``{items, total_count}``
         envelope (``truncated: true`` when more rows exist than returned). Read-only.
 
         Args:

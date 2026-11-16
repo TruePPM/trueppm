@@ -144,11 +144,23 @@ def test_mcp_read_token_reads_each_new_surface(
 
 def test_history_answers_who_reported_it_for_an_admin_owner(project: Project, owner: Any) -> None:
     """The #5006 question: the actor rides through when the owner is Owner/Admin."""
-    project.health_band = "critical"
+    # ``health_band`` is not a Project column (it is computed), so use a real
+    # compared field; ``_history_user`` is what the request middleware sets.
+    project.name = "Renamed By Owner"
+    project._history_user = owner  # type: ignore[attr-defined]
     project.save()
     resp = _agent(owner).get(f"/api/v1/projects/{project.pk}/history/")
     assert resp.status_code == 200
-    assert resp.data["count"] >= 1
+    rows = _rows(resp)
+    assert rows, resp.data
+    hit = [
+        r
+        for r in rows
+        if any(c.get("field") == "name" and c.get("new") == "Renamed By Owner" for c in r["diff"])
+    ]
+    assert hit, rows
+    assert hit[0]["history_user"] is not None
+    assert str(hit[0]["history_user"]["id"]) == str(owner.pk)
 
 
 def test_history_user_stays_redacted_for_a_viewer_owner_token(
@@ -160,7 +172,9 @@ def test_history_user_stays_redacted_for_a_viewer_owner_token(
     proj.save()
     resp = _agent(owner).get(f"/api/v1/projects/{proj.pk}/history/")
     assert resp.status_code == 200
-    for row in _rows(resp):
+    rows = _rows(resp)
+    assert rows, resp.data
+    for row in rows:
         assert row.get("history_user") in (None, {}), row
 
 
@@ -225,9 +239,12 @@ def test_opted_out_project_is_closed_to_the_agent_on_every_project_scoped_view(
     agent = _agent(owner)
     urls = _urls(project, world)
     assert agent.get(urls["history"]).status_code == 403  # PATH scope: refused outright
-    for key in ("dependencies", "baselines", "phases", "fields", "criteria"):
+    # Project-nested views declare PATH scope, so the opt-out is a 403, not an empty 200.
+    for key in ("baselines", "phases", "fields"):
+        assert agent.get(urls[key]).status_code == 403, key
+    for key in ("dependencies", "criteria"):
         resp = agent.get(urls[key])
-        # QUERYSET scope: the row filter empties the collection (or the guard 403s).
+        # QUERYSET scope (no project in the URL): the row filter empties the collection.
         assert resp.status_code in (200, 403, 404), f"{key}: {resp.status_code}"
         if resp.status_code == 200:
             assert _rows(resp) == [], f"{key} leaked an opted-out project: {resp.data}"
@@ -284,6 +301,58 @@ def test_cross_project_dependency_honors_an_opt_out_on_either_end(
     assert agent.get(f"/api/v1/dependencies/{dep.pk}/").status_code == 404
     # A human owner still sees the edge.
     assert _human(owner).get(f"/api/v1/dependencies/{dep.pk}/").status_code == 200
+
+
+def test_dependencies_project_filter_returns_outgoing_edges_only(
+    calendar: Calendar, project: Project, owner: Any
+) -> None:
+    """Pins CURRENT behavior: ``?project=`` matches the predecessor's project only, so an
+    incoming cross-project edge (successor here, predecessor elsewhere) is not returned.
+    The tool docs say "outgoing"; widening the filter is #5051 — flip this assertion then."""
+    other = _project("IncomingPredecessor", calendar, owner)
+    pred = Task.objects.create(project=other, name="Pred", duration=1)
+    succ = Task.objects.create(project=project, name="Succ", duration=1)
+    dep = Dependency.objects.create(predecessor=pred, successor=succ, dep_type="FS")
+    rows = _rows(_agent(owner).get(f"/api/v1/dependencies/?project={project.pk}"))
+    assert str(dep.pk) not in {str(r["id"]) for r in rows}
+    # It is returned from the predecessor's side.
+    rows = _rows(_agent(owner).get(f"/api/v1/dependencies/?project={other.pk}"))
+    assert str(dep.pk) in {str(r["id"]) for r in rows}
+
+
+@pytest.mark.parametrize("scope_kind", ["project", "program"])
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        # Measured: calendars' own RBAC list (admin-only writes) refuses an ownerless
+        # token 403 before the appended guards run; dependencies reaches TokenIsOwnerScoped
+        # and answers 401. Either way the write is refused.
+        ("/api/v1/calendars/", 403),
+        ("/api/v1/dependencies/", 401),
+    ],
+)
+def test_project_or_program_scoped_token_cannot_post_calendars_or_dependencies(
+    project: Project, owner: Any, url: str, expected: int, scope_kind: str
+) -> None:
+    """A project/program-scoped token cannot write the newly MCP-readable views."""
+    from trueppm_api.apps.projects.models import Program
+
+    kwargs: dict[str, Any] = {}
+    if scope_kind == "project":
+        kwargs["project"] = project
+    else:
+        kwargs["program"] = Program.objects.create(name="ScopedProg")
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ApiToken.objects.create(
+        name="scoped",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        **kwargs,  # exactly one of project/program; owner stays null (api_token_scope_xor)
+    )
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    assert client.post(url, {"name": "x"}, format="json").status_code == expected
 
 
 def test_changelog_stays_outside_the_mcp_surface(project: Project, owner: Any) -> None:

@@ -8904,8 +8904,9 @@ class BaselineViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.Model
       destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)
     """
 
-    # ADR-0678 (#1812): Baseline.project FK.
-    mcp_scope = McpScope.QUERYSET
+    # ADR-0678 (#1812): nested at projects/<project_pk>/, so PATH: an opted-out
+    # project is a 403 (not an empty 200). Row filtering still applies to PATH views.
+    mcp_scope = McpScope.PATH
     queryset = Baseline.objects.filter(is_deleted=False)
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["created_at", "name"]
@@ -16436,8 +16437,9 @@ class PhaseViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
     # is built in ``get_queryset`` so it can filter by ``project_pk`` from the
     # URL kwargs and attach per-row task counts.
     queryset = Task.objects.filter(is_deleted=False)
-    # ADR-0678 (#1812): Task.project FK (phases are root-level tasks).
-    mcp_scope = McpScope.QUERYSET
+    # ADR-0678 (#1812): nested at projects/<project_pk>/ (phases are root-level
+    # tasks), so PATH: an opted-out project is a 403, not an empty 200.
+    mcp_scope = McpScope.PATH
 
     def get_permissions(self) -> list[BasePermission]:
         return [*self._rbac_permissions(), *self.mcp_token_guards()]
@@ -16636,8 +16638,9 @@ class ProjectCustomFieldViewSet(
 
     serializer_class = ProjectCustomFieldSerializer
     queryset = ProjectCustomField.objects.all()
-    # ADR-0678 (#1812): ProjectCustomField.project FK (definitions only, no values).
-    mcp_scope = McpScope.QUERYSET
+    # ADR-0678 (#1812): nested at projects/<project_pk>/ (definitions only, no
+    # values), so PATH: an opted-out project is a 403, not an empty 200.
+    mcp_scope = McpScope.PATH
     # Per-project list is capped at 32 rows (PROJECT_CUSTOM_FIELD_MAX) — no need
     # for pagination, and the unpaginated shape matches the BoardSavedView list.
     pagination_class = None
