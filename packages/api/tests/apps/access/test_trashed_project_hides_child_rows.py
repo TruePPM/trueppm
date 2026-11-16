@@ -75,6 +75,9 @@ def _queryset_pks(viewset_cls: type, user: Any, params: dict[str, str] | None = 
     """Run a viewset's own ``get_queryset()`` as a list request by ``user``."""
     request = Request(APIRequestFactory().get("/", params or {}))
     request.user = user
+    # An MCP-wrapped viewset reads ``request.auth``; unset, DRF would authenticate the
+    # bare request and replace ``user`` with AnonymousUser.
+    request.auth = None
     view = viewset_cls()
     view.request = request
     view.action = "list"

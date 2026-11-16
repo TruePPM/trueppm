@@ -4,7 +4,7 @@ The defect this file pins was invisible to a large, green test suite because eve
 existing test held one axis fixed:
 
   * ``test_pat_general_endpoint_auth.py`` proved a ``legacy:full`` PAT can write — using
-    only **non**-MCP-wrapped endpoints (``/calendars/``, ``/auth/me/profile/``);
+    only **non**-MCP-wrapped endpoints (``/skills/``, ``/auth/me/profile/``);
   * ``test_api_token_scopes.py`` exercised ``TokenReadOnlyMethods`` — using only
     **``mcp:read``** tokens.
 
@@ -118,14 +118,14 @@ _WRAPPED_READS = [
 
 _UNSAFE_CASES = [
     ("wrapped", "/api/v1/tasks/"),
-    ("plain", "/api/v1/calendars/"),
+    ("plain", "/api/v1/skills/"),
 ]
 
 
 def _write_payload(path: str, project: Project) -> dict[str, Any]:
     if "tasks" in path:
         return {"name": "From CI", "duration": 2, "project": str(project.pk)}
-    return {"name": "CI calendar"}
+    return {"name": "CI skill"}
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ def test_both_scopes_read_the_wrapped_surface(
 @pytest.mark.django_db
 def test_legacy_full_reads_the_plain_surface(owner: Any) -> None:
     raw = _mint_personal(owner, [SCOPE_LEGACY_FULL])
-    assert _bearer(raw).get("/api/v1/calendars/").status_code == 200
+    assert _bearer(raw).get("/api/v1/skills/").status_code == 200
 
 
 @pytest.mark.django_db
@@ -166,7 +166,7 @@ def test_mcp_read_is_refused_on_the_plain_surface(owner: Any) -> None:
     an ``mcp:read`` token off the general API.
     """
     raw = _mint_personal(owner, [SCOPE_MCP_READ])
-    resp = _bearer(raw).get("/api/v1/calendars/")
+    resp = _bearer(raw).get("/api/v1/skills/")
     assert resp.status_code == 401, resp.data
     # #2878 finding 6: this was a bare {"detail": "Invalid token."} — the least
     # diagnosable answer to the most likely first-hour integration mistake.

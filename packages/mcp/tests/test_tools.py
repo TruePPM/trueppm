@@ -34,6 +34,7 @@ from trueppm_mcp.tools import (
     _get_program_health,
     _get_project,
     _get_project_cost,
+    _get_project_history,
     _get_release_forecast,
     _get_schedule_derivation,
     _get_schedule_driving_chain,
@@ -41,7 +42,11 @@ from trueppm_mcp.tools import (
     _get_sprint,
     _get_sprint_close_request,
     _get_task,
+    _list_baselines,
+    _list_calendars,
+    _list_dependencies,
     _list_my_work,
+    _list_phases,
     _list_program_backlog,
     _list_programs,
     _list_projects,
@@ -1363,3 +1368,51 @@ def test_base_url_prefix_is_stable() -> None:
     """Guards the ``/api/v1/`` prefix the route table strips (belt-and-suspenders)."""
     assert API_PREFIX == "/api/v1/"
     assert SAMPLE_API_URL == "https://ppm.example.test"
+
+
+async def test_get_project_history_returns_envelope_and_keeps_actor(settings: Settings) -> None:
+    row = {
+        "history_id": 7,
+        "history_type": "~",
+        "history_date": "2026-11-01T10:00:00Z",
+        "history_user": {"id": 3, "username": "pm"},
+        "diff": [{"field": "health", "old": "AUTO", "new": "CRITICAL"}],
+    }
+    routes: Routes = {"projects/p-1/history/": _json({**_page([row]), "count_truncated": False})}
+    async with _client(settings, routes) as client:
+        result = await _get_project_history(client, "p-1")
+    assert result["total_count"] == 1
+    assert result["items"][0]["history_user"] == {"id": 3, "username": "pm"}
+    assert result["items"][0]["diff"][0]["new"] == "CRITICAL"
+    assert "truncated" not in result
+
+
+async def test_list_dependencies_filters_by_project(settings: Settings) -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.params.get("project", ""))
+        return httpx.Response(200, json=_page([{"id": "d-1", "dep_type": "FS"}]))
+
+    routes: Routes = {"dependencies/": handler}
+    async with _client(settings, routes) as client:
+        result = await _list_dependencies(client, "p-1")
+    # The API's ``project`` filter matches the PREDECESSOR's project only, so the tool
+    # returns outgoing edges; incoming cross-project edges are #5051.
+    assert seen == ["p-1"]
+    assert result == {"items": [{"id": "d-1", "dep_type": "FS"}], "total_count": 1}
+
+
+async def test_list_baselines_phases_calendars_envelopes(settings: Settings) -> None:
+    routes: Routes = {
+        "projects/p-1/baselines/": _json(_page([{"id": "b-1", "name": "Baseline 1"}])),
+        "projects/p-1/phases/": _json(_page([{"id": "ph-1", "name": "Design"}])),
+        "calendars/": _json(_page([{"id": "c-1", "name": "Standard"}])),
+    }
+    async with _client(settings, routes) as client:
+        baselines = await _list_baselines(client, "p-1")
+        phases = await _list_phases(client, "p-1")
+        calendars = await _list_calendars(client)
+    assert baselines == {"items": [{"id": "b-1", "name": "Baseline 1"}], "total_count": 1}
+    assert phases == {"items": [{"id": "ph-1", "name": "Design"}], "total_count": 1}
+    assert calendars == {"items": [{"id": "c-1", "name": "Standard"}], "total_count": 1}

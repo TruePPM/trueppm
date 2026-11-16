@@ -2648,7 +2648,10 @@ class McpScope(StrEnum):
 
     NO_PROJECT_DATA = "none"
     """The response carries no project-scoped data at all (identity echo). Only
-    ``MeView`` qualifies; adding a member here is a security decision."""
+    ``MeView`` and the workspace calendar library (``CalendarViewSet`` /
+    ``CalendarExceptionViewSet`` — an org-level resource with no project FK, readable
+    by every authenticated user) qualify; adding a member here is a security
+    decision."""
 
 
 class McpProjectEnabled(BasePermission):
@@ -2826,6 +2829,16 @@ class McpReadableViewMixin(_McpViewBase):
     :class:`McpProjectEnabled` denies token reads on an undeclared view — so
     forgetting this fails closed rather than exposing the view unfiltered. See
     :class:`McpScope` for which value to pick.
+    """
+
+    mcp_project_lookups: ClassVar[tuple[str, ...]] = ()
+    """ORM lookups reaching a project id, for QUERYSET views whose model has no ``project`` FK.
+
+    Every lookup must land in the agent-visible project set (ANDed), which is what a
+    row spanning two projects needs: a cross-project ``Dependency`` carries a project
+    on each endpoint, and filtering only the predecessor side would serve an edge to
+    a successor in a project that opted out. Empty means "use the model-shape
+    fallbacks in :meth:`_mcp_filter_queryset`".
     """
 
     mcp_project_kwarg: ClassVar[str] = "pk"
@@ -3039,7 +3052,11 @@ class McpReadableViewMixin(_McpViewBase):
             return qs
 
         field_names = {f.name for f in model._meta.get_fields()}
-        if "project" in field_names:
+        if self.mcp_project_lookups:
+            filtered = qs
+            for lookup in self.mcp_project_lookups:
+                filtered = filtered.filter(**{f"{lookup}__in": visible})
+        elif "project" in field_names:
             filtered = qs.filter(project_id__in=visible)
         elif "predecessor" in field_names:
             filtered = qs.filter(predecessor__project_id__in=visible)

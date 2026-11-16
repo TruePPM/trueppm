@@ -35,6 +35,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -219,6 +222,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -2435,6 +2441,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -2637,6 +2646,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -2838,6 +2850,9 @@
                     "calendars"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -3264,6 +3279,9 @@
                     "calendars"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -3950,6 +3968,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -4134,6 +4155,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -28342,6 +28366,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -28634,6 +28661,9 @@
                     "scheduling"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -29234,6 +29264,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -29439,6 +29472,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -30043,7 +30079,7 @@
         "/api/v1/projects/{project_pk}/history/": {
             "get": {
                 "operationId": "v1_projects_history_retrieve",
-                "description": "Paginated change history for a project (project-level fields only).\n\nGET /api/v1/projects/{project_pk}/history/\n\nAt most ``_MAX_HISTORY_ROWS`` records are materialized; ``count_truncated``\nin the response is ``true`` when the cap was hit.",
+                "description": "Paginated change history for a project (project-level fields only).\n\nGET /api/v1/projects/{project_pk}/history/\n\nReadable by an ``mcp:read`` token (#5006), so an agent that sees\n``health_band_source: reported`` can learn who reported it and when. The token\nacts as its owner: the role gate and the Owner/Admin-only ``history_user``\nredaction both key on ``request.user``, so an agent never sees an actor its\nowner could not.\n\nAt most ``_MAX_HISTORY_ROWS`` records are materialized; ``count_truncated``\nin the response is ``true`` when the cap was hit.",
                 "parameters": [
                     {
                         "in": "path",
@@ -30059,6 +30095,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -32943,6 +32982,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -33148,6 +33190,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },

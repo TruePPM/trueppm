@@ -698,6 +698,47 @@ async def _get_schedule_driving_chain(
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
 
+async def _get_project_history(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """Who changed the project's own fields, when, and what (newest first, #5006).
+
+    Project-row history only (health band, status, dates, ...) — not the task or
+    sprint streams. ``history_user`` is present only when the token's owner is an
+    Owner/Admin of the project; the API redacts it otherwise.
+    """
+    rows, total, truncated = await client.get_paginated(f"projects/{project_id}/history/")
+    return _list_result(rows, total, truncated)
+
+
+async def _list_dependencies(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """Outgoing dependency edges: those whose predecessor is in this project.
+
+    Incoming cross-project edges (successor here, predecessor elsewhere) are not
+    returned yet (#5051).
+    """
+    rows, total, truncated = await client.get_paginated(
+        "dependencies/", params={"project": project_id}
+    )
+    return _list_result(rows, total, truncated)
+
+
+async def _list_baselines(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """The project's schedule baselines (snapshot headers, not per-task rows)."""
+    rows, total, truncated = await client.get_paginated(f"projects/{project_id}/baselines/")
+    return _list_result(rows, total, truncated)
+
+
+async def _list_phases(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """The project's phases (root-level WBS tasks) with their task counts."""
+    rows, total, truncated = await client.get_paginated(f"projects/{project_id}/phases/")
+    return _list_result(rows, total, truncated)
+
+
+async def _list_calendars(client: TruePPMClient) -> dict[str, Any]:
+    """The workspace's working-time calendars, with their non-working exceptions."""
+    rows, total, truncated = await client.get_paginated("calendars/")
+    return _list_result(rows, total, truncated)
+
+
 async def _get_release_forecast(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """P50/P80 sprints and dates to clear the project's committed backlog."""
     payload = await client.get(f"projects/{project_id}/sprint-forecast/")
@@ -1038,6 +1079,73 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
             depth: Maximum driving links per direction (1-50, default 25).
         """
         return await _get_schedule_driving_chain(client, project_id, task_id, depth)
+
+    @server.tool()
+    async def get_project_history(project_id: str) -> dict[str, Any]:
+        """Change history of the project's own fields — who changed what, and when.
+
+        Use it to answer "who set this project's health to Critical, and when?"
+        after ``get_project`` reports ``health_band_source: reported``. Newest
+        first; each entry carries the change time, type, and per-field
+        ``old``/``new`` values. Project-row changes only — not tasks or sprints.
+        ``history_user`` (who) is returned only when your token's owner is an
+        Owner/Admin of the project; otherwise it is withheld by the API.
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned). Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        return await _get_project_history(client, project_id)
+
+    @server.tool()
+    async def list_dependencies(project_id: str) -> dict[str, Any]:
+        """The outgoing dependency edges of a project (predecessor, successor, type, lag).
+
+        Outgoing edges: those whose predecessor is in this project. Incoming
+        cross-project edges (successor here, predecessor in another project) are not
+        returned yet (#5051). Lag is in CALENDAR days. Returns an ``{items, total_count}``
+        envelope (``truncated: true`` when more rows exist than returned). Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        return await _list_dependencies(client, project_id)
+
+    @server.tool()
+    async def list_baselines(project_id: str) -> dict[str, Any]:
+        """The project's schedule baselines (name, captured date, task count).
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned). Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        return await _list_baselines(client, project_id)
+
+    @server.tool()
+    async def list_phases(project_id: str) -> dict[str, Any]:
+        """The project's phases — its root-level WBS tasks — with task counts.
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned). Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        return await _list_phases(client, project_id)
+
+    @server.tool()
+    async def list_calendars() -> dict[str, Any]:
+        """The workspace's working-time calendars and their non-working exceptions.
+
+        Calendars are a workspace-level library shared by every project. Returns an
+        ``{items, total_count}`` envelope (``truncated: true`` when more rows exist
+        than returned). Read-only.
+        """
+        return await _list_calendars(client)
 
     @server.tool()
     async def get_release_forecast(project_id: str) -> dict[str, Any]:

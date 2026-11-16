@@ -7824,11 +7824,10 @@ def _cycle_readable_project_ids(request: Any, project_ids: set[Any]) -> set[Any]
     see.
 
     An agent token is additionally intersected with the team MCP opt-out
-    (ADR-0678). No agent token reaches this path today: ``DependencyViewSet``
-    and the task bulk view authenticate through the default
-    ``OwnerScopedApiTokenAuthentication``, which accepts only owner-scoped
-    ``legacy:full`` tokens (``is_agent_token`` False), so that branch is
-    defense in depth. Fails closed: no request means nothing is readable.
+    (ADR-0678). Agent tokens reach the ``DependencyViewSet`` read actions
+    (#5006), but this cycle path runs only on writes, which
+    ``TokenReadOnlyMethods`` refuses for an agent token, so the opt-out branch
+    is defense in depth. Fails closed: no request means nothing is readable.
 
     One query for the membership set regardless of path length (plus one for the
     opt-out set, agent tokens only); it runs only once a cycle has been found.
