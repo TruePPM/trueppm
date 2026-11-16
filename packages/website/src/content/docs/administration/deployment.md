@@ -73,8 +73,9 @@ it does not cover: multi-developer contention, sustained load, or any topology
 other than the single-machine one `docker compose up -d` gives you.
 
 **Not for shared or production use, even a small team.** This stack hardcodes
-`POSTGRES_PASSWORD: trueppm` and `SECRET_KEY: dev-secret-key-change-in-prod` in
-the tracked compose file, and it publishes PostgreSQL, the API (`:8000`) and the web server (`:5173`)
+`POSTGRES_PASSWORD: trueppm` in the tracked compose file (the Django
+`SECRET_KEY` is generated per install on first boot and kept in the `dev_secrets`
+volume; `docker compose down -v` discards it), and it publishes PostgreSQL, the API (`:8000`) and the web server (`:5173`)
 on the host. The API and web ports bind to `127.0.0.1` by default; setting
 `TRUEPPM_DEV_BIND_ADDR=0.0.0.0` publishes them on every interface, so do that
 only on an isolated host, never on a shared network.

@@ -73,5 +73,18 @@ check "operator-supplied SECRET_KEY overrides" $?
 rc=0; run "$B" "SECRET_KEY=a'b" >/dev/null 2>&1 || rc=$?
 [[ "$rc" -ne 0 && "$(cat "$B/secret_key")" != "a'b" ]]; check "override containing a quote is rejected" $?
 
+# Dev stack (#4672): SECRETS_SKIP_INTEGRATION_KEY=1 stores SECRET_KEY only.
+D="$TMP/d"
+run "$D" SECRETS_SKIP_INTEGRATION_KEY=1 >/dev/null
+[[ -s "$D/secret_key" && ! -e "$D/integration_encryption_key" ]] \
+  && ! grep -q INTEGRATION_ENCRYPTION_KEY "$D/env"
+check "skip flag generates SECRET_KEY only" $?
+k1="$(cat "$D/secret_key")"
+run "$D" SECRETS_SKIP_INTEGRATION_KEY=1 >/dev/null
+[[ "$(cat "$D/secret_key")" == "$k1" ]]; check "dev key survives a restart" $?
+E="$TMP/e"; run "$E" SECRETS_SKIP_INTEGRATION_KEY=1 >/dev/null
+[[ "$(cat "$E/secret_key")" != "$k1" && "$k1" != "dev-secret-key-change-in-prod" ]]
+check "two dev installs differ and neither is the old public key" $?
+
 echo "demo-init-secrets: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]
