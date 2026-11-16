@@ -33,6 +33,8 @@ _ID_TOOLS: list[tuple[str, dict[str, Any]]] = [
     ("get_project_cost", {"project_id": _UUID}),
     ("whatif", {"project_id": _UUID, "task_id": _UUID}),
     ("get_schedule_derivation", {"project_id": _UUID, "quantity": "p80"}),
+    # The optional task_id is checked only when supplied, so it needs its own row.
+    ("get_schedule_derivation", {"project_id": _UUID, "task_id": _UUID, "quantity": "p80"}),
     ("get_schedule_driving_chain", {"project_id": _UUID, "task_id": _UUID}),
     ("get_release_forecast", {"project_id": _UUID}),
     ("list_sprints", {"project_id": _UUID}),
