@@ -53,6 +53,7 @@ interface WorkspaceSettingsPatchRaw {
   attachments_enabled?: boolean;
   allowed_attachment_types?: string[];
   attachments_override_policy?: AttachmentsOverridePolicy;
+  mcp_enabled?: boolean;
   calendar?: string | null;
   calendar_override_policy?: CalendarOverridePolicy;
 }
@@ -90,6 +91,7 @@ const FIELD_MAP: ReadonlyArray<[keyof WorkspaceSettingsPatch, keyof WorkspaceSet
   ['attachmentsEnabled', 'attachments_enabled'],
   ['allowedAttachmentTypes', 'allowed_attachment_types'],
   ['attachmentsOverridePolicy', 'attachments_override_policy'],
+  ['mcpEnabled', 'mcp_enabled'],
   ['calendar', 'calendar'],
   ['calendarOverridePolicy', 'calendar_override_policy'],
   ['feedbackEnabled', 'feedback_enabled'],

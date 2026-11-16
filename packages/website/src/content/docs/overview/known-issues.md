@@ -203,7 +203,7 @@ The instance → workspace → program → project cascade that decides whether 
 read a scope is real and correctly enforced, and the `mcp_enabled` field is already
 writable at all three scopes over the API. The **UI** to set it exists only at
 **Project settings → Agents**; there is no Agents section on program or workspace
-settings yet.
+settings in 0.4.
 
 - **Impact:** an operator following the runbook to "Program settings → Agents" or the
   workspace equivalent finds nothing there.
@@ -212,8 +212,9 @@ settings yet.
   `PATCH /api/v1/programs/{id}/`), and the instance-wide kill switch is the
   `TRUEPPM_MCP_ENABLED` environment variable (which is enforced first, ahead of every
   other check).
-- **Tracked on** [#2700](https://gitlab.com/trueppm/trueppm/-/issues/2700) (building
-  the workspace- and program-scope settings sections).
+- **Fix ships in 0.5** — the workspace and program Agents sections
+  ([#2700](https://gitlab.com/trueppm/trueppm/-/issues/2700) <!-- known-issues-ack:closed -->
+  and [#2716](https://gitlab.com/trueppm/trueppm/-/issues/2716)). <!-- known-issues-ack:closed -->
 
 ### A computed answer does not name the engine that produced it
 

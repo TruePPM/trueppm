@@ -1296,6 +1296,45 @@ def test_admin_can_flip_the_switch(project: Project, owner: Any) -> None:
     assert project.mcp_enabled is False
 
 
+# --- #2700/#2716: the workspace and program Agents sections write these -------
+
+
+@pytest.mark.django_db
+def test_workspace_admin_can_flip_mcp_enabled_and_member_cannot() -> None:
+    """The workspace Agents section PATCHes /workspace/; only a workspace admin may."""
+    admin = User.objects.create_user(username="ws_admin_mcp", password="pw", is_superuser=True)
+    member = User.objects.create_user(username="ws_member_mcp", password="pw")
+    Workspace.load()
+    denied = _human(member).patch("/api/v1/workspace/", {"mcp_enabled": False}, format="json")
+    assert denied.status_code == 403, denied.data
+    assert Workspace.load().mcp_enabled is True
+    ok = _human(admin).patch("/api/v1/workspace/", {"mcp_enabled": False}, format="json")
+    assert ok.status_code == 200, ok.data
+    assert ok.data["mcp_enabled"] is False
+    assert Workspace.load().mcp_enabled is False
+
+
+@pytest.mark.django_db
+def test_program_scheduler_cannot_flip_but_admin_can(program: Program) -> None:
+    """A program Scheduler must not re-enable agent reads over an Admin's decision."""
+    scheduler = User.objects.create_user(username="prog_sched_mcp", password="pw")
+    ProgramMembership.objects.create(program=program, user=scheduler, role=Role.SCHEDULER)
+    admin = User.objects.create_user(username="prog_admin_mcp", password="pw")
+    ProgramMembership.objects.create(program=program, user=admin, role=Role.ADMIN)
+    program.mcp_enabled = False
+    program.save(update_fields=["mcp_enabled"])
+    url = f"/api/v1/programs/{program.pk}/"
+    denied = _human(scheduler).patch(url, {"mcp_enabled": True}, format="json")
+    assert denied.status_code in (400, 403), denied.data
+    program.refresh_from_db()
+    assert program.mcp_enabled is False
+    ok = _human(admin).patch(url, {"mcp_enabled": None}, format="json")
+    assert ok.status_code == 200, ok.data
+    assert ok.data["mcp_enabled"] is None
+    assert ok.data["effective_mcp_enabled"] is True
+    assert ok.data["inherited_mcp_enabled"] is True
+
+
 @pytest.mark.django_db
 def test_serializer_exposes_effective_and_inherited(project: Project, owner: Any) -> None:
     resp = _human(owner).get(f"/api/v1/projects/{project.pk}/")

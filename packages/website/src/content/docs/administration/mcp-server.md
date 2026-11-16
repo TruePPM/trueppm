@@ -1,5 +1,6 @@
 ---
 title: MCP server
+documentedFor: "0.5"
 description: Operate the read-only TruePPM MCP server — transports (stdio, HTTP, SSE), Docker deployment, token scopes, and the security posture.
 ---
 
@@ -392,20 +393,33 @@ may follow in a later release.
 ## Team-level opt-out
 
 The instance switch above is the *operator's* lever. A team has its own, over
-reads of its own data: **Project settings → Agents → Agent read access**.
+reads of its own data: **Agents → Agent read access** in the project settings.
+From 0.5 the same control is also in the program and workspace settings.
 
-:::note[Settings UI available at project scope only today]
-The underlying `mcp_enabled` field and the instance → workspace → program →
-project cascade already exist at all three scopes, but only the **project**
-settings page has a UI for it. To set program or workspace scope today, use the
-API directly: `PATCH /api/v1/programs/{id}/` or `PATCH /api/v1/workspace/` with
-`{"mcp_enabled": true|false|null}` (Program Manager or above on a program, workspace Admin or above on the
-workspace). Every scope's
-serializer also exposes read-only `effective_mcp_enabled` and
-`inherited_mcp_enabled` fields so a client can show the resolved value without
-re-implementing the cascade. Workspace- and program-scope settings pages are
-tracked for a future release.
+:::note[Ships in 0.5]
+The workspace and program **Agents** sections ship in 0.5. In the current
+release only the **project** settings page has a UI for this control; to set
+program or workspace scope today, use the API directly:
+`PATCH /api/v1/programs/{id}/` or `PATCH /api/v1/workspace/` with
+`{"mcp_enabled": true|false|null}` (program Admin or above, or workspace Admin
+or above).
 :::
+
+From 0.5, the same control exists at all three scopes, each under its own
+**Agents** section:
+
+- **Workspace settings → Agents** (0.5) — closes (or opens) agent reads for the whole
+  workspace. Requires a workspace Admin.
+- **Program settings → Agents** (0.5) — for one program and every project in it.
+  Requires a program Admin, and the program must not be closed.
+- **Project settings → Agents** — for one project. Requires a project Admin.
+
+From 0.5, each page shows the **resolved** state, computed by the server, so you can see
+when a setting is already decided above: a program or project that inherits a
+workspace **Blocked** says so and stays blocked whatever you choose there. Every
+scope's serializer also exposes read-only `effective_mcp_enabled` and
+`inherited_mcp_enabled` fields so a client can show the resolved value without
+re-implementing the cascade.
 
 **Project** and **program** scope are three-state: **Inherit** (no opinion of
 its own), **Allowed**, or **Blocked**. The **workspace** root has no scope above
