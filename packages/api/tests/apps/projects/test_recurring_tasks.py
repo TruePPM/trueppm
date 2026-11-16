@@ -817,3 +817,35 @@ def test_truncated_recurrence_sweep_resumes_after_cursor(project: Project) -> No
     assert second == [r.pk for r in rules[1:] + rules[:1]]
     assert {*seen, *second} == {r.pk for r in rules}
     assert cache.get("sweep-cursor:generate_recurring_occurrences") is None
+
+
+@pytest.mark.django_db
+def test_first_rule_interrupted_leaves_cursor_unchanged(project: Project) -> None:
+    """No rule completed means nothing to resume after: the cursor must not move (#4420)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+    from django.core.cache import cache
+
+    rules = []
+    for n in range(3):
+        task = Task.objects.create(project=project, name=f"T{n}", duration=1, planned_start=MONDAY)
+        rules.append(_make_rule(task))
+    rules.sort(key=lambda r: str(r.pk))
+    key = "sweep-cursor:generate_recurring_occurrences"
+
+    def run_interrupted() -> None:
+        with (
+            patch("trueppm_api.core.idempotent.valkey") as redis_module,
+            patch(
+                "trueppm_api.apps.projects.services._generate_due_occurrences",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            redis_module.client.return_value.set.return_value = True
+            generate_recurring_occurrences.run()
+
+    run_interrupted()
+    assert cache.get(key) is None
+    cache.set(key, str(rules[0].pk))
+    run_interrupted()
+    assert cache.get(key) == str(rules[0].pk)

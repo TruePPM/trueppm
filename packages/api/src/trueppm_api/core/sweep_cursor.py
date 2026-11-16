@@ -39,7 +39,13 @@ def rotate_after_cursor(sweep: str, items: Sequence[T], key: Callable[[T], objec
 
     Items at or before the cursor are appended at the end so the whole set is
     still visited. With no cursor, or a cursor past the end, the order is unchanged.
+
+    ``key`` must return a UUID primary key (or its string form): cursors compare as
+    ``str(pk)``, which mis-orders integers ("10" < "9"). Raises ``TypeError`` for an
+    integer key so a future caller fails loudly instead of silently skipping items.
     """
+    if items and isinstance(key(items[0]), int):
+        raise TypeError("rotate_after_cursor requires UUID (string-sortable) keys, not int")
     try:
         cursor = cache.get(_key(sweep))
     except Exception:

@@ -488,6 +488,36 @@ class TestDailyFloor:
         assert {*seen, *second} == {p.pk for p in projects}
         assert cache.get("sweep-cursor:capture_daily_forecast_floor") is None
 
+    def test_first_project_interrupted_leaves_cursor_unchanged(self, calendar: Calendar) -> None:
+        """No project completed means nothing to resume after: the cursor must not move (#4420)."""
+        from celery.exceptions import SoftTimeLimitExceeded
+        from django.core.cache import cache
+
+        projects = sorted(
+            (
+                Project.objects.create(name=f"P{n}", start_date=date(2026, 1, 5), calendar=calendar)
+                for n in range(3)
+            ),
+            key=lambda p: str(p.pk),
+        )
+        key = "sweep-cursor:capture_daily_forecast_floor"
+
+        def run_interrupted() -> None:
+            with (
+                patch(
+                    "trueppm_api.apps.scheduling.services.safe_capture_forecast_snapshot",
+                    side_effect=SoftTimeLimitExceeded(),
+                ),
+                pytest.raises(SoftTimeLimitExceeded),
+            ):
+                _do_daily_forecast_floor()
+
+        run_interrupted()
+        assert cache.get(key) is None
+        cache.set(key, str(projects[0].pk))
+        run_interrupted()
+        assert cache.get(key) == str(projects[0].pk)
+
 
 # ---------------------------------------------------------------------------
 # Tiered retention prune

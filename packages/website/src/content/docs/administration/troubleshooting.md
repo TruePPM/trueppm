@@ -436,7 +436,9 @@ recurring occurrences, daily forecast floor) save a resume cursor in the cache w
 they are cut off: the next run starts after the last item that finished and wraps
 around, so successive runs together cover every item. A sweep that finishes within
 its limit clears the cursor. The cursor is best-effort; if the cache is flushed the
-sweep simply restarts from the head. The weekly digest sweep has no cursor, so users
+sweep simply restarts from the head. The cursor only advances past items that
+finished, so a single item that alone exceeds the limit still blocks its sweep: the
+cursor cannot move past it and every run is cut off at the same place. The weekly digest sweep has no cursor, so users
 it did not reach miss that week's slot.
 
 A repeating WARNING still means the instance has outgrown the limit: check worker

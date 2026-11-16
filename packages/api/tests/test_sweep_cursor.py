@@ -41,3 +41,10 @@ def test_cache_outage_never_fails_the_sweep() -> None:
         assert rotate_after_cursor("s", ITEMS, str) == ITEMS
         save_cursor("s", "a")
         clear_cursor("s")
+
+
+def test_integer_keys_are_rejected() -> None:
+    import pytest
+
+    with pytest.raises(TypeError):
+        rotate_after_cursor("s", [1, 2, 10], lambda i: i)

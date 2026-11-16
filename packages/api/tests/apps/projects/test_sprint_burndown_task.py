@@ -163,3 +163,67 @@ def test_truncated_sweeps_resume_after_cursor_and_cover_every_sprint(project: Pr
     assert {*seen, *second} == {s.pk for s in sprints}
     # A sweep that finishes within its limit leaves no cursor behind.
     assert cache.get("sweep-cursor:update_sprint_burndown_snapshots") is None
+
+
+def test_first_item_interrupted_leaves_cursor_unchanged(project: Project) -> None:
+    """No item completed means nothing to resume after: the cursor must not move (#4420)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+    from django.core.cache import cache
+
+    sprints = sorted(
+        (_sprint(project, n, SprintState.ACTIVE) for n in "ABC"), key=lambda s: str(s.pk)
+    )
+    key = "sweep-cursor:update_sprint_burndown_snapshots"
+
+    def interrupt(*_: object, **__: object) -> None:
+        raise SoftTimeLimitExceeded()
+
+    patch_target = "trueppm_api.apps.projects.services.upsert_burndown_for_sprint"
+    # No cursor before -> none after.
+    with patch(patch_target, side_effect=interrupt), pytest.raises(SoftTimeLimitExceeded):
+        update_sprint_burndown_snapshots.run()
+    assert cache.get(key) is None
+
+    # An older cursor survives untouched (the first item after it is the one that hangs).
+    cache.set(key, str(sprints[0].pk))
+    with patch(patch_target, side_effect=interrupt), pytest.raises(SoftTimeLimitExceeded):
+        update_sprint_burndown_snapshots.run()
+    assert cache.get(key) == str(sprints[0].pk)
+
+
+def test_two_truncations_then_completion_walk_the_whole_set(project: Project) -> None:
+    """A run that starts from a saved cursor can itself be cut off and wrap (#4420)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+    from django.core.cache import cache
+
+    sprints = sorted(
+        (_sprint(project, n, SprintState.ACTIVE) for n in "ABCD"), key=lambda s: str(s.pk)
+    )
+    key = "sweep-cursor:update_sprint_burndown_snapshots"
+    patch_target = "trueppm_api.apps.projects.services.upsert_burndown_for_sprint"
+
+    def run(raise_at: int | None) -> list[object]:
+        seen: list[object] = []
+
+        def record(sprint: Sprint, **_: object) -> None:
+            seen.append(sprint.pk)
+            if raise_at is not None and len(seen) == raise_at:
+                raise SoftTimeLimitExceeded()
+
+        with patch(patch_target, side_effect=record):
+            if raise_at is None:
+                update_sprint_burndown_snapshots.run()
+            else:
+                with pytest.raises(SoftTimeLimitExceeded):
+                    update_sprint_burndown_snapshots.run()
+        return seen
+
+    # Run 1: items 0 and 1 complete, item 2 is cut off.
+    assert run(3) == [s.pk for s in sprints[:3]]
+    assert cache.get(key) == str(sprints[1].pk)
+    # Run 2 starts at item 2: items 2 and 3 complete, wrapped item 0 is cut off.
+    assert run(3) == [sprints[2].pk, sprints[3].pk, sprints[0].pk]
+    assert cache.get(key) == str(sprints[3].pk)
+    # Run 3 continues from the end of the set, covers everything and clears the cursor.
+    assert run(None) == [s.pk for s in sprints]
+    assert cache.get(key) is None
