@@ -34,7 +34,8 @@ function tokensKey(scope: IntegrationScope) {
  * - `mcp:read` — read-only, for pointing an MCP client (Claude Desktop and the
  *   like) at the instance. Cannot write even if replayed against a write path.
  * - `webhooks:manage` — outbound-webhook management only (#2414). Minted by API
- *   call only; the UI never offers it, but a listed token can carry it.
+ *   call only, on personal tokens only; the UI never offers it, but a token in
+ *   the personal list can carry it (a project/program token never does).
  */
 export type ApiTokenScope = 'api:full' | 'legacy:full' | 'mcp:read' | 'webhooks:manage';
 

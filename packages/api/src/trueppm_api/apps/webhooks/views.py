@@ -7,6 +7,7 @@ import logging
 import redis as redis_lib
 from django.db import transaction
 from django.db.models import QuerySet
+from django.utils.translation import gettext as _
 from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
@@ -19,7 +20,7 @@ from kombu.exceptions import (
 from rest_framework import serializers, status
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.mixins import (
     CreateModelMixin,
     DestroyModelMixin,
@@ -47,7 +48,7 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.authentication import WebhookManageApiTokenAuthentication
-from trueppm_api.apps.projects.models import Program, Project
+from trueppm_api.apps.projects.models import ApiToken, Program, Project
 from trueppm_api.apps.webhooks.dispatch import build_delivery_body
 from trueppm_api.apps.webhooks.models import (
     PING_EVENT_TYPE,
@@ -85,6 +86,42 @@ def _record_token_editor(request: Request, webhook: Webhook | None) -> None:
     token = getattr(request, "auth", None)
     if webhook is not None and isinstance(token, ApiToken):
         WebhookTokenEditor.objects.update_or_create(webhook=webhook, api_token=token)
+
+
+def _lock_credentials_for_webhook_grant(request: Request) -> None:
+    """Serialize a durable-grant webhook write against both credential revocations.
+
+    First the owner's ``UserProfile`` lock (``lock_and_recheck_credential_cutoff``,
+    #4839: a password-reset sweep). Then, for an API-token caller, the token's own
+    row, re-reading ``revoked_at`` under the lock: revoking *one* token
+    (``MyApiTokenViewSet.destroy``) never touches the profile, so the profile lock
+    alone cannot order it against this write. The request already authenticated, so
+    without this a revoke committing between authentication and this write's commit
+    runs ``deactivate_webhooks_set_by_token`` under READ COMMITTED before the
+    ``WebhookTokenEditor`` row exists, and the webhook stays live (#2414).
+
+    - revoke first: its conditional ``UPDATE`` holds the row lock to commit; this
+      ``SELECT ... FOR UPDATE`` waits, re-evaluates ``revoked_at IS NULL`` against
+      the committed row, finds nothing, and the write is refused (401);
+    - write first: revoke's ``UPDATE`` waits on this lock until the write commits,
+      and its later ``deactivate`` statement (a fresh snapshot) sees the editor row.
+
+    Lock order is profile then token on every path, and revoke takes only the token
+    lock, so there is no inversion.
+
+    Raises:
+        AuthenticationFailed: the caller's token predates the cutoff, or was revoked
+            after this request authenticated (HTTP 401).
+    """
+    lock_and_recheck_credential_cutoff(request)
+    token = getattr(request, "auth", None)
+    if (
+        isinstance(token, ApiToken)
+        and not ApiToken.objects.select_for_update()
+        .filter(pk=token.pk, revoked_at__isnull=True)
+        .exists()
+    ):
+        raise AuthenticationFailed(_("This token has been revoked."))
 
 
 class WebhookDeliveryCursorPagination(CursorPagination):
@@ -269,7 +306,7 @@ class WebhookViewSet(
 
         # Serialize against a password-reset sweep, which deactivates this user's
         # webhooks (#4839).
-        lock_and_recheck_credential_cutoff(self.request)
+        _lock_credentials_for_webhook_grant(self.request)
         serializer.save(project=project, created_by=self.request.user)
         _record_token_editor(self.request, serializer.instance)
 
@@ -303,7 +340,7 @@ class WebhookViewSet(
             and not serializer.instance.is_active
         )
         if changed_credential_fields or is_reenable:
-            lock_and_recheck_credential_cutoff(self.request)
+            _lock_credentials_for_webhook_grant(self.request)
         serializer.save()
         if changed_credential_fields or is_reenable:
             from typing import cast
@@ -600,6 +637,6 @@ class ProgramWebhookViewSet(WebhookViewSet):
             raise NotFound("Program not found.") from None
 
         self.check_object_permissions(self.request, program)
-        lock_and_recheck_credential_cutoff(self.request)
+        _lock_credentials_for_webhook_grant(self.request)
         serializer.save(program=program, created_by=self.request.user)
         _record_token_editor(self.request, serializer.instance)

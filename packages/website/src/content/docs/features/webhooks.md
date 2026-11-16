@@ -515,6 +515,14 @@ It cannot do anything else:
 - **It cannot read the delivery history.** Delivery records carry task notes, comment
   snippets, and assignee emails, so `deliveries` answers `403` to this token. Use a
   session or a full-access token for that.
+- **It authenticates nowhere outside the webhook routes.** Every other endpoint
+  answers `401` to it.
+- **It cannot be combined with another scope**, and it is available on personal
+  tokens only. A project- or program-scoped integration token acts as the person who
+  minted it, and without a check binding it to its own project or program it would
+  reach every project that person administers, so `POST .../api-tokens/` with this
+  scope is a `400`. A project- or program-bound variant is not ruled out; it is not
+  part of this first release.
 
 :::caution[Treat this token as access to future event data]
 Refusing the delivery history protects only events that were already sent. The token
@@ -524,14 +532,6 @@ endpoint it chooses, and that endpoint then receives the full payload of every
 assignee emails the delivery history holds. Store and rotate a `webhooks:manage` token
 with the same care as the data your projects' events carry.
 :::
-- **It authenticates nowhere outside the webhook routes.** Every other endpoint
-  answers `401` to it.
-- **It cannot be combined with another scope**, and it is available on personal
-  tokens only. A project- or program-scoped integration token acts as the person who
-  minted it, and without a check binding it to its own project or program it would
-  reach every project that person administers, so `POST .../api-tokens/` with this
-  scope is a `400`. A project- or program-bound variant is not ruled out; it is not
-  part of this first release.
 
 A full-access token is still refused on create and update, as above: `webhooks:manage`
 is the one token that may register or repoint a webhook.

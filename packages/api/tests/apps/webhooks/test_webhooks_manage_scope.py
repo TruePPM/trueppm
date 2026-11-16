@@ -303,6 +303,65 @@ def test_a_session_edit_after_the_token_does_not_erase_its_attribution(
     assert Webhook.objects.get(pk=pk).is_active is False
 
 
+def _revoke_like_destroy(token: ApiToken) -> None:
+    """Run ``MyApiTokenViewSet.destroy``'s two statements, as a concurrent revoke would."""
+    from django.utils import timezone
+
+    from trueppm_api.apps.webhooks.models import deactivate_webhooks_set_by_token
+
+    ApiToken.objects.filter(pk=token.pk, revoked_at__isnull=True).update(revoked_at=timezone.now())
+    deactivate_webhooks_set_by_token(token.pk)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("shape", ["project_create", "program_create", "repoint", "reenable"])
+def test_a_revoke_landing_after_authentication_refuses_the_write(
+    project: Project, admin: object, webhook: Webhook, shape: str
+) -> None:
+    """A revoke between authentication and the write's commit leaves no live webhook.
+
+    The request has already authenticated when the revoke runs, and the revoke's
+    deactivate sweep cannot see an editor row this write has not inserted yet. The
+    write must therefore re-read the token under its row lock and refuse (#2414).
+    The revoke is injected at the profile-lock step, i.e. after authentication and
+    before ``serializer.save``.
+    """
+    from trueppm_api.apps.webhooks import views as wh_views
+
+    c, token = _client_and_token(admin, [SCOPE_WEBHOOKS_MANAGE])
+    if shape == "reenable":
+        webhook.is_active = False
+        webhook.save(update_fields=["is_active"])
+    before = set(Webhook.objects.values_list("pk", flat=True))
+    real = wh_views.lock_and_recheck_credential_cutoff
+
+    def revoke_then_lock(request: object) -> None:
+        _revoke_like_destroy(token)
+        real(request)
+
+    with patch.object(wh_views, "lock_and_recheck_credential_cutoff", revoke_then_lock):
+        if shape == "project_create":
+            resp = c.post(_url(project), _BODY, format="json")
+        elif shape == "program_create":
+            program = Program.objects.create(name="RaceProg")
+            ProgramMembership.objects.create(program=program, user=admin, role=Role.ADMIN)
+            resp = c.post(f"/api/v1/programs/{program.pk}/webhooks/", _BODY, format="json")
+        elif shape == "repoint":
+            resp = c.patch(
+                f"{_url(project)}{webhook.pk}/",
+                {"url": "https://attacker.example.com/h"},
+                format="json",
+            )
+        else:
+            resp = c.patch(f"{_url(project)}{webhook.pk}/", {"is_active": True}, format="json")
+
+    assert resp.status_code == 401, resp.data
+    assert set(Webhook.objects.values_list("pk", flat=True)) == before
+    webhook.refresh_from_db()
+    assert webhook.url == "https://example.com/hook"
+    assert webhook.is_active is (shape != "reenable")
+
+
 # --- schema (#4461 403 on the full-token-refused writes) ---------------------
 
 
