@@ -8,6 +8,8 @@ page requests — the failure page-number pagination has and keyset does not.
 
 from __future__ import annotations
 
+import base64
+import json
 import uuid
 from datetime import date
 from typing import Any
@@ -259,6 +261,11 @@ class TestKeysetQueryShape:
         assert len(keyset_ctx.captured_queries) == len(offset_ctx.captured_queries) - 1
 
 
+def _forged(payload: dict[str, object]) -> str:
+    raw = json.dumps(payload).encode()  # ensure_ascii escapes NUL as \\u0000
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
 @pytest.mark.django_db
 class TestKeysetRefusals:
     def test_ordering_cannot_be_combined_with_keyset(
@@ -279,6 +286,8 @@ class TestKeysetRefusals:
             TaskCursor(key=("1",), name="x", id=uuid.uuid4()).encode()[:-4] + "AAAA",
             "eyJrIjoiMSIsIm4iOiJ4IiwiaSI6Im5vcGUifQ",  # k is a string, i is not a UUID
             "x" * 20_000,
+            _forged({"k": None, "n": "a\u0000b", "i": str(uuid.uuid4())}),  # NUL in name
+            _forged({"k": ["1", "a\u0000"], "n": "x", "i": str(uuid.uuid4())}),  # NUL in label
         ],
     )
     def test_malformed_cursor_is_a_400(

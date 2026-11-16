@@ -80,7 +80,7 @@ Kubernetes should point a readiness probe at.
 
 ## Pagination
 
-Four pagination dialects ship today. The generated
+Five pagination dialects ship today. The generated
 [OpenAPI schema](#interactive-schema) is authoritative per endpoint: read the
 parameters the operation declares rather than assuming one convention.
 
@@ -89,6 +89,7 @@ parameters the operation declares rather than assuming one convention.
 | Page number | `page` | `{count, next, previous, results}` | Most list endpoints (default page size 50) |
 | Page number with size | `page`, `page_size` | `{count, next, previous, results}` | Endpoints that let you choose the page size, such as `/admin/failed-tasks/` |
 | Cursor (DRF `CursorPagination`) | `cursor`, `page_size` (default 50, maximum 200) | `{next, previous, results}`, no `count` | Only the [audit log](/administration/audit-log/#reading-the-log), the workspace member list, and a webhook's delivery history |
+| Keyset (task list, opt-in) | `pagination=keyset`, `cursor`, `page_size` (maximum 500) | `{next, previous, results}`, no `count` | `GET /tasks/`; ships in 0.5 |
 | Limit and offset | `limit`, `offset` | `{count, next, previous, results}` | `/me/work/`, `/me/external-items/`, the product backlog and the API token audit lists |
 
 Several other endpoints also declare `cursor` and `page_size`, but they are not DRF
@@ -99,29 +100,31 @@ and the sync pulls (`/projects/{id}/sync/`, `/sync/user/programs/`) return
 `{changes, timestamp, next_cursor, ...}`. For these, pass `next_cursor` back as
 `cursor` until it is `null`; the cursor is opaque.
 
-A fifth, bespoke shape, `{results, next_until}`, is used by the board activity feed
+A sixth, bespoke shape, `{results, next_until}`, is used by the board activity feed
 (`/projects/{id}/board/activity/`): pass the returned `next_until` back as the
 upper time bound of the next request.
+
+```json
+{"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
+```
 
 The task list ships an opt-in keyset mode in 0.5: `GET /tasks/?pagination=keyset`
 returns `{next, previous, results}` with no `count`, in the default WBS order
 (numeric per level, then name, then `id`). Follow `next` until it is `null`, passing
 its `cursor` value back unchanged; `page_size` is honored up to 500, `previous` is
 always `null`, and combining it with `ordering` returns `400`. Unlike page numbers,
-a keyset walk neither repeats nor skips a row when tasks are added or removed
-between requests, and a deep page costs about what the first one does. Without
+a keyset walk neither repeats nor skips a row when tasks are plainly added or removed
+between requests, and a deep page costs about what the first one does. A structural
+move (indent, outdent, reparent) or a rename during a walk changes the sort key of
+rows already served, so it can repeat or skip a row; restart the walk if that matters. Without
 `pagination=keyset` the endpoint keeps its page-number envelope.
-
-```json
-{"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
-```
 
 Cursor endpoints cover unbounded, append-only logs. A cursor envelope has no
 `count` (computing one would defeat the point of a cursor), so it is
 `{next, previous, results}` only. Follow `next` until it is `null`; do not
 compute page counts from these endpoints, and treat the `cursor` value as opaque.
 
-The four dialects are a pre-1.0 inconsistency, not a design. One convention will be
+The dialects above are a pre-1.0 inconsistency, not a design. One convention will be
 chosen for 1.0; until then, a client should not assume the dialect from the
 endpoint's neighbors.
 

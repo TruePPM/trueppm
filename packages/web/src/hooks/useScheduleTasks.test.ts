@@ -605,6 +605,50 @@ describe('useScheduleTasks keyset task walk (#3381)', () => {
     expect(peak).toBe(1);
   });
 
+  it('falls back to the page-number walk when the server ignores pagination=keyset', async () => {
+    const all = Array.from({ length: 450 }, (_, i) => makeApiTask(`t-${i + 1}`));
+    getMock.mockImplementation((url: string, config?: GetConfig) => {
+      if (url !== '/tasks/') return paginatedResponse([]);
+      const page = Number(config?.params?.page ?? 1);
+      const rows = all.slice((page - 1) * 200, page * 200);
+      return Promise.resolve({
+        data: {
+          count: all.length,
+          next: page < 3 ? `http://x/api/v1/tasks/?project=proj-1&page=${page + 1}` : null,
+          previous: null,
+          results: rows,
+        },
+      });
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.tasks).toHaveLength(450);
+    expect(result.current.tasks![0].id).toBe('t-1');
+    expect(result.current.tasks![449].id).toBe('t-450');
+  });
+
+  it('fails the query when a later page repeats a task id (structural move mid-walk)', async () => {
+    getMock.mockImplementation(
+      keysetGet({
+        '': { rows: [makeApiTask('t-1'), makeApiTask('t-2')], next: 'c1' },
+        c1: { rows: [makeApiTask('t-2'), makeApiTask('t-3')], next: null },
+      }),
+    );
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(String(result.current.error)).toMatch(/served a task twice/);
+    expect(result.current.tasks).toBeUndefined();
+  });
+
   it('fails the query instead of looping when the server repeats a cursor', async () => {
     getMock.mockImplementation(
       keysetGet({

@@ -51444,7 +51444,7 @@
                         "name": "pagination",
                         "required": false,
                         "in": "query",
-                        "description": "`keyset` switches to seek pagination in the default WBS order (tie-broken on `id`): follow `next` to the end; the response omits `count` and `page` is ignored. Pages stay stable across concurrent inserts and deletes. Cannot be combined with `ordering`.",
+                        "description": "`keyset` switches to seek pagination in the default WBS order (tie-broken on `id`): follow `next` to the end; the response omits `count` and `page` is ignored. Plain inserts and deletes during a walk neither repeat nor skip a row; structural moves (indent, outdent, reparent) and renames can. Cannot be combined with `ordering`.",
                         "schema": {
                             "type": "string",
                             "enum": [
@@ -69140,6 +69140,7 @@
             "PaginatedTaskList": {
                 "type": "object",
                 "required": [
+                    "count",
                     "results"
                 ],
                 "properties": {

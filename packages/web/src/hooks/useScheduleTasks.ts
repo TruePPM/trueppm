@@ -655,6 +655,10 @@ const SCHEDULE_KEYSET_PAGE_SIZE = 500;
  * from the host it saw and can name an internal host or the wrong scheme behind a
  * TLS-terminating proxy.
  */
+function hasCursor(next: string): boolean {
+  return !!new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
+}
+
 export function keysetCursorFromNext(next: string | null): string | null {
   if (next === null) return null;
   const cursor = new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
@@ -684,6 +688,7 @@ export function keysetCursorFromNext(next: string | null): string | null {
 async function fetchAllTasksKeyset(projectId: string): Promise<ApiTask[]> {
   const results: ApiTask[] = [];
   const seen = new Set<string>();
+  const seenIds = new Set<string>();
   let cursor: string | null = null;
   for (;;) {
     const params: Record<string, string | number> = {
@@ -695,7 +700,25 @@ async function fetchAllTasksKeyset(projectId: string): Promise<ApiTask[]> {
     const response: { data: KeysetPaginatedResponse<ApiTask> } = await apiClient.get<
       KeysetPaginatedResponse<ApiTask>
     >('/tasks/', { params });
-    results.push(...response.data.results);
+    // A server that predates keyset mode ignores `pagination=keyset` (rolling
+    // update: web rolls before the API, or a walk spans both) and answers in the
+    // page-number envelope: it carries `count`, or a `next` with no cursor. Redo
+    // the read with the page-number walk rather than erroring the Schedule.
+    const body = response.data as Partial<PaginatedResponse<ApiTask>> &
+      KeysetPaginatedResponse<ApiTask>;
+    if (body.count !== undefined || (body.next && !hasCursor(body.next))) {
+      return fetchAllPagesParallel<ApiTask>('/tasks/', projectId);
+    }
+    for (const task of body.results) {
+      // A structural move (indent/outdent/reparent) or rename mid-walk can shift
+      // a row across a page boundary. Fail so the query retries and refetches,
+      // rather than rendering the same task twice.
+      if (seenIds.has(task.id)) {
+        throw new Error('Keyset task walk served a task twice; refetching');
+      }
+      seenIds.add(task.id);
+    }
+    results.push(...body.results);
     cursor = keysetCursorFromNext(response.data.next);
     if (cursor === null) return results;
     // A server that hands back a cursor it already issued would loop forever.

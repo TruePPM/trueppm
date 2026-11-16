@@ -6694,8 +6694,6 @@ class TaskListPagination(ScheduleFetchPagination):
 
     def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
         response_schema = super().get_paginated_response_schema(schema)
-        # `count` is absent in keyset mode, so it cannot stay required.
-        response_schema["required"] = ["results"]
         response_schema["properties"]["count"]["description"] = (
             "Total matching rows. Omitted when `pagination=keyset`."
         )
@@ -6711,8 +6709,10 @@ class TaskListPagination(ScheduleFetchPagination):
                 "description": (
                     "`keyset` switches to seek pagination in the default WBS order "
                     "(tie-broken on `id`): follow `next` to the end; the response omits "
-                    "`count` and `page` is ignored. Pages stay stable across concurrent "
-                    "inserts and deletes. Cannot be combined with `ordering`."
+                    "`count` and `page` is ignored. Plain inserts and deletes during a "
+                    "walk neither repeat nor skip a row; structural moves "
+                    "(indent, outdent, reparent) and renames can. Cannot be "
+                    "combined with `ordering`."
                 ),
                 "schema": {"type": "string", "enum": [KEYSET_MODE_VALUE]},
             },

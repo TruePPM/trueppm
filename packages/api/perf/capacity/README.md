@@ -33,6 +33,8 @@ The `api` service has **no source mount**, so every measured number comes from t
 packaged code as shipped. Only the on-demand `seeder` service mounts the working
 tree, and seeding is not a measured path.
 
+`CAPACITY_FULL_LOAD_PAGINATION` selects how `full_project_load` walks the task list: `keyset` (default) or `offset` for the old page-number walk. The figures published in `administration/sizing.md` were taken with `offset`.
+
 ## Running it
 
 ```bash

@@ -109,6 +109,9 @@ class TaskCursor:
             raise invalid
         if not isinstance(name, str) or not isinstance(ident, str):
             raise invalid
+        # Postgres text cannot hold NUL; psycopg raises DataError (a 500) for it.
+        if "\x00" in name or (key is not None and any("\x00" in label for label in key)):
+            raise invalid
         try:
             parsed_id = uuid.UUID(ident)
         except ValueError as exc:
