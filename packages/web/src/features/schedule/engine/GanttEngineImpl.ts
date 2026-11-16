@@ -104,6 +104,37 @@ function snapToDayBoundary(canvasX: number, scales: GanttScaleData): number {
 // GanttEngineImpl
 // ---------------------------------------------------------------------------
 
+/**
+ * Task fields a `task_dates_updated` CPM splice rewrites (see
+ * `applyTaskDatesDelta`). A change confined to these cannot affect row order,
+ * hierarchy, labels, or the critical-path SET (isCritical is checked apart).
+ */
+export const CPM_DELTA_FIELDS: ReadonlySet<string> = new Set([
+  'start',
+  'finish',
+  'duration',
+  'milestoneAtDayEnd',
+  'totalFloat',
+  'freeFloat',
+  'lateFinish',
+  'plannedStart',
+  'baselineFinishVarianceDays',
+]);
+
+function isDateOnlyChange(a: Task, b: Task): boolean {
+  if (a.isCritical !== b.isCritical) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if (CPM_DELTA_FIELDS.has(k)) continue;
+    if (
+      (a as unknown as Record<string, unknown>)[k] !== (b as unknown as Record<string, unknown>)[k]
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class GanttEngineImpl implements GanttEngine {
   // ── Canvas elements and contexts ──────────────────────────────────────────
   private readonly _container: HTMLDivElement;
@@ -432,6 +463,7 @@ export class GanttEngineImpl implements GanttEngine {
   // ---------------------------------------------------------------------------
 
   setTasks(tasks: Task[]): void {
+    if (this._trySetTasksDateDelta(tasks)) return;
     this._tasks = tasks;
     // Keep the cached hover-row index (#2096) valid across data changes — a
     // reorder/insert could otherwise leave the band on the wrong row.
@@ -443,6 +475,52 @@ export class GanttEngineImpl implements GanttEngine {
     this._rebuildHitIndex();
     this._fullRepaintPending = true;
     this._requestRepaint();
+  }
+
+  /**
+   * Partial-repaint path for a collaborator's `task_dates_updated` CPM splice
+   * (#795, ADR-0091 §2). The splice replaces only the changed Task objects, so
+   * the incoming array is the old one with a few rows swapped. When every
+   * changed row differs ONLY in CPM-derived bar fields, nothing outside the
+   * bars layer can have moved, and `setTasks`' full repaint (bg + header +
+   * scale rebuild) is wasted: this repaints the bars layer only, with the
+   * dependency layout dropped (arrows anchored to a moved bar must be redrawn —
+   * a row-local repaint would erase and strand them, #1499).
+   *
+   * Returns false — caller takes the full `setTasks` path — whenever anything
+   * could reach beyond the changed bars: a different row count/order/id (WBS,
+   * insert, delete, reorder), a changed non-CPM field (name, parent, summary
+   * flag, …), a flipped critical flag (the critical-path set changed), or a
+   * project range change (scales and header depend on it).
+   */
+  private _trySetTasksDateDelta(next: Task[]): boolean {
+    const prev = this._tasks;
+    if (!this._scales || next.length !== prev.length || next === prev) return false;
+    let changed = 0;
+    for (let i = 0; i < next.length; i++) {
+      const a = prev[i];
+      const b = next[i];
+      if (a === b) continue;
+      if (a.id !== b.id || !isDateOnlyChange(a, b)) return false;
+      changed++;
+    }
+    if (changed === 0) return false;
+    const range = { s: this._projectStart, e: this._projectEnd };
+    this._tasks = next;
+    this._updateProjectRange();
+    if (this._projectStart !== range.s || this._projectEnd !== range.e) {
+      // Bounds moved: scales/header are stale. Fall through to the full path
+      // (tasks already assigned; setTasks re-derives everything idempotently).
+      this._projectStart = range.s;
+      this._projectEnd = range.e;
+      this._tasks = prev;
+      return false;
+    }
+    this._rebuildHitIndex();
+    this._depLayout = null;
+    this._barsRepaintPending = true;
+    this._requestRepaint();
+    return true;
   }
 
   setLinks(links: TaskLink[]): void {

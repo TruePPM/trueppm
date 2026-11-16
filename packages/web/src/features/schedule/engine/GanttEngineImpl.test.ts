@@ -14,7 +14,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
-import { GanttEngineImpl } from './GanttEngineImpl';
+import { GanttEngineImpl, CPM_DELTA_FIELDS } from './GanttEngineImpl';
+import { applyTaskDatesDelta } from '@/hooks/useScheduleTasks';
+import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from '../scheduleConstants';
 import { CALENDAR_QUARTERS, ZOOM_CONFIGS, dateToLeft, dateToRight } from './GanttScaleData';
 import {
   drawRowBands,
@@ -666,6 +668,159 @@ describe('GanttEngineImpl — updateTask repaints dependency arrows (#1499)', ()
     expect(internals._dirtyRows.size).toBe(0);
 
     expect(() => flushFrame()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #795 — a date-only CPM splice repaints the bars layer, not everything
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — setTasks date-only delta partial repaint (#795)', () => {
+  type Flags = {
+    _barsRepaintPending: boolean;
+    _fullRepaintPending: boolean;
+    _projectStart: string;
+  };
+  function seeded() {
+    const h = setup();
+    const base = [
+      makeTask('a', '2026-04-01', '2026-04-10'),
+      makeTask('b', '2026-04-11', '2026-04-20'),
+      makeTask('c', '2026-04-05', '2026-04-15'),
+    ];
+    h.engine.setTasks(base);
+    h.engine.setLinks([
+      { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
+    ]);
+    h.flushFrame();
+    return { ...h, base, flags: h.engine as unknown as Flags };
+  }
+
+  it('takes the bars-only path and rebuilds arrows when only inner dates change', () => {
+    const { engine, flushFrame, base, flags } = seeded();
+    const prepareSpy = vi.mocked(prepareDependencyLayout);
+    const before = prepareSpy.mock.calls.length;
+    const scalesBefore = engine.scales;
+
+    const next = base.slice();
+    next[1] = { ...base[1], start: '2026-04-12', finish: '2026-04-20', totalFloat: 3 };
+    engine.setTasks(next);
+
+    expect(flags._barsRepaintPending).toBe(true);
+    expect(flags._fullRepaintPending).toBe(false);
+    expect(engine.scales).toBe(scalesBefore); // scales were not rebuilt
+    flushFrame();
+    expect(prepareSpy.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('skips the bg layer and rebuilds the hit index on the fast path', () => {
+    const { engine, flushFrame, base, flags } = seeded();
+    const rowBands = vi.mocked(drawRowBands);
+    const header = vi.mocked(drawTimelineHeader);
+    rowBands.mockClear();
+    header.mockClear();
+
+    const scales = engine.scales;
+    if (!scales) throw new Error('scales missing');
+    const y = CHART_HEADER_HEIGHT + 1 * ROW_HEIGHT + ROW_HEIGHT / 2;
+    const query = (iso: string, dx: number) =>
+      (
+        engine as unknown as {
+          _hitIndex: { query(x: number, y: number, t: boolean): { taskId: string } | null } | null;
+        }
+      )._hitIndex?.query(dateToLeft(iso, scales) + dx, y, false) ?? null;
+    // The index is built lazily: read it once so the stale flag is consumed and
+    // the post-splice read can only be fresh if the fast path re-invalidated it.
+    expect(query('2026-04-17', 0)?.taskId).toBe('b');
+    expect(query('2026-04-11', 2)?.taskId).toBe('b');
+
+    const next = base.slice();
+    next[1] = { ...base[1], start: '2026-04-15', finish: '2026-04-20' };
+    engine.setTasks(next);
+    expect(flags._fullRepaintPending).toBe(false);
+    flushFrame();
+    expect(rowBands).not.toHaveBeenCalled();
+    expect(header).not.toHaveBeenCalled();
+
+    expect(query('2026-04-17', 0)?.taskId).toBe('b'); // inside the moved bar
+    expect(query('2026-04-11', 2)).toBeNull(); // where the bar used to be
+  });
+
+  it('every field applyTaskDatesDelta rewrites is in CPM_DELTA_FIELDS and takes the fast path', () => {
+    const { engine, base, flags } = seeded();
+    const existing: Task = {
+      ...base[1],
+      freeFloat: 1,
+      lateFinish: '2026-04-30',
+      plannedStart: null,
+      baselineFinishVarianceDays: 2,
+    };
+    engine.setTasks([base[0], existing, base[2]]);
+    const next0 = [base[0], existing, base[2]];
+    const updated = applyTaskDatesDelta(existing, {
+      id: 'b',
+      early_start: '2026-04-15',
+      early_finish: '2026-04-20',
+      late_start: '2026-04-16',
+      late_finish: '2026-04-21',
+      total_float: 4,
+      free_float: 3,
+      is_critical: false,
+      planned_start: '2026-04-15',
+      duration: 5, // base duration is 7
+    });
+    const changed = (Object.keys(updated) as (keyof Task)[]).filter(
+      (k) => updated[k] !== existing[k],
+    );
+    expect(changed.length).toBeGreaterThan(3);
+    for (const k of changed) expect(CPM_DELTA_FIELDS.has(k)).toBe(true);
+
+    const next = next0.slice();
+    next[1] = updated;
+    engine.setTasks(next);
+    expect(flags._barsRepaintPending).toBe(true);
+    expect(flags._fullRepaintPending).toBe(false);
+  });
+
+  it('falls back to a full repaint when the project bounds move', () => {
+    const { engine, base, flags } = seeded();
+    const next = base.slice();
+    next[0] = { ...base[0], start: '2026-01-01' }; // earliest task moves earlier
+    engine.setTasks(next);
+    expect(flags._fullRepaintPending).toBe(true);
+    expect(flags._projectStart).toBe('2025-12-02');
+  });
+
+  it('falls back to a full repaint when the latest finish moves (project end)', () => {
+    const { engine, base, flags } = seeded();
+    const next = base.slice();
+    next[1] = { ...base[1], finish: '2026-04-18' }; // b was the latest finish
+    engine.setTasks(next);
+    expect(flags._fullRepaintPending).toBe(true);
+  });
+
+  it('falls back to a full repaint when the critical flag flips', () => {
+    const { engine, base, flags } = seeded();
+    const next = base.slice();
+    next[1] = { ...base[1], isCritical: true };
+    engine.setTasks(next);
+    expect(flags._fullRepaintPending).toBe(true);
+  });
+
+  it('falls back to a full repaint for a non-date change, a reorder, or a new row count', () => {
+    const { engine, flushFrame, base, flags } = seeded();
+    const renamed = base.slice();
+    renamed[1] = { ...base[1], name: 'Renamed' };
+    engine.setTasks(renamed);
+    expect(flags._fullRepaintPending).toBe(true);
+    flushFrame();
+
+    engine.setTasks([renamed[1], renamed[0], renamed[2]]);
+    expect(flags._fullRepaintPending).toBe(true);
+    flushFrame();
+
+    engine.setTasks(renamed.slice(0, 2));
+    expect(flags._fullRepaintPending).toBe(true);
   });
 });
 
