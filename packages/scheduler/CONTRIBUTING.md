@@ -78,8 +78,10 @@ calendars. The
 exceptions, and compare both engines against it. Completed tasks are compared
 like any other work: pinned, zero float, never critical.
 
-Not generated for the reference comparison: summary tasks and
-`live_day_end_on`. Two inputs the reference refuses rather than answer, so the
+Summary tasks are generated: `expand_summary_dependencies` is compared with the
+reference's own expansion (`expand_summaries`), refusals included, and the leaf
+network it returns is scheduled against the reference (Python only, #4684). Not
+generated: `live_day_end_on`. Two inputs the reference refuses rather than answer, so the
 progress generator does not draw them: an FF or SF link between tasks on
 different calendars (the generator makes it FS/SS — which calendar reads its
 anchor is not documented) and a completed milestone with recorded actuals
