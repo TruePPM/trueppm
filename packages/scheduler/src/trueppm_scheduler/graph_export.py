@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections import Counter
 from dataclasses import (
     dataclass,
 )
@@ -50,6 +51,9 @@ from trueppm_scheduler.engine.errors import (
 from trueppm_scheduler.engine.graph import (
     find_cycle,
 )
+from trueppm_scheduler.engine.limits import (
+    MAX_DEPENDENCIES,
+)
 from trueppm_scheduler.engine.results import (
     ScheduleResult,
 )
@@ -57,6 +61,8 @@ from trueppm_scheduler.models import (
     DependencyType,
     Project,
     _parse_date,
+    _reject_duplicate_keys,
+    _reject_nonfinite,
     _short_repr,
 )
 
@@ -206,10 +212,23 @@ class GraphExport:
 
         Raises:
             InvalidScheduleInput: If ``data`` is malformed, carries an unsupported
-                ``format_version``, repeats a node id, or has an edge naming an
-                id that is not a node (the ids are named in the message).
+                ``format_version`` (it must be the integer ``1``; ``1.0`` is
+                refused), has a key the format does not define at the top level,
+                on a node or on an edge, has more than ``MAX_DEPENDENCIES`` nodes
+                or edges (checked before any per-item work), repeats a node id,
+                or has an edge naming an id that is not a node (the ids are named
+                in the message).
             CyclicDependencyError: If the edges contain a cycle; ``cycle`` names
                 the ids on it. No partial graph is returned.
+
+        Note:
+            Deliberately accepted, because the export side never guarantees the
+            opposite and a hand-edited or third-party document is still drawable:
+            nodes and edges in any order (sorting is an export-side determinism
+            promise, not a load-side requirement), a node whose ``early_start`` is
+            after its ``early_finish``, and a ``project_start`` after
+            ``project_finish``. The loader checks structure, not schedule
+            plausibility; do not treat a loaded export as a verified schedule.
         """
         try:
             return cls._from_dict(data)
@@ -221,13 +240,26 @@ class GraphExport:
     @classmethod
     def _from_dict(cls, data: dict[str, Any]) -> GraphExport:
         version = data["format_version"]
-        if version != GRAPH_FORMAT_VERSION or isinstance(version, bool):
+        # ``1.0 == 1`` in Python, so the type is checked too: the format is
+        # versioned by integer and a float spelling is a different document.
+        if type(version) is not int or version != GRAPH_FORMAT_VERSION:
             raise InvalidScheduleInput(
                 f"Unsupported graph export format_version {_short_repr(version)}; "
                 f"this release reads version {GRAPH_FORMAT_VERSION}."
             )
-        nodes = tuple(_node_from_dict(n) for n in data["nodes"])
-        edges = tuple(_edge_from_dict(e) for e in data["edges"])
+        _require_keys(data, _TOP_KEYS, "graph export")
+        raw_nodes, raw_edges = data["nodes"], data["edges"]
+        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+            raise InvalidScheduleInput("Graph export nodes and edges must be lists.")
+        # Length checks come before any per-item parse so a huge document costs
+        # O(1) to refuse; MAX_DEPENDENCIES is the library's existing graph-size cap.
+        for what, items in (("nodes", raw_nodes), ("edges", raw_edges)):
+            if len(items) > MAX_DEPENDENCIES:
+                raise InvalidScheduleInput(
+                    f"Graph export has {len(items)} {what}, over the maximum of {MAX_DEPENDENCIES}."
+                )
+        nodes = tuple(_node_from_dict(n) for n in raw_nodes)
+        edges = tuple(_edge_from_dict(e) for e in raw_edges)
         export = cls(
             project_id=_req_str(data["project_id"], "project_id"),
             project_start=_parse_date(data["project_start"], "project_start"),
@@ -252,17 +284,56 @@ class GraphExport:
             The reconstructed :class:`GraphExport`.
 
         Raises:
-            InvalidScheduleInput: If ``text`` is not valid JSON or fails the
-                checks listed on :meth:`from_dict`.
+            InvalidScheduleInput: If ``text`` is not valid JSON, is nested too
+                deeply to parse, repeats a JSON object key (the last value would
+                otherwise win silently, as :meth:`Project.from_json` also refuses),
+                contains ``NaN``/``Infinity``, or fails the checks listed on
+                :meth:`from_dict`.
             CyclicDependencyError: If the edges contain a cycle.
         """
         try:
-            data = json.loads(text)
+            data = json.loads(
+                text,
+                parse_constant=_reject_nonfinite,
+                object_pairs_hook=_reject_duplicate_keys,
+            )
         except (ValueError, TypeError) as err:
             raise InvalidScheduleInput(f"Graph export is not valid JSON: {err}") from err
+        except RecursionError as err:
+            # Deep nesting overflows the parser's C recursion limit and RecursionError
+            # is neither ValueError nor TypeError; mirror Project.from_json (#1207).
+            raise InvalidScheduleInput("Graph export JSON is nested too deeply to parse.") from err
         if not isinstance(data, dict):
             raise InvalidScheduleInput("Graph export JSON must be an object.")
         return cls.from_dict(data)
+
+
+_TOP_KEYS = frozenset(
+    {"format_version", "project_id", "project_start", "project_finish", "nodes", "edges"}
+)
+_NODE_KEYS = frozenset(
+    {
+        "id",
+        "name",
+        "early_start",
+        "early_finish",
+        "late_start",
+        "late_finish",
+        "total_float_days",
+        "is_critical",
+        "milestone_at_day_end",
+    }
+)
+_EDGE_KEYS = frozenset({"predecessor_id", "successor_id", "dep_type", "lag_days", "is_driving"})
+
+
+def _require_keys(d: dict[str, Any], allowed: frozenset[str], what: str) -> None:
+    """Refuse a key the format does not define, so a typo or a newer document is loud."""
+    extra = sorted(k for k in d if k not in allowed)
+    if extra:
+        raise InvalidScheduleInput(
+            f"Unknown key(s) in {what}: " + ", ".join(_short_repr(k) for k in extra)
+        )
 
 
 def _req_str(value: Any, name: str) -> str:
@@ -284,6 +355,7 @@ def _req_days(value: Any, name: str) -> float:
 
 
 def _node_from_dict(d: dict[str, Any]) -> GraphNode:
+    _require_keys(d, _NODE_KEYS, "graph node")
     return GraphNode(
         id=_req_str(d["id"], "node id"),
         name=_req_str(d["name"], "node name"),
@@ -298,6 +370,7 @@ def _node_from_dict(d: dict[str, Any]) -> GraphNode:
 
 
 def _edge_from_dict(d: dict[str, Any]) -> GraphEdge:
+    _require_keys(d, _EDGE_KEYS, "graph edge")
     dep_type = _req_str(d["dep_type"], "dep_type")
     if dep_type not in _DEP_TYPES:
         raise InvalidScheduleInput(f"Unknown dep_type {_short_repr(dep_type)} on graph edge.")
@@ -317,8 +390,11 @@ def _check_graph(node_ids: list[str], edges: list[tuple[str, str]]) -> None:
     names is the canonical one the engine itself would report.
     """
     seen = set(node_ids)
+    # One Counter pass: the old per-id ``list.count`` made the error path O(n^2).
     dupes = (
-        sorted({i for i in node_ids if node_ids.count(i) > 1}) if len(seen) < len(node_ids) else []
+        sorted(i for i, n in Counter(node_ids).items() if n > 1)
+        if len(seen) < len(node_ids)
+        else []
     )
     if dupes:
         raise InvalidScheduleInput(

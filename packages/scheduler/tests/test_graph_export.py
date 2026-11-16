@@ -336,3 +336,104 @@ class TestRefusals:
     def test_malformed_json(self, text: str) -> None:
         with pytest.raises(InvalidScheduleInput):
             GraphExport.from_json(text)
+
+
+def _bare_node(i: Any) -> dict[str, Any]:
+    return {
+        "id": f"t{i}",
+        "name": "x",
+        "early_start": "2026-01-05",
+        "early_finish": "2026-01-05",
+        "late_start": "2026-01-05",
+        "late_finish": "2026-01-05",
+        "total_float_days": 0.0,
+        "is_critical": False,
+        "milestone_at_day_end": False,
+    }
+
+
+def _bare_doc(nodes: list[dict[str, Any]], edges: list[dict[str, Any]] | None = None) -> dict:
+    return {
+        "format_version": 1,
+        "project_id": "p",
+        "project_start": "2026-01-05",
+        "project_finish": "2026-01-05",
+        "nodes": nodes,
+        "edges": edges or [],
+    }
+
+
+class TestLoaderHardening:
+    """#5016: linear duplicate check, size cap, deep nesting, input leniencies."""
+
+    def test_duplicate_check_is_linear(self) -> None:
+        import time
+
+        n = 40_000  # 10 s on the quadratic check
+        nodes = [_bare_node(i) for i in range(n)] + [_bare_node(0)]
+        start = time.perf_counter()
+        with pytest.raises(InvalidScheduleInput, match="'t0'"):
+            GraphExport.from_dict(_bare_doc(nodes))
+        assert time.perf_counter() - start < 2.0
+
+    def test_node_cap_refused_before_per_node_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("trueppm_scheduler.graph_export.MAX_DEPENDENCIES", 2)
+        # Items are not even dicts: reaching per-node parsing would raise a different error.
+        d = _bare_doc([_bare_node(0)])
+        d["nodes"] = [None, None, None]
+        with pytest.raises(InvalidScheduleInput, match="3 nodes, over the maximum of 2"):
+            GraphExport.from_dict(d)
+
+    def test_edge_cap_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("trueppm_scheduler.graph_export.MAX_DEPENDENCIES", 2)
+        d = _bare_doc([_bare_node(0)])
+        d["edges"] = [None, None, None]
+        with pytest.raises(InvalidScheduleInput, match="3 edges, over the maximum of 2"):
+            GraphExport.from_dict(d)
+
+    def test_at_the_cap_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("trueppm_scheduler.graph_export.MAX_DEPENDENCIES", 2)
+        g = GraphExport.from_dict(_bare_doc([_bare_node(0), _bare_node(1)]))
+        assert len(g.nodes) == 2
+
+    @pytest.mark.parametrize("doc", ["[" * 100_000, '{"a":' * 100_000])
+    def test_deep_nesting_is_invalid_schedule_input(self, doc: str) -> None:
+        with pytest.raises(InvalidScheduleInput, match="nested too deeply"):
+            GraphExport.from_json(doc)
+
+    def test_float_format_version_refused(self) -> None:
+        d = _bare_doc([_bare_node(0)])
+        d["format_version"] = 1.0
+        with pytest.raises(InvalidScheduleInput, match="format_version"):
+            GraphExport.from_dict(d)
+
+    def test_duplicate_json_key_refused(self) -> None:
+        text = json.dumps(_bare_doc([_bare_node(0)]))[:-1] + ', "project_id": "other"}'
+        with pytest.raises(InvalidScheduleInput, match="Duplicate JSON key"):
+            GraphExport.from_json(text)
+
+    def test_non_finite_constant_refused(self) -> None:
+        text = json.dumps(_bare_doc([_bare_node(0)])).replace("0.0", "NaN")
+        with pytest.raises(InvalidScheduleInput):
+            GraphExport.from_json(text)
+
+    @pytest.mark.parametrize("where", ["top", "node", "edge"])
+    def test_unknown_keys_refused(self, where: str) -> None:
+        d = _export(_diamond()).to_dict()
+        target = {"top": d, "node": d["nodes"][0], "edge": d["edges"][0]}[where]
+        target["extra"] = 1
+        with pytest.raises(InvalidScheduleInput, match="Unknown key"):
+            GraphExport.from_dict(d)
+
+    def test_documented_leniencies_stay_accepted(self) -> None:
+        """Order, inverted early dates and inverted project dates are accepted by design."""
+        d = _export(_diamond()).to_dict()
+        d["nodes"].reverse()
+        d["edges"].reverse()
+        n = d["nodes"][0]
+        n["early_start"], n["early_finish"] = "2026-02-01", "2026-01-01"
+        d["project_start"], d["project_finish"] = "2026-02-01", "2026-01-01"
+        assert (
+            GraphExport.from_dict(d).nodes[0].early_start
+            > GraphExport.from_dict(d).nodes[0].early_finish
+        )
