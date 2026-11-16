@@ -16,7 +16,8 @@
  *   task_created / task_deleted / task_restored → invalidate tasks
  *   task_updated → unless self-echo (actor_id === current user) or a duplicate/replayed
  *                  version (ADR-0152, #327): a plain field edit on a cached row reads that one
- *                  task back (GET /tasks/{id}/, coalesced) and splices it in (#2341); structural
+ *                  task back (GET /tasks/{id}/, coalesced) and splices it in (#2341); a status/progress/duration edit also reads the cached ancestor
+ *                  summaries back (#4950); structural
  *                  fields / no changed_fields / uncached row / failed read → invalidate tasks
  *   tasks_reordered / tasks_bulk_mutated → invalidate tasks
  *   tasks_restructured → invalidate tasks + dependencies (ungroup drops edges, undo restores them)
@@ -101,6 +102,7 @@ import { needsBaselineVarianceRefetch } from '@/lib/baselineFinishVariance';
 import { fetchWsTicket } from '@/api/wsTicket';
 import {
   createTaskRowSplicer,
+  isRollupChange,
   isSpliceableChange,
   type TaskRowSplicer,
 } from '@/hooks/taskRowSplice';
@@ -159,6 +161,8 @@ type InvalidateKey =
   | 'project-my-tasks'
   | 'cp-tasks'
   | 'monte-carlo-latest';
+// Whole-project multi-page loads: invalidating one mid-flight stacks overlapping fetches.
+const SLOW_LOAD_KEYS: ReadonlySet<InvalidateKey> = new Set(['tasks', 'dependencies']);
 type ScheduleInvalidateFn = (...keys: InvalidateKey[]) => void;
 
 /**
@@ -542,12 +546,13 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
       // the full coalesced refetch; the splicer itself falls back on a failed
       // read or a stale version.
       const rows = queryClient.getQueryData<Task[]>(['tasks', projectIdRef.current]);
-      if (
-        taskId !== null &&
-        isSpliceableChange(payload.changed_fields) &&
-        rows?.some((t) => t.id === taskId)
-      ) {
+      const cached = taskId !== null && rows?.some((t) => t.id === taskId);
+      if (cached && isSpliceableChange(payload.changed_fields)) {
         taskRowSplicer.request(taskId, version);
+      } else if (cached && isRollupChange(payload.changed_fields)) {
+        // Status/progress/duration edits move ancestor summaries' rolled-up values
+        // too, and only the edited child is broadcast: read the chain back (#4950).
+        taskRowSplicer.requestWithAncestors(taskId, version);
       } else {
         scheduleInvalidate('tasks');
       }
@@ -1282,14 +1287,27 @@ function makeScheduleInvalidate(
   return (...keys) => {
     for (const key of keys) refs.pending.current.add(key);
     if (refs.timer.current !== null) return;
-    refs.timer.current = setTimeout(() => {
+    const flush = (): void => {
       refs.timer.current = null;
       const pending = refs.pending.current;
       refs.pending.current = new Set();
       for (const key of pending) {
-        void queryClient.invalidateQueries({ queryKey: [key, projectIdRef.current] });
+        const queryKey = [key, projectIdRef.current];
+        // A whole-project load takes seconds, and invalidating mid-flight cancels it
+        // and starts a second overlapping multi-page load (#4655). Hold the key back
+        // until the running load settles, so every event that arrived meanwhile
+        // collapses into ONE follow-up fetch that reads post-event data.
+        if (SLOW_LOAD_KEYS.has(key) && queryClient.isFetching({ queryKey }) > 0) {
+          refs.pending.current.add(key);
+          continue;
+        }
+        void queryClient.invalidateQueries({ queryKey });
       }
-    }, TASKS_INVALIDATE_DEBOUNCE_MS);
+      if (refs.pending.current.size > 0) {
+        refs.timer.current = setTimeout(flush, TASKS_INVALIDATE_DEBOUNCE_MS);
+      }
+    };
+    refs.timer.current = setTimeout(flush, TASKS_INVALIDATE_DEBOUNCE_MS);
   };
 }
 

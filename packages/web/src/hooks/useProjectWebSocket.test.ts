@@ -171,6 +171,35 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  it('holds a tasks invalidation until the running load settles, then fires once (#4655)', () => {
+    qc.setQueryData(['tasks', 'proj-1'], []);
+    const fetching = vi.spyOn(qc, 'isFetching').mockReturnValue(1);
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // Three events land during the one in-flight load (a 300 ms debounce apart).
+    dispatchEvent('dependency_created');
+    flushDebounce();
+    dispatchEvent('dependency_updated');
+    flushDebounce();
+    dispatchEvent('dependency_deleted');
+    flushDebounce();
+    // The load is still running: nothing may cancel it and stack a second one.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['dependencies', 'proj-1'] });
+
+    fetching.mockReturnValue(0);
+    flushDebounce();
+    const tasksCalls = invalidateSpy.mock.calls.filter(
+      (c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['tasks', 'proj-1'] }),
+    );
+    expect(tasksCalls).toHaveLength(1);
+    const depCalls = invalidateSpy.mock.calls.filter(
+      (c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['dependencies', 'proj-1'] }),
+    );
+    expect(depCalls).toHaveLength(1);
+  });
+
   it('invalidates poker and the sprint backlog on poker_session_updated (#863)', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
@@ -790,9 +819,33 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
       expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
     });
 
+    it('reads a child status edit back together with its ancestor summary, no list refetch', async () => {
+      qc.setQueryData(['tasks', 'proj-1'], [
+        { id: 'sum', name: 'Sum', serverVersion: 1, wbs: '1', parentId: null },
+        { id: 't1', name: 'Old', serverVersion: 1, wbs: '1.1', parentId: 'sum' },
+      ] as unknown as Task[]);
+      apiGetMock.mockImplementation((url: string) =>
+        Promise.resolve({
+          data: { id: url.split('/')[2], name: 'x', server_version: 3, is_summary: false },
+        }),
+      );
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatchTaskUpdated({ id: 't1', actor_id: 'x', version: 3, changed_fields: ['status'] });
+      await settle();
+
+      expect(apiGetMock.mock.calls.map((c) => String(c[0])).sort()).toEqual([
+        '/tasks/sum/',
+        '/tasks/t1/',
+      ]);
+      expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
+    });
+
     it.each([
       ['structural field', { changed_fields: ['parent'] }],
-      ['rollup input (child percent_complete)', { changed_fields: ['percent_complete'] }],
+      ['sprint rollup input', { changed_fields: ['sprint'] }],
+      ['cross-row field (assignee)', { changed_fields: ['status', 'assignee'] }],
       ['missing changed_fields', {}],
       ['empty changed_fields', { changed_fields: [] }],
     ])('falls back to the list refetch for %s', async (_label, extra) => {

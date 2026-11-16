@@ -686,12 +686,15 @@ export function keysetCursorFromNext(next: string | null): string | null {
  * set renders a WRONG schedule (see {@link fetchAllPagesParallel}), so pages are
  * never streamed into the cache.
  */
-async function fetchAllTasksKeyset(projectId: string): Promise<ApiTask[]> {
+async function fetchAllTasksKeyset(projectId: string, signal?: AbortSignal): Promise<ApiTask[]> {
   const results: ApiTask[] = [];
   const seen = new Set<string>();
   const seenIds = new Set<string>();
   let cursor: string | null = null;
   for (;;) {
+    // A superseded run (TanStack aborts `signal`) must not keep walking pages beside
+    // the fresh one (#4655).
+    signal?.throwIfAborted();
     const params: Record<string, string | number> = {
       project: projectId,
       pagination: 'keyset',
@@ -700,7 +703,7 @@ async function fetchAllTasksKeyset(projectId: string): Promise<ApiTask[]> {
     if (cursor !== null) params.cursor = cursor;
     const response: { data: KeysetPaginatedResponse<ApiTask> } = await apiClient.get<
       KeysetPaginatedResponse<ApiTask>
-    >('/tasks/', { params });
+    >('/tasks/', { params, signal });
     // A server that predates keyset mode ignores `pagination=keyset` (rolling
     // update: web rolls before the API, or a walk spans both) and answers in the
     // page-number envelope: it carries `count`, or a `next` with no cursor. Redo
@@ -708,7 +711,7 @@ async function fetchAllTasksKeyset(projectId: string): Promise<ApiTask[]> {
     const body = response.data as Partial<PaginatedResponse<ApiTask>> &
       KeysetPaginatedResponse<ApiTask>;
     if (body.count !== undefined || (body.next && !hasCursor(body.next))) {
-      return fetchAllPagesParallel<ApiTask>('/tasks/', projectId);
+      return fetchAllPagesParallel<ApiTask>('/tasks/', projectId, signal);
     }
     for (const task of body.results) {
       // A structural move (indent/outdent/reparent) or rename mid-walk can shift
@@ -780,9 +783,18 @@ const SCHEDULE_FETCH_CONCURRENCY = 4;
  * currently loaded, so an edge between two critical tasks reads as non-critical
  * until both endpoints exist. Windowed/streamed fetch has to fix both first.
  */
-async function fetchAllPagesParallel<T>(path: string, projectId: string): Promise<T[]> {
+async function fetchAllPagesParallel<T>(
+  path: string,
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<T[]> {
+  // TanStack cancels a superseded run by aborting `signal`; forwarding it aborts the
+  // in-flight requests, and the pre-request check makes mapWithConcurrency stop
+  // claiming pages (a throw there fails the queue) so a cancelled run cannot keep
+  // issuing the rest of its pages beside the fresh one (#4655).
   const { data: firstPage } = await apiClient.get<PaginatedResponse<T>>(path, {
     params: { project: projectId, page_size: SCHEDULE_PAGE_SIZE },
+    signal,
   });
   const results: T[] = [...firstPage.results];
   const totalPages = Math.ceil(firstPage.count / SCHEDULE_PAGE_SIZE);
@@ -790,13 +802,15 @@ async function fetchAllPagesParallel<T>(path: string, projectId: string): Promis
     return results;
   }
   const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
-  const pages = await mapWithConcurrency(remainingPages, SCHEDULE_FETCH_CONCURRENCY, (page) =>
-    apiClient
+  const pages = await mapWithConcurrency(remainingPages, SCHEDULE_FETCH_CONCURRENCY, (page) => {
+    signal?.throwIfAborted();
+    return apiClient
       .get<PaginatedResponse<T>>(path, {
         params: { project: projectId, page_size: SCHEDULE_PAGE_SIZE, page },
+        signal,
       })
-      .then((response) => response.data.results),
-  );
+      .then((response) => response.data.results);
+  });
   // Concatenate in page order (mapWithConcurrency resolves in input order, and
   // remainingPages is ascending) so ordering matches a serial `next` walk exactly.
   for (const pageResults of pages) {
@@ -840,11 +854,11 @@ export function useScheduleTasks(
 
   const tasksQuery = useQuery({
     queryKey: ['tasks', resolvedId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       // Fetch every task — a single default page would silently cap the Gantt
       // at 50. Walk the keyset cursor (#3381) so no page pays an OFFSET.
       // `enabled: !!resolvedId` guarantees resolvedId is defined here.
-      const allApiTasks = await fetchAllTasksKeyset(resolvedId!);
+      const allApiTasks = await fetchAllTasksKeyset(resolvedId!, signal);
       // Pass all tasks to the engine — _paintTaskAt skips bars for unscheduled
       // tasks (empty start/finish), and _updateProjectRange defaults to today
       // ±30 days when no task has dates yet.
@@ -866,13 +880,17 @@ export function useScheduleTasks(
 
   const linksQuery = useQuery({
     queryKey: ['dependencies', resolvedId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       // Fetch all pages — a single GET would cap at PAGE_SIZE=50 dependencies,
       // silently dropping arrows and CPM edges on projects with >50 deps. Mirror
       // the tasks query: request a large first page, then fetch the remainder in
       // parallel (issue 1519) instead of walking the `next` cursor serially.
       // `enabled: !!resolvedId` guarantees resolvedId is defined here.
-      const allDeps = await fetchAllPagesParallel<ApiDependency>('/dependencies/', resolvedId!);
+      const allDeps = await fetchAllPagesParallel<ApiDependency>(
+        '/dependencies/',
+        resolvedId!,
+        signal,
+      );
       return allDeps.map(mapDependency);
     },
     enabled,

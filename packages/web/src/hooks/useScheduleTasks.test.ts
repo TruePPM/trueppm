@@ -544,6 +544,36 @@ describe('useScheduleTasks keyset task walk (#3381)', () => {
     });
   });
 
+  it('forwards the abort signal and stops walking once the run is cancelled (#4655)', async () => {
+    // Page 1 resolves with a next cursor; the second read hangs until its signal aborts.
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    let taskCalls = 0;
+    getMock.mockImplementation((url: string, cfg?: { signal?: AbortSignal }) => {
+      if (url !== '/tasks/') return Promise.resolve(paginatedResponse([]));
+      seenSignals.push(cfg?.signal);
+      taskCalls++;
+      if (taskCalls === 1) {
+        return Promise.resolve({
+          data: { results: [makeApiTask('t-1')], next: KEYSET_NEXT('c1'), previous: null },
+        });
+      }
+      return new Promise((_resolve, reject) => {
+        cfg?.signal?.addEventListener('abort', () => reject(new DOMException('x', 'AbortError')));
+      });
+    });
+
+    renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(taskCalls).toBe(2));
+    expect(seenSignals.every((sig) => sig instanceof AbortSignal)).toBe(true);
+
+    await act(async () => {
+      await qc.cancelQueries({ queryKey: ['tasks', 'proj-1'] });
+    });
+    expect(seenSignals[1]?.aborted).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(taskCalls).toBe(2);
+  });
+
   it('follows next by cursor, against the client base URL, and concatenates in order', async () => {
     getMock.mockImplementation(
       keysetGet({
@@ -714,6 +744,42 @@ describe('useScheduleTasks page-number walk (dependencies)', () => {
     expect(depCalls).toHaveLength(totalPages);
     expect(result.current.links).toHaveLength(totalPages);
     expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it('stops scheduling further page requests once the run is aborted (#4655)', async () => {
+    // 25 pages; every page after the first hangs until its signal aborts. With a
+    // concurrency of 4 only pages 2-5 may ever be issued once the run is cancelled.
+    let depCalls = 0;
+    const abortErrors: string[] = [];
+    getMock.mockImplementation((url: string, config?: GetConfig & { signal?: AbortSignal }) => {
+      if (url !== '/dependencies/') return Promise.resolve(paginatedResponse([]));
+      depCalls++;
+      const page = Number(config?.params?.page ?? 1);
+      if (page === 1) {
+        return Promise.resolve({
+          data: { results: [makeApiDep('d-1')], next: null, previous: null, count: 5000 },
+        });
+      }
+      return new Promise((_resolve, reject) => {
+        config?.signal?.addEventListener('abort', () => {
+          const err = new DOMException('aborted', 'AbortError');
+          abortErrors.push(err.name);
+          reject(err);
+        });
+      });
+    });
+
+    renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(depCalls).toBe(5));
+
+    await act(async () => {
+      await qc.cancelQueries({ queryKey: ['dependencies', 'proj-1'] });
+    });
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(abortErrors).toEqual(['AbortError', 'AbortError', 'AbortError', 'AbortError']);
+    // Pages 6..25 were never requested.
+    expect(depCalls).toBe(5);
   });
 
   it('preserves page order across the capped burst (issue 2277)', async () => {
