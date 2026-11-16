@@ -921,8 +921,7 @@ they will ship with 0.5 or that release will slip:
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a
   milestone: closing a milestone ahead of an open
-  predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), start-of-day milestone total float ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)),
-  and the `free_float` oracle disagreement
+  predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)) and the `free_float` oracle disagreement
   ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)).
 - **Scheduling semantics** — the calendar-day-vs-working-day lag question will be
   decided ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535));
