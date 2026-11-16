@@ -11,7 +11,7 @@
  * a live API, and toast is mocked so the "warm" celebration is assertable.
  */
 import { useMemo, type ReactElement } from 'react';
-import { screen, render, fireEvent, act } from '@testing-library/react';
+import { screen, render, fireEvent, act, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, afterEach, beforeEach, beforeAll, vi } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router';
@@ -260,6 +260,54 @@ describe('TaskListRow — handleDuplicate (Ctrl+D)', () => {
     const toast = useScheduleStore.getState().scheduleActionToast;
     expect(toast?.message).toBe('Duplicated. Assignees and dependencies were not copied.');
     expect(toast?.action?.label).not.toBe('Undo');
+  });
+
+  it('offers Copy assignees on the flag-off duplicate and PATCHes the mapped owners (#2919)', async () => {
+    mocks.updateMutateAsync.mockResolvedValue({});
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, assignees: [{ resourceId: 'r1', name: 'Alice', units: 0.5 }] }}
+        level={1}
+        widths={widths}
+        visible={visible}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'd', ctrlKey: true });
+    const [, opts] = mocks.duplicateMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (created: { id: string }) => void },
+    ];
+    act(() => opts.onSuccess({ id: 'dup1' }));
+    const toast = useScheduleStore.getState().scheduleActionToast;
+    expect(toast?.action?.label).toBe('Copy assignees');
+    act(() => toast!.action!.onClick());
+    expect(mocks.updateMutateAsync).toHaveBeenCalledWith({
+      id: 'dup1',
+      projectId: 'p1',
+      owners: [{ resource: 'r1', units: 0.5 }],
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe('Assignees copied'),
+    );
+  });
+
+  it('lets the active-sprint Undo outrank Copy assignees (#2919)', () => {
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, sprintId: 's1', assignees: [{ resourceId: 'r1', name: 'Alice', units: 1 }] }}
+        level={1}
+        widths={widths}
+        visible={visible}
+        sourceSprint={{ id: 's1', name: 'Sprint 4', state: 'ACTIVE' }}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'd', ctrlKey: true });
+    const [, opts] = mocks.duplicateMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (created: { id: string }) => void },
+    ];
+    act(() => opts.onSuccess({ id: 'dup1' }));
+    expect(useScheduleStore.getState().scheduleActionToast?.action?.label).toBe('Undo');
   });
 
   it('surfaces a schedule error toast on the duplicate error path', () => {

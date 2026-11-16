@@ -1632,8 +1632,8 @@ export function useToggleComplete() {
 // useDuplicateTask — ⌘D / context-menu Duplicate from Schedule canvas (#477)
 //
 // Reads the source task's name/duration/parent/sprint and POSTs a new task
-// with a `(copy)` (or `(copy N)`) suffix. Dependencies are never cloned
-// (ADR-0066 Q1). Sprint inheritance follows ADR-0066 Q2: clone inherits the
+// with a `(copy)` (or `(copy N)`) suffix. Dependencies and assignees are never cloned
+// (ADR-0066 Q1); the caller's toast offers to copy assignees. Sprint inheritance follows ADR-0066 Q2: clone inherits the
 // source's sprint_id; when source's sprint is ACTIVE the caller surfaces an
 // Undo toast separately — the hook itself is mechanical.
 //

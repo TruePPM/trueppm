@@ -55,7 +55,7 @@ export interface BuildModeApi {
    * ADR-0066 §Q1): duplicates `taskId` and its full subtree, top-down,
    * remapping each clone's `parent_id` to its newly-created parent's id as it
    * goes. Only the root clone's name gets the "(copy)" suffix; descendants
-   * keep their source names. Dependencies are never cloned — including edges
+   * keep their source names. Dependencies and assignees are never cloned (assignees are offered afterwards via the toast) — including edges
    * *internal* to the duplicated subtree — extending ADR-0066's existing rule
    * uniformly rather than special-casing it away for this richer case. When a
    * multi-row selection is active and includes `taskId`, every top-level

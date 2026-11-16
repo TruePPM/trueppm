@@ -35,6 +35,7 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { restoreRefusalMessage } from '@/hooks/restoreRefusal';
 import { useScheduleStore, type ScheduleActionToast } from '@/stores/scheduleStore';
+import { applyAssigneeCopies, ownersFromSource, type AssigneeCopy } from './copyAssignees';
 import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -935,7 +936,7 @@ export const DUPLICATE_NOT_CLONED_MESSAGE =
  * root's subtree top-down so every descendant's new parent id is already
  * known, then surface the Duplicate-into-an-active-sprint Undo affordance.
  *
- * Dependencies and assignees are never cloned — extended uniformly to every
+ * Dependencies and assignees are never cloned (assignees can be copied afterwards, onto leaf clones only) — extended uniformly to every
  * duplicated node, including edges internal to the duplicated subtree. Only the
  * root's name gets the "(copy)" suffix; descendants move with the subtree
  * unchanged. A clone with no allocation is invisible to every capacity number,
@@ -953,7 +954,7 @@ async function duplicateSubtreeRoots(
   setScheduleActionToast: (toast: ScheduleActionToast | null) => void,
 ): Promise<void> {
   // Clones whose source carried assignees, for the "Copy assignees" action.
-  const assigneeCopies: { cloneId: string; owners: { resource: string; units: number }[] }[] = [];
+  const assigneeCopies: AssigneeCopy[] = [];
   // The active-sprint Undo, kept so the closing toast does not displace it.
   let sprintUndo: ScheduleActionToast['action'];
   for (const rootId of rootIds) {
@@ -974,7 +975,7 @@ async function duplicateSubtreeRoots(
         ...(rootNode.task.deliveryMode ? { delivery_mode: rootNode.task.deliveryMode } : {}),
       });
       idMap.set(rootNode.task.id, rootCreated.id);
-      noteAssignees(rootNode.task, rootCreated.id);
+      if (descendants.length === 0) noteAssignees(rootNode.task, rootCreated.id);
       const rootSprint = rootNode.task.sprintId
         ? sprintsById.get(rootNode.task.sprintId)
         : undefined;
@@ -1001,7 +1002,7 @@ async function duplicateSubtreeRoots(
           ...(node.task.deliveryMode ? { delivery_mode: node.task.deliveryMode } : {}),
         });
         idMap.set(node.task.id, created.id);
-        noteAssignees(node.task, created.id);
+        if (node.children.length === 0) noteAssignees(node.task, created.id);
       }
     } catch {
       toast.error("Couldn't duplicate the task — try again.");
@@ -1016,10 +1017,12 @@ async function duplicateSubtreeRoots(
     ? {
         label: 'Copy assignees',
         onClick: () => {
-          for (const c of assigneeCopies) {
-            updateTaskMut.mutate({ id: c.cloneId, projectId, owners: c.owners });
-          }
-          setScheduleActionToast({ message: 'Assignees copied', durationMs: 2000 });
+          void applyAssigneeCopies(
+            assigneeCopies,
+            projectId,
+            updateTaskMut.mutateAsync,
+            setScheduleActionToast,
+          );
         },
       }
     : undefined;
@@ -1028,12 +1031,11 @@ async function duplicateSubtreeRoots(
     action: sprintUndo ?? copyAssignees,
   });
 
+  // Leaf clones only: the server refuses `owners` on a summary task, and every
+  // cloned parent has children by the time the action is clicked.
   function noteAssignees(source: Task, cloneId: string): void {
-    if (source.assignees.length === 0) return;
-    assigneeCopies.push({
-      cloneId,
-      owners: source.assignees.map((a) => ({ resource: a.resourceId, units: a.units })),
-    });
+    const owners = ownersFromSource(source);
+    if (owners) assigneeCopies.push({ cloneId, owners });
   }
 }
 

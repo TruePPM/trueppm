@@ -129,6 +129,7 @@ const createTaskMutateAsync = vi.fn((vars: Record<string, unknown>) => {
 });
 const deleteTaskMutate = vi.fn();
 const updateTaskMutate = vi.fn();
+const updateTaskMutateAsync = vi.fn((_vars: Record<string, unknown>) => Promise.resolve({}));
 const reorderTaskMutate = vi.fn();
 // Group / Ungroup (#2955). Each drives its `onSuccess` synchronously with a fixture
 // response so the outcome copy, the trail entry and the ledger binding are all
@@ -346,7 +347,7 @@ vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
     ...actual,
     useIndentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
     useOutdentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-    useUpdateTask: () => ({ mutate: updateTaskMutate, isPending: false, variables: undefined }),
+    useUpdateTask: () => ({ mutate: updateTaskMutate, mutateAsync: updateTaskMutateAsync, isPending: false, variables: undefined }),
     useDeleteTask: () => ({ mutate: deleteTaskMutate, isPending: false, variables: undefined }),
     useRestoreTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
     useCreateTask: () => ({
@@ -880,6 +881,8 @@ beforeEach(() => {
   createTaskCounter = 0;
   deleteTaskMutate.mockReset();
   updateTaskMutate.mockReset();
+  updateTaskMutateAsync.mockClear();
+  updateTaskMutateAsync.mockImplementation(() => Promise.resolve({}));
   groupTasksMutate.mockClear();
   ungroupTasksMutate.mockClear();
   nextGroupingError = null;
@@ -3012,8 +3015,62 @@ describe('ScheduleView — buildModeApi.duplicateSubtree (#2727, ADR-0776 §2)',
     act(() => {
       useScheduleStore.getState().scheduleActionToast!.action!.onClick();
     });
-    expect(updateTaskMutate).toHaveBeenCalledWith(
+    expect(updateTaskMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'dup-task-1', owners: [{ resource: 'r1', units: 0.5 }] }),
+    );
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe('Assignees copied'),
+    );
+  });
+
+  it('reports a partial failure truthfully instead of claiming success (#2919)', async () => {
+    const ana = [{ resourceId: 'r1', name: 'Ana', units: 0.5 }];
+    mockTasks = FIXTURE_TASKS.map((t) =>
+      t.id === 't2' || t.id === 't3' ? { ...t, assignees: ana } : { ...t, assignees: [] },
+    );
+    updateTaskMutateAsync.mockImplementation((vars: Record<string, unknown>) =>
+      vars.id === 'dup-task-2' ? Promise.reject(new Error('400')) : Promise.resolve({}),
+    );
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t1');
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.action?.label).toBe('Copy assignees'),
+    );
+    act(() => {
+      useScheduleStore.getState().scheduleActionToast!.action!.onClick();
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        "Copied assignees to 1 of 2 tasks; 1 couldn't be assigned.",
+      ),
+    );
+  });
+
+  it('skips parent clones when copying assignees — the server refuses owners on a summary (#2919)', async () => {
+    const ana = [{ resourceId: 'r1', name: 'Ana', units: 0.5 }];
+    // t1 is the summary; t2 is a leaf child. Only the leaf clone may be PATCHed.
+    mockTasks = FIXTURE_TASKS.map((t) =>
+      t.id === 't1' || t.id === 't2' ? { ...t, assignees: ana } : { ...t, assignees: [] },
+    );
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t1');
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.action?.label).toBe('Copy assignees'),
+    );
+    act(() => {
+      useScheduleStore.getState().scheduleActionToast!.action!.onClick();
+    });
+    await waitFor(() => expect(updateTaskMutateAsync).toHaveBeenCalledTimes(1));
+    // dup-task-1 is the root (parent) clone; it must not be written.
+    expect(updateTaskMutateAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dup-task-1' }),
+    );
+    expect(updateTaskMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dup-task-2' }),
     );
   });
 

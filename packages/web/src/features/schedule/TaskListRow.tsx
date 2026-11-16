@@ -31,6 +31,7 @@ import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore, type ScheduleActionToast } from '@/stores/scheduleStore';
 import { toast } from '@/components/Toast';
+import { applyAssigneeCopies, ownersFromSource } from './copyAssignees';
 import {
   useUpdateTask,
   useReparentTask,
@@ -1601,23 +1602,22 @@ function useRowActions(ctx: {
                   },
                 }
               : undefined;
-          const copyAssignees =
-            task.assignees.length > 0
-              ? {
-                  label: 'Copy assignees',
-                  onClick: () => {
-                    updateTask.mutate({
-                      id: created.id,
-                      projectId,
-                      owners: task.assignees.map((a) => ({
-                        resource: a.resourceId,
-                        units: a.units,
-                      })),
-                    });
-                    setScheduleActionToast({ message: 'Assignees copied', durationMs: 2000 });
-                  },
-                }
-              : undefined;
+          // The clone is a single childless row, so it is never a summary and
+          // the server accepts `owners` on it.
+          const owners = ownersFromSource(task);
+          const copyAssignees = owners
+            ? {
+                label: 'Copy assignees',
+                onClick: () => {
+                  void applyAssigneeCopies(
+                    [{ cloneId: created.id, owners }],
+                    projectId,
+                    updateTask.mutateAsync,
+                    setScheduleActionToast,
+                  );
+                },
+              }
+            : undefined;
           setScheduleActionToast({
             message: sprintUndo
               ? `Added to ${sourceSprint?.name}. Assignees and dependencies were not copied.`
@@ -1634,12 +1634,7 @@ function useRowActions(ctx: {
   }, [
     projectId,
     buildMode,
-    task.id,
-    task.name,
-    task.duration,
-    task.parentId,
-    task.sprintId,
-    task.isMilestone,
+    task,
     siblingNames,
     sourceSprint,
     duplicateTask,
