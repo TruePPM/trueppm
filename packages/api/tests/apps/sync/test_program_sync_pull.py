@@ -192,6 +192,26 @@ def test_soft_deleted_program_becomes_tombstone(
 
 
 @pytest.mark.django_db
+def test_cold_start_ships_no_program_or_membership_tombstones(
+    authed_client: APIClient, program: Program, membership: ProgramMembership
+) -> None:
+    """since=0 holds nothing to delete, so no tombstones are served (#4470)."""
+    gone = Program.objects.create(name="Gone")
+    ProgramMembership.objects.create(program=gone, user=membership.user, role=Role.ADMIN)
+    gone.soft_delete()
+    co = ProgramMembership.objects.create(
+        program=program,
+        user=User.objects.create_user(username="co2", password="pw"),
+        role=Role.ADMIN,
+    )
+    co.soft_delete()
+    changes = authed_client.get(f"{URL}?since=0").json()["changes"]
+    assert changes["programs"]["deleted"] == []
+    assert changes["program_memberships"]["deleted"] == []
+    assert {r["id"] for r in changes["programs"]["updated"]} == {str(program.pk)}
+
+
+@pytest.mark.django_db
 def test_api_program_delete_delivers_tombstone_and_keeps_memberships(
     authed_client: APIClient, program: Program, membership: ProgramMembership
 ) -> None:
@@ -215,16 +235,17 @@ def test_deleted_program_memberships_are_not_served_but_tombstone_reaches_co_mem
     """A deleted program's roster is not served as live rows; the tombstone still is."""
     colleague = User.objects.create_user(username="co-member", password="pw")
     ProgramMembership.objects.create(program=program, user=colleague, role=Role.OWNER)
+    hwm = authed_client.get(URL).json()["timestamp"]
     program.soft_delete()  # memberships stay live, as after DELETE /programs/{id}/
 
-    body = authed_client.get(f"{URL}?since=0").json()["changes"]
+    body = authed_client.get(f"{URL}?since={hwm}").json()["changes"]
     assert str(program.pk) in body["programs"]["deleted"]
     assert body["program_memberships"]["updated"] == []
     assert body["program_memberships"]["deleted"] == []
 
     colleague_client = APIClient()
     colleague_client.force_authenticate(user=colleague)
-    co_body = colleague_client.get(f"{URL}?since=0").json()["changes"]
+    co_body = colleague_client.get(f"{URL}?since={hwm}").json()["changes"]
     assert str(program.pk) in co_body["programs"]["deleted"]
     assert co_body["program_memberships"]["updated"] == []
 

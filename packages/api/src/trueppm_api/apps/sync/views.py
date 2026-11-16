@@ -183,6 +183,11 @@ class ProjectSyncView(IdempotencyMixin, APIView):
     greater than `since` for the given project, formatted for WatermelonDB's
     synchronize() helper.
 
+    A cold start (``since=0``) returns live rows only. The client holds nothing, so
+    a tombstone has nothing to delete; and a client that must rebuild is told to
+    discard its store first (``resync_required``), so no stale row survives the
+    pull from 0. Tombstones are served for any ``since > 0``.
+
     ``sync_seq`` — not ``server_version`` — is the cursor (ADR-0686, #2491). It is
     drawn from the project's own monotonic sequence, so every synced row in the
     project is totally ordered against every other one and the project-wide
@@ -870,6 +875,11 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
     re-sync. Full write-side offline for programs is out of scope for v1 (reads
     first, per #561).
 
+    A cold start (``since=0``) returns live rows only. The client holds nothing, so
+    a tombstone has nothing to delete; and a client that must rebuild is told to
+    discard its store first (``resync_required``), so no stale row survives the
+    pull from 0. Tombstones are served for any ``since > 0``.
+
     Usage:
         GET /api/v1/sync/user/programs/?since=0
     """
@@ -986,6 +996,11 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
                 SyncProgramMembershipSerializer,
             ),
         ]
+
+        if since == 0:
+            # Cold start: the client holds nothing, so a tombstone has nothing to
+            # delete (same reasoning as ProjectSyncView, #4470).
+            sources = [(name, _live_only(qs), ser) for name, qs, ser in sources]
 
         changes, next_cursor, has_more = paginate_changes(
             sources,

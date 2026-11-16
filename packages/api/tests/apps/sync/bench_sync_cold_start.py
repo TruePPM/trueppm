@@ -6,6 +6,11 @@ Seeds 5,000 tasks that all share one ``sync_seq`` (the post-upgrade backfill
 shape, where ties are universal) and times a full ``since=0`` drain of the
 tasks collection page by page, comparing the old OR-form resume predicate with
 the row-comparison predicate ``paginate_changes`` uses now.
+
+Measured (local Postgres 16, 3 runs, 5,000 tasks, 10 pages): OR-form 0.026-0.027s,
+row-comparison 0.015-0.020s. "Before" here is the old OR-form predicate running on
+the NEW indexes; the old index set cannot be compared on this tree, so this is not
+a before/after of the whole #2510 change.
 """
 
 from __future__ import annotations
@@ -61,4 +66,4 @@ def test_cold_start_drain_or_form_vs_row_comparison() -> None:
     t_or, pages = _drain(project, or_form)
     t_row, _ = _drain(project, row_form)
     print(f"\n{N} tasks, one sync_seq, {pages} pages: OR {t_or:.3f}s, row-cmp {t_row:.3f}s")
-    assert t_row > 0
+    assert pages == N // PAGE  # the drain actually walked every page

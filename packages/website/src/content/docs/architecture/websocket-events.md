@@ -71,10 +71,12 @@ a per-project `seq` (ADR-0236, ADR-1285). The mechanism:
   Replayed frames always precede live ones, and the client drops any `seq` it has
   already applied, so replay is idempotent.
 - **Gap fallback** — the consumer sends a single `resync_required` control frame
-  carrying `{ "latest_seq": <head> }` in three cases. The first is when some owed
+  carrying `{ "latest_seq": <head> }` in four cases. The first is when some owed
   rows were purged (the buffer keeps `TRUEPPM_BOARD_EVENT_RETENTION_HOURS`, default
   24h). The second is when the client is more than the replay cap behind. The third
   is when `since` is above the head, a value the project's sequence never reached.
+  The fourth is when the owed events would exceed the 4 MiB replay byte cap, since
+  past that size the client is cheaper to resync than to stream.
   A global-id cursor from before #4386 also resyncs, through the same count check
   rather than an actual purge. The upgrade seeded every existing project's counter
   at its highest old id plus 2³², so every pre-upgrade cursor is below the seed. It

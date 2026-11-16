@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -156,11 +158,49 @@ def test_cold_start_pull_ships_no_tombstones_and_no_prefetch_over_deleted(
         Task.objects.create(project=project, name=f"Gone{i}", duration=1).soft_delete()
     risk = Risk.objects.create(project=project, title="R", probability=1, impact=1)
     risk.soft_delete()
-    body = _pull(authed_client, project, 0)
+    gone_ids = [str(pk) for pk in Task.objects.filter(is_deleted=True).values_list("pk", flat=True)]
+    with CaptureQueriesContext(connection) as ctx:
+        body = _pull(authed_client, project, 0)
     tasks = body["changes"]["tasks"]
     assert tasks["deleted"] == []
     assert [t["id"] for t in tasks["updated"]] == [str(live.pk)]
     assert body["changes"]["risks"]["deleted"] == []
+    # No query (prefetch included) may name a deleted row's id ...
+    assert gone_ids
+    assert not [q["sql"] for q in ctx.captured_queries if any(g in q["sql"] for g in gone_ids)]
+    # ... and the pull costs the same as when those rows do not exist at all.
+    Task.objects.filter(is_deleted=True).delete()
+    Risk.objects.filter(is_deleted=True).delete()
+    with CaptureQueriesContext(connection) as ctx_clean:
+        _pull(authed_client, project, 0)
+    assert len(ctx.captured_queries) == len(ctx_clean.captured_queries)
+
+
+@pytest.mark.django_db
+def test_cold_start_deleted_rows_do_not_eat_page_size(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """With page_size=2 and many tombstones, live rows still fill the first page (#4470)."""
+    for i in range(6):
+        Task.objects.create(project=project, name=f"Gone{i}", duration=1).soft_delete()
+    live = [Task.objects.create(project=project, name=f"Live{i}", duration=1) for i in range(2)]
+    resp = authed_client.get(_url(project), {"since": "0", "page_size": "2"})
+    assert resp.status_code == 200
+    # page_size is a budget across collections; a full first page of live rows
+    # means no tombstone consumed a slot.
+    first = resp.data["changes"]
+    assert sum(len(b["updated"]) + len(b["deleted"]) for b in first.values()) == 2
+    assert all(b["deleted"] == [] for b in first.values())
+    seen = {t["id"] for t in first["tasks"]["updated"]}
+    cursor = resp.data["next_cursor"]
+    while cursor:
+        page = authed_client.get(_url(project), {"since": "0", "page_size": "2", "cursor": cursor})
+        assert all(b["deleted"] == [] for b in page.data["changes"].values())
+        seen |= {t["id"] for t in page.data["changes"]["tasks"]["updated"]}
+        cursor = page.data["next_cursor"]
+    assert seen == {str(t.pk) for t in live}
 
 
 @pytest.mark.django_db
