@@ -2653,6 +2653,46 @@ class TestCompletedNoActualsIsPinned:
         for tid in ("A", "C"):
             assert _float_slip_oracle(p, tid) == (True, True), tid
 
+    def test_no_actuals_never_finishes_after_the_data_date(self) -> None:
+        """#4539: knowing less can never slip the schedule further than knowing more.
+
+        B (5d, 100%, no actuals) with an SNET of Wed 03-11 would run to Tue 03-17,
+        past the Thu 03-12 data date, and push C with it. It is laid back to finish
+        on the data date, exactly where an ``actual_finish`` of 03-12 puts it.
+        """
+
+        def project(**b: object) -> Project:
+            p = make_project(
+                tasks=[
+                    task("B", "B", 5, percent_complete=100.0, planned_start=date(2026, 3, 11), **b),
+                    task("C", "C", 2),
+                ],
+                dependencies=[Dependency("B", "C")],
+            )
+            return dataclasses.replace(p, status_date=date(2026, 3, 12))
+
+        bare = {t.id: t for t in schedule(project()).tasks}
+        assert (bare["B"].early_start, bare["B"].early_finish) == (
+            date(2026, 3, 6),
+            date(2026, 3, 12),
+        )
+        recorded = {t.id: t for t in schedule(project(actual_finish=date(2026, 3, 12))).tasks}
+        assert bare["C"].early_start == recorded["C"].early_start == date(2026, 3, 13)
+        assert bare["B"].early_finish == recorded["B"].early_finish
+
+    def test_no_actuals_cap_keeps_full_duration_and_ignores_a_sub_start_data_date(
+        self,
+    ) -> None:
+        """The cap keeps ADR-0136's full span, and a data date at or before the
+        project start caps nothing, as it floors nothing (#4635)."""
+        base = make_project(tasks=[task("B", "B", 5, percent_complete=100.0)])
+        early = dataclasses.replace(base, status_date=date(2026, 3, 4))
+        b = schedule(early).tasks[0]
+        assert (b.early_start, b.early_finish) == (date(2026, 2, 26), date(2026, 3, 4))
+        sub_start = dataclasses.replace(base, status_date=date(2026, 3, 1))
+        b = schedule(sub_start).tasks[0]
+        assert (b.early_start, b.early_finish) == (date(2026, 3, 2), date(2026, 3, 6))
+
     def test_issue_comment_case_seven_day_calendar(self) -> None:
         """The second case on #4343, on a 7-day calendar:
         ``P(2) -> A(5, 100%, no actuals) -> B(3)``.

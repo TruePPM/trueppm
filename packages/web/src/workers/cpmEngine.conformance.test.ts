@@ -142,7 +142,8 @@ const OUT_OF_SCOPE: Record<string, string> = {
   lagged_fs_into_a_milestone_on_a_closed_week: 'engine gap: per-task calendars not modeled',
   start_of_day_finish_beside_seven_day_work: 'engine gap: per-task calendars not modeled',
   start_of_day_finish_on_a_narrower_calendar: 'engine gap: per-task calendars not modeled',
-  start_of_day_milestone_past_work_on_its_own_calendar: 'engine gap: per-task calendars not modeled',
+  start_of_day_milestone_past_work_on_its_own_calendar:
+    'engine gap: per-task calendars not modeled',
   zero_lag_chain_reading_switched_by_a_narrower_week: 'engine gap: per-task calendars not modeled',
   zero_lag_milestone_chain_into_a_four_day_week: 'engine gap: per-task calendars not modeled',
   zero_lag_ss_chain_into_a_closed_week: 'engine gap: per-task calendars not modeled',
@@ -170,6 +171,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_completed_pin: 'adapter: does not thread actuals/status date',
   progress_completed_percent_only_constraints: 'adapter: does not thread actuals/status date',
   progress_completed_no_actuals_between_live_tasks: 'adapter: does not thread actuals/status date',
+  // #4539. Completed work with no actuals is capped at the data date; the fix is
+  // in the two server engines, and this adapter cannot feed the status date.
+  progress_completed_no_actuals_capped_at_data_date: 'adapter: does not thread actuals/status date',
+  progress_completed_milestone_capped_at_data_date: 'adapter: does not thread actuals/status date',
   progress_completed_no_actuals_seven_day_chain: 'adapter: does not thread actuals/status date',
   progress_completed_no_actuals_milestone_instant: 'adapter: does not thread actuals/status date',
   progress_completed_actuals_milestone_instant: 'adapter: does not thread actuals/status date',

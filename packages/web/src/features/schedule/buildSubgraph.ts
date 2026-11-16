@@ -127,7 +127,9 @@ function collectLeaves(id: string, childrenByParent: Map<string, string[]>): str
  *    into "wait for the LAST-starting leaf" and silently over-constrains it
  *    (the #1854 bug). Such a link cannot survive a server CPM run at all, so
  *    the honest preview of one is to show nothing rather than a slip the
- *    server will never produce.
+ *    server will never produce. FF/SF *into* a summary is dropped for the same
+ *    reason (#4437): a summary finishes with its latest leaf, so fanning the
+ *    link out would make every leaf finish with the predecessor.
  *  - **A summary that is the drag ROOT keeps its own outgoing links.** The
  *    server drops summary nodes because it recomputes their dates by rollup
  *    (`apply_summary_rollups`); the preview has no rollup pass, so dropping the
@@ -162,6 +164,9 @@ function classifyLink(
   }
   if (sourceIsSummary && (link.type === 'SS' || link.type === 'SF')) {
     return 'drop'; // ADR-0370: the server refuses to schedule this link at all.
+  }
+  if (targetIsSummary && (link.type === 'FF' || link.type === 'SF')) {
+    return 'drop'; // #4437: the successor-side twin, refused by the server too.
   }
   return 'expand';
 }

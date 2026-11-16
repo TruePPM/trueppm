@@ -291,7 +291,12 @@ def _days_between(a: date, b: date) -> int:
 
 
 def _completed_forward_contribs(
-    task: Task, cal: Calendar, project_start: date, *, want_finish: bool
+    task: Task,
+    cal: Calendar,
+    project_start: date,
+    *,
+    want_finish: bool,
+    status_date: date | None = None,
 ) -> list[DerivationContribution]:
     """Provenance for a completed task, which the engine pins out of network logic (ADR-0136).
 
@@ -343,7 +348,9 @@ def _completed_forward_contribs(
         # 100%-complete with no recorded actuals: full duration from the later of the
         # un-floored project start and the SNET — exactly the two terms
         # engine._pinned_placement compares, with the one it picked flagged. The data
-        # date is not a candidate: completed work is historical.
+        # date is not a start candidate (completed work is historical), but it caps the
+        # finish (#4539): when that span would run past it, the data date binds both
+        # quantities and the anchors are context only.
         start_base = _next_working_day(project_start, cal)
         anchors = [
             DerivationContribution(
@@ -361,10 +368,29 @@ def _completed_forward_contribs(
                     calendar_days_added=_days_between(task.planned_start, snet),
                 )
             )
+        latest = max(c.imposed_date for c in anchors if c.imposed_date is not None)
+        # Same gate as the engine: a data date at or before the project start caps
+        # nothing (#4635).
+        capped = (
+            status_date is not None
+            and _next_working_day(status_date, cal) > start_base
+            and _finish_from_start(latest, task.duration.days, cal) > status_date
+        )
+        if capped and status_date is not None:
+            cap = _prev_working_day(status_date, cal)
+            contribs.append(
+                DerivationContribution(
+                    kind="data_date",
+                    imposed_date=cap,
+                    calendar_days_added=_days_between(status_date, cap),
+                    is_binding=True,
+                )
+            )
+            contribs.extend(anchors)
+            return contribs
         if not want_finish:
             # The later anchor binds; a tie keeps the first, as _flag_binding does
             # for anchors.
-            latest = max(c.imposed_date for c in anchors if c.imposed_date is not None)
             next(c for c in anchors if c.imposed_date == latest).is_binding = True
         contribs.extend(anchors)
         contribs.append(
@@ -574,7 +600,9 @@ def _derive_forward(
     # #4343); the honest binding is the recorded actual or the project start / SNET,
     # never a predecessor link.
     if _is_complete(task):
-        contribs = _completed_forward_contribs(task, cal, project_start, want_finish=want_finish)
+        contribs = _completed_forward_contribs(
+            task, cal, project_start, want_finish=want_finish, status_date=status_date
+        )
         value = task.early_finish if want_finish else task.early_start
         return (value.isoformat() if value else None, contribs)
 

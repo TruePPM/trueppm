@@ -509,7 +509,7 @@ pub fn forward_pass(
         // reset first so an input carrying a previous run's value cannot leak.
         tasks[i].milestone_at_day_end = false;
 
-        if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal, start_base)? {
+        if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal, start_base, status_date)? {
             // A completed milestone stays an instant (#4343, #4433), on the edge of
             // its day it had live (#4525): read from completed predecessors,
             // except that while one is still open the edge the caller's previous
@@ -731,12 +731,21 @@ fn compute_scheduled_start(task: &Task, calendar: &Calendar) -> Result<NaiveDate
 /// which is what the backward pass and float computation already assume for
 /// every completed task. Mirrors the Python `_pinned_placement`.
 ///
+/// That span is capped at the data date (#4539): when `status_date` is set and the
+/// span would finish after it, the task is laid back to finish on the data date
+/// (the working day before it when the data date is not a working day). Complete
+/// work finished by the data date, so recording no actuals must never slip the
+/// schedule further than an `actual_finish` on the data date would. The SNET
+/// yields to the cap, the full duration is kept (so a long span can start before
+/// the project start), and a data date at or before the project start caps nothing.
+///
 /// Returns `None` — meaning "schedule this one through the network" — only when
 /// the task is not complete.
 fn pinned_placement(
     task: &Task,
     calendar: &Calendar,
     start_base: NaiveDate,
+    status_date: Option<NaiveDate>,
 ) -> Result<Option<(NaiveDate, NaiveDate)>, String> {
     if !task.is_complete() {
         return Ok(None);
@@ -769,7 +778,21 @@ fn pinned_placement(
         Some(ps) => start_base.max(next_working_day(ps, calendar)?),
         None => start_base,
     };
-    Ok(Some((es, finish_from_start(es, full_days, calendar)?)))
+    let ef = finish_from_start(es, full_days, calendar)?;
+    // A data date at or before the project start caps nothing, as it floors
+    // nothing (`floor_above_start`, #4635).
+    let cap_date = match status_date {
+        Some(sd) if ef > sd && floor_above_start(sd, calendar, start_base)?.is_some() => Some(sd),
+        _ => None,
+    };
+    if let Some(sd) = cap_date {
+        let capped = prev_working_day(sd, calendar)?;
+        return Ok(Some((
+            start_from_finish(capped, full_days, calendar)?,
+            capped,
+        )));
+    }
+    Ok(Some((es, ef)))
 }
 
 /// Whether a closed milestone sits at the *start* of its recorded day (#4433).

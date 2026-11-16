@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 import trueppm_scheduler as ts
 from trueppm_scheduler import engine as _engine
 
@@ -102,32 +104,26 @@ class TestReadmeLimitsContract:
 
 
 class TestReadmeSummaryFanOutStatement:
-    """The README's #4437 limitation must state the engine's real behavior (#4706).
+    """The README's #4437 statement must match the engine (#4706, #4437).
 
-    FF/SF links into a summary fan out to every leaf; the README once said the
-    opposite. Pin the corrected wording and the engine behavior it describes.
+    FF/SF links into a summary used to fan out to every leaf; since #4437 they are
+    refused. Pin the wording and the engine behavior it describes.
     """
 
-    def test_readme_states_ff_sf_into_summary_fan_out(self) -> None:
+    def test_readme_states_ff_sf_into_summary_is_rejected(self) -> None:
         text = " ".join(_README_PATH.read_text().split())
-        assert (
-            "FF/SF links *into* a summary fan out to every leaf, so every leaf "
-            "(not only the latest-finishing one) must finish no earlier than the "
-            "link requires — short leaves lose float"
-        ) in text
-        assert "do not fan out to every leaf" not in text
+        assert "An **FF or SF link into a summary task** is rejected" in text
+        assert "FF/SF links *into* a summary fan out to every leaf" not in text
 
-    def test_engine_fans_ff_and_sf_into_every_leaf(self) -> None:
+    def test_engine_rejects_ff_and_sf_into_a_summary(self) -> None:
         from datetime import timedelta
 
         from trueppm_scheduler import Dependency, DependencyType, Task
+        from trueppm_scheduler.engine import InvalidScheduleInput
 
         for dep_type in (DependencyType.FF, DependencyType.SF):
             tasks = [Task(id=i, name=i, duration=timedelta(days=1)) for i in "XSAB"]
-            result = _engine.expand_summary_dependencies(
-                tasks, [Dependency("X", "S", dep_type)], {"S": ["A", "B"]}
-            )
-            assert {(d.predecessor_id, d.successor_id) for d in result.dependencies} == {
-                ("X", "A"),
-                ("X", "B"),
-            }
+            with pytest.raises(InvalidScheduleInput, match="into summary task"):
+                _engine.expand_summary_dependencies(
+                    tasks, [Dependency("X", "S", dep_type)], {"S": ["A", "B"]}
+                )

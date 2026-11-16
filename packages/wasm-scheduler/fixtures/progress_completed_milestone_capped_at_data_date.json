@@ -1,0 +1,19 @@
+{
+  "id": "p-progress-completed-milestone-capped",
+  "name": "A completed milestone with no actuals is held at the data date (#4539)",
+  "start_date": "2026-03-02",
+  "status_date": "2026-03-11",
+  "tasks": [
+    {"id": "M", "name": "Done milestone, SNET past the data date", "duration": 0.0, "percent_complete": 100.0, "planned_start": "2026-03-18"},
+    {"id": "C", "name": "Next", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "M", "successor_id": "C", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

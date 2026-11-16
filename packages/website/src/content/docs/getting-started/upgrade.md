@@ -230,6 +230,26 @@ password is unchanged, so your existing database volume will keep working. If yo
 ran the demo stack on a reachable host before 0.5, treat the old public key as
 exposed and restart it on 0.5 so the key is replaced.
 
+### Finish-to-Finish and Start-to-Finish links into summary tasks are retired (`projects.0175`)
+
+From 0.5, the scheduler will refuse a Finish-to-Finish or Start-to-Finish link whose
+successor is a summary task (ADR-0370): it would force every subtask, even a short
+unrelated one, to finish with the predecessor, and the engine cannot model it. Plans
+written before that rule can already hold such a link, and an unmodified one would make
+every recalculation of that project fail. The migration will therefore soft-delete
+exactly those links: a summary here means a task with at least one live child that the
+scheduler schedules (not a recurring template, epic, or backlog item). A link into a
+parent whose only children are backlog, recurring, or epic items is accepted by the
+engine and is left alone. The soft-delete will set the same tombstone fields a user
+delete sets, so offline clients will receive the removal on their next sync, but it will
+write no history row, and a stale offline edit to a retired link will get a 409
+conflict. It will write one `retired ... link ... into summary task ...` warning per
+link to the migration log, naming the project, the link and both tasks, so you can
+redraw it between subtasks. It will touch no other link type, no link out of a summary
+that was already legal, and nothing else, and it will be safe to run more than once.
+Read those lines after the upgrade if a plan shows a dependency missing from a phase.
+A link whose backlog child is later committed (#5046) is not covered by the migration.
+
 ### New API tokens carry `api:full` (`projects.0170`)
 
 From 0.5, a token minted without `scopes` will carry `["api:full"]` instead of
