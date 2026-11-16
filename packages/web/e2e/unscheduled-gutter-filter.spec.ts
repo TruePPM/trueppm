@@ -178,7 +178,23 @@ async function setupRoutes(page: import('@playwright/test').Page) {
 
 async function gotoSchedule(page: import('@playwright/test').Page) {
   await setupRoutes(page);
+  // Gate on the project DETAIL read, not only on the treegrid, which renders
+  // off the list-seeded cache first. A 404 there makes `ProjectShell` swap the
+  // route for `ProjectNotFound` about a second later, and this file used to
+  // fail 1-in-hundreds as a `waitForRequest` timeout or a `toBeFocused` on a
+  // popover that was torn down mid-test. See the same gate in
+  // wave3-unscheduled-gutter.spec.ts.
+  const detail = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'GET' &&
+      new URL(r.url()).pathname === `/api/v1/projects/${FIXTURE_PROJECT_ID}/`,
+    { timeout: 10_000 },
+  );
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
+  expect(
+    (await detail).status(),
+    'project detail read must be mocked — a 404 swaps the Schedule for ProjectNotFound',
+  ).toBe(200);
   await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
 }
 
