@@ -147,6 +147,24 @@ change between releases. Pin an exact version (e.g.
   `from trueppm_scheduler import MAX_PROJECT_WORK_DAYS` raised `ImportError`. It is
   now imported at the package root and listed in `__all__`; its value is unchanged.
 
+- **`expand_summary_dependencies` and `find_cycle` validate `children_map` as a whole
+  ([#5014](https://gitlab.com/trueppm/trueppm/-/issues/5014),
+  [#5018](https://gitlab.com/trueppm/trueppm/-/issues/5018),
+  [#5019](https://gitlab.com/trueppm/trueppm/-/issues/5019)).** A cyclic
+  `children_map` now raises `InvalidScheduleInput` even when no link touches it; it
+  used to be accepted and the tasks in the cycle silently dropped. Two links on the
+  same pair of plain tasks are now refused with `schedule()`'s "Duplicate
+  dependency" error whether or not `children_map` is empty; with a non-empty map
+  they used to merge into one edge. Links that expand from a summary onto the same
+  pair still merge by largest lag. With an empty `children_map` the result's lists
+  are now fresh copies rather than the ones you passed in. A summary expansion
+  past `MAX_EXPANDED_EDGES` is refused from leaf counts before any leaf list is
+  built: a 6,000-deep chain took 11 to 18 s and about 490 MB to refuse and now
+  takes milliseconds. The limit is an upper bound, and the error says so. The cross-product
+  bound now sums root-to-leaf path counts rather than distinct-leaf counts, so a
+  diamond `children_map` whose summed products pass the limit can be refused where
+  it was previously accepted; forest-shaped WBS maps are unaffected.
+
 - **A closed milestone whose `actual_start` and `actual_finish` differ is now
   shown on its `actual_finish` day
   ([#4458](https://gitlab.com/trueppm/trueppm/-/issues/4458)).** Its successors
