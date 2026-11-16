@@ -38,11 +38,13 @@ against ``httpx.MockTransport``); :func:`register_tools` binds a thin
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from http import HTTPStatus
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 
 from trueppm_mcp.client import ApiError, AuthError, TruePPMClient, TruePPMError
 
@@ -61,6 +63,27 @@ _TEXT_LIMIT = 200
 #: two apart. See :func:`_compact_mapping`.
 _UNTRUSTED_OPEN = "<untrusted-content>"
 _UNTRUSTED_CLOSE = "</untrusted-content>"
+
+
+#: The only id shape a tool argument may take (#4302). Every TruePPM primary key is a
+#: UUID, and the arguments are chosen by the calling *model*, which may have read a
+#: prompt-injected task or comment. An unvalidated id is interpolated into a REST
+#: path, where ``x/../../other`` or ``x?param=`` would steer the GET at a different
+#: read endpoint inside the token's reach.
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _require_uuid(name: str, value: object) -> None:
+    """Reject a tool id argument that is not a UUID, before any request is built.
+
+    Raises:
+        ToolError: The structured tool error FastMCP returns to the model as an
+            ``isError`` result. No HTTP call has been made when it is raised.
+    """
+    if not isinstance(value, str) or _UUID_RE.fullmatch(value) is None:
+        raise ToolError(f"{name} must be a UUID, for example 123e4567-e89b-12d3-a456-426614174000.")
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +721,47 @@ async def _get_schedule_driving_chain(
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
 
+async def _get_project_history(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """Who changed the project's own fields, when, and what (newest first, #5006).
+
+    Project-row history only (health band, status, dates, ...) — not the task or
+    sprint streams. ``history_user`` is present only when the token's owner is an
+    Owner/Admin of the project; the API redacts it otherwise.
+    """
+    rows, total, truncated = await client.get_paginated(f"projects/{project_id}/history/")
+    return _list_result(rows, total, truncated)
+
+
+async def _list_dependencies(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """Outgoing dependency edges: those whose predecessor is in this project.
+
+    Incoming cross-project edges (successor here, predecessor elsewhere) are not
+    returned yet (#5051).
+    """
+    rows, total, truncated = await client.get_paginated(
+        "dependencies/", params={"project": project_id}
+    )
+    return _list_result(rows, total, truncated)
+
+
+async def _list_baselines(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """The project's schedule baselines (snapshot headers, not per-task rows)."""
+    rows, total, truncated = await client.get_paginated(f"projects/{project_id}/baselines/")
+    return _list_result(rows, total, truncated)
+
+
+async def _list_phases(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """The project's phases (root-level WBS tasks) with their task counts."""
+    rows, total, truncated = await client.get_paginated(f"projects/{project_id}/phases/")
+    return _list_result(rows, total, truncated)
+
+
+async def _list_calendars(client: TruePPMClient) -> dict[str, Any]:
+    """The workspace's working-time calendars, with their non-working exceptions."""
+    rows, total, truncated = await client.get_paginated("calendars/")
+    return _list_result(rows, total, truncated)
+
+
 async def _get_release_forecast(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """P50/P80 sprints and dates to clear the project's committed backlog."""
     payload = await client.get(f"projects/{project_id}/sprint-forecast/")
@@ -799,6 +863,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _get_project(client, project_id)
 
     @server.tool()
@@ -825,6 +890,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
             type: Filter by task type — exact match, lowercase, one of ``epic``,
                 ``story``, ``task``, ``bug``, ``spike``, ``tech_debt``.
         """
+        _require_uuid("project_id", project_id)
         return await _list_tasks(
             client,
             project_id,
@@ -846,6 +912,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             task_id: The task's UUID.
         """
+        _require_uuid("task_id", task_id)
         return await _get_task(client, task_id)
 
     @server.tool()
@@ -855,6 +922,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _get_board_state(client, project_id)
 
     @server.tool()
@@ -868,6 +936,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _get_schedule_summary(client, project_id)
 
     @server.tool()
@@ -880,6 +949,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _list_risks(client, project_id)
 
     @server.tool()
@@ -904,6 +974,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _get_monte_carlo_forecast(client, project_id)
 
     @server.tool()
@@ -934,6 +1005,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _get_project_cost(client, project_id)
 
     @server.tool()
@@ -971,6 +1043,8 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
                 Supply exactly one of ``duration_delta`` or ``new_duration``.
             n_simulations: Monte Carlo iterations; defaults to the server cap.
         """
+        _require_uuid("project_id", project_id)
+        _require_uuid("task_id", task_id)
         return await _whatif(
             client,
             project_id,
@@ -1009,6 +1083,9 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
             task_id: The task whose computed value is being explained. Required for
                 a CPM quantity; omit it for a Monte Carlo percentile (ignored).
         """
+        _require_uuid("project_id", project_id)
+        if task_id is not None:
+            _require_uuid("task_id", task_id)
         return await _get_schedule_derivation(client, project_id, task_id, quantity)
 
     @server.tool()
@@ -1037,7 +1114,80 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
             task_id: The task the chain is walked through.
             depth: Maximum driving links per direction (1-50, default 25).
         """
+        _require_uuid("project_id", project_id)
+        _require_uuid("task_id", task_id)
         return await _get_schedule_driving_chain(client, project_id, task_id, depth)
+
+    @server.tool()
+    async def get_project_history(project_id: str) -> dict[str, Any]:
+        """Change history of the project's own fields — who changed what, and when.
+
+        Use it to answer "who set this project's health to Critical, and when?"
+        after ``get_project`` reports ``health_band_source: reported``. Newest
+        first; each entry carries the change time, type, and per-field
+        ``old``/``new`` values. Project-row changes only — not tasks or sprints.
+        ``history_user`` (who) is returned only when your token's owner is an
+        Owner/Admin of the project; otherwise it is withheld by the API.
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned). Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        _require_uuid("project_id", project_id)
+        return await _get_project_history(client, project_id)
+
+    @server.tool()
+    async def list_dependencies(project_id: str) -> dict[str, Any]:
+        """The outgoing dependency edges of a project (predecessor, successor, type, lag).
+
+        Outgoing edges: those whose predecessor is in this project. Incoming
+        cross-project edges (successor here, predecessor in another project) are not
+        returned yet (#5051). Lag is in CALENDAR days. Returns an ``{items, total_count}``
+        envelope (``truncated: true`` when more rows exist than returned). Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        _require_uuid("project_id", project_id)
+        return await _list_dependencies(client, project_id)
+
+    @server.tool()
+    async def list_baselines(project_id: str) -> dict[str, Any]:
+        """The project's schedule baselines (name, captured date, task count).
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned). Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        _require_uuid("project_id", project_id)
+        return await _list_baselines(client, project_id)
+
+    @server.tool()
+    async def list_phases(project_id: str) -> dict[str, Any]:
+        """The project's phases — its root-level WBS tasks — with task counts.
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned). Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        _require_uuid("project_id", project_id)
+        return await _list_phases(client, project_id)
+
+    @server.tool()
+    async def list_calendars() -> dict[str, Any]:
+        """The workspace's working-time calendars and their non-working exceptions.
+
+        Calendars are a workspace-level library shared by every project. Returns an
+        ``{items, total_count}`` envelope (``truncated: true`` when more rows exist
+        than returned). Read-only.
+        """
+        return await _list_calendars(client)
 
     @server.tool()
     async def get_release_forecast(project_id: str) -> dict[str, Any]:
@@ -1055,6 +1205,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _get_release_forecast(client, project_id)
 
     @server.tool()
@@ -1067,6 +1218,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _list_sprints(client, project_id)
 
     @server.tool()
@@ -1076,6 +1228,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             sprint_id: The sprint's UUID.
         """
+        _require_uuid("sprint_id", sprint_id)
         return await _get_sprint(client, sprint_id)
 
     @server.tool()
@@ -1102,6 +1255,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             sprint_id: The sprint's UUID.
         """
+        _require_uuid("sprint_id", sprint_id)
         return await _get_sprint_close_request(client, sprint_id)
 
     @server.tool()
@@ -1133,6 +1287,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             program_id: The program's UUID.
         """
+        _require_uuid("program_id", program_id)
         return await _get_program_health(client, program_id)
 
     @server.tool()
@@ -1150,6 +1305,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             program_id: The program's UUID.
         """
+        _require_uuid("program_id", program_id)
         return await _list_program_backlog(client, program_id)
 
     @server.tool()

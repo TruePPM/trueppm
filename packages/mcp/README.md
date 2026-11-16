@@ -58,7 +58,7 @@ The server is configured entirely from the environment:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `TRUEPPM_API_URL` | yes | Base URL of your TruePPM instance, e.g. `https://ppm.example.com` |
+| `TRUEPPM_API_URL` | yes | Base URL of your TruePPM instance, e.g. `https://ppm.example.com`. Must be `https://`; plain `http://` is accepted only for a loopback host (`localhost`, `127.0.0.1`, `::1`) |
 | `TRUEPPM_API_TOKEN` | yes | A **personal access token** (`tppm_<64-hex>`) minted with the **`mcp:read` scope** and an **expiry**, from **Personal Settings → API tokens** |
 
 **Mint the right token.** The MCP read surface accepts only a personal (owner-scoped)
@@ -119,9 +119,11 @@ separately:
 
 ## Status
 
-The read-tool surface is **21 read-only tools** (19 ship in 0.4; `get_project_cost`
-and `get_schedule_driving_chain` land in 0.5) across projects and programs, tasks and My Work, schedule and
-risk (including non-mutating what-if and schedule derivation), project cost, and
+The read-tool surface is **26 read-only tools** (19 ship in 0.4; `get_project_cost`,
+`get_schedule_driving_chain`, `get_project_history`, `list_dependencies`, `list_baselines`,
+`list_phases`, and `list_calendars` land in 0.5) across projects and programs, tasks and My Work, schedule and
+risk (including non-mutating what-if and schedule derivation), project cost, project history,
+dependencies, baselines, phases, calendars, and
 sprints — each mapping to one existing REST
 endpoint and returning only what your role permits. The
 `mcp:read` token scope that marks a token read-only at the API layer lands

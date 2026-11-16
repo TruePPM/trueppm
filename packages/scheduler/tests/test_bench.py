@@ -335,10 +335,11 @@ def test_monte_carlo_forward_pass_peak_memory() -> None:
     8,000 PERT tasks x 2,000 runs (16M cells: two chunks at the 8M-cell budget).
     Unchunked, the pass holds five runs x tasks matrices (29 bytes a cell) for every
     run at once and ``tracemalloc`` peaks at ~603 MB on this shape; chunked it peaks
-    at ~371 MB, much of which is the float64 sampled-duration matrix the seeded
-    stream requires in full. The 480 MB bound sits between the two, so an unchunked
-    pass fails it while allocator noise does not. (The shape was 4,000 tasks until
-    #4955 doubled the chunk budget: that shape now fits one chunk.)
+    at ~371 MB, 128 MB of which is the float64 sampled-duration matrix, held whole
+    at this size (below ``_MC_SAMPLED_MATRIX_CELLS``). The 480 MB bound sits between
+    the two, so an unchunked pass fails it while allocator noise does not. (The
+    shape was 4,000 tasks until #4955 doubled the chunk budget: that shape now fits
+    one chunk.)
     """
     import tracemalloc
     from dataclasses import replace
@@ -368,6 +369,54 @@ def test_monte_carlo_forward_pass_peak_memory() -> None:
     assert peak < 480_000_000, (
         f"peak {peak / 1e6:.1f} MB — the Monte Carlo forward pass is no longer chunked "
         "over runs (unchunked it peaks at ~603 MB on this shape)."
+    )
+
+
+def test_monte_carlo_replayed_durations_peak_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past the cell budget the sampled-duration matrix is replayed, not held (#3824).
+
+    The same 8,000 PERT tasks x 2,000 runs as above, with the replay threshold forced
+    to zero so the shape stays cheap enough for the blocking pipeline. Held whole,
+    ``tracemalloc`` peaks at ~371 MB; replayed it peaks at ~309 MB, which is one
+    forward chunk plus its row block of durations. The 340 MB bound sits between the
+    two, so holding the 128 MB matrix again fails it. The seeded percentiles are the
+    whole-matrix ones (the byte-for-byte check is in test_monte_carlo_chunking.py).
+    """
+    import tracemalloc
+    from dataclasses import replace
+
+    from trueppm_scheduler.engine.montecarlo import run as mc_run
+
+    base = _make_mixed_topology(8_000)
+    project = replace(
+        base,
+        tasks=[
+            replace(
+                t,
+                optimistic_duration=timedelta(days=1),
+                most_likely_duration=timedelta(days=2),
+                pessimistic_duration=timedelta(days=5),
+            )
+            for t in base.tasks
+        ],
+    )
+    monkeypatch.setattr(mc_run, "_MC_SAMPLED_MATRIX_CELLS", 0)
+
+    tracemalloc.start()
+    try:
+        result = monte_carlo(project, runs=2_000, seed=3824)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert (result.p50, result.p80, result.p95) == (
+        date(2097, 7, 23),
+        date(2097, 10, 2),
+        date(2097, 12, 10),
+    )
+    assert peak < 340_000_000, (
+        f"peak {peak / 1e6:.1f} MB — the sampled-duration matrix is held whole again "
+        "(held, this shape peaks at ~371 MB)."
     )
 
 

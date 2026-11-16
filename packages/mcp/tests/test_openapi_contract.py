@@ -28,10 +28,10 @@ _TRANSPORT_PARAMS = {"page", "page_size"}
 
 # One value per argument name; enough to make every tool send every param it can.
 _ARG_VALUES: dict[str, Any] = {
-    "project_id": "p-1",
-    "task_id": "t-1",
-    "sprint_id": "s-1",
-    "program_id": "pr-1",
+    "project_id": "123e4567-e89b-12d3-a456-426614174001",
+    "task_id": "123e4567-e89b-12d3-a456-426614174002",
+    "sprint_id": "123e4567-e89b-12d3-a456-426614174003",
+    "program_id": "123e4567-e89b-12d3-a456-426614174004",
     "status": "IN_PROGRESS",
     "sprint": "s-1",
     "is_critical": True,

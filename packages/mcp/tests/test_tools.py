@@ -34,6 +34,7 @@ from trueppm_mcp.tools import (
     _get_program_health,
     _get_project,
     _get_project_cost,
+    _get_project_history,
     _get_release_forecast,
     _get_schedule_derivation,
     _get_schedule_driving_chain,
@@ -41,7 +42,11 @@ from trueppm_mcp.tools import (
     _get_sprint,
     _get_sprint_close_request,
     _get_task,
+    _list_baselines,
+    _list_calendars,
+    _list_dependencies,
     _list_my_work,
+    _list_phases,
     _list_program_backlog,
     _list_programs,
     _list_projects,
@@ -1269,26 +1274,40 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
 
     routes: Routes = {
         "projects/": _json(_page([])),
-        "projects/p-1/": _json({"id": "p-1"}),
-        "projects/p-1/overview/": _json({"health": "GREEN"}),
-        "projects/p-1/status-summary/": _json({"health_band": "on_track"}),
-        "tasks/": tasks_handler,
-        "tasks/t-1/": _json({"id": "t-1"}),
-        "projects/p-1/board-config/": _json({"columns": []}),
-        "projects/p-1/forecast/": _json({"cpm_finish": "2026-09-01"}),
-        "projects/p-1/risks/": _json(_page([])),
-        "projects/p-1/monte-carlo/latest/": _json({"p50": "2026-09-01"}),
-        "projects/p-1/cost/": _json({"cost_computable": True}),
-        "projects/p-1/monte-carlo/whatif/": _json(
-            {"task_id": "t-1", "critical_path_changed": False}
+        "projects/123e4567-e89b-12d3-a456-426614174001/": _json(
+            {"id": "123e4567-e89b-12d3-a456-426614174001"}
         ),
-        "projects/p-1/sprint-forecast/": _json({"status": "ready", "p80_sprints": 4}),
-        "projects/p-1/sprints/": _json(_page([])),
-        "sprints/s-1/": _json({"id": "s-1"}),
+        "projects/123e4567-e89b-12d3-a456-426614174001/overview/": _json({"health": "GREEN"}),
+        "projects/123e4567-e89b-12d3-a456-426614174001/status-summary/": _json(
+            {"health_band": "on_track"}
+        ),
+        "tasks/": tasks_handler,
+        "tasks/123e4567-e89b-12d3-a456-426614174002/": _json(
+            {"id": "123e4567-e89b-12d3-a456-426614174002"}
+        ),
+        "projects/123e4567-e89b-12d3-a456-426614174001/board-config/": _json({"columns": []}),
+        "projects/123e4567-e89b-12d3-a456-426614174001/forecast/": _json(
+            {"cpm_finish": "2026-09-01"}
+        ),
+        "projects/123e4567-e89b-12d3-a456-426614174001/risks/": _json(_page([])),
+        "projects/123e4567-e89b-12d3-a456-426614174001/monte-carlo/latest/": _json(
+            {"p50": "2026-09-01"}
+        ),
+        "projects/123e4567-e89b-12d3-a456-426614174001/cost/": _json({"cost_computable": True}),
+        "projects/123e4567-e89b-12d3-a456-426614174001/monte-carlo/whatif/": _json(
+            {"task_id": "123e4567-e89b-12d3-a456-426614174002", "critical_path_changed": False}
+        ),
+        "projects/123e4567-e89b-12d3-a456-426614174001/sprint-forecast/": _json(
+            {"status": "ready", "p80_sprints": 4}
+        ),
+        "projects/123e4567-e89b-12d3-a456-426614174001/sprints/": _json(_page([])),
+        "sprints/123e4567-e89b-12d3-a456-426614174003/": _json(
+            {"id": "123e4567-e89b-12d3-a456-426614174003"}
+        ),
         "me/work/": _json(_page([])),
         "programs/": _json(_page([])),
-        "programs/pr-1/rollup/": _json({"health": "AMBER"}),
-        "programs/pr-1/backlog-items/": _json(_page([])),
+        "programs/123e4567-e89b-12d3-a456-426614174004/rollup/": _json({"health": "AMBER"}),
+        "programs/123e4567-e89b-12d3-a456-426614174004/backlog-items/": _json(_page([])),
         "auth/me/": _json({"id": "u-1"}),
     }
     client = _client(settings, routes)
@@ -1304,23 +1323,56 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         # List tools return the {items, total_count} envelope (#1731); an empty
         # page is items == [] with total_count 0 and no truncated marker.
         assert await call("list_projects") == {"items": [], "total_count": 0}
-        assert (await call("get_project", project_id="p-1"))["id"] == "p-1"
-        assert await call("get_task", task_id="t-1") == {"id": "t-1"}
-        assert (await call("get_board_state", project_id="p-1"))["cards"] == []
-        assert "critical_task_count" in await call("get_schedule_summary", project_id="p-1")
-        assert await call("list_risks", project_id="p-1") == {"items": [], "total_count": 0}
-        assert (await call("get_monte_carlo_forecast", project_id="p-1"))["p50"] == "2026-09-01"
-        assert (await call("get_project_cost", project_id="p-1"))["cost_computable"] is True
-        assert (await call("whatif", project_id="p-1", task_id="t-1", duration_delta=5))[
-            "critical_path_changed"
-        ] is False
-        assert (await call("get_release_forecast", project_id="p-1"))["p80_sprints"] == 4
-        assert await call("list_sprints", project_id="p-1") == {"items": [], "total_count": 0}
-        assert (await call("get_sprint", sprint_id="s-1"))["id"] == "s-1"
+        assert (await call("get_project", project_id="123e4567-e89b-12d3-a456-426614174001"))[
+            "id"
+        ] == "123e4567-e89b-12d3-a456-426614174001"
+        assert await call("get_task", task_id="123e4567-e89b-12d3-a456-426614174002") == {
+            "id": "123e4567-e89b-12d3-a456-426614174002"
+        }
+        assert (await call("get_board_state", project_id="123e4567-e89b-12d3-a456-426614174001"))[
+            "cards"
+        ] == []
+        assert "critical_task_count" in await call(
+            "get_schedule_summary", project_id="123e4567-e89b-12d3-a456-426614174001"
+        )
+        assert await call("list_risks", project_id="123e4567-e89b-12d3-a456-426614174001") == {
+            "items": [],
+            "total_count": 0,
+        }
+        assert (
+            await call(
+                "get_monte_carlo_forecast", project_id="123e4567-e89b-12d3-a456-426614174001"
+            )
+        )["p50"] == "2026-09-01"
+        assert (await call("get_project_cost", project_id="123e4567-e89b-12d3-a456-426614174001"))[
+            "cost_computable"
+        ] is True
+        assert (
+            await call(
+                "whatif",
+                project_id="123e4567-e89b-12d3-a456-426614174001",
+                task_id="123e4567-e89b-12d3-a456-426614174002",
+                duration_delta=5,
+            )
+        )["critical_path_changed"] is False
+        assert (
+            await call("get_release_forecast", project_id="123e4567-e89b-12d3-a456-426614174001")
+        )["p80_sprints"] == 4
+        assert await call("list_sprints", project_id="123e4567-e89b-12d3-a456-426614174001") == {
+            "items": [],
+            "total_count": 0,
+        }
+        assert (await call("get_sprint", sprint_id="123e4567-e89b-12d3-a456-426614174003"))[
+            "id"
+        ] == "123e4567-e89b-12d3-a456-426614174003"
         assert await call("list_my_work") == {"items": [], "total_count": 0}
         assert await call("list_programs") == {"items": [], "total_count": 0}
-        assert (await call("get_program_health", program_id="pr-1"))["health"] == "AMBER"
-        assert await call("list_program_backlog", program_id="pr-1") == {
+        assert (
+            await call("get_program_health", program_id="123e4567-e89b-12d3-a456-426614174004")
+        )["health"] == "AMBER"
+        assert await call(
+            "list_program_backlog", program_id="123e4567-e89b-12d3-a456-426614174004"
+        ) == {
             "items": [],
             "total_count": 0,
         }
@@ -1329,8 +1381,13 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         # ``assignee`` / ``updated_after`` / ``since`` were advertised but never
         # applied by the API (#4637); the tool must no longer expose them.
         seen_task_params.clear()
-        await call("list_tasks", project_id="p-1", status="IN_PROGRESS")
-        assert seen_task_params == {"project": "p-1", "status": "IN_PROGRESS"}
+        await call(
+            "list_tasks", project_id="123e4567-e89b-12d3-a456-426614174001", status="IN_PROGRESS"
+        )
+        assert seen_task_params == {
+            "project": "123e4567-e89b-12d3-a456-426614174001",
+            "status": "IN_PROGRESS",
+        }
         tool = manager.get_tool("list_tasks")
         assert tool is not None
         assert {"assignee", "updated_after", "since"}.isdisjoint(tool.parameters["properties"])
@@ -1363,3 +1420,51 @@ def test_base_url_prefix_is_stable() -> None:
     """Guards the ``/api/v1/`` prefix the route table strips (belt-and-suspenders)."""
     assert API_PREFIX == "/api/v1/"
     assert SAMPLE_API_URL == "https://ppm.example.test"
+
+
+async def test_get_project_history_returns_envelope_and_keeps_actor(settings: Settings) -> None:
+    row = {
+        "history_id": 7,
+        "history_type": "~",
+        "history_date": "2026-11-01T10:00:00Z",
+        "history_user": {"id": 3, "username": "pm"},
+        "diff": [{"field": "health", "old": "AUTO", "new": "CRITICAL"}],
+    }
+    routes: Routes = {"projects/p-1/history/": _json({**_page([row]), "count_truncated": False})}
+    async with _client(settings, routes) as client:
+        result = await _get_project_history(client, "p-1")
+    assert result["total_count"] == 1
+    assert result["items"][0]["history_user"] == {"id": 3, "username": "pm"}
+    assert result["items"][0]["diff"][0]["new"] == "CRITICAL"
+    assert "truncated" not in result
+
+
+async def test_list_dependencies_filters_by_project(settings: Settings) -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.params.get("project", ""))
+        return httpx.Response(200, json=_page([{"id": "d-1", "dep_type": "FS"}]))
+
+    routes: Routes = {"dependencies/": handler}
+    async with _client(settings, routes) as client:
+        result = await _list_dependencies(client, "p-1")
+    # The API's ``project`` filter matches the PREDECESSOR's project only, so the tool
+    # returns outgoing edges; incoming cross-project edges are #5051.
+    assert seen == ["p-1"]
+    assert result == {"items": [{"id": "d-1", "dep_type": "FS"}], "total_count": 1}
+
+
+async def test_list_baselines_phases_calendars_envelopes(settings: Settings) -> None:
+    routes: Routes = {
+        "projects/p-1/baselines/": _json(_page([{"id": "b-1", "name": "Baseline 1"}])),
+        "projects/p-1/phases/": _json(_page([{"id": "ph-1", "name": "Design"}])),
+        "calendars/": _json(_page([{"id": "c-1", "name": "Standard"}])),
+    }
+    async with _client(settings, routes) as client:
+        baselines = await _list_baselines(client, "p-1")
+        phases = await _list_phases(client, "p-1")
+        calendars = await _list_calendars(client)
+    assert baselines == {"items": [{"id": "b-1", "name": "Baseline 1"}], "total_count": 1}
+    assert phases == {"items": [{"id": "ph-1", "name": "Design"}], "total_count": 1}
+    assert calendars == {"items": [{"id": "c-1", "name": "Standard"}], "total_count": 1}

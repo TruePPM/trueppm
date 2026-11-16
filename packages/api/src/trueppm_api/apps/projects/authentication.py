@@ -44,6 +44,17 @@ def sha256_hex(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _is_webhooks_manage_only(scopes: list[str] | None) -> bool:
+    """Whether a token carries ``webhooks:manage`` without the full scope (#2414)."""
+    from trueppm_api.apps.projects.models import (
+        SCOPE_WEBHOOKS_MANAGE,
+        has_full_scope,
+        normalize_token_scopes,
+    )
+
+    return SCOPE_WEBHOOKS_MANAGE in normalize_token_scopes(scopes) and not has_full_scope(scopes)
+
+
 class ProjectApiTokenAuthentication(BaseAuthentication):
     """Authenticate a request via ``Authorization: Bearer tppm_<64-hex>``.
 
@@ -57,6 +68,12 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
     """
 
     keyword = "Bearer"
+    # Only ``WebhookManageApiTokenAuthentication`` flips this (#2414). The refusal
+    # lives in the base class, not in each surface, because this class is prepended
+    # on views that check scope later (the MCP reads) or not at all (``resolve/``,
+    # ``keys/``): a ``webhooks:manage`` token must answer 401 everywhere but the
+    # webhook viewsets without every such surface having to remember it.
+    admits_webhooks_manage = False
 
     def authenticate(self, request: Request) -> tuple[object, ProjectApiToken] | None:
         # Import here so the module can be imported during Django settings load
@@ -194,6 +211,13 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
             # bounding, so a caller cannot distinguish "owner disabled" from "revoked"
             # from "never existed" — anti-enumeration is unchanged.
             self._audit_identity_refusal(request, raw_token)
+            self._mark_identity_refusal(request)
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
+
+        if not self.admits_webhooks_manage and _is_webhooks_manage_only(token.scopes):
+            # Marked, not audited: a live token on the wrong surface (see
+            # OwnerScopedApiTokenAuthentication.authenticate). Placed before the
+            # ``last_used_at`` stamp for the same reason as the refusal above.
             self._mark_identity_refusal(request)
             raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
 
@@ -387,15 +411,19 @@ class OwnerScopedApiTokenAuthentication(ProjectApiTokenAuthentication):
     "never existed" remain indistinguishable and enumeration resistance is unchanged.
     """
 
+    def _scope_accepted(self, token: ProjectApiToken) -> bool:
+        """Whether this surface admits a token carrying these scopes (full scope only)."""
+        from trueppm_api.apps.projects.models import has_full_scope
+
+        return has_full_scope(token.scopes)
+
     def authenticate(self, request: Request) -> tuple[object, ProjectApiToken] | None:
         result = super().authenticate(request)
         if result is None:
             return None
         _, token = result
 
-        from trueppm_api.apps.projects.models import has_full_scope
-
-        if not token.is_personal or not has_full_scope(token.scopes):
+        if not token.is_personal or not self._scope_accepted(token):
             # Marked, not audited: `_audit_identity_refusal` is deliberately bounded to
             # tokens that have stopped conferring authority at all (revoked/expired/
             # owner disabled). This token is live and legitimate — it is simply on the
@@ -404,6 +432,35 @@ class OwnerScopedApiTokenAuthentication(ProjectApiTokenAuthentication):
             self._mark_identity_refusal(request)
             raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
         return result
+
+
+class WebhookManageApiTokenAuthentication(OwnerScopedApiTokenAuthentication):
+    """Owner-scoped authentication that also admits a ``webhooks:manage`` token (#2414).
+
+    Wired onto the webhook viewsets ONLY, ahead of the default stack — never into
+    ``DEFAULT_AUTHENTICATION_CLASSES``. That placement is the whole scoping
+    mechanism: the default authenticator still answers 401 for a ``webhooks:manage``
+    token on every other route, so the scope cannot reach anything the webhook
+    viewsets do not serve. It stays owner-scoped (``is_personal``), so the token acts
+    as its owner under the owner's own project/program role — it can never exceed
+    what that person's session could do (ADR-0112).
+
+    Personal tokens only, as a deliberate first slice. Project- and program-scoped
+    tokens resolve to their *minter*, so admitting one here without also binding it
+    to its own project/program would let it manage webhooks on every project the
+    minter administers. A bound variant (an ``IsTokenForProject``-style check that
+    the URL's project/program is the token's own) is possible and stays open in
+    #2414; until it ships, the scope is refused on project/program tokens at mint.
+    """
+
+    admits_webhooks_manage = True
+
+    def _scope_accepted(self, token: ProjectApiToken) -> bool:
+        from trueppm_api.apps.projects.models import SCOPE_WEBHOOKS_MANAGE, normalize_token_scopes
+
+        return super()._scope_accepted(token) or (
+            SCOPE_WEBHOOKS_MANAGE in normalize_token_scopes(token.scopes)
+        )
 
 
 # drf-spectacular's OpenApiAuthenticationExtension registers subclasses via an
@@ -469,5 +526,27 @@ class OwnerScopedApiTokenScheme(OpenApiAuthenticationExtension):  # type: ignore
                 "accepted here (see `projectApiTokenAuth` for their narrow inbound-sync "
                 "surface); an owner-scoped `mcp:read`-only token is also rejected here "
                 "and stays confined to the read-only MCP surface."
+            ),
+        }
+
+
+class WebhookManageApiTokenScheme(OpenApiAuthenticationExtension):  # type: ignore[no-untyped-call]
+    """drf-spectacular security scheme for the ``webhooks:manage`` token (#2414)."""
+
+    target_class = "trueppm_api.apps.projects.authentication.WebhookManageApiTokenAuthentication"
+    name = "webhooksManageTokenAuth"
+
+    def get_security_definition(self, auto_schema: Any) -> dict[str, Any]:
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "tppm_<64-hex>",
+            "description": (
+                "Personal Access Token carrying the `webhooks:manage` scope. Send as "
+                "`Authorization: Bearer tppm_<64-hex>`. Authenticates as the token's "
+                "owner on the outbound-webhook routes only (list, retrieve, create, "
+                "update, delete, test ping) under the owner's own project or program "
+                "role; the delivery log requires a session or a full-access token. "
+                "Every other route answers 401 to this token."
             ),
         }
