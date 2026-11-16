@@ -65,6 +65,14 @@ describe('WorkspaceAgentsPage', () => {
     expect(screen.getByRole('switch', { name: 'Agent read access' })).not.toBeChecked();
   });
 
+  it('picks up a changed server value when the form is clean', () => {
+    const { rerender } = render(<WorkspaceAgentsPage />);
+    expect(screen.getByRole('switch', { name: 'Agent read access' })).toBeChecked();
+    mockState.ws = { mcpEnabled: false }; // another admin changed it; refetch lands
+    rerender(<WorkspaceAgentsPage />);
+    expect(screen.getByRole('switch', { name: 'Agent read access' })).not.toBeChecked();
+  });
+
   it('saves the toggled value as mcpEnabled', async () => {
     const user = userEvent.setup();
     render(<WorkspaceAgentsPage />);

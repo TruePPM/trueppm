@@ -29,11 +29,18 @@ export function WorkspaceAgentsPage() {
   const [mcpEnabled, setMcpEnabled] = useState(true);
   const [initialMcpEnabled, setInitialMcpEnabled] = useState(true);
 
-  // Seed once per load: a background refetch must not overwrite a dirty, unsaved toggle.
-  const seededRef = useRef(false);
+  // Follow the server whenever the form is clean, so a refetch that carries another
+  // admin's change is not hidden; never overwrite a dirty, unsaved toggle. The latest
+  // local values live in a ref so this effect re-runs only when the server data changes
+  // (re-running after our own save would reseed from the not-yet-refetched value).
+  const localRef = useRef({ mcpEnabled, initialMcpEnabled });
   useEffect(() => {
-    if (!ws || seededRef.current) return;
-    seededRef.current = true;
+    localRef.current = { mcpEnabled, initialMcpEnabled };
+  });
+  useEffect(() => {
+    if (!ws) return;
+    const { mcpEnabled: cur, initialMcpEnabled: init } = localRef.current;
+    if (cur !== init) return;
     setMcpEnabled(ws.mcpEnabled);
     setInitialMcpEnabled(ws.mcpEnabled);
   }, [ws]);
