@@ -1274,6 +1274,21 @@ class TruePPMAutoSchema(AutoSchema):
                 for entry in auth
                 if "projectApiTokenAuth" not in entry and "personalApiTokenAuth" not in entry
             ]
+        # The webhook viewsets (#2414) admit one extra scheme, `webhooksManageTokenAuth`,
+        # and read two declarations to place it per operation: a full-access token is
+        # refused on `full_token_refused_actions` (a webhook's signing secret outlives
+        # the token that set it, #4461), and a narrow token is refused on
+        # `narrow_token_refused_actions` (the delivery log). Neither is visible to
+        # schema generation through `get_permissions()`.
+        action = getattr(self.view, "action", None)
+        if action is not None and action in getattr(self.view, "full_token_refused_actions", ()):
+            auth = [
+                entry
+                for entry in auth
+                if "projectApiTokenAuth" not in entry and "personalApiTokenAuth" not in entry
+            ]
+        if action is not None and action in getattr(self.view, "narrow_token_refused_actions", ()):
+            auth = [entry for entry in auth if "webhooksManageTokenAuth" not in entry]
         return auth
 
     def _token_callers_refused(self) -> bool:

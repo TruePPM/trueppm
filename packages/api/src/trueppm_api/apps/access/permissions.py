@@ -2496,6 +2496,37 @@ class IsNotTokenAuthenticated(BasePermission):
         return False
 
 
+class IsNotFullTokenAuthenticated(IsNotTokenAuthenticated):
+    """Refuse API-token callers, except a ``webhooks:manage`` token (#2414, #4461).
+
+    Same durable-grant reasoning as :class:`IsNotTokenAuthenticated`: a webhook's
+    signing secret and delivery URL outlive the credential that set them, so a
+    *full-access* token (a person's whole account, one leak from a bot) stays
+    refused. A ``webhooks:manage`` token is the deliberate exception: it exists so
+    automation can register webhooks without holding a full-access credential, it
+    authenticates nowhere else (``WebhookManageApiTokenAuthentication``), and it
+    still acts under its owner's Admin role. The scope must be held *without* the
+    full scope: a row carrying both resolves to full authority and is refused.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.projects.models import (
+            SCOPE_WEBHOOKS_MANAGE,
+            ApiToken,
+            has_full_scope,
+            normalize_token_scopes,
+        )
+
+        token = getattr(request, "auth", None)
+        if (
+            isinstance(token, ApiToken)
+            and SCOPE_WEBHOOKS_MANAGE in normalize_token_scopes(token.scopes)
+            and not has_full_scope(token.scopes)
+        ):
+            return True
+        return super().has_permission(request, view)
+
+
 class SessionOnlyWritesMixin:
     """Refuse API-token callers on every unsafe method of a membership-shaped view (#3847).
 

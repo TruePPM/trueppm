@@ -17,6 +17,7 @@ from kombu.exceptions import (
     OperationalError as KombuOperationalError,
 )
 from rest_framework import serializers, status
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.mixins import (
@@ -36,7 +37,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.access.permissions import (
-    IsNotTokenAuthenticated,
+    IsNotFullTokenAuthenticated,
     IsProgramAdmin,
     IsProgramMember,
     IsProgramNotClosed,
@@ -45,6 +46,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.projects.authentication import WebhookManageApiTokenAuthentication
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.webhooks.dispatch import build_delivery_body
 from trueppm_api.apps.webhooks.models import (
@@ -54,6 +56,7 @@ from trueppm_api.apps.webhooks.models import (
     WebhookEditor,
     _next_delivery_sequence,
 )
+from trueppm_api.apps.webhooks.permissions import IsNotNarrowScopedToken
 from trueppm_api.apps.webhooks.serializers import (
     WebhookCreateResponseSerializer,
     WebhookDeliverySerializer,
@@ -186,7 +189,15 @@ class WebhookViewSet(
     # Single source for both the runtime guard below and the schema: the OpenAPI
     # hook reads this set to strip the token security schemes from these actions
     # (``get_permissions`` is invisible to schema generation, #4665).
-    token_refused_actions = frozenset({"create", "update", "partial_update"})
+    full_token_refused_actions = frozenset({"create", "update", "partial_update"})
+    # Read by the OpenAPI hook alongside the set above: `deliveries` is the one action
+    # a `webhooks:manage` token cannot reach (#2414).
+    narrow_token_refused_actions = frozenset({"deliveries"})
+
+    def get_authenticators(self) -> list[BaseAuthentication]:
+        # Prepended so a `webhooks:manage` token is recognized here and nowhere else
+        # (#2414); every other bearer falls through to the default stack unchanged.
+        return [WebhookManageApiTokenAuthentication(), *super().get_authenticators()]
 
     def get_permissions(self) -> list[BasePermission]:
         # `deliveries` exposes the full event payload (task notes, comment
@@ -196,8 +207,8 @@ class WebhookViewSet(
         # are already Admin-gated (only an Admin could have created the webhook).
         if self.action == "deliveries":
             # A read. Archived projects stay readable, so no lifecycle gate here.
-            return [IsAuthenticated(), IsProjectAdmin()]
-        if self.action in self.token_refused_actions:
+            return [IsAuthenticated(), IsProjectAdmin(), IsNotNarrowScopedToken()]
+        if self.action in self.full_token_refused_actions:
             # IsNotTokenAuthenticated (#4461): create mints a durable HMAC signing
             # secret, and update can repoint the delivery URL or rotate that secret
             # — both are the same "a leaked PAT should not be able to extend itself
@@ -209,7 +220,7 @@ class WebhookViewSet(
                 IsAuthenticated(),
                 IsProjectAdmin(),
                 IsProjectNotArchived(),
-                IsNotTokenAuthenticated(),
+                IsNotFullTokenAuthenticated(),
             ]
         if self.action in ("destroy", "test_ping"):
             # IsProjectNotArchived fires in `has_permission` on these routes because the
@@ -501,17 +512,19 @@ class ProgramWebhookViewSet(WebhookViewSet):
         # outbound flow without reopening the program — the same containment argument
         # as program token revocation. `test_ping` and `deliveries` touch no program
         # state and stay available for diagnosing a still-live webhook.
-        if self.action in self.token_refused_actions:
-            # IsNotTokenAuthenticated (#4461): see WebhookViewSet.get_permissions —
+        if self.action in self.full_token_refused_actions:
+            # IsNotFullTokenAuthenticated (#4461, #2414): see WebhookViewSet.get_permissions —
             # same durable-grant shape, mint/repoint/rotate only through a session
             # or JWT.
             return [
                 IsAuthenticated(),
                 IsProgramAdmin(),
                 IsProgramNotClosed(),
-                IsNotTokenAuthenticated(),
+                IsNotFullTokenAuthenticated(),
             ]
         if self.action in ("destroy", "test_ping", "deliveries"):
+            if self.action == "deliveries":
+                return [IsAuthenticated(), IsProgramAdmin(), IsNotNarrowScopedToken()]
             return [IsAuthenticated(), IsProgramAdmin()]
         return [IsAuthenticated(), IsProgramMember()]
 
