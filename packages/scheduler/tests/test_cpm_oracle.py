@@ -1677,86 +1677,10 @@ FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR = RefProject(
 )
 
 
-def _floor_ties(project: RefProject, m: str, held_day: date) -> bool:
-    """Whether a floor other than the project start sits on milestone ``m``'s held day.
-
-    The floors the engine's ``_equivalent_link`` (#4690) lets a link tie: an SNET
-    (``planned_start``), a recorded ``actual_start`` on live work, and the data date,
-    each read as the first working day on or after it on ``m``'s calendar.
-
-    The floor must be *on* ``held_day``, not merely exist. #4883 is a slipped link
-    tying the floor that holds the milestone; a floor on another day cannot be the
-    one tied, and with a data date set every milestone has *some* floor, so mere
-    existence would excuse any earlier move through any start-of-day milestone,
-    whatever caused it.
-    """
-    cal = project.calendar_of(m)
-    progress = project.progress.get(m)
-    floors = (
-        project.planned_start.get(m),
-        progress.actual_start if progress is not None else None,
-        project.status_date,
-    )
-    return any(f is not None and first_working_on_or_after(f, cal) == held_day for f in floors)
-
-
-def _behind_a_floor_held_milestone(
-    project: RefProject,
-    run: Callable[[RefProject], EngineRun],
-    tid: str,
-    day: date,
-    s: str,
-    base: EngineRun,
-    after: EngineRun,
-) -> bool:
-    """TODO(#4883): the known tie shape, excluded by name until fixed.
-
-    ``s`` moved earlier after ``tid`` slipped to ``day``. The move is excused only
-    if it flows through a milestone that a floor held (:func:`_floor_ties`) on the
-    same shown position in both runs, at the start of its day: cut every link
-    leaving such a held milestone and replay the same slip; if ``s`` no longer moves
-    earlier, the milestone was handing it the link's earlier midnight once the
-    slipped link tied the floor (#4690). That is #4883.
-
-    Any of the floors the tie rule reads, not the SNET alone: the deep fuzz found
-    the same tie against the data date and against a live milestone's recorded
-    ``actual_start`` (#4981). The start of the day, because a tie is only ever read
-    there; a milestone shown at the end of its day cannot be handing on a tie.
-
-    A counterfactual rather than path reachability, because a path around the
-    milestone from a predecessor that slipped *later* can only push ``s`` later, so
-    it cannot explain an earlier move and must not defeat the excuse. A slip the cut
-    project does not realize, or a move that survives the cut, is not excused.
-    """
-    held = {
-        m
-        for m, n in project.durations.items()
-        if n == 0
-        and m != s
-        and not after.tasks[m].milestone_at_day_end
-        and _held_at(base.tasks[m], True, project.calendar_of(m))
-        == _held_at(after.tasks[m], True, project.calendar_of(m))
-        and _floor_ties(project, m, _held_at(base.tasks[m], True, project.calendar_of(m))[0])
-    }
-    if not held:
-        return False
-    cut = replace(project, links=tuple(ln for ln in project.links if ln.pred not in held))
-    cut_base, cut_after = run(cut), run(_with_snet(cut, tid, day))
-    cal = project.calendar_of(tid)
-    if first_working_on_or_after(cut_after.tasks[tid].early_start, cal) != day:
-        return False
-    is_ms, s_cal = project.durations[s] == 0, project.calendar_of(s)
-    return not (
-        _held_at(cut_after.tasks[s], is_ms, s_cal) < _held_at(cut_base.tasks[s], is_ms, s_cal)
-    )
-
-
 def work_moved_earlier_by_a_slip(
     project: RefProject,
     run: Callable[[RefProject], EngineRun],
     max_slip: int = 7,
-    *,
-    exclude_4883: bool = True,
 ) -> list[str]:
     """Slipping a live task later never moves a live task downstream of it earlier.
 
@@ -1766,9 +1690,6 @@ def work_moved_earlier_by_a_slip(
     free float reads it (:func:`_held_at`), must be at or after where it was.
     Model-free and metamorphic: a later predecessor can only add to what holds its
     successors.
-
-    ``exclude_4883`` drops the open #4883 tie shape
-    (:func:`_behind_a_floor_held_milestone`); its pinned repros pass ``False``.
     """
     base = run(project)
     out: list[str] = []
@@ -1790,10 +1711,6 @@ def work_moved_earlier_by_a_slip(
                     _held_at(after.tasks[s], is_ms, s_cal),
                 )
                 if now < was:
-                    if exclude_4883 and _behind_a_floor_held_milestone(
-                        project, run, tid, day, s, base, after
-                    ):
-                        continue
                     out.append(
                         f"{tid} slipped {slip} wd to {day}: {s} moved earlier {was} -> {now}"
                     )
@@ -1866,8 +1783,11 @@ SF_NEGATIVE_LAG_SLIP_INTO_A_TIED_ACTUAL_START = RefProject(
     progress={"T3": RefProgress(percent_complete=0.0, actual_start=date(2026, 1, 10))},
 )
 
-#: The open #4883 shapes: each moves work earlier when a predecessor slips.
-KNOWN_4883_SHAPES = (
+#: The #4883 shapes: each moved work earlier when a predecessor slipped into a
+#: floor that only tied a milestone's link (#4690). A floored milestone now links
+#: from the latest of its link and the floor's earliest working-time equivalent
+#: midnight (ADR-0136, 2026-11-16 amendment), which never decreases.
+SLIP_INTO_A_TIED_FLOOR_SHAPES = (
     SS_SLIP_INTO_A_TIED_SNET_MILESTONE,
     SS_SLIP_INTO_A_TIED_MONDAY_SNET,
     FS_SLIP_INTO_A_TIED_MONDAY_SNET,
@@ -1876,14 +1796,6 @@ KNOWN_4883_SHAPES = (
     FS_LAG_SLIP_INTO_A_TIED_SNET_WITH_A_PATH_AROUND,
     FS_NEGATIVE_LAG_SLIP_INTO_A_TIED_DATA_DATE,
     SF_NEGATIVE_LAG_SLIP_INTO_A_TIED_ACTUAL_START,
-)
-
-_4883_XFAIL = pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="TODO(#4883): a floor that only ties a milestone's link (#4690) hands its "
-    "successors the link's earlier midnight, so slipping a predecessor into the tie "
-    "moves them earlier; when these XPASS, delete the xfail",
 )
 
 
@@ -1896,49 +1808,321 @@ _4883_XFAIL = pytest.mark.xfail(
 def test_slipping_a_predecessor_never_moves_work_earlier(project: RefProject) -> None:
     """Live: a later predecessor never moves live work downstream of it earlier.
 
-    The deep run reaches #4883's tie shape (#4900, #4922, #4981), so it is excluded by name
-    (:func:`_behind_a_floor_held_milestone`) and its repros are pinned below as
-    strict xfails; the ``@example`` keeps the exclusion exercised on every run.
+    The deep run found #4883's tie shape (#4900, #4922, #4981); the ``@example``
+    rows keep those repros on every run, with no exclusion.
     """
     problems = work_moved_earlier_by_a_slip(project, python_run)
     assert not problems, "\n".join([repr(project), *problems])
 
 
-@_4883_XFAIL
-@pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
+@pytest.mark.parametrize("project", SLIP_INTO_A_TIED_FLOOR_SHAPES)
 def test_slip_into_a_tied_milestone_floor_moves_nothing_earlier(project: RefProject) -> None:
-    problems = work_moved_earlier_by_a_slip(project, python_run, exclude_4883=False)
+    problems = work_moved_earlier_by_a_slip(project, python_run)
     assert not problems, "\n".join(problems)
 
 
-@_4883_XFAIL
-@pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
+@pytest.mark.parametrize("project", SLIP_INTO_A_TIED_FLOOR_SHAPES)
 def test_rust_slip_into_a_tied_milestone_floor_moves_nothing_earlier(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
-    problems = work_moved_earlier_by_a_slip(project, rust_engine.run, exclude_4883=False)
+    problems = work_moved_earlier_by_a_slip(project, rust_engine.run)
     assert not problems, "\n".join(problems)
 
 
-@pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
-def test_the_4883_exclusion_covers_exactly_its_pinned_shapes(project: RefProject) -> None:
-    """The live property's #4883 filter removes every pinned repro, and only that."""
-    assert work_moved_earlier_by_a_slip(project, python_run, exclude_4883=False) != []
-    assert work_moved_earlier_by_a_slip(project, python_run) == []
+@pytest.mark.parametrize("project", SLIP_INTO_A_TIED_FLOOR_SHAPES)
+def test_slip_into_a_tied_milestone_floor_matches_reference(project: RefProject) -> None:
+    """The oracle moved with the engines: every slip of every repro agrees with it,
+    so ``wasm:conformance`` agreeing is not the only evidence (#4883)."""
+    first = date(2026, 1, 5)
+    for slip in range(8):
+        for tid, n in project.durations.items():
+            if n == 0:
+                continue
+            q = _with_snet(project, tid, _working_days_after(first, slip, project.calendar_of(tid)))
+            assert_matches_reference(python_engine(q), q)
 
 
-def test_the_4883_exclusion_excuses_a_move_despite_a_path_around_the_milestone() -> None:
-    """A second path past the held milestone does not defeat the excuse: it can only
-    push the successor later, and cutting the milestone's links removes the move."""
-    p = FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR
-    around = replace(p, links=(*p.links, RefLink("T0", "T2", "FS", 0)))
-    assert work_moved_earlier_by_a_slip(around, python_run, exclude_4883=False) != []
-    assert work_moved_earlier_by_a_slip(around, python_run) == []
+#: #4883's repro with its expected dates: ``T1`` slipped 0..6 working days from
+#: Monday 01-05. ``T2`` is held by its Saturday SNET at the start of Monday 01-12
+#: until the SS+1 link passes it; its seven-day successors link from Saturday 01-10
+#: 00:00, the earliest midnight equivalent to that floor, so they sit on the
+#: weekend *before* the milestone's shown day (the cost recorded in ADR-0136) and
+#: never move earlier. The tie rule as first written put them on Monday 01-12 for
+#: slips 0..3 and on Saturday 01-10 at slip 4.
+_4883_EXPECTED = (
+    # (slip, T2 shown day, T4 and T5 day)
+    (0, date(2026, 1, 12), date(2026, 1, 10)),
+    (1, date(2026, 1, 12), date(2026, 1, 10)),
+    (2, date(2026, 1, 12), date(2026, 1, 10)),
+    (3, date(2026, 1, 12), date(2026, 1, 10)),
+    (4, date(2026, 1, 12), date(2026, 1, 10)),
+    (5, date(2026, 1, 13), date(2026, 1, 13)),
+    (6, date(2026, 1, 14), date(2026, 1, 14)),
+)
 
 
-def test_the_4883_exclusion_reports_a_move_that_survives_cutting_the_milestone() -> None:
-    """Negative control: an engine that moves work earlier on its own, with the held
-    milestone's links gone, is a different bug from #4883 and is still reported."""
+def _assert_4883_expected_dates(run: Callable[[RefProject], EngineRun]) -> None:
+    p = SS_SLIP_INTO_A_TIED_SNET_MILESTONE
+    cal = p.calendar_of("T1")
+    got = []
+    for slip, _, _ in _4883_EXPECTED:
+        q = _with_snet(p, "T1", _working_days_after(date(2026, 1, 5), slip, cal)) if slip else p
+        tasks = run(q).tasks
+        assert tasks["T4"].early_start == tasks["T5"].early_start
+        got.append((slip, tasks["T2"].early_start, tasks["T4"].early_start))
+    assert got == list(_4883_EXPECTED)
+
+
+def test_the_4883_repro_has_its_expected_monotone_dates() -> None:
+    _assert_4883_expected_dates(python_run)
+
+
+def test_rust_the_4883_repro_has_its_expected_monotone_dates(rust_engine: RustRunner) -> None:
+    _assert_4883_expected_dates(rust_engine.run)
+
+
+def _floored_milestone_sweep() -> list[tuple[str, RefProject]]:
+    """The #4883 class, swept: every link type and a range of lags into a floored
+    milestone, against each floor the link rule reads, with successors on the
+    milestone's own Monday-to-Friday week and on a wider seven-day one.
+
+    ``T1(1d) -<kind><lag>-> M``; ``M -FS-> S`` (a milestone) and ``M -FS+1d-> W``
+    (a calendar-day lag into work), both on the successor calendar. The floor is a
+    Saturday or Monday SNET, a Saturday data date, or a recorded Monday
+    ``actual_start`` on the live milestone. Slipping ``T1`` walks its link through
+    the floor's whole working-time window, which is where #4883 lived.
+    """
+    floors: dict[str, dict[str, Any]] = {
+        "snet-sat": {"planned_start": {"M": date(2026, 1, 10)}},
+        "snet-mon": {"planned_start": {"M": date(2026, 1, 12)}},
+        "data-date": {"status_date": date(2026, 1, 10)},
+        "actual-start": {
+            "progress": {"M": RefProgress(percent_complete=0.0, actual_start=date(2026, 1, 12))}
+        },
+    }
+    out = []
+    for kind in LINK_TYPES:
+        for lag in range(-3, 3):
+            for floor, fields in floors.items():
+                for succ in ("five", "seven"):
+                    out.append(
+                        (
+                            f"{kind}{lag:+d}-{floor}-{succ}",
+                            RefProject(
+                                start=date(2026, 1, 5),
+                                durations={"T1": 1, "M": 0, "S": 0, "W": 1},
+                                links=(
+                                    RefLink("T1", "M", kind, lag),
+                                    RefLink("M", "S", "FS", 0),
+                                    RefLink("M", "W", "FS", 1),
+                                ),
+                                calendar=RefCalendar(working_mask=_SEVEN_DAY),
+                                calendars={
+                                    "five": RefCalendar(working_mask=MON_TO_FRI),
+                                    "seven": RefCalendar(working_mask=_SEVEN_DAY),
+                                },
+                                task_calendar={"T1": "five", "M": "five", "S": succ, "W": succ},
+                                **fields,
+                            ),
+                        )
+                    )
+    return out
+
+
+FLOORED_MILESTONE_SWEEP = _floored_milestone_sweep()
+
+
+@pytest.mark.parametrize(
+    "project",
+    [p for _, p in FLOORED_MILESTONE_SWEEP],
+    ids=[n for n, _ in FLOORED_MILESTONE_SWEEP],
+)
+def test_python_floored_milestone_sweep_is_monotone(project: RefProject) -> None:
+    problems = work_moved_earlier_by_a_slip(project, python_run, max_slip=8)
+    assert not problems, "\n".join(problems)
+    assert_matches_reference(python_engine(project), project)
+
+
+@pytest.mark.parametrize(
+    "project",
+    [p for _, p in FLOORED_MILESTONE_SWEEP],
+    ids=[n for n, _ in FLOORED_MILESTONE_SWEEP],
+)
+def test_rust_floored_milestone_sweep_is_monotone(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    problems = work_moved_earlier_by_a_slip(project, rust_engine.run, max_slip=8)
+    assert not problems, "\n".join(problems)
+
+
+def work_moved_earlier_by_a_later_floor(
+    family: list[tuple[date, RefProject]], run: Callable[[RefProject], EngineRun]
+) -> list[str]:
+    """Moving a floor one calendar day later never moves a live task earlier.
+
+    ``family`` is one network with its floor on consecutive days, earliest first.
+    Model-free and metamorphic, like :func:`work_moved_earlier_by_a_slip`: a later
+    ``actual_start``, SNET or data date can only add to what holds the network. It
+    is the check that slipping a *predecessor* cannot make: a verbatim weekend
+    ``actual_start`` is a floor no predecessor slip reaches, and the floor-to-link
+    map once went backward from Sunday to Monday there (#4883).
+    """
+    out: list[str] = []
+    prev: tuple[date, dict[str, tuple[date, date | bool]]] | None = None
+    for day, project in family:
+        tasks = run(project).tasks
+        held = {
+            tid: _held_at(t, project.durations[tid] == 0, project.calendar_of(tid))
+            for tid, t in tasks.items()
+            if not _complete(project, tid)
+        }
+        if prev is not None:
+            for tid, now in held.items():
+                was = prev[1].get(tid)
+                if was is not None and now < was:
+                    out.append(f"floor {prev[0]} -> {day}: {tid} moved earlier {was} -> {now}")
+        prev = (day, held)
+    return out
+
+
+#: Friday 01-09 to Tuesday 01-13: a floor on each side of, and inside, a weekend.
+_WEEKEND_FLOOR_DAYS = tuple(date(2026, 1, 9) + timedelta(days=k) for k in range(5))
+
+
+def _weekend_floor(kind: str, day: date) -> dict[str, Any]:
+    if kind == "actual-start":
+        return {"progress": {"M": RefProgress(percent_complete=0.0, actual_start=day)}}
+    if kind == "snet":
+        return {"planned_start": {"M": day}}
+    return {"status_date": day}
+
+
+def _weekend_floor_network(kind: str, link: str, lag: int, succ: str, day: date) -> RefProject:
+    """``T1(1d) -<link><lag>-> M``, ``M -FS-> S``, ``M -FS+1d-> W``, ``M`` floored on ``day``.
+
+    The network of :func:`_floored_milestone_sweep`, with ``T1`` and ``M`` on a
+    Monday-to-Friday week and ``S``/``W`` on ``succ``.
+    """
+    return RefProject(
+        start=date(2026, 1, 5),
+        durations={"T1": 1, "M": 0, "S": 0, "W": 1},
+        links=(
+            RefLink("T1", "M", link, lag),
+            RefLink("M", "S", "FS", 0),
+            RefLink("M", "W", "FS", 1),
+        ),
+        calendar=RefCalendar(working_mask=_SEVEN_DAY),
+        calendars={
+            "five": RefCalendar(working_mask=MON_TO_FRI),
+            "seven": RefCalendar(working_mask=_SEVEN_DAY),
+        },
+        task_calendar={"T1": "five", "M": "five", "S": succ, "W": succ},
+        **_weekend_floor(kind, day),
+    )
+
+
+def _weekend_floor_sweep() -> list[tuple[str, list[tuple[date, RefProject]]]]:
+    """The weekend-floor class: each floor kind, link type, lag and successor
+    calendar, with the floor walked Friday to Tuesday (#4883). Only a verbatim
+    ``actual_start`` keeps a weekend day; an SNET or data date snaps to Monday,
+    so those kinds are the control that the snapped floors stay monotone too."""
+    out = []
+    for kind in ("actual-start", "snet", "data-date"):
+        for link in LINK_TYPES:
+            for lag in (-1, 0, 1):
+                for succ in ("five", "seven"):
+                    family = [
+                        (day, _weekend_floor_network(kind, link, lag, succ, day))
+                        for day in _WEEKEND_FLOOR_DAYS
+                    ]
+                    out.append((f"{kind}-{link}{lag:+d}-{succ}", family))
+    return out
+
+
+WEEKEND_FLOOR_SWEEP = _weekend_floor_sweep()
+
+
+@pytest.mark.parametrize(
+    "family", [f for _, f in WEEKEND_FLOOR_SWEEP], ids=[n for n, _ in WEEKEND_FLOOR_SWEEP]
+)
+def test_python_a_later_weekend_floor_moves_nothing_earlier(
+    family: list[tuple[date, RefProject]],
+) -> None:
+    problems = work_moved_earlier_by_a_later_floor(family, python_run)
+    for _, project in family:
+        problems += work_moved_earlier_by_a_slip(project, python_run, max_slip=4)
+        assert_matches_reference(python_engine(project), project)
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize(
+    "family", [f for _, f in WEEKEND_FLOOR_SWEEP], ids=[n for n, _ in WEEKEND_FLOOR_SWEEP]
+)
+def test_rust_a_later_weekend_floor_moves_nothing_earlier(
+    rust_engine: RustRunner, family: list[tuple[date, RefProject]]
+) -> None:
+    problems = work_moved_earlier_by_a_later_floor(family, rust_engine.run)
+    for _, project in family:
+        problems += work_moved_earlier_by_a_slip(project, rust_engine.run, max_slip=4)
+    assert not problems, "\n".join(problems)
+
+
+#: The weekend ``actual_start`` repro (#4883 fix round): ``T1(1d) -FS-> M``, ``M``
+#: live with a recorded ``actual_start``, ``M -FS-> S`` and ``M -FS+1d-> W`` on a
+#: seven-day week. A Sunday floor linked from itself (S 01-18, W 01-19) while a
+#: Monday one linked from Saturday 01-17 (S 01-17, W 01-18), so recording the start
+#: a day later moved both earlier. A non-working floor now also reaches back to the
+#: start of its non-working run: Saturday, Sunday and Monday all link from Saturday
+#: 01-17 00:00. On ``origin/main`` before #4883 the Monday case gave S 01-19, W 01-20.
+_WEEKEND_ACTUAL_START_EXPECTED = (
+    # (actual_start, M shown day, S day, W day)
+    (date(2026, 1, 16), date(2026, 1, 16), date(2026, 1, 16), date(2026, 1, 17)),
+    (date(2026, 1, 17), date(2026, 1, 17), date(2026, 1, 17), date(2026, 1, 18)),
+    (date(2026, 1, 18), date(2026, 1, 18), date(2026, 1, 17), date(2026, 1, 18)),
+    (date(2026, 1, 19), date(2026, 1, 19), date(2026, 1, 17), date(2026, 1, 18)),
+)
+
+
+def _assert_weekend_actual_start_dates(run: Callable[[RefProject], EngineRun]) -> None:
+    got = []
+    for day, _, _, _ in _WEEKEND_ACTUAL_START_EXPECTED:
+        tasks = run(_weekend_floor_network("actual-start", "FS", 0, "seven", day)).tasks
+        got.append((day, tasks["M"].early_start, tasks["S"].early_start, tasks["W"].early_start))
+    assert got == list(_WEEKEND_ACTUAL_START_EXPECTED)
+
+
+def test_a_weekend_actual_start_links_from_the_start_of_its_run() -> None:
+    _assert_weekend_actual_start_dates(python_run)
+
+
+def test_rust_a_weekend_actual_start_links_from_the_start_of_its_run(
+    rust_engine: RustRunner,
+) -> None:
+    _assert_weekend_actual_start_dates(rust_engine.run)
+
+
+def test_the_floor_property_reports_an_engine_that_moves_work_earlier() -> None:
+    """Negative control: an engine whose successor moves earlier on a later floor
+    is reported."""
+
+    def wrong_run(project: RefProject) -> EngineRun:
+        run = python_run(project)
+        recorded = project.progress["M"].actual_start
+        if recorded is None or recorded != date(2026, 1, 12):
+            return run
+        s = run.tasks["S"]
+        tasks = {**run.tasks, "S": replace(s, early_start=s.early_start - timedelta(days=3))}
+        return replace(run, tasks=tasks)
+
+    family = [
+        (day, _weekend_floor_network("actual-start", "FS", 0, "seven", day))
+        for day in _WEEKEND_FLOOR_DAYS
+    ]
+    assert work_moved_earlier_by_a_later_floor(family, wrong_run) != []
+
+
+def test_the_slip_property_reports_an_engine_that_moves_work_earlier() -> None:
+    """Negative control: an engine that moves a successor earlier on a slip is reported."""
     p = FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR
 
     def wrong_run(project: RefProject) -> EngineRun:
@@ -1953,10 +2137,12 @@ def test_the_4883_exclusion_reports_a_move_that_survives_cutting_the_milestone()
 
 
 def test_a_failing_slip_property_prints_the_project(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With the #4883 excuse defeated, the live property fails on a pinned shape with
-    an ``AssertionError`` that leads with the ``RefProject`` — not an ``AttributeError``
-    raised while formatting the message, which hid the counterexample (#4981)."""
-    monkeypatch.setitem(globals(), "_behind_a_floor_held_milestone", lambda *_args: False)
+    """A failing live property raises an ``AssertionError`` that leads with the
+    ``RefProject`` — not an ``AttributeError`` raised while formatting the message,
+    which hid the counterexample (#4981)."""
+    monkeypatch.setitem(
+        globals(), "work_moved_earlier_by_a_slip", lambda *_args, **_kw: ["moved earlier"]
+    )
     body = test_slipping_a_predecessor_never_moves_work_earlier.hypothesis.inner_test
     with pytest.raises(AssertionError) as failure:
         body(FS_NEGATIVE_LAG_SLIP_INTO_A_TIED_DATA_DATE)

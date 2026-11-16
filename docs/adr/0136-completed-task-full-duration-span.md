@@ -18,6 +18,13 @@ Accepted — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
 > instant semantics (see Rules). The table and rules below are updated in place; the Monte
 > Carlo follow-up is resolved.
 
+> **Amended 2026-11-16 (#4883): a floored milestone's link instant is monotone.** A
+> milestone held by a floor links from the latest of its link and the close of the last
+> working day before the floor, so slipping a predecessor never moves its successors
+> earlier (for an SNET, data date or actual_start floor; the project-start floor is
+> excluded, #5055). This changes live schedules: a wider-calendar successor of a Monday-floored
+> milestone can sit on the weekend before it. See the dated bullet under Decision → Rules.
+
 > **The conformance-fixture constraint below is superseded by shipped practice** (verified
 > 2026-07-31, #2664). Both the Constraints section ("the shared `wasm:conformance` fixtures
 > carry **no** progress fields and must stay that way — adding actuals/`status_date` to the
@@ -249,7 +256,121 @@ Rules:
     midnight (`_equivalent_link`). This changes live schedules in one case: a data
     date on that day (a weekend data date snaps to the Monday) used to push the
     milestone's lagged successors later and now leaves them where the link put
-    them.
+    them. *Superseded in part 2026-11-16 (#4883), next bullet:* the tie was the
+    only case that kept the link's own midnight, and that made the forward pass
+    non-monotone.
+  - *Amended 2026-11-16 (#4883): the link instant is monotone.* The tie rule
+    above linked from the proposal's own midnight only when it tied the floor, and
+    from the floor otherwise. On a Monday-to-Friday week with a Monday floor, a
+    predecessor slipping from Thursday to Friday moved the latest link proposal
+    from Saturday 00:00 read as the end of Friday (no tie, link = Monday 00:00) to
+    Sunday 00:00 read as the start of Monday (tie, link = Sunday 00:00): the link
+    instant jumped *back*, and every successor that can sit in the weekend gap (a
+    wider calendar, or a calendar-day lag) moved earlier. Slipping a predecessor
+    moved work earlier. This was confirmed for SS+1, FS+1 and FF+1 into the floored
+    milestone, for weekend and Monday SNETs, and, through the nightly fuzz, against
+    the data date and a live milestone's recorded `actual_start` (#4900, #4922,
+    #4981). All three engines and the reference oracle agreed, so neither
+    `wasm:conformance` nor the oracle could see it.
+
+    **Rule.** A milestone held by a floor links from the latest of its latest
+    link proposal and the floor's *earliest equivalent midnight*: the close of the
+    last working day before the floor (Saturday 00:00 for a Monday floor on a
+    Monday-to-Friday week), read as the start of a day. A floor on a non-working
+    day — only a verbatim `actual_start` can be one, since an SNET or data date
+    snaps to the next working day — is read the same way, back to the start of
+    the non-working run that holds it: a Sunday `actual_start`'s earliest
+    equivalent midnight is Saturday 00:00, as a Monday floor's is (fix round of
+    2026-11-16, below). Every
+    midnight from there to the floor is the same point in working time, so the
+    floor still holds the milestone no earlier than it, and the successors still
+    see a link instant at or before the floor. A proposal inside that window keeps
+    its own midnight, as the tie rule had it, so recording or pinning the day a
+    milestone is shown on still moves nothing. A proposal below the window now
+    links from the window's start, not from the floor. That is the one choice
+    that is non-decreasing in the proposal, so a slipping predecessor never moves
+    the milestone's successors earlier. Unchanged: a floor with no non-working
+    time before it (Tuesday to Friday on that week, and the first day of a
+    non-working run, such as a Saturday `actual_start`) links from the floor; a
+    floor on a non-working day is still *shown* verbatim on its own day; a
+    proposal below the project start, when the floor is the
+    project start's day, keeps its own instant (#4225); and a milestone with no
+    predecessor links from its floor. Implemented as `_equivalent_link` and
+    `_earliest_equivalent_midnight` (`engine/milestones.py`), mirrored in the
+    Monte Carlo milestone reading (`engine/montecarlo/forward.py`), the Rust
+    engine (`forward.rs::equivalent_link`) and the reference oracle
+    (`tests/oracle/reference_cpm.py::_floor_link`). The repros, an explicit
+    expected-date test, and a sweep of all four link types × lags −3..+2 × the
+    four floors × same- and wider-calendar successors are pinned in
+    `tests/test_cpm_oracle.py`. The strict-xfail repros from #4882 now pass, and
+    the live slip property carves nothing out.
+
+    **Consequences — this changes live schedules.** Every milestone held by a
+    floor that follows non-working time (a working day, or a weekend
+    `actual_start` after the first day of its run), with a predecessor
+    whose link proposes an earlier instant, now links from that earlier midnight
+    instead of from the floor:
+    - *Fix round, 2026-11-16.* The rule as first written here treated a floor on
+      a non-working day as having no earlier equivalent, so it linked from
+      itself. That made the floor-to-link map go *backward* from Sunday to
+      Monday: Saturday → Saturday, Sunday → Sunday, Monday → Saturday. Recording
+      a live milestone's `actual_start` a day later, from Sunday to Monday, moved
+      its successors earlier (`T1(1d) -FS-> M`, `M -FS-> S` and `M -FS+1d-> W`
+      with `S`/`W` on seven days: a Sunday 01-18 `actual_start` put `S`/`W` on
+      01-18/01-19, a Monday 01-19 one on 01-17/01-18). A non-working floor now
+      reaches back to the start of its run, so Saturday, Sunday and Monday all
+      link from Saturday 00:00 and the map is monotone. The consequence is the
+      Monday one below, extended to Sunday: a Sunday `actual_start` on a
+      Monday-to-Friday milestone with a predecessor proposing an earlier instant
+      now links from Saturday 00:00, so a seven-day successor sits on that
+      Saturday (it sat on the Sunday before #4883 and on the first pass of this
+      amendment) and a calendar-day lag counts from Saturday, a day earlier than
+      before. A Saturday `actual_start` is the start of its run and links from
+      itself, as before. Pinned by a weekend-floor sweep (`actual_start`, SNET and
+      data date on Friday to Tuesday × the four link types × lags −1..+1 × same-
+      and wider-calendar successors), checked on Python and Rust for a later
+      floor and a predecessor slip, plus the dates above as an explicit
+      regression test.
+    - A lag out of the milestone can count from before a recorded `actual_start`,
+      and before the project start: a Monday `actual_start` that is also the
+      project start's day links from Saturday 00:00 when its predecessor proposes
+      an earlier instant. Four oracle-corpus entries changed for this
+      (`named_control-below-start-SF-{FS,SS,FF,SF}-started`): an SF-linked
+      milestone started on Monday 01-05, the project start, now links from
+      Saturday 01-03, and its calendar-day-lagged successor `B` moved two calendar
+      days earlier (01-08 → 01-06, 01-07 → 01-05).
+    - A successor on a wider calendar can sit on the non-working days *before*
+      the floored milestone's shown day: with a Monday SNET on a Monday-to-Friday
+      milestone, its FS successor on a seven-day calendar now starts on the
+      Saturday before, not on Monday. The issue's repro (`T1 -SS+1d-> T2`,
+      Saturday SNET, `T2 -FS-> T4/T5` on seven days) puts `T4`/`T5` on Saturday
+      01-10 for every slip up to Friday, where they were on Monday 01-12.
+    - A calendar-day lag out of the milestone counts from that earlier midnight:
+      `A -FS-> M -FS+2cd-> B` with `M` held at Monday puts `B` on Monday, not
+      Wednesday. With the data date as the floor, that lag counts partly from
+      before the data date; the successor is still held by its own data-date
+      floor, so no work is scheduled in the past, but the lag is not "counted
+      from now".
+    - An SF-linked milestone placed at the close of the working day before its
+      floor (#4635) gains nothing downstream from that floor.
+    - A closed milestone's link re-read from its completed predecessors
+      (`_closed_milestone_link`, above) follows the same rule, so it still
+      matches the live milestone. Not changed: the open-predecessor residual
+      (#4740), and the closed-milestone *edge* rule (#4703). In particular this
+      amendment does not address #5017 (a closed predecessor finishing on a
+      signed-off milestone's day flips its edge); a sign-off day directly after
+      another working day has no earlier equivalent midnight, so #5017's repro
+      schedules exactly as before.
+    - Not covered by the monotonicity guarantee, and unchanged in kind: *adding*
+      a predecessor to a floor-only milestone can move its successors earlier,
+      because the milestone then links from the earliest equivalent midnight
+      instead of from its floor. A link addition is not a slip. The tie rule
+      already did this for a tying predecessor; the window is now wider.
+    - Not covered either: the project-start floor. Moving the project start later
+      can still move a floored milestone's successors earlier (#4225, #4635); this
+      predates the amendment and is tracked in open issue #5055.
+    - Not verified against MS Project or Primavera P6, which schedule in absolute
+      time and do not model this choice.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).

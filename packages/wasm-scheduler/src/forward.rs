@@ -238,12 +238,12 @@ pub(crate) fn start_reading(
 /// `link` is the latest proposal without the project-start floor and `shown` the
 /// latest with it; with nothing but that floor proposing, they are the same.
 ///
-/// A floor that only ties a link in working time does not move `link` either
-/// (#4690, [`equivalent_link`]): when the latest floor is the very day the latest
-/// link proposal is shown on, at its start, `link` stays the proposal's raw
-/// midnight and only `shown` takes the floor. Recording or pinning the day a
-/// milestone is already shown on (an `actual_start`, a `planned_start`) is such a
-/// floor, and linking from it moved every successor with a calendar-day lag.
+/// A floor that holds a linked milestone links from the earliest midnight that is
+/// the same working-time point as the floor, or from the latest link proposal when
+/// that is later (#4690, #4883, [`equivalent_link`]); only `shown` takes the floor.
+/// Recording or pinning the day a milestone is already shown on (an
+/// `actual_start`, a `planned_start`) therefore moves nothing, and a slipping
+/// predecessor never moves the milestone's successors earlier.
 ///
 /// `completed_only` limits the links to completed predecessors — the reading a
 /// closed milestone's day edge is taken from (`live_milestone_edge`, #4525), and
@@ -291,8 +291,8 @@ fn place_milestone(
     }
     let mut link = best;
     if let Some(p) = pred_best {
-        if equivalent_link(p, floors.iter().max().copied(), start_floor) {
-            link = Some(p);
+        if let Some(l) = equivalent_link(p, floors.iter().max().copied(), start_floor, cal)? {
+            link = Some((l.0, l.1, p.2));
         }
     }
     if let Some(floor) = start_floor {
@@ -333,34 +333,55 @@ fn link_proposal(
     Ok((raw, start_display, instant_day(raw, start_display, cal)?))
 }
 
-/// Whether `floor` only ties the link `proposal` in working time (#4690).
+/// The earliest midnight that is the same working-time point as `floor` (#4883).
 ///
-/// `proposal` is `(instant, start_display, day)` from [`place_milestone`]. True
-/// when, from an earlier midnight, the proposal is shown at the start of `floor`
-/// itself: read as the start of a day and shown on it, or held below the
-/// project-start floor `start_floor` when that is `floor` (#4225). Saturday 00:00,
-/// Sunday 00:00 and the start of Monday are one working-time point and differ only
-/// in the calendar days a lag out of it counts from (#2534), so the floor holds
-/// nothing the link does not. An end-of-day reading at or after the project start
-/// and a floor on a non-working day are not covered. Mirrors the Python
-/// `_equivalent_link`.
+/// Every midnight back to the close of the last working day before `floor` reaches
+/// the start of `floor` through non-working time only (Saturday 00:00, Sunday 00:00
+/// and the start of Monday on a Monday-to-Friday week); the earliest is the close
+/// of that working day, `floor` itself when the day before it is a working day. A
+/// floor on a non-working day (a verbatim weekend `actual_start`) is read the same
+/// way, back to the start of its non-working run, so Sunday and Monday both reach
+/// Saturday 00:00 and the floor-to-link map never goes backward. Mirrors the Python
+/// `_earliest_equivalent_midnight`.
+fn earliest_equivalent_midnight(floor: NaiveDate, cal: &Calendar) -> Result<NaiveDate, String> {
+    let before = prev_working_day(checked_offset_days(floor, -1)?, cal)?;
+    checked_offset_days(before, 1)
+}
+
+/// The instant a milestone held by `floor` links from, or `None` (#4690, #4883).
+///
+/// `proposal` is the latest link proposal `(instant, start_display, day)` from
+/// [`place_milestone`]. `None` when the proposal is at or after `floor`, or when
+/// the floor has no earlier equivalent midnight: the link is then the floor.
+/// Otherwise the floor and every midnight back to the close of the previous
+/// working day are one working-time point, differing only in the calendar days a
+/// lag out of the milestone counts from (#2534), so the milestone links from the
+/// latest of the proposal and that earliest midnight, read as a day start. That is
+/// the one choice non-decreasing in the proposal: linking from the proposal only
+/// when it tied the floor made the link jump back from Monday to Saturday as a
+/// predecessor slipped into the tie (#4883). A proposal held below the
+/// project-start floor `start_floor` when that is `floor` keeps its own instant
+/// (#4225). Mirrors the Python `_equivalent_link`.
 fn equivalent_link(
     proposal: (NaiveDate, bool, NaiveDate),
     floor: Option<NaiveDate>,
     start_floor: Option<NaiveDate>,
-) -> bool {
+    cal: &Calendar,
+) -> Result<Option<Instant>, String> {
     let Some(floor) = floor else {
-        return false;
+        return Ok(None);
     };
     if proposal.0 >= floor {
-        return false;
+        return Ok(None);
     }
-    if let Some(sf) = start_floor {
-        if (sf, true) > (proposal.0, proposal.1) {
-            return sf == floor;
-        }
+    if start_floor == Some(floor) && (floor, true) > (proposal.0, proposal.1) {
+        return Ok(Some((proposal.0, proposal.1)));
     }
-    proposal.1 && proposal.2 == floor
+    let earliest = earliest_equivalent_midnight(floor, cal)?;
+    if earliest >= floor {
+        return Ok(None);
+    }
+    Ok(Some((proposal.0.max(earliest), true)))
 }
 
 /// The per-calendar start floors `(un-floored, floored, data date)`.
@@ -1375,7 +1396,10 @@ mod tests {
     }
 
     /// #4225: a data-date floor is not a display bound — an unreached milestone
-    /// happens no earlier than "as of now", so a lag after it counts from there.
+    /// happens no earlier than "as of now". Monday's start is the same
+    /// working-time point as Saturday 00:00, and a linked milestone held there links
+    /// from that earliest midnight (#4883): the 2cd lag lands on Monday, where `B`'s
+    /// own data-date floor holds it, not on Wednesday.
     #[test]
     fn a_data_date_floored_milestone_still_moves_its_successor() {
         let project: Project = serde_json::from_value(json!({
@@ -1397,7 +1421,90 @@ mod tests {
         .expect("test project parses");
         let result = schedule_impl(&project).expect("test project schedules");
         let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
-        assert_eq!(b.early_start, d(14));
+        assert_eq!(b.early_start, d(12));
+    }
+
+    /// #4883: the link instant of a floored milestone never decreases as its
+    /// predecessor slips. `T1(1d) -SS+1d-> M -FS+1d-> B` on Monday-to-Friday, `M`
+    /// with a Monday 01-12 SNET: slipping `T1` from Monday 01-05 to Friday 01-09
+    /// walks the link from Tuesday 00:00 to Saturday 00:00, and `B` must hold at
+    /// the start of Monday 01-12 throughout, never jumping from Tuesday back.
+    #[test]
+    fn slipping_into_a_floored_milestone_never_moves_its_successor_earlier() {
+        let mut last = None;
+        for day in 5..=9 {
+            let project: Project = serde_json::from_value(json!({
+                "id": "p",
+                "name": "p",
+                "start_date": "2026-01-05",
+                "tasks": [
+                    {"id": "T1", "name": "T1", "duration": 86400.0,
+                     "planned_start": format!("2026-01-{day:02}")},
+                    {"id": "M", "name": "M", "duration": 0.0, "planned_start": "2026-01-12"},
+                    {"id": "B", "name": "B", "duration": 0.0},
+                ],
+                "dependencies": [
+                    {"predecessor_id": "T1", "successor_id": "M", "dep_type": "SS", "lag": 86400.0},
+                    {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 86400.0},
+                ],
+            }))
+            .expect("test project parses");
+            let result = schedule_impl(&project).expect("test project schedules");
+            let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+            let at = (b.early_start, b.milestone_at_day_end);
+            if let Some(prev) = last {
+                assert!(
+                    at >= prev,
+                    "T1 on 01-{day:02}: B moved earlier {prev:?} -> {at:?}"
+                );
+            }
+            last = Some(at);
+        }
+        assert_eq!(last.map(|l| l.0), Some(d(12)));
+    }
+
+    /// #4883: recording a live milestone's `actual_start` a day later never moves
+    /// its successor earlier, across a weekend too. `T1(1d) -FS-> M -FS+2d-> B` on
+    /// Monday-to-Friday, `M` started on each day from Friday 01-09 to Tuesday 01-13.
+    /// A verbatim Sunday floor once linked from itself (B at the end of Monday)
+    /// while a Monday one linked from Saturday 00:00 (B at the start of Monday);
+    /// both now reach back to Saturday 00:00, the start of the non-working run.
+    #[test]
+    fn a_later_weekend_actual_start_never_moves_its_successor_earlier() {
+        let mut last = None;
+        let mut weekend = Vec::new();
+        for day in 9..=13 {
+            let project: Project = serde_json::from_value(json!({
+                "id": "p",
+                "name": "p",
+                "start_date": "2026-01-05",
+                "tasks": [
+                    {"id": "T1", "name": "T1", "duration": 86400.0},
+                    {"id": "M", "name": "M", "duration": 0.0, "percent_complete": 0.0,
+                     "actual_start": format!("2026-01-{day:02}")},
+                    {"id": "B", "name": "B", "duration": 0.0},
+                ],
+                "dependencies": [
+                    {"predecessor_id": "T1", "successor_id": "M", "dep_type": "FS", "lag": 0.0},
+                    {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 2.0 * 86400.0},
+                ],
+            }))
+            .expect("test project parses");
+            let result = schedule_impl(&project).expect("test project schedules");
+            let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+            let at = (b.early_start, b.milestone_at_day_end);
+            if let Some(prev) = last {
+                assert!(
+                    at >= prev,
+                    "M started 01-{day:02}: B moved earlier {prev:?} -> {at:?}"
+                );
+            }
+            if (10..=12).contains(&day) {
+                weekend.push(at);
+            }
+            last = Some(at);
+        }
+        assert_eq!(weekend, vec![(d(12), false); 3]);
     }
 
     /// Schedule `A` (20d, started 2026-01-04 — a Sunday — `pct`% done) `-kind+lag->`

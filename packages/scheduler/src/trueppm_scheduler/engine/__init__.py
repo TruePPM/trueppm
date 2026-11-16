@@ -37,10 +37,15 @@ engine now follows the MS Project / Primavera P6 convention:
   from the instant below it (#4225). A negative ``l2`` can reach ``M``'s own
   project-finish bound, as it would for any node inserted into the link. The data
   date, an SNET and a recorded actual start do hold ``M`` and every lag measured
-  from it, so ``B`` can land later than the direct link puts it — except one that
-  falls on, or snaps to, the day the latest link already shows ``M`` at the start
-  of: that is the same point in working time, and the lags keep counting from the
-  link's own midnight (:func:`_equivalent_link`, #4690).
+  from it, so ``B`` can land later than the direct link puts it. A floor (a
+  verbatim weekend ``actual_start`` too) is the same point in working time as
+  every midnight back to the close of the last working day before it, so a
+  linked ``M`` held there links from the later of its link and that earliest
+  midnight (:func:`_equivalent_link`, #4690, #4883): non-decreasing in the link
+  and in the floor, so a slipping predecessor or a later SNET, data date or
+  recorded actual start never moves ``B`` earlier. The project-start floor is
+  excluded: moving the project start later can still move a floored milestone's
+  successors earlier (#4225, #4635; tracked in #5055).
 * The backward pass and free float invert the same rule (:func:`_milestone_latest`,
   :func:`_milestone_refs`), and every late date is seeded from the instant the
   project ends (:func:`_finish_instant`), so a milestone on the critical path
@@ -143,9 +148,10 @@ predecessors (:func:`_closed_milestone_link`). While any predecessor is still
 open the milestone links from the start of its recorded day, as before, so closing
 it ahead of open work can still move a lagged successor (#4740). Recording an
 ``actual_start`` or a ``planned_start`` on the day a live milestone is shown, or a
-data date falling on or snapping to it, moves nothing: a floor that only ties the
-latest link in working time leaves the link instant where the link put it
-(:func:`_equivalent_link`).
+data date falling on or snapping to it, moves nothing: a floor links a milestone
+from the later of its link and the floor's earliest equivalent midnight, so a link
+already at or after that midnight keeps its instant (:func:`_equivalent_link`,
+#4883).
 ``monte_carlo``
 carries each run's milestone instant as a date (:func:`_mc_milestone_bounds`), and
 the Rust/WASM engine mirrors the rule (``packages/wasm-scheduler/src/forward.rs``).

@@ -113,13 +113,15 @@ working-time reading and now compares; `_ff_out_of_a_non_working_actual_finish`
 survives only as the corpus generator's redraw filter, so the committed corpus's
 seeded inputs stay stable.
 
-One further open defect is pinned without a filter, because the generator does
-not reach it: the open #4883 (a floor that only ties a milestone's link, #4690,
-hands its successors the link's earlier midnight, so slipping a predecessor into
-the tie moves them earlier). The live property
-`test_slipping_a_predecessor_never_moves_work_earlier` carves nothing out; the
-known repros (`KNOWN_4883_SHAPES`) are strict xfails on Python and Rust. If the
-nightly fuzz reaches the shape, that property goes red rather than hiding it.
+The live property `test_slipping_a_predecessor_never_moves_work_earlier` carves
+nothing out either. #4883 (a floor that only tied a milestone's link, #4690,
+handed its successors the link's earlier midnight, so slipping a predecessor into
+the tie moved them earlier) is fixed; its repros (`SLIP_INTO_A_TIED_FLOOR_SHAPES`)
+run on Python and Rust, and `FLOORED_MILESTONE_SWEEP` covers the class: every
+link type, lags -3..+2, four floors, and same- and wider-calendar successors.
+`WEEKEND_FLOOR_SWEEP` walks an `actual_start`, SNET or data date from Friday to
+Tuesday and checks that a later floor moves nothing earlier
+(`work_moved_earlier_by_a_later_floor`), which a predecessor slip cannot reach.
 
 The Rust engine is checked two ways. Locally, when `cargo` is on `PATH`, the
 Rust properties build the crate's `oracle_runner` example and feed it the same
