@@ -111,6 +111,9 @@ Fallback polling (`useScheduleTasks`) is already disabled while the socket is `l
 only runs at 30 s when the socket is down. No change is needed; the delta event simply
 makes the live path richer.
 
+> Superseded by #2848 (2026-11): polling is no longer disabled while the socket is
+> `live`; it backs off to a 120 s safety net (30 s while the socket is down).
+
 ## Alternatives Considered
 | Option | Pros | Cons |
 |--------|------|------|

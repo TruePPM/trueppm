@@ -3,6 +3,7 @@ import {
   useWsConnectionStore,
   STALE_AFTER_ATTEMPTS,
   fallbackPollInterval,
+  LIVE_POLL_INTERVAL_MS,
   FALLBACK_POLL_INTERVAL_MS,
   REFUSED_POLL_INTERVAL_MS,
 } from './wsConnectionStore';
@@ -77,8 +78,9 @@ describe('refused state and the shared fallback poll (#4375)', () => {
     expect(getState().reconnectAttempts).toBe(0);
   });
 
-  it('polls never while live, relaxed while refused, at 30 s in every other state', () => {
-    expect(fallbackPollInterval('live')).toBe(false);
+  it('backs off to a finite 120 s while live, relaxed while refused, 30 s in every other state', () => {
+    expect(fallbackPollInterval('live')).toBe(LIVE_POLL_INTERVAL_MS);
+    expect(Number.isFinite(fallbackPollInterval('live') as number)).toBe(true);
     expect(fallbackPollInterval('refused')).toBe(REFUSED_POLL_INTERVAL_MS);
     for (const state of ['connecting', 'reconnecting', 'stale', 'failed'] as const) {
       expect(fallbackPollInterval(state)).toBe(FALLBACK_POLL_INTERVAL_MS);

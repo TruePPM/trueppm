@@ -844,9 +844,11 @@ export function useScheduleTasks(
   // Fallback polling is only needed when the live-update WebSocket is NOT
   // delivering events. When the socket is `live`, useProjectWebSocket
   // invalidates the tasks/dependencies caches on every mutation, so a 30 s
-  // poll is pure waste (a full multi-page refetch at 0.5 Hz). Gate the
-  // interval on the connection state: poll only while the socket is down
-  // (`reconnecting`/`stale`/`failed`) or before it has opened (`connecting`).
+  // poll is waste (a full multi-page refetch at 0.5 Hz). Back the interval off
+  // while live (120 s) rather than switching it off: a socket that is open but
+  // dropping frames is still `live`, and the slow poll is what heals it (#2848).
+  // Poll at 30 s while the socket is down (`reconnecting`/`stale`/`failed`) or
+  // before it has opened (`connecting`).
   // A caller the socket refuses by role (`refused`) has no live channel at all, so
   // it polls too — on the relaxed read-only interval, not every 30 s (#4375).
   const wsState = useWsConnectionStore((s) => s.state);
@@ -872,9 +874,8 @@ export function useScheduleTasks(
     },
     enabled,
     // WebSocket invalidations (useProjectWebSocket) handle live updates while
-    // the socket is healthy. The 30 s fallback only runs when the socket is
-    // down, so it catches missed events without hammering the API when the
-    // live channel is already doing the job.
+    // the socket is healthy. The fallback runs at 30 s when the socket is down
+    // and at a slow 120 s while live, so a silently degraded socket self-heals.
     refetchInterval: fallbackInterval,
   });
 

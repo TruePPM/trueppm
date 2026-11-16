@@ -50,6 +50,13 @@ export const WS_CLOSE_FORBIDDEN = 4003;
 export const FALLBACK_POLL_INTERVAL_MS = 30_000;
 
 /**
+ * Safety-net REST poll while the socket is `live` (#2848). A socket that is open
+ * but losing frames is `live` by every signal the client has, so the poll is
+ * backed off (30 s to 120 s), never switched off.
+ */
+export const LIVE_POLL_INTERVAL_MS = 120_000;
+
+/**
  * Relaxed REST poll for a caller the socket refuses (#4375). A read-only role has
  * no live channel by design, so the view's only freshness source is this poll —
  * slow enough that an open Viewer tab is not a 30-second full-schedule refetch,
@@ -62,7 +69,7 @@ export const REFUSED_POLL_INTERVAL_MS = 5 * 60_000;
  * One function so every polling hook relaxes for `refused` identically.
  */
 export function fallbackPollInterval(state: WsConnectionState): number | false {
-  if (state === 'live') return false;
+  if (state === 'live') return LIVE_POLL_INTERVAL_MS;
   if (state === 'refused') return REFUSED_POLL_INTERVAL_MS;
   return FALLBACK_POLL_INTERVAL_MS;
 }

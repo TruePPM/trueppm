@@ -680,6 +680,29 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(tasksCallsAfter).toBe(1);
   });
 
+  // #2848 (F6): the window is armed by the FIRST event and never reset, so a
+  // continuous burst flushes every window (a throttle), not once after it ends.
+  it('throttles a long burst: flushes mid-burst, not once after it ends', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    const tasksCalls = () =>
+      invalidateSpy.mock.calls.filter(
+        ([arg]) => Array.isArray(arg?.queryKey) && arg.queryKey[0] === 'tasks',
+      ).length;
+
+    // 10 events over ~1 s, 100 ms apart (t = 0 .. 900 ms).
+    for (let i = 0; i < 10; i += 1) {
+      dispatchEvent('task_updated');
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      if (i === 3) expect(tasksCalls()).toBe(1); // first window closed at 300 ms, mid-burst
+    }
+    flushDebounce();
+    // t = 300, 600, 900 windows plus the final trailing flush: more than one, never ten.
+    expect(tasksCalls()).toBe(4);
+  });
+
   it('still fires a trailing tasks invalidation for a single event', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
@@ -2041,6 +2064,59 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
     });
     // Cursor stayed at 9 (presence did not advance it).
     expect(MockWebSocket.instances[1].url).toContain('&since=9');
+  });
+
+  it('a seq gap (1, 2, 5) refetches project caches once the window expires and advances to 5 (#2848)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    dispatch({ event_type: 'task_created', payload: { id: 't1' }, seq: 1 });
+    dispatch({ event_type: 'task_created', payload: { id: 't2' }, seq: 2 });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    dispatch({ event_type: 'task_created', payload: { id: 't5' }, seq: 5 });
+    // Held while 3 and 4 may still be in flight: no gap signal yet.
+    expect(invalidateSpy.mock.calls.some((c) => typeof c[0]?.predicate === 'function')).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+    });
+    expect(invalidateSpy.mock.calls.some((c) => typeof c[0]?.predicate === 'function')).toBe(true);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+
+    // Cursor advanced to 5: a reconnect asks for nothing it already applied.
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(MockWebSocket.instances[1].url).toContain('&since=5');
+  });
+
+  it('contiguous frames (1, 2, 3) raise no gap refetch (#2848)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    for (const seq of [1, 2, 3]) {
+      dispatch({ event_type: 'presence_join', payload: {}, seq });
+    }
+    act(() => {
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+    });
+    expect(invalidateSpy.mock.calls.some((c) => typeof c[0]?.predicate === 'function')).toBe(false);
+  });
+
+  it('a mid-window disconnect with a held frame raises no gap refetch; reconnect replays it (#2848)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    dispatch({ event_type: 'task_created', payload: { id: 't1' }, seq: 1 });
+    dispatch({ event_type: 'task_created', payload: { id: 't3' }, seq: 3 });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(invalidateSpy.mock.calls.some((c) => typeof c[0]?.predicate === 'function')).toBe(false);
+    expect(MockWebSocket.instances[1].url).toContain('&since=1');
   });
 
   it('resync_required refetches project caches and does not throw', () => {

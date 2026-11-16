@@ -16,7 +16,11 @@ import {
   type ApiTask,
   type TaskDatesDelta,
 } from './useScheduleTasks';
-import { REFUSED_POLL_INTERVAL_MS, useWsConnectionStore } from '@/stores/wsConnectionStore';
+import {
+  LIVE_POLL_INTERVAL_MS,
+  REFUSED_POLL_INTERVAL_MS,
+  useWsConnectionStore,
+} from '@/stores/wsConnectionStore';
 import { useDemoOverlayStore } from '@/stores/demoOverlayStore';
 
 // ---------------------------------------------------------------------------
@@ -915,7 +919,7 @@ describe('useScheduleTasks fallback polling gate (#773)', () => {
     return getMock.mock.calls.filter(([url]) => url === '/tasks/').length;
   }
 
-  it('does NOT poll the tasks query while the WebSocket is live', async () => {
+  it('polls the tasks query only slowly (safety net) while the WebSocket is live (#2848)', async () => {
     useWsConnectionStore.getState().markLive();
 
     renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
@@ -923,11 +927,17 @@ describe('useScheduleTasks fallback polling gate (#773)', () => {
     await vi.waitFor(() => expect(tasksFetchCount()).toBe(1));
     const initial = tasksFetchCount();
 
-    // Advance well past two 30 s windows — no extra fetch should occur.
+    // Well past the 30 s down-socket window: no extra fetch while live.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(70_000);
+      await vi.advanceTimersByTimeAsync(LIVE_POLL_INTERVAL_MS - 10_000);
     });
     expect(tasksFetchCount()).toBe(initial);
+
+    // A live socket can still be losing frames, so the slow poll does fire.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    await vi.waitFor(() => expect(tasksFetchCount()).toBeGreaterThan(initial));
   });
 
   it('polls the tasks query as a fallback when the WebSocket is disconnected', async () => {

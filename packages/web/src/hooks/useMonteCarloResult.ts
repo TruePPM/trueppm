@@ -207,7 +207,8 @@ export function useMonteCarloResult(projectId?: string): UseMonteCarloResultRetu
   // Fallback polling for the staleness verdict (#3140), gated exactly the way
   // `useScheduleTasks` gates its own: while the socket is `live`,
   // `useProjectWebSocket` invalidates `monte-carlo-latest` on every task and
-  // dependency event, so a poll would be pure waste. While it is down, nothing
+  // dependency event, so the poll only backs off to a 120 s safety net (a live
+  // socket can still lose a frame, #2848). While it is down, nothing
   // else tells this query the plan moved — and since the forecast bar gates its
   // Rerun *action* on the verdict, a dead socket would otherwise leave the user
   // without the recompute affordance until they navigated or reloaded. That is the
