@@ -196,9 +196,11 @@ def test_an_sf_linked_milestone_keeps_its_sub_start_snet(dep_type: DependencyTyp
     """An SF-linked milestone's SNET on the start holds it there, verbatim (#4635).
 
     ``W -SF-> K`` places ``K`` before the start (it takes no project-start floor,
-    #4218); an SNET on the start lifts it, and its successor, to 02-02 — later than
-    without the SNET, never earlier. A sub-start SNET below the SF placement binds
-    nothing, as any non-binding floor.
+    #4218); an SNET on the start lifts it to 02-02, and its successor never earlier
+    than without the SNET. The SF placement at the close of Friday 01-30 is the same
+    working-time point as the start of Monday 02-02, so the successor links from
+    that earlier midnight (#4883) and lands where it would without the SNET. A
+    sub-start SNET below the SF placement binds nothing, as any non-binding floor.
     """
     bare = {t.id: t for t in schedule(_free_milestone(dep_type, sf_into_k=True)).tasks}
     held_project = _free_milestone(dep_type, sf_into_k=True, snet=_START)
@@ -210,7 +212,7 @@ def test_an_sf_linked_milestone_keeps_its_sub_start_snet(dep_type: DependencyTyp
     assert bare["K"].early_start is not None and bare["K"].early_start < _START
     assert held["K"].early_start == _START
     assert held["A"].early_finish is not None and bare["A"].early_finish is not None
-    assert held["A"].early_finish > bare["A"].early_finish
+    assert held["A"].early_finish >= bare["A"].early_finish
     below = schedule(_free_milestone(dep_type, sf_into_k=True, snet=date(2025, 12, 1)))
     assert _positions(below) == _positions(schedule(_free_milestone(dep_type, sf_into_k=True)))
 

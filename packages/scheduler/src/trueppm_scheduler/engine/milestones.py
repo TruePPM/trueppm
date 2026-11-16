@@ -998,15 +998,18 @@ def _place_milestone(
     snap (#4173). When nothing but the project-start floor proposes, the two are
     the same instant.
 
-    A floor that only ties a link in working time does not move ``link`` either
-    (#4690, :func:`_equivalent_link`): when the latest floor is the very day the
-    latest link proposal is shown on, at its start, ``link`` stays the proposal's
-    raw midnight and only ``shown`` takes the floor. Recording or pinning the day a
-    milestone is already shown on — an ``actual_start``, or a ``planned_start`` —
-    is such a floor, and linking from it moved every successor with a calendar-day
-    lag: ``A -FS+1d-> M`` puts ``M`` at Sunday 00:00, shown at the start of Monday,
-    and a Monday floor measured ``M -FS+1d-> B`` from Monday instead, a working day
-    later.
+    A floor that holds a linked milestone links from the earliest midnight that is
+    the same working-time point as the floor, or from the latest link proposal when
+    that is later (#4690, #4883, :func:`_equivalent_link`); only ``shown`` takes the
+    floor itself. Recording or pinning the day a milestone is already shown on — an
+    ``actual_start``, or a ``planned_start`` — is such a floor, and linking from it
+    moved every successor with a calendar-day lag: ``A -FS+1d-> M`` puts ``M`` at
+    Sunday 00:00, shown at the start of Monday, and a Monday floor measured
+    ``M -FS+1d-> B`` from Monday instead, a working day later. Linking from the
+    proposal only when it tied the floor (#4690 as first written) made the link
+    instant jump *back* from Monday to Saturday as a predecessor slipped into the
+    tie, moving successors earlier (#4883); the earliest equivalent midnight is the
+    one instant that agrees with every tie and never decreases.
 
     ``completed_only`` limits the links to completed predecessors — the reading a
     closed milestone's day edge is taken from (:func:`_live_milestone_edge`, #4525),
@@ -1039,10 +1042,12 @@ def _place_milestone(
             pred_best = proposal
 
     link = best
-    if pred_best is not None and _equivalent_link(
-        pred_best, max(es_floors) if es_floors else None, start_floor
-    ):
-        link = pred_best
+    if pred_best is not None:
+        equivalent = _equivalent_link(
+            pred_best, max(es_floors) if es_floors else None, start_floor, cal
+        )
+        if equivalent is not None:
+            link = (equivalent[0], equivalent[1], pred_best[2])
     if start_floor is not None:
         offer((start_floor, True, start_floor))
     # start_floor is given for every task except an SF-linked one (#4218), and that one
@@ -1092,36 +1097,59 @@ def _link_proposal(
     return raw, start_display, _instant_day(raw, start_display, cal)
 
 
+def _earliest_equivalent_midnight(floor: date, cal: Calendar) -> date:
+    """The earliest midnight that is the same working-time point as ``floor`` (#4883).
+
+    ``floor`` is a start-of-day floor. On a working day, every midnight back to the
+    close of the previous working day reaches the start of ``floor`` through
+    non-working time only: Saturday 00:00, Sunday 00:00 and the start of Monday on a
+    Monday-to-Friday week. The earliest of them is the close of that previous
+    working day. A floor on a non-working day (a weekend ``actual_start``) is shown
+    verbatim on its own day and has no earlier equivalent.
+    """
+    if not cal.is_working_day(floor):
+        return floor
+    return _safe_offset(_prev_working_day(_safe_offset(floor, -_ONE_DAY), cal), _ONE_DAY)
+
+
 def _equivalent_link(
     proposal: tuple[date, bool, date],
     floor: date | None,
     start_floor: date | None,
-) -> bool:
-    """Whether ``floor`` only ties the link ``proposal`` in working time (#4690).
+    cal: Calendar,
+) -> _Instant | None:
+    """The instant a milestone held by ``floor`` links from, or ``None`` (#4690, #4883).
 
-    ``proposal`` is ``(instant, start_display, day)`` from :func:`_place_milestone`.
-    True when, from an earlier midnight, the proposal is shown at the start of
-    ``floor`` itself: read as the start of a day and shown on it, or held below
-    the project-start floor ``start_floor`` when that is ``floor`` — the
-    project-start floor only bounds where a milestone is shown (#4225), at the
-    start of its day. Then the floor and the proposal are one working-time point:
-    Saturday 00:00, Sunday 00:00 and the start of Monday are where a milestone
-    after a weekend can sit, and they differ only in the calendar days a lag out of
-    it counts from (#2534). The floor then holds nothing the link does not, so the
-    link keeps the proposal's raw midnight and every successor sits where it would
-    with no floor at all.
+    ``proposal`` is the latest link proposal ``(instant, start_display, day)`` from
+    :func:`_place_milestone`, on the milestone's calendar ``cal``. ``None`` when the
+    floor does not hold the link (the proposal is at or after it), or when the floor
+    has no earlier equivalent midnight and the link is the floor itself.
 
-    A proposal shown at the *end* of a day at or after the project start is not
-    covered: the floor moves the milestone to another day there, and the
-    end-of-day edge has its own round-trip (:attr:`Task.live_day_end_on`, #4433).
-    Nor is a floor on a non-working day, such as a weekend ``actual_start``: that
-    is shown verbatim on its own day.
+    Otherwise the floor and every midnight back to the close of the previous
+    working day are one working-time point (:func:`_earliest_equivalent_midnight`):
+    they differ only in the calendar days a lag out of the milestone counts from
+    (#2534). The floor holds nothing a link there would not, so the milestone links
+    from the latest proposal, raised to that earliest midnight and read as the
+    start of a day. A proposal inside the window keeps its own midnight, so pinning
+    or recording the day a milestone is already shown on moves nothing (#4690).
+    One below the window links from its earliest midnight rather than the floor:
+    that is what makes the link instant non-decreasing in the proposal, so a
+    slipping predecessor can never move the milestone's successors earlier (#4883).
+    The cost is that a successor on a wider calendar, or behind a calendar-day lag,
+    can sit in the non-working days before a floored milestone's shown day.
+
+    A proposal held below the project-start floor ``start_floor`` when that is
+    ``floor`` keeps its own instant: the project-start floor only bounds where a
+    milestone is shown (#4225), and every successor carries it itself.
     """
     if floor is None or proposal[0] >= floor:
-        return False
-    if start_floor is not None and (start_floor, True) > proposal[:2]:
-        return start_floor == floor
-    return proposal[1] and proposal[2] == floor
+        return None
+    if start_floor is not None and start_floor == floor and (start_floor, True) > proposal[:2]:
+        return proposal[0], proposal[1]
+    earliest = _earliest_equivalent_midnight(floor, cal)
+    if earliest >= floor:
+        return None
+    return max(proposal[0], earliest), True
 
 
 def _closed_milestone_link(

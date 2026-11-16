@@ -733,27 +733,27 @@ M free_float = 0
     successor_free_slack Z SS 1 2026-01-12 - 0 B
 M scheduled_start = 2026-01-12
     early_start - - - 2026-01-12 - - B
-Z early_start = 2026-01-13
+Z early_start = 2026-01-12
     project_start - - - 2026-01-05 0 - .
     data_date - - - 2026-01-06 0 - .
-    predecessor_ss M SS 1 2026-01-13 0 - B
-Z early_finish = 2026-01-14
+    predecessor_ss M SS 1 2026-01-12 1 - B
+Z early_finish = 2026-01-13
     project_start - - - 2026-01-05 0 - .
     data_date - - - 2026-01-06 0 - .
-    predecessor_ss M SS 1 2026-01-13 0 - .
-    duration_from_early_start - - - 2026-01-14 - 2 B
+    predecessor_ss M SS 1 2026-01-12 1 - .
+    duration_from_early_start - - - 2026-01-13 - 2 B
 Z late_start = 2026-01-14
     project_finish - - - 2026-01-15 - - .
     duration_from_late_finish - - - 2026-01-14 - 2 B
 Z late_finish = 2026-01-15
     project_finish - - - 2026-01-15 - - B
-Z total_float = 1
-    early_start - - - 2026-01-13 - 1 B
+Z total_float = 2
+    early_start - - - 2026-01-12 - 2 B
     late_start - - - 2026-01-14 - - .
-Z free_float = 1
-    total_float - - - - - 1 B
-Z scheduled_start = 2026-01-13
-    early_start - - - 2026-01-13 - - B
+Z free_float = 2
+    total_float - - - - - 2 B
+Z scheduled_start = 2026-01-12
+    early_start - - - 2026-01-12 - - B
 """
 
 MILESTONE_ON_A_SATURDAY_ACTUAL = """

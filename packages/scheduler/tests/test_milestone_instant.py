@@ -478,20 +478,27 @@ class TestProjectStartFloorIsDisplayOnly:
 
     def test_a_data_date_floor_still_moves_the_successor(self) -> None:
         # The data date is not a display bound: an unreached milestone happens no
-        # earlier than "as of now", and a lag after it counts from there.
+        # earlier than "as of now". Monday's start is the same working-time point as
+        # Saturday 00:00, the close of the last working day before it, and a linked
+        # milestone held there links from that earliest midnight (#4883), so the
+        # 2cd lag lands on Monday 00:00 rather than Wednesday.
         a = _task("A", 1)
         a.actual_start, a.actual_finish = MON, MON
         p = _project([a, _task("M", 0), _task("B", 1)], [_dep("A", "M"), _dep("M", "B", lag=2)])
         p.status_date = date(2026, 1, 12)
         got = _by_id(p)
         assert got["M"].early_start == date(2026, 1, 12)
-        assert got["B"].early_start == date(2026, 1, 14)
+        assert got["B"].early_start == date(2026, 1, 12)
 
     def test_an_snet_floor_still_moves_the_successor(self) -> None:
         tasks = [_task("A", 1), _task("M", 0), _task("B", 1)]
+        bare = _by_id(_project(copy.deepcopy(tasks), [_dep("A", "M"), _dep("M", "B", lag=2)]))
         tasks[1].planned_start = date(2026, 1, 12)
         got = _by_id(_project(tasks, [_dep("A", "M"), _dep("M", "B", lag=2)]))
-        assert got["B"].early_start == date(2026, 1, 14)
+        # The SNET still binds the link: B moves later than without it, but from
+        # Saturday 00:00, the earliest midnight equivalent to Monday's start (#4883).
+        assert got["B"].early_start > bare["B"].early_start
+        assert got["B"].early_start == date(2026, 1, 12)
 
     def test_monte_carlo_agrees_with_cpm(self) -> None:
         for p in self._networks():

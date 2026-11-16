@@ -33,6 +33,7 @@ from trueppm_scheduler.engine.forward import (
 )
 from trueppm_scheduler.engine.milestones import (
     _START_ANCHORED,
+    _earliest_equivalent_midnight,
     _edge_anchor,
     _Instant,
     _milestone_link,
@@ -1188,8 +1189,8 @@ def _mc_milestone_bounds(
     es_mat, ef_mat, instant_mat, start_display_mat, deficit_mat = mats
     hard, start = floors
     # The links alone first, from -1, below any key a proposal can produce: a floor
-    # that only ties the latest of them in working time leaves the link instant
-    # where they put it (engine._equivalent_link, #4690). An SF-linked milestone
+    # holding them links from the latest of them and its earliest working-time
+    # equivalent (engine._equivalent_link, #4690, #4883). An SF-linked milestone
     # with no hard floor always has an SF link that offers a candidate.
     pred_key = np.full(runs, -1, dtype=np.int64)
     pred_def = np.zeros(runs, dtype=np.float64)
@@ -1257,25 +1258,25 @@ def _mc_milestone_bounds(
     # Nothing but the project start proposed: the link instant is the shown one.
     link, link_display, link_def = with_deficit(np.where(key < 0, shown_key, key))
     if hard is not None:
-        # engine._equivalent_link: the latest link, from an earlier midnight, is
-        # shown at the start of the hard floor's own day — held below the project
-        # start when that is the floor, or read as the start of the day it is
-        # shown on. The floor and the link are then one working-time point.
+        # engine._equivalent_link (#4690, #4883): a hard floor holding a linked
+        # milestone links from the latest of the link and the floor's earliest
+        # working-time equivalent midnight, read as a day start, so the link instant
+        # never decreases as a predecessor slips. Held below the project start when
+        # that is the floor, the link keeps its own instant.
         safe = np.where(pred_key < 0, hard * 2 + 1, pred_key)
         p_instant, p_display, p_def = with_deficit(safe)
-        if start is None:
-            held = np.zeros(runs, dtype=bool)
+        below = (pred_key >= 0) & (p_instant < hard)
+        if start is None or start != hard:
+            own = np.zeros(runs, dtype=bool)
         else:
-            held = (p_instant < start) | ((p_instant == start) & ~p_display)
-        on_floor = np.where(
-            held,
-            start == hard,
-            p_display & (index.next_wd_ordinal(col, p_instant) == hard),
-        )
-        equivalent = (pred_key >= 0) & (p_instant < hard) & on_floor
-        link = np.where(equivalent, p_instant, link)
-        link_display = np.where(equivalent, p_display, link_display)
-        link_def = np.where(equivalent, p_def, link_def)
+            own = below & ((p_instant < start) | ((p_instant == start) & ~p_display))
+        earliest = _earliest_equivalent_midnight(
+            date.fromordinal(hard), index.cal_of_col[col]
+        ).toordinal()
+        window = below & ~own & (earliest < hard)
+        link = np.where(own, p_instant, np.where(window, np.maximum(p_instant, earliest), link))
+        link_display = np.where(own, p_display, np.where(window, True, link_display))
+        link_def = np.where(own, p_def, np.where(window, 0.0, link_def))
     return (link, link_display, link_def), with_deficit(shown_key)
 
 

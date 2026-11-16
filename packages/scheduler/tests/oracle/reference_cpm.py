@@ -662,7 +662,7 @@ def _proposal_reads_start(
     end of its driver's day, and one a lag places after non-working time is shown
     at the start of the next working day (#4173). An SS link reads as a start; a
     zero-lag FS/FF/SS link out of another milestone lands on that milestone's own
-    midnight and keeps its reading (#4079). Only :func:`_floor_ties_link` asks.
+    midnight and keeps its reading (#4079). Only :func:`_floor_link` asks.
     """
     if link.kind == "SF":
         base = False
@@ -673,26 +673,37 @@ def _proposal_reads_start(
     return base or not project.calendar_of(link.succ).is_working(need - ONE_DAY)
 
 
-def _floor_ties_link(
+def _floor_link(
     project: RefProject, tid: str, proposal: tuple[date, bool], floor: date
-) -> bool:
-    """Whether ``floor`` only ties the latest link ``proposal`` in working time (#4690).
+) -> tuple[date, bool] | None:
+    """The instant milestone ``tid``, held by ``floor``, links from, or ``None`` (#4690, #4883).
 
-    True when the link shows the milestone at the start of ``floor``'s own day from
-    an earlier midnight: read as a day start with nothing but non-working time
-    before ``floor``, or below the project start when ``floor`` is the project
-    start's day (the project start only bounds where a milestone is shown, #4225).
-    A floor on a non-working day is shown verbatim and never ties.
+    ``None`` when the latest link ``proposal`` is at or after ``floor``, or when the
+    floor has no working-time equivalent before it (a working day right after
+    another, or a non-working floor, shown verbatim): the link is then the floor.
+
+    Otherwise every midnight from the close of the last working day before
+    ``floor`` up to ``floor`` is the same working-time point, and the milestone
+    links from the latest of the proposal and that earliest midnight, read as a day
+    start. That is the one choice that is non-decreasing in the proposal, so a
+    slipping predecessor never moves the successors earlier (#4883). Below the
+    project start, when ``floor`` is the project start's day, the proposal keeps its
+    own instant (the project start only bounds where a milestone is shown, #4225).
     """
-    raw, reads = proposal
+    raw = proposal[0]
     if raw >= floor:
-        return False
+        return None
     cal = project.calendar_of(tid)
     if not _sf_linked(project, tid):
         base = start_at_or_after(project.start, cal)
-        if raw < base:
-            return base == floor
-    return reads and start_at_or_after(raw, cal) == floor
+        if raw < base and base == floor:
+            return proposal
+    if not cal.is_working(floor):
+        return None
+    earliest = last_working_on_or_before(floor - ONE_DAY, cal) + ONE_DAY
+    if earliest >= floor:
+        return None
+    return max(raw, earliest), True
 
 
 def _place_live_milestone(
@@ -701,9 +712,11 @@ def _place_live_milestone(
     """``(instant, link instant, link reads as a day start)`` of a live milestone.
 
     The instant is the raw latest of everything that holds it. Its successors
-    measure from the same instant, except where the latest floor only ties the
-    latest link (:func:`_floor_ties_link`): then they measure from the link's own
-    midnight, so recording or pinning the day a milestone is shown moves nothing.
+    measure from the same instant, except where a floor holds a linked milestone
+    (:func:`_floor_link`): then they measure from the latest of the link's own
+    midnight and the floor's earliest working-time equivalent, so recording or
+    pinning the day a milestone is shown moves nothing, and a slipping predecessor
+    never moves the successors earlier (#4883).
     """
     cal = project.calendar_of(tid)
     proposals = [
@@ -725,8 +738,8 @@ def _place_live_milestone(
     else:
         held = latest
     link = held
-    if latest is not None and floor is not None and _floor_ties_link(project, tid, latest, floor):
-        link = latest
+    if latest is not None and floor is not None:
+        link = _floor_link(project, tid, latest, floor) or held
     return held[0], link[0], link[1]
 
 
