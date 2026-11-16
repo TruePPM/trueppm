@@ -2803,6 +2803,20 @@ describe('useProjectWebSocket — remaining invalidation handlers', () => {
     });
   });
 
+  it.each(['assignment_created', 'assignment_updated', 'assignment_deleted', 'roster_changed'])(
+    'invalidates the resource pool and tasks on %s (#2793)',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType);
+      flushDebounce();
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project-resource-pool', 'proj-1'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    },
+  );
+
   it('invalidates dependencies as well as tasks on tasks_restructured', () => {
     // Ungroup deletes the wrapper's own dependency edges and structural undo restores
     // them (ADR-0880, #2974), so this event is the one member of the bulk-mutation
