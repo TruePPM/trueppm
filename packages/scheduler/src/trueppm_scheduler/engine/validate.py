@@ -170,7 +170,8 @@ def _velocity_worst_case_days(
 ) -> int:
     """Upper bound (working days) on a scrum task's velocity-sampled duration.
 
-    Mirrors the ``max_sprints`` clamp in :func:`_sample_velocity_durations` —
+    Mirrors the ``max_sprints`` clamp of the shared-capacity horizon (ADR-1412; the
+    per-task :func:`_sample_velocity_durations` applies the same clamp) —
     the sampler never returns a duration above ``max_sprints * sprint_length_days``
     — so this bound is exact, not heuristic. Used both to size the Monte Carlo
     working-day index (a sampled completion past the index end would be silently
@@ -440,6 +441,12 @@ def _validate_agile_inputs(project: Project) -> None:
         raise InvalidScheduleInput(
             f"sprint_length_days must be an integer (got "
             f"{_short_repr(project.sprint_length_days)})."
+        )
+    if project.sprint_length_days is not None and project.sprint_length_days <= 0:
+        # Refused rather than ignored (#5013): a non-positive sprint silently turned
+        # velocity forecasting off, leaving a zero-variance band equal to the CPM finish.
+        raise InvalidScheduleInput(
+            f"sprint_length_days must be a positive integer (got {project.sprint_length_days})."
         )
 
 

@@ -593,6 +593,12 @@ def _check_sprint_length(sprint_length_days: Any) -> None:
         raise ValueError(
             f"sprint_length_days must be an integer (got {_short_repr(sprint_length_days)})."
         )
+    if sprint_length_days <= 0:
+        # A zero or negative sprint has no working days to deliver points in; it used
+        # to disable velocity forecasting silently (#5013), like an absent value.
+        raise ValueError(
+            f"sprint_length_days must be a positive integer (got {sprint_length_days})."
+        )
 
 
 def _coerce_task_dates(d: dict[str, Any]) -> None:
@@ -1174,11 +1180,15 @@ class Project:
         calendar: The project-wide working calendar.
         velocity_samples: The team's historical throughput series (completed
             story points per closed sprint), bootstrap-sampled by scrum tasks in
-            Monte Carlo to estimate sprints-to-completion. A zero-point sprint is
-            an observation and is sampled like any other. Without this and
-            ``sprint_length_days`` a SCRUM task falls back to its deterministic
-            duration.
-        sprint_length_days: Sprint cadence in *working* days.
+            Monte Carlo as one team capacity shared by every SCRUM task with
+            story points (ADR-1412). A zero-point sprint is an observation and is
+            sampled like any other. Without this and ``sprint_length_days`` a
+            SCRUM task falls back to its three-point estimate or deterministic
+            duration, and :attr:`MonteCarloResult.velocity_fallback_reasons` says
+            why when a history was given (#5013).
+        sprint_length_days: Sprint cadence in *working* days of ``calendar``.
+            Required for velocity forecasting; defaults to ``None`` (no
+            velocity forecast). Must be a positive integer when set.
         status_date: Data date: the "as-of" anchor for progress-aware
             forecasting. Completed work is held fixed and remaining or
             not-started work is scheduled no earlier than this date. ``None``
@@ -1790,6 +1800,8 @@ def _validate_project_scalar_fields(p: Project) -> None:
     sld = p.sprint_length_days
     if sld is not None and (isinstance(sld, bool) or not isinstance(sld, int)):
         _invalid(f"sprint_length_days must be an integer (got {_short_repr(sld)}).")
+    if isinstance(sld, int) and not isinstance(sld, bool) and sld <= 0:
+        _invalid(f"sprint_length_days must be a positive integer (got {sld}).")
 
 
 def _validate_project_fields(p: Project) -> None:

@@ -18,6 +18,8 @@ import numpy as np
 
 from trueppm_scheduler.engine.calendar_math import (
     _is_complete,
+    _next_working_day,
+    _nth_working_day,
     _prev_working_day,
     _safe_offset,
 )
@@ -40,6 +42,10 @@ from trueppm_scheduler.engine.limits import (
 from trueppm_scheduler.engine.milestones import (
     _ONE_DAY,
 )
+from trueppm_scheduler.engine.montecarlo.capacity import (
+    _capacity_block_runs,
+    _VelocityCapacity,
+)
 from trueppm_scheduler.engine.montecarlo.forward import (
     _completed_edge_constraints,
     _index_offset,
@@ -52,6 +58,7 @@ from trueppm_scheduler.engine.montecarlo.forward import (
 from trueppm_scheduler.engine.montecarlo.index import (
     _MC_DAY_EPS,
     _build_lag_delta_table,
+    _count_working_days,
     _finish_day_key,
     _mc_horizon,
     _mc_index_size,
@@ -60,11 +67,16 @@ from trueppm_scheduler.engine.montecarlo.index import (
 )
 from trueppm_scheduler.engine.montecarlo.sampling import (
     _MAX_SAMPLE_CELLS,
+    _VELOCITY_CHUNK_CELLS,
     _build_working_day_index,
+    _draw_velocity_capacity_seeds,
     _duration_sensitivity,
     _OffsetLookup,
     _sample_duration_matrix,
     _validate_monte_carlo_args,
+    _velocity_capacity_horizon,
+    _velocity_fallback_reasons,
+    _velocity_points,
     _WorkingDayIndex,
 )
 from trueppm_scheduler.engine.results import (
@@ -72,6 +84,7 @@ from trueppm_scheduler.engine.results import (
 )
 from trueppm_scheduler.engine.validate import (
     _validate_project,
+    _velocity_observations,
 )
 from trueppm_scheduler.models import (
     Calendar,
@@ -532,8 +545,9 @@ def monte_carlo(
 
     1. **Agile / velocity** — a task with ``delivery_mode=SCRUM`` and
        ``story_points``, on a project carrying ``velocity_samples`` +
-       ``sprint_length_days``, samples sprints-to-completion from the team's
-       throughput distribution (see :func:`_sample_velocity_durations`). This is how
+       ``sprint_length_days``, draws one per-sprint velocity vector per run and
+       lets every such task claim the team's shared capacity in topological order
+       (ADR-1412; see ``capacity.py``). This is how
        sprint-delivered work contributes real velocity-driven risk to a mixed-mode
        schedule rather than being invisible to the simulation.
     2. **Three-point PERT** — a task with all of (optimistic, most_likely,
@@ -577,12 +591,17 @@ def monte_carlo(
        nearly complete task keeps its estimate's whole spread on the work left.
 
     .. note::
-       The per-run sprint horizon of the velocity path is capped at
-       ``min(ceil(story_points / mean_velocity) * 4 + 10, MAX_VELOCITY_SPRINTS)``
-       sprints; any run that has not burned down by that horizon is clamped to it
-       rather than sampled further. The cap exists to keep a pathological bootstrap
-       path from spinning and is far beyond any realistic sprint count, but a run it
-       clamps reports a lower bound, not an estimate. Such runs are **counted, not
+       Velocity tasks share one team capacity per run (ADR-1412): each run draws one
+       per-sprint velocity vector and every SCRUM task with story points claims its
+       remaining points (``story_points * (1 - percent_complete / 100)``, #5012)
+       from it in topological order, ties by task id, finishing at the fractional
+       point in a sprint where its last point is delivered. Elapsed days read off
+       ``duration`` are not subtracted on this path; ``duration`` less its elapsed
+       days stays a floor. The drawn capacity spans
+       ``ceil(remaining backlog / mean_velocity) * 4 + 10`` sprints plus the sprints
+       before the last story can be ready, capped at ``MAX_VELOCITY_SPRINTS``; a
+       run that has not burned a story down when it ends clamps that story's finish
+       there and reports a lower bound, not an estimate. Such runs are **counted, not
        hidden** (#2469): :attr:`MonteCarloResult.velocity_saturated_runs` is the
        number of runs in which some open task's velocity draw hit the horizon, and
        :attr:`MonteCarloResult.velocity_tail_truncated` is true when any did —
@@ -789,9 +808,8 @@ def monte_carlo(
     # Runs in which some velocity draw reached the sprint horizon un-burned-down
     # (#2469): their duration is a lower bound, so the result reports the count.
     velocity_saturated = np.zeros(runs, dtype=bool)
-    dur_matrix = _sample_duration_matrix(
-        project, topo_order, task_map, runs, rng, velocity_saturated
-    )
+    dur_matrix = _sample_duration_matrix(project, topo_order, task_map, runs, rng)
+    velocity_points = _velocity_points(project)
     _check_deadline(deadline)
 
     # Pre-compute a working-day index covering the whole simulation so a lag can
@@ -842,8 +860,40 @@ def monte_carlo(
     # calendars — D days on a four-day week span more than D days of a five-day one,
     # so a count summed over task durations undersized every denser calendar's index.
     # Sized by its densest calendar, each index therefore reaches that date.
+    # Shared team capacity (ADR-1412). Its horizon covers the remaining backlog at the
+    # slow tail plus however long non-velocity work can hold the last story back (the
+    # walk with no velocity term), and it is drawn here, after every per-task column,
+    # so a project without velocity consumes the stream exactly as before.
+    capacity_end: date | None = None
+    capacity_seeds: np.ndarray | None = None
+    sprints = 0
+    sprint_anchor = _next_working_day(
+        project.start_date
+        if project.status_date is None
+        else max(project.start_date, project.status_date),
+        calendar,
+    )
+    if velocity_points:
+        assert project.sprint_length_days is not None
+        ready_days = _count_working_days(
+            sprint_anchor,
+            _mc_horizon(project, task_map, g, topo_order, cal_of, capacity_end=date.min),
+            calendar,
+        )
+        sprints = _velocity_capacity_horizon(project, velocity_points, ready_days)
+        try:
+            capacity_end = _nth_working_day(
+                sprint_anchor, sprints * project.sprint_length_days, calendar, forward=True
+            )
+        except OverflowError:
+            raise SimulationCapExceeded(
+                "Monte Carlo team capacity runs past the representable date range; "
+                "reduce story points or the sprint length."
+            ) from None
+        capacity_seeds = _draw_velocity_capacity_seeds(runs, sprints, rng)
+        _check_deadline(deadline)
     index_size = _mc_index_size(
-        _mc_horizon(project, task_map, g, topo_order, cal_of),
+        _mc_horizon(project, task_map, g, topo_order, cal_of, capacity_end=capacity_end),
         index_origin,
         distinct_cals.values(),
         n_tasks,
@@ -1009,16 +1059,49 @@ def monte_carlo(
             for cal_key, cal_cols in cols_by_cal.items()
         ]
 
+    velocity: _VelocityCapacity | None = None
+    if capacity_seeds is not None:
+        assert project.sprint_length_days is not None
+        proj_ords = wd_ord_by_cal[proj_cal_key]
+        origin = wd_index_by_cal[proj_cal_key].get(sprint_anchor)
+        assert origin is not None
+        velocity = _VelocityCapacity(
+            observations=np.asarray(
+                _velocity_observations(project.velocity_samples or []), dtype=float
+            ),
+            sprints=sprints,
+            block_seeds=capacity_seeds,
+            saturated=velocity_saturated,
+            sprint_days=float(project.sprint_length_days),
+            origin=float(origin),
+            points=velocity_points,
+            floor_days={
+                tid: max(0.0, task_map[tid].duration.days - elapsed_days.get(tid, 0.0))
+                for tid in velocity_points
+            },
+            proj_ords=proj_ords,
+            own_ords={
+                tid: wd_ord_by_cal[cal_key_of[tid]]
+                for tid in velocity_points
+                if cal_key_of[tid] != proj_cal_key
+            },
+        )
+
     # --- Forward pass over row chunks (#3824) ---
     # Only each run's finish survives a chunk: the ES/EF matrices are dropped once
     # the chunk's per-run maxima are taken, so peak memory is O(chunk x tasks) on top
     # of the sampled durations rather than O(runs x tasks) six times over.
+    whole = any(tid in verbatim_actuals for tid in milestone_ids | zero_base_ids)
     chunk_rows = _mc_forward_chunk_rows(
-        runs,
-        n_tasks,
-        whole=any(tid in verbatim_actuals for tid in milestone_ids | zero_base_ids),
-        interruptible=deadline is not None,
+        runs, n_tasks, whole=whole, interruptible=deadline is not None
     )
+    if velocity is not None and not whole:
+        # The chunk also holds its runs' capacity and claims, two (rows, sprints)
+        # float matrices; keep them near the sampler's old 1M-cell budget (#4694),
+        # in whole draw blocks so no block is drawn twice.
+        block = _capacity_block_runs(sprints)
+        chunk_rows = max(1, min(chunk_rows, _VELOCITY_CHUNK_CELLS // max(1, sprints)))
+        chunk_rows = block * max(1, chunk_rows // block)
     shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
         lambda lo, hi: _mc_forward_pass(
             topo_order,
@@ -1036,6 +1119,7 @@ def monte_carlo(
             verbatim_actuals,
             milestone_floors,
             zero_base_ids,
+            None if velocity is None else velocity.rows(lo, hi),
         ),
         runs,
         chunk_rows,
@@ -1108,4 +1192,5 @@ def monte_carlo(
         p80_at_day_start=p80_start,
         p95_at_day_start=p95_start,
         velocity_saturated_runs=int(np.count_nonzero(velocity_saturated)),
+        velocity_fallback_reasons=_velocity_fallback_reasons(project),
     )

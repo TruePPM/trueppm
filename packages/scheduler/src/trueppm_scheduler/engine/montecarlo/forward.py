@@ -38,6 +38,10 @@ from trueppm_scheduler.engine.milestones import (
     _milestone_proposal,
     _start_fixed_link,
 )
+from trueppm_scheduler.engine.montecarlo.capacity import (
+    _consume_capacity,
+    _VelocityCapacity,
+)
 from trueppm_scheduler.engine.montecarlo.index import (
     _MC_DAY_EPS,
     _ZERO_BASE_ROUND_AWAY,
@@ -739,6 +743,7 @@ def _mc_forward_pass(
     verbatim_actuals: dict[str, _VerbatimActual] | None = None,
     milestone_floors: dict[str, _MilestoneFloors] | None = None,
     zero_base_ids: frozenset[str] = frozenset(),
+    velocity: _VelocityCapacity | None = None,
 ) -> tuple[np.ndarray, np.ndarray, date | None, dict[str, _InstantRuns]]:
     """Vectorised forward pass — early-start/early-finish working-day offset matrices.
 
@@ -784,9 +789,17 @@ def _mc_forward_pass(
     the task the 0-day task ``schedule()`` placed and only a larger one is work:
     see :func:`_mc_zero_base_column`. Those instant runs come back per column.
 
+    ``velocity`` (ADR-1412) is the run chunk's shared team capacity. A velocity task's
+    duration is not read from ``dur_matrix``: it claims its remaining points from the
+    capacity at the early start its constraints give it, in this loop's column order,
+    and the realized duration is written back into its ``dur_matrix`` column so the
+    sensitivity tornado ranks what the run actually did. See
+    :mod:`~trueppm_scheduler.engine.montecarlo.capacity`.
+
     Returns ``(es_mat, ef_mat, finish_floor, instant_runs)``.
     """
     n_tasks = len(topo_order)
+    used = None if velocity is None else np.zeros_like(velocity.draws)
     es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
     ef_mat = np.zeros((runs, n_tasks), dtype=np.float64)
     # Milestone instants: date ordinal and start-of-day display, per run.
@@ -871,9 +884,16 @@ def _mc_forward_pass(
         if actual is not None:
             es_constraints = np.maximum(es_constraints, actual[1])
 
-        eff_dur = _mc_effective_duration(
-            dur_matrix[:, col], tid, elapsed_days, min_days=0.0 if tid in zero_base_ids else 1.0
-        )
+        min_days = 0.0 if tid in zero_base_ids else 1.0
+        if velocity is not None and used is not None and tid in velocity.points:
+            # Shared capacity (ADR-1412): the remaining points are claimed from the
+            # run's sprint capacity, so no duration-based elapsed days are subtracted
+            # (#5012). Floored at the deterministic remaining work (#3765).
+            claimed = _consume_capacity(velocity, used, tid, es_constraints) - es_constraints
+            eff_dur = np.maximum(claimed, max(velocity.floor_days[tid], min_days))
+            dur_matrix[:, col] = eff_dur
+        else:
+            eff_dur = _mc_effective_duration(dur_matrix[:, col], tid, elapsed_days, min_days)
         es = es_constraints
         ef = es + eff_dur
 

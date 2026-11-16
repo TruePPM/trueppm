@@ -184,3 +184,29 @@ def test_waterfall_pert_still_has_spread() -> None:
     assert res.status_code == 200, res.content
     body = res.json()
     assert body["p95"] > body["p50"]
+
+
+@pytest.mark.django_db
+def test_all_zero_velocity_history_reports_why_it_was_not_used() -> None:
+    """A history that completed no points is unusable, and the response says so (#5013)."""
+    cal = Calendar.objects.create(name="Std3")
+    project = Project.objects.create(name="Zero history", start_date=date(2026, 1, 5), calendar=cal)
+    for i, (start, finish) in enumerate(
+        [(date(2025, 10, 6), date(2025, 10, 17)), (date(2025, 10, 20), date(2025, 10, 31))],
+        start=1,
+    ):
+        Sprint.objects.create(
+            project=project,
+            name=f"Sprint {i}",
+            state=SprintState.COMPLETED,
+            start_date=start,
+            finish_date=finish,
+            committed_points=20,
+            completed_points=0,
+        )
+    _scrum_chain(project, [13, 13])
+
+    client = _client(project, "mc_zero_admin")
+    res = client.post(run_url(project.pk), {"n_simulations": 200}, format="json")
+    assert res.status_code == 200, res.content
+    assert res.json()["velocity_fallback_reasons"] == ["velocity_history_unusable"]

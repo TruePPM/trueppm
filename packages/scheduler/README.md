@@ -27,7 +27,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 - Forward/backward CPM pass with all four dependency types (FS, SS, FF, SF), total/free float, and critical-path flagging
 - Calendar-aware working-day arithmetic (weekend skip + holiday exceptions), with optional per-task calendars for mixed-team schedules
 - Monte Carlo schedule-risk simulation via PERT-Beta distributions — method-of-moments fit to the classic PERT mean and σ = (P − O)/6, not the λ=4 Beta-PERT (numpy-vectorized: roughly 60–100 ms per 10,000 runs on a 200-task project) → P50/P80/P95 completion dates
-- Hybrid agile/waterfall forecasting — mark a task `delivery_mode=SCRUM` with a `story_points` estimate and Monte Carlo samples its duration from the team's own velocity history instead of a per-task PERT guess, so a project can mix sprint-delivered and traditionally-estimated work in one simulation
+- Hybrid agile/waterfall forecasting (**experimental** from 0.5, see [Mixing agile and waterfall](#mixing-agile-and-waterfall-in-one-schedule)) — mark a task `delivery_mode=SCRUM` with a `story_points` estimate and Monte Carlo samples its duration from the team's own velocity history instead of a per-task PERT guess, so a project can mix sprint-delivered and traditionally-estimated work in one simulation
 - Explainable results — `derive_value()` answers "why is this date what it is?" for any early/late/float value, naming the exact predecessor, dependency type, and lag that won, plus every constraint it beat
 - JSON round-tripping for plans (`Project.from_json()` / `Project.to_json()`)
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`. From 0.5, human-readable output will escape control, bidi, and zero-width characters in project strings; `--json` output is JSON-escaped.
@@ -265,14 +265,66 @@ project = Project(
     ...,
     tasks=[task_a, task_b, sprint_work],
     velocity_samples=[18, 22, 15, 24, 19],  # the team's last five sprints
+    sprint_length_days=10,                   # required for velocity forecasting
 )
 ```
 
-`monte_carlo()` then samples `sprint_work`'s duration from how many sprints the
-team's own velocity history says 21 points takes — not from a PERT guess nobody
-on the team would stand behind — while every other task in the same run still
-uses its three-point estimate. `DeliveryMode.WATERFALL` (the default) is
-unaffected; mixing modes is opt-in per task.
+`monte_carlo()` then forecasts `sprint_work` from the team's own velocity history
+rather than from a PERT guess nobody on the team would stand behind, while every
+other task in the same run still uses its three-point estimate.
+`DeliveryMode.WATERFALL` (the default) is unaffected; mixing modes is opt-in per task.
+
+**`sprint_length_days` is required.** It defaults to `None`, and without it no
+sprint has a length, so every SCRUM task falls back to its three-point estimate or
+its fixed `duration`. From 0.5, a value of `0` or below will be refused with
+`InvalidScheduleInput`. From 0.5, a fallback will no longer be silent:
+`MonteCarloResult.velocity_fallback_reasons` will say why a supplied history was
+not used: `"sprint_length_days_missing"`, or `"velocity_history_unusable"` when no
+observation is usable or the mean is not positive (an all-zero history)
+([#5013](https://gitlab.com/trueppm/trueppm/-/issues/5013)).
+
+> **Experimental.** From 0.5 the velocity model will be the shared-capacity model
+> below ([ADR-1412](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1412-shared-team-capacity-velocity-forecasting.md)).
+> It has not yet been checked against real projects, so treat its bands as a model.
+> In 0.4 each story drew the whole team's velocity for itself and was rounded up to
+> whole sprints, which inflated chains of small stories and let parallel stories
+> share no capacity ([#5011](https://gitlab.com/trueppm/trueppm/-/issues/5011)).
+
+From 0.5 the semantics will be:
+
+- **One capacity per run.** Each run draws one per-sprint velocity vector from
+  `velocity_samples`, and every SCRUM task with `story_points` consumes it. Sprint
+  `k` opens `k * sprint_length_days` working days of the project `calendar` after
+  the data date (`status_date`, or `start_date`), and its points are delivered
+  evenly over its working days.
+- **Fractional sprints.** A story finishes at the point in a sprint where its last
+  point is delivered. It is not rounded up to a whole sprint.
+- **Sequential stories add up; parallel stories compete.** Stories claim capacity
+  in topological order, ties by task id, from the moment their predecessors (scrum
+  or not) let them start. Capacity before that moment is not spent on them.
+- **Progress is remaining points.** An in-progress story needs
+  `story_points * (1 - percent_complete / 100)` points; no elapsed days are read
+  off `duration`, so the forecast shrinks as points burn down
+  ([#5012](https://gitlab.com/trueppm/trueppm/-/issues/5012)).
+- **The plan is still the floor, with one known exception.** A story never takes
+  less than its `duration` less its elapsed days, so on a network of FS and SS links
+  Monte Carlo does not land before `schedule()`. An FF or SF link that pulls a
+  story's start earlier, and an SS successor that inherits that start, can still
+  land a run before the CPM finish ([#5042](https://gitlab.com/trueppm/trueppm/-/issues/5042)).
+  A test pins that behavior so it flips when the issue is fixed.
+- **Why 0% and 50% can forecast the same date.** The data date moves with progress:
+  a story that is 50% done at a later `status_date` needs half the points but starts
+  later, so at a data date that follows the progress the two can land together.
+  Hold the data date fixed and the forecast shrinks as progress grows.
+
+Worked examples, with a team that delivers exactly 20 points every sprint and
+10-working-day sprints from Monday 2026-01-05:
+
+- Ten sequential 2-point stories are 20 points, one sprint: P50 is 2026-01-16
+  (10 working days). In 0.4 it was 100 working days, a sprint per story.
+- Five parallel 20-point stories are 100 points, five sprints: P50 = P95 =
+  2026-03-13 (50 working days). In 0.4 it was one sprint, every story using the
+  whole team.
 
 `sprint_length_days` counts working days of the project `calendar`, the calendar
 the team's sprints run on. A scrum task on its own per-task calendar takes the
@@ -439,7 +491,7 @@ Smaller exported names that the sections above do not cover:
 - `expand_summary_dependencies(tasks, deps, children_map)` returns a `SummaryExpansion`: `.tasks` is the input with summary tasks removed (leaves only) and `.dependencies` is every dependency fanned out to leaf-level edges. It still unpacks as `leaf_tasks, deps = ...`. From 0.5, a link whose two endpoints share a leaf (a summary linked to itself, to one of its own descendants, or from one) will raise `CyclicDependencyError` naming that source link, so `.cycle` will be `[pred, succ, pred]` (or `[pred, pred]` for a link to itself): it is the same input `find_cycle` reports as a cycle. A Start-to-Start or Start-to-Finish link *from* a summary, or a Finish-to-Finish or Start-to-Finish link *into* one, will still raise `InvalidScheduleInput` instead, because the ADR-0370 check runs first. 0.4 silently drops such a link or turns it into an invented sibling order ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538), [#4705](https://gitlab.com/trueppm/trueppm/-/issues/4705)). The MS Project, CSV and Jira importers do not yet refuse such a link at import time ([#4856](https://gitlab.com/trueppm/trueppm/-/issues/4856)). From 0.5, a cyclic `children_map` will raise `InvalidScheduleInput` whether or not any link touches the cycle (0.4 accepts one no link names and silently drops its tasks), two links on the same pair of plain tasks will raise the same "Duplicate dependency" error `schedule()` does whether or not `children_map` is empty (0.4 merges them when it is not), the result's lists will never be the ones you passed in, and a summary expansion past `MAX_EXPANDED_EDGES` will be refused from leaf counts in time linear in the size of `children_map`, where 0.4 took time quadratic in nesting depth to refuse it ([#5014](https://gitlab.com/trueppm/trueppm/-/issues/5014), [#5018](https://gitlab.com/trueppm/trueppm/-/issues/5018), [#5019](https://gitlab.com/trueppm/trueppm/-/issues/5019)).
 - `ScheduleResult.driving_edges` is a list of `DrivingEdge`: the links that bind their successor or have zero relationship free float. A link binds when the date it imposes, read in the successor's working time, is the successor's early date. The set is the union of the two, so at a merge it can name a zero-free-float link that does not bind. Free float stays a separate output: a seven-day-week predecessor finishing on a Friday into a Monday-to-Friday successor drives it onto Monday and still has two days of free float, its Saturday and Sunday ([#4704](https://gitlab.com/trueppm/trueppm/-/issues/4704)).
 - `MonteCarloResult.sensitivity` is a list of `TaskSensitivity` (`task_id`, `index`). `index` is the absolute Spearman rank correlation, from 0 to 1, between the task's sampled duration and the project finish. Tasks whose duration cannot vary the finish are omitted rather than reported as 0.
-- From 0.5, `MonteCarloResult.velocity_saturated_runs` will count the runs in which an open scrum task's velocity draw reached the sprint horizon (`min(ceil(points / mean) * 4 + 10, MAX_VELOCITY_SPRINTS)`) without burning down. Those runs will be clamped to the horizon, so when it is non-zero (`velocity_tail_truncated` is `True`) read P80/P95 as lower bounds, not estimates. It will be `0` for a project with no velocity path. ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469))
+- From 0.5, `MonteCarloResult.velocity_saturated_runs` will count the runs in which an open scrum task's velocity draw reached the end of the run's drawn team capacity (`ceil(remaining backlog / mean) * 4 + 10` sprints plus the sprints before the last story can start, capped at `MAX_VELOCITY_SPRINTS`; ADR-1412) without burning down. Those runs will be clamped to the horizon, so when it is non-zero (`velocity_tail_truncated` is `True`) read P80/P95 as lower bounds, not estimates. It will be `0` for a project with no velocity path. ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469))
 - From 0.5, `trueppm_scheduler.calendar` will expose the engine's own working-day walks, so an embedder counts and steps days with the rule `schedule()` uses instead of a hand-rolled `date + timedelta` loop ([#5009](https://gitlab.com/trueppm/trueppm/-/issues/5009)). All four are also importable from `trueppm_scheduler`. `working_day_count(start, finish, calendar)` counts the working days in `[start, finish]`, both ends inclusive (`0` when `finish < start`). `next_working_day(day, calendar)` and `previous_working_day(day, calendar)` return the nearest working day strictly after or before `day`; pass `inclusive=True` to get `day` itself when it is a working day. `nth_working_day(start, n, calendar)` is the "add working days" helper: the `n`-th working day of a span whose day one is the first working day on or after `start`, the same rule that lays a task's duration onto its calendar (`n <= 0` returns `start`). Each walk is bounded by `MAX_CALENDAR_SCAN_DAYS` and raises `InvalidScheduleInput` on a calendar with no working day in that window.
 - From 0.5, `roll_up_summary(task_id, leaves, *, name=None)` will derive a summary task's row from its scheduled leaves, since `schedule()` returns leaves only ([#5010](https://gitlab.com/trueppm/trueppm/-/issues/5010)). Starts (`early_start`, `scheduled_start`, `late_start`) take the earliest leaf value and finishes the latest; `total_float` is the tightest leaf float (a group is only as flexible as its least flexible work), `free_float` is zero, and the row is critical when any leaf is. It returns `None` when no leaf has both an early start and an early finish.
 - `perturb_task_duration(project, task_id, delta_days)` returns a copy of the project with one task's duration shifted, for what-if runs. It moves the fixed duration, the three-point estimate and the story points together, so the CPM finish and the Monte Carlo bands stay consistent. The input project is not mutated.

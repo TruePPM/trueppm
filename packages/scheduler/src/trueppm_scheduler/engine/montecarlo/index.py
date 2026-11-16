@@ -64,8 +64,17 @@ def _mc_horizon(
     g: nx.DiGraph[str],
     topo_order: list[str],
     cal_of: dict[str, Calendar],
+    capacity_end: date | None = None,
 ) -> date:
     """A calendar DATE no task finishes after in any Monte Carlo run.
+
+    ``capacity_end`` switches the velocity term to the shared-capacity model
+    (ADR-1412). A velocity task then takes its deterministic duration in the walk,
+    and its bound is raised to ``capacity_end``: the forward pass clamps every
+    velocity finish at the end of the drawn capacity, so a velocity task finishes by
+    the later of that date and its deterministic layout, whatever the queue does.
+    ``date.min`` gives the walk with no velocity term at all, which the caller uses
+    to size the capacity horizon itself. ``None`` keeps the per-task worst case.
 
     The bound is a longest-path walk in topological order over real calendars
     (#4695). A floor date is the latest of the project start, every ``planned_start``
@@ -121,9 +130,10 @@ def _mc_horizon(
         # The velocity worst case is in sprint-calendar days; lay it out in the task's
         # own calendar as the sampler does (#4529), or a denser task calendar would
         # undersize the index.
-        velocity_days = _velocity_days_on_calendar(
-            project, cal_of[tid], _velocity_worst_case_days(t, project, mean=velocity_mean)
-        )
+        worst_velocity = _velocity_worst_case_days(t, project, mean=velocity_mean)
+        if capacity_end is not None:
+            worst_velocity = 0
+        velocity_days = _velocity_days_on_calendar(project, cal_of[tid], worst_velocity)
         d_days = max(0, d_days, velocity_days)
         anchor = floor
         for pred in g.predecessors(tid):
@@ -131,6 +141,12 @@ def _mc_horizon(
             anchor = max(anchor, _safe_offset(bound[pred], timedelta(days=lag_days)))
         start = _next_working_day(_safe_offset(anchor, _ONE_DAY), cal_of[tid])
         bound[tid] = _nth_working_day(start, d_days, cal_of[tid], forward=True)
+        if (
+            capacity_end is not None
+            and capacity_end > bound[tid]
+            and _velocity_worst_case_days(t, project, mean=velocity_mean) > 0
+        ):
+            bound[tid] = _next_working_day(capacity_end, cal_of[tid])
         horizon = max(horizon, bound[tid])
     return horizon
 

@@ -412,6 +412,16 @@ class MonteCarloForecastSerializer(
             "a cache hit; absent on the persisted-history fallback."
         ),
     )
+    velocity_fallback_reasons = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Why the project's velocity history was not used for its scrum stories "
+            "(#5013): 'sprint_length_days_missing' or 'velocity_history_unusable'. "
+            "Empty when it was used or none was supplied. Present on a live run or a "
+            "cache hit; absent on the persisted-history fallback."
+        ),
+    )
     cpm_finish = serializers.DateField(allow_null=True)
     cpm_finish_at_day_start = serializers.BooleanField(
         allow_null=True, help_text=_AT_DAY_START_HELP

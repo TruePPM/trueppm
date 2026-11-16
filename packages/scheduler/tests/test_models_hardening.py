@@ -836,8 +836,13 @@ def test_check_velocity_samples_messages() -> None:
 
 def test_check_sprint_length_messages() -> None:
     _check_sprint_length(None)
-    _check_sprint_length(0)
+    _check_sprint_length(1)
     _check_sprint_length(14)
+    # A zero or negative sprint silently disabled velocity forecasting (#5013).
+    for bad in (0, -3):
+        with pytest.raises(ValueError) as exc:
+            _check_sprint_length(bad)
+        assert str(exc.value) == f"sprint_length_days must be a positive integer (got {bad})."
     for bad in (True, 2.5, "7"):
         with pytest.raises(ValueError) as exc:
             _check_sprint_length(bad)
