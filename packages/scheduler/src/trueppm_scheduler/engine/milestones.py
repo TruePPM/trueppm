@@ -1100,15 +1100,18 @@ def _link_proposal(
 def _earliest_equivalent_midnight(floor: date, cal: Calendar) -> date:
     """The earliest midnight that is the same working-time point as ``floor`` (#4883).
 
-    ``floor`` is a start-of-day floor. On a working day, every midnight back to the
-    close of the previous working day reaches the start of ``floor`` through
-    non-working time only: Saturday 00:00, Sunday 00:00 and the start of Monday on a
-    Monday-to-Friday week. The earliest of them is the close of that previous
-    working day. A floor on a non-working day (a weekend ``actual_start``) is shown
-    verbatim on its own day and has no earlier equivalent.
+    ``floor`` is a start-of-day floor. Every midnight back to the close of the last
+    working day before it reaches the start of ``floor`` through non-working time
+    only: Saturday 00:00, Sunday 00:00 and the start of Monday on a Monday-to-Friday
+    week. The earliest of them is the close of that working day, which is ``floor``
+    itself when the day before it is a working day. A floor on a non-working day (a
+    weekend ``actual_start``, kept verbatim) is read the same way, back to the start
+    of the non-working run that holds it: a Sunday floor's earliest equivalent is
+    Saturday 00:00, as a Monday floor's is. Treating a non-working floor as having
+    no earlier equivalent made the map from floor to link go backward from Sunday
+    to Monday, so recording a milestone's ``actual_start`` a day later moved its
+    successors earlier (#4883).
     """
-    if not cal.is_working_day(floor):
-        return floor
     return _safe_offset(_prev_working_day(_safe_offset(floor, -_ONE_DAY), cal), _ONE_DAY)
 
 
@@ -1123,10 +1126,12 @@ def _equivalent_link(
     ``proposal`` is the latest link proposal ``(instant, start_display, day)`` from
     :func:`_place_milestone`, on the milestone's calendar ``cal``. ``None`` when the
     floor does not hold the link (the proposal is at or after it), or when the floor
-    has no earlier equivalent midnight and the link is the floor itself.
+    has no earlier equivalent midnight (the day before it is a working day) and the
+    link is the floor itself.
 
-    Otherwise the floor and every midnight back to the close of the previous
-    working day are one working-time point (:func:`_earliest_equivalent_midnight`):
+    Otherwise the floor and every midnight back to the close of the last working day
+    before it are one working-time point, on a working or a non-working floor alike
+    (:func:`_earliest_equivalent_midnight`):
     they differ only in the calendar days a lag out of the milestone counts from
     (#2534). The floor holds nothing a link there would not, so the milestone links
     from the latest proposal, raised to that earliest midnight and read as the

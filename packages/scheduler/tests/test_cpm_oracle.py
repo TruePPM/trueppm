@@ -1955,6 +1955,172 @@ def test_rust_floored_milestone_sweep_is_monotone(
     assert not problems, "\n".join(problems)
 
 
+def work_moved_earlier_by_a_later_floor(
+    family: list[tuple[date, RefProject]], run: Callable[[RefProject], EngineRun]
+) -> list[str]:
+    """Moving a floor one calendar day later never moves a live task earlier.
+
+    ``family`` is one network with its floor on consecutive days, earliest first.
+    Model-free and metamorphic, like :func:`work_moved_earlier_by_a_slip`: a later
+    ``actual_start``, SNET or data date can only add to what holds the network. It
+    is the check that slipping a *predecessor* cannot make: a verbatim weekend
+    ``actual_start`` is a floor no predecessor slip reaches, and the floor-to-link
+    map once went backward from Sunday to Monday there (#4883).
+    """
+    out: list[str] = []
+    prev: tuple[date, dict[str, tuple[date, date | bool]]] | None = None
+    for day, project in family:
+        tasks = run(project).tasks
+        held = {
+            tid: _held_at(t, project.durations[tid] == 0, project.calendar_of(tid))
+            for tid, t in tasks.items()
+            if not _complete(project, tid)
+        }
+        if prev is not None:
+            for tid, now in held.items():
+                was = prev[1].get(tid)
+                if was is not None and now < was:
+                    out.append(f"floor {prev[0]} -> {day}: {tid} moved earlier {was} -> {now}")
+        prev = (day, held)
+    return out
+
+
+#: Friday 01-09 to Tuesday 01-13: a floor on each side of, and inside, a weekend.
+_WEEKEND_FLOOR_DAYS = tuple(date(2026, 1, 9) + timedelta(days=k) for k in range(5))
+
+
+def _weekend_floor(kind: str, day: date) -> dict[str, Any]:
+    if kind == "actual-start":
+        return {"progress": {"M": RefProgress(percent_complete=0.0, actual_start=day)}}
+    if kind == "snet":
+        return {"planned_start": {"M": day}}
+    return {"status_date": day}
+
+
+def _weekend_floor_network(kind: str, link: str, lag: int, succ: str, day: date) -> RefProject:
+    """``T1(1d) -<link><lag>-> M``, ``M -FS-> S``, ``M -FS+1d-> W``, ``M`` floored on ``day``.
+
+    The network of :func:`_floored_milestone_sweep`, with ``T1`` and ``M`` on a
+    Monday-to-Friday week and ``S``/``W`` on ``succ``.
+    """
+    return RefProject(
+        start=date(2026, 1, 5),
+        durations={"T1": 1, "M": 0, "S": 0, "W": 1},
+        links=(
+            RefLink("T1", "M", link, lag),
+            RefLink("M", "S", "FS", 0),
+            RefLink("M", "W", "FS", 1),
+        ),
+        calendar=RefCalendar(working_mask=_SEVEN_DAY),
+        calendars={
+            "five": RefCalendar(working_mask=MON_TO_FRI),
+            "seven": RefCalendar(working_mask=_SEVEN_DAY),
+        },
+        task_calendar={"T1": "five", "M": "five", "S": succ, "W": succ},
+        **_weekend_floor(kind, day),
+    )
+
+
+def _weekend_floor_sweep() -> list[tuple[str, list[tuple[date, RefProject]]]]:
+    """The weekend-floor class: each floor kind, link type, lag and successor
+    calendar, with the floor walked Friday to Tuesday (#4883). Only a verbatim
+    ``actual_start`` keeps a weekend day; an SNET or data date snaps to Monday,
+    so those kinds are the control that the snapped floors stay monotone too."""
+    out = []
+    for kind in ("actual-start", "snet", "data-date"):
+        for link in LINK_TYPES:
+            for lag in (-1, 0, 1):
+                for succ in ("five", "seven"):
+                    family = [
+                        (day, _weekend_floor_network(kind, link, lag, succ, day))
+                        for day in _WEEKEND_FLOOR_DAYS
+                    ]
+                    out.append((f"{kind}-{link}{lag:+d}-{succ}", family))
+    return out
+
+
+WEEKEND_FLOOR_SWEEP = _weekend_floor_sweep()
+
+
+@pytest.mark.parametrize(
+    "family", [f for _, f in WEEKEND_FLOOR_SWEEP], ids=[n for n, _ in WEEKEND_FLOOR_SWEEP]
+)
+def test_python_a_later_weekend_floor_moves_nothing_earlier(
+    family: list[tuple[date, RefProject]],
+) -> None:
+    problems = work_moved_earlier_by_a_later_floor(family, python_run)
+    for _, project in family:
+        problems += work_moved_earlier_by_a_slip(project, python_run, max_slip=4)
+        assert_matches_reference(python_engine(project), project)
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize(
+    "family", [f for _, f in WEEKEND_FLOOR_SWEEP], ids=[n for n, _ in WEEKEND_FLOOR_SWEEP]
+)
+def test_rust_a_later_weekend_floor_moves_nothing_earlier(
+    rust_engine: RustRunner, family: list[tuple[date, RefProject]]
+) -> None:
+    problems = work_moved_earlier_by_a_later_floor(family, rust_engine.run)
+    for _, project in family:
+        problems += work_moved_earlier_by_a_slip(project, rust_engine.run, max_slip=4)
+    assert not problems, "\n".join(problems)
+
+
+#: The weekend ``actual_start`` repro (#4883 fix round): ``T1(1d) -FS-> M``, ``M``
+#: live with a recorded ``actual_start``, ``M -FS-> S`` and ``M -FS+1d-> W`` on a
+#: seven-day week. A Sunday floor linked from itself (S 01-18, W 01-19) while a
+#: Monday one linked from Saturday 01-17 (S 01-17, W 01-18), so recording the start
+#: a day later moved both earlier. A non-working floor now also reaches back to the
+#: start of its non-working run: Saturday, Sunday and Monday all link from Saturday
+#: 01-17 00:00. On ``origin/main`` before #4883 the Monday case gave S 01-19, W 01-20.
+_WEEKEND_ACTUAL_START_EXPECTED = (
+    # (actual_start, M shown day, S day, W day)
+    (date(2026, 1, 16), date(2026, 1, 16), date(2026, 1, 16), date(2026, 1, 17)),
+    (date(2026, 1, 17), date(2026, 1, 17), date(2026, 1, 17), date(2026, 1, 18)),
+    (date(2026, 1, 18), date(2026, 1, 18), date(2026, 1, 17), date(2026, 1, 18)),
+    (date(2026, 1, 19), date(2026, 1, 19), date(2026, 1, 17), date(2026, 1, 18)),
+)
+
+
+def _assert_weekend_actual_start_dates(run: Callable[[RefProject], EngineRun]) -> None:
+    got = []
+    for day, _, _, _ in _WEEKEND_ACTUAL_START_EXPECTED:
+        tasks = run(_weekend_floor_network("actual-start", "FS", 0, "seven", day)).tasks
+        got.append((day, tasks["M"].early_start, tasks["S"].early_start, tasks["W"].early_start))
+    assert got == list(_WEEKEND_ACTUAL_START_EXPECTED)
+
+
+def test_a_weekend_actual_start_links_from_the_start_of_its_run() -> None:
+    _assert_weekend_actual_start_dates(python_run)
+
+
+def test_rust_a_weekend_actual_start_links_from_the_start_of_its_run(
+    rust_engine: RustRunner,
+) -> None:
+    _assert_weekend_actual_start_dates(rust_engine.run)
+
+
+def test_the_floor_property_reports_an_engine_that_moves_work_earlier() -> None:
+    """Negative control: an engine whose successor moves earlier on a later floor
+    is reported."""
+
+    def wrong_run(project: RefProject) -> EngineRun:
+        run = python_run(project)
+        recorded = project.progress["M"].actual_start
+        if recorded is None or recorded != date(2026, 1, 12):
+            return run
+        s = run.tasks["S"]
+        tasks = {**run.tasks, "S": replace(s, early_start=s.early_start - timedelta(days=3))}
+        return replace(run, tasks=tasks)
+
+    family = [
+        (day, _weekend_floor_network("actual-start", "FS", 0, "seven", day))
+        for day in _WEEKEND_FLOOR_DAYS
+    ]
+    assert work_moved_earlier_by_a_later_floor(family, wrong_run) != []
+
+
 def test_the_slip_property_reports_an_engine_that_moves_work_earlier() -> None:
     """Negative control: an engine that moves a successor earlier on a slip is reported."""
     p = FS_LAG_SLIP_INTO_A_TIED_SNET_ON_ONE_CALENDAR

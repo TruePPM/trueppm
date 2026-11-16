@@ -272,10 +272,15 @@ Rules:
     #4981). All three engines and the reference oracle agreed, so neither
     `wasm:conformance` nor the oracle could see it.
 
-    **Rule.** A milestone held by a floor on a working day links from the latest
-    of its latest link proposal and the floor's *earliest equivalent midnight*:
-    the close of the last working day before the floor (Saturday 00:00 for a
-    Monday floor on a Monday-to-Friday week), read as the start of a day. Every
+    **Rule.** A milestone held by a floor links from the latest of its latest
+    link proposal and the floor's *earliest equivalent midnight*: the close of the
+    last working day before the floor (Saturday 00:00 for a Monday floor on a
+    Monday-to-Friday week), read as the start of a day. A floor on a non-working
+    day — only a verbatim `actual_start` can be one, since an SNET or data date
+    snaps to the next working day — is read the same way, back to the start of
+    the non-working run that holds it: a Sunday `actual_start`'s earliest
+    equivalent midnight is Saturday 00:00, as a Monday floor's is (fix round of
+    2026-11-16, below). Every
     midnight from there to the floor is the same point in working time, so the
     floor still holds the milestone no earlier than it, and the successors still
     see a link instant at or before the floor. A proposal inside that window keeps
@@ -284,9 +289,10 @@ Rules:
     links from the window's start, not from the floor. That is the one choice
     that is non-decreasing in the proposal, so a slipping predecessor never moves
     the milestone's successors earlier. Unchanged: a floor with no non-working
-    time before it (Tuesday to Friday on that week) links from the floor; a floor
-    on a non-working day (a weekend `actual_start`) is shown verbatim and links
-    from itself; a proposal below the project start, when the floor is the
+    time before it (Tuesday to Friday on that week, and the first day of a
+    non-working run, such as a Saturday `actual_start`) links from the floor; a
+    floor on a non-working day is still *shown* verbatim on its own day; a
+    proposal below the project start, when the floor is the
     project start's day, keeps its own instant (#4225); and a milestone with no
     predecessor links from its floor. Implemented as `_equivalent_link` and
     `_earliest_equivalent_midnight` (`engine/milestones.py`), mirrored in the
@@ -299,9 +305,39 @@ Rules:
     the live slip property carves nothing out.
 
     **Consequences — this changes live schedules.** Every milestone held by a
-    floor on a working day that follows non-working time, with a predecessor
+    floor that follows non-working time (a working day, or a weekend
+    `actual_start` after the first day of its run), with a predecessor
     whose link proposes an earlier instant, now links from that earlier midnight
     instead of from the floor:
+    - *Fix round, 2026-11-16.* The rule as first written here treated a floor on
+      a non-working day as having no earlier equivalent, so it linked from
+      itself. That made the floor-to-link map go *backward* from Sunday to
+      Monday: Saturday → Saturday, Sunday → Sunday, Monday → Saturday. Recording
+      a live milestone's `actual_start` a day later, from Sunday to Monday, moved
+      its successors earlier (`T1(1d) -FS-> M`, `M -FS-> S` and `M -FS+1d-> W`
+      with `S`/`W` on seven days: a Sunday 01-18 `actual_start` put `S`/`W` on
+      01-18/01-19, a Monday 01-19 one on 01-17/01-18). A non-working floor now
+      reaches back to the start of its run, so Saturday, Sunday and Monday all
+      link from Saturday 00:00 and the map is monotone. The consequence is the
+      Monday one below, extended to Sunday: a Sunday `actual_start` on a
+      Monday-to-Friday milestone with a predecessor proposing an earlier instant
+      now links from Saturday 00:00, so a seven-day successor sits on that
+      Saturday (it sat on the Sunday before #4883 and on the first pass of this
+      amendment) and a calendar-day lag counts from Saturday, a day earlier than
+      before. A Saturday `actual_start` is the start of its run and links from
+      itself, as before. Pinned by a weekend-floor sweep (`actual_start`, SNET and
+      data date on Friday to Tuesday × the four link types × lags −1..+1 × same-
+      and wider-calendar successors), checked on Python and Rust for a later
+      floor and a predecessor slip, plus the dates above as an explicit
+      regression test.
+    - A lag out of the milestone can count from before a recorded `actual_start`,
+      and before the project start: a Monday `actual_start` that is also the
+      project start's day links from Saturday 00:00 when its predecessor proposes
+      an earlier instant. Four oracle-corpus entries changed for this
+      (`named_control-below-start-SF-{FS,SS,FF,SF}-started`): an SF-linked
+      milestone started on Monday 01-05, the project start, now links from
+      Saturday 01-03, and its calendar-day-lagged successor `B` moved two calendar
+      days earlier (01-08 → 01-06, 01-07 → 01-05).
     - A successor on a wider calendar can sit on the non-working days *before*
       the floored milestone's shown day: with a Monday SNET on a Monday-to-Friday
       milestone, its FS successor on a seven-day calendar now starts on the

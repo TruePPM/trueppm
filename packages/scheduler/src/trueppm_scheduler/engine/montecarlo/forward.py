@@ -1260,9 +1260,10 @@ def _mc_milestone_bounds(
     if hard is not None:
         # engine._equivalent_link (#4690, #4883): a hard floor holding a linked
         # milestone links from the latest of the link and the floor's earliest
-        # working-time equivalent midnight, read as a day start, so the link instant
-        # never decreases as a predecessor slips. Held below the project start when
-        # that is the floor, the link keeps its own instant.
+        # working-time equivalent midnight, read as a day start (a non-working floor
+        # reaching back to the start of its run), so the link instant never
+        # decreases as a predecessor slips or the floor moves later. Held below the
+        # project start when that is the floor, the link keeps its own instant.
         safe = np.where(pred_key < 0, hard * 2 + 1, pred_key)
         p_instant, p_display, p_def = with_deficit(safe)
         below = (pred_key >= 0) & (p_instant < hard)

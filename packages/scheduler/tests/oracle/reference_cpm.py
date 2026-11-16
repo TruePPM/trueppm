@@ -679,11 +679,14 @@ def _floor_link(
     """The instant milestone ``tid``, held by ``floor``, links from, or ``None`` (#4690, #4883).
 
     ``None`` when the latest link ``proposal`` is at or after ``floor``, or when the
-    floor has no working-time equivalent before it (a working day right after
-    another, or a non-working floor, shown verbatim): the link is then the floor.
+    floor has no working-time equivalent before it (the day before it is a working
+    day): the link is then the floor.
 
     Otherwise every midnight from the close of the last working day before
-    ``floor`` up to ``floor`` is the same working-time point, and the milestone
+    ``floor`` up to ``floor`` is the same working-time point — on a non-working
+    floor (a weekend ``actual_start``, kept verbatim) too, back to the start of the
+    non-working run that holds it, so the link never goes backward as the floor
+    moves later — and the milestone
     links from the latest of the proposal and that earliest midnight, read as a day
     start. That is the one choice that is non-decreasing in the proposal, so a
     slipping predecessor never moves the successors earlier (#4883). Below the
@@ -698,8 +701,6 @@ def _floor_link(
         base = start_at_or_after(project.start, cal)
         if raw < base and base == floor:
             return proposal
-    if not cal.is_working(floor):
-        return None
     earliest = last_working_on_or_before(floor - ONE_DAY, cal) + ONE_DAY
     if earliest >= floor:
         return None

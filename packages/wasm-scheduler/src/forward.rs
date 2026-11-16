@@ -335,16 +335,15 @@ fn link_proposal(
 
 /// The earliest midnight that is the same working-time point as `floor` (#4883).
 ///
-/// On a working day, every midnight back to the close of the previous working day
-/// reaches the start of `floor` through non-working time only (Saturday 00:00,
-/// Sunday 00:00 and the start of Monday on a Monday-to-Friday week); the earliest
-/// is the close of that previous working day. A floor on a non-working day is
-/// shown verbatim and has no earlier equivalent. Mirrors the Python
+/// Every midnight back to the close of the last working day before `floor` reaches
+/// the start of `floor` through non-working time only (Saturday 00:00, Sunday 00:00
+/// and the start of Monday on a Monday-to-Friday week); the earliest is the close
+/// of that working day, `floor` itself when the day before it is a working day. A
+/// floor on a non-working day (a verbatim weekend `actual_start`) is read the same
+/// way, back to the start of its non-working run, so Sunday and Monday both reach
+/// Saturday 00:00 and the floor-to-link map never goes backward. Mirrors the Python
 /// `_earliest_equivalent_midnight`.
 fn earliest_equivalent_midnight(floor: NaiveDate, cal: &Calendar) -> Result<NaiveDate, String> {
-    if !cal.is_working_day(floor) {
-        return Ok(floor);
-    }
     let before = prev_working_day(checked_offset_days(floor, -1)?, cal)?;
     checked_offset_days(before, 1)
 }
@@ -1462,6 +1461,50 @@ mod tests {
             last = Some(at);
         }
         assert_eq!(last.map(|l| l.0), Some(d(12)));
+    }
+
+    /// #4883: recording a live milestone's `actual_start` a day later never moves
+    /// its successor earlier, across a weekend too. `T1(1d) -FS-> M -FS+2d-> B` on
+    /// Monday-to-Friday, `M` started on each day from Friday 01-09 to Tuesday 01-13.
+    /// A verbatim Sunday floor once linked from itself (B at the end of Monday)
+    /// while a Monday one linked from Saturday 00:00 (B at the start of Monday);
+    /// both now reach back to Saturday 00:00, the start of the non-working run.
+    #[test]
+    fn a_later_weekend_actual_start_never_moves_its_successor_earlier() {
+        let mut last = None;
+        let mut weekend = Vec::new();
+        for day in 9..=13 {
+            let project: Project = serde_json::from_value(json!({
+                "id": "p",
+                "name": "p",
+                "start_date": "2026-01-05",
+                "tasks": [
+                    {"id": "T1", "name": "T1", "duration": 86400.0},
+                    {"id": "M", "name": "M", "duration": 0.0, "percent_complete": 0.0,
+                     "actual_start": format!("2026-01-{day:02}")},
+                    {"id": "B", "name": "B", "duration": 0.0},
+                ],
+                "dependencies": [
+                    {"predecessor_id": "T1", "successor_id": "M", "dep_type": "FS", "lag": 0.0},
+                    {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 2.0 * 86400.0},
+                ],
+            }))
+            .expect("test project parses");
+            let result = schedule_impl(&project).expect("test project schedules");
+            let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+            let at = (b.early_start, b.milestone_at_day_end);
+            if let Some(prev) = last {
+                assert!(
+                    at >= prev,
+                    "M started 01-{day:02}: B moved earlier {prev:?} -> {at:?}"
+                );
+            }
+            if (10..=12).contains(&day) {
+                weekend.push(at);
+            }
+            last = Some(at);
+        }
+        assert_eq!(weekend, vec![(d(12), false); 3]);
     }
 
     /// Schedule `A` (20d, started 2026-01-04 — a Sunday — `pct`% done) `-kind+lag->`
