@@ -722,6 +722,12 @@ export interface WorkspaceSettings {
   /** `suggest`/`inherit` (OSS) let lower scopes override freely; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */
   attachmentsOverridePolicy: AttachmentsOverridePolicy;
+  /**
+   * Workspace-scope agent read consent (ADR-0678). Non-null root of the cascade:
+   * `false` closes agent reads for every program and project, and no lower scope
+   * can re-enable them (restrictive-only).
+   */
+  mcpEnabled: boolean;
   /** Workspace-wide default for what happens to a task's % complete when its
    *  duration changes (ADR-0151, issue 1254) — the non-null root of the
    *  Workspace → Program → Project chain. */

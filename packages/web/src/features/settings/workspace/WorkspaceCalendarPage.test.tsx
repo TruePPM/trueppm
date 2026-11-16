@@ -53,6 +53,7 @@ const WS: WorkspaceSettings = {
   feedbackUrl: '',
   allowedAttachmentTypes: ['application/pdf'],
   attachmentsOverridePolicy: 'suggest',
+  mcpEnabled: true,
   calendar: null,
   calendarOverridePolicy: 'suggest',
   logoUrl: null,

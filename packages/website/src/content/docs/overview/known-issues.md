@@ -197,24 +197,6 @@ overlay on the Gantt is deliberately not in this release** —
 
 ## MCP and agents
 
-### The team-level agent opt-out exists at project scope only
-
-The instance → workspace → program → project cascade that decides whether agents may
-read a scope is real and correctly enforced, and the `mcp_enabled` field is already
-writable at all three scopes over the API. The **UI** to set it exists only at
-**Project settings → Agents**; there is no Agents section on program or workspace
-settings yet.
-
-- **Impact:** an operator following the runbook to "Program settings → Agents" or the
-  workspace equivalent finds nothing there.
-- **Workaround:** set project-scope opt-outs in the UI; workspace and program scope are
-  settable through the API (`PATCH /api/v1/workspace/` or
-  `PATCH /api/v1/programs/{id}/`), and the instance-wide kill switch is the
-  `TRUEPPM_MCP_ENABLED` environment variable (which is enforced first, ahead of every
-  other check).
-- **Tracked on** [#2700](https://gitlab.com/trueppm/trueppm/-/issues/2700) (building
-  the workspace- and program-scope settings sections).
-
 ### A computed answer does not name the engine that produced it
 
 Every value the MCP read tools return is computed by the scheduling engine rather than

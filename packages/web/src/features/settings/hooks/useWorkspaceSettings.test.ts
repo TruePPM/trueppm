@@ -81,6 +81,7 @@ const EXPECTED: WorkspaceSettings = {
   feedbackUrl: '',
   allowedAttachmentTypes: ['application/pdf', 'image/png'],
   attachmentsOverridePolicy: 'suggest',
+  mcpEnabled: true,
   calendar: 'cal-1',
   calendarOverridePolicy: 'suggest',
   logoUrl: '/api/v1/workspace/logo/?v=1700000000',

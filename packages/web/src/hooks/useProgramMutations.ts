@@ -58,6 +58,7 @@ export interface UpdateProgramInput {
       | 'estimation_scale'
       | 'sprint_picker_ready_only_default'
       | 'attachments_enabled'
+      | 'mcp_enabled'
       | 'allowed_attachment_types'
       | 'calendar'
       | 'health'

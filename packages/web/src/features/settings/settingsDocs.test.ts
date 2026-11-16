@@ -142,8 +142,8 @@ describe('SETTINGS_DOCS resolution', () => {
     Object.entries(SETTINGS_DOCS[scope]).map(([id, slug]) => ({ scope, id, slug })),
   );
 
-  it('covers all 49 sections', () => {
-    expect(entries).toHaveLength(49);
+  it('covers all 51 sections', () => {
+    expect(entries).toHaveLength(51);
   });
 
   it.each(entries)('$scope/$id → $slug resolves to a real docs page', ({ slug }) => {

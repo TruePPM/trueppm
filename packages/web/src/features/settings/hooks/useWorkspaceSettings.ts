@@ -50,6 +50,7 @@ interface WorkspaceSettingsRaw {
   feedback_url?: string;
   allowed_attachment_types: string[];
   attachments_override_policy: AttachmentsOverridePolicy;
+  mcp_enabled?: boolean;
   calendar: string | null;
   calendar_override_policy: CalendarOverridePolicy;
   logo_url: string | null;
@@ -89,6 +90,8 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     feedbackUrl: raw.feedback_url ?? '',
     allowedAttachmentTypes: raw.allowed_attachment_types,
     attachmentsOverridePolicy: raw.attachments_override_policy,
+    // Optional on the wire so a pre-0.5 server reads as the default (open).
+    mcpEnabled: raw.mcp_enabled ?? true,
     calendar: raw.calendar,
     calendarOverridePolicy: raw.calendar_override_policy,
     logoUrl: raw.logo_url,

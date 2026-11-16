@@ -13,6 +13,7 @@ import { WorkspaceProgramsPage } from './WorkspaceProgramsPage';
 import { WorkspaceEmailPage } from './WorkspaceEmailPage';
 import { WorkspaceSsoPage } from './WorkspaceSsoPage';
 import { WorkspaceAttachmentsPage } from './WorkspaceAttachmentsPage';
+import { WorkspaceAgentsPage } from './WorkspaceAgentsPage';
 import { WorkspaceDangerPage } from './WorkspaceDangerPage';
 import { ObservabilitySection } from './WorkspaceObservabilityPage';
 import { WorkspaceFeedbackPage } from './WorkspaceFeedbackPage';
@@ -84,6 +85,9 @@ export function WorkspaceSettingsPage() {
       </SettingsSection>
       <SettingsSection id="sso">
         <WorkspaceSsoPage />
+      </SettingsSection>
+      <SettingsSection id="agents">
+        <WorkspaceAgentsPage />
       </SettingsSection>
       <SettingsSection id="methodology">
         <WorkspaceMethodologyPage />

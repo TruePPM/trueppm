@@ -41,6 +41,7 @@ const WORKSPACE_DOCS: Record<string, string> = {
   groups: 'administration/workspace-settings/#groups--teams-settingsgroups',
   roles: 'administration/rbac/',
   sso: 'administration/single-sign-on/',
+  agents: 'administration/mcp-server/#team-level-opt-out',
   methodology: 'features/methodology-preset/',
   schedule: 'features/scheduler/',
   calendar: 'administration/working-calendars/',
@@ -72,6 +73,7 @@ const PROGRAM_DOCS: Record<string, string> = {
   calendar: 'administration/program-settings/#working-calendar',
   risk: 'features/settings/program-risk-policy/',
   attachments: 'administration/program-settings/#attachments',
+  agents: 'administration/mcp-server/#team-level-opt-out',
   integrations: 'administration/program-settings/#integrations',
   lifecycle: 'administration/program-settings/#lifecycle',
 };

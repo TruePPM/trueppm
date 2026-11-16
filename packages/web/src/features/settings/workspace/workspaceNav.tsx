@@ -13,6 +13,7 @@ import {
   InboxIcon,
   SlidersIcon,
   ClockIcon,
+  AgentIcon,
 } from '@/components/Icons';
 
 /** Inline Activity icon for the System Health nav item (no lucide-react dep). */
@@ -114,6 +115,7 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
         { id: 'groups',  label: 'Groups & teams',       to: anchor('groups'),  keywords: 'team squad membership roster', icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
         { id: 'roles',   label: 'Roles & permissions',  to: anchor('roles'),   keywords: 'rbac access control owner admin scheduler viewer permission', icon: <NavIcon><ShieldNavIcon /></NavIcon> },
         { id: 'sso',     label: 'Single sign-on',       to: anchor('sso'),     keywords: 'sso oidc oauth saml login identity provider keycloak authentik google github idp', icon: <NavIcon><LockNavIcon /></NavIcon> },
+        { id: 'agents',  label: 'Agents',               to: anchor('agents'),  keywords: 'ai agent mcp llm assistant read access opt out consent privacy', icon: <NavIcon><AgentIcon aria-hidden="true" /></NavIcon> },
       ],
     },
     {

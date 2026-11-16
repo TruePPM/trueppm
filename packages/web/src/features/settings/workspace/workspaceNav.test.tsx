@@ -19,6 +19,7 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
       'groups',
       'roles',
       'sso',
+      'agents',
       'methodology',
       'schedule',
       'calendar',

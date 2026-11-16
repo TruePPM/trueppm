@@ -20,6 +20,7 @@ import { ProgramCalendarPage } from './program/ProgramCalendarPage';
 import { ProgramRiskPolicyPage } from './program/ProgramRiskPolicyPage';
 import { ProgramIntegrationsPage } from './program/ProgramIntegrationsPage';
 import { ProgramAttachmentsPage } from './program/ProgramAttachmentsPage';
+import { ProgramAgentsPage } from './program/ProgramAgentsPage';
 import { ProgramArchivePage } from './program/ProgramArchivePage';
 import { useProgramId } from '@/hooks/useProgramId';
 import {
@@ -33,6 +34,7 @@ import {
   CalendarIcon,
   LockIcon,
   PaperclipIcon,
+  AgentIcon,
   PlugIcon,
 } from '@/components/Icons';
 
@@ -170,6 +172,16 @@ export function buildProgramSettingsNav(): SettingsNavGroup[] {
           ),
         },
         {
+          id: 'agents',
+          label: 'Agents',
+          keywords: 'ai agent mcp llm assistant read access opt out consent privacy',
+          icon: (
+            <NavIcon>
+              <AgentIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
           id: 'integrations',
           label: 'Integrations',
           keywords: 'jira gitlab connect external source',
@@ -277,6 +289,9 @@ export function ProgramSettingsPage() {
       </SettingsSection>
       <SettingsSection id="attachments">
         <ProgramAttachmentsPage />
+      </SettingsSection>
+      <SettingsSection id="agents">
+        <ProgramAgentsPage />
       </SettingsSection>
       <SettingsSection id="integrations">
         <ProgramIntegrationsPage />
