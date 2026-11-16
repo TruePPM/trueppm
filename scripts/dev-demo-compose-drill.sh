@@ -250,8 +250,11 @@ wait_http_200() {
 # ============================================================================
 if [ "${DRILL_MODE}" = "dev" ]; then
 
-  log "syncing bind-mount sources onto the dind daemon filesystem (packages/api/src, packages/web)"
-  sync_checkout_to_daemon packages/api/src packages/web
+  # scripts/demo-init-secrets.sh is the `secrets-init` service's bind source (#4672):
+  # unsynced, the daemon invents an empty directory there and /secrets/env is never
+  # written, so api and celery die sourcing it.
+  log "syncing bind-mount sources onto the dind daemon filesystem (packages/api/src, packages/web, demo-init-secrets.sh)"
+  sync_checkout_to_daemon packages/api/src packages/web scripts/demo-init-secrets.sh
 
   # Vite 5+'s server.allowedHosts rejects a Host header it does not
   # recognize (docker-compose.yml's own default covers localhost/127.0.0.1/
