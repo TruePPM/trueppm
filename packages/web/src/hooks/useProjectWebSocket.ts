@@ -162,7 +162,8 @@ type InvalidateKey =
   | 'project-attention'
   | 'project-my-tasks'
   | 'cp-tasks'
-  | 'monte-carlo-latest';
+  | 'monte-carlo-latest'
+  | 'project-resource-pool';
 // Whole-project multi-page loads: invalidating one mid-flight stacks overlapping fetches.
 const SLOW_LOAD_KEYS: ReadonlySet<InvalidateKey> = new Set(['tasks', 'dependencies']);
 type ScheduleInvalidateFn = (...keys: InvalidateKey[]) => void;
@@ -682,8 +683,15 @@ function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
       // orders by priority_rank, so refetch the tasks cache to snap to server order.
       'queue_reordered',
     ],
-    () => {
+    (_payload, event_type) => {
       scheduleInvalidate('tasks');
+      // `tasks/bulk/` accepts write-only `owners`, which creates TaskResource rows —
+      // the rows every capacity/utilization/heat-map number reads. The payload is
+      // just `{task_ids}` and does not say whether assignments changed, so a
+      // collaborator's resource pool is invalidated on every bulk mutation (#2793).
+      // This is cheap: invalidation only marks the query stale, and only an
+      // observer that is mounted right now (roster, capacity view) refetches.
+      if (event_type === 'tasks_bulk_mutated') scheduleInvalidate('project-resource-pool');
     },
   );
 
