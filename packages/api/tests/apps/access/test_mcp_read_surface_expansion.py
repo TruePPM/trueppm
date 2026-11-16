@@ -26,6 +26,7 @@ from trueppm_api.apps.projects.models import (
     Baseline,
     Calendar,
     Dependency,
+    Health,
     Project,
     ProjectCustomField,
     Task,
@@ -144,9 +145,10 @@ def test_mcp_read_token_reads_each_new_surface(
 
 def test_history_answers_who_reported_it_for_an_admin_owner(project: Project, owner: Any) -> None:
     """The #5006 question: the actor rides through when the owner is Owner/Admin."""
-    # ``health_band`` is not a Project column (it is computed), so use a real
-    # compared field; ``_history_user`` is what the request middleware sets.
-    project.name = "Renamed By Owner"
+    # ``health_band`` is computed; the stored, history-tracked column behind
+    # ``health_band_source: reported`` is ``Project.health``. ``_history_user`` is
+    # what the request middleware sets.
+    project.health = Health.CRITICAL
     project._history_user = owner  # type: ignore[attr-defined]
     project.save()
     resp = _agent(owner).get(f"/api/v1/projects/{project.pk}/history/")
@@ -156,7 +158,7 @@ def test_history_answers_who_reported_it_for_an_admin_owner(project: Project, ow
     hit = [
         r
         for r in rows
-        if any(c.get("field") == "name" and c.get("new") == "Renamed By Owner" for c in r["diff"])
+        if any(c.get("field") == "health" and c.get("new") == "CRITICAL" for c in r["diff"])
     ]
     assert hit, rows
     assert hit[0]["history_user"] is not None

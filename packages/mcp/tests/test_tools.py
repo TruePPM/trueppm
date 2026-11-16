@@ -1376,14 +1376,14 @@ async def test_get_project_history_returns_envelope_and_keeps_actor(settings: Se
         "history_type": "~",
         "history_date": "2026-11-01T10:00:00Z",
         "history_user": {"id": 3, "username": "pm"},
-        "diff": [{"field": "health_band", "old": "on_track", "new": "critical"}],
+        "diff": [{"field": "health", "old": "AUTO", "new": "CRITICAL"}],
     }
     routes: Routes = {"projects/p-1/history/": _json({**_page([row]), "count_truncated": False})}
     async with _client(settings, routes) as client:
         result = await _get_project_history(client, "p-1")
     assert result["total_count"] == 1
     assert result["items"][0]["history_user"] == {"id": 3, "username": "pm"}
-    assert result["items"][0]["diff"][0]["new"] == "critical"
+    assert result["items"][0]["diff"][0]["new"] == "CRITICAL"
     assert "truncated" not in result
 
 
