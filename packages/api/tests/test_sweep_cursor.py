@@ -48,3 +48,11 @@ def test_integer_keys_are_rejected() -> None:
 
     with pytest.raises(TypeError):
         rotate_after_cursor("s", [1, 2, 10], lambda i: i)
+
+
+def test_cache_flush_between_runs_restarts_from_head_and_covers_everything() -> None:
+    save_cursor("s", "b")  # a truncated run left a cursor
+    cache.clear()  # the cache is flushed before the next run
+    order = rotate_after_cursor("s", ITEMS, str)
+    assert order == ITEMS
+    assert set(order) == set(ITEMS)

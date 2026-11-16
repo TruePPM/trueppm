@@ -438,8 +438,9 @@ around, so successive runs together cover every item. A sweep that finishes with
 its limit clears the cursor. The cursor is best-effort; if the cache is flushed the
 sweep simply restarts from the head. The cursor only advances past items that
 finished, so a single item that alone exceeds the limit still blocks its sweep: the
-cursor cannot move past it and every run is cut off at the same place. The weekly digest sweep has no cursor, so users
-it did not reach miss that week's slot.
+cursor cannot move past it and every run is cut off at the same place. The weekly digest sweep has no cursor: a digest
+is sent only during the user's configured local weekday and hour, and the next hourly
+run falls in a later hour, so users it did not reach miss that week's digest.
 
 A repeating WARNING still means the instance has outgrown the limit: check worker
 CPU and database latency first, because a sweep that catches up only slowly is
