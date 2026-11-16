@@ -29,7 +29,12 @@ import django.dispatch
 #
 # Keyword arguments (payload schema is STABLE — do not change):
 #   sender       — the AuditEvent class
-#   audit_event  — the committed AuditEvent instance
+#   audit_event  — the committed AuditEvent instance. DEPRECATED for new
+#                  receivers (#3807): retained only because this payload is
+#                  stable; withdrawn in a coordinated, announced release.
+#   audit_event_id — stringified UUID of the committed row (additive, #3807). New
+#                  receivers bind to this and re-read the durable row by id, which
+#                  couples Enterprise to a UUID rather than the OSS model's shape.
 #
 # Fired via record_audit_event() using transaction.on_commit + send_robust, so a
 # raising enterprise receiver is swallowed-and-logged and can never break the OSS

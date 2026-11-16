@@ -971,3 +971,60 @@ def test_can_user_write_estimates_member_behavior_unchanged(
     expect_contributor = mode != EstimationMode.PM_ONLY
     assert can_user_write_estimates(_Req(contributor), project) is expect_contributor
     assert can_user_write_estimates(_Req(pm), project) is True
+
+
+# ---------------------------------------------------------------------------
+# estimate_authority — discriminates "open" from "pm_only" (#2646)
+# ---------------------------------------------------------------------------
+
+_PERT = {"optimistic_duration": 3, "most_likely_duration": 5, "pessimistic_duration": 8}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        (EstimationMode.OPEN, "open"),
+        (EstimationMode.PM_ONLY, "pm_authored"),
+        (EstimationMode.SUGGEST_APPROVE, None),
+    ],
+)
+def test_estimate_authority_stamped_per_mode_and_served_on_task_read(
+    project: Project, task: Task, admin: object, mode: str, expected: str | None
+) -> None:
+    project.estimation_mode = mode
+    project.save(update_fields=["estimation_mode"])
+    c = _client(admin)
+    resp = c.patch(f"/api/v1/tasks/{task.pk}/", _PERT, format="json")
+    assert resp.status_code == 200
+    # The single-task read carries the discriminator without a project fetch.
+    assert c.get(f"/api/v1/tasks/{task.pk}/").json()["estimate_authority"] == expected
+    # estimate_status stays null for open/pm_only — the conflation this field resolves.
+    task.refresh_from_db()
+    assert task.estimate_authority == expected
+
+
+@pytest.mark.django_db
+def test_estimate_authority_is_read_only(project: Project, task: Task, admin: object) -> None:
+    resp = _client(admin).patch(
+        f"/api/v1/tasks/{task.pk}/", {"estimate_authority": "pm_authored"}, format="json"
+    )
+    assert resp.status_code == 200
+    task.refresh_from_db()
+    assert task.estimate_authority is None
+
+
+@pytest.mark.django_db
+def test_grandfathered_row_reads_authority_null_and_noop_write_keeps_it(
+    project: Project, task: Task, admin: object
+) -> None:
+    # A pre-#2646 pm_only row: estimates present, authority never stamped (unknown).
+    project.estimation_mode = EstimationMode.PM_ONLY
+    project.save(update_fields=["estimation_mode"])
+    Task.objects.filter(pk=task.pk).update(**_PERT)
+    c = _client(admin)
+    assert c.get(f"/api/v1/tasks/{task.pk}/").json()["estimate_authority"] is None
+    # Re-sending identical values is not an edit, so it must not stamp authority.
+    assert c.patch(f"/api/v1/tasks/{task.pk}/", _PERT, format="json").status_code == 200
+    task.refresh_from_db()
+    assert task.estimate_authority is None

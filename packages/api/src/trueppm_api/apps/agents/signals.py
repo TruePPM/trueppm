@@ -16,8 +16,11 @@ from __future__ import annotations
 
 from django.dispatch import Signal
 
-#: Dispatched with ``sender=AgentAction`` and ``action=<AgentAction instance>`` in the
-#: committing transaction's ``on_commit``. Additive-only kwargs (ADR-0112 contract).
+#: Dispatched with ``sender=AgentAction``, ``action_id=<stringified UUID>`` and
+#: ``action=<AgentAction instance>`` in the committing transaction's ``on_commit``.
+#: Additive-only kwargs (ADR-0112 contract). New receivers should bind to ``action_id``
+#: and re-read the durable row; ``action`` is DEPRECATED (#3807) and is retained only
+#: until Enterprise has moved off it, then withdrawn in a coordinated, announced release.
 agent_action_recorded = Signal()
 
 #: The OSS legal-hold seam for chain-aware pruning (ADR-0361). Dispatched with plain

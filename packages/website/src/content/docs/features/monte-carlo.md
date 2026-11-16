@@ -988,12 +988,21 @@ of the distribution:
   create and update alike. The task API reports the caller's own authority as
   `can_edit_estimates`, which is what the estimate inputs gate on.
 
+  `estimate_status` is empty in both Open and PM Only, so the task API also reports
+  `estimate_authority` to say who was permitted to author the estimate:
+  `pm_authored` (written under PM Only, so by the Project Manager role or above),
+  `open` (written under Open, so by any Team Member or above), or `null`. `null`
+  means unknown: in Suggest & Approve the status carries the trust level, and an
+  estimate written before the field existed was never stamped. The field is
+  read-only and is set only when an estimate value actually changes.
+
   :::caution[Estimates written before this rule was enforced]
   Server-side enforcement of **PM Only** shipped in 0.4. Before it, the restriction
   existed only as a disabled input in the web UI, so a contributor could write an
   estimate through the API in a PM Only project. Those existing values are **not**
-  retroactively invalidated or flagged — they remain in the schedule and continue
-  to feed the forecast. If your project has run in PM Only mode, review its
+  retroactively invalidated or backfilled — they remain in the schedule, continue
+  to feed the forecast, and read `estimate_authority: null` (unknown) rather than
+  `pm_authored`. If your project has run in PM Only mode, review its
   three-point estimates once after upgrading. Task history records every estimate
   change and who made it.
   :::

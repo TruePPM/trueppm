@@ -90,6 +90,7 @@ from trueppm_api.apps.projects.models import (
     Dependency,
     DurationChangePercentPolicy,
     DurationChangeSource,
+    EstimateAuthority,
     EstimateStatus,
     EstimationMode,
     ExportJobStatus,
@@ -4536,6 +4537,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "most_likely_duration",
             "pessimistic_duration",
             "estimate_status",
+            "estimate_authority",
             "baseline_start",
             "baseline_finish",
             "latest_note_at",
@@ -4735,6 +4737,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # bare PATCH — the governance hook fires only on a PERT co-write, so it
             # never saw that payload (#2570).
             "estimate_status",
+            "estimate_authority",
             "sprint_scope_changes",
             "milestone_rollup",
             # Computed product-backlog reads (the writable backing fields type /
@@ -7166,9 +7169,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         project = instance.project
         if project.estimation_mode == EstimationMode.SUGGEST_APPROVE:
             validated_data["estimate_status"] = EstimateStatus.PENDING
+            # estimate_status carries the trust level in this mode.
+            validated_data["estimate_authority"] = None
         else:
-            # OPEN or PM_ONLY: clear status tracking — not applicable.
+            # OPEN or PM_ONLY: clear status tracking — not applicable. But "not
+            # tracked" must not erase *who could author this* (#2646): stamp the
+            # authority so a read can tell a PM-authored range (pm_only, where the
+            # write path refuses below Role.ADMIN) from a contributor-authored one.
             validated_data["estimate_status"] = None
+            validated_data["estimate_authority"] = (
+                EstimateAuthority.PM_AUTHORED
+                if project.estimation_mode == EstimationMode.PM_ONLY
+                else EstimateAuthority.OPEN
+            )
 
     def _apply_duration_change_policy(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """Apply the duration-change percent policy and record an audit event (ADR-0151).
