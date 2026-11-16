@@ -114,7 +114,13 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   a non-working day never ties.
 * **Remaining duration.** Live work at ``p`` percent schedules only its remaining
   ``n - floor(n * p / 100)`` working days (ADR-0132 §3): its early and late dates
-  are that remaining window.
+  are that remaining window. ``p`` is read as the decimal it prints as (its shortest
+  round-trip ``repr``), not as the binary double nor through float arithmetic, and
+  ``x = n * p / 100`` snaps to its nearest whole day when within ``1e-9`` days of it,
+  else floors; below 100% elapsed is capped at ``n - 1`` (README, "Progress and
+  actuals"; #5034). Computed here with ``decimal.Decimal`` and rounding rather than
+  the engines' ``Fraction`` and ``divmod`` so the two do not share an
+  implementation.
 * **Start-side links (ADR-0132 §2a).** SS and SF links out of live work measure
   from its *link start*: its recorded ``actual_start``; else, with elapsed work,
   its derived span start (the full duration backed off its early finish); else
@@ -166,9 +172,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal
 
 ONE_DAY = timedelta(days=1)
 LINK_TYPES = ("FS", "SS", "FF", "SF")
+#: Days within which an elapsed-day product snaps to the nearest whole day (#5034).
+_SNAP_TOLERANCE = Decimal("1e-9")
 
 # Bit 0 = Monday ... bit 6 = Sunday (the documented ``Calendar.working_days`` mask).
 MON_TO_FRI = 0b0011111
@@ -497,10 +506,24 @@ def is_complete(project: RefProject, tid: str) -> bool:
 
 
 def remaining_days(project: RefProject, tid: str) -> int:
-    """Working days of live work still to do: ``n - floor(n * pct / 100)`` (ADR-0132 §3)."""
+    """Working days of live work still to do: ``n - elapsed`` (ADR-0132 §3).
+
+    ``elapsed`` is ``x = n * pct / 100`` in exact decimal arithmetic on
+    ``repr(pct)`` (#5034), snapped to the nearest integer when within ``1e-9`` of it
+    and floored otherwise, and capped at ``n - 1`` below 100%. ``n * pct`` has at
+    most 20 significant digits, inside ``Decimal``'s default 28, so the product, the
+    shift by 100 and the distance to the nearest integer are all exact.
+    """
     n = project.durations[tid]
     pct = _progress(project, tid).percent_complete
-    return n - int(n * pct / 100) if pct > 0 else n
+    if pct <= 0:
+        return n
+    x = n * Decimal(repr(min(pct, 100.0))) / 100
+    nearest = x.to_integral_value(rounding=ROUND_HALF_EVEN)
+    elapsed = int(nearest) if abs(x - nearest) <= _SNAP_TOLERANCE else int(x)
+    if pct < 100:
+        elapsed = min(elapsed, n - 1)
+    return n - elapsed
 
 
 def _start_is_recorded(project: RefProject, tid: str) -> bool:

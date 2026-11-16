@@ -182,6 +182,13 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_completed_successor_no_backward_constraint:
     'adapter: does not thread actuals/status date',
   progress_in_progress_remaining: 'adapter: does not thread actuals/status date',
+  // #5015, #5034. The fractional-percent remaining-duration rule is computed by
+  // the server engines; this engine takes the server's `remainingDuration` as
+  // given and never derives it from percent_complete, so there is nothing to assert.
+  progress_fractional_percent_parse: 'engine: reads remainingDuration, not percent_complete',
+  progress_fractional_percent_decimal_floor:
+    'engine: reads remainingDuration, not percent_complete',
+  progress_k_of_n_percent_tolerance: 'engine: reads remainingDuration, not percent_complete',
   progress_actual_start_floors_early_start: 'adapter: does not thread actuals/status date',
   progress_out_of_sequence: 'adapter: does not thread actuals/status date',
   progress_status_date_floor: 'adapter: does not thread actuals/status date',

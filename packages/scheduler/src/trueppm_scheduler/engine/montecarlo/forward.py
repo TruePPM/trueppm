@@ -19,6 +19,7 @@ import networkx as nx
 import numpy as np
 
 from trueppm_scheduler.engine.calendar_math import (
+    _elapsed_working_days,
     _is_complete,
     _next_working_day,
     _prev_working_day,
@@ -636,13 +637,12 @@ def _mc_progress_state(
     # In-progress tasks have a fixed elapsed portion subtracted from every sampled
     # duration, so only the *remaining* work carries uncertainty (a deterministic
     # in-progress task still simulates to exactly its CPM finish). ``elapsed_days``
-    # uses the same integer rule as _effective_duration_days so the engines agree.
+    # uses the same exact rule as _effective_duration_days (_elapsed_working_days) so
+    # Monte Carlo and the deterministic pass hold the same elapsed days.
     elapsed_days: dict[str, float] = {}
     for t in task_map.values():
         if not _is_complete(t) and t.percent_complete and t.percent_complete > 0:
-            elapsed_days[t.id] = float(
-                int(t.duration.days * min(t.percent_complete, 100.0) / 100.0)
-            )
+            elapsed_days[t.id] = float(_elapsed_working_days(t.duration.days, t.percent_complete))
 
     return es_floor, completed_offsets, completed_dates, completed_instants, elapsed_days
 

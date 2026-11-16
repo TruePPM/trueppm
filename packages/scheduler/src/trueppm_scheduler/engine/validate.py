@@ -644,10 +644,11 @@ def _is_finite_number(value: object) -> bool:
 def _validate_task_numerics(t: Task) -> None:
     """``story_points`` (when set) and ``percent_complete`` must be finite numbers.
 
-    ``percent_complete`` (ADR-0132/0136) feeds ``_effective_duration_days``
-    (``int(duration * pct/100)``) and ``_is_complete`` (``pct >= 100``); a NaN there
-    raised a bare ValueError from ``int(nan)`` and a non-numeric value a bare TypeError
-    from the ``>= 100`` compare, while monte_carlo's own ``pct > 0`` gate silently
+    ``percent_complete`` (ADR-0132/0136) feeds ``_effective_duration_days`` (through
+    ``_elapsed_working_days``) and ``_is_complete`` (``pct >= 100``); a NaN there
+    raises a bare ValueError (``Fraction('nan')`` in ``_elapsed_working_days``; it was
+    ``int(nan)`` before #5034) and a non-numeric value a bare TypeError from the
+    ``>= 100`` compare, while monte_carlo's own ``pct > 0`` gate silently
     ignored the same NaN — so ``schedule()`` and ``monte_carlo()`` diverged on
     identical input (#1452). The ``from_dict``/``from_json`` path already rejects
     non-finite here (models.py); this closes the direct-object gap to match it.

@@ -228,6 +228,23 @@ date (`packages/scheduler/tests/test_started_link_anchor.py`, and the `started_`
   for an in-progress SCRUM task. This mapping is applied in the shared API
   input-builder (§4), since `remaining_points` is a Django-side concept.
 
+> **Amendment (2026-11-15, #5034, #5015) — the elapsed days are exact, with a
+> tolerance.** Every `int(duration × pct / 100)` and `floor(duration × percent_complete
+> / 100)` in this ADR, including the #1495 amendment below, is superseded by one rule
+> in both engines (the API's `remaining_duration` calls the installed engine's
+> `_effective_duration_days`, so it follows whichever rule that release has): with `P` the decimal `pct`
+> prints as (its shortest round-trip form) and `x = duration × P / 100` in exact
+> rational arithmetic, elapsed is the nearest integer when `x` is within 1e-9 days
+> of it and `floor(x)` otherwise, then capped at `duration − 1` when `pct < 100`.
+> Float truncation counted a 375-day task at 18.4% as 68 elapsed days, not 69; a bare
+> exact floor would have counted `100 × k / n` percents (9 days at
+> `11.11111111111111`%) a day short about half the time; the cap keeps the invariant
+> that an open task has at least one remaining day. Whole-number percents are
+> unchanged. The Rust engine also enables `serde_json`'s `float_roundtrip` so it
+> parses a percent to the same double as Python; with the exact rule that grows the
+> release wasm bundle by 31,914 bytes (12,545 gzip; `float_roundtrip` alone +25,861
+> raw), in no shipped client (ADR-0015).
+
 > **Amendment (2026-11-11, #1495) — Monte Carlo's PERT remaining work is
 > subtractive, not scaled.** The engines never implemented the PERT half of the
 > first bullet. The two readings agree only up to integer rounding: the

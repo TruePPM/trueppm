@@ -38,10 +38,12 @@ drawn — bracketing the duration and, deliberately, sitting below it.
 from __future__ import annotations
 
 import json
+import math
 import signal
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, timedelta
+from fractions import Fraction
 from itertools import pairwise
 from typing import Any
 
@@ -411,8 +413,18 @@ def _plausible_tasks(draw: st.DrawFn, tid: str) -> Task:
         name="t",
         duration=timedelta(days=duration_days),
         planned_start=draw(_opt_plausible_date),
-        # 100.0 included so the complete-by-percent branch is covered too.
-        percent_complete=draw(st.floats(min_value=0.0, max_value=100.0)),
+        # 100.0 included so the complete-by-percent branch is covered too. The
+        # day-boundary values ``100*k/n`` (#5015, #5034) are drawn on purpose: an
+        # arbitrary float almost never lands where the elapsed floor is sensitive.
+        percent_complete=draw(
+            st.floats(min_value=0.0, max_value=100.0)
+            | st.just(100.0)
+            | (
+                st.integers(0, duration_days).map(lambda k: 100 * k / duration_days)
+                if duration_days > 0
+                else st.nothing()
+            )
+        ),
         actual_start=actual_start,
         actual_finish=actual_finish,
         **triple,  # type: ignore[arg-type]
@@ -1162,7 +1174,12 @@ def test_duration_walk_spends_only_working_days(project: Project) -> None:
         duration_days = t.duration.days
         pct = t.percent_complete or 0.0
         if 0 < pct < 100:
-            duration_days -= int(duration_days * min(pct, 100.0) / 100.0)
+            # The exact decimal rule (#5034), not float math: the widened percent
+            # draw lands on day boundaries where the two differ by a day. Within
+            # 1e-9 days of a whole day it snaps to it; an open task keeps a day.
+            x = duration_days * Fraction(repr(pct)) / 100
+            elapsed = round(x) if abs(x - round(x)) <= Fraction(1, 10**9) else math.floor(x)
+            duration_days -= min(elapsed, duration_days - 1)
         if duration_days <= 0:
             # A milestone (or fully-burned remaining work) is a single pinned day.
             assert t.early_start == t.early_finish, f"{t.id}: zero-duration span is not a point"

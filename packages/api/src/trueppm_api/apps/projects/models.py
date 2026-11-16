@@ -3701,8 +3701,8 @@ class Task(VersionedModel):
     )
     # How this task's estimate is WRITTEN and READ — not how it is stored or
     # scheduled (#2975). `duration` above stays the integer working-day value the
-    # engine consumes, because `_effective_duration_days() -> int` and its integer
-    # truncation are part of the Python/Rust conformance contract (ADR-0132).
+    # engine consumes, because `_effective_duration_days() -> int` and its whole-day
+    # elapsed rule are part of the Python/Rust conformance contract (ADR-0132).
     # Hours entry converts through the project calendar's `hours_per_day` and
     # rounds to whole days; the UI states the rounding rather than hiding it.
     # Sub-day scheduling is deliberately NOT what this enables.

@@ -366,6 +366,21 @@
       "issue": "#4677",
       "evidence": "22cfcd34c: last change carries no regeneration or hand-derivation statement"
     },
+    "expected/progress_fractional_percent_decimal_floor.json": {
+      "provenance": "regenerated",
+      "issue": "#5034",
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; early dates hand-checked: 375d at 18.4% leaves 306 working days (Mon-Fri from 2026-03-02, finish 2027-05-03), at 77.6% leaves 84 (finish 2026-06-25)"
+    },
+    "expected/progress_fractional_percent_parse.json": {
+      "provenance": "regenerated",
+      "issue": "#5015",
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; early dates hand-checked against the exact decimal rule: A 34 remaining (2026-04-16), B 1 remaining (2026-03-02), C 38 remaining (2026-04-22). Re-blessed for the #5034 1e-9 snap: C's product is 4.5e-16 below 5, so it now counts 5 elapsed days, not 4; every other change in the snapshot (project finish, A and B late dates and floats, C's scheduled_start) is that one-day-earlier finish"
+    },
+    "expected/progress_k_of_n_percent_tolerance.json": {
+      "provenance": "regenerated",
+      "issue": "#5034",
+      "evidence": "REGEN_EXPECTED=1 snapshot of the Python engine; early finishes hand-checked (Mon-Fri from 2026-03-02): A 8 remaining (2026-03-11), B 1 (2026-03-02), C 1 (2026-03-02), D 2 (2026-03-03), E 1 (2026-03-02)"
+    },
     "expected/progress_in_progress_remaining.json": {
       "provenance": "unknown",
       "issue": "#1186",
@@ -1115,6 +1130,21 @@
       "provenance": "unknown",
       "issue": "#4677",
       "evidence": "22cfcd34c: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_fractional_percent_decimal_floor.json": {
+      "provenance": "unknown",
+      "issue": "#5034",
+      "evidence": "added for #5034; inputs chosen where float math floors one day short of the exact decimal"
+    },
+    "progress_fractional_percent_parse.json": {
+      "provenance": "unknown",
+      "issue": "#5015",
+      "evidence": "added for #5015; percents that serde_json without float_roundtrip parsed 1 ULP off"
+    },
+    "progress_k_of_n_percent_tolerance.json": {
+      "provenance": "unknown",
+      "issue": "#5034",
+      "evidence": "added for #5034; 100*k/n percents a bare exact floor counted one day short, and the 1e-9 snap boundary on either side"
     },
     "progress_in_progress_remaining.json": {
       "provenance": "unknown",

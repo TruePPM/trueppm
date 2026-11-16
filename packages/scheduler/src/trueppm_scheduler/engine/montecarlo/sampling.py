@@ -23,6 +23,7 @@ import numpy as np
 from trueppm_scheduler.engine.calendar_math import (
     _MAX_ORDINAL,
     _effective_duration_days,
+    _elapsed_working_days,
     _is_complete,
     _next_working_day,
     _safe_offset,
@@ -764,8 +765,9 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     """Shift the remaining work of a task carrying a percentage, elapsed days held.
 
     Returns ``task`` with a new ``duration`` and ``percent_complete``. Elapsed working
-    days are ``floor(duration * pct / 100)`` — the rule
-    :func:`_effective_duration_days` and Monte Carlo both apply — and work already done
+    days are the exact ``floor(duration * pct / 100)`` of
+    :func:`_elapsed_working_days` — the rule :func:`_effective_duration_days` and Monte
+    Carlo both apply — and work already done
     cannot be undone by a what-if, so while any work remains the new duration is
     ``elapsed + remaining + delta_days``.
 
@@ -796,14 +798,14 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     """
     duration_days = task.duration.days
     pct = min(task.percent_complete or 0.0, 100.0)
-    elapsed = int(duration_days * pct / 100.0)
+    elapsed = _elapsed_working_days(duration_days, pct)
     remaining = duration_days - elapsed + delta_days
     if remaining <= 0:
         # TODO(#4819): SS and SF links out of a zero-duration task stop reading the
         # recorded start, so a bigger pull-in can finish later than a smaller one.
         return replace(task, duration=timedelta(0))
     new_days = elapsed + remaining
-    if int(new_days * pct / 100.0) != elapsed:
+    if _elapsed_working_days(new_days, pct) != elapsed:
         pct = (elapsed + 0.5) * 100.0 / new_days
     return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
 

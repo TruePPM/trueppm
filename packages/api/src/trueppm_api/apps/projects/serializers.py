@@ -6462,19 +6462,29 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     def get_remaining_duration(self, obj: Task) -> int:
         """Working days of REMAINING work (ADR-0752 §2).
 
-        ``duration - floor(duration * percent_complete / 100)``, mirroring the
-        engine's ``_effective_duration_days`` exactly — the same rule that
-        makes ``early_start``/``early_finish`` name the remaining-work window.
-        Serializer-computed, not persisted: unlike ``scheduled_start`` (which
-        utilization, #2623, needs to filter on in the database), nothing queries
-        this value, so no column is needed for it.
+        The installed scheduler's own remaining-work rule,
+        ``_effective_duration_days``, called on an engine ``Task`` built from
+        this row: ``duration`` less the days ``percent_complete`` has used,
+        clamped at zero. It is called, not restated, so this value is always the
+        window the installed engine scheduled ``early_start``/``early_finish``
+        over (#5034). That function exists in every supported scheduler
+        release, unlike the helpers it is built from, so an install that
+        resolves the published package imports it too. Serializer-computed, not
+        persisted: unlike ``scheduled_start`` (which utilization, #2623, needs
+        to filter on in the database), nothing queries this value, so no column
+        is needed for it.
         """
-        duration = obj.duration or 0
-        pct = obj.percent_complete or 0.0
-        if pct <= 0:
-            return duration
-        elapsed = int(duration * min(pct, 100.0) / 100.0)
-        return max(0, duration - elapsed)
+        from trueppm_scheduler import Task as EngineTask
+        from trueppm_scheduler.engine import _effective_duration_days
+
+        return _effective_duration_days(
+            EngineTask(
+                id=str(obj.pk),
+                name=obj.name or "",
+                duration=timedelta(days=obj.duration or 0),
+                percent_complete=obj.percent_complete or 0.0,
+            )
+        )
 
     @extend_schema_field(_EXTERNAL_LINK_SUMMARY_SCHEMA)
     def get_external_link_summary(self, obj: Task) -> dict[str, object]:

@@ -310,8 +310,11 @@ class Task:
     is_critical: bool = False
     # Progress (ADR-0132). Consumed by both schedule() and monte_carlo() as a
     # remaining-duration driver: an in-progress task contributes only
-    # ``duration - floor(duration * percent_complete/100)`` of remaining work
-    # (10 days at 25% leaves 8; ADR-0132 §2a), scheduled forward from the
+    # ``duration`` less its elapsed days of remaining work (10 days at 25% leaves
+    # 8; ADR-0132 §2a). Elapsed is ``duration * percent_complete/100`` computed
+    # exactly on the decimal the value prints as, snapped to a whole day within
+    # 1e-9 and otherwise floored, and below 100% never the whole duration
+    # (``_elapsed_working_days``, #5034). It is scheduled forward from the
     # project ``status_date`` (the data date), not its full estimate from
     # project start. A value outside [0, 100] is refused with an error, not
     # clamped (#4513).
