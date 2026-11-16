@@ -1220,8 +1220,8 @@ export function SettingsSection({ id, children }: SettingsSectionProps) {
             >
               This section was not saved: {sectionError}
             </div>
-        )}
-        {/* Contain a section render failure to this region — on the consolidated
+          )}
+          {/* Contain a section render failure to this region — on the consolidated
             page (ADR-0146) an unguarded throw would reach the root boundary and
             replace the whole app. */}
           <SettingsSectionErrorBoundary sectionId={id}>{children}</SettingsSectionErrorBoundary>

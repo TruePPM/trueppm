@@ -18,8 +18,8 @@ import { create } from 'zustand';
  * Sequential save (not Promise.all) keeps error attribution simple — the first
  * rejecting section surfaces its message (keyed by section id in `sectionErrors`,
  * rendered in that section's own card) and the run stops; already-saved
- * sections stay saved and are listed in `savedSectionIds`. Settings saves are infrequent and small, so the lack of
- * parallelism costs nothing.
+ * sections stay saved and are listed in `savedSectionIds`. Settings saves are
+ * infrequent and small, so the lack of parallelism costs nothing.
  *
  * Standalone settings routes that are not part of the consolidated page (e.g.
  * the System Health "Retention & purge" tool) register under the default key,
@@ -45,7 +45,10 @@ export interface SettingsSaveState {
   apiReady: boolean;
   /** True while a save run is in flight. Buttons disable; nav guard short-circuits. */
   isSaving: boolean;
-  /** Non-null after a save mutation rejects. Cleared on next dirty change or successful save. */
+  /**
+   * Non-null after a save mutation rejects. Cleared when the failed section stops
+   * being dirty, on the next save run, or via `clearError`.
+   */
   saveError: string | null;
   /** Failure message per section id from the last save run; empty when none failed. */
   sectionErrors: Record<string, string>;
