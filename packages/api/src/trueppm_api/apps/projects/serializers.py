@@ -68,6 +68,7 @@ from trueppm_api.apps.projects.models import (
     SCOPE_API_FULL,
     SCOPE_LEGACY_FULL,
     SCOPE_MCP_READ,
+    SCOPE_WEBHOOKS_MANAGE,
     AcceptanceCriterion,
     ApiTokenAuditEntry,
     BacklogItem,
@@ -12248,6 +12249,17 @@ def _normalize_token_scopes(value: list[str]) -> list[str]:
             "token is either a full-access credential that acts as its owner or a "
             "read-only agent credential. Pick one."
         )
+    if SCOPE_WEBHOOKS_MANAGE in deduped and len(deduped) > 1:
+        # webhooks:manage selects a third posture (#2414): a narrow write credential
+        # confined to the webhook routes. Adding any other scope would either be
+        # redundant (the full scope already subsumes it) or contradictory (mcp:read is
+        # an agent posture), and a row mixing them resolves to full authority, so the
+        # least-privilege intent of asking for this scope would silently not hold.
+        raise serializers.ValidationError(
+            f"{SCOPE_WEBHOOKS_MANAGE!r} cannot be combined with any other scope — it is "
+            "a narrow credential for webhook management only. Mint a separate token "
+            "for anything else."
+        )
     return list(deduped)
 
 
@@ -12324,7 +12336,8 @@ class ProjectApiTokenCreateSerializer(
         help_text="Capabilities to grant. Defaults to ['api:full'] "
         "(full access). 'mcp:read' is NOT available here — the MCP read "
         "surface accepts only owner-scoped (personal) tokens, so mint one "
-        "from POST /api/v1/me/api-tokens/ instead.",
+        "from POST /api/v1/me/api-tokens/ instead. 'webhooks:manage' is "
+        "likewise personal-only.",
     )
     expires_at = serializers.DateTimeField(
         required=False,
@@ -12359,6 +12372,22 @@ class ProjectApiTokenCreateSerializer(
         # path either. Refusing it up front, naming the endpoint that does work, is
         # the difference between a 400 the caller can act on and a credential that
         # looks minted and fails later with no way to debug it (#2890).
+        if SCOPE_WEBHOOKS_MANAGE in scopes:
+            # Personal-only is a deliberate first slice, not a structural limit: the
+            # webhook routes are all project/program-nested, so a bound variant (an
+            # IsTokenForProject-style check that the URL's project/program is the
+            # token's own) is possible and stays open in #2414. Without that check a
+            # project/program token resolves request.user to its minter and would
+            # reach every project the minter administers (the confused-deputy hole
+            # OwnerScopedApiTokenAuthentication documents), so it is refused here.
+            raise serializers.ValidationError(
+                {
+                    "scopes": (
+                        "'webhooks:manage' is only available on a personal token — mint "
+                        "one from POST /api/v1/me/api-tokens/."
+                    )
+                }
+            )
         if SCOPE_MCP_READ in scopes:
             raise serializers.ValidationError(
                 {
@@ -12445,7 +12474,10 @@ class MyApiTokenCreateSerializer(
         help_text="Capabilities to grant. Defaults to ['api:full'] "
         "(full access, acts as you). Send ['mcp:read'] to mint a read-only "
         "personal token for the MCP server; an mcp:read token requires a "
-        "non-null expires_at.",
+        "non-null expires_at. Send ['webhooks:manage'] to mint a narrow token "
+        "that can create, read, update, delete and test outbound webhooks (not "
+        "their delivery log) and nothing else; it cannot be combined with "
+        "another scope.",
     )
 
     class Meta:

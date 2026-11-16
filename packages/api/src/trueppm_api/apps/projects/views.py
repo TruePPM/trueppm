@@ -21782,6 +21782,15 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                     .update(revoked_at=timezone.now())
                 ):
                     return Response(status=status.HTTP_204_NO_CONTENT)
+                # A webhook this token registered or repointed outlives the token
+                # (#2414, #4461): without this, revoking a leaked `webhooks:manage`
+                # token left the attacker's URL receiving every future event.
+                # Same transaction as the revocation, so both land or neither.
+                # layering-ok: a webhook this credential set must die with it, in this
+                # transaction; an extension-signal receiver would fail open instead.
+                from trueppm_api.apps.webhooks.models import deactivate_webhooks_set_by_token
+
+                webhooks_deactivated = deactivate_webhooks_set_by_token(token.pk)
                 ApiTokenAuditEntry.objects.create(
                     owner=caller,
                     token=token,
@@ -21789,7 +21798,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                     actor=caller,
                     action=ApiTokenAuditAction.REVOKED.value,
                     source_ip=_client_ip(request),
-                    detail={"name": token.name},
+                    detail={"name": token.name, "webhooks_deactivated": webhooks_deactivated},
                 )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

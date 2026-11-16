@@ -58,7 +58,7 @@ The server is configured entirely from the environment:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `TRUEPPM_API_URL` | yes | Base URL of your TruePPM instance, e.g. `https://ppm.example.com` |
+| `TRUEPPM_API_URL` | yes | Base URL of your TruePPM instance, e.g. `https://ppm.example.com`. Must be `https://`; plain `http://` is accepted only for a loopback host (`localhost`, `127.0.0.1`, `::1`) |
 | `TRUEPPM_API_TOKEN` | yes | A **personal access token** (`tppm_<64-hex>`) minted with the **`mcp:read` scope** and an **expiry**, from **Personal Settings → API tokens** |
 
 **Mint the right token.** The MCP read surface accepts only a personal (owner-scoped)

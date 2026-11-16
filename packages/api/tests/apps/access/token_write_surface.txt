@@ -46,6 +46,12 @@
 # #2939, but the old walker could not see that either, so this line had been
 # stale since before #4461 touched anything.
 #
+# The two `webhooks/$` list routes came BACK in #2414: POST there is token-writable
+# again, but only for a personal token carrying the narrow `webhooks:manage` scope
+# (`IsNotFullTokenAuthenticated`). A full-access token is still refused on create,
+# update and partial_update, so the set is "reachable by one narrow scope", not
+# "reachable by any token".
+#
 # One more left the set in #4462: `ws/ticket/`. Minting a WebSocket ticket is
 # session/JWT-only since `IsNotTokenAuthenticated` was added to
 # `WebSocketTicketView` — a ticket opens a live socket the consumer authenticates
@@ -100,6 +106,7 @@ api/v1/^programs/(?P<pk>[^/.]+)/reopen/$
 api/v1/^programs/(?P<pk>[^/.]+)/risk-policy/$
 api/v1/^programs/(?P<pk>[^/.]+)/rollup-config/$
 api/v1/^programs/(?P<pk>[^/.]+)/split/$
+api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/$
 api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/$
 api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/test/$
 api/v1/^programs/bulk-fields/$
@@ -122,6 +129,7 @@ api/v1/^projects/(?P<pk>[^/.]+)/queue/reorder/$
 api/v1/^projects/(?P<pk>[^/.]+)/restore/$
 api/v1/^projects/(?P<pk>[^/.]+)/unarchive/$
 api/v1/^projects/(?P<pk>[^/.]+)/visit/$
+api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/$
 api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/$
 api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/test/$
 api/v1/^recurrence-rules/$
