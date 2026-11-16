@@ -61,17 +61,46 @@ vi.mock('@/components/Toast', () => ({
 }));
 
 const widths: ColumnWidths['widths'] = {
-  wbs: 48, task: 180, links: 76, dur: 52, start: 74, finish: 74, progress: 52, owner: 72, totalFloat: 64, freeFloat: 64,
+  wbs: 48,
+  task: 180,
+  links: 76,
+  dur: 52,
+  start: 74,
+  finish: 74,
+  progress: 52,
+  owner: 72,
+  totalFloat: 64,
+  freeFloat: 64,
 };
 const visible: ColumnWidths['visible'] = {
-  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true, totalFloat: true, freeFloat: true,
+  wbs: true,
+  task: true,
+  links: true,
+  dur: true,
+  start: true,
+  finish: true,
+  progress: true,
+  owner: true,
+  totalFloat: true,
+  freeFloat: true,
 };
 
 const base: Task = {
-  id: 't1', wbs: '1.1', name: 'Design Phase', start: '2026-10-05', finish: '2026-10-15',
-  duration: 10, progress: 50, parentId: 't0',
-  isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-  status: 'NOT_STARTED', assignees: [], notes: '',
+  id: 't1',
+  wbs: '1.1',
+  name: 'Design Phase',
+  start: '2026-10-05',
+  finish: '2026-10-15',
+  duration: 10,
+  progress: 50,
+  parentId: 't0',
+  isCritical: false,
+  isComplete: false,
+  isSummary: false,
+  isMilestone: false,
+  status: 'NOT_STARTED',
+  assignees: [],
+  notes: '',
 };
 
 const tree = { hasChildren: false, isExpanded: false, onToggleId: vi.fn() };
@@ -123,7 +152,12 @@ describe('TaskListRow — handleToggleComplete (Space)', () => {
 
   it('does NOT celebrate when un-completing an already-complete task', () => {
     renderRouted(
-      <TaskListRow task={{ ...base, status: 'COMPLETE' }} level={1} widths={widths} visible={visible} />,
+      <TaskListRow
+        task={{ ...base, status: 'COMPLETE' }}
+        level={1}
+        widths={widths}
+        visible={visible}
+      />,
     );
     const row = screen.getByRole('row');
     row.focus();
@@ -148,7 +182,12 @@ describe('TaskListRow — handleToggleComplete (Space)', () => {
 
   it('is a no-op on a milestone row (status toggling is meaningless on a date point)', () => {
     renderRouted(
-      <TaskListRow task={{ ...base, isMilestone: true, duration: 0 }} level={1} widths={widths} visible={visible} />,
+      <TaskListRow
+        task={{ ...base, isMilestone: true, duration: 0 }}
+        level={1}
+        widths={widths}
+        visible={visible}
+      />,
     );
     const row = screen.getByRole('row');
     row.focus();
@@ -192,7 +231,7 @@ describe('TaskListRow — handleDuplicate (Ctrl+D)', () => {
 
     act(() => opts.onSuccess({ id: 'dup1' }));
     const toast = useScheduleStore.getState().scheduleActionToast;
-    expect(toast?.message).toBe('Added to Sprint 4');
+    expect(toast?.message).toBe('Added to Sprint 4. Assignees and dependencies were not copied.');
     expect(toast?.action?.label).toBe('Undo');
 
     // Activating Undo re-PATCHes the duplicate back to the backlog.
@@ -217,7 +256,10 @@ describe('TaskListRow — handleDuplicate (Ctrl+D)', () => {
       { onSuccess: (created: { id: string }) => void },
     ];
     act(() => opts.onSuccess({ id: 'dup1' }));
-    expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+    // No sprint Undo — only the not-cloned note (#2919), with no action.
+    const toast = useScheduleStore.getState().scheduleActionToast;
+    expect(toast?.message).toBe('Duplicated. Assignees and dependencies were not copied.');
+    expect(toast?.action?.label).not.toBe('Undo');
   });
 
   it('surfaces a schedule error toast on the duplicate error path', () => {
@@ -520,7 +562,7 @@ describe('TaskListRow — inline chips', () => {
     expect(screen.queryByTestId('dep-flag-predecessor')).toBeNull();
   });
 
-  it('puts the per-row detail in the chip tooltip — the control\'s NAME is constant', () => {
+  it("puts the per-row detail in the chip tooltip — the control's NAME is constant", () => {
     // The button is named "Edit predecessor links" on every row, so `title` is
     // the only per-row detail a sighted mouse user gets.
     renderWithRouter(
@@ -896,7 +938,12 @@ describe('TaskListRow — the WBS column reads as a ladder (#3055)', () => {
     // The mono string already self-indents two characters per level. A padding
     // ladder compounds it and pushes the leaf into the ellipsis at depth 4+.
     const { container } = renderRouted(
-      <TaskListRow task={{ ...base, wbs: '1.1.1.1' }} level={4} widths={widths} visible={visible} />,
+      <TaskListRow
+        task={{ ...base, wbs: '1.1.1.1' }}
+        level={4}
+        widths={widths}
+        visible={visible}
+      />,
     );
     const cell = container.querySelector('[aria-label="WBS 1.1.1.1"]') as HTMLElement;
     expect(cell.style.paddingLeft).toBe('');
@@ -918,7 +965,12 @@ describe('TaskListRow — the WBS column reads as a ladder (#3055)', () => {
   it('keeps the full untruncated path as the accessible name and the title', () => {
     // ~20 e2e specs locate rows by `WBS <path>`; the split must not fragment it.
     const { container } = renderRouted(
-      <TaskListRow task={{ ...base, wbs: '1.10.5.2' }} level={4} widths={{ ...widths, wbs: 32 }} visible={visible} />,
+      <TaskListRow
+        task={{ ...base, wbs: '1.10.5.2' }}
+        level={4}
+        widths={{ ...widths, wbs: 32 }}
+        visible={visible}
+      />,
     );
     const cell = container.querySelector('[aria-label="WBS 1.10.5.2"]') as HTMLElement;
     expect(cell).not.toBeNull();

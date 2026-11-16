@@ -1589,18 +1589,41 @@ function useRowActions(ctx: {
       },
       {
         onSuccess: (created) => {
-          if (sourceSprint && sourceSprint.state === 'ACTIVE') {
-            setScheduleActionToast({
-              message: `Added to ${sourceSprint.name}`,
-              action: {
-                label: 'Undo',
-                onClick: () => {
-                  updateTask.mutate({ id: created.id, projectId, sprint: null });
-                  setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
-                },
-              },
-            });
-          }
+          // Same closing toast as the subtree path (#2919): the clone carries no
+          // assignees or dependencies, and nothing else says so.
+          const sprintUndo =
+            sourceSprint && sourceSprint.state === 'ACTIVE'
+              ? {
+                  label: 'Undo',
+                  onClick: () => {
+                    updateTask.mutate({ id: created.id, projectId, sprint: null });
+                    setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
+                  },
+                }
+              : undefined;
+          const copyAssignees =
+            task.assignees.length > 0
+              ? {
+                  label: 'Copy assignees',
+                  onClick: () => {
+                    updateTask.mutate({
+                      id: created.id,
+                      projectId,
+                      owners: task.assignees.map((a) => ({
+                        resource: a.resourceId,
+                        units: a.units,
+                      })),
+                    });
+                    setScheduleActionToast({ message: 'Assignees copied', durationMs: 2000 });
+                  },
+                }
+              : undefined;
+          setScheduleActionToast({
+            message: sprintUndo
+              ? `Added to ${sourceSprint?.name}. Assignees and dependencies were not copied.`
+              : 'Duplicated. Assignees and dependencies were not copied.',
+            action: sprintUndo ?? copyAssignees,
+          });
         },
         onError: () => {
           setScheduleError('Failed to duplicate task.');
@@ -2190,7 +2213,9 @@ function RowPropertiesButton({
           // only focuses the row for keyboard editing, so this button is the
           // only path to the drawer. Same rationale as the Duration-cell pencil
           // icon (#2106): full-strength on hover/focus/selected, faint otherwise.
-          isSelected ? 'opacity-100' : 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100',
+          isSelected
+            ? 'opacity-100'
+            : 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
         ].join(' ')}
       >
