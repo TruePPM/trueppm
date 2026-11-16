@@ -544,6 +544,36 @@ describe('useScheduleTasks keyset task walk (#3381)', () => {
     });
   });
 
+  it('forwards the abort signal and stops walking once the run is cancelled (#4655)', async () => {
+    // Page 1 resolves with a next cursor; the second read hangs until its signal aborts.
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    let taskCalls = 0;
+    getMock.mockImplementation((url: string, cfg?: { signal?: AbortSignal }) => {
+      if (url !== '/tasks/') return Promise.resolve(paginatedResponse([]));
+      seenSignals.push(cfg?.signal);
+      taskCalls++;
+      if (taskCalls === 1) {
+        return Promise.resolve({
+          data: { results: [makeApiTask('t-1')], next: KEYSET_NEXT('c1'), previous: null },
+        });
+      }
+      return new Promise((_resolve, reject) => {
+        cfg?.signal?.addEventListener('abort', () => reject(new DOMException('x', 'AbortError')));
+      });
+    });
+
+    renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(taskCalls).toBe(2));
+    expect(seenSignals.every((sig) => sig instanceof AbortSignal)).toBe(true);
+
+    await act(async () => {
+      await qc.cancelQueries({ queryKey: ['tasks', 'proj-1'] });
+    });
+    expect(seenSignals[1]?.aborted).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(taskCalls).toBe(2);
+  });
+
   it('follows next by cursor, against the client base URL, and concatenates in order', async () => {
     getMock.mockImplementation(
       keysetGet({

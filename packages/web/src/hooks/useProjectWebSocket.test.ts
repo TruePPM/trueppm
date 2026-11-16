@@ -171,6 +171,27 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  it('holds a tasks invalidation until the running load settles, then fires once (#4655)', () => {
+    qc.setQueryData(['tasks', 'proj-1'], []);
+    const fetching = vi.spyOn(qc, 'isFetching').mockReturnValue(1);
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('dependency_created');
+    flushDebounce();
+    flushDebounce();
+    // The load is still running: nothing may cancel it and stack a second one.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['dependencies', 'proj-1'] });
+
+    fetching.mockReturnValue(0);
+    flushDebounce();
+    const tasksCalls = invalidateSpy.mock.calls.filter(
+      (c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['tasks', 'proj-1'] }),
+    );
+    expect(tasksCalls).toHaveLength(1);
+  });
+
   it('invalidates poker and the sprint backlog on poker_session_updated (#863)', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
