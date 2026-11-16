@@ -273,3 +273,35 @@ def test_replay_preserves_velocity_write_back_and_tornado(monkeypatch: pytest.Mo
     ranked = {entry["task_id"] for entry in whole["sensitivity"]}
     assert ranked & {"s0", "s1", "s2"}, "velocity tasks dropped out of the tornado"
     assert not ranked & {"deg", "det", "done", "floored"}
+
+
+def test_replay_write_back_straddles_the_kept_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replayed 1,024-row blocks over 2,600 runs keep exactly the tornado's leading rows.
+
+    The tornado reads the first ``MC_SENSITIVITY_SUBSAMPLE`` (2,000) runs, so one block
+    (1,024-2,048) straddles that edge and is copied aside only up to it, and the last
+    block (2,048-2,600) starts past it and is not copied at all. One-run blocks never
+    straddle and 300 runs never pass the edge, so the test above reaches neither branch.
+    A velocity project's chunk is a whole number of capacity draw blocks (1,024 runs
+    here), so that is the smallest block size this project can be chunked at.
+    """
+    project = _mixed_sampling_project()
+    blocks: list[tuple[int, int]] = []
+    keep_written = _SampledDurations.keep_written
+
+    def spy(self: _SampledDurations, lo: int, block: np.ndarray) -> None:
+        if self.replayed:
+            blocks.append((lo, lo + block.shape[0]))
+        keep_written(self, lo, block)
+
+    monkeypatch.setattr(_SampledDurations, "keep_written", spy)
+    outcomes = []
+    for chunk_cells, matrix_cells in ((1024 * len(project.tasks), 1), (10**12, 10**12)):
+        monkeypatch.setattr(mc_run, "_MC_FORWARD_CHUNK_CELLS", chunk_cells)
+        monkeypatch.setattr(mc_run, "_MC_SAMPLED_MATRIX_CELLS", matrix_cells)
+        outcomes.append(monte_carlo(project, runs=2600, seed=3824).to_dict())
+    assert blocks == [(0, 1024), (1024, 2048), (2048, 2600)]
+    replayed, whole = outcomes
+    assert replayed == whole
+    ranked = {entry["task_id"] for entry in whole["sensitivity"]}
+    assert ranked & {"s0", "s1", "s2"}, "velocity tasks dropped out of the tornado"

@@ -549,10 +549,13 @@ def _duration_sensitivity(
 
 
 _MAX_RUNS_ABSOLUTE = 100_000_000  # hard ceiling on ``runs`` independent of the caller's max_runs
-# Hard ceiling on the sampled-duration matrix, ``runs x tasks`` float64 cells (2 GB):
-# the one structure that is allocated in full, column by column, because that is the
-# order the seeded stream is consumed in. The runs ceiling alone does not bound it, so
-# 5M runs on a 200-task project reached ``np.empty`` and died with a bare MemoryError
+# Hard ceiling on the sampled-duration matrix, ``runs x tasks`` float64 cells (2 GB).
+# Up to the replay threshold (``_MC_SAMPLED_MATRIX_CELLS`` in ``run.py``) the matrix is
+# allocated in full; above it it is replayed a row block at a time (#3824), except when
+# the forward pass reads across runs or the generator is not PCG64, where it is still
+# allocated in full. Either way the sampler draws ``runs x tasks`` values, column by
+# column, and the ceiling bounds that. The runs ceiling alone does not bound it, so 5M
+# runs on a 200-task project reached ``np.empty`` and died with a bare MemoryError
 # outside the SchedulerError contract (#1829).
 _MAX_SAMPLE_CELLS = 250_000_000
 
@@ -635,8 +638,8 @@ def _validate_monte_carlo_args(
         raise InvalidScheduleInput("Project must have at least one task.")
 
 
-def _floor_sampled_at_duration(dur_matrix: np.ndarray, col: int, base: float) -> None:
-    """Clamp one sampled duration column up to the task's deterministic ``duration``.
+def _floor_sampled_at_duration(column: np.ndarray, base: float) -> None:
+    """Clamp one task's sampled durations, in place, up to its deterministic ``duration``.
 
     ``schedule()`` lays every task out at ``Task.duration``; ``monte_carlo()``
     replaces that with a sampled column whenever the task carries a velocity signal
@@ -672,15 +675,18 @@ def _floor_sampled_at_duration(dur_matrix: np.ndarray, col: int, base: float) ->
     feasible date. Reading the smaller of the two answers as the forecast is the one
     outcome that is not defensible.
 
-    Applied after sampling and to every path (velocity, PERT, deterministic) so the
-    seeded RNG stream is byte-for-byte unchanged and no source of uncertainty is
-    exempt. The deterministic path is already ``base``, so the clamp is a no-op there.
+    Applied by :func:`_sample_column` after sampling and to every path (velocity,
+    PERT, deterministic), on the held matrix and on every replayed row block alike,
+    so the seeded RNG stream is byte-for-byte unchanged and no source of uncertainty
+    is exempt. The deterministic path is already ``base``, so the clamp is a no-op
+    there. The clamp is elementwise, which is what lets a replayed row block apply it
+    to its rows alone.
     The elapsed portion of an in-progress task is subtracted from the *sampled* value
     downstream (:func:`_mc_effective_duration`) using the same integer rule
     :func:`_effective_duration_days` applies to ``duration``, so flooring the full
     sampled duration here floors the remaining work by exactly the same amount.
     """
-    np.maximum(dur_matrix[:, col], base, out=dur_matrix[:, col])
+    np.maximum(column, base, out=column)
 
 
 def _sample_duration_matrix(
@@ -756,7 +762,7 @@ def _sample_column(
         column = _sample_pert(opt, ml, pess, n, rng)
     else:
         column = np.full(n, base)
-    np.maximum(column, base, out=column)  # :func:`_floor_sampled_at_duration`
+    _floor_sampled_at_duration(column, base)
     # A completed task is pinned to a constant offset pair in the forward pass
     # (its sampled column is never read there), so its sampled duration cannot
     # move the finish — a varying column would surface in the sensitivity tornado
