@@ -569,6 +569,12 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
 - **Fail-soft.** The hook always exits 0. A broken transcript layout, an unreadable notes API or
   a failed post is reported to the session with the command to re-run, never silently, and never
   blocks `glab mr create`. An unreadable notes read is reported, not treated as "a comment exists".
+- **One Bash call can open several MRs.** The hook runs record 1 for every distinct MR URL in the
+  tool output, in output order, one at a time and one `mr-cost-hook.log` line each. The first takes
+  the session's next window; each later one claims only what the earlier ones did not, so it can
+  legitimately report "nothing measurable" (with its `--retry` command) instead of posting. The hook
+  needs Python 3.11+ on `PATH` (macOS's `/usr/bin/python3` is 3.9): on an older python it prints a
+  `systemMessage` saying so instead of failing silently.
 - **It logs every `glab mr create` it sees**, one line each, to `mr-cost-hook.log` in the clone's
   git common dir: time, session id, MR number and a fixed outcome. No command text or token is
   logged, and the log rotates at 256 KB. **No line for an MR opened through Claude Code means the

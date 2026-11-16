@@ -165,6 +165,25 @@ def mr_ref(text):
     return (None, int(m.group(1))) if m else (None, None)
 
 
+def mr_refs(text):
+    """Every distinct (project path or None, iid) in `text`, in output order: one Bash call can run
+    `glab mr create` several times, and each MR needs its own record 1. Full URLs win; bare
+    `/-/merge_requests/<n>` paths are used (project None) only when no full URL was printed. Each iid
+    is paired with the project from its own match, like mr_ref."""
+    text = text if isinstance(text, str) else json.dumps(text or "")
+    out = []
+    for m in MR_PROJECT_RE.finditer(text):
+        ref = (m.group(1), int(m.group(2)))
+        if ref not in out:
+            out.append(ref)
+    if not out:
+        for m in MR_URL_RE.finditer(text):
+            ref = (None, int(m.group(1)))
+            if ref not in out:
+                out.append(ref)
+    return out
+
+
 def mr_project(text):
     """The `namespace/project` path of the MR URL in `text`, or None (see mr_ref)."""
     return mr_ref(text)[0]
@@ -1866,8 +1885,9 @@ def _reconcile_locked(runner, cwd, sid, branch, seen, opts, project, tu):
     return end if write_state(config_root(), sid, state, end, members) else None
 
 
-def process(payload, opts=None, runner=run, project=None):
-    """(message or None). Record 1 for the MR a `glab mr create` just opened.
+def process(payload, opts=None, runner=run, project=None, ref=None):
+    """(message or None). Record 1 for the MR a `glab mr create` just opened. `ref` is one
+    (project, iid) from mr_refs when the call printed several MR URLs; absent, the first URL is used.
 
     The hook's cwd is the SESSION's directory, so a session that started in repo X and ran
     `glab mr create` for repo Y would read X's MR with Y's iid. The project in the printed MR URL
@@ -1878,7 +1898,11 @@ def process(payload, opts=None, runner=run, project=None):
     if payload.get("tool_name") not in (None, "Bash"):
         return quiet("not a Bash call")
     ti = payload.get("tool_input") or {}
-    iid = mr_iid(ti.get("command", ""), payload.get("tool_response"))
+    iid = (
+        ref[1]
+        if ref and MR_CREATE_RE.search(ti.get("command", "") or "")
+        else mr_iid(ti.get("command", ""), payload.get("tool_response"))
+    )
     if iid is None:
         return quiet(
             "glab mr create ran but no MR URL was printed"
@@ -1901,7 +1925,7 @@ def process(payload, opts=None, runner=run, project=None):
         return quiet("cost-ledger off (enabled exit %d)" % rc)  # the opt-out
     if project is None:
         url_project, here = (
-            mr_project(payload.get("tool_response")),
+            ref[0] if ref else mr_project(payload.get("tool_response")),
             repo_project(runner, cwd),
         )
         if here is None or url_project != here:
@@ -2381,7 +2405,7 @@ def cli_main(argv):
     return rc
 
 
-def log_firing(cwd, payload, msg):
+def log_firing(cwd, payload, msg, iid=None):
     """Append one line to <git common dir>/mr-cost-hook.log for a `glab mr create` the hook saw.
 
     Why: every skip used to be silent, so 'the hook never fired' and 'the hook fired and skipped'
@@ -2401,7 +2425,7 @@ def log_firing(cwd, payload, msg):
                 os.replace(path, path + ".1")
         except OSError:
             pass
-        iid = mr_iid(
+        iid = iid or mr_iid(
             (payload.get("tool_input") or {}).get("command", ""),
             payload.get("tool_response"),
         )
@@ -2417,12 +2441,49 @@ def log_firing(cwd, payload, msg):
         pass
 
 
+def process_all(payload, opts=None, runner=run):
+    """[(iid or None, message or None)], one entry per distinct MR URL a `glab mr create` call
+    printed, in output order. Each record runs to completion (state committed) before the next
+    starts, so the per-session window state hands the later MRs only what the earlier ones did not
+    claim. One MR failing never stops the others. No URL printed: one entry, as process() reports it."""
+    ti = payload.get("tool_input") or {}
+    refs = (
+        mr_refs(payload.get("tool_response"))
+        if MR_CREATE_RE.search(ti.get("command", "") or "")
+        else []
+    )
+    if not refs:
+        return [(None, process(payload, opts, runner))]
+    results = []
+    for ref in refs:
+        try:
+            msg = process(payload, opts, runner, ref=ref)
+        except Exception as e:  # noqa: BLE001 - a hook must never break the tool call it follows
+            msg = "MR cost comment hook errored for !%d (%s). %s" % (
+                ref[1],
+                type(e).__name__,
+                retry_hint(ref[1], payload.get("session_id") or ""),
+            )
+            OUTCOME["why"] = "errored: " + type(e).__name__
+        results.append((ref[1], msg))
+        if len(refs) > 1:
+            log_firing(payload.get("cwd") or os.getcwd(), payload, msg, ref[1])
+    return results
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
-        msg = process(payload) if isinstance(payload, dict) else None
-        if isinstance(payload, dict) and MR_CREATE_RE.search(
-            (payload.get("tool_input") or {}).get("command", "") or ""
+        results = process_all(payload) if isinstance(payload, dict) else [(None, None)]
+        msgs = [m for _i, m in results if m]
+        msg = "\n".join(msgs) if msgs else None
+        multi = len(results) > 1
+        if (
+            isinstance(payload, dict)
+            and not multi
+            and MR_CREATE_RE.search(
+                (payload.get("tool_input") or {}).get("command", "") or ""
+            )
         ):
             log_firing(payload.get("cwd") or os.getcwd(), payload, msg)
     except Exception as e:  # noqa: BLE001 - a hook must never break the tool call it follows
@@ -2434,10 +2495,11 @@ def main():
             sid = payload.get("session_id") or ""
         except Exception:  # noqa: BLE001 - payload may be the thing that was malformed
             iid, sid = None, ""
-        msg = "MR cost comment hook errored (%s). %s" % (
-            type(e).__name__,
-            retry_hint(iid, sid),
-        )
+        msgs = [
+            "MR cost comment hook errored (%s). %s"
+            % (type(e).__name__, retry_hint(iid, sid))
+        ]
+        msg = msgs[0]
         OUTCOME["why"] = "errored: " + type(e).__name__
     if msg:
         out = {
@@ -2446,12 +2508,15 @@ def main():
                 "additionalContext": msg,
             }
         }
-        if (
-            not msg.startswith("Posted")
-            or "commit of the session cost state failed" in msg
-        ):
+        problems = [
+            m
+            for m in msgs
+            if not m.startswith("Posted")
+            or "commit of the session cost state failed" in m
+        ]
+        if problems:
             # additionalContext reaches only the model; systemMessage is what the user sees.
-            out["systemMessage"] = msg
+            out["systemMessage"] = "\n".join(problems)
         print(json.dumps(out))
     return 0
 
@@ -3442,6 +3507,44 @@ def golden_cases(check):
             repr((exists, n_exists, hook_reads(False))),
         )
 
+        # One Bash call that ran `glab mr create` twice (and printed the first URL twice): record 1 for
+        # each distinct MR, run in sequence so the second claims only what the first did not.
+        gs = json.load(open(gstate, encoding="utf-8"))
+        gs["notes"]["12"] = []
+        gs["notes"]["13"] = []
+        json.dump(gs, open(gstate, "w", encoding="utf-8"))
+        roll_back(plain(ex["steps"]["c-retry"]["state"]))
+        multi = hook_payload(12)
+        multi["tool_response"] = {
+            "stdout": "https://example.test/g/p/-/merge_requests/12\n"
+            "https://example.test/g/p/-/merge_requests/12\n"
+            "https://example.test/g/p/-/merge_requests/13\n"
+        }
+        globals()["now_utc"] = lambda: "2026-11-07T17:00:00Z"
+        res = process_all(multi, opts, crun)
+        b12 = [
+            n["body"] for n in json.load(open(gstate, encoding="utf-8"))["notes"]["12"]
+        ]
+        b13 = [
+            n["body"] for n in json.load(open(gstate, encoding="utf-8"))["notes"]["13"]
+        ]
+        check(
+            "golden multi-MR: two distinct URLs (one printed twice) are handled in output order, one record 1 for the first",
+            [i for i, _m in res] == [12, 13]
+            and (res[0][1] or "").startswith("Posted")
+            and len(b12) == 1,
+            repr(res),
+        )
+        check(
+            "golden multi-MR: the first record takes the whole window, so the second claims nothing and says so loudly instead of double-counting",
+            not b13
+            and (res[1][1] or "").startswith(
+                "MR cost comment skipped for !13: nothing measurable"
+            )
+            and "--retry --mr 13" in (res[1][1] or ""),
+            repr(res[1]),
+        )
+
     finally:
         globals()["now_utc"] = saved_now
         os.environ.clear()
@@ -3964,7 +4067,7 @@ def retained_cases(check):
             ("MR cost comment skipped for !9: boom. Re-run", True),
             ("Posted the cost comment", False),
         ):
-            globals()["process"] = lambda payload, m=msg: m
+            globals()["process"] = lambda payload, *a, m=msg, **k: m
             sys.stdin, sys.stdout = (
                 io.StringIO(json.dumps({"tool_input": {"command": "ls"}})),
                 io.StringIO(),
@@ -4920,6 +5023,51 @@ def _self_test():
         "no repo-locating GIT_* variable leaks into the self-test (a pre-push hook sets GIT_DIR, and every scratch repo would be the outer one)",
         not [k for k in REPO_LOCATING_GIT_ENV if k in os.environ],
         repr([k for k in REPO_LOCATING_GIT_ENV if k in os.environ]),
+    )
+    check(
+        "mr_refs: every distinct URL in output order, each iid with its own project; a repeat is one",
+        mr_refs(
+            "https://h/a/b/-/merge_requests/5\nhttps://h/c/d/-/merge_requests/6\n"
+            "https://h/a/b/-/merge_requests/5\n"
+        )
+        == [("a/b", 5), ("c/d", 6)]
+        and mr_refs("x /-/merge_requests/7 /-/merge_requests/7") == [(None, 7)]
+        and mr_refs("none") == []
+        and mr_ref("https://h/a/b/-/merge_requests/5 https://h/c/d/-/merge_requests/6")
+        == ("a/b", 5),
+        repr(mr_refs("https://h/a/b/-/merge_requests/5 /-/merge_requests/9")),
+    )
+    _real_process, _real_log = globals()["process"], globals()["log_firing"]
+    _calls, _logged = [], []
+    globals()["process"] = lambda p, o=None, r=run, project=None, ref=None: (
+        _calls.append(ref) or ("Posted !%d" % ref[1] if ref else None)
+    )
+    globals()["log_firing"] = lambda cwd, p, m, iid=None: _logged.append((iid, m))
+    try:
+        _cmd = {"command": "glab mr create --yes"}
+        _two = process_all(
+            {
+                "tool_input": _cmd,
+                "tool_response": "https://h/a/b/-/merge_requests/5\nhttps://h/a/b/-/merge_requests/6",
+            }
+        )
+        _one = process_all(
+            {
+                "tool_input": _cmd,
+                "tool_response": "https://h/a/b/-/merge_requests/5 again https://h/a/b/-/merge_requests/5",
+            }
+        )
+        _none = process_all({"tool_input": _cmd, "tool_response": "no url"})
+    finally:
+        globals()["process"], globals()["log_firing"] = _real_process, _real_log
+    check(
+        "process_all: two URLs run two records and write two log lines; a duplicate URL is one record; no URL is one quiet pass",
+        [i for i, _m in _two] == [5, 6]
+        and _logged == [(5, "Posted !5"), (6, "Posted !6")]
+        and [i for i, _m in _one] == [5]
+        and _none == [(None, None)]
+        and _calls == [("a/b", 5), ("a/b", 6), ("a/b", 5), None],
+        repr((_two, _one, _none, _calls, _logged)),
     )
     check(
         "other worktree leaf: slug after a slash, not a file name or a longer word",
