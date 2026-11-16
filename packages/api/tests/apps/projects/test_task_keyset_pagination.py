@@ -261,6 +261,11 @@ class TestKeysetQueryShape:
         assert len(keyset_ctx.captured_queries) == len(offset_ctx.captured_queries) - 1
 
 
+# A fixed id, not uuid4(): parametrize ids are built at collection time, and a
+# random one differs per xdist worker ("Different tests were collected").
+_FIXED_ID = uuid.UUID("f0c9806b-a08b-4677-8945-d0b313f4a0aa")
+
+
 def _forged(payload: dict[str, object]) -> str:
     raw = json.dumps(payload).encode()  # ensure_ascii escapes NUL as \\u0000
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
@@ -283,11 +288,11 @@ class TestKeysetRefusals:
             "not base64 !!",
             "bm90IGpzb24",  # "not json"
             "WzEsMiwzXQ",  # a JSON list, not an object
-            TaskCursor(key=("1",), name="x", id=uuid.uuid4()).encode()[:-4] + "AAAA",
+            TaskCursor(key=("1",), name="x", id=_FIXED_ID).encode()[:-4] + "AAAA",
             "eyJrIjoiMSIsIm4iOiJ4IiwiaSI6Im5vcGUifQ",  # k is a string, i is not a UUID
             "x" * 20_000,
-            _forged({"k": None, "n": "a\u0000b", "i": str(uuid.uuid4())}),  # NUL in name
-            _forged({"k": ["1", "a\u0000"], "n": "x", "i": str(uuid.uuid4())}),  # NUL in label
+            _forged({"k": None, "n": "a\u0000b", "i": str(_FIXED_ID)}),  # NUL in name
+            _forged({"k": ["1", "a\u0000"], "n": "x", "i": str(_FIXED_ID)}),  # NUL in label
         ],
     )
     def test_malformed_cursor_is_a_400(
