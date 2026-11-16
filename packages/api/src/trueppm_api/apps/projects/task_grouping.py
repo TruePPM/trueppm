@@ -360,8 +360,12 @@ def _assert_schedulable(state: GraphState) -> None:
     # one that leaves a cycle (#4830). Blames the summaries, deduplicated in order.
     offending = find_summary_start_links(edges, children_map.keys())
     if offending:
+        summaries = children_map.keys()
         raise InfeasibleGraphError(
-            "summary_start_link", list(dict.fromkeys(p for p, _, _ in offending))
+            "summary_start_link",
+            # The summary end of each link: the predecessor for SS/SF out of one,
+            # the successor for FF into one (#4437).
+            list(dict.fromkeys(p if p in summaries else s for p, s, _ in offending)),
         )
 
 

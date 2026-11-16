@@ -171,6 +171,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_completed_pin: 'adapter: does not thread actuals/status date',
   progress_completed_percent_only_constraints: 'adapter: does not thread actuals/status date',
   progress_completed_no_actuals_between_live_tasks: 'adapter: does not thread actuals/status date',
+  // #4539. Completed work with no actuals is capped at the data date; the fix is
+  // in the two server engines, and this adapter cannot feed the status date.
+  progress_completed_no_actuals_capped_at_data_date: 'adapter: does not thread actuals/status date',
+  progress_completed_milestone_capped_at_data_date: 'adapter: does not thread actuals/status date',
   progress_completed_no_actuals_seven_day_chain: 'adapter: does not thread actuals/status date',
   progress_completed_no_actuals_milestone_instant: 'adapter: does not thread actuals/status date',
   progress_completed_actuals_milestone_instant: 'adapter: does not thread actuals/status date',

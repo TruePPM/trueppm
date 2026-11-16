@@ -20,6 +20,7 @@ distinguishable from the +1 FS inclusive-day offset.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date, timedelta
 
 import pytest
@@ -497,6 +498,20 @@ def test_completed_bare_100_percent_cites_a_later_snet() -> None:
     ef = _c("early_start", imposed_date="2026-03-11")
     assert _contribs(p, "A", Quantity.EARLY_START) == [ps, {**snet, "is_binding": True}, ef]
     assert _contribs(p, "A", Quantity.EARLY_FINISH) == [ps, snet, {**ef, "is_binding": True}]
+
+
+def test_completed_no_actuals_capped_at_the_data_date_cites_it() -> None:
+    """#4539: an SNET span past the data date is laid back to finish on it, and the
+    data date (not the SNET) binds both quantities; the anchors stay as context."""
+    p = dataclasses.replace(
+        _completed(planned_start=date(2026, 3, 11)), status_date=date(2026, 3, 12)
+    )
+    dd = _c("data_date", imposed_date="2026-03-12", calendar_days_added=0, is_binding=True)
+    ps = _c("project_start", imposed_date="2026-03-02", calendar_days_added=0)
+    snet = _c("planned_start_snet", imposed_date="2026-03-11", calendar_days_added=0)
+    assert _contribs(p, "A", Quantity.EARLY_FINISH) == [dd, ps, snet]
+    assert _contribs(p, "A", Quantity.EARLY_START) == [dd, ps, snet]
+    assert derive_value(p, "A", Quantity.EARLY_START).value == "2026-03-10"
 
 
 def test_completed_bare_100_percent_never_cites_its_predecessor() -> None:

@@ -249,6 +249,9 @@ def _mc_pre_start_pad_days(
     for tid in topo_order:
         task = task_map[tid]
         cal = cal_of[tid]
+        # No data-date cap here (#4539): a capped task implies a data date after the
+        # project start, which floors every incomplete task, so nothing placed from a
+        # capped pin can sit below the index; the cap itself is applied in forward.py.
         pinned = _pinned_placement(task, cal, _next_working_day(project.start_date, cal))
         if pinned is not None:
             lo[tid] = pinned[0]

@@ -57,6 +57,17 @@ refuses to let a checklist subtask be added straight into one:
 | adding a drawer subtask under a phase | "Phases group work — add tasks inside the phase, not subtasks." |
 | `percent_complete` | the pre-existing summary-task lock above, unchanged |
 
+A phase's status is computed from the status of the leaf tasks beneath it, at
+any depth, and refreshed on every schedule recompute. Backlog leaves are ignored
+unless every leaf is in the backlog. The phase is *Complete* when every other
+leaf is complete, *In review* when the rest are complete or in review, *In
+progress* when any leaf is underway or any leaf is complete, and *Not started*
+otherwise. A successor of a completed phase is therefore no longer shown as
+blocked, and the schedule-performance index counts leaf work only. Task
+responses carry `status_source` (`derived` on a phase, `none` on an empty
+container, `committed` on ordinary work) and `status_rollup_count` (how many
+leaves the status was read from).
+
 Each lock fires only when a write actually tries to *change* the locked
 value — a PATCH that omits the field, or resends the value already stored,
 still succeeds. Set the assignee and log time on the leaf tasks inside the
@@ -114,6 +125,16 @@ a task or a subtask inside it. The message names the links in the way:
 > Start-to-Start or Start-to-Finish link, and a summary cannot drive a successor
 > from its start. Change those links to Finish-to-Start or Finish-to-Finish, or
 > delete them, first.
+
+The same goes for the other end of a summary: from 0.5 a **Finish-to-Finish or
+Start-to-Finish link *into* a summary task** is refused with a 400 when you save
+it, and an import skips it with a warning. A summary finishes when its last
+subtask does, so applying the link to every subtask would force even a short,
+unrelated subtask to finish with the predecessor. Link to the subtask that
+should finish with it instead. Finish-to-Start and Start-to-Start links into a
+summary are unaffected: they constrain its start, which every subtask shares.
+0.4 accepts such a link and applies it to every subtask
+([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)).
 
 Retype or delete those links, or move them to one of the subtasks, then try the
 move again. A task that is already a summary is not affected by this check.

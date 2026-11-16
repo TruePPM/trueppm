@@ -1961,3 +1961,44 @@ def test_resolve_assignee_ignores_non_member_and_deleted_twin(
     user, pending = _resolve_assignee(member_user.email, project)
     assert user == member_user
     assert pending is None
+
+
+@pytest.mark.django_db
+def test_parent_attach_is_refused_when_the_parent_has_an_inbound_ff_link(
+    project: Project, admin_user: Any
+) -> None:
+    """A leaf with ``X -FF-> parent`` cannot become a summary (#4437).
+
+    The task lands flat in the backlog with a warning, like any other refused parent.
+    """
+    from trueppm_api.apps.projects.models import Dependency
+
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    parent_resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "EPIC-1", "name": "Epic"},
+        format="json",
+    )
+    parent_task = Task.objects.get(pk=parent_resp.data["task_id"])
+    parent_task.wbs_path = "1"
+    parent_task.save(update_fields=["wbs_path"])
+    other = Task.objects.create(project=project, name="Other", duration=1, wbs_path="2")
+    Dependency.objects.create(predecessor=other, successor=parent_task, dep_type="FF")
+
+    child_resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {
+            "source": "jira",
+            "external_id": "STORY-1",
+            "name": "Story",
+            "parent_external_id": "EPIC-1",
+        },
+        format="json",
+    )
+
+    assert child_resp.status_code == 201, child_resp.data
+    child = Task.objects.get(pk=child_resp.data["task_id"])
+    assert child.is_subtask is False
+    assert child.wbs_path is None or not str(child.wbs_path).startswith("1.")
+    assert any("cannot become a summary task" in w for w in child_resp.data["warnings"])

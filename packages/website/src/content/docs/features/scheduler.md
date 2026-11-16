@@ -775,6 +775,15 @@ a summary will still raise `InvalidScheduleInput`, as described below.
 In 0.5 a `children_map` entry that names no task in `tasks` will raise `InvalidScheduleInput` naming that entry, where 0.4 expands silently over the missing leaf. The check will be skipped when `tasks` is empty. A task listed under two parents will still be accepted by design: its leaves expand once and it is not a cycle.
 :::
 
+:::note[Ships in 0.5]
+A cyclic `children_map` will raise `InvalidScheduleInput` even when no link touches the cycle.
+The earlier release accepts it and silently drops the tasks in it.
+Two links written on the same pair of plain tasks will be refused with the "Duplicate dependency" error that `schedule()` raises, whether or not `children_map` is empty.
+The earlier release merges them when the map is not empty.
+An expansion past `MAX_EXPANDED_EDGES` will be refused from leaf counts, in time linear in the size of `children_map`.
+The limit is an upper bound that counts links expanding onto the same leaf pair separately.
+:::
+
 When two links resolve to the same leaf pair — say `build → test` and
 `phase-1 → test` with a 7-day lag — they merge into one edge that keeps the
 **largest** lag, so the result never depends on the order of `dependencies`. If the

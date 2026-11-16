@@ -26083,7 +26083,7 @@
                                         },
                                         "blocking_dependencies": {
                                             "type": "array",
-                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
+                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
                                             "items": {
                                                 "type": "object",
                                                 "properties": {
@@ -26230,7 +26230,7 @@
                                         },
                                         "blocking_dependencies": {
                                             "type": "array",
-                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
+                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
                                             "items": {
                                                 "type": "object",
                                                 "properties": {
@@ -26403,7 +26403,7 @@
                                         },
                                         "blocking_dependencies": {
                                             "type": "array",
-                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
+                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
                                             "items": {
                                                 "type": "object",
                                                 "properties": {
@@ -52464,7 +52464,7 @@
                                         },
                                         "blocking_dependencies": {
                                             "type": "array",
-                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
+                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
                                             "items": {
                                                 "type": "object",
                                                 "properties": {
@@ -85389,6 +85389,16 @@
                         "readOnly": true,
                         "default": false
                     },
+                    "status_source": {
+                        "type": "string",
+                        "description": "'derived' | 'none' | 'committed' — see the field comment (#3531).",
+                        "readOnly": true
+                    },
+                    "status_rollup_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
                     "parent_id": {
                         "type": "string",
                         "format": "uuid",
@@ -85865,6 +85875,8 @@
                     "sprint_pending",
                     "sprint_scope_changes",
                     "status_changed_at",
+                    "status_rollup_count",
+                    "status_source",
                     "total_float",
                     "wbs_path"
                 ]
@@ -89007,6 +89019,16 @@
                         "readOnly": true,
                         "default": false
                     },
+                    "status_source": {
+                        "type": "string",
+                        "description": "'derived' | 'none' | 'committed' — see the field comment (#3531).",
+                        "readOnly": true
+                    },
+                    "status_rollup_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
                     "parent_id": {
                         "type": "string",
                         "format": "uuid",
@@ -89490,6 +89512,8 @@
                     "sprint_pending",
                     "sprint_scope_changes",
                     "status_changed_at",
+                    "status_rollup_count",
+                    "status_source",
                     "total_float",
                     "wbs_path"
                 ]

@@ -2358,8 +2358,12 @@ class ProjectViewSet(
         epics = list(_backlog_qs().filter(type=TaskType.EPIC).order_by("priority_rank", "name"))
 
         def _story_filter(qs: Any) -> Any:
-            return qs.filter(status=TaskStatus.BACKLOG, sprint__isnull=True).exclude(
-                type=TaskType.EPIC
+            # Phases excluded: a phase of all-BACKLOG leaves stores BACKLOG (#3531).
+            return (
+                qs.filter(status=TaskStatus.BACKLOG, sprint__isnull=True)
+                .exclude(type=TaskType.EPIC)
+                .annotate(_backlog_is_phase=task_is_phase_expr())
+                .filter(_backlog_is_phase=False)
             )
 
         story_order = ("priority_rank", "short_id")
@@ -2371,8 +2375,29 @@ class ProjectViewSet(
                 "parent_epic_id", "story_points", "status", "dor"
             )
         )
+        # The RawSQL phase probe cannot sit inside a ``task__in`` subquery (it is
+        # re-aliased and the correlated reference breaks), so phases — few — are
+        # materialized and excluded by id here.
+        backlog_phase_ids = list(
+            Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                status=TaskStatus.BACKLOG,
+                sprint__isnull=True,
+            )
+            .annotate(_backlog_is_phase=task_is_phase_expr())
+            .filter(_backlog_is_phase=True)
+            .values_list("pk", flat=True)
+        )
         ac_agg = AcceptanceCriterion.objects.filter(
-            task__in=_story_filter(Task.objects.filter(project=project, is_deleted=False))
+            task__in=Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                status=TaskStatus.BACKLOG,
+                sprint__isnull=True,
+            )
+            .exclude(type=TaskType.EPIC)
+            .exclude(pk__in=backlog_phase_ids)
         ).aggregate(
             total=db_models.Count("id"),
             met=db_models.Count("id", filter=db_models.Q(met=True)),
@@ -5045,6 +5070,39 @@ def annotate_tasks_queryset(
             ")",
             [],
             output_field=BooleanField(),
+        ),
+        # status_rollup_count (#3531): how many leaves the materialized phase status
+        # was derived from — the same non-subtask leaf-descendant set
+        # ``rollup_phase_statuses`` reads. 0 on a non-phase (the serializer reads
+        # ``status_source`` for provenance, not this).
+        # nosemgrep: avoid-raw-sql
+        status_rollup_count=RawSQL(
+            "CASE WHEN EXISTS ("
+            "  SELECT 1 FROM projects_task pc"
+            "  WHERE pc.project_id = projects_task.project_id"
+            "    AND pc.is_deleted = false"
+            "    AND pc.is_subtask = false"
+            "    AND pc.id != projects_task.id"
+            "    AND pc.wbs_path IS NOT NULL"
+            "    AND projects_task.wbs_path IS NOT NULL"
+            "    AND pc.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+            ") THEN ("
+            "  SELECT COUNT(*) FROM projects_task c"
+            "  WHERE c.project_id = projects_task.project_id"
+            "    AND c.is_deleted = false"
+            "    AND c.is_subtask = false"
+            "    AND projects_task.wbs_path IS NOT NULL"
+            "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1,}')::lquery"
+            "    AND NOT EXISTS ("
+            "      SELECT 1 FROM projects_task gc"
+            "      WHERE gc.project_id = projects_task.project_id"
+            "        AND gc.is_deleted = false"
+            "        AND gc.is_subtask = false"
+            "        AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
+            "    )"
+            ") ELSE 0 END",
+            [],
+            output_field=db_models.IntegerField(),
         ),
         # nosemgrep: avoid-raw-sql
         parent_id=RawSQL(

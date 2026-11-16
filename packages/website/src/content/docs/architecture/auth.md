@@ -329,7 +329,11 @@ startup, so a change needs a restart). It exempts a host for single sign-on only
 SMTP, integrations and webhooks each have their own list — see [Single sign-on](/administration/single-sign-on/#running-the-identity-provider-inside-your-cluster).
 
 :::note[Ships in 0.5]
-The per-purpose lists are introduced by 0.5. In 0.4 the escape hatch is
+Zero-downtime rotation of `INTEGRATION_ENCRYPTION_KEY` (the
+`INTEGRATION_ENCRYPTION_KEY_FALLBACKS` variable and the `reencrypt_integration_secrets`
+command, described under "One encryption key for every stored third-party secret") also
+ships in 0.5; in 0.4 changing the key breaks every stored ciphertext. The per-purpose
+lists are introduced by 0.5. In 0.4 the escape hatch is
 `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, which exempts a host for every outbound
 caller, so it must name only a host at least as trusted as the identity provider.
 :::
@@ -346,17 +350,18 @@ whether OIDC should have its own key; the code resolved it by reuse, and this
 page records that as an accepted risk so it is not rediscovered as a finding.
 
 The consequences are structural. A leak of the key exposes every one of these
-together. The open-source edition has no rotation path: `encryption.py` states
-that rotation is an Enterprise hardening item (ADR-0049 section 6), and a changed
-key breaks every stored ciphertext because there is no dual-key decrypt and no
-re-encryption migration. Recovery is for an administrator to re-enter every
-secret. The operator-facing version of this is in
+together. Rotation is supported without data loss, in two phases (add the new key as a
+fallback and finish that rollout, then promote it): `INTEGRATION_ENCRYPTION_KEY_FALLBACKS`
+holds additional keys that a `MultiFernet` tries for decryption only (writes use the
+primary), and `manage.py reencrypt_integration_secrets` rewrites every stored
+ciphertext under the primary (run it after the phase-2 rollout has finished) so a fallback can be dropped. Changing the key with no
+fallback still breaks every stored ciphertext and recovery is for an administrator
+to re-enter every secret. The operator-facing version of this is in
 [Secret management](/administration/security/#one-encryption-key-covers-every-stored-third-party-secret).
 
-The Enterprise counterpart (a KMS-backed key, dual-key decryption, a rotation
-migration) is not yet filed as its own issue. The nearest existing item is
-customer-managed encryption keys, `trueppm-enterprise#181`, which does not
-mention this key or rotation.
+The Enterprise counterpart (a KMS-backed key) is not yet filed as its own issue. The
+nearest existing item is customer-managed encryption keys, `trueppm-enterprise#181`,
+which does not mention this key.
 
 ## OSS and Enterprise
 

@@ -86,7 +86,8 @@ def _completed_dates(
 
     Every completed task is pinned out of the network (:func:`_pinned_placement`,
     #4343), including one with no actuals, so each *date* read here is a function of
-    the task's own fields and the project start alone. A closed milestone's *instant*
+    the task's own fields, the project start and the data date (a no-actuals task is
+    capped at it, #4539). A closed milestone's *instant*
     is not quite: which edge of its recorded day it sits on is read off its
     *completed* predecessors' positions in this one deterministic pass (#4433,
     #4525, :func:`_live_milestone_edge`). Those are pinned too, so no sampled

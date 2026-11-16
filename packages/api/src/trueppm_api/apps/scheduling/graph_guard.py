@@ -291,12 +291,21 @@ SUMMARY_FORBIDDEN_LINK_TYPES: frozenset[str] = frozenset(
     {DependencyType.SS.value, DependencyType.SF.value}
 )
 
+#: Link types the engine refuses when a summary is the SUCCESSOR (#4437): FF and SF
+#: constrain the summary's finish, which the leaf fan-out cannot model.
+SUMMARY_FORBIDDEN_INBOUND_LINK_TYPES: frozenset[str] = frozenset(
+    {DependencyType.FF.value, DependencyType.SF.value}
+)
+
 
 def find_summary_start_links(
     edges: Iterable[tuple[str, str, str]],
     summary_ids: Iterable[str],
 ) -> list[tuple[str, str, str]]:
-    """The ``(predecessor, successor, dep_type)`` edges the engine refuses: SS/SF from a summary.
+    """The ``(predecessor, successor, dep_type)`` edges the engine refuses around a summary.
+
+    SS/SF *from* a summary (ADR-0370) and, since #4437, FF/SF *into* one — the
+    engine's ``_reject_summary_start_links`` rule, both sides.
 
     Pure and id-space agnostic, like :func:`validate_task_graph`: importers call it
     with the ids they hold in memory before writing, structural edits with task pks.
@@ -305,7 +314,12 @@ def find_summary_start_links(
     a warning, a structural edit refuses the whole request.
     """
     summaries = set(summary_ids)
-    return [(p, s, t) for p, s, t in edges if t in SUMMARY_FORBIDDEN_LINK_TYPES and p in summaries]
+    return [
+        (p, s, t)
+        for p, s, t in edges
+        if (t in SUMMARY_FORBIDDEN_LINK_TYPES and p in summaries)
+        or (t in SUMMARY_FORBIDDEN_INBOUND_LINK_TYPES and s in summaries)
+    ]
 
 
 #: ``(predecessor_id, successor_id, dep_type, lag_days)`` — an edge with the type and

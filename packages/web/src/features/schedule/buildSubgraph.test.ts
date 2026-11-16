@@ -414,6 +414,35 @@ describe('buildSubgraph — summary dependency expansion', () => {
     expect(subTasks.map((t) => t.id).sort()).toEqual(['A', 'C1']);
   });
 
+  it.each(['FF', 'SF'] as const)(
+    'drops an %s link into a summary rather than fanning it out (#4437)',
+    (type) => {
+      // The successor-side twin of ADR-0370: a summary finishes with its latest
+      // leaf, so fanning the link out would make the short leaf C2 finish with A
+      // too. The server refuses the link, so the preview shows nothing.
+      const tasks = [
+        task('A'),
+        task('S', { isSummary: true }),
+        task('C1', { parentId: 'S' }),
+        task('C2', { parentId: 'S' }),
+      ];
+      const links = [link('l1', 'A', 'S', type)];
+      const { edges } = buildSubgraph('A', tasks, links);
+      expect(edges).toEqual([]);
+    },
+  );
+
+  it('still fans an FS link into a summary out to every leaf', () => {
+    const tasks = [
+      task('A'),
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+      task('C2', { parentId: 'S' }),
+    ];
+    const { edges } = buildSubgraph('A', tasks, [link('l1', 'A', 'S')]);
+    expect(edges.map((e) => e.targetId).sort()).toEqual(['C1', 'C2']);
+  });
+
   it('keeps a summary drag root wired to its own successors', () => {
     // The server drops summary NODES because it recomputes their dates by
     // rollup; the preview has no rollup pass, so dropping the node being

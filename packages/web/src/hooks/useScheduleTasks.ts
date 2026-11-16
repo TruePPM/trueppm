@@ -145,6 +145,10 @@ export interface ApiTask {
   is_untouched_seed?: boolean;
   // Board batch 5 (issue #105) — entry stamps, priority rank, readiness.
   status_changed_at?: string | null;
+  // #3531 — provenance of `status`: 'derived' = rolled up from leaves on the server,
+  // 'none' = empty container, 'committed' = a leaf's own value.
+  status_source?: 'derived' | 'none' | 'committed';
+  status_rollup_count?: number;
   priority_rank?: number | null;
   readiness?: string | null;
   // Wave 3 (#210) — passive overalloc indicator in task drawer.

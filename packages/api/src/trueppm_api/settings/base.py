@@ -17,6 +17,7 @@ from trueppm_api.core.demo_read_only import (
     parse_demo_reset_schedule,
 )
 from trueppm_api.core.env_compat import env_with_legacy, parse_bool
+from trueppm_api.core.key_fallbacks import parse_key_list
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
 from trueppm_api.core.refresh_cookie_policy import resolve_refresh_cookie_samesite
 from trueppm_api.core.storage_config import S3_STORAGE_BACKENDS, build_s3_storage_options
@@ -34,10 +35,14 @@ env = environ.Env()
 # fixed grandfathered list of TruePPM names that shipped bare and have not been migrated yet:
 # ``MSPROJECT_MAX_UPLOAD_MB``, ``SEED_MAX_UPLOAD_MB``, ``IMPORT_MAX_RESOURCES_CREATED``,
 # ``RETENTION_PURGE_INFLIGHT_SECONDS``, ``SIGNAL_CEILING_PROPOSAL_TTL_HOURS``,
-# ``CSP_CONNECT_SRC``, ``JWT_SIGNING_KEY``,
-# ``INTEGRATION_ENCRYPTION_KEY``. They will gain the prefix with the same
-# legacy fallback; ``tests/test_env_namespace.py`` pins the list so it only changes
-# deliberately. A setting that shipped bare and HAS been migrated keeps working as a
+# ``CSP_CONNECT_SRC``, ``JWT_SIGNING_KEY``, ``INTEGRATION_ENCRYPTION_KEY``. They will
+# gain the prefix with the same legacy fallback; ``tests/test_env_namespace.py`` pins the
+# list so it only changes deliberately. Two further names were added bare by #3406
+# because that issue names them: ``JWT_SIGNING_KEY_FALLBACKS`` and
+# ``INTEGRATION_ENCRYPTION_KEY_FALLBACKS``. TODO(#5048): decide whether to prefix these
+# with TRUEPPM_ before 0.5 ships (``SECRET_KEY_FALLBACKS`` follows the Django
+# ``SECRET_KEY`` convention).
+# A setting that shipped bare and HAS been migrated keeps working as a
 # deprecated fallback through ``env_with_legacy`` (one precedence rule, one-time
 # WARNING; removed at 1.0, #4405). Do not add a new bare name.
 
@@ -60,6 +65,23 @@ SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-me-in-prod")
 # the SECRET_KEY validation already covers it. Rotation runbook:
 # packages/website/src/content/docs/administration/secret-rotation.md.
 JWT_SIGNING_KEY = env("JWT_SIGNING_KEY", default=SECRET_KEY)
+
+# Zero-downtime rotation (#3406). Each *_FALLBACKS value is a comma-separated list
+# of OLDER keys that are accepted for verification/decryption only; signing and
+# encryption always use the primary. Django >= 4.1 honors SECRET_KEY_FALLBACKS for
+# signed cookies, password-reset tokens and ``signing.loads``. Unset = the old
+# behavior (rotating the primary invalidates everything signed under the old one).
+# Prod validates every entry like its primary and refuses to boot on a bad one.
+SECRET_KEY_FALLBACKS = parse_key_list(env("SECRET_KEY_FALLBACKS", default=""))
+# JWT fallbacks: an explicit JWT_SIGNING_KEY has its own list; when the JWT key
+# simply inherits SECRET_KEY, its verify fallbacks inherit SECRET_KEY_FALLBACKS so a
+# single-knob install rotates with a single knob.
+JWT_SIGNING_KEY_FALLBACKS = parse_key_list(
+    env(
+        "JWT_SIGNING_KEY_FALLBACKS",
+        default=("" if os.environ.get("JWT_SIGNING_KEY") else ",".join(SECRET_KEY_FALLBACKS)),
+    )
+)
 
 DEBUG = False
 
@@ -1287,6 +1309,12 @@ LOGGING = build_logging_config(level=DJANGO_LOG_LEVEL, json_output=TRUEPPM_LOG_J
 INTEGRATION_ENCRYPTION_KEY: str = env(
     "INTEGRATION_ENCRYPTION_KEY",
     default="",
+)
+# Older Fernet keys, comma-separated, tried for DECRYPTION only (MultiFernet);
+# every write encrypts under INTEGRATION_ENCRYPTION_KEY. Drop an entry only after
+# ``manage.py reencrypt_integration_secrets`` reports zero rows left on it (#3406).
+INTEGRATION_ENCRYPTION_KEY_FALLBACKS: list[str] = parse_key_list(
+    env("INTEGRATION_ENCRYPTION_KEY_FALLBACKS", default="")
 )
 
 # Hostnames exempted from the SSRF egress deny-list (apps/integrations/http), one
