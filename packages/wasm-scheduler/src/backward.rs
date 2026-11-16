@@ -259,7 +259,9 @@ fn link_start_ref(
 /// The day a milestone's late instant is shown on. Mirrors the Python
 /// `_late_display`: zero float shows the early day; otherwise the early reading
 /// is kept, except that a start-of-day reading is never shown past the project
-/// finish.
+/// finish. A start-of-day reading of a non-working midnight (Saturday 00:00) is
+/// shown on the next working day, the way the forward pass shows it, so
+/// `total_float` is the working-day span between the shown days (#4528).
 fn late_display(
     late: NaiveDate,
     early_day: NaiveDate,
@@ -270,8 +272,11 @@ fn late_display(
     if next_working_day(late, cal)? == next_working_day(early.0, cal)? {
         return Ok(early_day);
     }
-    if early.1 && cal.is_working_day(late) && late <= project_finish {
-        return Ok(late);
+    if early.1 {
+        let shown = next_working_day(late, cal)?;
+        if shown <= project_finish {
+            return Ok(shown);
+        }
     }
     prev_working_day(checked_offset_days(late, -1)?, cal)
 }

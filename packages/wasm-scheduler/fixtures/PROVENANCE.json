@@ -387,9 +387,9 @@
       "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
     },
     "expected/progress_milestone_recorded_on_forecast_moves_nothing.json": {
-      "provenance": "unknown",
+      "provenance": "regenerated",
       "issue": "#4690",
-      "evidence": "f8b997dd7: last change carries no regeneration or hand-derivation statement"
+      "evidence": "#4528: regenerated (REGEN_EXPECTED=1); the only change is M5 late_start/late_finish Fri 2026-08-07 -> Mon 2026-08-10, hand-checked against total_float == working days [early_start, late_start) (5 days, Mon-Fri)"
     },
     "expected/progress_non_working_actual_duration_walk.json": {
       "provenance": "unknown",

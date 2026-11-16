@@ -137,6 +137,15 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A start-of-day milestone's `total_float` equals the working days from its
+  `early_start` to its `late_start`
+  ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)).** When its float
+  ran to a weekend midnight (a calendar-day lag, the data date or a weekend
+  `actual_start`), its `late_start` / `late_finish` were shown on the Friday
+  before that midnight, one working day short of the float. They are now shown
+  on the Monday after it, where the milestone can be pinned without moving the
+  finish. `total_float` itself is unchanged.
+
 - **The CLI's human-readable output escapes control, bidi and zero-width
   characters
   ([#4718](https://gitlab.com/trueppm/trueppm/-/issues/4718)).** A task name or
