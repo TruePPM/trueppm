@@ -110,3 +110,23 @@ def test_serializer_exposes_is_driving_read_only(project: Project) -> None:
     )
     assert ser.is_valid(), ser.errors
     assert "is_driving" not in ser.validated_data
+
+
+@pytest.mark.django_db
+def test_weekend_landing_calendar_lag_link_is_persisted_as_driving(calendar: Calendar) -> None:
+    # Leaf(4d) Tue-Fri, FS + 1 calendar day lands on Saturday: the link alone places
+    # After, so the recompute must persist is_driving through the API builder (#4906).
+    project = Project.objects.create(
+        name="WeekendLag",
+        start_date=date(2026, 1, 6),  # Tuesday
+        status_date=date(2026, 1, 6),
+        calendar=calendar,
+    )
+    leaf = Task.objects.create(project=project, name="Leaf", duration=4)
+    after = Task.objects.create(project=project, name="After", duration=2)
+    dep = Dependency.objects.create(predecessor=leaf, successor=after, dep_type="FS", lag=1)
+
+    _recompute(project)
+
+    dep.refresh_from_db()
+    assert dep.is_driving is True

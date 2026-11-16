@@ -861,9 +861,7 @@ release it is scheduled for:
   `free_float` for an FF-1 link into a four-day-calendar task with actuals
   ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790), [#4789](https://gitlab.com/trueppm/trueppm/-/issues/4789)); the forward pass is not monotone, so slipping a
   predecessor can move a floored milestone's successors earlier
-  ([#4883](https://gitlab.com/trueppm/trueppm/-/issues/4883)); `driving_edges` is empty for an FS link whose calendar-day lag lands on a
-  weekend when the input comes through the API input builder
-  ([#4906](https://gitlab.com/trueppm/trueppm/-/issues/4906)); and several
+  ([#4883](https://gitlab.com/trueppm/trueppm/-/issues/4883)); and several
   MS-Project-parity cases — SF out of a milestone, mixed SF+FS/SS/FF at the
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),

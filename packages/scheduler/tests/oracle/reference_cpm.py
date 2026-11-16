@@ -157,7 +157,9 @@ Not modeled, and refused by :func:`reference_schedule` rather than answered:
   ``actual_start``, from the opening of the next working day — for all four link
   types, at every lag (:func:`link_need`).
 
-Out of scope: summary tasks, ``live_day_end_on``, Monte Carlo.
+Summary tasks are expanded to their leaf network by :func:`expand_summaries` and
+scheduled like any other network (#4684). Out of scope: ``live_day_end_on``, Monte
+Carlo.
 
 For a milestone the oracle states only *where in working time* it sits. Which of
 two adjacent days it is *shown* on is a display convention (#4079, #4173, #4183)
@@ -913,6 +915,77 @@ def _feeds_a_milestone(project: RefProject, tid: str) -> bool:
 
 def _same_calendar(project: RefProject, link: RefLink) -> bool:
     return project.calendar_of(link.pred) == project.calendar_of(link.succ)
+
+
+class SummaryRefused(ValueError):
+    """The documented summary-expansion rules refuse this input (``reason`` says why)."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"reference summary expansion: {reason}")
+        self.reason = reason
+
+
+def summary_leaves(node: str, children: dict[str, tuple[str, ...]]) -> frozenset[str]:
+    """The leaf tasks under ``node``: itself when it is not a summary."""
+    if node not in children:
+        return frozenset({node})
+    return frozenset().union(*(summary_leaves(c, children) for c in children[node]))
+
+
+def expand_summaries(
+    project: RefProject,
+    children: dict[str, tuple[str, ...]],
+    summary_links: tuple[RefLink, ...],
+) -> RefProject:
+    """The leaf network a project with summary tasks schedules as (ADR-0024, #4684).
+
+    Written from the documented contract of ``expand_summary_dependencies``, not its
+    code. ``project`` holds the leaf tasks and the links between them;
+    ``summary_links`` are the links with a summary at either end, and ``children``
+    maps each summary to its direct children. Each such link fans out to every
+    (predecessor leaf, successor leaf) pair, keeping its type and lag. Links that
+    land on one leaf pair merge: one type keeps the largest lag, which is the most
+    binding; two types are refused (#4434). A link whose ends share a leaf (a summary
+    linked to itself, a descendant or an ancestor) is a cycle (#4705, #4538), as is
+    any cycle in the expanded network. ADR-0370 refuses the links whose summary end
+    anchors on one leaf rather than every leaf: SS or SF *from* a summary (its start
+    is its earliest leaf) and FF or SF *into* one (its finish is its latest, #4437).
+    Summaries are absent from the result, which the reference schedules like any
+    other network.
+    """
+    by_pair: dict[tuple[str, str], RefLink] = {(lk.pred, lk.succ): lk for lk in project.links}
+    for link in summary_links:
+        if link.pred in children and link.kind in ("SS", "SF"):
+            raise SummaryRefused("start-side link from a summary")
+        if link.succ in children and link.kind in ("FF", "SF"):
+            raise SummaryRefused("finish-side link into a summary")
+        preds = summary_leaves(link.pred, children)
+        succs = summary_leaves(link.succ, children)
+        if preds & succs:
+            raise SummaryRefused("cycle")
+        for p in sorted(preds):
+            for s in sorted(succs):
+                prior = by_pair.get((p, s))
+                if prior is not None and prior.kind != link.kind:
+                    raise SummaryRefused("conflicting link types on one leaf pair")
+                if prior is None or link.lag > prior.lag:
+                    by_pair[(p, s)] = RefLink(p, s, link.kind, link.lag)
+    expanded = RefProject(
+        start=project.start,
+        durations=project.durations,
+        links=tuple(by_pair[k] for k in sorted(by_pair)),
+        calendar=project.calendar,
+        status_date=project.status_date,
+        planned_start=project.planned_start,
+        progress=project.progress,
+        calendars=project.calendars,
+        task_calendar=project.task_calendar,
+    )
+    try:
+        topological_order(expanded)
+    except ValueError:
+        raise SummaryRefused("cycle") from None
+    return expanded
 
 
 def _check_modeled(project: RefProject) -> None:

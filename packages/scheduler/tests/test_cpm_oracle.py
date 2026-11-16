@@ -30,14 +30,20 @@ What is compared, exactly
   properties (#4633) — percent complete, actual starts and finishes (on
   non-working days and before the project start), a data date, SNETs, and four-,
   five- and seven-day per-task calendars with exceptions. Not generated there:
-  summary tasks, ``live_day_end_on``; and, because the reference refuses them, an
-  FF/SF link across two calendars (``_on_one_calendar`` makes it FS/SS) and a
-  completed milestone with recorded actuals (its actuals are dropped). A link out
-  of a non-working actual is read in working time by all three (#4631, #4702) and
-  compared like any other input. The last planning-network shapes the
-  engines disagreed with the reference on — a lagged FF/SF link into a milestone
+  ``live_day_end_on`` (#4684); and, because the reference refuses them, an
+  FF/SF link across two calendars (``_on_one_calendar`` makes it FS/SS; the rule is
+  undecided, #4639) and a completed milestone with recorded actuals (its actuals are
+  dropped; it keeps the day edge it had live, which is ``live_day_end_on`` history,
+  #4684). A link out of a non-working actual is read in working time by all three
+  (#4631, #4702) and compared like any other input. The last planning-network shapes
+  the engines disagreed with the reference on — a lagged FF/SF link into a milestone
   (#4272) and an FF link out of one (#4273) — were fixed in the engines, not
   excluded here.
+* Summary tasks (#4684): a summary tree over a planning network, with links at a
+  summary end of every type, is expanded by ``expand_summary_dependencies`` and
+  scheduled, against :func:`tests.oracle.reference_cpm.expand_summaries` — the same
+  refusals, the same leaf links, the same schedule. Python only; the Rust engine does
+  not expand summaries.
 
 The perturbation oracle (#4439)
 -------------------------------
@@ -108,7 +114,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import assume, example, given, settings
+from hypothesis import assume, event, example, given, settings
 from hypothesis import strategies as st
 
 from tests.oracle.reference_cpm import (
@@ -119,21 +125,27 @@ from tests.oracle.reference_cpm import (
     RefProgress,
     RefProject,
     RefResult,
+    SummaryRefused,
+    expand_summaries,
     first_working_on_or_after,
     last_working_on_or_before,
     milestone_shown_position,
     position_of,
     reference_schedule,
+    summary_leaves,
     working_days_between,
 )
 from trueppm_scheduler import (
     Calendar,
+    CyclicDependencyError,
     DateRange,
     Dependency,
     DependencyType,
+    InvalidScheduleInput,
     Project,
     ScheduleResult,
     Task,
+    expand_summary_dependencies,
     schedule,
 )
 
@@ -639,6 +651,134 @@ def test_python_engine_matches_reference_on_networks_of_work(project: RefProject
 def test_python_engine_matches_reference_with_milestones(project: RefProject) -> None:
     """Milestones anywhere: their working-time position, and every task with work."""
     assert_matches_reference(python_engine(project), project)
+
+
+@st.composite
+def summary_projects(
+    draw: st.DrawFn,
+) -> tuple[RefProject, dict[str, tuple[str, ...]], tuple[RefLink, ...]]:
+    """A leaf network, a summary tree over it, and links with a summary at an end (#4684).
+
+    Every summary holds at least one leaf. Summary links take every type and either
+    direction, so the draws include the inputs the expansion refuses (a start-side link
+    from a summary, a link onto its own leaves, a cycle, two types on one leaf pair).
+    """
+    leaves = draw(ref_projects(milestones=True))
+    ids = list(leaves.durations)
+    k = draw(st.integers(1, min(3, len(ids))))
+    summaries = [f"S{i}" for i in range(k)]
+    parent: dict[str, str | None] = {}
+    for i, s in enumerate(summaries):
+        parent[s] = draw(st.sampled_from([None, *summaries[:i]]))
+    for i, tid in enumerate(ids):
+        # The first k leaves seed one summary each, so no summary is empty.
+        parent[tid] = summaries[i] if i < k else draw(st.sampled_from([None, *summaries]))
+    children: dict[str, tuple[str, ...]] = {
+        s: tuple(c for c in [*summaries, *ids] if parent[c] == s) for s in summaries
+    }
+    nodes = [*ids, *summaries]
+
+    def index(tid: str) -> int:
+        return ids.index(tid)
+
+    # Mostly links the expansion accepts: every predecessor leaf below every successor
+    # leaf (the leaf network runs low to high, so no cycle), and a type that anchors on
+    # every leaf of a summary end. One draw in four is unrestricted, to reach refusals.
+    acceptable = [
+        (p, q)
+        for p in nodes
+        for q in nodes
+        if (p in children or q in children)
+        and max(map(index, summary_leaves(p, children)))
+        < min(map(index, summary_leaves(q, children)))
+    ]
+    kind_on: dict[tuple[str, str], str] = {(lk.pred, lk.succ): lk.kind for lk in leaves.links}
+    links = []
+    for _ in range(draw(st.integers(1, 3))):
+        pred = succ = ""
+        kinds: list[str] = []
+        if acceptable and draw(st.integers(0, 7)):
+            pred, succ = draw(st.sampled_from(acceptable))
+            pairs = [
+                (a, b)
+                for a in summary_leaves(pred, children)
+                for b in summary_leaves(succ, children)
+            ]
+            kinds = [
+                k
+                for k in LINK_TYPES
+                if not (pred in children and k in ("SS", "SF"))
+                and not (succ in children and k in ("FF", "SF"))
+                and all(kind_on.get(pair, k) == k for pair in pairs)
+            ]
+            if kinds:
+                kinds = [draw(st.sampled_from(kinds))]
+                for pair in pairs:
+                    kind_on.setdefault(pair, kinds[0])
+        if not kinds:
+            pred = draw(st.sampled_from(nodes))
+            succ = draw(st.sampled_from(nodes if pred in children else summaries))
+            kinds = list(LINK_TYPES)
+        links.append(RefLink(pred, succ, draw(st.sampled_from(kinds)), draw(st.integers(-4, 6))))
+    return leaves, children, tuple(links)
+
+
+@pytest.mark.fuzz
+@given(summary_projects())
+def test_python_engine_matches_reference_with_summary_tasks(
+    drawn: tuple[RefProject, dict[str, tuple[str, ...]], tuple[RefLink, ...]],
+) -> None:
+    """Summary links expand to the documented leaf network, which then schedules right.
+
+    The engine side is the production path: ``expand_summary_dependencies`` over the
+    tasks with their summaries, then ``schedule()`` on what it returns. It must refuse
+    exactly what the reference refuses, produce exactly the reference's leaf links, and
+    schedule them as the reference does. Python only: summary expansion is a
+    pre-processing step the Rust engine does not implement, and the leaf network it
+    returns is a plain network the Rust properties above already cover.
+    """
+    leaves, children, summary_links = drawn
+    engine_project = to_engine_project(leaves)
+    summary_tasks = [Task(id=s, name=s, duration=timedelta(0)) for s in children]
+    all_deps = [
+        *engine_project.dependencies,
+        *(
+            Dependency(
+                predecessor_id=lk.pred,
+                successor_id=lk.succ,
+                dep_type=DependencyType[lk.kind],
+                lag=timedelta(days=lk.lag),
+            )
+            for lk in summary_links
+        ),
+    ]
+    children_map = {s: list(c) for s, c in children.items()}
+    try:
+        expected = expand_summaries(leaves, children, summary_links)
+    except SummaryRefused as refused:
+        event(f"refused: {refused.reason}")
+        # A cycle the fan-out creates between distinct leaves is refused by
+        # ``schedule()``, not by the expansion, so the refusal is read off both.
+        with pytest.raises((CyclicDependencyError, InvalidScheduleInput)) as raised:
+            refused_tasks, refused_deps = expand_summary_dependencies(
+                [*engine_project.tasks, *summary_tasks], all_deps, children_map
+            )
+            schedule(
+                replace(engine_project, tasks=list(refused_tasks), dependencies=list(refused_deps))
+            )
+        if refused.reason.endswith("summary"):
+            assert not isinstance(raised.value, CyclicDependencyError)
+        return
+    event("expanded and scheduled")
+    leaf_tasks, deps = expand_summary_dependencies(
+        [*engine_project.tasks, *summary_tasks], all_deps, children_map
+    )
+    got = sorted((d.predecessor_id, d.successor_id, d.dep_type.name, d.lag.days) for d in deps)
+    assert got == [(lk.pred, lk.succ, lk.kind, lk.lag) for lk in expected.links], (drawn, got)
+    assert sorted(t.id for t in leaf_tasks) == sorted(leaves.durations)
+    result = schedule(replace(engine_project, tasks=list(leaf_tasks), dependencies=list(deps)))
+    problems = mismatches(python_engine_tasks(result), reference_schedule(expected), expected)
+    assert not problems, "\n".join([repr(drawn), *problems])
 
 
 # ---------------------------------------------------------------------------

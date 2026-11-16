@@ -149,6 +149,7 @@ threshold setting and its default are the maintainer's decision.
 - The chain is a bounded view, not a network diagram (epic out-of-scope).
 - `driving_edges` includes zero-free-float links that do not bind (#4704), so a merge
   can show two driving predecessors; the payload says so rather than picking one.
-- Known limitation (unconfirmed, #4906): if `driving_edges` omits a binding link — reported
-  for a calendar-day lag that lands on a weekend, not reproduced — the chain stops one
-  hop short.
+- `driving_edges` includes a link whose calendar-day lag lands on a weekend (#4537). The
+  empty `driving_edges` reported for that shape through the API input builder (#4906) was
+  present in every release through 0.4.0, since the #4537 fix is in no tag; it is fixed on
+  main, and `test_schedule_driving_chain.py` now sweeps the class through the builder.
