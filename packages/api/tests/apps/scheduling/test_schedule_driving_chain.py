@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -236,19 +236,20 @@ class TestDrivingChain:
         assert len(ids) == len(set(ids))
         assert all(e["predecessor_id"] != e["successor_id"] for e in data["edges"])
 
-    # TODO(#4906): the engine may omit a driving link whose calendar-day lag lands on a
-    # weekend (unconfirmed); this test's lag is pinned so the successor starts on a
-    # weekday, so it does not exercise that case.
     def test_summary_gated_edge_is_expanded_server_side(
         self, viewer_client: APIClient, project: Project
     ) -> None:
         phase = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
-        leaf = Task.objects.create(project=project, name="Leaf", duration=3, wbs_path="1.1")
+        # Leaf runs Mon 03-02 to Thu 03-05, so the 1-day lag lands on Saturday and
+        # After snaps to Monday: the link alone places After (the #4906 shape).
+        leaf = Task.objects.create(project=project, name="Leaf", duration=4, wbs_path="1.1")
         after = Task.objects.create(project=project, name="After", duration=2, wbs_path="2")
         # The only stored link is Phase → After; the leaf edge exists only after expansion.
         Dependency.objects.create(predecessor=phase, successor=after, dep_type="FS", lag=1)
         data = viewer_client.get(url(project.pk), {"task_id": str(after.pk)}).json()
         assert data["computable"] is True
+        after_node = next(n for n in data["nodes"] if n["task_id"] == str(after.pk))
+        assert after_node["early_start"] == "2026-03-09"
         edge = next(e for e in data["edges"] if e["successor_id"] == str(after.pk))
         assert edge["predecessor_id"] == str(leaf.pk)
         assert edge["via_summary"] == [{"task_id": str(phase.pk), "name": "Phase"}]
@@ -459,6 +460,69 @@ class TestDrivingChain:
 
     def test_missing_task_id_is_400(self, viewer_client: APIClient, project: Project) -> None:
         assert viewer_client.get(url(project.pk)).status_code == 400
+
+
+def _snap_to_weekday(day: date) -> date:
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
+
+
+@pytest.mark.django_db
+def test_builder_input_reports_every_link_that_alone_places_its_successor(
+    project: Project,
+) -> None:
+    """A link whose calendar-day lag lands on a weekend still drives, via the API input (#4906).
+
+    #4906 reported an empty ``driving_edges`` for ``Leaf(4d) -FS+1-> After`` built by
+    ``_build_cpm_sched_inputs``. It reproduces only against the pre-#4537
+    ``trueppm-scheduler`` 0.4.0rc1 wheel that a shared dev venv can carry in place of
+    the in-tree source; the source the API image builds from emits the edge. This sweeps
+    the class through the real builder (calendar, data date, summary strip and
+    expansion): every link type, lags whose landing day is a working day or a weekend,
+    and FS/FF out of a summary (SS/SF from a summary is refused, ADR-0024). Whenever the
+    successor starts after the data-date floor, nothing but the link placed it, so a
+    driving edge into it must exist.
+    """
+    from trueppm_scheduler import schedule
+
+    from trueppm_api.apps.scheduling.views import _build_cpm_sched_project
+
+    floor = _snap_to_weekday(max(project.start_date, project.status_date))
+    checked = 0
+    for via_summary in (False, True):
+        for kind in ("FS", "SS", "FF", "SF"):
+            if via_summary and kind in ("SS", "SF"):
+                continue
+            for leaf_days in range(1, 6):
+                for lag in range(4):
+                    Task.objects.filter(project=project).delete()
+                    leaf = Task.objects.create(
+                        project=project, name="Leaf", duration=leaf_days, wbs_path="1.1"
+                    )
+                    src = leaf
+                    if via_summary:
+                        src = Task.objects.create(
+                            project=project, name="Phase", duration=1, wbs_path="1"
+                        )
+                    after = Task.objects.create(
+                        project=project, name="After", duration=2, wbs_path="2"
+                    )
+                    Dependency.objects.create(
+                        predecessor=src, successor=after, dep_type=kind, lag=lag
+                    )
+                    result = schedule(_build_cpm_sched_project(project, str(project.pk)))
+                    placed = next(t for t in result.tasks if t.id == str(after.pk))
+                    if placed.early_start <= floor:
+                        continue
+                    checked += 1
+                    shape = (via_summary, kind, leaf_days, lag, placed.early_start)
+                    assert any(
+                        e.predecessor_id == str(leaf.pk) and e.successor_id == str(after.pk)
+                        for e in result.driving_edges
+                    ), shape
+    # The sweep must reach the reported shape, not pass by skipping everything.
+    assert checked >= 40
 
 
 @pytest.mark.django_db
