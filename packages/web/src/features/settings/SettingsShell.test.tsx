@@ -267,17 +267,41 @@ describe('<SettingsShell>', () => {
   it('names the failed section and what landed in the save bar after a partial save (#2658)', () => {
     renderShell();
     act(() => {
-      registerSection({ dirty: true });
+      useSettingsSaveStore.getState().register('general', {
+        dirty: true,
+        apiReady: true,
+        onSave: vi.fn().mockResolvedValue(undefined),
+        onReset: vi.fn(),
+      });
       useSettingsSaveStore.setState({
         saveError: 'boom',
-        failedSectionId: DEFAULT_SECTION_KEY,
-        sectionErrors: { [DEFAULT_SECTION_KEY]: 'boom' },
+        failedSectionId: 'general',
+        sectionErrors: { general: 'boom' },
         savedSectionIds: ['calendars'],
       });
     });
-    expect(
-      screen.getByText(/Couldn't save .*\. 1 section was saved\. 1 still unsaved\./),
-    ).toBeInTheDocument();
+    const summary = screen.getByText(
+      "Couldn't save General. 1 section was saved. 1 still unsaved.",
+    );
+    expect(summary).toBeInTheDocument();
+    // The section card's role="alert" is the one announcement; the bar text is not live.
+    expect(summary).not.toHaveAttribute('role');
+    expect(screen.getByTestId('settings-section-error-general')).toHaveAttribute('role', 'alert');
+  });
+
+  it('keeps the server error in the save bar when the failed section is the default key (#2658)', () => {
+    renderShell();
+    act(() => {
+      registerSection({ dirty: true });
+      useSettingsSaveStore.setState({
+        saveError: 'Server said no',
+        failedSectionId: DEFAULT_SECTION_KEY,
+        sectionErrors: { [DEFAULT_SECTION_KEY]: 'Server said no' },
+      });
+    });
+    expect(screen.getByText('Server said no')).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't save/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/__default__/)).not.toBeInTheDocument();
   });
 
   it('clicking a route-link nav item with no dirty state navigates immediately', () => {

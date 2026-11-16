@@ -84,7 +84,7 @@ export interface SettingsSaveState {
 
 const INITIAL: Pick<
   SettingsSaveState,
-    | 'sections'
+  | 'sections'
   | 'dirty'
   | 'apiReady'
   | 'isSaving'

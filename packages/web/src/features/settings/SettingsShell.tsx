@@ -285,6 +285,15 @@ export function SettingsShell({
   const unsavedSectionCount = useSettingsSaveStore(
     (s) => Object.values(s.sections).filter((e) => e.dirty).length,
   );
+  // Name the failed section only when it has a real heading to name. A standalone
+  // surface (DEFAULT_SECTION_KEY) or a section without a rendered heading would
+  // print its raw id and hide the server's message, so those keep `saveError`.
+  const failureSectionTitle =
+    failedSectionId &&
+    failedSectionId !== DEFAULT_SECTION_KEY &&
+    document.getElementById(settingsHeadingId(failedSectionId))
+      ? sectionTitle(failedSectionId)
+      : null;
   const triggerSave = useSettingsSaveStore((s) => s.triggerSave);
   const triggerDiscard = useSettingsSaveStore((s) => s.triggerDiscard);
 
@@ -920,13 +929,12 @@ export function SettingsShell({
                 fill="none"
               />
             </svg>
-            <span className="text-[13px] font-medium text-neutral-text-inverse" role="status">
-              {failedSectionId
-                ? saveFailureSummary(
-                    sectionTitle(failedSectionId),
-                    savedSectionCount,
-                    unsavedSectionCount,
-                  )
+            <span
+              className="text-[13px] font-medium text-neutral-text-inverse"
+              role={failureSectionTitle ? undefined : 'status'}
+            >
+              {failureSectionTitle
+                ? saveFailureSummary(failureSectionTitle, savedSectionCount, unsavedSectionCount)
                 : (saveError ?? 'You have unsaved changes')}
             </span>
             <div className="flex-1" />
@@ -1152,7 +1160,8 @@ function sectionTitle(sectionId: string): string {
 
 /** Save-bar line after a run stopped partway: which section failed and what landed. */
 function saveFailureSummary(title: string, saved: number, unsaved: number): string {
-  const landed = saved > 0 ? ` ${saved} ${saved === 1 ? 'section was' : 'sections were'} saved.` : '';
+  const landed =
+    saved > 0 ? ` ${saved} ${saved === 1 ? 'section was' : 'sections were'} saved.` : '';
   return `Couldn't save ${title}.${landed} ${unsaved} still unsaved.`;
 }
 
@@ -1202,15 +1211,15 @@ export function SettingsSection({ id, children }: SettingsSectionProps) {
           // jumps to it (ADR-0146).
           className="scroll-mt-6 mt-8 pt-8 border-t-2 border-neutral-border first:mt-0 first:pt-0 first:border-t-0"
         >
-        {sectionError && (
-          <div
-            ref={errorRef}
-            role="alert"
-            data-testid={`settings-section-error-${id}`}
-            className="mb-4 rounded border border-semantic-critical px-3 py-2 text-[13px] text-semantic-critical"
-          >
-            This section was not saved: {sectionError}
-          </div>
+          {sectionError && (
+            <div
+              ref={errorRef}
+              role="alert"
+              data-testid={`settings-section-error-${id}`}
+              className="mb-4 rounded border border-semantic-critical px-3 py-2 text-[13px] text-semantic-critical"
+            >
+              This section was not saved: {sectionError}
+            </div>
         )}
         {/* Contain a section render failure to this region — on the consolidated
             page (ADR-0146) an unguarded throw would reach the root boundary and

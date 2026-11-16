@@ -77,7 +77,9 @@ The **General** page edits the project's identity:
 Changes are staged and committed with a save bar, so you can review edits before
 applying them. If you edit several sections and one fails to save, that section shows the
 error in its own card and the save bar names it and says how many sections saved and how
-many are still unsaved; sections after the failure are not attempted and stay unsaved. The **General** page also carries the project's **Working calendar**
+many are still unsaved; sections after the failure are not attempted and stay unsaved.
+
+The **General** page also carries the project's **Working calendar**
 override, which inherits the program or workspace default unless you set one — see
 [Working calendars](/administration/working-calendars/).
 

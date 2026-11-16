@@ -248,7 +248,7 @@ test.describe('Settings save contract (#536)', () => {
     const card = page.getByTestId('settings-section-error-general');
     await expect(card).toBeVisible();
     await expect(card).toContainText('This section was not saved');
-    await expect(page.getByRole('status').filter({ hasText: /couldn't save/i })).toBeVisible();
+    await expect(page.getByText(/couldn't save .*\. \d+ still unsaved\./i)).toBeVisible();
   });
 
   // ── ADR-0146 (issue 1248): sections are now anchored regions on ONE mounted
