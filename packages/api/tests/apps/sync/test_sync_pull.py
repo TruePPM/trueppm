@@ -136,16 +136,31 @@ def test_sync_soft_deleted_task_appears_in_deleted_list(
     authed_client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
     task = Task.objects.create(project=project, name="T2", duration=1)
+    since = _pull(authed_client, project, 0)["timestamp"]
     task.soft_delete()
-    with patch.object(
-        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_watermark",
-        return_value=99,
-    ):
-        resp = authed_client.get(_url(project), {"since": "0"})
+    resp = authed_client.get(_url(project), {"since": str(since)})
     assert str(task.pk) in resp.data["changes"]["tasks"]["deleted"]
     task_updated_ids = [t["id"] for t in resp.data["changes"]["tasks"]["updated"]]
     assert str(task.pk) not in task_updated_ids
+
+
+@pytest.mark.django_db
+def test_cold_start_pull_ships_no_tombstones_and_no_prefetch_over_deleted(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """since=0 holds nothing to delete: no tombstones, deleted rows don't eat page_size (#4470)."""
+    live = Task.objects.create(project=project, name="Live", duration=1)
+    for i in range(3):
+        Task.objects.create(project=project, name=f"Gone{i}", duration=1).soft_delete()
+    risk = Risk.objects.create(project=project, title="R", probability=1, impact=1)
+    risk.soft_delete()
+    body = _pull(authed_client, project, 0)
+    tasks = body["changes"]["tasks"]
+    assert tasks["deleted"] == []
+    assert [t["id"] for t in tasks["updated"]] == [str(live.pk)]
+    assert body["changes"]["risks"]["deleted"] == []
 
 
 @pytest.mark.django_db
@@ -855,13 +870,9 @@ def test_sync_soft_deleted_risk_appears_in_deleted_list(
     authed_client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
     risk = Risk.objects.create(project=project, title="Obsolete risk", probability=1, impact=1)
+    since = _pull(authed_client, project, 0)["timestamp"]
     risk.soft_delete()
-    with patch.object(
-        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_watermark",
-        return_value=99,
-    ):
-        resp = authed_client.get(_url(project), {"since": "0"})
+    resp = authed_client.get(_url(project), {"since": str(since)})
     assert str(risk.pk) in resp.data["changes"]["risks"]["deleted"]
     risk_updated_ids = [r["id"] for r in resp.data["changes"]["risks"]["updated"]]
     assert str(risk.pk) not in risk_updated_ids

@@ -144,6 +144,13 @@ def _below_tombstone_floor(since: int, floor: int) -> bool:
     return 0 < since < floor
 
 
+def _live_only(qs: Any) -> Any:
+    """Drop soft-deleted rows from a source queryset when its model has the flag."""
+    if any(f.name == "is_deleted" for f in qs.model._meta.concrete_fields):
+        return qs.filter(is_deleted=False)
+    return qs
+
+
 def _resync_required_response() -> Response:
     """The ``resync_required`` envelope (#2474), shaped to fail safe.
 
@@ -508,6 +515,12 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 SyncTaskRelationSerializer,
             ),
         ]
+
+        if since == 0:
+            # Cold start: the client holds nothing, so a tombstone has nothing to
+            # delete — yet it would count toward page_size and drag the
+            # label/custom-field prefetches over deleted rows (#4470).
+            sources = [(name, _live_only(qs), ser) for name, qs, ser in sources]
 
         changes, next_cursor, has_more = paginate_changes(
             sources,
