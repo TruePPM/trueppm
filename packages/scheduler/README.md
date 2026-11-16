@@ -894,8 +894,7 @@ release it is scheduled for:
   at the price of a slower run, about 6 s to about 9 s, because each sampled column is
   drawn three times. The floor that remains is one forward chunk (8M cells, about
   230 MB) plus the project's own graph; the under-250 MB target and `MC_TASK_CAP` are
-  tracked in [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953)
-  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)).
+  tracked in [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953).
 - **API contract / errors** — the derivation vocabulary
   (`DerivationContribution.kind`, `Derivation.quantity`/`pass_`) is still an
   open string, not a published enum
@@ -919,12 +918,7 @@ they will ship with 0.5 or that release will slip:
   ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
 - **Performance** — a published `pytest-benchmark` suite at 100–5,000 tasks,
   with measured numbers in this README
-  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); the Monte Carlo
-  memory footprint above is chunked over runs
-  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)). It stays float64:
-  three-point draws are continuous, so float32 would move seeded percentiles, and
-  with the matrix replayed it would save at most one row block (about 32 MB at
-  50,000 tasks).
+  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
