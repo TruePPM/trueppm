@@ -63,6 +63,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.utils.urls import replace_query_param
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -336,6 +337,14 @@ from trueppm_api.apps.projects.summary_link_guard import (
 )
 from trueppm_api.apps.projects.task_bulk import (
     BulkOutcome,
+)
+from trueppm_api.apps.projects.task_keyset import (
+    CURSOR_PARAM,
+    KEYSET_MODE_PARAM,
+    KEYSET_MODE_VALUE,
+    TaskCursor,
+    keyset_page,
+    keyset_requested,
 )
 from trueppm_api.apps.projects.wbs_paths import wbs_order
 from trueppm_api.apps.scheduling.finish_reading import FINISH_READING_FIELDS
@@ -6616,7 +6625,18 @@ class TaskListPagination(ScheduleFetchPagination):
     ``paginate_queryset``. Falls back to the base ``DjangoPaginator`` count (i.e. the
     normal behavior) when the attribute is absent, so this class is safe to reuse
     anywhere the count-bypass isn't wired up.
+
+    **Keyset mode (#3381).** ``?pagination=keyset`` switches the same endpoint to
+    seek pagination over the default ``Task.Meta.ordering`` plus ``id`` (see
+    ``task_keyset``): no ``OFFSET`` and no ``COUNT``, so every page costs what page 1
+    costs. It is opt-in so page-number callers (MCP, sync tooling, the board and
+    list views) keep the shape they rely on; the response then carries
+    ``next``/``previous``/``results`` and omits ``count``. ``?ordering=`` is refused
+    in this mode — the seek is only correct against the order it was built for.
     """
+
+    _keyset_next: TaskCursor | None = None
+    _keyset_active = False
 
     def paginate_queryset(
         self,
@@ -6628,6 +6648,21 @@ class TaskListPagination(ScheduleFetchPagination):
         page_size = self.get_page_size(request)
         if not page_size:
             return None
+
+        if (
+            keyset_requested(request)
+            and getattr(view, "action", None) == "list"
+            and isinstance(queryset, QuerySet)
+        ):
+            if request.query_params.get("ordering"):
+                raise DRFValidationError(
+                    {"ordering": ["`ordering` cannot be combined with `pagination=keyset`."]}
+                )
+            token = request.query_params.get(CURSOR_PARAM)
+            cursor = TaskCursor.decode(token) if token else None
+            rows, self._keyset_next = keyset_page(queryset, cursor, page_size)
+            self._keyset_active = True
+            return rows
 
         count_queryset = getattr(queryset, "_task_count_queryset", None)
         paginator = _SeparateCountPaginator(queryset, page_size, count_queryset=count_queryset)
@@ -6643,6 +6678,55 @@ class TaskListPagination(ScheduleFetchPagination):
             self.display_page_controls = True
 
         return list(self.page)
+
+    def get_paginated_response(self, data: Any) -> Response:
+        if not self._keyset_active:
+            return super().get_paginated_response(data)
+        next_url = None
+        # `paginate_queryset` set `self.request` before `_keyset_active` could be True.
+        if self._keyset_next is not None and self.request is not None:
+            next_url = replace_query_param(
+                self.request.build_absolute_uri(), CURSOR_PARAM, self._keyset_next.encode()
+            )
+        # Forward-only: the Schedule walks to the end and never pages back, and a
+        # reverse seek would need the mirrored predicate for no consumer.
+        return Response({"next": next_url, "previous": None, "results": data})
+
+    def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        response_schema = super().get_paginated_response_schema(schema)
+        response_schema["properties"]["count"]["description"] = (
+            "Total matching rows. Omitted when `pagination=keyset`."
+        )
+        return response_schema
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        return [
+            *super().get_schema_operation_parameters(view),
+            {
+                "name": KEYSET_MODE_PARAM,
+                "required": False,
+                "in": "query",
+                "description": (
+                    "`keyset` switches to seek pagination in the default WBS order "
+                    "(tie-broken on `id`): follow `next` to the end; the response omits "
+                    "`count` and `page` is ignored. Plain inserts and deletes during a "
+                    "walk neither repeat nor skip a row; structural moves "
+                    "(such as indent, outdent, reparent, group, ungroup) and renames can. "
+                    "Cannot be combined with `ordering`."
+                ),
+                "schema": {"type": "string", "enum": [KEYSET_MODE_VALUE]},
+            },
+            {
+                "name": CURSOR_PARAM,
+                "required": False,
+                "in": "query",
+                "description": (
+                    "Opaque position token from a keyset-mode `next` link. Only "
+                    "meaningful with `pagination=keyset`; a malformed token returns 400."
+                ),
+                "schema": {"type": "string"},
+            },
+        ]
 
 
 class _NumericWbsOrderingFilter(filters.OrderingFilter):
@@ -7845,7 +7929,17 @@ class TaskViewSet(
         # and the paginated event list fails schema conformance against Task (#2127).
         responses={200: TaskDurationChangeEventSerializer(many=True)},
     )
-    @action(detail=True, methods=["get"], url_path="duration-events")
+    # Plain ScheduleFetchPagination, not the viewset's TaskListPagination: the
+    # keyset mode that class adds seeks on Task's sort columns, and its schema
+    # (optional `count`, `pagination`/`cursor` params) would otherwise be
+    # advertised for this event list too (#3381). Page-number behavior is
+    # identical — TaskListPagination's count bypass is a no-op here.
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="duration-events",
+        pagination_class=ScheduleFetchPagination,
+    )
     def duration_events(self, request: Request, **kwargs: Any) -> Response:
         """Duration-change audit events for a task, newest first (ADR-0151, #414).
 

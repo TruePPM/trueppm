@@ -17,7 +17,7 @@ import type {
   DeliveryMode,
   DorState,
 } from '@/types';
-import type { PaginatedResponse } from '@/api/types';
+import type { KeysetPaginatedResponse, PaginatedResponse } from '@/api/types';
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
 import { mapWithConcurrency } from '@/utils/mapWithConcurrency';
@@ -250,7 +250,7 @@ export interface ApiTask {
   effort_estimate?: number | null;
 }
 
-interface ApiDependency {
+export interface ApiDependency {
   id: string;
   predecessor: string;
   successor: string;
@@ -637,9 +637,103 @@ function mapDependency(d: ApiDependency): TaskLink {
   };
 }
 
+/**
+ * Page size for the keyset task walk (#3381) — the server's `max_page_size`.
+ *
+ * The keyset walk is serial (each request needs the previous page's cursor), so
+ * round trips, not per-page cost, are what it pays for; a keyset page costs what
+ * page 1 costs at any depth, so the largest page the server allows is the
+ * cheapest walk. Raising it past 500 is clamped server-side, not refused.
+ */
+const SCHEDULE_KEYSET_PAGE_SIZE = 500;
+
+/** Whether a keyset `next` link carries a non-empty `cursor` parameter. */
+function hasCursor(next: string): boolean {
+  return !!new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
+}
+
+/**
+ * The `cursor` query parameter of a keyset `next` link, or `null` at the end.
+ *
+ * Only the token is read back — the request is rebuilt against `apiClient`'s own
+ * base URL rather than following the absolute `next` URL, which the server builds
+ * from the host it saw and can name an internal host or the wrong scheme behind a
+ * TLS-terminating proxy.
+ */
+export function keysetCursorFromNext(next: string | null): string | null {
+  if (next === null) return null;
+  const cursor = new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
+  if (!cursor) {
+    throw new Error('Keyset `next` link carries no cursor');
+  }
+  return cursor;
+}
+
+/**
+ * Fetch every task in a project by following the keyset `next` cursor (#3381).
+ *
+ * Page-number pagination paid an `OFFSET` per page that Postgres cannot skip —
+ * it still evaluates every per-task annotation for the rows it discards — so a
+ * whole-project load summed to O(N²) (1.8 s for one `OFFSET 31800` page at
+ * 32,000 tasks, against 24 ms at offset 0). A seek page costs what page 1 costs
+ * at any depth. The trade is concurrency: there are no page numbers to fan out
+ * over, so this walk is serial, which is why it uses the largest page size.
+ *
+ * The server's keyset order is the default `Task.Meta.ordering` (numeric WBS
+ * order, then name, then id) — the same order page-number reads return — so the
+ * concatenation is the display order {@link computeWbsCodes} numbers siblings
+ * from. As with the page-number walk, the full set resolves at once: a partial
+ * set renders a WRONG schedule (see {@link fetchAllPagesParallel}), so pages are
+ * never streamed into the cache.
+ */
+async function fetchAllTasksKeyset(projectId: string): Promise<ApiTask[]> {
+  const results: ApiTask[] = [];
+  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  let cursor: string | null = null;
+  for (;;) {
+    const params: Record<string, string | number> = {
+      project: projectId,
+      pagination: 'keyset',
+      page_size: SCHEDULE_KEYSET_PAGE_SIZE,
+    };
+    if (cursor !== null) params.cursor = cursor;
+    const response: { data: KeysetPaginatedResponse<ApiTask> } = await apiClient.get<
+      KeysetPaginatedResponse<ApiTask>
+    >('/tasks/', { params });
+    // A server that predates keyset mode ignores `pagination=keyset` (rolling
+    // update: web rolls before the API, or a walk spans both) and answers in the
+    // page-number envelope: it carries `count`, or a `next` with no cursor. Redo
+    // the read with the page-number walk rather than erroring the Schedule.
+    const body = response.data as Partial<PaginatedResponse<ApiTask>> &
+      KeysetPaginatedResponse<ApiTask>;
+    if (body.count !== undefined || (body.next && !hasCursor(body.next))) {
+      return fetchAllPagesParallel<ApiTask>('/tasks/', projectId);
+    }
+    for (const task of body.results) {
+      // A structural move (indent/outdent/reparent) or rename mid-walk can shift
+      // a row across a page boundary. Fail so the query retries and refetches,
+      // rather than rendering the same task twice.
+      if (seenIds.has(task.id)) {
+        throw new Error('Keyset task walk served a task twice; refetching');
+      }
+      seenIds.add(task.id);
+    }
+    results.push(...body.results);
+    cursor = keysetCursorFromNext(response.data.next);
+    if (cursor === null) return results;
+    // A server that hands back a cursor it already issued would loop forever.
+    if (seen.has(cursor)) {
+      throw new Error('Keyset task walk made no progress');
+    }
+    seen.add(cursor);
+  }
+}
+
 // Large first-page size requested from the ScheduleFetchPagination override
-// (issue 1519). The server caps this at max_page_size=500; 200 keeps the first
-// page cheap while collapsing a 1K-task project from ~20 pages to ~5.
+// (issue 1519) by the page-number walk, which the dependencies read still uses.
+// The server caps this at max_page_size=500; 200 keeps the first page cheap
+// while collapsing a 1K-task project from ~20 pages to ~5.
 const SCHEDULE_PAGE_SIZE = 200;
 
 /**
@@ -747,11 +841,10 @@ export function useScheduleTasks(
   const tasksQuery = useQuery({
     queryKey: ['tasks', resolvedId],
     queryFn: async () => {
-      // Fetch all pages — PAGE_SIZE=50 would otherwise silently cap the Gantt
-      // at 50 tasks. Request a large first page and fetch any remainder in
-      // parallel (issue 1519) rather than walking the `next` cursor serially.
+      // Fetch every task — a single default page would silently cap the Gantt
+      // at 50. Walk the keyset cursor (#3381) so no page pays an OFFSET.
       // `enabled: !!resolvedId` guarantees resolvedId is defined here.
-      const allApiTasks = await fetchAllPagesParallel<ApiTask>('/tasks/', resolvedId!);
+      const allApiTasks = await fetchAllTasksKeyset(resolvedId!);
       // Pass all tasks to the engine — _paintTaskAt skips bars for unscheduled
       // tasks (empty start/finish), and _updateProjectRange defaults to today
       // ±30 days when no task has dates yet.

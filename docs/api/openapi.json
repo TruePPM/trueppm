@@ -51348,6 +51348,15 @@
                         "description": "Baseline ID used to annotate each task with baseline_start / baseline_finish. Defaults to the project's active baseline when ?project is supplied."
                     },
                     {
+                        "name": "cursor",
+                        "required": false,
+                        "in": "query",
+                        "description": "Opaque position token from a keyset-mode `next` link. Only meaningful with `pagination=keyset`; a malformed token returns 400.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "in": "query",
                         "name": "finish__lte",
                         "schema": {
@@ -51429,6 +51438,19 @@
                         "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "pagination",
+                        "required": false,
+                        "in": "query",
+                        "description": "`keyset` switches to seek pagination in the default WBS order (tie-broken on `id`): follow `next` to the end; the response omits `count` and `page` is ignored. Plain inserts and deletes during a walk neither repeat nor skip a row; structural moves (such as indent, outdent, reparent, group, ungroup) and renames can. Cannot be combined with `ordering`.",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "keyset"
+                            ],
+                            "x-trueppm-enum": "open"
                         }
                     },
                     {
@@ -69124,7 +69146,8 @@
                 "properties": {
                     "count": {
                         "type": "integer",
-                        "example": 123
+                        "example": 123,
+                        "description": "Total matching rows. Omitted when `pagination=keyset`."
                     },
                     "next": {
                         "type": "string",

@@ -49,6 +49,17 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
+/**
+ * A keyset (seek) page from an endpoint that supports `?pagination=keyset` —
+ * today `GET /tasks/` (#3381). There is no `count` and no page number: follow
+ * `next` until it is `null`. `previous` is always `null` (forward-only).
+ */
+export interface KeysetPaginatedResponse<T> {
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 // ---------------------------------------------------------------------------
 // Access / membership types (ADR-0061)
 // ---------------------------------------------------------------------------
