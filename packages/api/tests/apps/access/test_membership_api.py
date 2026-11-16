@@ -1012,8 +1012,10 @@ def test_revived_membership_syncs_as_an_update_not_a_tombstone(
     tombstoned record, never a second row.
     """
     sync_url = f"/api/v1/projects/{project.pk}/sync/"
+    checkpoint = owner_client.get(sync_url, {"since": "0"}).data["timestamp"]
     member_membership.soft_delete()
-    tombstone = owner_client.get(sync_url, {"since": "0"}).data
+    # since=0 ships live rows only (#4470); the tombstone is read from a real checkpoint.
+    tombstone = owner_client.get(sync_url, {"since": str(checkpoint)}).data
     assert str(member_membership.pk) in tombstone["changes"]["memberships"]["deleted"]
     since = tombstone["timestamp"]
 

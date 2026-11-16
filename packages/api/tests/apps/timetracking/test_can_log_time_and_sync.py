@@ -135,11 +135,14 @@ def test_sync_soft_deleted_entry_is_tombstone(calendar: Calendar, alice: object)
     _member(proj, alice)
     task = _task(proj)
     entry = TimeEntry.objects.create(task=task, user=alice, minutes=60)
-    entry.soft_delete()
 
     client = APIClient()
     client.force_authenticate(user=alice)
-    resp = _sync_pull(client, proj)
+    # A cold start (since=0) ships live rows only, so the tombstone is observed from
+    # a real checkpoint taken while the entry was still live (#4470).
+    since = _sync_pull(client, proj).data["timestamp"]
+    entry.soft_delete()
+    resp = client.get(f"/api/v1/projects/{proj.pk}/sync/?since={since}")
 
     te = resp.data["changes"]["time_entries"]
     assert str(entry.pk) in set(te["deleted"])
