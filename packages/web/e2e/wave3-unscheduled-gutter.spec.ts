@@ -254,7 +254,25 @@ async function setupRoutes(page: import('@playwright/test').Page, tasks: Record<
 
 async function gotoSchedule(page: import('@playwright/test').Page, tasks: Record<string, unknown>[] = FIXTURE_API_TASKS) {
   await setupRoutes(page, tasks);
+  // Gate on the project DETAIL read, not only on the treegrid. The treegrid
+  // renders off the list-seeded cache before that read lands, so it says
+  // nothing about whether the shell will survive: if the detail ever stops
+  // being mocked, the catch-all's 404 makes `ProjectShell` swap the route for
+  // `ProjectNotFound` about a second later, and the spec fails 1-in-hundreds
+  // as a `locator.click` timeout or an "element(s) not found" on whatever it
+  // was doing at that moment. Asserting the status here turns that silent
+  // countdown into a failure on every test, named at the cause.
+  const detail = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'GET' &&
+      new URL(r.url()).pathname === `/api/v1/projects/${FIXTURE_PROJECT_ID}/`,
+    { timeout: 10_000 },
+  );
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
+  expect(
+    (await detail).status(),
+    'project detail read must be mocked — a 404 swaps the Schedule for ProjectNotFound',
+  ).toBe(200);
   await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
 }
 
