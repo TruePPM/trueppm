@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 # DNS answer that flipped between the save/send pre-flight and the connect cannot
 # reach an internal address. Dotted path, not an import: the class lives with the
 # HTTP guard it reuses in ``integrations``.
+# layering-ok: selected by dotted path through Django's get_connection; no import
 _SMTP_BACKEND = "trueppm_api.apps.integrations.smtp.GuardedSMTPEmailBackend"
 
 # Provider-fixed relay parameters. SendGrid's SMTP relay uses a constant host and

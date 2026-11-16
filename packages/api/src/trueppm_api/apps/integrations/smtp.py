@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import smtplib
 import socket
-from typing import Any
+from typing import Any, cast
 
 from django.core.mail.backends.smtp import EmailBackend
 
@@ -33,7 +33,10 @@ def _dial(smtp: smtplib.SMTP, host: str, port: int, timeout: float | None) -> so
     if timeout is not None and not timeout:
         raise ValueError("Non-blocking socket (timeout=0) is not supported")
     return _guarded_create_connection(
-        (host, port), timeout, smtp.source_address, purpose=EgressPurpose.SMTP
+        (host, port),
+        timeout,
+        cast("tuple[str, int] | None", smtp.source_address),
+        purpose=EgressPurpose.SMTP,
     )
 
 
@@ -50,7 +53,9 @@ class GuardedSMTPSSL(smtplib.SMTP_SSL):
     def _get_socket(self, host: str, port: int, timeout: float | None) -> socket.socket:
         raw = _dial(self, host, port, timeout)
         try:
-            return self.context.wrap_socket(raw, server_hostname=self._host)
+            # smtplib sets ``_host`` in __init__ but typeshed omits it.
+            hostname: str = self._host  # type: ignore[attr-defined]
+            return self.context.wrap_socket(raw, server_hostname=hostname)
         except BaseException:
             raw.close()
             raise
