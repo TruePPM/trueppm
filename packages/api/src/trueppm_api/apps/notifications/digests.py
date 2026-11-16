@@ -366,7 +366,10 @@ def send_due_digests(now: datetime.datetime | None = None) -> int:
         }
         # Deterministic order so a truncated run cuts the same tail and the
         # WARNING below names exactly the users not reached.
-        # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
+        # No resume cursor here (unlike the #4420 sweeps): _maybe_send_for_user fires
+        # only while the user's local weekday and hour equal their slot, and the next
+        # hourly run is already in a later hour, so a user cut off here is not
+        # picked up again until their slot recurs next week.
         ordered_user_ids = sorted(user_ids, key=str)
         for index, user_id in enumerate(ordered_user_ids):
             try:

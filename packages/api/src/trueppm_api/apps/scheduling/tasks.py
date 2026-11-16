@@ -441,6 +441,7 @@ def _do_daily_forecast_floor() -> None:
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.scheduling.models import ForecastSnapshotTrigger, ProjectForecastSnapshot
     from trueppm_api.apps.scheduling.services import safe_capture_forecast_snapshot
+    from trueppm_api.core.sweep_cursor import clear_cursor, rotate_after_cursor, save_cursor
 
     cutoff = timezone.now() - timedelta(hours=24)
     # Projects already covered in the window — skip them with a single query rather
@@ -458,11 +459,16 @@ def _do_daily_forecast_floor() -> None:
     # ``notify_project_end_date_shift`` at each ADMIN — a daily "your end date
     # slipped" for a schedule the author is in the middle of typing. The commit
     # moment captures baseline v1, which is where a draft's history should start.
-    # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
-    project_ids = list(
-        visible_projects(Project.objects.filter(is_deleted=False, is_archived=False))
-        .order_by("id")
-        .values_list("id", flat=True)
+    # Resume cursor (#4420): a truncated run saves its last passed project so the
+    # next run starts after it and wraps, rather than starving the same tail.
+    project_ids = rotate_after_cursor(
+        "capture_daily_forecast_floor",
+        list(
+            visible_projects(Project.objects.filter(is_deleted=False, is_archived=False))
+            .order_by("id")
+            .values_list("id", flat=True)
+        ),
+        lambda pid: pid,
     )
     captured = 0
     for index, project_id in enumerate(project_ids):
@@ -478,8 +484,11 @@ def _do_daily_forecast_floor() -> None:
                 len(unreached),
                 ", ".join(str(pid) for pid in unreached[:20]),
             )
+            if index:
+                save_cursor("capture_daily_forecast_floor", project_ids[index - 1])
             raise
         captured += 1
+    clear_cursor("capture_daily_forecast_floor")
     if captured:
         logger.info("capture_daily_forecast_floor: captured %d snapshot(s)", captured)
 
