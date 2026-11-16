@@ -1281,7 +1281,7 @@ class TruePPMAutoSchema(AutoSchema):
         # `narrow_token_refused_actions` (the delivery log). Neither is visible to
         # schema generation through `get_permissions()`.
         action = getattr(self.view, "action", None)
-        if action is not None and action in getattr(self.view, "full_token_refused_actions", ()):
+        if self._full_token_refused():
             auth = [
                 entry
                 for entry in auth
@@ -1290,6 +1290,18 @@ class TruePPMAutoSchema(AutoSchema):
         if action is not None and action in getattr(self.view, "narrow_token_refused_actions", ()):
             auth = [entry for entry in auth if "webhooksManageTokenAuth" not in entry]
         return auth
+
+    def _full_token_refused(self) -> bool:
+        """Whether this operation refuses a full-access API token (#4461, #2414).
+
+        Read from a viewset's ``full_token_refused_actions``, the set its
+        ``get_permissions`` consults for the same ``action``. Distinct from
+        :meth:`_token_callers_refused` because a narrow ``webhooks:manage`` token is
+        still admitted on these operations, so only the full-access schemes are
+        stripped — but the 403 a full-access caller receives is declared all the same.
+        """
+        action = getattr(self.view, "action", None)
+        return action is not None and action in getattr(self.view, "full_token_refused_actions", ())
 
     def _token_callers_refused(self) -> bool:
         """Whether this view refuses every API token outright (``IsNotTokenAuthenticated``).
@@ -1307,7 +1319,9 @@ class TruePPMAutoSchema(AutoSchema):
         ``SessionOnlyWritesMixin`` (refuses every unsafe method, so this operation's
         method decides); a viewset's ``token_refused_actions`` set, which its
         ``get_permissions`` consults for the same ``action`` (#3847); and an
-        ``APIView``'s ``token_refused_methods`` set. A guard added in
+        ``APIView``'s ``token_refused_methods`` set. The webhook viewsets' narrower
+        ``full_token_refused_actions`` is read by :meth:`_full_token_refused` instead,
+        since a ``webhooks:manage`` token stays admitted there (#2414). A guard added in
         ``get_permissions()`` WITHOUT one of these is invisible here (the original
         "every view declares it statically" premise was false for the webhook and
         share-link writes, #4665) and can drift from the schema; the route-table
@@ -1376,7 +1390,7 @@ class TruePPMAutoSchema(AutoSchema):
             responses = operation.setdefault("responses", {})
             responses.setdefault("400", dict(_VALIDATION_RESPONSE))
         self._declare_idempotency(operation, method)
-        if self._token_callers_refused():
+        if self._token_callers_refused() or self._full_token_refused():
             # Declared here rather than by decorating each view for the same reason as
             # the 429 above: the fact lives in a view attribute the schema dict cannot
             # see, and one injection point cannot drift from the permission class the

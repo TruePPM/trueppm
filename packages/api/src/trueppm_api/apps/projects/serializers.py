@@ -12373,9 +12373,13 @@ class ProjectApiTokenCreateSerializer(
         # the difference between a 400 the caller can act on and a credential that
         # looks minted and fails later with no way to debug it (#2890).
         if SCOPE_WEBHOOKS_MANAGE in scopes:
-            # A project/program token resolves request.user to its minter, which on the
-            # webhook routes would widen it to every project the minter administers
-            # (the confused-deputy hole OwnerScopedApiTokenAuthentication documents).
+            # Personal-only is a deliberate first slice, not a structural limit: the
+            # webhook routes are all project/program-nested, so a bound variant (an
+            # IsTokenForProject-style check that the URL's project/program is the
+            # token's own) is possible and stays open in #2414. Without that check a
+            # project/program token resolves request.user to its minter and would
+            # reach every project the minter administers (the confused-deputy hole
+            # OwnerScopedApiTokenAuthentication documents), so it is refused here.
             raise serializers.ValidationError(
                 {
                     "scopes": (

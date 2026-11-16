@@ -33,8 +33,10 @@ function tokensKey(scope: IntegrationScope) {
  *   mint. Treat the two as one; never compare against either literal alone.
  * - `mcp:read` — read-only, for pointing an MCP client (Claude Desktop and the
  *   like) at the instance. Cannot write even if replayed against a write path.
+ * - `webhooks:manage` — outbound-webhook management only (#2414). Minted by API
+ *   call only; the UI never offers it, but a listed token can carry it.
  */
-export type ApiTokenScope = 'api:full' | 'legacy:full' | 'mcp:read';
+export type ApiTokenScope = 'api:full' | 'legacy:full' | 'mcp:read' | 'webhooks:manage';
 
 export interface ApiToken {
   id: string;

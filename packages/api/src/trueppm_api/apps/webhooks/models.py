@@ -383,6 +383,61 @@ class WebhookEditor(models.Model):
         return f"WebhookEditor({self.webhook_id}, {self.user_id})"
 
 
+class WebhookTokenEditor(models.Model):
+    """Every API token that has ever registered a webhook, set its `url`/`secret`,
+    or re-enabled it while disabled (#2414).
+
+    :class:`WebhookEditor` records the *person*, which is what a person-wide
+    containment lever (password reset, off-boarding, ``revoke_api_tokens``) needs.
+    It cannot answer the narrower question a single token revocation asks: "which
+    webhooks did *this credential* put in place?" A ``webhooks:manage`` token acts
+    as its owner, so ``created_by`` and ``WebhookEditor.user`` name the owner and
+    are indistinguishable from the owner's own session edits. Without this row,
+    revoking a leaked token left the attacker's webhook live and receiving every
+    future event, because revoking one token is deliberately not a sweep of
+    everything its owner ever configured.
+
+    Same append-only shape and reasoning as :class:`WebhookEditor` — a later edit
+    by anyone else never removes or reassigns a row. ``api_token`` CASCADEs: a
+    token row is soft-revoked, never deleted, in normal operation.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    webhook = models.ForeignKey(Webhook, on_delete=models.CASCADE, related_name="token_editors")
+    api_token = models.ForeignKey("projects.ApiToken", on_delete=models.CASCADE, related_name="+")
+    set_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["webhook", "api_token"], name="uniq_webhook_token_editor"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"WebhookTokenEditor({self.webhook_id}, {self.api_token_id})"
+
+
+def deactivate_webhooks_set_by_token(api_token_id: uuid.UUID) -> int:
+    """Deactivate every active webhook a given API token registered or repointed.
+
+    Called when that one token is revoked (``MyApiTokenViewSet.destroy``), in the
+    same transaction as the revocation, so a leaked ``webhooks:manage`` token's
+    webhook stops delivering the moment the token does (#2414). Same deactivation
+    shape as ``revoke_personal_durable_grants`` (#4461): ``dispatch_webhooks``
+    fans out only to ``is_active=True`` rows, and an Admin re-enables the row
+    after checking its url/secret. Returns the number of webhooks deactivated.
+    """
+    return Webhook.objects.filter(
+        is_active=True,
+        pk__in=WebhookTokenEditor.objects.filter(api_token_id=api_token_id).values("webhook_id"),
+    ).update(
+        is_active=False,
+        disabled_at=timezone.now(),
+        disabled_reason="Deactivated: the API token that configured this webhook was revoked.",
+    )
+
+
 def _next_delivery_sequence(webhook_id: uuid.UUID | str) -> int:
     """Atomically allocate the next per-subscription delivery sequence number.
 

@@ -54,6 +54,7 @@ from trueppm_api.apps.webhooks.models import (
     Webhook,
     WebhookDelivery,
     WebhookEditor,
+    WebhookTokenEditor,
     _next_delivery_sequence,
 )
 from trueppm_api.apps.webhooks.permissions import IsNotNarrowScopedToken
@@ -69,6 +70,21 @@ from trueppm_api.core.openapi import CURSOR_PAGINATION_PARAMETERS
 logger = logging.getLogger(__name__)
 
 _BROKER_ERRORS = (KombuOperationalError, ConnectionError, redis_lib.ConnectionError)
+
+
+def _record_token_editor(request: Request, webhook: Webhook | None) -> None:
+    """Record the API token behind a durable-grant-shaped webhook write (#2414).
+
+    Lets revoking that one token deactivate exactly the webhooks it put in place
+    (``deactivate_webhooks_set_by_token``); a session or JWT write records nothing
+    here (``WebhookEditor`` already names the person). Append-only, like
+    ``WebhookEditor``.
+    """
+    from trueppm_api.apps.projects.models import ApiToken
+
+    token = getattr(request, "auth", None)
+    if webhook is not None and isinstance(token, ApiToken):
+        WebhookTokenEditor.objects.update_or_create(webhook=webhook, api_token=token)
 
 
 class WebhookDeliveryCursorPagination(CursorPagination):
@@ -255,6 +271,7 @@ class WebhookViewSet(
         # webhooks (#4839).
         lock_and_recheck_credential_cutoff(self.request)
         serializer.save(project=project, created_by=self.request.user)
+        _record_token_editor(self.request, serializer.instance)
 
     def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
         """Record an editor when this write is durable-grant-shaped (#4461).
@@ -298,6 +315,7 @@ class WebhookViewSet(
             WebhookEditor.objects.update_or_create(
                 webhook=serializer.instance, user=cast(User, self.request.user)
             )
+            _record_token_editor(self.request, serializer.instance)
 
     def _check_delivery_log_access(self, webhook: Webhook) -> None:
         """Hook for scope-specific delivery-log access. No extra gate at project scope."""
@@ -584,3 +602,4 @@ class ProgramWebhookViewSet(WebhookViewSet):
         self.check_object_permissions(self.request, program)
         lock_and_recheck_credential_cutoff(self.request)
         serializer.save(program=program, created_by=self.request.user)
+        _record_token_editor(self.request, serializer.instance)

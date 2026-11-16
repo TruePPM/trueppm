@@ -33,9 +33,9 @@ User = get_user_model()
 _BODY = {"url": "https://example.com/hook", "secret": "s" * 40, "events": ["task.created"]}
 
 
-def _client(owner: object, scopes: list[str]) -> APIClient:
+def _client_and_token(owner: object, scopes: list[str]) -> tuple[APIClient, ApiToken]:
     raw = f"{TOKEN_PREFIX}{uuid.uuid4().hex}{uuid.uuid4().hex}"
-    ApiToken.objects.create(
+    token = ApiToken.objects.create(
         owner=owner,
         name="bot",
         token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
@@ -45,6 +45,16 @@ def _client(owner: object, scopes: list[str]) -> APIClient:
     )
     c = APIClient()
     c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    return c, token
+
+
+def _client(owner: object, scopes: list[str]) -> APIClient:
+    return _client_and_token(owner, scopes)[0]
+
+
+def _session(user: object) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=user)
     return c
 
 
@@ -116,17 +126,22 @@ def test_scoped_token_cannot_read_the_delivery_log(
 
 @pytest.mark.django_db
 def test_scoped_token_is_nothing_but_webhooks(project: Project, admin: object) -> None:
-    """The scope authenticates on the webhook routes only: no other route serves it.
+    """The scope authenticates on the webhook routes only: every other route is 401.
 
-    The MCP-readable project routes recognize any ``tppm_`` bearer before the scope
-    check, so they answer 403 (``mcp:read`` is required) rather than 401; neither
-    returns data.
+    Includes the surfaces that prepend ``ProjectApiTokenAuthentication`` ahead of the
+    default stack — the MCP-readable project reads and the key resolver
+    (``resolve/``, ``keys/``) — which the base authenticator refuses for this scope.
     """
     c = _client(admin, [SCOPE_WEBHOOKS_MANAGE])
-    assert c.get("/api/v1/projects/").status_code in (401, 403)
-    assert c.get(f"/api/v1/projects/{project.pk}/").status_code in (401, 403)
-    assert c.get("/api/v1/tasks/").status_code in (401, 403)
-    assert c.get("/api/v1/auth/me/").status_code in (401, 403)
+    for url in (
+        "/api/v1/projects/",
+        f"/api/v1/projects/{project.pk}/",
+        "/api/v1/tasks/",
+        "/api/v1/auth/me/",
+        f"/api/v1/resolve/?ref={project.pk}",
+        "/api/v1/keys/?name=Platform",
+    ):
+        assert c.get(url).status_code == 401, url
 
 
 @pytest.mark.django_db
@@ -225,3 +240,86 @@ def test_project_scoped_token_cannot_carry_the_scope(project: Project, admin: ob
     )
     assert resp.status_code == 400, resp.data
     assert "scopes" in resp.data
+
+
+# --- revocation (#2414) ------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_revoking_the_token_deactivates_the_webhooks_it_configured(
+    project: Project, admin: object, webhook: Webhook
+) -> None:
+    """A leaked token's webhook must stop delivering when the token is revoked.
+
+    Covers both durable-grant shapes the token can produce: a webhook it registered,
+    and a session-registered webhook it repointed. A webhook the owner's own session
+    configured, and one another token of the same owner configured, stay live.
+    """
+    c, token = _client_and_token(admin, [SCOPE_WEBHOOKS_MANAGE])
+    other_c, _ = _client_and_token(admin, [SCOPE_WEBHOOKS_MANAGE])
+    created = c.post(_url(project), _BODY, format="json")
+    assert created.status_code == 201, created.data
+    repoint = c.patch(
+        f"{_url(project)}{webhook.pk}/", {"url": "https://attacker.example.com/h"}, format="json"
+    )
+    assert repoint.status_code == 200, repoint.data
+    untouched = Webhook.objects.create(
+        project=project,
+        url="https://example.com/own",
+        secret="x" * 20,
+        events=["task.created"],
+        created_by=admin,
+    )
+    sibling = other_c.post(_url(project), _BODY, format="json")
+    assert sibling.status_code == 201, sibling.data
+
+    program = Program.objects.create(name="Revoke")
+    ProgramMembership.objects.create(program=program, user=admin, role=Role.ADMIN)
+    prog = c.post(f"/api/v1/programs/{program.pk}/webhooks/", _BODY, format="json")
+    assert prog.status_code == 201, prog.data
+
+    assert _session(admin).delete(f"/api/v1/me/api-tokens/{token.pk}/").status_code == 204
+
+    for pk in (created.data["id"], webhook.pk, prog.data["id"]):
+        row = Webhook.objects.get(pk=pk)
+        assert row.is_active is False, pk
+        assert row.disabled_at is not None
+        assert "API token" in row.disabled_reason
+    assert Webhook.objects.get(pk=untouched.pk).is_active is True
+    assert Webhook.objects.get(pk=sibling.data["id"]).is_active is True
+
+
+@pytest.mark.django_db
+def test_a_session_edit_after_the_token_does_not_erase_its_attribution(
+    project: Project, admin: object
+) -> None:
+    """Append-only, like WebhookEditor: a later session PUT carrying the same url keeps it."""
+    c, token = _client_and_token(admin, [SCOPE_WEBHOOKS_MANAGE])
+    pk = c.post(_url(project), _BODY, format="json").data["id"]
+    assert (
+        _session(admin).patch(f"{_url(project)}{pk}/", {"url": _BODY["url"]}, format="json")
+    ).status_code == 200
+    assert _session(admin).delete(f"/api/v1/me/api-tokens/{token.pk}/").status_code == 204
+    assert Webhook.objects.get(pk=pk).is_active is False
+
+
+# --- schema (#4461 403 on the full-token-refused writes) ---------------------
+
+
+def test_schema_declares_the_token_refusal_on_webhook_writes() -> None:
+    """The 403 a full-access token receives on create/update stays in the contract."""
+    import json
+    from pathlib import Path
+
+    root = next(p for p in Path(__file__).resolve().parents if (p / "docs" / "api").is_dir())
+    paths = json.loads((root / "docs" / "api" / "openapi.json").read_text())["paths"]
+    # The three operations whose 403 is the token refusal itself; the other webhook
+    # writes declare their own, richer 403 first (``setdefault`` keeps it).
+    ops = [
+        paths["/api/v1/programs/{program_pk}/webhooks/"]["post"],
+        paths["/api/v1/projects/{project_pk}/webhooks/{id}/"]["put"],
+        paths["/api/v1/projects/{project_pk}/webhooks/{id}/"]["patch"],
+    ]
+    for op in ops:
+        assert "403" in op["responses"], op["operationId"]
+        assert "API token" in op["responses"]["403"]["description"], op["operationId"]

@@ -222,13 +222,17 @@ is `legacy:full`.
 :::
 
 :::note[Ships in 0.5]
-A third personal-token scope, **`webhooks:manage`**, ships in 0.5. It lets automation
+A third personal-token scope, **`webhooks:manage`**, ships in 0.5. It will let automation
 create, read, update, delete, and test-ping outbound webhooks (project and program
 scope) without holding a full-access token, and it authenticates on those routes only
 (`webhooksManageTokenAuth` in the schema). It acts as the token's owner under the
 owner's own Admin role, never reads the webhook delivery log, cannot be combined with
-another scope, and is a `400` on a project- or program-scoped token. A full-access
-token remains refused on webhook create and update. See
+another scope, and is a `400` on a project- or program-scoped token. It is minted by
+API call only (`POST /api/v1/me/api-tokens/` from a session or JWT; there is no settings-page
+control). It cannot read past deliveries, but it can create a webhook or `PATCH` one's `url`
+and `events`, so whoever holds it can receive the full payload of every **future** event:
+treat it as access to future event data. Revoking it deactivates the webhooks it
+registered or repointed. A full-access token remains refused on webhook create and update. See
 [Webhooks](/features/webhooks/#automating-webhook-setup-with-a-webhooksmanage-token).
 In 0.4 `scopes` accepts `legacy:full` and `mcp:read` only.
 :::

@@ -496,10 +496,12 @@ The `webhooks:manage` scope ships in 0.5. In 0.4 the only way to create or updat
 webhook is a signed-in session; no token scope narrower than full access exists.
 :::
 
-A CI bot or an integration that registers, rotates, or tests webhooks does not need a
-full-access token. Mint a personal access token with the single scope
-`webhooks:manage` (`POST /api/v1/me/api-tokens/` with
-`{"name": "ci-webhooks", "scopes": ["webhooks:manage"]}`) and the token can:
+A CI bot or an integration that registers, rotates, or tests webhooks will not need a
+full-access token. You will mint a personal access token with the single scope
+`webhooks:manage` by API call only: `POST /api/v1/me/api-tokens/` with
+`{"name": "ci-webhooks", "scopes": ["webhooks:manage"]}`, authenticated with a signed-in
+session or a JWT (a token cannot mint tokens). There will be no settings-page control for
+this scope. The token will be able to:
 
 - list, read, create, update, delete, and test-ping webhooks, at project and program
   scope;
@@ -513,14 +515,33 @@ It cannot do anything else:
 - **It cannot read the delivery history.** Delivery records carry task notes, comment
   snippets, and assignee emails, so `deliveries` answers `403` to this token. Use a
   session or a full-access token for that.
+
+:::caution[Treat this token as access to future event data]
+Refusing the delivery history protects only events that were already sent. The token
+can create a webhook, or `PATCH` an existing one's `url` and `events`, to point at any
+endpoint it chooses, and that endpoint then receives the full payload of every
+**future** event the webhook subscribes to: the same task notes, comment snippets, and
+assignee emails the delivery history holds. Store and rotate a `webhooks:manage` token
+with the same care as the data your projects' events carry.
+:::
 - **It authenticates nowhere outside the webhook routes.** Every other endpoint
-  refuses it.
+  answers `401` to it.
 - **It cannot be combined with another scope**, and it is available on personal
   tokens only. A project- or program-scoped integration token acts as the person who
-  minted it, which on these routes would widen it beyond the project it was minted
-  for, so `POST .../api-tokens/` with this scope is a `400`.
+  minted it, and without a check binding it to its own project or program it would
+  reach every project that person administers, so `POST .../api-tokens/` with this
+  scope is a `400`. A project- or program-bound variant is not ruled out; it is not
+  part of this first release.
 
 A full-access token is still refused on create and update, as above: `webhooks:manage`
-is the one credential that may mint or repoint a webhook, and revoking it (or the
-owner's password change, off-boarding, or `revoke_api_tokens`) sweeps the webhooks it
-created like any other durable grant.
+is the one token that may register or repoint a webhook.
+
+**Revoking the token deactivates what it configured.** Revoking a `webhooks:manage`
+token (`DELETE /api/v1/me/api-tokens/{id}/`) will deactivate every webhook that token
+registered, repointed (`url` or `secret`), or re-enabled, in the same request, with the
+reason shown on the webhook. Webhooks the owner configured from a session, or with a
+different token, stay active. The owner's password reset, off-boarding, or
+`revoke_api_tokens` go further and deactivate every webhook the owner registered or
+edited. A token that simply **expires** does not deactivate anything: revoke it if it
+may have leaked. Before re-enabling a deactivated webhook, check its URL and signing
+secret.
