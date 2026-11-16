@@ -542,7 +542,10 @@ describe('GanttEngineImpl — setLinks / updateTask reach the renderer (issue 15
     // eslint-disable-next-line @typescript-eslint/unbound-method
     const barsLineTo = vi.mocked(barsCtx.lineTo);
 
-    engine.setTasks([scheduled('a', '2026-04-01', '2026-04-10'), scheduled('b', '2026-04-11', '2026-04-20')]);
+    engine.setTasks([
+      scheduled('a', '2026-04-01', '2026-04-10'),
+      scheduled('b', '2026-04-11', '2026-04-20'),
+    ]);
 
     // The engine pads the project range 30 days before the earliest task, so at
     // the default 'day' zoom both bars sit ~1200px right of x=0 and paint entirely
@@ -586,7 +589,10 @@ describe('GanttEngineImpl — setLinks / updateTask reach the renderer (issue 15
     const { engine, flushFrame } = setup();
     const prepareSpy = vi.mocked(prepareDependencyLayout);
 
-    engine.setTasks([scheduled('a', '2026-04-01', '2026-04-10'), scheduled('b', '2026-04-11', '2026-04-20')]);
+    engine.setTasks([
+      scheduled('a', '2026-04-01', '2026-04-10'),
+      scheduled('b', '2026-04-11', '2026-04-20'),
+    ]);
     engine.setLinks([
       { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
     ]);
@@ -666,6 +672,90 @@ describe('GanttEngineImpl — updateTask repaints dependency arrows (#1499)', ()
     expect(internals._dirtyRows.size).toBe(0);
 
     expect(() => flushFrame()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #795 — a date-only CPM splice repaints the bars layer, not everything
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — setTasks date-only delta partial repaint (#795)', () => {
+  type Flags = {
+    _barsRepaintPending: boolean;
+    _fullRepaintPending: boolean;
+    _projectStart: string;
+  };
+  function seeded() {
+    const h = setup();
+    const base = [
+      makeTask('a', '2026-04-01', '2026-04-10'),
+      makeTask('b', '2026-04-11', '2026-04-20'),
+      makeTask('c', '2026-04-05', '2026-04-15'),
+    ];
+    h.engine.setTasks(base);
+    h.engine.setLinks([
+      { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
+    ]);
+    h.flushFrame();
+    return { ...h, base, flags: h.engine as unknown as Flags };
+  }
+
+  it('takes the bars-only path and rebuilds arrows when only inner dates change', () => {
+    const { engine, flushFrame, base, flags } = seeded();
+    const prepareSpy = vi.mocked(prepareDependencyLayout);
+    const before = prepareSpy.mock.calls.length;
+    const scalesBefore = engine.scales;
+
+    const next = base.slice();
+    next[1] = { ...base[1], start: '2026-04-12', finish: '2026-04-20', totalFloat: 3 };
+    engine.setTasks(next);
+
+    expect(flags._barsRepaintPending).toBe(true);
+    expect(flags._fullRepaintPending).toBe(false);
+    expect(engine.scales).toBe(scalesBefore); // scales were not rebuilt
+    flushFrame();
+    expect(prepareSpy.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('falls back to a full repaint when the project bounds move', () => {
+    const { engine, base, flags } = seeded();
+    const next = base.slice();
+    next[0] = { ...base[0], start: '2026-01-01' }; // earliest task moves earlier
+    engine.setTasks(next);
+    expect(flags._fullRepaintPending).toBe(true);
+    expect(flags._projectStart).toBe('2025-12-02');
+  });
+
+  it('falls back to a full repaint when the latest finish moves (project end)', () => {
+    const { engine, base, flags } = seeded();
+    const next = base.slice();
+    next[1] = { ...base[1], finish: '2026-04-18' }; // b was the latest finish
+    engine.setTasks(next);
+    expect(flags._fullRepaintPending).toBe(true);
+  });
+
+  it('falls back to a full repaint when the critical flag flips', () => {
+    const { engine, base, flags } = seeded();
+    const next = base.slice();
+    next[1] = { ...base[1], isCritical: true };
+    engine.setTasks(next);
+    expect(flags._fullRepaintPending).toBe(true);
+  });
+
+  it('falls back to a full repaint for a non-date change, a reorder, or a new row count', () => {
+    const { engine, flushFrame, base, flags } = seeded();
+    const renamed = base.slice();
+    renamed[1] = { ...base[1], name: 'Renamed' };
+    engine.setTasks(renamed);
+    expect(flags._fullRepaintPending).toBe(true);
+    flushFrame();
+
+    engine.setTasks([renamed[1], renamed[0], renamed[2]]);
+    expect(flags._fullRepaintPending).toBe(true);
+    flushFrame();
+
+    engine.setTasks(renamed.slice(0, 2));
+    expect(flags._fullRepaintPending).toBe(true);
   });
 });
 
@@ -1231,9 +1321,7 @@ describe('GanttEngineImpl — double-click opens a task (#task-open)', () => {
     const internals = internalsOf(engine);
     const onOpen = vi.fn();
     engine.on('task-open', onOpen);
-    expect(() =>
-      internals._onDblClick({ clientX: 100, clientY: 40 } as MouseEvent),
-    ).not.toThrow();
+    expect(() => internals._onDblClick({ clientX: 100, clientY: 40 } as MouseEvent)).not.toThrow();
     expect(onOpen).not.toHaveBeenCalled();
   });
 });
