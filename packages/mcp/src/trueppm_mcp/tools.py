@@ -1135,6 +1135,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _get_project_history(client, project_id)
 
     @server.tool()
@@ -1149,6 +1150,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _list_dependencies(client, project_id)
 
     @server.tool()
@@ -1161,6 +1163,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _list_baselines(client, project_id)
 
     @server.tool()
@@ -1173,6 +1176,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Args:
             project_id: The project's UUID.
         """
+        _require_uuid("project_id", project_id)
         return await _list_phases(client, project_id)
 
     @server.tool()

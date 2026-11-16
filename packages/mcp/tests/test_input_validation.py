@@ -42,6 +42,10 @@ _ID_TOOLS: list[tuple[str, dict[str, Any]]] = [
     ("get_sprint_close_request", {"sprint_id": _UUID}),
     ("get_program_health", {"program_id": _UUID}),
     ("list_program_backlog", {"program_id": _UUID}),
+    ("get_project_history", {"project_id": _UUID}),
+    ("list_dependencies", {"project_id": _UUID}),
+    ("list_baselines", {"project_id": _UUID}),
+    ("list_phases", {"project_id": _UUID}),
 ]
 
 _HOSTILE = ["x/../../auth/me", "x?param=1", "x#frag", "../y", "p-1", "", _UUID + "/extra", "%2e%2e"]
@@ -68,6 +72,18 @@ async def test_a_non_uuid_id_is_refused_before_any_request(
         with pytest.raises(ToolError, match=f"{name} must be a UUID"):
             await server.call_tool(tool, {**args, name: bad})
     assert seen == []
+
+
+async def test_every_tool_taking_an_id_is_in_the_table(settings: Settings) -> None:
+    """A new tool with an ``*_id`` argument must join ``_ID_TOOLS`` (and validate it)."""
+    server, _ = _server(settings)
+    covered = {name for name, _args in _ID_TOOLS}
+    takes_id = {
+        tool.name
+        for tool in await server.list_tools()
+        if any(k.endswith("_id") for k in tool.inputSchema.get("properties", {}))
+    }
+    assert takes_id - covered == set()
 
 
 async def test_a_uuid_id_is_still_accepted(settings: Settings) -> None:

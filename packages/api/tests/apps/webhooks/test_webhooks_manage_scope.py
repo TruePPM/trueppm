@@ -140,6 +140,12 @@ def test_scoped_token_is_nothing_but_webhooks(project: Project, admin: object) -
         "/api/v1/auth/me/",
         f"/api/v1/resolve/?ref={project.pk}",
         "/api/v1/keys/?name=Platform",
+        # The MCP-readable schedule-structure reads (#5006).
+        f"/api/v1/projects/{project.pk}/history/",
+        f"/api/v1/projects/{project.pk}/baselines/",
+        f"/api/v1/projects/{project.pk}/phases/",
+        f"/api/v1/dependencies/?project={project.pk}",
+        "/api/v1/calendars/",
     ):
         assert c.get(url).status_code == 401, url
 
