@@ -42,8 +42,10 @@ engine now follows the MS Project / Primavera P6 convention:
   every midnight back to the close of the last working day before it, so a
   linked ``M`` held there links from the later of its link and that earliest
   midnight (:func:`_equivalent_link`, #4690, #4883): non-decreasing in the link
-  and in the floor, so a slipping predecessor or a later floor never moves
-  ``B`` earlier.
+  and in the floor, so a slipping predecessor or a later SNET, data date or
+  recorded actual start never moves ``B`` earlier. The project-start floor is
+  excluded: moving the project start later can still move a floored milestone's
+  successors earlier (#4225, #4635; tracked in #5055).
 * The backward pass and free float invert the same rule (:func:`_milestone_latest`,
   :func:`_milestone_refs`), and every late date is seeded from the instant the
   project ends (:func:`_finish_instant`), so a milestone on the critical path

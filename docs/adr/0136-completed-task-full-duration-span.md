@@ -21,7 +21,8 @@ Accepted — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
 > **Amended 2026-11-16 (#4883): a floored milestone's link instant is monotone.** A
 > milestone held by a floor links from the latest of its link and the close of the last
 > working day before the floor, so slipping a predecessor never moves its successors
-> earlier. This changes live schedules: a wider-calendar successor of a Monday-floored
+> earlier (for an SNET, data date or actual_start floor; the project-start floor is
+> excluded, #5055). This changes live schedules: a wider-calendar successor of a Monday-floored
 > milestone can sit on the weekend before it. See the dated bullet under Decision → Rules.
 
 > **The conformance-fixture constraint below is superseded by shipped practice** (verified
@@ -365,6 +366,9 @@ Rules:
       because the milestone then links from the earliest equivalent midnight
       instead of from its floor. A link addition is not a slip. The tie rule
       already did this for a tying predecessor; the window is now wider.
+    - Not covered either: the project-start floor. Moving the project start later
+      can still move a floored milestone's successors earlier (#4225, #4635); this
+      predates the amendment and is tracked in open issue #5055.
     - Not verified against MS Project or Primavera P6, which schedule in absolute
       time and do not model this choice.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
