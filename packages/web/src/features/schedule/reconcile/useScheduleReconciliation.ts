@@ -3,8 +3,8 @@
  * (ADR-0784 §D3, issue #2725).
  *
  * This is the FULL-SNAPSHOT delivery path: the initial load, any explicit cache
- * invalidation, and `useScheduleTasks`' 30 s fallback poll (which runs only
- * while the WebSocket is not `live`). The per-task delta path is the
+ * invalidation, and `useScheduleTasks`' fallback poll (30 s while the
+ * WebSocket is down, backing off to 120 s while it is `live`, #2848). The per-task delta path is the
  * `task_dates_updated` handler in `useProjectWebSocket`; both call the same
  * `reconcile()` reducer, so the two cannot drift.
  *

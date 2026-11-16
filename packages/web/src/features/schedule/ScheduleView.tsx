@@ -2322,7 +2322,7 @@ export function ScheduleView() {
   }, [seedApplicationId]);
 
   // The apply reporting `success` does NOT mean the rows are on screen: they ride
-  // `task_created` WS events, and `useScheduleTasks` drops its fallback poll to 30s
+  // `task_created` WS events, and `useScheduleTasks` drops its fallback poll to 120s
   // when the socket is healthy — so on a degraded socket the seeding state would
   // clear at the 2s poll and hand the user straight back to the caret-stealing
   // draft row this whole change exists to withhold. Re-derive the rows ourselves on

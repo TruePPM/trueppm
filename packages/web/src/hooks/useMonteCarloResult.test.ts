@@ -1,9 +1,10 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { useMonteCarloResult } from './useMonteCarloResult';
+import { LIVE_POLL_INTERVAL_MS, useWsConnectionStore } from '@/stores/wsConnectionStore';
 
 const getMock = vi.hoisted(() => vi.fn());
 
@@ -385,6 +386,37 @@ describe('useMonteCarloResult', () => {
     await waitFor(() => expect(result.current.data?.projectId).toBe('proj-B'));
     expect(getMock).toHaveBeenLastCalledWith('/projects/proj-B/monte-carlo/latest/');
     expect(getMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('useMonteCarloResult live-socket poll (#2848)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    getMock.mockResolvedValue({ data: { project_id: 'proj-1', runs: 0 } });
+    useWsConnectionStore.getState().markLive();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    useWsConnectionStore.getState().markConnecting();
+  });
+
+  it('refetches the latest result only at the slow 120 s interval while live', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHook(() => useMonteCarloResult('proj-1'), { wrapper: makeWrapper(qc) });
+    await vi.waitFor(() => expect(getMock).toHaveBeenCalledTimes(1));
+    const initial = getMock.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_POLL_INTERVAL_MS - 10_000);
+    });
+    expect(getMock.mock.calls.length).toBe(initial);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    await vi.waitFor(() => expect(getMock.mock.calls.length).toBeGreaterThan(initial));
   });
 });
 

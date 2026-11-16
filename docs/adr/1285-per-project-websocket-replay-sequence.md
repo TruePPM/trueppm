@@ -128,6 +128,9 @@ signal #2848 needs, and the hook point is marked `TODO(#2848)`. #2848 also cover
 backing off the fallback poll while the socket is live, and fixing the throttle
 docstring. Neither belongs in this change.
 
+> Update (2026-11, #2848): implemented. A confirmed gap at window expiry now triggers
+> a resync, and the fallback poll backs off to 120 s while the socket is live.
+
 ### 5. Rolling-update compatibility
 
 `seq` is nullable because the existing rows are left unnumbered (§6) and because an old
