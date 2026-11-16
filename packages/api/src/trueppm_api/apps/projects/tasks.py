@@ -22,6 +22,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from trueppm_api.core.idempotent import idempotent_task
+from trueppm_api.core.sweep_cursor import clear_cursor, rotate_after_cursor, save_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -803,10 +804,14 @@ def update_sprint_burndown_snapshots(self: object) -> None:
     from trueppm_api.apps.projects.services import upsert_burndown_for_sprint
 
     yesterday = timezone.localdate() - timedelta(days=1)
-    # Deterministic order so a truncated run always cuts the same tail and the
-    # WARNING below names exactly the sprints that were not reached.
-    # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
-    sprints = list(Sprint.objects.filter(state=SprintState.ACTIVE, is_deleted=False).order_by("pk"))
+    # Deterministic order plus a resume cursor: a truncated run saves the last
+    # completed sprint so the next run starts after it and wraps (#4420), instead of
+    # re-cutting the same tail forever. The WARNING names the unreached sprints.
+    sprints = rotate_after_cursor(
+        "update_sprint_burndown_snapshots",
+        list(Sprint.objects.filter(state=SprintState.ACTIVE, is_deleted=False).order_by("pk")),
+        lambda s: s.pk,
+    )
     for index, sprint in enumerate(sprints):
         try:
             upsert_burndown_for_sprint(sprint, snapshot_date=yesterday)
@@ -817,9 +822,12 @@ def update_sprint_burndown_snapshots(self: object) -> None:
             _warn_sweep_truncated(
                 "update_sprint_burndown_snapshots", [s.pk for s in sprints[index:]]
             )
+            if index:
+                save_cursor("update_sprint_burndown_snapshots", sprints[index - 1].pk)
             raise
         except Exception:
             logger.exception("update_sprint_burndown_snapshots: failed for sprint %s", sprint.pk)
+    clear_cursor("update_sprint_burndown_snapshots")
 
 
 @idempotent_task(
@@ -852,17 +860,24 @@ def generate_recurring_occurrences(self: object) -> None:
     # Collect new occurrence ids per project so each project's open boards get a
     # single bulk event rather than one per task.
     created_by_project: dict[str, list[str]] = {}
-    # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
-    rules = list(
-        TaskRecurrenceRule.objects.filter(is_deleted=False)
-        .select_related("task", "task__assignee")
-        .order_by("pk")
+    # Resume cursor (#4420): a truncated run saves its last completed rule so the
+    # next run starts after it and wraps, rather than starving the same tail.
+    rules = rotate_after_cursor(
+        "generate_recurring_occurrences",
+        list(
+            TaskRecurrenceRule.objects.filter(is_deleted=False)
+            .select_related("task", "task__assignee")
+            .order_by("pk")
+        ),
+        lambda r: r.pk,
     )
     for index, rule in enumerate(rules):
         try:
             created = _generate_due_occurrences(rule, horizon_days=horizon)
         except SoftTimeLimitExceeded:
             _warn_sweep_truncated("generate_recurring_occurrences", [r.pk for r in rules[index:]])
+            if index:
+                save_cursor("generate_recurring_occurrences", rules[index - 1].pk)
             raise
         except Exception:
             logger.exception("generate_recurring_occurrences: failed for rule %s", rule.pk)
@@ -870,6 +885,7 @@ def generate_recurring_occurrences(self: object) -> None:
         for task in created:
             created_by_project.setdefault(str(task.project_id), []).append(str(task.id))
         total += len(created)
+    clear_cursor("generate_recurring_occurrences")
     if total:
         logger.info("generate_recurring_occurrences: created %d occurrence(s)", total)
 

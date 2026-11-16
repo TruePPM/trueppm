@@ -124,3 +124,42 @@ def test_soft_time_limit_propagates_and_names_unreached_sprints(
     messages = [r.getMessage() for r in caplog.records]
     assert any("soft time limit exceeded; 2 item(s) not processed" in m for m in messages)
     assert not any("failed for sprint" in m for m in messages)
+
+
+def test_truncated_sweeps_resume_after_cursor_and_cover_every_sprint(project: Project) -> None:
+    """A run cut off by the soft limit does not restart at the head next time (#4420)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+    from django.core.cache import cache
+
+    sprints = sorted(
+        (_sprint(project, n, SprintState.ACTIVE) for n in "ABCD"), key=lambda s: str(s.pk)
+    )
+    seen: list[object] = []
+
+    def interrupt_at_second(sprint: Sprint, **_: object) -> None:
+        seen.append(sprint.pk)
+        if len(seen) == 2:
+            raise SoftTimeLimitExceeded()
+
+    with (
+        patch(
+            "trueppm_api.apps.projects.services.upsert_burndown_for_sprint",
+            side_effect=interrupt_at_second,
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        update_sprint_burndown_snapshots.run()
+    assert cache.get("sweep-cursor:update_sprint_burndown_snapshots") == str(sprints[0].pk)
+
+    second: list[object] = []
+    with patch(
+        "trueppm_api.apps.projects.services.upsert_burndown_for_sprint",
+        side_effect=lambda sprint, **_: second.append(sprint.pk),
+    ):
+        update_sprint_burndown_snapshots.run()
+
+    # The interrupted sprint is retried first, then the tail, then the head wraps.
+    assert second == [s.pk for s in sprints[1:] + sprints[:1]]
+    assert {*seen, *second} == {s.pk for s in sprints}
+    # A sweep that finishes within its limit leaves no cursor behind.
+    assert cache.get("sweep-cursor:update_sprint_burndown_snapshots") is None

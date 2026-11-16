@@ -431,12 +431,18 @@ reach and the first few ids:
 | Daily forecast floor | nightly | 110 s | `capture_daily_forecast_floor: soft time limit exceeded; N project(s) not processed (first: ...)` |
 | Weekly digests | hourly | 280 s | `send_due_digests: soft time limit exceeded; N user(s) not processed for <event> (first: <ids>)` |
 
-Items are processed in a fixed order, so a sweep that keeps overrunning leaves
-the **same tail** unprocessed on every run. Those items are not eventually caught
-up by a later run. A repeating WARNING means the instance has outgrown the limit:
-check worker CPU and database latency first. A persisted cursor or per-item
-fan-out for these sweeps is tracked in #4420, and the handlers that still swallow
-the time limit are tracked in #4421; neither is scheduled work. Receivers fired
+Items are processed in a fixed order. The first three sweeps (burndown snapshots,
+recurring occurrences, daily forecast floor) save a resume cursor in the cache when
+they are cut off: the next run starts after the last item that finished and wraps
+around, so successive runs together cover every item. A sweep that finishes within
+its limit clears the cursor. The cursor is best-effort; if the cache is flushed the
+sweep simply restarts from the head. The weekly digest sweep has no cursor, so users
+it did not reach miss that week's slot.
+
+A repeating WARNING still means the instance has outgrown the limit: check worker
+CPU and database latency first, because a sweep that catches up only slowly is
+running late for the tail. The handlers that still swallow the time limit are
+tracked in #4421, which is not scheduled work. Receivers fired
 from a sweep's per-item writes (for example Task `post_save` receivers) can still
 absorb the signal before it reaches the sweep's guard; that is tracked in #4421.
 

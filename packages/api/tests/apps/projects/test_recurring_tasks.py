@@ -768,3 +768,52 @@ def test_non_member_cannot_list_or_retrieve_another_projects_rule(
     items = data["results"] if isinstance(data, dict) and "results" in data else data
     assert items == []
     assert client.get(f"/api/v1/recurrence-rules/{rule.pk}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_truncated_recurrence_sweep_resumes_after_cursor(project: Project) -> None:
+    """Successive runs cover every rule even when one overruns the limit (#4420)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+    from django.core.cache import cache
+
+    rules = []
+    for n in range(4):
+        task = Task.objects.create(project=project, name=f"T{n}", duration=1, planned_start=MONDAY)
+        rules.append(_make_rule(task))
+    rules.sort(key=lambda r: str(r.pk))
+    seen: list[object] = []
+
+    def interrupt_at_second(rule: TaskRecurrenceRule, **_: object) -> list[Task]:
+        seen.append(rule.pk)
+        if len(seen) == 2:
+            raise SoftTimeLimitExceeded()
+        return []
+
+    with (
+        patch("trueppm_api.core.idempotent.valkey") as redis_module,
+        patch(
+            "trueppm_api.apps.projects.services._generate_due_occurrences",
+            side_effect=interrupt_at_second,
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        redis_module.client.return_value.set.return_value = True
+        generate_recurring_occurrences.run()
+    assert cache.get("sweep-cursor:generate_recurring_occurrences") == str(rules[0].pk)
+
+    second: list[object] = []
+
+    def record(rule: TaskRecurrenceRule, **_: object) -> list[Task]:
+        second.append(rule.pk)
+        return []
+
+    with (
+        patch("trueppm_api.core.idempotent.valkey") as redis_module,
+        patch("trueppm_api.apps.projects.services._generate_due_occurrences", side_effect=record),
+    ):
+        redis_module.client.return_value.set.return_value = True
+        generate_recurring_occurrences.run()
+
+    assert second == [r.pk for r in rules[1:] + rules[:1]]
+    assert {*seen, *second} == {r.pk for r in rules}
+    assert cache.get("sweep-cursor:generate_recurring_occurrences") is None

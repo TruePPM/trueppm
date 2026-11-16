@@ -366,7 +366,8 @@ def send_due_digests(now: datetime.datetime | None = None) -> int:
         }
         # Deterministic order so a truncated run cuts the same tail and the
         # WARNING below names exactly the users not reached.
-        # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
+        # No resume cursor here (unlike the #4420 sweeps): a digest is slot-keyed to
+        # the user's local hour, so a later run would find the slot already past.
         ordered_user_ids = sorted(user_ids, key=str)
         for index, user_id in enumerate(ordered_user_ids):
             try:
