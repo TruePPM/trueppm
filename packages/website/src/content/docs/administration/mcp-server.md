@@ -71,7 +71,7 @@ file on disk, which keeps it spawnable as a subprocess with no state to manage.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `TRUEPPM_API_URL` | yes | Base URL of your instance, e.g. `https://ppm.example.com`. The `/api/v1` suffix is appended automatically if you omit it (and is idempotent if you include it). |
+| `TRUEPPM_API_URL` | yes | Base URL of your instance, e.g. `https://ppm.example.com`. The `/api/v1` suffix is appended automatically if you omit it (and is idempotent if you include it). Must be `https://`; plain `http://` is accepted only for a loopback host (`localhost`, `127.0.0.1`, `::1`). See [Input validation and transport](#input-validation-and-transport). |
 | `TRUEPPM_API_TOKEN` | yes | A personal access token (`tppm_<64-hex>`) with the `mcp:read` scope and an expiry. |
 | `TRUEPPM_MCP_ALLOWED_HOSTS` | no | Comma-separated extra `Host` names the HTTP/SSE transports accept, e.g. a reverse-proxy hostname. Same as repeating `--allowed-host`. See [HTTP / SSE](#http--sse). |
 
@@ -577,9 +577,29 @@ own mint and revoke history is at
 
 | Symptom | Likely cause |
 |---------|--------------|
-| Exit code `2`, "Configuration error" on stderr | `TRUEPPM_API_URL` or `TRUEPPM_API_TOKEN` is unset or blank. |
+| Exit code `2`, "Configuration error" on stderr | `TRUEPPM_API_URL` or `TRUEPPM_API_TOKEN` is unset or blank, or `TRUEPPM_API_URL` is plain `http://` to a non-loopback host. |
 | Boot fails with "the TruePPM API rejected the configured token (HTTP 401)" | The token is missing, malformed, or revoked. Mint a fresh `mcp:read` token. |
 | Boot fails with "this token is a full-access personal credential ... not an agent credential" | `TRUEPPM_API_TOKEN` holds a full-access personal access token, not an `mcp:read` one. From 0.5 that will be an `api:full` token (the boot error will print `scopes: ['api:full']`), the default scope the token mint form will give you unless you pick "Read-only for AI assistants"; `legacy:full` is an accepted synonym and is what 0.4 tokens carry. It authenticates, but neither the [instance kill switch](#security-posture) nor a [team's agent opt-out](#team-level-opt-out) governs it, so the server refuses to boot on it rather than run unprotected. Mint an `mcp:read` token instead. |
 | HTTP/SSE requests fail with `421 Invalid Host header` or `403 Invalid Origin header` (often right after upgrading a server bound to `0.0.0.0`) | DNS-rebinding protection only accepts loopback names and the host you bind. A client reaching the server by a LAN IP, a Kubernetes Service name, `host.docker.internal` or a proxy hostname now sends a `Host` that is not allowed. Add it with `--allowed-host <name>` (repeatable) or `TRUEPPM_MCP_ALLOWED_HOSTS=<name>,<name>`; the name is matched with or without a port, and `http`/`https` origins on it are accepted. |
 | A tool returns a 404 for a resource you expect to see | The token's role on its project/program does not permit reading that resource — 404 is the deliberate existence oracle, identical to the web client. |
 | A tool that used to work now errors on a write | An `mcp:read` token is refused at write paths by design; this server issues no writes, so this indicates a misrouted call, not a permission gap to widen. |
+
+## Input validation and transport
+
+:::note[Ships in 0.5]
+Both rules below ship in 0.5. In 0.4 the server accepted any id string and any base URL scheme.
+:::
+
+Tool arguments are chosen by the AI model, which may have just read a prompt-injected
+task or comment. Two rules keep that from reaching further than the token already can:
+
+- **Every `*_id` argument must be a UUID.** `project_id`, `task_id`, `sprint_id` and
+  `program_id` are validated before any request is built; anything else
+  (`x/../../auth/me`, `x?param=1`, a short key) is refused with a tool error naming the
+  argument, and no HTTP call is made. Without this, a crafted id could steer a tool's
+  GET at a different read endpoint inside the token's reach.
+- **The base URL must be `https://`**, because every request carries your token as a
+  bearer credential. Plain `http://` is accepted only for a loopback host (`localhost`,
+  `127.0.0.1`, `::1`), so a local dev instance still works. Any other `http://` URL
+  fails at startup with a configuration error rather than sending the token in
+  cleartext.

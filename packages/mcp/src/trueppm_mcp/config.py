@@ -8,9 +8,11 @@ never included in an exception message or ``repr`` (ADR-0186 §E/§I).
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 #: REST API mount point appended to the instance base URL when absent.
 DEFAULT_API_PATH = "/api/v1"
@@ -74,6 +76,7 @@ class Settings:
                 f"{ENV_API_TOKEN} is required (a personal access token with the "
                 "'mcp:read' scope and an expiry, minted in Personal Settings)."
             )
+        _require_secure_url(raw_url)
         return cls(api_base_url=_compose_base_url(raw_url), token=token)
 
 
@@ -83,3 +86,36 @@ def _compose_base_url(raw_url: str) -> str:
     if base.endswith(DEFAULT_API_PATH):
         return base
     return f"{base}{DEFAULT_API_PATH}"
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Whether ``host`` is ``localhost`` or a loopback IP literal (127.0.0.0/8, ::1)."""
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _require_secure_url(raw_url: str) -> None:
+    """Refuse a non-``https`` instance URL unless its host is loopback (#4302).
+
+    Every request carries ``Authorization: Bearer <token>``, so an ``http://`` base URL
+    sends the credential in cleartext to anything on the path. A loopback host never
+    leaves the machine, which keeps a local ``http://localhost:8000`` dev instance
+    usable. A URL with no scheme is refused too: it would not be a working URL either.
+
+    Raises:
+        ConfigError: If the scheme is not ``https`` and the host is not loopback.
+    """
+    parsed = urlsplit(raw_url)
+    if parsed.scheme == "https" and parsed.hostname:
+        return
+    if parsed.scheme == "http" and parsed.hostname and _is_loopback_host(parsed.hostname):
+        return
+    raise ConfigError(
+        f"{ENV_API_URL} must use https:// — the API token is sent as a bearer credential "
+        "and would travel in cleartext over http. Plain http is accepted only for a "
+        "loopback host (localhost, 127.0.0.1, ::1)."
+    )
