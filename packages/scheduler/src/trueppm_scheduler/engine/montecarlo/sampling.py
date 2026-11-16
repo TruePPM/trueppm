@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import (
+    Callable,
     Iterator,
     Mapping,
     Sequence,
@@ -470,7 +471,7 @@ def _average_ranks(a: np.ndarray) -> np.ndarray:
 
 
 def _duration_sensitivity(
-    dur_matrix: np.ndarray,
+    dur_matrix: np.ndarray | Callable[[int], np.ndarray],
     completion_offsets: np.ndarray,
     topo_order: list[str],
     cap: int,
@@ -483,6 +484,9 @@ def _duration_sensitivity(
     (deterministic, completed, or milestone) cannot move the finish and are
     omitted; if the finish itself has zero variance (fully deterministic project)
     the result is empty.
+
+    ``dur_matrix`` is the ``(runs, n_tasks)`` matrix, or a ``col -> column`` getter
+    when the matrix is replayed rather than held (:class:`_SampledDurations`, #3824).
 
     ``cap`` bounds the **output**, not the compute (#4530). Each task's index needs
     its own rank pass over the sampled duration column, and no cheaper exact
@@ -509,7 +513,7 @@ def _duration_sensitivity(
 
     scored: list[TaskSensitivity] = []
     for col, tid in enumerate(topo_order):
-        x = dur_matrix[:, col]
+        x = dur_matrix(col) if callable(dur_matrix) else dur_matrix[:, col]
         # Fast-path: a constant-duration column (completed task, deterministic
         # duration, zero-duration milestone) cannot correlate with the finish.
         # Skip it before paying for the rank sort.
@@ -545,10 +549,13 @@ def _duration_sensitivity(
 
 
 _MAX_RUNS_ABSOLUTE = 100_000_000  # hard ceiling on ``runs`` independent of the caller's max_runs
-# Hard ceiling on the sampled-duration matrix, ``runs x tasks`` float64 cells (2 GB):
-# the one structure that is allocated in full, column by column, because that is the
-# order the seeded stream is consumed in. The runs ceiling alone does not bound it, so
-# 5M runs on a 200-task project reached ``np.empty`` and died with a bare MemoryError
+# Hard ceiling on the sampled-duration matrix, ``runs x tasks`` float64 cells (2 GB).
+# Up to the replay threshold (``_MC_SAMPLED_MATRIX_CELLS`` in ``run.py``) the matrix is
+# allocated in full; above it it is replayed a row block at a time (#3824), except when
+# the forward pass reads across runs or the generator is not PCG64, where it is still
+# allocated in full. Either way the sampler draws ``runs x tasks`` values, column by
+# column, and the ceiling bounds that. The runs ceiling alone does not bound it, so 5M
+# runs on a 200-task project reached ``np.empty`` and died with a bare MemoryError
 # outside the SchedulerError contract (#1829).
 _MAX_SAMPLE_CELLS = 250_000_000
 
@@ -631,8 +638,8 @@ def _validate_monte_carlo_args(
         raise InvalidScheduleInput("Project must have at least one task.")
 
 
-def _floor_sampled_at_duration(dur_matrix: np.ndarray, col: int, base: float) -> None:
-    """Clamp one sampled duration column up to the task's deterministic ``duration``.
+def _floor_sampled_at_duration(column: np.ndarray, base: float) -> None:
+    """Clamp one task's sampled durations, in place, up to its deterministic ``duration``.
 
     ``schedule()`` lays every task out at ``Task.duration``; ``monte_carlo()``
     replaces that with a sampled column whenever the task carries a velocity signal
@@ -668,15 +675,18 @@ def _floor_sampled_at_duration(dur_matrix: np.ndarray, col: int, base: float) ->
     feasible date. Reading the smaller of the two answers as the forecast is the one
     outcome that is not defensible.
 
-    Applied after sampling and to every path (velocity, PERT, deterministic) so the
-    seeded RNG stream is byte-for-byte unchanged and no source of uncertainty is
-    exempt. The deterministic path is already ``base``, so the clamp is a no-op there.
+    Applied by :func:`_sample_column` after sampling and to every path (velocity,
+    PERT, deterministic), on the held matrix and on every replayed row block alike,
+    so the seeded RNG stream is byte-for-byte unchanged and no source of uncertainty
+    is exempt. The deterministic path is already ``base``, so the clamp is a no-op
+    there. The clamp is elementwise, which is what lets a replayed row block apply it
+    to its rows alone.
     The elapsed portion of an in-progress task is subtracted from the *sampled* value
     downstream (:func:`_mc_effective_duration`) using the same integer rule
     :func:`_effective_duration_days` applies to ``duration``, so flooring the full
     sampled duration here floors the remaining work by exactly the same amount.
     """
-    np.maximum(dur_matrix[:, col], base, out=dur_matrix[:, col])
+    np.maximum(column, base, out=column)
 
 
 def _sample_duration_matrix(
@@ -713,40 +723,219 @@ def _sample_duration_matrix(
     velocity_points = _velocity_points(project)
     mean = _velocity_mean(project)
     for col, tid in enumerate(topo_order):
-        t = task_map[tid]
-        base = float(t.duration.days)
-        velocity_durations: np.ndarray | None = None
-        if tid in velocity_points:
-            # Agile-aware path (#411, ADR-1412): takes precedence over PERT, since the
-            # delivery mode declares that uncertainty comes from throughput.
-            assert mean is not None and project.sprint_length_days is not None
-            span = velocity_points[tid] / mean * float(project.sprint_length_days)
-            velocity_durations = np.full(runs, span)
-        if velocity_durations is not None:
-            dur_matrix[:, col] = velocity_durations
-        elif (
-            t.optimistic_duration is not None
-            and t.most_likely_duration is not None
-            and t.pessimistic_duration is not None
-        ):
-            opt = float(t.optimistic_duration.days)
-            ml = float(t.most_likely_duration.days)
-            pess = float(t.pessimistic_duration.days)
-            dur_matrix[:, col] = _sample_pert(opt, ml, pess, runs, rng)
-        else:
-            dur_matrix[:, col] = base
-        _floor_sampled_at_duration(dur_matrix, col, base)
-        # A completed task is pinned to a constant offset pair in the forward pass
-        # (its sampled column is never read there), so its sampled duration cannot
-        # move the finish — a varying column would surface in the sensitivity tornado
-        # as pure bootstrap noise, contradicting the documented contract that
-        # completed tasks are omitted (#1827). Collapse the column to a constant so
-        # ``np.ptp == 0`` excludes it from the tornado. Done *after* sampling (not by
-        # skipping it) so the seeded RNG stream — and therefore every other task's
-        # samples and P50/P80/P95 — is byte-for-byte unchanged.
-        if _is_complete(t):
-            dur_matrix[:, col] = base
+        dur_matrix[:, col] = _sample_column(
+            project, task_map[tid], velocity_points, mean, runs, rng
+        )
     return dur_matrix
+
+
+def _sample_column(
+    project: Project,
+    t: Task,
+    velocity_points: dict[str, float],
+    mean: float | None,
+    n: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """One task's ``n`` sampled durations, floored and (if completed) collapsed.
+
+    The single per-column rule both :func:`_sample_duration_matrix` and
+    :class:`_SampledDurations` apply, so the whole-matrix and replayed paths cannot
+    drift apart. Every operation after the draw is elementwise, which is what lets a
+    column be redrawn a row block at a time from a saved generator state.
+    """
+    base = float(t.duration.days)
+    if t.id in velocity_points:
+        # Agile-aware path (#411, ADR-1412): takes precedence over PERT, since the
+        # delivery mode declares that uncertainty comes from throughput.
+        assert mean is not None and project.sprint_length_days is not None
+        span = velocity_points[t.id] / mean * float(project.sprint_length_days)
+        column = np.full(n, span)
+    elif (
+        t.optimistic_duration is not None
+        and t.most_likely_duration is not None
+        and t.pessimistic_duration is not None
+    ):
+        opt = float(t.optimistic_duration.days)
+        ml = float(t.most_likely_duration.days)
+        pess = float(t.pessimistic_duration.days)
+        column = _sample_pert(opt, ml, pess, n, rng)
+    else:
+        column = np.full(n, base)
+    _floor_sampled_at_duration(column, base)
+    # A completed task is pinned to a constant offset pair in the forward pass
+    # (its sampled column is never read there), so its sampled duration cannot
+    # move the finish — a varying column would surface in the sensitivity tornado
+    # as pure bootstrap noise, contradicting the documented contract that
+    # completed tasks are omitted (#1827). Collapse the column to a constant so
+    # ``np.ptp == 0`` excludes it from the tornado. Done *after* sampling (not by
+    # skipping it) so the seeded RNG stream — and therefore every other task's
+    # samples and P50/P80/P95 — is byte-for-byte unchanged.
+    if _is_complete(t):
+        column[:] = base
+    return column
+
+
+def _pack_pcg64_state(bit_generator: np.random.BitGenerator) -> tuple[int, int, int]:
+    """A PCG64 position as ``(state, has_uint32, uinteger)``; the increment is shared."""
+    s = bit_generator.state
+    return (s["state"]["state"], s["has_uint32"], s["uinteger"])
+
+
+class _SampledDurations:
+    """The ``(runs, n_tasks)`` sampled durations, held whole or replayed per column (#3824).
+
+    Whole, this is the matrix :func:`_sample_duration_matrix` returns. Replayed, it is
+    the same matrix without ever holding it: the seeded stream is consumed column by
+    column (each task's ``runs`` draws in a row, in ``topo_order``), so a row block of
+    the matrix cannot be drawn on its own without changing the stream. Instead the
+    sampler runs once in full, one column at a time, and keeps for each column that
+    actually varies only the generator position its draws start from. A row block is
+    then rebuilt by restoring each such column's position into a second generator,
+    drawing that block's rows, and saving where the column's draws reached. Numpy's
+    ``beta`` fills ``size=n`` with ``n`` sequential scalar draws, so ``k`` draws
+    followed by ``n - k`` from where they stopped are the ``n`` draws bit for bit;
+    everything after the draw is elementwise (:func:`_sample_column`). The seeded
+    output is therefore byte-identical to the whole matrix, and the main generator
+    ends where the full sampler leaves it, so the velocity capacity seeds drawn after
+    it (ADR-1412) are unchanged.
+
+    The price is drawing each varying column three times (the recording pass, the
+    forward pass's row blocks, and the sensitivity subsample) for O(chunk x tasks)
+    memory instead of O(runs x tasks): the caller replays only past a cell budget
+    (``_MC_SAMPLED_MATRIX_CELLS`` in ``run.py``), so smaller projects pay nothing.
+
+    The forward pass writes each velocity task's realized duration back into its
+    column of the block it is given (ADR-1412). Whole, the block is a view and the
+    write lands in the matrix; replayed, :meth:`keep_written` copies those columns'
+    first ``keep_rows`` rows aside so the sensitivity tornado reads the same values.
+    """
+
+    def __init__(
+        self,
+        project: Project,
+        topo_order: list[str],
+        task_map: dict[str, Task],
+        runs: int,
+        rng: np.random.Generator,
+        *,
+        replay: bool,
+        keep_rows: int,
+        sample_matrix: Callable[
+            [Project, list[str], dict[str, Task], int, np.random.Generator], np.ndarray
+        ] = _sample_duration_matrix,
+    ) -> None:
+        self.runs = runs
+        self._tasks = [task_map[tid] for tid in topo_order]
+        self._project = project
+        self._velocity_points = _velocity_points(project)
+        self._mean = _velocity_mean(project)
+        # Replaying restores positions by value, which is only defined here for PCG64
+        # (what ``default_rng`` builds); any other generator keeps the whole matrix.
+        replay = replay and isinstance(rng.bit_generator, np.random.PCG64)
+        self._matrix: np.ndarray | None = None
+        if not replay:
+            self._matrix = sample_matrix(project, topo_order, task_map, runs, rng)
+            return
+        n_tasks = len(topo_order)
+        self._any = np.zeros(n_tasks, dtype=bool)
+        const_cols: list[int] = []
+        const_vals: list[float] = []
+        self._start: dict[int, tuple[int, int, int]] = {}
+        for col, t in enumerate(self._tasks):
+            position = _pack_pcg64_state(rng.bit_generator)
+            column = _sample_column(project, t, self._velocity_points, self._mean, runs, rng)
+            self._any[col] = bool(column.any())
+            if column.min() == column.max():
+                const_cols.append(col)
+                const_vals.append(float(column[0]))
+            else:
+                self._start[col] = position
+        self._const_cols = np.asarray(const_cols, dtype=np.intp)
+        self._const_vals = np.asarray(const_vals, dtype=np.float64)
+        self._cursor = dict(self._start)
+        self._next_row = 0
+        self._template = rng.bit_generator.state
+        self._replay = np.random.Generator(np.random.PCG64(0))
+        self._keep_rows = min(keep_rows, runs)
+        self._written = np.asarray(
+            [col for col, t in enumerate(self._tasks) if t.id in self._velocity_points],
+            dtype=np.intp,
+        )
+        # Seeded with the sampled (constant, mean-pace) value, so a column the forward
+        # pass leaves unwritten reads exactly what the whole matrix would hold.
+        const = dict(zip(const_cols, const_vals, strict=True))
+        self._kept = np.empty((self._keep_rows, len(self._written)), dtype=np.float64)
+        for i, col in enumerate(self._written.tolist()):
+            self._kept[:, i] = const[col]
+
+    @property
+    def replayed(self) -> bool:
+        """Whether the matrix is rebuilt per row block rather than held whole."""
+        return self._matrix is None
+
+    def hold_whole_if(self, cross_run: bool) -> None:
+        """Hold the whole matrix from here on when the forward pass reads across runs."""
+        if cross_run and self._matrix is None:
+            self._matrix = self.rows(0, self.runs)
+
+    def column_any(self, col: int) -> bool:
+        """Whether any run samples a non-zero duration for ``col``."""
+        if self._matrix is not None:
+            return bool(self._matrix[:, col].any())
+        return bool(self._any[col])
+
+    def _draw(self, col: int, position: tuple[int, int, int], n: int) -> np.ndarray:
+        value, has_uint32, uinteger = position
+        self._replay.bit_generator.state = {
+            **self._template,
+            "state": {**self._template["state"], "state": value},
+            "has_uint32": has_uint32,
+            "uinteger": uinteger,
+        }
+        return _sample_column(
+            self._project, self._tasks[col], self._velocity_points, self._mean, n, self._replay
+        )
+
+    def rows(self, lo: int, hi: int) -> np.ndarray:
+        """Runs ``[lo, hi)`` of the matrix; replayed blocks must come in order from 0."""
+        if self._matrix is not None:
+            return self._matrix[lo:hi]
+        if lo != self._next_row:
+            raise AssertionError(f"replayed rows requested out of order: {lo} != {self._next_row}")
+        block = np.empty((hi - lo, len(self._tasks)), dtype=np.float64)
+        block[:, self._const_cols] = self._const_vals
+        for col, position in self._cursor.items():
+            block[:, col] = self._draw(col, position, hi - lo)
+            self._cursor[col] = _pack_pcg64_state(self._replay.bit_generator)
+        self._next_row = hi
+        return block
+
+    def keep_written(self, lo: int, block: np.ndarray) -> None:
+        """Copy the forward pass's write-backs in ``block`` (runs from ``lo``) aside."""
+        if self._matrix is not None or lo >= self._keep_rows or not len(self._written):
+            return
+        hi = min(self._keep_rows, lo + block.shape[0])
+        self._kept[lo:hi] = block[: hi - lo][:, self._written]
+
+    def leading_column(self, n: int) -> Callable[[int], np.ndarray]:
+        """``col -> first n runs of that column``, as the forward pass left them."""
+        if self._matrix is not None:
+            matrix = self._matrix
+            return lambda col: matrix[:n, col]
+        if n > self._keep_rows:
+            raise AssertionError(f"only {self._keep_rows} leading rows were kept, not {n}")
+        written = {int(col): i for i, col in enumerate(self._written)}
+        const = dict(zip(self._const_cols.tolist(), self._const_vals.tolist(), strict=True))
+
+        def column(col: int) -> np.ndarray:
+            if col in written:
+                return self._kept[:n, written[col]]
+            if col in const:
+                return np.full(n, const[col])
+            return self._draw(col, self._start[col], n)
+
+        return column
 
 
 def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
