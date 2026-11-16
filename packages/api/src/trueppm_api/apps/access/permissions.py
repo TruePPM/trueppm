@@ -2496,6 +2496,37 @@ class IsNotTokenAuthenticated(BasePermission):
         return False
 
 
+class IsNotFullTokenAuthenticated(IsNotTokenAuthenticated):
+    """Refuse API-token callers, except a ``webhooks:manage`` token (#2414, #4461).
+
+    Same durable-grant reasoning as :class:`IsNotTokenAuthenticated`: a webhook's
+    signing secret and delivery URL outlive the credential that set them, so a
+    *full-access* token (a person's whole account, one leak from a bot) stays
+    refused. A ``webhooks:manage`` token is the deliberate exception: it exists so
+    automation can register webhooks without holding a full-access credential, it
+    authenticates nowhere else (``WebhookManageApiTokenAuthentication``), and it
+    still acts under its owner's Admin role. The scope must be held *without* the
+    full scope: a row carrying both resolves to full authority and is refused.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.projects.models import (
+            SCOPE_WEBHOOKS_MANAGE,
+            ApiToken,
+            has_full_scope,
+            normalize_token_scopes,
+        )
+
+        token = getattr(request, "auth", None)
+        if (
+            isinstance(token, ApiToken)
+            and SCOPE_WEBHOOKS_MANAGE in normalize_token_scopes(token.scopes)
+            and not has_full_scope(token.scopes)
+        ):
+            return True
+        return super().has_permission(request, view)
+
+
 class SessionOnlyWritesMixin:
     """Refuse API-token callers on every unsafe method of a membership-shaped view (#3847).
 
@@ -2648,7 +2679,10 @@ class McpScope(StrEnum):
 
     NO_PROJECT_DATA = "none"
     """The response carries no project-scoped data at all (identity echo). Only
-    ``MeView`` qualifies; adding a member here is a security decision."""
+    ``MeView`` and the workspace calendar library (``CalendarViewSet`` /
+    ``CalendarExceptionViewSet`` — an org-level resource with no project FK, readable
+    by every authenticated user) qualify; adding a member here is a security
+    decision."""
 
 
 class McpProjectEnabled(BasePermission):
@@ -2826,6 +2860,16 @@ class McpReadableViewMixin(_McpViewBase):
     :class:`McpProjectEnabled` denies token reads on an undeclared view — so
     forgetting this fails closed rather than exposing the view unfiltered. See
     :class:`McpScope` for which value to pick.
+    """
+
+    mcp_project_lookups: ClassVar[tuple[str, ...]] = ()
+    """ORM lookups reaching a project id, for QUERYSET views whose model has no ``project`` FK.
+
+    Every lookup must land in the agent-visible project set (ANDed), which is what a
+    row spanning two projects needs: a cross-project ``Dependency`` carries a project
+    on each endpoint, and filtering only the predecessor side would serve an edge to
+    a successor in a project that opted out. Empty means "use the model-shape
+    fallbacks in :meth:`_mcp_filter_queryset`".
     """
 
     mcp_project_kwarg: ClassVar[str] = "pk"
@@ -3039,7 +3083,11 @@ class McpReadableViewMixin(_McpViewBase):
             return qs
 
         field_names = {f.name for f in model._meta.get_fields()}
-        if "project" in field_names:
+        if self.mcp_project_lookups:
+            filtered = qs
+            for lookup in self.mcp_project_lookups:
+                filtered = filtered.filter(**{f"{lookup}__in": visible})
+        elif "project" in field_names:
             filtered = qs.filter(project_id__in=visible)
         elif "predecessor" in field_names:
             filtered = qs.filter(predecessor__project_id__in=visible)

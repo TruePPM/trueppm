@@ -672,7 +672,7 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_VELOCITY_SPRINTS` | `10000` | Per-run sprint horizon the velocity sampler will bootstrap |
 | `MC_SENSITIVITY_CAP` | `20` | Tasks returned by the sensitivity ("tornado") ranking |
 | `_MAX_RUNS_ABSOLUTE` | `100000000` | Hard ceiling on `monte_carlo(runs=…)`, enforced regardless of `max_runs`; over it `monte_carlo()` raises `InvalidScheduleInput`. A caller-supplied `max_runs` below `runs` is checked as well and raises `SimulationCapExceeded` instead. Not exported from the package: it is a private engine constant, listed so the number is documented |
-| `_MAX_SAMPLE_CELLS` | `250000000` | From 0.5, a hard ceiling on `runs x tasks`, the sampled-duration matrix `monte_carlo()` allocates in full (8 bytes a cell, about 2 GB at the ceiling). Over it `monte_carlo()` will raise `SimulationCapExceeded` whatever `max_runs` says, instead of a bare `MemoryError`: 100,000 runs fit a 2,500-task project, 10,000 runs a 25,000-task one. Not exported from the package |
+| `_MAX_SAMPLE_CELLS` | `250000000` | From 0.5, a hard ceiling on `runs x tasks`. It was sized for a sampled-duration matrix held in full (8 bytes a cell, about 2 GB at the ceiling); from 0.5 that matrix will be replayed a row block at a time above 32M cells, so the ceiling bounds the work rather than one allocation. Over it `monte_carlo()` will raise `SimulationCapExceeded` whatever `max_runs` says, instead of a bare `MemoryError`: 100,000 runs fit a 2,500-task project, 10,000 runs a 25,000-task one. Not exported from the package |
 
 ```python
 from trueppm_scheduler import MAX_DEPENDENCIES, MAX_DURATION_DAYS, MAX_LAG_DAYS
@@ -887,13 +887,14 @@ release it is scheduled for:
   will apply to it. In 0.4 the span guard sums every task's duration. Scale benchmarks at
   50,000 and 100,000 tasks are tracked with the benchmark suite
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); from 0.5, Monte Carlo
-  will run its forward pass over chunks of runs, which brings the peak at 50,000
-  tasks × 1,000 runs to about 920 MB (about 2.1 GB unchunked). The floor that
-  remains is the whole float64 sampled-duration matrix, which has to stay whole
-  to keep seeded results byte-identical; the target is under 250 MB
-  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)), and the remaining
-  options are tracked in
-  [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953).
+  will run its forward pass over chunks of runs, and above 32M cells (runs × tasks)
+  will replay the float64 sampled-duration matrix a row block at a time instead of
+  holding it, with seeded results byte-identical. Measured at 50,000 tasks × 1,000
+  runs: about 590 MB peak RSS (about 890 MB with the matrix held, 2.1 GB unchunked),
+  at the price of a slower run, about 6 s to about 9 s, because each sampled column is
+  drawn three times. The floor that remains is one forward chunk (8M cells, about
+  230 MB) plus the project's own graph; the under-250 MB target and `MC_TASK_CAP` are
+  tracked in [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953).
 - **API contract / errors** — the derivation vocabulary
   (`DerivationContribution.kind`, `Derivation.quantity`/`pass_`) is still an
   open string, not a published enum
@@ -917,9 +918,7 @@ they will ship with 0.5 or that release will slip:
   ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
 - **Performance** — a published `pytest-benchmark` suite at 100–5,000 tasks,
   with measured numbers in this README
-  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); the Monte Carlo
-  memory footprint above is chunked over runs and dropped to float32
-  ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)).
+  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).

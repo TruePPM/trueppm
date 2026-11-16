@@ -7687,13 +7687,25 @@ class PokerVote(models.Model):
 SCOPE_API_FULL = "api:full"
 SCOPE_LEGACY_FULL = "legacy:full"
 SCOPE_MCP_READ = "mcp:read"
+# ``webhooks:manage`` (#2414) is the one narrow *write* scope: it authenticates a
+# personal token on the outbound-webhook routes only (CRUD + test ping, never the
+# delivery log) and on nothing else. It is the least-privilege alternative to
+# handing a CI bot a full-access token just to register a webhook, and it is the
+# only token that may create or update one — a full-access token is still refused
+# there, because a webhook's signing secret outlives the token that minted it (#4461).
+SCOPE_WEBHOOKS_MANAGE = "webhooks:manage"
 
 #: Every spelling of the unrestricted scope. Order is irrelevant; membership is all.
 FULL_SCOPE_ALIASES: frozenset[str] = frozenset({SCOPE_API_FULL, SCOPE_LEGACY_FULL})
 
 # Allowed scopes, in the order surfaced to API clients. Any scope a caller
 # requests at token-creation time is validated against this tuple.
-API_TOKEN_SCOPES: tuple[str, ...] = (SCOPE_API_FULL, SCOPE_LEGACY_FULL, SCOPE_MCP_READ)
+API_TOKEN_SCOPES: tuple[str, ...] = (
+    SCOPE_API_FULL,
+    SCOPE_LEGACY_FULL,
+    SCOPE_MCP_READ,
+    SCOPE_WEBHOOKS_MANAGE,
+)
 API_TOKEN_SCOPE_CHOICES = [(scope, scope) for scope in API_TOKEN_SCOPES]
 
 # Upper bound (days) on ``expires_at`` for a token carrying the ``mcp:read``
@@ -7834,7 +7846,8 @@ class ApiToken(VersionedModel):
         "unrestricted scope (and a superset satisfying any read scope); "
         "'legacy:full' is the same scope under its original name, still accepted; "
         "'mcp:read' grants read-only access to the MCP-wrapped viewsets "
-        "and is rejected at every write path.",
+        "and is rejected at every write path; 'webhooks:manage' grants create, "
+        "read, update, delete and test-ping of outbound webhooks and nothing else.",
     )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,

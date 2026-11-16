@@ -1142,7 +1142,10 @@ def _calendar_reference_describer(user: Any) -> Callable[[db_models.Model], dict
     )
 )
 class CalendarViewSet(
-    DetailLookupIgnoresSearchMixin[Calendar], ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]
+    McpReadableViewMixin,
+    DetailLookupIgnoresSearchMixin[Calendar],
+    ProjectScopedViewSet,
+    viewsets.ModelViewSet[Calendar],
 ):
     """CRUD for project calendars.
 
@@ -1156,6 +1159,11 @@ class CalendarViewSet(
 
     # authoritative: get_permissions() below; this list is a shadowed fallback (#4399).
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # ADR-0678 (#1812): the calendar library is workspace-level and carries no
+    # project row — every authenticated user can already read all of it — so there is
+    # no team consent to honor and no project FK to filter on. QUERYSET/AGGREGATE would
+    # fail closed to ``qs.none()`` the moment any project opted out.
+    mcp_scope = McpScope.NO_PROJECT_DATA
     # Declares the intent: Calendars are an org-level library with no project FK.
     # This view builds its own queryset in `get_queryset` and never calls the base
     # fallback, so the flag is documentation here, not behavior (#4007).
@@ -1185,6 +1193,9 @@ class CalendarViewSet(
     ordering_fields = ["name"]
 
     def get_permissions(self) -> list[BasePermission]:
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
         # Workspace ADMIN, not the `IsOrgAdmin` derivation (#3600, ADR-0034's #3600
@@ -1507,7 +1518,9 @@ def _recalc_projects_for_workspace_calendar(*, actor: Any = None) -> None:
     )
 
 
-class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarException]):
+class CalendarExceptionViewSet(
+    McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewSet[CalendarException]
+):
     """CRUD for a calendar's non-working date ranges (holidays, shutdowns).
 
     Mounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s
@@ -1521,8 +1534,14 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
     """
 
     serializer_class = CalendarExceptionSerializer
+    # ADR-0678 (#1812): a child of the project-less calendar library; see
+    # CalendarViewSet.mcp_scope.
+    mcp_scope = McpScope.NO_PROJECT_DATA
 
     def get_permissions(self) -> list[BasePermission]:
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
         # Same gate as CalendarViewSet.get_permissions, for the same reason: one
@@ -8504,7 +8523,9 @@ class TaskViewSet(
         )
 
 
-class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[AcceptanceCriterion]):
+class AcceptanceCriterionViewSet(
+    McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewSet[AcceptanceCriterion]
+):
     """CRUD for a story's acceptance criteria (ADR-0105 §2).
 
     Acceptance criteria are a collaborative refinement + sprint-review artifact — the PO
@@ -8520,6 +8541,9 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
     """
 
     serializer_class = AcceptanceCriterionSerializer
+    # ADR-0678 (#1812): the project is reached through ``task``.
+    mcp_scope = McpScope.QUERYSET
+    mcp_project_lookups = ("task__project_id",)
     resolves_scope_in_body = {
         "create": (
             "Flat route: the project is reached only through the body's `task`, so "
@@ -8533,14 +8557,19 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
     )
 
     def get_permissions(self) -> list[BasePermission]:
-        return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+        return [
+            IsAuthenticated(),
+            IsProjectMemberWrite(),
+            IsProjectNotArchived(),
+            *self.mcp_token_guards(),
+        ]
 
     def get_queryset(self) -> QuerySet[AcceptanceCriterion]:
         qs = (
             super()
             .get_queryset()
             .filter(
-                task__project__memberships__user=self.request.user,  # type: ignore[misc]
+                task__project__memberships__user=self.request.user,
                 task__project__memberships__is_deleted=False,
                 task__project__is_deleted=False,  # #4577: trashed project confers no access
             )
@@ -8861,7 +8890,7 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
         )
 
 
-class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
+class BaselineViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
     """CRUD for schedule baselines within a project.
 
     A baseline is a frozen snapshot of all task dates at a point in time, used
@@ -8875,6 +8904,9 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
       destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)
     """
 
+    # ADR-0678 (#1812): nested at projects/<project_pk>/, so PATH: an opted-out
+    # project is a 403 (not an empty 200). Row filtering still applies to PATH views.
+    mcp_scope = McpScope.PATH
     queryset = Baseline.objects.filter(is_deleted=False)
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["created_at", "name"]
@@ -8900,6 +8932,9 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
         return BaselineSerializer
 
     def get_permissions(self) -> list[BasePermission]:
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         if self.action == "destroy":
@@ -9154,7 +9189,9 @@ def _cycle_detected_response_body(exc: CycleDetectedError) -> dict[str, Any]:
         ],
     ),
 )
-class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency]):
+class DependencyViewSet(
+    McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Dependency]
+):
     """CRUD for task dependencies.
 
     Dependency creation/modification affects CPM scheduling; Resource Manager+
@@ -9163,6 +9200,13 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
 
     # authoritative: get_permissions() below; this list is a shadowed fallback (#4399).
     permission_classes = [IsAuthenticated, IsProjectScheduler, IsProjectNotArchived]
+    # ADR-0678 (#1812). An edge spans two projects when it is cross-project
+    # (ADR-0120), and ``get_queryset`` already widens membership to *either* end, so
+    # the opt-out must be enforced on both: filtering only the predecessor would hand
+    # an agent an edge — and the D5 counterpart card — for a successor in a project
+    # that opted out.
+    mcp_scope = McpScope.QUERYSET
+    mcp_project_lookups = ("predecessor__project_id", "successor__project_id")
     resolves_scope_in_body = {
         "create": (
             "Flat route: the project is reached only through the body's "
@@ -9174,6 +9218,9 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     }
 
     def get_permissions(self) -> list[BasePermission]:
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         if self.action in ("accept", "reject"):
@@ -16350,7 +16397,7 @@ PHASE_MAX = 200
         }
     ),
 )
-class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
+class PhaseViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     """CRUD for project phases (root-level WBS tasks).
 
     Mounted at ``/projects/<project_pk>/phases/`` — the Workflow settings page
@@ -16390,8 +16437,14 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     # is built in ``get_queryset`` so it can filter by ``project_pk`` from the
     # URL kwargs and attach per-row task counts.
     queryset = Task.objects.filter(is_deleted=False)
+    # ADR-0678 (#1812): nested at projects/<project_pk>/ (phases are root-level
+    # tasks), so PATH: an opted-out project is a 403, not an empty 200.
+    mcp_scope = McpScope.PATH
 
     def get_permissions(self) -> list[BasePermission]:
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
@@ -16564,7 +16617,9 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         )
 
 
-class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[ProjectCustomField]):
+class ProjectCustomFieldViewSet(
+    McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[ProjectCustomField]
+):
     """CRUD for project custom field *definitions* (#521).
 
     Mounted at ``/projects/<project_pk>/fields/``. Per-task values for these
@@ -16583,11 +16638,17 @@ class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Proj
 
     serializer_class = ProjectCustomFieldSerializer
     queryset = ProjectCustomField.objects.all()
+    # ADR-0678 (#1812): nested at projects/<project_pk>/ (definitions only, no
+    # values), so PATH: an opted-out project is a 403, not an empty 200.
+    mcp_scope = McpScope.PATH
     # Per-project list is capped at 32 rows (PROJECT_CUSTOM_FIELD_MAX) — no need
     # for pagination, and the unpaginated shape matches the BoardSavedView list.
     pagination_class = None
 
     def get_permissions(self) -> list[BasePermission]:
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
@@ -21721,6 +21782,15 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                     .update(revoked_at=timezone.now())
                 ):
                     return Response(status=status.HTTP_204_NO_CONTENT)
+                # A webhook this token registered or repointed outlives the token
+                # (#2414, #4461): without this, revoking a leaked `webhooks:manage`
+                # token left the attacker's URL receiving every future event.
+                # Same transaction as the revocation, so both land or neither.
+                # layering-ok: a webhook this credential set must die with it, in this
+                # transaction; an extension-signal receiver would fail open instead.
+                from trueppm_api.apps.webhooks.models import deactivate_webhooks_set_by_token
+
+                webhooks_deactivated = deactivate_webhooks_set_by_token(token.pk)
                 ApiTokenAuditEntry.objects.create(
                     owner=caller,
                     token=token,
@@ -21728,7 +21798,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                     actor=caller,
                     action=ApiTokenAuditAction.REVOKED.value,
                     source_ip=_client_ip(request),
-                    detail={"name": token.name},
+                    detail={"name": token.name, "webhooks_deactivated": webhooks_deactivated},
                 )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

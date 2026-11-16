@@ -73,6 +73,7 @@ from trueppm_scheduler.engine.montecarlo.sampling import (
     _duration_sensitivity,
     _OffsetLookup,
     _sample_duration_matrix,
+    _SampledDurations,
     _validate_monte_carlo_args,
     _velocity_capacity_horizon,
     _velocity_fallback_reasons,
@@ -113,6 +114,16 @@ _MC_REFERENCE_BLOCK_CELLS = 65_536
 # per-chunk loop overhead at all.
 _MC_FORWARD_CHUNK_CELLS = 8_000_000
 
+# Cells (runs x tasks) above which the sampled-duration matrix is replayed a row block
+# at a time instead of held (#3824, :class:`_SampledDurations`). Replaying draws every
+# varying column three times instead of once, and the draws are most of the sampler's
+# cost: at 10,000 PERT tasks x 1,000 runs replaying took 1.03 s to 1.53 s to save the
+# 80 MB matrix. 32M cells (a 256 MB matrix, four forward chunks) is where the matrix
+# outgrows the forward chunk's own footprint and saving it is worth that time;
+# measured at 50,000 tasks x 1,000 runs, peak RSS 893 MB -> 589 MB, 6.2 s -> 9.3 s.
+# Every project the API's default caps admit (5,000 tasks x 1,000 runs) stays below it.
+_MC_SAMPLED_MATRIX_CELLS = 32_000_000
+
 # With a ``deadline``, the forward pass is split into about this many chunks of
 # ``ceil(runs / 8)`` runs each (#4496): exactly eight from about 50 runs up, fewer for
 # small run counts (9 runs make 5 chunks), and one run per chunk below 8 runs. The
@@ -152,6 +163,30 @@ def _mc_forward_chunk_rows(
     if interruptible:
         rows = min(rows, max(1, -(-runs // _MC_DEADLINE_MIN_CHUNKS)))
     return rows
+
+
+def _replayed_chunks(
+    durations: _SampledDurations,
+    forward: Callable[
+        [int, int, np.ndarray], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]
+    ],
+) -> Callable[[int, int], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]]:
+    """``forward(lo, hi, block)`` over runs ``[lo, hi)`` of ``durations``, one block at a time.
+
+    The forward pass writes velocity tasks' realized durations into ``block``
+    (ADR-1412); :meth:`_SampledDurations.keep_written` keeps them for the tornado
+    when the block is a replayed copy rather than a view of the held matrix.
+    """
+
+    def chunk(
+        lo: int, hi: int
+    ) -> tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]:
+        block = durations.rows(lo, hi)
+        out = forward(lo, hi, block)
+        durations.keep_written(lo, block)
+        return out
+
+    return chunk
 
 
 # Kept as the per-column reference oracle for _to_reference_columns_inplace; the parity
@@ -673,10 +708,10 @@ def monte_carlo(
     laptop figure (#3859). So the library imposes no task cap and no run cap by
     default beyond an absolute ceiling of 100 000 000 runs (``InvalidScheduleInput``
     above it) — ``monte_carlo(project, runs=10_000)`` simulates as written. The velocity
-    sampler and the forward pass both run in bounded chunks of runs (#3824), so the one
-    structure that grows with ``runs x tasks`` is the float64 sampled-duration matrix,
-    8 bytes a cell: it is sampled in full, column by column, because that is the order
-    the seeded stream is consumed in. The
+    sampler and the forward pass both run in bounded chunks of runs (#3824), and past
+    32,000,000 cells the float64 sampled-duration matrix is replayed a row block at a
+    time instead of held, byte-identically, at the price of drawing each sampled column
+    three times. Below that it is held whole (8 bytes a cell). The
     ``max_runs`` / ``max_tasks`` knobs exist for an *embedding* layer that needs
     to bound work on a synchronous request path (the TruePPM API passes its own caps and returns
     ``SimulationCapExceeded`` as a 402); a standalone caller leaves them ``None``.
@@ -745,8 +780,8 @@ def monte_carlo(
 
     Raises:
         SimulationCapExceeded: If ``runs x tasks`` exceeds the 250,000,000-cell
-            ceiling on the sampled-duration matrix (``_MAX_SAMPLE_CELLS``, about
-            2 GB of float64, whatever ``max_runs`` says), if ``runs`` exceeds
+            ceiling on the simulation (``_MAX_SAMPLE_CELLS``, whatever ``max_runs``
+            says), if ``runs`` exceeds
             ``max_runs``, the project has more tasks than ``max_tasks``, or its
             distinct calendars' working-day indices would exceed ``max_index_cells``.
         SimulationTimeExceeded: If ``deadline`` passes before the run finishes. A
@@ -809,7 +844,18 @@ def monte_carlo(
     # Runs in which some velocity draw reached the sprint horizon un-burned-down
     # (#2469): their duration is a lower bound, so the result reports the count.
     velocity_saturated = np.zeros(runs, dtype=bool)
-    dur_matrix = _sample_duration_matrix(project, topo_order, task_map, runs, rng)
+    # Held whole up to _MC_SAMPLED_MATRIX_CELLS; past that it is replayed a row block
+    # at a time, byte-identically (#3824, :class:`_SampledDurations`).
+    durations = _SampledDurations(
+        project,
+        topo_order,
+        task_map,
+        runs,
+        rng,
+        replay=runs * n_tasks > _MC_SAMPLED_MATRIX_CELLS,
+        keep_rows=MC_SENSITIVITY_SUBSAMPLE,
+        sample_matrix=_sample_duration_matrix,
+    )
     velocity_points = _velocity_points(project)
     _check_deadline(deadline)
 
@@ -944,7 +990,7 @@ def monte_carlo(
         for col, tid in enumerate(topo_order)
         if task_map[tid].duration.days == 0 and not _is_complete(task_map[tid])
     ]
-    milestone_ids = frozenset(tid for col, tid in live_zero_cols if not dur_matrix[:, col].any())
+    milestone_ids = frozenset(tid for col, tid in live_zero_cols if not durations.column_any(col))
     zero_base_ids = frozenset(tid for _, tid in live_zero_cols) - milestone_ids
     delta_by_key = _build_lag_delta_table(
         g, wd_ord_by_cal, index_size, cal_key_of, prev_ord_of, milestone_ids, max_lag_delta_cells
@@ -1093,6 +1139,7 @@ def monte_carlo(
     # the chunk's per-run maxima are taken, so peak memory is O(chunk x tasks) on top
     # of the sampled durations rather than O(runs x tasks) six times over.
     whole = any(tid in verbatim_actuals for tid in milestone_ids | zero_base_ids)
+    durations.hold_whole_if(whole)
     chunk_rows = _mc_forward_chunk_rows(
         runs, n_tasks, whole=whole, interruptible=deadline is not None
     )
@@ -1103,24 +1150,28 @@ def monte_carlo(
         block = _capacity_block_runs(sprints)
         chunk_rows = max(1, min(chunk_rows, _VELOCITY_CHUNK_CELLS // max(1, sprints)))
         chunk_rows = block * max(1, chunk_rows // block)
+
     shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
-        lambda lo, hi: _mc_forward_pass(
-            topo_order,
-            hi - lo,
-            g,
-            task_idx,
-            edge_lag_delta,
-            dur_matrix[lo:hi],
-            es_floor,
-            completed_offsets,
-            completed_edge,
-            elapsed_days,
-            milestone_ids,
-            mc_index,
-            verbatim_actuals,
-            milestone_floors,
-            zero_base_ids,
-            None if velocity is None else velocity.rows(lo, hi),
+        _replayed_chunks(
+            durations,
+            lambda lo, hi, block: _mc_forward_pass(
+                topo_order,
+                hi - lo,
+                g,
+                task_idx,
+                edge_lag_delta,
+                block,
+                es_floor,
+                completed_offsets,
+                completed_edge,
+                elapsed_days,
+                milestone_ids,
+                mc_index,
+                verbatim_actuals,
+                milestone_floors,
+                zero_base_ids,
+                None if velocity is None else velocity.rows(lo, hi),
+            ),
         ),
         runs,
         chunk_rows,
@@ -1175,7 +1226,7 @@ def monte_carlo(
     # above use the FULL distribution; only the ranking is subsampled.
     _check_deadline(deadline)
     sensitivity = _duration_sensitivity(
-        dur_matrix[:MC_SENSITIVITY_SUBSAMPLE],
+        durations.leading_column(min(runs, MC_SENSITIVITY_SUBSAMPLE)),
         completion_offsets[:MC_SENSITIVITY_SUBSAMPLE],
         topo_order,
         sensitivity_cap,
