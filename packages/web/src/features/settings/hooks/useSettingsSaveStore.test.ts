@@ -199,4 +199,51 @@ describe('useSettingsSaveStore', () => {
     expect(resetA).toHaveBeenCalledTimes(1);
     expect(resetClean).not.toHaveBeenCalled();
   });
+
+  describe('per-section attribution (#2658)', () => {
+    it('keys the error to the failing section, records what landed, and stops', async () => {
+      const a = vi.fn().mockResolvedValue(undefined);
+      const b = vi.fn().mockRejectedValue(new Error('calendar rejected'));
+      const c = vi.fn().mockResolvedValue(undefined);
+      register('a', { onSave: a });
+      register('b', { onSave: b });
+      register('c', { onSave: c });
+      await useSettingsSaveStore.getState().triggerSave();
+      const st = useSettingsSaveStore.getState();
+      expect(st.failedSectionId).toBe('b');
+      expect(st.sectionErrors).toEqual({ b: 'calendar rejected' });
+      expect(st.savedSectionIds).toEqual(['a']);
+      expect(st.saveError).toBe('calendar rejected');
+      expect(c).not.toHaveBeenCalled();
+    });
+
+    it('falls back to "Save failed" for a non-Error rejection', async () => {
+      register('a', { onSave: vi.fn().mockRejectedValue('nope') });
+      await useSettingsSaveStore.getState().triggerSave();
+      expect(useSettingsSaveStore.getState().sectionErrors).toEqual({ a: 'Save failed' });
+    });
+
+    it('clears the failure when the failed section is no longer dirty', async () => {
+      register('a', { onSave: vi.fn().mockRejectedValue(new Error('x')) });
+      register('b');
+      await useSettingsSaveStore.getState().triggerSave();
+      register('a', { dirty: false });
+      const st = useSettingsSaveStore.getState();
+      expect(st.sectionErrors).toEqual({});
+      expect(st.failedSectionId).toBeNull();
+      expect(st.saveError).toBeNull();
+      expect(st.savedSectionIds).toEqual([]);
+    });
+
+    it('a retry resets the prior failure and records lastSavedAt on success', async () => {
+      const onSave = vi.fn().mockRejectedValueOnce(new Error('x')).mockResolvedValue(undefined);
+      register('a', { onSave });
+      await useSettingsSaveStore.getState().triggerSave();
+      await useSettingsSaveStore.getState().triggerSave();
+      const st = useSettingsSaveStore.getState();
+      expect(st.failedSectionId).toBeNull();
+      expect(st.sectionErrors).toEqual({});
+      expect(st.lastSavedAt).not.toBeNull();
+    });
+  });
 });

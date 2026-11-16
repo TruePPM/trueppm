@@ -222,6 +222,35 @@ test.describe('Settings save contract (#536)', () => {
     await expect(page.getByText('You have unsaved changes')).toBeHidden();
   });
 
+  test('a rejected save names the failing section in its card and in the save bar (#2658)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+      if (r.request().method() === 'PATCH') {
+        return r.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ name: ['Name is already taken.'] }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_PROJECT),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+    await page.getByRole('textbox', { name: /project name/i }).fill(EDITED_NAME);
+    await page.getByRole('button', { name: /save changes/i }).click();
+
+    const card = page.getByTestId('settings-section-error-general');
+    await expect(card).toBeVisible();
+    await expect(card).toContainText('This section was not saved');
+    await expect(page.getByText(/couldn't save .*\. \d+ still unsaved\./i)).toBeVisible();
+  });
+
   // ── ADR-0146 (issue 1248): sections are now anchored regions on ONE mounted
   // page. Clicking a section in the rail scroll-spies in place (no route change,
   // no data loss), so it must NOT trip the dirty guard. The guard now fires only
