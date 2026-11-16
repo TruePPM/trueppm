@@ -264,6 +264,22 @@ describe('<SettingsShell>', () => {
     expect(screen.queryByText('You have unsaved changes')).not.toBeInTheDocument();
   });
 
+  it('names the failed section and what landed in the save bar after a partial save (#2658)', () => {
+    renderShell();
+    act(() => {
+      registerSection({ dirty: true });
+      useSettingsSaveStore.setState({
+        saveError: 'boom',
+        failedSectionId: DEFAULT_SECTION_KEY,
+        sectionErrors: { [DEFAULT_SECTION_KEY]: 'boom' },
+        savedSectionIds: ['calendars'],
+      });
+    });
+    expect(
+      screen.getByText(/Couldn't save .*\. 1 section was saved\. 1 still unsaved\./),
+    ).toBeInTheDocument();
+  });
+
   it('clicking a route-link nav item with no dirty state navigates immediately', () => {
     renderShell();
     fireEvent.click(screen.getByRole('button', { name: 'System health' }));

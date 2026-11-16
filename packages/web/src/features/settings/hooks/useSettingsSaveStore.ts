@@ -16,8 +16,9 @@ import { create } from 'zustand';
  *   - `triggerDiscard` = run `onReset` for EVERY dirty section
  *
  * Sequential save (not Promise.all) keeps error attribution simple — the first
- * rejecting section surfaces its message and the run stops; already-saved
- * sections stay saved. Settings saves are infrequent and small, so the lack of
+ * rejecting section surfaces its message (keyed by section id in `sectionErrors`,
+ * rendered in that section's own card) and the run stops; already-saved
+ * sections stay saved and are listed in `savedSectionIds`. Settings saves are infrequent and small, so the lack of
  * parallelism costs nothing.
  *
  * Standalone settings routes that are not part of the consolidated page (e.g.
@@ -46,6 +47,12 @@ export interface SettingsSaveState {
   isSaving: boolean;
   /** Non-null after a save mutation rejects. Cleared on next dirty change or successful save. */
   saveError: string | null;
+  /** Failure message per section id from the last save run; empty when none failed. */
+  sectionErrors: Record<string, string>;
+  /** Section whose save rejected and stopped the last run, or null. */
+  failedSectionId: string | null;
+  /** Section ids that committed during the last run that ended in a failure. */
+  savedSectionIds: string[];
   /**
    * Epoch ms of the most recent fully-successful save, or null. Cleared when the
    * surface goes clean→registers fresh so the "Saved [time]" footer is scoped to
@@ -77,15 +84,59 @@ export interface SettingsSaveState {
 
 const INITIAL: Pick<
   SettingsSaveState,
-  'sections' | 'dirty' | 'apiReady' | 'isSaving' | 'saveError' | 'lastSavedAt'
+    | 'sections'
+  | 'dirty'
+  | 'apiReady'
+  | 'isSaving'
+  | 'saveError'
+  | 'sectionErrors'
+  | 'failedSectionId'
+  | 'savedSectionIds'
+  | 'lastSavedAt'
 > = {
   sections: {},
   dirty: false,
   apiReady: false,
   isSaving: false,
   saveError: null,
+  sectionErrors: {},
+  failedSectionId: null,
+  savedSectionIds: [],
   lastSavedAt: null,
 };
+
+type FailureState = Pick<
+  SettingsSaveState,
+  'sectionErrors' | 'failedSectionId' | 'saveError' | 'savedSectionIds'
+>;
+
+const NO_FAILURE: FailureState = {
+  saveError: null,
+  sectionErrors: {},
+  failedSectionId: null,
+  savedSectionIds: [],
+};
+
+/** Drop the failure of any section that is no longer dirty (its edit was reverted or saved). */
+function pruneErrors(
+  s: FailureState,
+  sections: Record<string, SectionEntry>,
+  anyDirty: boolean,
+): FailureState {
+  if (!anyDirty) return NO_FAILURE;
+  const sectionErrors: Record<string, string> = {};
+  for (const [id, msg] of Object.entries(s.sectionErrors)) {
+    if (sections[id]?.dirty) sectionErrors[id] = msg;
+  }
+  const failedSectionId =
+    s.failedSectionId && sectionErrors[s.failedSectionId] ? s.failedSectionId : null;
+  return {
+    sectionErrors,
+    failedSectionId,
+    saveError: failedSectionId ? s.saveError : null,
+    savedSectionIds: failedSectionId ? s.savedSectionIds : [],
+  };
+}
 
 /** Recompute the aggregate `dirty` / `apiReady` flags from the section registry. */
 function aggregate(sections: Record<string, SectionEntry>): {
@@ -114,8 +165,8 @@ export const useSettingsSaveStore = create<SettingsSaveState>()((set, get) => ({
         apiReady: agg.apiReady,
         // Preserve in-flight + last-saved across re-registers within a mount.
         isSaving: s.isSaving,
-        // Clear a stale error once nothing is dirty anymore.
-        saveError: agg.dirty ? s.saveError : null,
+        // Clear a stale error once its section (or everything) is no longer dirty.
+        ...pruneErrors(s, sections, agg.dirty),
         lastSavedAt: s.lastSavedAt,
       };
     });
@@ -131,7 +182,7 @@ export const useSettingsSaveStore = create<SettingsSaveState>()((set, get) => ({
         sections,
         dirty: agg.dirty,
         apiReady: agg.apiReady,
-        saveError: agg.dirty ? s.saveError : null,
+        ...pruneErrors(s, sections, agg.dirty),
       };
     });
   },
@@ -141,20 +192,31 @@ export const useSettingsSaveStore = create<SettingsSaveState>()((set, get) => ({
   triggerSave: async () => {
     const { sections, isSaving } = get();
     if (isSaving) return;
-    const dirtySections = Object.values(sections).filter((e) => e.dirty);
-    if (dirtySections.length === 0) return;
-    set({ isSaving: true, saveError: null });
-    try {
-      // Sequential: a rejection stops the run with the failing section's message;
-      // sections saved before it stay saved (their pages bump their own snapshot).
-      for (const entry of dirtySections) {
+    const dirtyEntries = Object.entries(sections).filter(([, e]) => e.dirty);
+    if (dirtyEntries.length === 0) return;
+    set({ isSaving: true, ...NO_FAILURE });
+    // Sequential: a rejection stops the run and is attributed to the section that
+    // threw. Sections saved before it stay saved (their pages bump their own
+    // snapshot) and are recorded so the UI can say what landed; sections after it
+    // were never attempted and stay dirty. No cross-section transaction (#2658).
+    const saved: string[] = [];
+    for (const [id, entry] of dirtyEntries) {
+      try {
         await entry.onSave();
+        saved.push(id);
+      } catch (err) {
+        const message = err instanceof Error && err.message ? err.message : 'Save failed';
+        set({
+          isSaving: false,
+          saveError: message,
+          sectionErrors: { [id]: message },
+          failedSectionId: id,
+          savedSectionIds: saved,
+        });
+        return;
       }
-      set({ isSaving: false, lastSavedAt: Date.now() });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Save failed';
-      set({ isSaving: false, saveError: message });
     }
+    set({ isSaving: false, lastSavedAt: Date.now() });
   },
 
   triggerDiscard: () => {
@@ -167,5 +229,5 @@ export const useSettingsSaveStore = create<SettingsSaveState>()((set, get) => ({
     // re-runs and re-registers with dirty=false on the next render.
   },
 
-  clearError: () => set({ saveError: null }),
+  clearError: () => set({ ...NO_FAILURE }),
 }));
