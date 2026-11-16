@@ -22,7 +22,7 @@ def _retire_inbound_summary_links(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0172_export_job_file_sha256"),
+        ("projects", "0174_project_cascade_request"),
     ]
 
     operations = [

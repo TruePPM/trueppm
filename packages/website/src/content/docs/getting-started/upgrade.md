@@ -230,7 +230,7 @@ password is unchanged, so your existing database volume will keep working. If yo
 ran the demo stack on a reachable host before 0.5, treat the old public key as
 exposed and restart it on 0.5 so the key is replaced.
 
-### Finish-to-Finish and Start-to-Finish links into summary tasks are retired (`projects.0173`)
+### Finish-to-Finish and Start-to-Finish links into summary tasks are retired (`projects.0175`)
 
 From 0.5, the scheduler will refuse a Finish-to-Finish or Start-to-Finish link whose
 successor is a summary task (ADR-0370): it would force every subtask, even a short

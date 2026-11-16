@@ -1,4 +1,4 @@
-"""The one-time repair behind projects.0173: retire FF/SF links into a summary (#4437).
+"""The one-time repair behind projects.0175: retire FF/SF links into a summary (#4437).
 
 Tests the function the migration delegates to, never the migration module itself — a
 squash deletes migration file names (CLAUDE.md migration rule 3).
