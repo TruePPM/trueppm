@@ -134,6 +134,22 @@ directly to `schedule()` / `schedule_impl()`, neither of which invokes
 - **Migration required**: No.
 - **OSS or Enterprise**: OSS (trueppm-suite).
 
+## Amendment (2026-11-15, #4437): the successor side
+
+The same fan-out over-constrains on the other end. A summary's FINISH is its
+latest-finishing leaf, so `X -FF-> S` should constrain at most that leaf, but the
+cross product forces every leaf to finish no earlier than X, pushing short
+independent leaves late and inventing a critical path through them. FF and SF links
+whose **successor** is a summary are therefore rejected by the same
+`_reject_summary_start_links` check, with an actionable `InvalidScheduleInput`.
+FS and SS into a summary anchor on its START (the earliest leaf), where "the earliest
+leaf" and "every leaf" give the same constraint, so they keep the fan-out. Modelling a
+true max-over-leaves constraint was considered and rejected by the maintainer in
+favor of the same refusal posture as the predecessor side. The API write boundary
+refuses the link with a 400 through `validate_expansion_with_edge`, and the importers
+skip it with a warning through `find_summary_start_links`. Whether MS Project accepts
+FF/SF into a summary is unverified.
+
 ## Tracking
 
-Tracking: #1854.
+Tracking: #1854, #4437.

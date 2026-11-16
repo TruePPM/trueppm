@@ -126,6 +126,16 @@ a task or a subtask inside it. The message names the links in the way:
 > from its start. Change those links to Finish-to-Start or Finish-to-Finish, or
 > delete them, first.
 
+The same goes for the other end of a summary: from 0.5 a **Finish-to-Finish or
+Start-to-Finish link *into* a summary task** is refused with a 400 when you save
+it, and an import skips it with a warning. A summary finishes when its last
+subtask does, so applying the link to every subtask would force even a short,
+unrelated subtask to finish with the predecessor. Link to the subtask that
+should finish with it instead. Finish-to-Start and Start-to-Start links into a
+summary are unaffected: they constrain its start, which every subtask shares.
+0.4 accepts such a link and applies it to every subtask
+([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)).
+
 Retype or delete those links, or move them to one of the subtasks, then try the
 move again. A task that is already a summary is not affected by this check.
 Restoring a deleted task or project from the trash leaves any of its old

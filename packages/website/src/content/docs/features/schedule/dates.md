@@ -252,7 +252,8 @@ dates — the drop won't move it."* Completion alone does not do this. A task
 marked 100% with no recorded actuals is out of network logic too — the work is
 done, so a predecessor slipping never moves it — but with no actuals to anchor
 on it sits at the project start, or at its **start no earlier than** date when
-that is later. So it drags normally: the drop becomes that committed start. It
+that is later, held back so it never finishes after the data date. So it drags
+normally: the drop becomes that committed start. It
 is the actuals, not the checkbox, that freeze the dates. To
 move a pinned task, change its actual dates in the task drawer's **Actual
 dates** section — see [Recording and correcting actual

@@ -405,6 +405,9 @@ def expand_summary_dependencies(
               (ADR-0370), checked before the shared-leaf rule below, so an SS/SF
               link from a summary to its own descendant raises this rather than
               ``CyclicDependencyError``.
+            * A Finish-to-Finish or Start-to-Finish link *into* a summary task
+              (#4437), the successor-side twin of the rule above, checked at the
+              same point.
             * Two links between the same pair of plain (non-summary) tasks, whether
               or not ``children_map`` is empty (#5019); the message matches
               ``schedule()``'s "Duplicate dependency".
@@ -461,7 +464,12 @@ def _reject_duplicate_leaf_links(deps: list[Dependency], summary_ids: set[str]) 
 
 
 def _reject_summary_start_links(deps: list[Dependency], summary_ids: set[str]) -> None:
-    """Reject a Start-to-Start / Start-to-Finish link *from* a summary task (ADR-0370).
+    """Reject the links the leaf fan-out cannot model on a summary (ADR-0370, #4437).
+
+    Two sides, one rule: a link is refused when the summary endpoint it anchors on is
+    the summary's *earliest* leaf rather than every leaf.
+
+    *From* a summary, Start-to-Start / Start-to-Finish:
 
     A summary's START is its earliest-starting leaf (ADR-0024 §3, matching MS Project
     semantics), but the leaf cross-product fans a summary edge out to *every* leaf and
@@ -476,18 +484,44 @@ def _reject_summary_start_links(deps: list[Dependency], summary_ids: set[str]) -
     Project's own restriction posture. Deliberately kept out of
     :func:`_expand_edges_for_cycle_check` — cycle detection stays conservative and must
     still see the expanded edges.
+
+    *Into* a summary, Finish-to-Finish / Start-to-Finish (#4437) — the successor-side
+    twin. A summary's FINISH is its latest-finishing leaf, so "the summary finishes no
+    earlier than X" constrains at most that one leaf. The fan-out instead makes
+    *every* leaf finish no earlier than X, pushing short independent leaves late,
+    eating their float and inventing a critical path through them. FS/SS into a
+    summary anchor on its START, its earliest leaf, where "the earliest leaf starts no
+    earlier than X" and "every leaf does" are the same constraint, so those keep the
+    fan-out. Refused rather than modelled as a max-over-leaves constraint, the same
+    posture as the predecessor side.
     """
     for dep in deps:
-        if dep.predecessor_id in summary_ids and dep.dep_type in (
-            DependencyType.SS,
-            DependencyType.SF,
-        ):
+        if dep.predecessor_id in summary_ids and dep.dep_type in _SUMMARY_PREDECESSOR_FORBIDDEN:
             raise InvalidScheduleInput(
                 f"Start-to-Start/Start-to-Finish dependency from summary task "
                 f"{_short_repr(dep.predecessor_id)} is not supported (ADR-0024); link to a "
                 f"specific "
                 "leaf task instead."
             )
+        if dep.successor_id in summary_ids and dep.dep_type in _SUMMARY_SUCCESSOR_FORBIDDEN:
+            raise InvalidScheduleInput(
+                f"Finish-to-Finish/Start-to-Finish dependency into summary task "
+                f"{_short_repr(dep.successor_id)} is not supported (ADR-0370); link to a "
+                "specific leaf task instead."
+            )
+
+
+#: Link types refused when a summary is the PREDECESSOR: they anchor on its start
+#: (ADR-0370, #1854).
+_SUMMARY_PREDECESSOR_FORBIDDEN: frozenset[DependencyType] = frozenset(
+    {DependencyType.SS, DependencyType.SF}
+)
+
+#: Link types refused when a summary is the SUCCESSOR: they constrain its finish
+#: (#4437).
+_SUMMARY_SUCCESSOR_FORBIDDEN: frozenset[DependencyType] = frozenset(
+    {DependencyType.FF, DependencyType.SF}
+)
 
 
 def _resolve_endpoint_leaves(

@@ -50,7 +50,10 @@ from trueppm_api.apps.projects.refusal_codes import StructuralUndoBlockedReason
 from trueppm_api.apps.projects.restructure_hooks import (
     broadcast_tasks_restructured_and_recalc,
 )
-from trueppm_api.apps.scheduling.graph_guard import SUMMARY_FORBIDDEN_LINK_TYPES
+from trueppm_api.apps.scheduling.graph_guard import (
+    SUMMARY_FORBIDDEN_INBOUND_LINK_TYPES,
+    SUMMARY_FORBIDDEN_LINK_TYPES,
+)
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -523,23 +526,31 @@ def _restore_dependencies(
 
 
 def _retire_restored_summary_start_links(locked: Any, restored: list[Any]) -> int:
-    """Undo step 2b — re-remove restored SS/SF links out of a summary; return how many.
+    """Undo step 2b — re-remove restored summary-illegal links; return how many.
 
     The edges step 2 revives were removed by the forward act, and the only act that
     removes edges is ungroup, which takes its container's links with it. A container
     has children, so an SS/SF link on it was already forbidden by ADR-0370 when the
     ungroup ran — the ungroup incidentally repaired the plan, and reviving that link
-    would make every recalculation refuse it again (#4830). Treated like step 2's own
+    would make every recalculation refuse it again (#4830). The same holds for an
+    FF/SF link into the container (#4437). Treated like step 2's own
     skips: the undo completes and the link is counted in ``dependencies_skipped``.
 
     Runs after the shape and the minted rows are settled, because summary status is a
-    property of the final tree. Reads the project's children map only when a restored
+    property of the final tree. Step 2 restores only edges whose endpoints are both in
+    the locked project, so that project's children map is the right (and only) one.
+    Reads the project's children map only when a restored
     edge is SS/SF, which is the rare case; every other undo pays nothing.
     """
     from trueppm_api.apps.projects.serializers import _load_project_tasks_and_children_map
     from trueppm_api.apps.scheduling.graph_guard import find_summary_start_links
 
-    candidates = [d for d in restored if d.dep_type in SUMMARY_FORBIDDEN_LINK_TYPES]
+    candidates = [
+        d
+        for d in restored
+        if d.dep_type in SUMMARY_FORBIDDEN_LINK_TYPES
+        or d.dep_type in SUMMARY_FORBIDDEN_INBOUND_LINK_TYPES
+    ]
     if not candidates:
         return 0
     _, children_map = _load_project_tasks_and_children_map(locked.project_id)

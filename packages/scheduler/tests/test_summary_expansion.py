@@ -228,11 +228,10 @@ class TestRejectStartLinksFromSummary:
         assert all(d.dep_type == DependencyType.FF for d in expanded)
 
     def test_ss_to_summary_successor_still_fans_out(self) -> None:
-        """SS where the summary is the *successor* is out of scope (#1854): it stays.
+        """SS into a summary anchors on its START (earliest leaf), so it keeps the fan-out.
 
-        The reachable over-constraint bug is SS/SF *from* a summary (predecessor).
-        A leaf —SS→ summary anchors on the successor side and is left conservatively
-        untouched; only the predecessor case is rejected.
+        "The earliest leaf starts no earlier than X" and "every leaf starts no earlier
+        than X" are the same constraint, so the cross-product models it exactly.
         """
         tasks = [task("T"), task("S"), task("S1"), task("S2")]
         deps = [Dependency(predecessor_id="T", successor_id="S", dep_type=DependencyType.SS)]
@@ -242,6 +241,49 @@ class TestRejectStartLinksFromSummary:
 
         edges = {(d.predecessor_id, d.successor_id) for d in expanded}
         assert edges == {("T", "S1"), ("T", "S2")}
+
+
+class TestRejectFinishLinksIntoSummary:
+    """#4437: FF/SF *into* a summary are rejected — the successor-side twin of ADR-0370.
+
+    A summary's finish is its latest-finishing leaf, so ``X -FF-> S`` constrains at
+    most that leaf. The cross-product would force *every* leaf to finish with X: in
+    the audit repro S = {A 2d, B 1d} and B, the short independent leaf, was pushed to
+    finish with X although S's finish is A's.
+    """
+
+    @pytest.mark.parametrize("dep_type", [DependencyType.FF, DependencyType.SF])
+    def test_multi_leaf_summary_successor_rejected(self, dep_type: DependencyType) -> None:
+        tasks = [task("X", days=3), task("S"), task("A", days=2), task("B", days=1)]
+        deps = [Dependency(predecessor_id="X", successor_id="S", dep_type=dep_type)]
+
+        with pytest.raises(InvalidScheduleInput, match="into summary task 'S'"):
+            expand_summary_dependencies(tasks, deps, {"S": ["A", "B"]})
+
+    def test_single_leaf_summary_successor_rejected(self) -> None:
+        """Uniform like the predecessor side: one leaf is still a summary."""
+        tasks = [task("X"), task("S"), task("A")]
+        deps = [Dependency(predecessor_id="X", successor_id="S", dep_type=DependencyType.FF)]
+
+        with pytest.raises(InvalidScheduleInput, match="not supported"):
+            expand_summary_dependencies(tasks, deps, {"S": ["A"]})
+
+    def test_summary_to_summary_ff_rejected(self) -> None:
+        """FF from one summary into another is refused for its successor side."""
+        tasks = [task("P"), task("P1"), task("S"), task("S1")]
+        deps = [Dependency(predecessor_id="P", successor_id="S", dep_type=DependencyType.FF)]
+
+        with pytest.raises(InvalidScheduleInput, match="into summary task 'S'"):
+            expand_summary_dependencies(tasks, deps, {"P": ["P1"], "S": ["S1"]})
+
+    def test_fs_into_summary_still_fans_out(self) -> None:
+        """FS into a summary anchors on its start, so the cross-product is exact."""
+        tasks = [task("X"), task("S"), task("A", days=2), task("B", days=1)]
+        deps = [Dependency(predecessor_id="X", successor_id="S", dep_type=DependencyType.FS)]
+
+        _, expanded = expand_summary_dependencies(tasks, deps, {"S": ["A", "B"]})
+
+        assert {(d.predecessor_id, d.successor_id) for d in expanded} == {("X", "A"), ("X", "B")}
 
 
 class TestDuplicateLeafPairResolution:
@@ -281,7 +323,9 @@ class TestDuplicateLeafPairResolution:
             edges = {(d.predecessor_id, d.successor_id): d.lag.days for d in expanded}
             assert edges == {("A", "C"): 7, ("B", "C"): 7}
 
-    @pytest.mark.parametrize("dep_type", list(DependencyType))
+    # FF/SF into a summary are refused outright (#4437), so only the two types that
+    # may target a summary can collide here.
+    @pytest.mark.parametrize("dep_type", [DependencyType.FS, DependencyType.SS])
     def test_same_type_keeps_largest_lag(self, dep_type: DependencyType) -> None:
         """Same-type collision keeps the most binding (largest) lag, including over a lead."""
         children_map = {"S": ["A", "B"]}
@@ -460,6 +504,12 @@ class TestAncestorDescendantLinksAgreeWithFindCycle:
         assert find_cycle([(pred, succ)], children_map=children_map)
 
         deps = [Dependency(predecessor_id=pred, successor_id=succ, dep_type=dep_type)]
+        if dep_type == DependencyType.FF and succ in children_map:
+            # FF *into* a summary is refused by #4437 before the shared-leaf rule,
+            # as SS/SF *from* one is by ADR-0370: both refuse, only the error differs.
+            with pytest.raises(InvalidScheduleInput, match="into summary task"):
+                expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+            return
         with pytest.raises(CyclicDependencyError) as exc:
             expand_summary_dependencies(self._tasks(children_map), deps, children_map)
         expected = [pred, pred] if pred == succ else [pred, succ, pred]
@@ -502,15 +552,25 @@ class TestAncestorDescendantLinksAgreeWithFindCycle:
         with pytest.raises(InvalidScheduleInput, match="not supported"):
             expand_summary_dependencies(self._tasks(children_map), deps, children_map)
 
-    @pytest.mark.parametrize("dep_type", [DependencyType.SS, DependencyType.SF])
-    def test_start_link_from_child_to_own_parent_is_a_cycle(self, dep_type: DependencyType) -> None:
-        """Into a summary, SS/SF is not ADR-0370's direction, so the cycle rule applies."""
+    def test_start_link_from_child_to_own_parent_is_a_cycle(self) -> None:
+        """SS into a summary is allowed by both sides of the rule, so the cycle rule applies."""
         children_map = _SHAPES["two_leaves"]
         assert find_cycle([("a", "S")], children_map=children_map)
-        deps = [Dependency(predecessor_id="a", successor_id="S", dep_type=dep_type)]
+        deps = [Dependency(predecessor_id="a", successor_id="S", dep_type=DependencyType.SS)]
         with pytest.raises(CyclicDependencyError) as exc:
             expand_summary_dependencies(self._tasks(children_map), deps, children_map)
         assert exc.value.cycle == ["a", "S", "a"]
+
+    @pytest.mark.parametrize("dep_type", [DependencyType.FF, DependencyType.SF])
+    def test_finish_link_from_child_to_own_parent_hits_4437_first(
+        self, dep_type: DependencyType
+    ) -> None:
+        """FF/SF *into* a summary is refused by #4437 before the shared-leaf rule."""
+        children_map = _SHAPES["two_leaves"]
+        assert find_cycle([("a", "S")], children_map=children_map)
+        deps = [Dependency(predecessor_id="a", successor_id="S", dep_type=dep_type)]
+        with pytest.raises(InvalidScheduleInput, match="into summary task 'S'"):
+            expand_summary_dependencies(self._tasks(children_map), deps, children_map)
 
     def test_unrelated_summaries_still_expand(self) -> None:
         """Guard against over-refusal: disjoint summaries and siblings still fan out."""

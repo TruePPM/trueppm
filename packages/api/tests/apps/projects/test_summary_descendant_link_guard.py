@@ -122,7 +122,7 @@ class TestIndent:
         design = _task(project, "Design", "1")
         build = _task(project, "Build", "2")
         wire = _task(project, "Wire", "2.1")
-        link = _link(wire, design, "FF")
+        link = _link(wire, design, "FS")
         before = _outline(project)
 
         response = _post(owner_client, INDENT_URL.format(pk=project.pk, task_id=build.pk))
@@ -262,7 +262,7 @@ class TestMoreShapes:
         design = _task(project, "Design", "1")
         build = _task(project, "Build", "2")
         wire = _task(project, "Wire", "2.1")
-        link = _link(wire, design, "FF")
+        link = _link(wire, design, "FS")
         before = _outline(project)
 
         response = _post(
