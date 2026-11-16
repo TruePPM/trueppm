@@ -52,7 +52,7 @@ export function ProgramIntegrationsPage() {
           <ApiTokensManager scope={scope} />
         </div>
 
-        <ConnectorRoadmapCard />
+        <ConnectorRoadmapCard scope="program" />
 
         {enterpriseSlots.length > 0 && (
           <div className="space-y-4" data-testid="enterprise-integration-slot">

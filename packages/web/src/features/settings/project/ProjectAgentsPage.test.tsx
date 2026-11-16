@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithRouter } from '@/test/utils';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProjectAgentsPage } from './ProjectAgentsPage';
@@ -42,13 +43,13 @@ describe('ProjectAgentsPage', () => {
   });
 
   it('renders the agent read-access control', () => {
-    render(<ProjectAgentsPage />);
+    renderWithRouter(<ProjectAgentsPage />);
     expect(screen.getByText('Agents')).toBeInTheDocument();
     expect(screen.getByText('Agent read access')).toBeInTheDocument();
   });
 
   it('shows no blocked note while agent reads are allowed', () => {
-    render(<ProjectAgentsPage />);
+    renderWithRouter(<ProjectAgentsPage />);
     expect(screen.queryByTestId('agent-access-blocked-note')).not.toBeInTheDocument();
   });
 
@@ -56,7 +57,7 @@ describe('ProjectAgentsPage', () => {
     // Drives off the RESOLVED value, so the note also fires when the block is
     // inherited from the program/workspace rather than set on this project.
     projectData = makeProject({ mcp_enabled: false, effective_mcp_enabled: false });
-    render(<ProjectAgentsPage />);
+    renderWithRouter(<ProjectAgentsPage />);
     expect(screen.getByTestId('agent-access-blocked-note')).toBeInTheDocument();
   });
 
@@ -66,33 +67,50 @@ describe('ProjectAgentsPage', () => {
       inherited_mcp_enabled: false,
       effective_mcp_enabled: false,
     });
-    render(<ProjectAgentsPage />);
+    renderWithRouter(<ProjectAgentsPage />);
     expect(screen.getByTestId('agent-access-blocked-note')).toBeInTheDocument();
   });
 
   it('renders read-only for a non-Admin role', () => {
     currentRole = 200; // ROLE_SCHEDULER — below ROLE_ADMIN
-    render(<ProjectAgentsPage />);
+    renderWithRouter(<ProjectAgentsPage />);
     // The write affordance (the inherit/override radios) is absent below Admin;
     // the server refuses the write too, so this only spares a doomed save.
     expect(screen.queryByRole('radiogroup', { name: 'Agent read access' })).not.toBeInTheDocument();
   });
 
   it('offers the write affordance to an Admin', () => {
-    render(<ProjectAgentsPage />);
+    renderWithRouter(<ProjectAgentsPage />);
     expect(screen.getByRole('radiogroup', { name: 'Agent read access' })).toBeInTheDocument();
   });
 
   it('gates pessimistically while the role is still loading', () => {
     currentRole = null;
-    render(<ProjectAgentsPage />);
+    renderWithRouter(<ProjectAgentsPage />);
     expect(screen.queryByRole('radiogroup', { name: 'Agent read access' })).not.toBeInTheDocument();
   });
 
   it('lets an Admin override to blocked', async () => {
     const user = userEvent.setup();
-    render(<ProjectAgentsPage />);
+    renderWithRouter(<ProjectAgentsPage />);
     await user.click(screen.getByRole('radio', { name: /override/i }));
     expect(screen.getByRole('switch', { name: 'Agent read access' })).toBeInTheDocument();
+  });
+
+  it('links to the project agent activity log (#2864)', () => {
+    renderWithRouter(<ProjectAgentsPage />);
+    expect(screen.getByRole('link', { name: 'View the agent activity log' })).toHaveAttribute(
+      'href',
+      '/projects/p-1/activity?view=agents',
+    );
+  });
+
+  it('links the blocked note to refusals only (#2864)', () => {
+    projectData = makeProject({ mcp_enabled: false, effective_mcp_enabled: false });
+    renderWithRouter(<ProjectAgentsPage />);
+    expect(screen.getByRole('link', { name: 'agent activity log' })).toHaveAttribute(
+      'href',
+      '/projects/p-1/activity?view=agents&refused=1',
+    );
   });
 });

@@ -103,6 +103,14 @@ describe('WorkspaceDangerPage (#641 wired)', () => {
     });
   });
 
+  it('links the backup and restore runbook from the export card (#2864)', () => {
+    renderPage();
+    expect(screen.getByRole('link', { name: /Backup and restore runbook/i })).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/administration/backup-restore',
+    );
+  });
+
   it('keeps Delete disabled until the workspace name is typed exactly', () => {
     renderPage();
     const deleteBtn = screen.getByRole('button', { name: 'Delete workspace permanently' });

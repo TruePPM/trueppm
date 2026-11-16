@@ -23,6 +23,9 @@
 
 import { SettingsCard } from './SettingsShell';
 
+/** Which Integrations page is rendering the card. */
+export type ConnectorScope = 'project' | 'program';
+
 const ISSUE_URL_BASE = 'https://gitlab.com/trueppm/trueppm/-/issues/';
 
 /** A shipped connector, optionally pointing to where the capability lives. */
@@ -36,6 +39,12 @@ type AvailableConnector = {
    * (the cloud-file preview lives on the task, so linking anywhere is wrong).
    */
   link?: { label: string; href: string; external: boolean };
+  /**
+   * The capability is configured per project only. The program view omits it:
+   * advertising a connector on a page that offers no way to set it up is a
+   * dead end (#3254).
+   */
+  projectOnly?: boolean;
 };
 
 const AVAILABLE_CONNECTORS: AvailableConnector[] = [
@@ -56,6 +65,7 @@ const AVAILABLE_CONNECTORS: AvailableConnector[] = [
     },
   },
   {
+    projectOnly: true,
     name: 'Git-event card automation (GitHub / GitLab)',
     description:
       'Point a repository webhook at a project and a linked pull/merge request moves its card to Review, then Complete.',
@@ -111,7 +121,8 @@ const LINK_CLASS =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary ' +
   'focus-visible:ring-offset-1 rounded';
 
-export function ConnectorRoadmapCard() {
+export function ConnectorRoadmapCard({ scope = 'project' }: { scope?: ConnectorScope } = {}) {
+  const available = AVAILABLE_CONNECTORS.filter((c) => scope === 'project' || !c.projectOnly);
   return (
     <SettingsCard>
       <div className="px-4 pt-3.5 pb-2 flex items-baseline gap-2 border-b border-neutral-border/55">
@@ -122,7 +133,7 @@ export function ConnectorRoadmapCard() {
       <div className="px-4 py-3 border-b border-neutral-border/55">
         <h3 className={SECTION_HEADER}>Available now</h3>
         <ul className="mt-2 space-y-3">
-          {AVAILABLE_CONNECTORS.map((connector) => (
+          {available.map((connector) => (
             <li key={connector.name} className="min-w-0">
               <div className="flex items-baseline gap-2 flex-wrap">
                 <span className="text-[13px] font-medium text-neutral-text-primary">
