@@ -258,13 +258,13 @@ describe('createTaskRowSplicer', () => {
       ['tasks', 'p1'],
       [r('top', null, 0), r('mid', 'top', 0), r('kid', 'mid', 0)],
     );
-    getMock.mockImplementation(async (url: string) => {
+    getMock.mockImplementation((url: string) => {
       const id = url.split('/')[2];
-      return { data: { ...api(id, id, 2), percent_complete: 50 } };
+      return Promise.resolve({ data: { ...api(id, id, 2), percent_complete: 50 } });
     });
     make().requestWithAncestors('kid', 2);
     await flush();
-    expect(getMock.mock.calls.map((c) => c[0]).sort()).toEqual([
+    expect(getMock.mock.calls.map((c) => String(c[0])).sort()).toEqual([
       '/tasks/kid/',
       '/tasks/mid/',
       '/tasks/top/',

@@ -816,16 +816,21 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
         { id: 'sum', name: 'Sum', serverVersion: 1, wbs: '1', parentId: null },
         { id: 't1', name: 'Old', serverVersion: 1, wbs: '1.1', parentId: 'sum' },
       ] as unknown as Task[]);
-      apiGetMock.mockImplementation(async (url: string) => ({
-        data: { id: url.split('/')[2], name: 'x', server_version: 3, is_summary: false },
-      }));
+      apiGetMock.mockImplementation((url: string) =>
+        Promise.resolve({
+          data: { id: url.split('/')[2], name: 'x', server_version: 3, is_summary: false },
+        }),
+      );
       const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
       renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
       dispatchTaskUpdated({ id: 't1', actor_id: 'x', version: 3, changed_fields: ['status'] });
       await settle();
 
-      expect(apiGetMock.mock.calls.map((c) => c[0]).sort()).toEqual(['/tasks/sum/', '/tasks/t1/']);
+      expect(apiGetMock.mock.calls.map((c) => String(c[0])).sort()).toEqual([
+        '/tasks/sum/',
+        '/tasks/t1/',
+      ]);
       expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
     });
 

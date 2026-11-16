@@ -1481,6 +1481,26 @@ describe('runCpmResizeForwardPass', () => {
     expect(results.find((r) => r.taskId === 'A')!.earlyFinish).toBe('2025-01-10');
   });
 
+  it.each([0, -3])(
+    'floors a resize to duration %d at an empty span: finish never precedes start, and the successor does not run backward (#4317)',
+    (newDuration) => {
+      // applyResize clamps effectiveDuration with Math.max(0, ...); the UI guard in
+      // useDragCpm is the only other floor, so a keyboard-resize entry point that
+      // bypasses it must still get a sane preview.
+      const tasks: CpmTask[] = [
+        task('A', '2025-01-06', '2025-01-10'),
+        task('B', '2025-01-11', '2025-01-13'),
+      ];
+      const { results } = runCpmResizeForwardPass(tasks, [edge('A', 'B', 'FS')], 'A', newDuration);
+      const a = results.find((r) => r.taskId === 'A')!;
+      const b = results.find((r) => r.taskId === 'B')!;
+      expect(a.earlyStart).toBe('2025-01-06');
+      expect(a.earlyFinish >= a.earlyStart).toBe(true);
+      expect(b.earlyStart >= a.earlyFinish).toBe(true);
+      expect(b.earlyFinish >= b.earlyStart).toBe(true);
+    },
+  );
+
   it('does not resize a milestone (zero duration) even if a stray message asks it to', () => {
     const tasks: CpmTask[] = [
       task('A', '2025-01-10', '2025-01-10', { isMilestone: true, durationDays: 0 }),
