@@ -159,6 +159,7 @@ def test_cold_start_pull_ships_no_tombstones_and_no_prefetch_over_deleted(
     risk = Risk.objects.create(project=project, title="R", probability=1, impact=1)
     risk.soft_delete()
     gone_ids = [str(pk) for pk in Task.objects.filter(is_deleted=True).values_list("pk", flat=True)]
+    gone_ids.append(str(risk.pk))
     with CaptureQueriesContext(connection) as ctx:
         body = _pull(authed_client, project, 0)
     tasks = body["changes"]["tasks"]

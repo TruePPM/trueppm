@@ -350,3 +350,26 @@ def test_sequence_repr_shows_the_value() -> None:
     row.value = 9
 
     assert str(row) == "ProgramSyncSequence(value=9)"
+
+
+@pytest.mark.django_db
+def test_cold_start_pages_over_live_programs_only(client: APIClient, user: Any) -> None:
+    """A multi-page since=0 drain delivers every live program and no tombstone (#4470)."""
+    live = {str(_program(user, f"Live{i}").pk) for i in range(3)}
+    _program(user, "Gone").soft_delete()
+    seen: set[str] = set()
+    cursor: str | None = None
+    pages = 0
+    while True:
+        params = {"since": "0", "page_size": "2"}
+        if cursor:
+            params["cursor"] = cursor
+        body = client.get(URL, params).json()
+        pages += 1
+        assert body["changes"]["programs"]["deleted"] == []
+        seen |= {r["id"] for r in body["changes"]["programs"]["updated"]}
+        cursor = body["next_cursor"]
+        if not cursor:
+            break
+    assert seen == live
+    assert pages > 1

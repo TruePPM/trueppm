@@ -1,6 +1,7 @@
 ---
 title: WebSocket event conventions
 description: The naming convention, frozen-contract guarantee, and registration steps for real-time board events.
+documentedFor: "0.5"
 ---
 
 The real-time layer broadcasts board and schedule changes over WebSocket. It has
@@ -86,6 +87,12 @@ a per-project `seq` (ADR-0236, ADR-1285). The mechanism:
 `resync_required` is a **consumer-emitted control frame**, not a broadcast event —
 it never passes through `broadcast_board_event()`, so it is deliberately *not* part
 of `FROZEN_WS_EVENT_TYPES`.
+
+:::note[Ships in 0.5]
+The fourth `resync_required` case, the 4 MiB replay byte cap, ships in 0.5. In
+v0.4.0 the consumer resyncs only when owed rows were purged, when the client is
+over the replay row cap behind, or when `since` is above the head.
+:::
 
 ## Naming convention
 
