@@ -8,6 +8,7 @@ service" so we can prove no byte (not even the TCP handshake) reached it.
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import threading
 from collections.abc import Iterator
@@ -182,3 +183,41 @@ def test_resolve_email_connection_uses_the_guarded_backend() -> None:
     assert conn.connection_class.__name__ == "GuardedSMTP"
     ssl_conn = GuardedSMTPEmailBackend(host="x", port=465, use_ssl=True, use_tls=False)
     assert ssl_conn.connection_class.__name__ == "GuardedSMTPSSL"
+
+
+def test_stable_public_non_allowlisted_relay_connects(smtp_stub: _SmtpStub) -> None:
+    # Negative control: the guard must not refuse a relay that resolves to a
+    # public address on every lookup. The dial is redirected to the local stub
+    # after the guard has judged the (public) resolved address.
+    fake = _fake_getaddrinfo(smtp_stub.port, [PUBLIC_IP])
+    real_connect = socket.socket.connect
+
+    def redirect(self: socket.socket, address: Any) -> Any:
+        assert address[0] == PUBLIC_IP
+        return real_connect(self, ("127.0.0.1", smtp_stub.port))
+
+    backend = _backend(smtp_stub.port)
+    with (
+        override_settings(EGRESS_ALLOWLISTED_HOSTS_SMTP=[]),
+        patch.object(socket, "getaddrinfo", fake),
+        patch.object(socket.socket, "connect", redirect),
+        patch.object(egress, "_peer_ip", return_value=ipaddress.ip_address(PUBLIC_IP)),
+    ):
+        assert backend.open() is True
+    backend.close()
+    assert smtp_stub.accepted == 1
+
+
+def test_implicit_tls_wraps_with_the_original_hostname() -> None:
+    from unittest.mock import MagicMock
+
+    from trueppm_api.apps.integrations import smtp as smtp_mod
+
+    raw = MagicMock()
+    ctx = MagicMock()
+    with patch.object(smtp_mod, "_dial", return_value=raw):
+        client = smtp_mod.GuardedSMTPSSL.__new__(smtp_mod.GuardedSMTPSSL)
+        client._host = "relay.corp.test"  # type: ignore[attr-defined]
+        client.context = ctx
+        client._get_socket("relay.corp.test", 465, 3)
+    ctx.wrap_socket.assert_called_once_with(raw, server_hostname="relay.corp.test")

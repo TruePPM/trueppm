@@ -79,6 +79,8 @@ one-shot `secrets-init` service will generate a random one on first boot, keep i
 in the `dev_secrets` volume, and share it with the api, celery and celery-beat
 services; `docker compose down -v` will discard it. Today the key is fixed in the
 compose file.
+A `docker compose exec api` shell will inherit the image's default `SECRET_KEY`,
+not the generated one, so run `. /secrets/env` first for anything that signs.
 :::
 
 **Not for shared or production use, even a small team.** This stack hardcodes
