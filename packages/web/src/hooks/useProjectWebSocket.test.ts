@@ -177,8 +177,12 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
+    // Three events land during the one in-flight load (a 300 ms debounce apart).
     dispatchEvent('dependency_created');
     flushDebounce();
+    dispatchEvent('dependency_updated');
+    flushDebounce();
+    dispatchEvent('dependency_deleted');
     flushDebounce();
     // The load is still running: nothing may cancel it and stack a second one.
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
@@ -190,6 +194,10 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
       (c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['tasks', 'proj-1'] }),
     );
     expect(tasksCalls).toHaveLength(1);
+    const depCalls = invalidateSpy.mock.calls.filter(
+      (c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['dependencies', 'proj-1'] }),
+    );
+    expect(depCalls).toHaveLength(1);
   });
 
   it('invalidates poker and the sprint backlog on poker_session_updated (#863)', () => {

@@ -42,6 +42,8 @@ export const TASK_SPLICE_MAX_BURST = 20;
 // Rollup inputs that only move ANCESTOR summaries (ROLLUP_FIELDS below) are spliced
 // together with their ancestor chain (#4950); cross-row and structural edits still
 // take the full refetch.
+// TODO(#4950): still full-refetch — owners, assignee, blocking_task/blocked_by,
+// sprint, and structural fields (parent, wbs_path, order/rank, structure_role).
 const SPLICEABLE_FIELDS: ReadonlySet<string> = new Set([
   'name',
   'description',

@@ -15,33 +15,63 @@ const PROJECT_ID = 'e2e-resizecasc-0000-0000-0000-000000004317';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
 
 const FIXTURE_PROJECTS = [
-  { id: PROJECT_ID, name: 'Resize Cascade Project', description: '', start_date: '2026-04-01', calendar: 'default' },
+  {
+    id: PROJECT_ID,
+    name: 'Resize Cascade Project',
+    description: '',
+    start_date: '2026-04-01',
+    calendar: 'default',
+  },
 ];
 
 const FIXTURE_TASKS = [
   {
-    id: 'rz1', wbs_path: '1', name: 'Pour slab',
-    early_start: '2026-04-06', early_finish: '2026-04-10',
+    id: 'rz1',
+    wbs_path: '1',
+    name: 'Pour slab',
+    early_start: '2026-04-06',
+    early_finish: '2026-04-10',
     planned_start: '2026-04-06',
-    duration: 5, percent_complete: 0, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: null,
-    status: 'NOT_STARTED', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 5,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
   {
-    id: 'rz2', wbs_path: '2', name: 'Slab cured',
-    early_start: '2026-04-10', early_finish: '2026-04-10',
+    id: 'rz2',
+    wbs_path: '2',
+    name: 'Slab cured',
+    early_start: '2026-04-10',
+    early_finish: '2026-04-10',
     planned_start: null,
-    duration: 0, percent_complete: 0, is_critical: false,
-    is_milestone: true, is_summary: false, parent_id: null,
-    status: 'NOT_STARTED', assignees: [], total_float: null,
-    predecessor_count: 1, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 0,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: true,
+    is_summary: false,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 1,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
 ];
 
-const FIXTURE_LINKS = [{ id: 'dep1', predecessor: 'rz1', successor: 'rz2', dep_type: 'FS', lag: 0 }];
+const FIXTURE_LINKS = [
+  { id: 'dep1', predecessor: 'rz1', successor: 'rz2', dep_type: 'FS', lag: 0 },
+];
 
 /** Read the on-screen rect of a bar from its aria-overlay option (rule 67). */
 async function barRect(page: import('@playwright/test').Page, namePrefix: string) {
@@ -67,12 +97,22 @@ async function resizeGesture(
       const canvas = document.querySelector<HTMLCanvasElement>('canvas[data-layer="interaction"]');
       if (!canvas) throw new Error('no interaction canvas');
       const opts = (clientX: number, buttons: number): PointerEventInit => ({
-        pointerId: 1, pointerType: 'mouse', bubbles: true, cancelable: true,
-        clientX, clientY: y, button: 0, buttons,
+        pointerId: 1,
+        pointerType: 'mouse',
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY: y,
+        button: 0,
+        buttons,
       });
       const orig = canvas.setPointerCapture.bind(canvas);
       canvas.setPointerCapture = (id: number) => {
-        try { orig(id); } catch { /* synthetic pointer not active in headless */ }
+        try {
+          orig(id);
+        } catch {
+          /* synthetic pointer not active in headless */
+        }
       };
       if (phase === 'down-and-move') {
         canvas.dispatchEvent(new PointerEvent('pointerdown', opts(x, 1)));

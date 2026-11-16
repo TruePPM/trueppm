@@ -433,7 +433,7 @@ Each part of the system runs out at a different size, and for a different reason
 | **The database** | Not a constraint at this size | 208 MB for 100,000 tasks fits in `shared_buffers`; the first page stays at 127 ms | — |
 
 :::note[Ships in 0.5]
-The current release (0.4) re-fetches the whole project into every open Schedule on each remote edit. From 0.5 a collaborator's plain field edit (name, notes, labels, custom fields) reads back and splices just that task ([#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341)).
+The current release (0.4) re-fetches the whole project into every open Schedule on each remote edit. From 0.5 a collaborator's plain field edit (name, notes, labels, custom fields) reads back and splices just that task ([#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341)). A status, percent complete, duration or actual-date edit will splice that row plus its cached ancestor summaries through single-row reads, with no list refetch ([#4950](https://gitlab.com/trueppm/trueppm/-/issues/4950)). Edits to owners, assignee or dependencies still refetch the whole list. Overlapping Schedule loads will no longer be started: remote events that arrive while a load is running collapse into one follow-up load instead of cancelling it ([#4655](https://gitlab.com/trueppm/trueppm/-/issues/4655)).
 :::
 
 The seeded projects are flat — leaf tasks with no summary rows — and their dependencies are strictly forward-linked, so a real WBS will cost more in the per-row subqueries, and a real network's sum of durations will be smaller than a single chain's. Treat the table as the shape of the problem, not as a guarantee at any size.
