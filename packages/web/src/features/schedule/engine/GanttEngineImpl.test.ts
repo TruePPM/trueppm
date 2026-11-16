@@ -14,7 +14,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
-import { GanttEngineImpl } from './GanttEngineImpl';
+import { GanttEngineImpl, CPM_DELTA_FIELDS } from './GanttEngineImpl';
+import { applyTaskDatesDelta } from '@/hooks/useScheduleTasks';
+import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from '../scheduleConstants';
 import { CALENDAR_QUARTERS, ZOOM_CONFIGS, dateToLeft, dateToRight } from './GanttScaleData';
 import {
   drawRowBands,
@@ -542,10 +544,7 @@ describe('GanttEngineImpl — setLinks / updateTask reach the renderer (issue 15
     // eslint-disable-next-line @typescript-eslint/unbound-method
     const barsLineTo = vi.mocked(barsCtx.lineTo);
 
-    engine.setTasks([
-      scheduled('a', '2026-04-01', '2026-04-10'),
-      scheduled('b', '2026-04-11', '2026-04-20'),
-    ]);
+    engine.setTasks([scheduled('a', '2026-04-01', '2026-04-10'), scheduled('b', '2026-04-11', '2026-04-20')]);
 
     // The engine pads the project range 30 days before the earliest task, so at
     // the default 'day' zoom both bars sit ~1200px right of x=0 and paint entirely
@@ -589,10 +588,7 @@ describe('GanttEngineImpl — setLinks / updateTask reach the renderer (issue 15
     const { engine, flushFrame } = setup();
     const prepareSpy = vi.mocked(prepareDependencyLayout);
 
-    engine.setTasks([
-      scheduled('a', '2026-04-01', '2026-04-10'),
-      scheduled('b', '2026-04-11', '2026-04-20'),
-    ]);
+    engine.setTasks([scheduled('a', '2026-04-01', '2026-04-10'), scheduled('b', '2026-04-11', '2026-04-20')]);
     engine.setLinks([
       { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
     ]);
@@ -715,6 +711,75 @@ describe('GanttEngineImpl — setTasks date-only delta partial repaint (#795)', 
     expect(engine.scales).toBe(scalesBefore); // scales were not rebuilt
     flushFrame();
     expect(prepareSpy.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('skips the bg layer and rebuilds the hit index on the fast path', () => {
+    const { engine, flushFrame, base, flags } = seeded();
+    const rowBands = vi.mocked(drawRowBands);
+    const header = vi.mocked(drawTimelineHeader);
+    rowBands.mockClear();
+    header.mockClear();
+
+    const scales = engine.scales;
+    if (!scales) throw new Error('scales missing');
+    const y = CHART_HEADER_HEIGHT + 1 * ROW_HEIGHT + ROW_HEIGHT / 2;
+    const query = (iso: string, dx: number) =>
+      (
+        engine as unknown as {
+          _hitIndex: { query(x: number, y: number, t: boolean): { taskId: string } | null } | null;
+        }
+      )._hitIndex?.query(dateToLeft(iso, scales) + dx, y, false) ?? null;
+    // The index is built lazily: read it once so the stale flag is consumed and
+    // the post-splice read can only be fresh if the fast path re-invalidated it.
+    expect(query('2026-04-17', 0)?.taskId).toBe('b');
+    expect(query('2026-04-11', 2)?.taskId).toBe('b');
+
+    const next = base.slice();
+    next[1] = { ...base[1], start: '2026-04-15', finish: '2026-04-20' };
+    engine.setTasks(next);
+    expect(flags._fullRepaintPending).toBe(false);
+    flushFrame();
+    expect(rowBands).not.toHaveBeenCalled();
+    expect(header).not.toHaveBeenCalled();
+
+    expect(query('2026-04-17', 0)?.taskId).toBe('b'); // inside the moved bar
+    expect(query('2026-04-11', 2)).toBeNull(); // where the bar used to be
+  });
+
+  it('every field applyTaskDatesDelta rewrites is in CPM_DELTA_FIELDS and takes the fast path', () => {
+    const { engine, base, flags } = seeded();
+    const existing: Task = {
+      ...base[1],
+      freeFloat: 1,
+      lateFinish: '2026-04-30',
+      plannedStart: null,
+      baselineFinishVarianceDays: 2,
+    };
+    engine.setTasks([base[0], existing, base[2]]);
+    const next0 = [base[0], existing, base[2]];
+    const updated = applyTaskDatesDelta(existing, {
+      id: 'b',
+      early_start: '2026-04-15',
+      early_finish: '2026-04-20',
+      late_start: '2026-04-16',
+      late_finish: '2026-04-21',
+      total_float: 4,
+      free_float: 3,
+      is_critical: false,
+      planned_start: '2026-04-15',
+      duration: 5, // base duration is 7
+    });
+    const changed = (Object.keys(updated) as (keyof Task)[]).filter(
+      (k) => updated[k] !== existing[k],
+    );
+    expect(changed.length).toBeGreaterThan(3);
+    for (const k of changed) expect(CPM_DELTA_FIELDS.has(k)).toBe(true);
+
+    const next = next0.slice();
+    next[1] = updated;
+    engine.setTasks(next);
+    expect(flags._barsRepaintPending).toBe(true);
+    expect(flags._fullRepaintPending).toBe(false);
   });
 
   it('falls back to a full repaint when the project bounds move', () => {
@@ -1321,7 +1386,9 @@ describe('GanttEngineImpl — double-click opens a task (#task-open)', () => {
     const internals = internalsOf(engine);
     const onOpen = vi.fn();
     engine.on('task-open', onOpen);
-    expect(() => internals._onDblClick({ clientX: 100, clientY: 40 } as MouseEvent)).not.toThrow();
+    expect(() =>
+      internals._onDblClick({ clientX: 100, clientY: 40 } as MouseEvent),
+    ).not.toThrow();
     expect(onOpen).not.toHaveBeenCalled();
   });
 });

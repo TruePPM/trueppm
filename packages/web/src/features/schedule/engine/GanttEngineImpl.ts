@@ -109,7 +109,7 @@ function snapToDayBoundary(canvasX: number, scales: GanttScaleData): number {
  * `applyTaskDatesDelta`). A change confined to these cannot affect row order,
  * hierarchy, labels, or the critical-path SET (isCritical is checked apart).
  */
-const CPM_DELTA_FIELDS: ReadonlySet<string> = new Set([
+export const CPM_DELTA_FIELDS: ReadonlySet<string> = new Set([
   'start',
   'finish',
   'duration',
