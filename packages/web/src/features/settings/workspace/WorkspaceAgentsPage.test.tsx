@@ -55,6 +55,16 @@ describe('WorkspaceAgentsPage', () => {
     );
   });
 
+  it('keeps a dirty unsaved toggle when the workspace data refetches', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<WorkspaceAgentsPage />);
+    await user.click(screen.getByRole('switch', { name: 'Agent read access' }));
+    expect(screen.getByRole('switch', { name: 'Agent read access' })).not.toBeChecked();
+    mockState.ws = { mcpEnabled: true }; // fresh object, as a background refetch yields
+    rerender(<WorkspaceAgentsPage />);
+    expect(screen.getByRole('switch', { name: 'Agent read access' })).not.toBeChecked();
+  });
+
   it('saves the toggled value as mcpEnabled', async () => {
     const user = userEvent.setup();
     render(<WorkspaceAgentsPage />);

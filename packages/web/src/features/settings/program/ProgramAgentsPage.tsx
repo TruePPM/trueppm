@@ -111,7 +111,19 @@ export function ProgramAgentsPage() {
             data-testid="agent-access-blocked-above-note"
           >
             Agent reads are blocked at the workspace level, so they stay blocked for this program
-            and its projects whatever you choose here. Only a workspace administrator can lift it.
+            and its projects whatever you choose here
+            {mcpEnabled === true
+              ? ' — Allowed here has no effect while the workspace blocks agents'
+              : ''}
+            . Only a workspace administrator can lift it.
+          </p>
+        )}
+        {!effectiveEnabled && mcpEnabled === true && (
+          <p
+            className="mt-2 text-[13px] font-medium text-neutral-text-primary"
+            data-testid="agent-access-effective"
+          >
+            Effective: Blocked
           </p>
         )}
         {!effectiveEnabled && !blockedAbove && (

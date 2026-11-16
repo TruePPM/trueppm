@@ -393,7 +393,8 @@ may follow in a later release.
 ## Team-level opt-out
 
 The instance switch above is the *operator's* lever. A team has its own, over
-reads of its own data: **Agents → Agent read access** in the project, program, or workspace settings.
+reads of its own data: **Agents → Agent read access** in the project settings.
+From 0.5 the same control is also in the program and workspace settings.
 
 :::note[Ships in 0.5]
 The workspace and program **Agents** sections ship in 0.5. In the current
@@ -404,16 +405,16 @@ program or workspace scope today, use the API directly:
 or above).
 :::
 
-The same control exists at all three scopes, each under its own **Agents**
-section:
+From 0.5, the same control exists at all three scopes, each under its own
+**Agents** section:
 
-- **Workspace settings → Agents** — closes (or opens) agent reads for the whole
+- **Workspace settings → Agents** (0.5) — closes (or opens) agent reads for the whole
   workspace. Requires a workspace Admin.
-- **Program settings → Agents** — for one program and every project in it.
+- **Program settings → Agents** (0.5) — for one program and every project in it.
   Requires a program Admin, and the program must not be closed.
 - **Project settings → Agents** — for one project. Requires a project Admin.
 
-Each page shows the **resolved** state, computed by the server, so you can see
+From 0.5, each page shows the **resolved** state, computed by the server, so you can see
 when a setting is already decided above: a program or project that inherits a
 workspace **Blocked** says so and stays blocked whatever you choose there. Every
 scope's serializer also exposes read-only `effective_mcp_enabled` and

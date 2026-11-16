@@ -7,6 +7,12 @@ function itemIds(groups: ReturnType<typeof buildWorkspaceNavGroups>): string[] {
 }
 
 describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', () => {
+  it('places Agents in the Organization group', () => {
+    const groups = buildWorkspaceNavGroups({ linked: false });
+    const org = groups.find((g) => g.items.some((i) => i.id === 'agents'));
+    expect(org?.label).toMatch(/organization/i);
+  });
+
   it('lists the full rail — SSO and the whole Delivery group included — in both modes', () => {
     // The off-route Trash / System Health shells used to hand-copy NAV_GROUPS and
     // dropped `sso` plus most of Delivery; both modes must now be complete.

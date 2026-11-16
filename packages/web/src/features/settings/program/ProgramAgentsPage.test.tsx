@@ -73,6 +73,22 @@ describe('ProgramAgentsPage', () => {
     expect(screen.queryByTestId('agent-access-blocked-note')).toBeNull();
   });
 
+  it('shows the server-resolved Effective: Blocked when Allowed is set under a blocking workspace', () => {
+    useProgram.mockReturnValue({
+      data: {
+        ...base,
+        mcp_enabled: true,
+        inherited_mcp_enabled: false,
+        effective_mcp_enabled: false,
+      },
+    });
+    render(<ProgramAgentsPage />);
+    expect(screen.getByTestId('agent-access-effective')).toHaveTextContent('Effective: Blocked');
+    expect(screen.getByTestId('agent-access-blocked-above-note')).toHaveTextContent(
+      /Allowed here has no effect while the workspace blocks agents/i,
+    );
+  });
+
   it('shows the program-level blocked note when this program itself blocks', () => {
     useProgram.mockReturnValue({
       data: { ...base, mcp_enabled: false, effective_mcp_enabled: false },

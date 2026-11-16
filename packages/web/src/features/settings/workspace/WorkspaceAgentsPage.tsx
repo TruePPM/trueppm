@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { QueryErrorState } from '@/components/QueryErrorState';
@@ -29,8 +29,11 @@ export function WorkspaceAgentsPage() {
   const [mcpEnabled, setMcpEnabled] = useState(true);
   const [initialMcpEnabled, setInitialMcpEnabled] = useState(true);
 
+  // Seed once per load: a background refetch must not overwrite a dirty, unsaved toggle.
+  const seededRef = useRef(false);
   useEffect(() => {
-    if (!ws) return;
+    if (!ws || seededRef.current) return;
+    seededRef.current = true;
     setMcpEnabled(ws.mcpEnabled);
     setInitialMcpEnabled(ws.mcpEnabled);
   }, [ws]);
