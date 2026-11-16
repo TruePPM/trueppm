@@ -112,8 +112,9 @@ additive-only (ADR-0112) and "payload schema is STABLE" (ADR-0157), so the
 instance kwarg cannot be withdrawn on this side of an Enterprise-coordinated
 window. #3807 step 1 shipped: each now also carries the id sibling
 (``action_id`` / ``audit_event_id``, a stringified UUID) and the instance kwarg is
-deprecated for new receivers. Step 2 (withdrawing the instance) is a breaking
-extension-point change that waits for Enterprise to move off it. Do not copy them.
+deprecated for new receivers. Step 2 (withdrawing the instance) is NOT done and
+stays tracked by the still-open #3807; it is a breaking extension-point change
+that waits for Enterprise to move off it. Do not copy them.
 """
 
 from __future__ import annotations

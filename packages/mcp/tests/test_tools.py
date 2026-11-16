@@ -451,6 +451,16 @@ async def test_get_board_state_signals_truncated_cards(settings: Settings) -> No
     assert len(card_rows) == 3
 
 
+async def test_get_task_passes_estimate_authority_through(settings: Settings) -> None:
+    """A stamped authority reaches the agent; null ("unknown") is dropped like any null."""
+    stamped: Routes = {"tasks/t-1/": _json({"id": "t-1", "estimate_authority": "pm_authored"})}
+    unstamped: Routes = {"tasks/t-1/": _json({"id": "t-1", "estimate_authority": None})}
+    async with _client(settings, stamped) as client:
+        assert (await _get_task(client, "t-1"))["estimate_authority"] == "pm_authored"
+    async with _client(settings, unstamped) as client:
+        assert "estimate_authority" not in await _get_task(client, "t-1")
+
+
 async def test_get_task_compacts_and_truncates(settings: Settings) -> None:
     routes: Routes = {
         "tasks/t-1/": _json(

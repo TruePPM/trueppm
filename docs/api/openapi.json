@@ -85455,7 +85455,7 @@
                     "estimate_authority": {
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Trust level of the estimate's author, stamped from the project's estimation_mode at write time (open / pm_only). Null when the mode is suggest_approve (estimate_status carries it) or the row predates the field.\n\n* `pm_authored` - PM authored\n* `open` - Open (any member)",
+                        "description": "Trust level of the estimate's author, stamped from the project's estimation_mode when an estimate is created or edited (open / pm_only). Null means either suggest_approve (read estimate_status, which is then non-null, to tell) or a row that predates the field or was imported with its estimate accepted directly.\n\n* `pm_authored` - PM authored\n* `open` - Open (any member)",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/EstimateAuthorityEnum"
@@ -89099,7 +89099,7 @@
                     "estimate_authority": {
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Trust level of the estimate's author, stamped from the project's estimation_mode at write time (open / pm_only). Null when the mode is suggest_approve (estimate_status carries it) or the row predates the field.\n\n* `pm_authored` - PM authored\n* `open` - Open (any member)",
+                        "description": "Trust level of the estimate's author, stamped from the project's estimation_mode when an estimate is created or edited (open / pm_only). Null means either suggest_approve (read estimate_status, which is then non-null, to tell) or a row that predates the field or was imported with its estimate accepted directly.\n\n* `pm_authored` - PM authored\n* `open` - Open (any member)",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/EstimateAuthorityEnum"

@@ -6774,6 +6774,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         owners = validated_data.pop("owners", None)
         project = validated_data.get("project")
         candidate = validated_data.get("planned_start")
+        # #2646: a task created with an estimate is an estimate write too. Without
+        # this the row would read ``null`` (unknown), indistinguishable from a
+        # grandfathered one. estimate_status is deliberately not touched here.
+        if project is not None and any(
+            validated_data.get(f) is not None for f in self._PERT_FIELDS
+        ):
+            validated_data["estimate_authority"] = self._estimate_authority_for(project)
         instance = super().create(validated_data)
         if owners:
             apply_task_owners(
@@ -7169,19 +7176,33 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         project = instance.project
         if project.estimation_mode == EstimationMode.SUGGEST_APPROVE:
             validated_data["estimate_status"] = EstimateStatus.PENDING
-            # estimate_status carries the trust level in this mode.
-            validated_data["estimate_authority"] = None
         else:
-            # OPEN or PM_ONLY: clear status tracking — not applicable. But "not
-            # tracked" must not erase *who could author this* (#2646): stamp the
-            # authority so a read can tell a PM-authored range (pm_only, where the
-            # write path refuses below Role.ADMIN) from a contributor-authored one.
+            # OPEN or PM_ONLY: clear status tracking — not applicable.
             validated_data["estimate_status"] = None
-            validated_data["estimate_authority"] = (
-                EstimateAuthority.PM_AUTHORED
-                if project.estimation_mode == EstimationMode.PM_ONLY
-                else EstimateAuthority.OPEN
-            )
+        # "Not tracked" must not erase *who could author this* (#2646). When the edit
+        # leaves no estimate value at all, there is nothing to attribute, so the
+        # authority is cleared rather than stamped onto an empty range.
+        still_estimated = any(
+            validated_data.get(f, getattr(instance, f)) is not None for f in self._PERT_FIELDS
+        )
+        validated_data["estimate_authority"] = (
+            self._estimate_authority_for(project) if still_estimated else None
+        )
+
+    @staticmethod
+    def _estimate_authority_for(project: Project) -> str | None:
+        """The ``estimate_authority`` to stamp for an estimate written in ``project``.
+
+        ``pm_only`` -> ``pm_authored`` (the write path refuses below Role.ADMIN),
+        ``open`` -> ``open``, ``suggest_approve`` -> ``None`` (``estimate_status``
+        carries the trust level there). Shared by create and update so the two
+        paths cannot drift.
+        """
+        if project.estimation_mode == EstimationMode.PM_ONLY:
+            return EstimateAuthority.PM_AUTHORED
+        if project.estimation_mode == EstimationMode.OPEN:
+            return EstimateAuthority.OPEN
+        return None
 
     def _apply_duration_change_policy(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """Apply the duration-change percent policy and record an audit event (ADR-0151).

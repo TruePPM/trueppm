@@ -1028,3 +1028,81 @@ def test_grandfathered_row_reads_authority_null_and_noop_write_keeps_it(
     assert c.patch(f"/api/v1/tasks/{task.pk}/", _PERT, format="json").status_code == 200
     task.refresh_from_db()
     assert task.estimate_authority is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        (EstimationMode.OPEN, "open"),
+        (EstimationMode.PM_ONLY, "pm_authored"),
+        (EstimationMode.SUGGEST_APPROVE, None),
+    ],
+)
+def test_task_created_with_estimate_is_stamped(
+    project: Project, admin: object, mode: str, expected: str | None
+) -> None:
+    project.estimation_mode = mode
+    project.save(update_fields=["estimation_mode"])
+    resp = _client(admin).post(
+        "/api/v1/tasks/", {"project": str(project.pk), "name": "N", **_PERT}, format="json"
+    )
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["estimate_authority"] == expected
+    assert Task.objects.get(pk=resp.json()["id"]).estimate_authority == expected
+
+
+@pytest.mark.django_db
+def test_task_created_without_estimate_is_not_stamped(project: Project, admin: object) -> None:
+    resp = _client(admin).post(
+        "/api/v1/tasks/", {"project": str(project.pk), "name": "N"}, format="json"
+    )
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["estimate_authority"] is None
+
+
+@pytest.mark.django_db
+def test_member_write_under_open_stamps_open(
+    project: Project, task: Task, contributor: object
+) -> None:
+    task.assignee = User.objects.get(username="contributor")
+    task.save(update_fields=["assignee"])
+    resp = _client(contributor).patch(f"/api/v1/tasks/{task.pk}/", _PERT, format="json")
+    assert resp.status_code == 200
+    task.refresh_from_db()
+    assert task.estimate_authority == "open"
+
+
+@pytest.mark.django_db
+def test_mode_flip_to_suggest_approve_clears_stamped_authority(
+    project: Project, task: Task, admin: object
+) -> None:
+    c = _client(admin)
+    assert c.patch(f"/api/v1/tasks/{task.pk}/", _PERT, format="json").status_code == 200
+    task.refresh_from_db()
+    assert task.estimate_authority == "open"
+    project.estimation_mode = EstimationMode.SUGGEST_APPROVE
+    project.save(update_fields=["estimation_mode"])
+    assert (
+        c.patch(f"/api/v1/tasks/{task.pk}/", {"optimistic_duration": 2}, format="json").status_code
+        == 200
+    )
+    task.refresh_from_db()
+    assert task.estimate_status == EstimateStatus.PENDING
+    assert task.estimate_authority is None
+
+
+@pytest.mark.django_db
+def test_clearing_every_estimate_value_resets_authority(
+    project: Project, task: Task, admin: object
+) -> None:
+    project.estimation_mode = EstimationMode.PM_ONLY
+    project.save(update_fields=["estimation_mode"])
+    c = _client(admin)
+    assert c.patch(f"/api/v1/tasks/{task.pk}/", _PERT, format="json").status_code == 200
+    task.refresh_from_db()
+    assert task.estimate_authority == "pm_authored"
+    cleared = dict.fromkeys(_PERT)
+    assert c.patch(f"/api/v1/tasks/{task.pk}/", cleared, format="json").status_code == 200
+    task.refresh_from_db()
+    assert task.estimate_authority is None

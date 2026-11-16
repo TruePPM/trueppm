@@ -992,9 +992,14 @@ of the distribution:
   `estimate_authority` to say who was permitted to author the estimate:
   `pm_authored` (written under PM Only, so by the Project Manager role or above),
   `open` (written under Open, so by any Team Member or above), or `null`. `null`
-  means unknown: in Suggest & Approve the status carries the trust level, and an
-  estimate written before the field existed was never stamped. The field is
-  read-only and is set only when an estimate value actually changes.
+  means one of two things: the project is in Suggest & Approve, or the estimate
+  predates the field. When `estimate_status` is non-null the row is a Suggest &
+  Approve estimate, so a client reads `estimate_status` to tell the two apart. The
+  field is read-only. It is stamped when a task is created with an estimate and
+  when an edit actually changes an estimate value; an edit that clears every
+  estimate value resets it to `null`. The MS Project and seed importers write
+  already-accepted estimates directly and leave `estimate_authority` `null` by
+  design.
 
   :::caution[Estimates written before this rule was enforced]
   Server-side enforcement of **PM Only** shipped in 0.4. Before it, the restriction

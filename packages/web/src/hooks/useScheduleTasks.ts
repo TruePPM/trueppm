@@ -108,6 +108,7 @@ export interface ApiTask {
   most_likely_duration: number | null;
   pessimistic_duration: number | null;
   estimate_status: 'pending' | 'accepted' | null;
+  estimate_authority?: 'pm_authored' | 'open' | null;
   total_float: number | null;
   /** Free float (#3344). Optional: a payload synced before the field was
    *  surfaced on the web simply omits it, which reads the same as pre-CPM. */
