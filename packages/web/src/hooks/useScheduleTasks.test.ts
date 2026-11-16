@@ -10,7 +10,9 @@ import {
   mapTask,
   deriveBarGeometry,
   applyTaskDatesDelta,
+  keysetCursorFromNext,
   useScheduleTasks,
+  type ApiDependency,
   type ApiTask,
   type TaskDatesDelta,
 } from './useScheduleTasks';
@@ -478,57 +480,76 @@ function countDrivenGet<T>(
   };
 }
 
-describe('useScheduleTasks pagination', () => {
+const KEYSET_NEXT = (cursor: string) =>
+  `http://internal-api:8000/api/v1/tasks/?pagination=keyset&project=proj-1&cursor=${cursor}`;
+
+// A keyset fake server (#3381): no `count`, the walk follows `next`. `pages` maps
+// the request's cursor ('' for the first request) to that page's rows and the
+// cursor of the page after it (null at the end).
+function keysetGet(
+  pages: Record<string, { rows: ApiTask[]; next: string | null }>,
+  onRequest?: (cursor: string) => Promise<void>,
+): (url: string, config?: GetConfig) => Promise<{ data: unknown }> {
+  return async (url: string, config?: GetConfig) => {
+    if (url !== '/tasks/') return paginatedResponse([]);
+    const raw = config?.params?.cursor;
+    const cursor = typeof raw === 'string' ? raw : '';
+    if (onRequest) await onRequest(cursor);
+    const page = pages[cursor];
+    return {
+      data: {
+        results: page?.rows ?? [],
+        next: page?.next ? KEYSET_NEXT(page.next) : null,
+        previous: null,
+      },
+    };
+  };
+}
+
+describe('keysetCursorFromNext', () => {
+  it('reads the cursor token off an absolute next link', () => {
+    expect(keysetCursorFromNext(KEYSET_NEXT('abc_-'))).toBe('abc_-');
+  });
+  it('is null at the end of the walk', () => {
+    expect(keysetCursorFromNext(null)).toBeNull();
+  });
+  it('refuses a next link with no cursor rather than restarting the walk', () => {
+    expect(() => keysetCursorFromNext('http://x/api/v1/tasks/?page=2')).toThrow(/no cursor/);
+  });
+});
+
+describe('useScheduleTasks keyset task walk (#3381)', () => {
   let qc: QueryClient;
 
   beforeEach(() => {
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     getMock.mockReset();
-    // Stub the dependencies query so it doesn't interfere.
-    getMock.mockImplementation((url: string) => {
-      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
-      return Promise.resolve(paginatedResponse([]));
-    });
   });
 
   it('fetches a single page when next is null', async () => {
-    const task = makeApiTask('t-1');
-    getMock.mockImplementation((url: string) => {
-      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
-      return Promise.resolve(paginatedResponse([task], null));
-    });
+    getMock.mockImplementation(keysetGet({ '': { rows: [makeApiTask('t-1')], next: null } }));
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.tasks).toHaveLength(1);
-    expect(result.current.tasks![0].id).toBe('t-1');
-  });
-
-  it('fetches remaining pages in parallel and concatenates in page order (issue 1519)', async () => {
-    // count=450 with page_size=200 → 3 pages. Serve distinct slices per page.
-    const page1 = [makeApiTask('t-1'), makeApiTask('t-2')];
-    const page2 = [makeApiTask('t-3'), makeApiTask('t-4')];
-    const page3 = [makeApiTask('t-5')];
-    getMock.mockImplementation(countDrivenGet('/tasks/', 450, { 1: page1, 2: page2, 3: page3 }));
-
-    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
-      wrapper: makeWrapper(qc),
+    expect(result.current.tasks!.map((t) => t.id)).toEqual(['t-1']);
+    const taskCalls = getMock.mock.calls.filter(([url]) => url === '/tasks/');
+    expect(taskCalls).toHaveLength(1);
+    expect(callParams(taskCalls[0])).toEqual({
+      project: 'proj-1',
+      pagination: 'keyset',
+      page_size: 500,
     });
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-    // Order preserved across the parallel fetch: page1 ++ page2 ++ page3.
-    expect(result.current.tasks!.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3', 't-4', 't-5']);
   });
 
-  it('requests page 1 at page_size=200 and the remainder by explicit page number', async () => {
+  it('follows next by cursor, against the client base URL, and concatenates in order', async () => {
     getMock.mockImplementation(
-      countDrivenGet('/tasks/', 450, {
-        1: [makeApiTask('t-1')],
-        2: [makeApiTask('t-2')],
-        3: [makeApiTask('t-3')],
+      keysetGet({
+        '': { rows: [makeApiTask('t-1'), makeApiTask('t-2')], next: 'c1' },
+        c1: { rows: [makeApiTask('t-3')], next: 'c2' },
+        c2: { rows: [makeApiTask('t-4')], next: null },
       }),
     );
 
@@ -537,44 +558,91 @@ describe('useScheduleTasks pagination', () => {
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-
+    expect(result.current.tasks!.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3', 't-4']);
     const taskCalls = getMock.mock.calls.filter(([url]) => url === '/tasks/');
-    // Page 1: large page_size, no explicit page param.
-    expect(callParams(taskCalls[0])).toEqual({ project: 'proj-1', page_size: 200 });
-    // Remaining pages requested by number (parallel dispatch — all three total).
-    const requestedPages = taskCalls
-      .map((c) => callParams(c).page)
-      .filter(Boolean)
-      .sort();
-    expect(requestedPages).toEqual([2, 3]);
-    expect(taskCalls).toHaveLength(3);
+    // Always the relative path — never the absolute (internal-host) next URL.
+    expect(taskCalls.map((c) => c[0] as string)).toEqual(['/tasks/', '/tasks/', '/tasks/']);
+    expect(taskCalls.map((c) => callParams(c).cursor)).toEqual([undefined, 'c1', 'c2']);
+    expect(taskCalls.every((c) => callParams(c).page === undefined)).toBe(true);
   });
 
-  it('fetches a single page when count fits in one page (no page param)', async () => {
-    getMock.mockImplementation(countDrivenGet('/tasks/', 1, { 1: [makeApiTask('t-1')] }));
+  it('walks serially and exposes no tasks until the last page has landed', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    let releaseLast: () => void = () => undefined;
+    const lastPageGate = new Promise<void>((resolve) => {
+      releaseLast = resolve;
+    });
+    getMock.mockImplementation(
+      keysetGet(
+        {
+          '': { rows: [makeApiTask('t-1')], next: 'c1' },
+          c1: { rows: [makeApiTask('t-2')], next: 'c2' },
+          c2: { rows: [makeApiTask('t-3')], next: null },
+        },
+        async (cursor) => {
+          inFlight++;
+          peak = Math.max(peak, inFlight);
+          await Promise.resolve();
+          if (cursor === 'c2') await lastPageGate;
+          inFlight--;
+        },
+      ),
+    );
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
     });
 
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.tasks).toHaveLength(1);
-    const taskCalls = getMock.mock.calls.filter(([url]) => url === '/tasks/');
-    expect(taskCalls).toHaveLength(1);
-    expect(callParams(taskCalls[0]).page).toBeUndefined();
+    await waitFor(() =>
+      expect(getMock.mock.calls.filter(([url]) => url === '/tasks/')).toHaveLength(3),
+    );
+    // Two pages are in hand, but a partial set renders a WRONG schedule
+    // (computeWbsCodes numbers siblings by index), so none of it is exposed.
+    expect(result.current.tasks).toBeUndefined();
+    releaseLast();
+    await waitFor(() => expect(result.current.tasks).toHaveLength(3));
+    expect(peak).toBe(1);
   });
+
+  it('fails the query instead of looping when the server repeats a cursor', async () => {
+    getMock.mockImplementation(
+      keysetGet({
+        '': { rows: [makeApiTask('t-1')], next: 'c1' },
+        c1: { rows: [makeApiTask('t-2')], next: 'c1' },
+      }),
+    );
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(String(result.current.error)).toMatch(/no progress/);
+    expect(result.current.tasks).toBeUndefined();
+  });
+});
+
+describe('useScheduleTasks page-number walk (dependencies)', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getMock.mockReset();
+  });
+
+  function makeApiDep(id: string): ApiDependency {
+    return { id, predecessor: 'a', successor: 'b', dep_type: 'FS', lag: 0 } as ApiDependency;
+  }
 
   it('caps the remaining-page burst at 4 in flight (issue 2277)', async () => {
     // count=5000 at page_size=200 → 25 pages, i.e. 24 remaining. Before the cap
     // all 24 were dispatched in a single Promise.all tick.
     const totalPages = 25;
-    const pages: Record<number, ApiTask[]> = {};
-    for (let p = 1; p <= totalPages; p++) pages[p] = [makeApiTask(`t-${p}`)];
-
     let inFlight = 0;
     let peak = 0;
     getMock.mockImplementation((url: string, config?: GetConfig) => {
-      if (url !== '/tasks/') {
+      if (url !== '/dependencies/') {
         return Promise.resolve(paginatedResponse([]));
       }
       const page = Number(config?.params?.page ?? 1);
@@ -586,7 +654,9 @@ describe('useScheduleTasks pagination', () => {
         .then(() => Promise.resolve())
         .then(() => {
           inFlight--;
-          return { data: { results: pages[page] ?? [], next: null, previous: null, count: 5000 } };
+          return {
+            data: { results: [makeApiDep(`d-${page}`)], next: null, previous: null, count: 5000 },
+          };
         });
     });
 
@@ -596,32 +666,23 @@ describe('useScheduleTasks pagination', () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // Every page still fetched, and all 25 rows present — the cap paces the
-    // burst, it does not truncate the result.
-    const taskCalls = getMock.mock.calls.filter(([url]) => url === '/tasks/');
-    expect(taskCalls).toHaveLength(totalPages);
-    expect(result.current.tasks).toHaveLength(totalPages);
+    const depCalls = getMock.mock.calls.filter(([url]) => url === '/dependencies/');
+    expect(depCalls).toHaveLength(totalPages);
+    expect(result.current.links).toHaveLength(totalPages);
     expect(peak).toBeLessThanOrEqual(4);
   });
 
   it('preserves page order across the capped burst (issue 2277)', async () => {
     // 5 pages, served slowest-first, so a "push as they resolve" concatenation
     // would come back reversed.
-    const pages: Record<number, ApiTask[]> = {
-      1: [makeApiTask('t-1')],
-      2: [makeApiTask('t-2')],
-      3: [makeApiTask('t-3')],
-      4: [makeApiTask('t-4')],
-      5: [makeApiTask('t-5')],
-    };
     getMock.mockImplementation((url: string, config?: GetConfig) => {
-      if (url !== '/tasks/') return Promise.resolve(paginatedResponse([]));
+      if (url !== '/dependencies/') return Promise.resolve(paginatedResponse([]));
       const page = Number(config?.params?.page ?? 1);
       let chain = Promise.resolve();
       // Later pages resolve after fewer yields, so page 5 lands before page 2.
       for (let i = 0; i < (6 - page) * 2; i++) chain = chain.then(() => Promise.resolve());
       return chain.then(() => ({
-        data: { results: pages[page] ?? [], next: null, previous: null, count: 900 },
+        data: { results: [makeApiDep(`d-${page}`)], next: null, previous: null, count: 900 },
       }));
     });
 
@@ -630,7 +691,7 @@ describe('useScheduleTasks pagination', () => {
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.tasks!.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3', 't-4', 't-5']);
+    expect(result.current.links!.map((l) => l.id)).toEqual(['d-1', 'd-2', 'd-3', 'd-4', 'd-5']);
   });
 });
 

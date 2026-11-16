@@ -69,6 +69,7 @@ ALIASES: dict[str, str] = {
 # Interfaces with no response schema to compare against, each with the reason.
 UNMAPPED: dict[str, str] = {
     "PaginatedResponse": "generic DRF envelope; each concrete list has its own Paginated*List",
+    "KeysetPaginatedResponse": "generic keyset envelope (#3381); the concrete schema is the Paginated*List with optional count",
     "EffectiveCalendar": "nested in Project.effective_calendar, which the schema declares free-form",
     "PendingInvite": "client view model mapped from WorkspaceInvite (camelCase), not a wire shape",
     "WorkspaceGroup": "client view model mapped from the groups payload, not a wire shape",

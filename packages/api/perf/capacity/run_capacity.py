@@ -39,10 +39,15 @@ from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 
 BASE_URL = "http://127.0.0.1:28000"
+#: Which task-list walk `full_project_load` measures: `keyset` (the Schedule's read
+#: since #3381) or `offset` (page-number, for comparison with older results).
+FULL_LOAD_PAGINATION_ENV = "CAPACITY_FULL_LOAD_PAGINATION"
+FULL_LOAD_PAGINATION = os.environ.get(FULL_LOAD_PAGINATION_ENV, "keyset")
 OWNER_EMAIL = "capacity@trueppm.local"
 
 # Supplied from the environment, never committed. `seed_capacity` reads the same
@@ -589,7 +594,8 @@ def dimension_full_load(steps: Iterable[int]) -> DimensionResult:
         dimension="full_project_load",
         description=(
             "Every page of the task list for one project, fetched serially — the "
-            "total the Schedule view pays before it can draw a single bar."
+            "total the Schedule view pays before it can draw a single bar. Walks "
+            f"the {FULL_LOAD_PAGINATION} read ({FULL_LOAD_PAGINATION_ENV})."
         ),
         constraint="#2277 — no windowing; the client holds the entire task set",
     )
@@ -611,10 +617,18 @@ def dimension_full_load(steps: Iterable[int]) -> DimensionResult:
             page = 1
             ok = True
             status = 200
+            # `keyset` is what the Schedule reads since #3381 (500-row pages,
+            # following the `next` cursor); `offset` is the page-number walk the
+            # 2026-09-16 numbers in sizing.md were measured against.
+            url = (
+                f"{BASE_URL}/api/v1/tasks/?project={pid}&page_size=500&pagination=keyset"
+                if FULL_LOAD_PAGINATION == "keyset"
+                else None
+            )
             while True:
                 try:
                     r = requests.get(
-                        f"{BASE_URL}/api/v1/tasks/?project={pid}&page_size=200&page={page}",
+                        url or f"{BASE_URL}/api/v1/tasks/?project={pid}&page_size=200&page={page}",
                         headers=client.headers,
                         timeout=180,
                     )
@@ -627,8 +641,13 @@ def dimension_full_load(steps: Iterable[int]) -> DimensionResult:
                 if r.status_code >= 400:
                     ok = False
                     break
-                if not r.json().get("next"):
+                next_url = r.json().get("next")
+                if not next_url:
                     break
+                if url is not None:
+                    # Rebuilt against BASE_URL, as the web client does, so a
+                    # proxy-facing absolute `next` cannot redirect the walk.
+                    url = f"{BASE_URL}/api/v1/tasks/?{urlsplit(next_url).query}"
                 page += 1
             return Sample(ms=(time.perf_counter() - start) * 1000, status=status, ok=ok)
 

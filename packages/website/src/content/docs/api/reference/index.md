@@ -103,6 +103,15 @@ A fifth, bespoke shape, `{results, next_until}`, is used by the board activity f
 (`/projects/{id}/board/activity/`): pass the returned `next_until` back as the
 upper time bound of the next request.
 
+The task list ships an opt-in keyset mode in 0.5: `GET /tasks/?pagination=keyset`
+returns `{next, previous, results}` with no `count`, in the default WBS order
+(numeric per level, then name, then `id`). Follow `next` until it is `null`, passing
+its `cursor` value back unchanged; `page_size` is honored up to 500, `previous` is
+always `null`, and combining it with `ordering` returns `400`. Unlike page numbers,
+a keyset walk neither repeats nor skips a row when tasks are added or removed
+between requests, and a deep page costs about what the first one does. Without
+`pagination=keyset` the endpoint keeps its page-number envelope.
+
 ```json
 {"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
 ```
