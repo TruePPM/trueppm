@@ -19,7 +19,7 @@ name: trueppm-capacity
 
 services:
   db:
-    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    image: postgres:16-alpine@sha256:81e77a4833487b8132fe4b00bedd39dc3f74b8641e387f19312a48f7de218c2e
     environment:
       POSTGRES_DB: trueppm
       POSTGRES_USER: trueppm
