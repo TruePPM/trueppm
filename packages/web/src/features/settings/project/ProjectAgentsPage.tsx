@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router';
+import { agentParams, DEFAULT_AGENT_RANGE } from '@/features/project/activity/agentActivityUrl';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { InheritableToggleField } from '../components/InheritableToggleField';
@@ -110,14 +112,37 @@ export function ProjectAgentsPage() {
           />
         </FieldRow>
 
+        <p className="mt-4 text-[13px]">
+          <Link
+            to={{
+              pathname: `/projects/${projectId}/activity`,
+              search: `?${agentParams({ refusalsOnly: false, range: DEFAULT_AGENT_RANGE }).toString()}`,
+            }}
+            className="text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+            data-testid="agent-activity-log-link"
+          >
+            View the agent activity log
+          </Link>
+        </p>
+
         {!effectiveEnabled && (
           <p
             className="mt-4 text-[13px] text-neutral-text-secondary"
             data-testid="agent-access-blocked-note"
           >
             Agent reads of this project are blocked. MCP tools return a refusal for this
-            project&apos;s data, and each refusal is recorded in the project&apos;s agent activity
-            log.
+            project&apos;s data, and each refusal is recorded in the project&apos;s{' '}
+            <Link
+              to={{
+                pathname: `/projects/${projectId}/activity`,
+                search: `?${agentParams({ refusalsOnly: true, range: DEFAULT_AGENT_RANGE }).toString()}`,
+              }}
+              className="text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+              data-testid="agent-refusals-link"
+            >
+              agent activity log
+            </Link>
+            .
           </p>
         )}
       </div>

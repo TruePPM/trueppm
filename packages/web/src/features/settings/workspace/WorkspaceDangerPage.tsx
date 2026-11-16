@@ -267,6 +267,11 @@ export function WorkspaceDangerPage() {
             ready; the link expires after a few days.
           </p>
           <LearnMoreLink href="administration/data-export" label="Learn more" />
+          <LearnMoreLink
+            href="administration/backup-restore"
+            label="Backup and restore runbook"
+            className="mt-1"
+          />
           <div className="mt-3 flex items-center gap-3">
             <ExportActionButton
               ready={exportStatus === 'success' && exportJob != null}

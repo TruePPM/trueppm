@@ -67,4 +67,14 @@ describe('ConnectorRoadmapCard', () => {
     expect(screen.queryByText('0.3')).not.toBeInTheDocument();
     expect(screen.queryByText('0.2')).not.toBeInTheDocument();
   });
+
+  it('omits project-only connectors on the program scope (#3254)', () => {
+    const { unmount } = render(<ConnectorRoadmapCard scope="project" />);
+    expect(screen.getByText(/Git-event card automation/i)).toBeInTheDocument();
+    unmount();
+    render(<ConnectorRoadmapCard scope="program" />);
+    expect(screen.queryByText(/Git-event card automation/i)).not.toBeInTheDocument();
+    // Scope-agnostic connectors stay.
+    expect(screen.getByText(/Personal connected accounts/i)).toBeInTheDocument();
+  });
 });

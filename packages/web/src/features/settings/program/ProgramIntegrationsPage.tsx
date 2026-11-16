@@ -44,7 +44,8 @@ export function ProgramIntegrationsPage() {
           New to integrations? See the docs on{' '}
           <DocsLink href="features/webhooks">webhooks</DocsLink>,{' '}
           <DocsLink href="features/personal-access-tokens">API tokens</DocsLink>, and{' '}
-          <DocsLink href="administration/git-event-automation">Git-event automation</DocsLink>.
+          <DocsLink href="administration/git-event-automation">Git-event automation</DocsLink>{' '}
+          (configured per project).
         </p>
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -52,7 +53,7 @@ export function ProgramIntegrationsPage() {
           <ApiTokensManager scope={scope} />
         </div>
 
-        <ConnectorRoadmapCard />
+        <ConnectorRoadmapCard scope="program" />
 
         {enterpriseSlots.length > 0 && (
           <div className="space-y-4" data-testid="enterprise-integration-slot">

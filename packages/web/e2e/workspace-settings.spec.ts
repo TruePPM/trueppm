@@ -558,7 +558,9 @@ test.describe('Workspace Attachments / Calendar / Feedback / Groups — failed G
     // every section fed by it — Calendar and Feedback included — recovers too.
     await attachments.getByRole('button', { name: 'Retry' }).click();
     await expect(attachments.getByRole('switch', { name: 'Allow file attachments' })).toBeVisible();
-    await expect(calendar.getByRole('combobox', { name: /Default working calendar/i })).toBeVisible();
+    await expect(
+      calendar.getByRole('combobox', { name: /Default working calendar/i }),
+    ).toBeVisible();
     await expect(feedback.getByRole('textbox', { name: 'Tracker URL' })).toBeVisible();
   });
 
@@ -1388,6 +1390,15 @@ test.describe('Workspace Danger page', () => {
     expect(confirmHeader).toBe('TrueScope Aerospace');
   });
 
+  test('links the backup and restore runbook from the Danger zone (#2864)', async ({ page }) => {
+    await setupDanger(page);
+    await page.goto('/settings/danger');
+
+    const runbook = page.getByRole('link', { name: /Backup and restore runbook/ });
+    await expect(runbook).toBeVisible();
+    await expect(runbook).toHaveAttribute('href', /administration\/backup-restore\/?$/);
+  });
+
   test('golden path — Export all data queues a job and shows the queued state', async ({
     page,
   }) => {
@@ -1459,14 +1470,26 @@ test.describe('Workspace Danger page', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
     );
     await page.route('**/api/v1/workspace/export/', (r) =>
-      r.fulfill({ status: 403, contentType: 'application/json', body: pj({ detail: 'Only the workspace Owner can perform this action.' }) }),
+      r.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: pj({ detail: 'Only the workspace Owner can perform this action.' }),
+      }),
     );
     await page.route('**/api/v1/workspace/transfer-ownership/', (r) =>
-      r.fulfill({ status: 403, contentType: 'application/json', body: pj({ detail: 'Only the workspace Owner can perform this action.' }) }),
+      r.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: pj({ detail: 'Only the workspace Owner can perform this action.' }),
+      }),
     );
     await page.route('**/api/v1/workspace/', async (r) => {
       if (r.request().method() === 'DELETE') {
-        await r.fulfill({ status: 403, contentType: 'application/json', body: pj({ detail: 'Only the workspace Owner can delete the workspace.' }) });
+        await r.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: pj({ detail: 'Only the workspace Owner can delete the workspace.' }),
+        });
         return;
       }
       await r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
