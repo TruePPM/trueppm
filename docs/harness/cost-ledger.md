@@ -195,7 +195,8 @@ measured line, and never added to a measured figure.
   `scripts/orchestrator-tokens.py` takes) plus the agents `scripts/subagent-tokens.py` takes
   (`--agent <id>` and their descendants, up to `--until`), each response priced with its own
   `message.model` and four usage classes, once per message id. The line is omitted when any piece
-  is missing, because a partial price would read as a whole one.
+  is missing, except a model with no price row: that model is left out and the total is marked
+  partial (see *The price table*), because a lower bound that says so does not read as a whole figure.
   `scripts/est-cost.py` (reference only; `scripts/post-mr-cost.py --measure` runs it for you, with the
   right windows) prints the line on stdout; the per-model figures, or the reason for an omission as a `note:`
   line for the MR's `## Notes`, go to stderr. Exit 0 priced, 1 omitted, 2 usage, 3 ledger off
@@ -212,9 +213,11 @@ measured line, and never added to a measured figure.
   inside the 30-day transcript window) needs its own row. The table carries every current model
   plus previous-generation rows (`claude-sonnet-5`, `claude-opus-5`, `claude-fable-5`,
   `claude-haiku-4-5`) kept so a session that still runs on one is priced rather than omitted
-  (`claude-sonnet-5` was the one seen in local transcripts when they were added); a model with no row makes the whole
-  line omitted with `note: est-cost-usd omitted: model <id> has no row in the price table`,
-  never a $0 row. Responses with all-zero usage (`<synthetic>` entries) price at 0 without a row. A table older than 90 days, missing, malformed or
+  (`claude-sonnet-5` was the one seen in local transcripts when they were added); a model with no row is left out of the
+  estimate, never priced at $0: the line becomes `est-cost-usd: 11.63+ (prices <date>, excludes <id>)`,
+  stderr says `est-cost: model <id> has no row in the price table; excluded from the estimate`, and the
+  figures for the priced models still print. Only when no model in the window has a row is the line omitted
+  (#5059). Add the row (its own MR) and the next record prices it; a posted record is never edited. Responses with all-zero usage (`<synthetic>` entries) price at 0 without a row. A table older than 90 days, missing, malformed or
   without a row for a model used, or a response in fast mode (`speed` other than `standard`), with a
   non-global `inference_geo` or with a `service_tier` other than `standard` (the table has no multiplier for any), gives no line and a `## Notes` line saying why; a stale table
   does not warn anyone, so refresh it (re-copy, update `checked`) when MRs carry
@@ -231,7 +234,7 @@ measured line, and never added to a measured figure.
 GitLab renders the bare ledger lines at the end of `## Gates` run together with `change-class:`
 as one paragraph, so a person reading a merged MR could see each gate's model but not the tokens
 or the cost. The readable table is therefore an MR comment,
-`## Cost of this MR (#<issue>)`, with a Sonnet vs Opus split. It is the only human-readable cost
+`## Cost of this MR (#<issue>)`, with a per-family split (Haiku, Sonnet, Opus, Fable). It is the only human-readable cost
 table: the description carries no `## Cost` section, and the ledger reader looks only at `## Gates`.
 
 Work on an MR after its first comment is a further comment, never an edit:
@@ -387,7 +390,7 @@ interleaved up to that point, and the record's footnote says so.
 - **Empty rows.** Claude Code writes `<synthetic>` assistant entries with all-zero usage on an
   interrupt or an error. The parser drops any response whose four usage values are all zero and
   counts it in the `empty` figure on stderr, so no `model unknown 0` split line exists and the
-  **Other** column appears only when a model outside Sonnet and Opus used tokens.
+  **Haiku**, **Fable** and **Other** columns appear only when a model of that family used tokens.
 - **The golden fixture.** `scripts/tests/cost-ledger-golden/` is one synthetic session (an
   orchestrator, an agent with a nested descendant, an agent for another branch that started before
   the first MR opened, an unnamed gate, a zero-usage row, an agent resumed after its record) replayed
@@ -593,10 +596,15 @@ token's user could not be read or written; 5 refused, the window belongs to an e
 
 ### What a record shows
 
-- **Sonnet vs Opus.** A tokens and an estimated-cost column per model family, for subagents and
+- **One column pair per family.** A tokens and an estimated-cost column per model family, for subagents and
   for the orchestrator, plus the ledger lines' totals. The family is read from the model ID
-  (`sonnet` or `opus` in it); any other model (Fable, Haiku) adds an `Other` pair of columns to
-  that record rather than being dropped or folded into Opus. The per-model figures come from the `model`
+  (`haiku`, `sonnet`, `opus` or `fable` in it), so a new generation needs a price row but no new column.
+  The order is fixed, smallest tier first: Haiku, Sonnet, Opus, Fable, Other. Sonnet and Opus are always
+  shown; Haiku and Fable appear only when they used tokens in this record or a prior one (a prior record
+  without the column counts as 0 in the running total). `Other` is reserved for a model id with no family
+  and a note names the id. A `- Models by column:` note names the exact id(s) that landed in each column
+  (both `claude-fable-5-1` and `claude-fable-5-2` under Fable). Records posted with the older Sonnet|Opus or
+  Sonnet|Opus|Other headers still parse. The per-model figures come from the `model`
   lines the measuring scripts print on stderr (`subagent-tokens: model <id> <N>`,
   `orchestrator-tokens: model <id> <N>`, `est-cost: subagent|orchestrator model <id> <USD> USD`);
   `--split <file>` is those stderr streams concatenated, and no other line in it is read.
@@ -628,7 +636,14 @@ token's user could not be read or written; 5 refused, the window belongs to an e
   before trueppm#4865 carry the older never-add sentence and still parse.) A record K states each
   stretch this MR has no record for: before its own window, or between two earlier records. The
   work in such a stretch is in another MR's record from the same session, or in none.
-- **Other.** The `Other` column appears only when a model outside Sonnet and Opus used tokens.
+- **Other.** The `Other` column appears only when a model outside Haiku, Sonnet, Opus and Fable used tokens.
+- **A model with no price row** blanks only its own dollar cells: its family shows `n/a`, or `X+ USD` when
+  a priced model shares the family, the Total est. cost cell reads `N+ USD`, and a note names the model
+  (`+` marks a lower bound; it carries into the running total). Re-rendering a posted record in place from a
+  corrected price table was considered and rejected (#5059): a record is an immutable claim on the session's
+  watermarks, so an in-place rewrite would need its own audit trail and would let a later price edit change
+  history. The repair is the price row for the next window, or `cost-table.py --comment --file ... --since
+  --until --split` for a one-off hand-posted correction.
 - **Off.** It follows the cost-ledger setting with no toggle of its own: ledger off or
   unreadable, or a `cost-ledger: off` marker, means exit 3 and no record; existing records are
   left alone.

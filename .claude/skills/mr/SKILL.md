@@ -223,7 +223,8 @@ Rules:
     under `## Notes`.
   - `est-cost-usd: <N.NN> (prices YYYY-MM-DD)`: the one estimate, the line
     `python3 scripts/post-mr-cost.py --measure` prints,
-    priced per response at list prices from `.claude/model-prices.json`. Paste it unchanged. It is
+    priced per response at list prices from `.claude/model-prices.json`. Paste it unchanged, including a partial form
+    (`N.NN+ (prices YYYY-MM-DD, excludes <model>)`, a model with no price row left out). It is
     a list-price equivalent, not what a subscription charged, and never a measured figure.
   - Which top-level agents `--measure` counts is decided first by where each agent acts, read from
     its own transcript (the git worktree, and so the branch, its Edit/Write calls land in, else the

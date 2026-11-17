@@ -4,7 +4,7 @@
 Why this exists. `/mr` and `/wave` write the cost ledger as bare lines at the end of `## Gates`
 (`subagent-tokens:`, `orchestrator-tokens:`, `est-cost-usd:`); GitLab renders them run together
 as one paragraph, so a person reading a merged MR could not read the tokens or the cost.
-This renders the figures as an MR comment with a Sonnet vs Opus split. The comment is the only
+This renders the figures as an MR comment with a per-family split (Haiku, Sonnet, Opus, Fable). The comment is the only
 human-readable cost table: there is no `## Cost` section in the description. The ledger lines
 stay where they are. The comments are also the non-overlapping source of an MR's cost: scripts/mr-cost-means.py\nsums their windowed records (#4884), while the `## Gates` lines are go-ahead snapshots.
 
@@ -73,7 +73,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_DIGITS = 18
 MAX_NOTE = 32 << 10  # a generated record is about 2 KB; anything bigger is not one
 MAX_LEDGER_FILE = 64 << 10
-PRICES_RE = re.compile(r"\(prices\s+(\d{4}-\d{2}-\d{2})\)")
+PRICES_RE = re.compile(r"\(prices\s+(\d{4}-\d{2}-\d{2})")
 
 
 def _load(name, filename):
@@ -183,6 +183,7 @@ def figures(body):
     if est:
         p = PRICES_RE.search(est.group(0))
         out["usd"] = ((est.group(1), p.group(1) if p else None), None)
+        out["excludes"] = bool(est.group(2))
     else:
         out["usd"] = (None, er)
     return out
@@ -243,17 +244,37 @@ HEAD_RE = re.compile(
     r"^## Cost of this MR(?: \(#[0-9]{1,9}\))?(?: " + DASH + r" record ([0-9]{1,4}))?$"
 )
 HEADER_RE = re.compile(
-    r"^\| \| ((?:(?:Sonnet|Opus|Other) tokens \| (?:Sonnet|Opus|Other) est\. cost \| ){2,3})"
+    r"^\| \| ((?:(?:Haiku|Sonnet|Opus|Fable|Other) tokens \| (?:Haiku|Sonnet|Opus|Fable|Other) est\. cost \| ){2,5})"
     r"Total tokens \| Est\. cost \|$"
 )
 HEADER_COMPACT_RE = re.compile(r"^\| \| Tokens \| Est\. cost \|$")
 HEADER_FAM_RE = re.compile(
-    r"(Sonnet|Opus|Other) tokens \| (Sonnet|Opus|Other) est\. cost \| "
+    r"(Haiku|Sonnet|Opus|Fable|Other) tokens \| (Haiku|Sonnet|Opus|Fable|Other) est\. cost \| "
+)
+# Column order is fixed, smallest tier first: Haiku, Sonnet, Opus, Fable, Other (#5059). Sonnet and Opus
+# are always shown; Haiku, Fable and Other appear only when a model of that family used tokens in this
+# record or a prior one. Records posted before Fable and Haiku existed (Sonnet|Opus, or Sonnet|Opus|Other)
+# are a subset of this and must keep parsing.
+FAM_ORDER = ("Haiku", "Sonnet", "Opus", "Fable", "Other")
+VALID_FAMS = [
+    (["Haiku"] if h else [])
+    + ["Sonnet", "Opus"]
+    + (["Fable"] if fa else [])
+    + (["Other"] if o else [])
+    for h in (0, 1)
+    for fa in (0, 1)
+    for o in (0, 1)
+]
+# est-cost.py's line for a model with no price row: it is left out of the estimate, not the whole estimate.
+NOROW_RE = re.compile(
+    r"^est-cost: model "
+    + SPLIT_MODEL
+    + r" has no row in the price table; excluded from the estimate$"
 )
 TOTAL_ROW_RE = re.compile(r"^\| \*\*Total\*\* \| (.{1,4000}) \|$")
 CELL_RE = re.compile(r"^\*\*(.{1,400})\*\*$")
 TOK_CELL_RE = re.compile(r"^[0-9]{1,3}(?:,[0-9]{3}){0,5}$")
-USD_CELL_RE = re.compile(r"^([0-9]{1,18}(?:\.[0-9]{1,18})?) USD$")
+USD_CELL_RE = re.compile(r"^([0-9]{1,18}(?:\.[0-9]{1,18})?)(\+?) USD$")
 NA_CELL_RE = re.compile(
     r"^n/a \([ -)+-{}~]{1,300}\)$"
 )  # printable ASCII without `*` or `|`
@@ -264,20 +285,25 @@ CENT = decimal.Decimal("0.01")
 
 def family(model):
     m = model.lower()
-    return "Sonnet" if "sonnet" in m else "Opus" if "opus" in m else "Other"
+    for fam in ("Haiku", "Sonnet", "Opus", "Fable"):
+        if fam.lower() in m:
+            return fam
+    return "Other"
 
 
 def parse_split(text):
     """{'tokens': {side: {family: int}}, 'usd': {side: {family: Decimal}}} from the stderr of the
     three measuring scripts. Only the exact `model` lines are read; every other line (a skip count,
     a note, anything a transcript could have influenced) is ignored."""
-    out = {"tokens": {}, "usd": {}}
+    out = {"tokens": {}, "usd": {}, "models": {}, "norow": []}
     for line in (text or "").splitlines():
         line = line.strip()
         m = SPLIT_TOKENS_RE.match(line)
         if m and m.group(3).isascii():
             d = out["tokens"].setdefault(m.group(1), {})
             d[family(m.group(2))] = d.get(family(m.group(2)), 0) + int(m.group(3))
+            if int(m.group(3)) > 0:
+                out["models"].setdefault(family(m.group(2)), set()).add(m.group(2))
             continue
         m = SPLIT_USD_RE.match(line)
         if m and m.group(3).isascii():
@@ -285,6 +311,10 @@ def parse_split(text):
             d[family(m.group(2))] = d.get(
                 family(m.group(2)), decimal.Decimal(0)
             ) + decimal.Decimal(m.group(3))
+            continue
+        m = NOROW_RE.match(line)
+        if m and m.group(1) not in out["norow"] and len(out["norow"]) < 5:
+            out["norow"].append(m.group(1))
     return out
 
 
@@ -382,17 +412,23 @@ def _render(
     # No per-model split at all (neither side has a family): a compact Tokens / Est. cost table,
     # not a per-family table whose every cell reads `n/a` (macrodream/blueprint#387).
     compact = not any(sp["tokens"].get(sd) for sd in SIDES)
-    fams = [] if compact else ["Sonnet", "Opus"]
-    # `Other` appears only when some model outside Sonnet and Opus actually used tokens: an empty
-    # column of `n/a` cells is noise (a zero-usage `<synthetic>` row used to create one).
-    if not compact and (
-        any(sp["tokens"].get(sd, {}).get("Other", 0) > 0 for sd in SIDES)
-        or any(
-            (p["total"].get(("tok", "Other")) or 0) > 0
-            for p in prior.get("records", [])
-        )
-    ):
-        fams.append("Other")
+    fams = []
+    if not compact:
+        for fm in FAM_ORDER:
+            # Sonnet and Opus are always columns; the other families only once a model of that family
+            # used tokens, here or in a prior record: an empty column of `n/a` cells is noise (a
+            # zero-usage `<synthetic>` row used to create one).
+            if (
+                fm in ("Sonnet", "Opus")
+                or any(sp["tokens"].get(sd, {}).get(fm, 0) > 0 for sd in SIDES)
+                or any(
+                    (p["total"].get(("tok", fm)) or 0) > 0
+                    for p in prior.get("records", [])
+                )
+            ):
+                fams.append(fm)
+    # Families holding a model with no price row: their dollar cells are a lower bound or n/a.
+    partial_fams = {family(m) for m in sp["norow"]}
 
     def tok(side, fam):
         if side not in sp["tokens"]:
@@ -406,7 +442,9 @@ def _render(
         if fam not in sp["tokens"][side]:
             return "none used"
         v = sp["usd"].get(side, {}).get(fam)
-        return "%s USD" % v.quantize(CENT) if v is not None else "n/a (%s)" % NO_USD
+        if v is None:
+            return "n/a (%s)" % NO_USD
+        return "%s%s USD" % (v.quantize(CENT), "+" if fam in partial_fams else "")
 
     def side_usd(side):
         got = [usd(side, fm) for fm in fams]
@@ -452,14 +490,21 @@ def _render(
             else None
         )
         tcells.append(n(ta + tb) if both else "n/a (%s)" % NO_SPLIT)
+        own[("partial", fm)] = bool(priced and fm in partial_fams)
         tcells.append(
-            "%s USD" % own[("usd", fm)]
+            "%s%s USD" % (own[("usd", fm)], "+" if fm in partial_fams else "")
             if priced
             else "n/a (%s)" % (NO_USD if both else NO_SPLIT)
         )
     own[("tok", "all")] = f["total"][0]
     own[("usd", "all")] = decimal.Decimal(f["usd"][0][0]) if f["usd"][0] else None
-    tcells += [_cell(f["total"], n), _cell(f["usd"], lambda v: "%s USD" % v[0])]
+    own[("partial", "all")] = bool(f.get("excludes"))
+    tcells += [
+        _cell(f["total"], n),
+        _cell(
+            f["usd"], lambda v: "%s%s USD" % (v[0], "+" if f.get("excludes") else "")
+        ),
+    ]
     rows.append("| **Total** | %s |" % " | ".join("**%s**" % c for c in tcells))
     running = None
     if record > 1:
@@ -490,6 +535,24 @@ def _render(
         + rows
         + [""]
     )
+    if not compact:
+        # A reader sees the family and the exact model in one place; ids come only from the strictly
+        # shaped split lines, never from free text.
+        named = [
+            "%s `%s`" % (fm, "`, `".join(sorted(sp["models"][fm])[:5]))
+            for fm in fams
+            if sp["models"].get(fm)
+        ]
+        if named:
+            out.append("- Models by column: %s." % "; ".join(named))
+        if sp["models"].get("Other"):
+            out.append(
+                "- Other holds model%s %s: no Haiku, Sonnet, Opus or Fable family matched."
+                % (
+                    "s" if len(sp["models"]["Other"]) > 1 else "",
+                    ", ".join("`%s`" % m for m in sorted(sp["models"]["Other"])[:5]),
+                )
+            )
     if compact:
         out.append(
             "- No per-model split was recorded for this record, so the Sonnet and Opus breakdown and each row's cost "
@@ -517,6 +580,12 @@ def _render(
                 "- The model split sums to %s USD, not the ledger line's %s USD; the `est-cost-usd:` line is the record."
                 % (got.quantize(CENT), f["usd"][0][0])
             )
+    for mdl in sp["norow"]:
+        out.append(
+            "- Model `%s` has no row in `.claude/model-prices.json`, so it is left out of every dollar figure; "
+            "the figures for the other models are lower bounds marked `+`. Add its price row to that file."
+            % mdl
+        )
     out.append(
         "- Costs are estimates at list prices from `.claude/model-prices.json` (%s), not billed amounts; a model with no price row shows `n/a`."
         % ("prices %s" % prices if prices else "no price date on the ledger line")
@@ -627,10 +696,16 @@ def _running(own, fams, prior):
         elif col[0] == "tok":
             cells.append("{:,}".format(sum(vals)))
         else:
+            plus = own.get(("partial", col[1])) or any(
+                p["total"].get(("partial", col[1])) for p in prior["records"]
+            )
             cells.append(
-                "%s USD"
-                % sum((decimal.Decimal(v) for v in vals), decimal.Decimal(0)).quantize(
-                    CENT
+                "%s%s USD"
+                % (
+                    sum(
+                        (decimal.Decimal(v) for v in vals), decimal.Decimal(0)
+                    ).quantize(CENT),
+                    "+" if plus else "",
                 )
             )
     return cells, None
@@ -694,11 +769,7 @@ def parse_record(body):
         fams = []  # a record rendered without a per-model split: only the all-column Total
     else:
         fams = [a for a, b in HEADER_FAM_RE.findall(headers[0].group(1) + "") if a == b]
-        if (
-            len(fams) * 2 != headers[0].group(1).count(" | ")
-            or fams[:2] != ["Sonnet", "Opus"]
-            or fams[2:] not in ([], ["Other"])
-        ):
+        if len(fams) * 2 != headers[0].group(1).count(" | ") or fams not in VALID_FAMS:
             return None
     cells = totals[0].group(1).split(" | ")
     if len(cells) != len(fams) * 2 + 2:
@@ -719,6 +790,8 @@ def parse_record(body):
             total[col] = int(v.replace(",", ""))
         elif col[0] == "usd" and USD_CELL_RE.match(v):
             total[col] = decimal.Decimal(USD_CELL_RE.match(v).group(1))
+            if USD_CELL_RE.match(v).group(2):
+                total[("partial", col[1])] = True
         else:
             return None
     if k == 1 and wins[0].re is END1_RE:
@@ -1577,7 +1650,7 @@ def self_test():
             full,
             1,
             None,
-            "subagent-tokens: model claude-haiku-5-5 7\norchestrator-tokens: model claude-haiku-5-5 3",
+            "subagent-tokens: model gpt-9 7\norchestrator-tokens: model gpt-9 3",
         )
     )
     check(
@@ -1590,6 +1663,145 @@ def self_test():
         parse_record(oth) is not None
         and parse_record(oth)["fams"] == ["Sonnet", "Opus", "Other"],
         repr(parse_record(oth)),
+    )
+    # #5059: one column pair per family present, smallest tier first; Fable and Haiku are never "Other".
+    hdr = lambda t: next(ln for ln in t.splitlines() if ln.startswith("| | "))  # noqa: E731
+    four = "\n".join(
+        comment_lines(
+            full,
+            1,
+            None,
+            "subagent-tokens: model claude-haiku-5-5 1\nsubagent-tokens: model claude-sonnet-5-5 2\n"
+            "subagent-tokens: model claude-opus-5-5 3\nsubagent-tokens: model claude-fable-5-1 4\n"
+            "orchestrator-tokens: model claude-fable-5-2 5\n"
+            "est-cost: subagent model claude-haiku-5-5 0.01 USD\nest-cost: subagent model claude-sonnet-5-5 0.02 USD\n"
+            "est-cost: subagent model claude-opus-5-5 0.03 USD\nest-cost: subagent model claude-fable-5-1 0.04 USD\n"
+            "est-cost: orchestrator model claude-fable-5-2 0.05 USD",
+        )
+    )
+    check(
+        "comment: Haiku, Sonnet, Opus and Fable each get a column pair, in tier order, and no Other",
+        hdr(four)
+        == "| | Haiku tokens | Haiku est. cost | Sonnet tokens | Sonnet est. cost | Opus tokens | Opus est. cost | "
+        "Fable tokens | Fable est. cost | Total tokens | Est. cost |"
+        and "Other" not in four,
+        four,
+    )
+    check(
+        "comment: a family's column names the exact model ids that landed in it",
+        "- Models by column: Haiku `claude-haiku-5-5`; Sonnet `claude-sonnet-5-5`; Opus `claude-opus-5-5`; "
+        "Fable `claude-fable-5-1`, `claude-fable-5-2`." in four,
+        four,
+    )
+    check(
+        "comment: a four-family record parses back in order",
+        (parse_record(four) or {}).get("fams") == ["Haiku", "Sonnet", "Opus", "Fable"],
+        repr(parse_record(four)),
+    )
+    unk = "\n".join(
+        comment_lines(
+            full,
+            1,
+            None,
+            "subagent-tokens: model gpt-9 7\norchestrator-tokens: model gpt-9 3",
+        )
+    )
+    check(
+        "comment: an unknown model id gets an Other pair that names it",
+        "Opus est. cost | Other tokens | Other est. cost |" in unk
+        and "- Other holds model `gpt-9`" in unk
+        and (parse_record(unk) or {}).get("fams") == ["Sonnet", "Opus", "Other"],
+        unk,
+    )
+    mixed = "\n".join(
+        comment_lines(
+            full,
+            1,
+            None,
+            "subagent-tokens: model claude-fable-5-2 7\norchestrator-tokens: model claude-haiku-5-5 3\n"
+            "orchestrator-tokens: model gpt-9 1",
+        )
+    )
+    check(
+        "comment: Haiku, Fable and Other together keep the fixed order",
+        (parse_record(mixed) or {}).get("fams")
+        == ["Haiku", "Sonnet", "Opus", "Fable", "Other"],
+        mixed,
+    )
+    old2 = (
+        "## Cost of this MR (#383)\n\n| | Sonnet tokens | Sonnet est. cost | Opus tokens | Opus est. cost | Total tokens | Est. cost |\n"
+        "|---|---|---|---|---|---|---|\n| **Total** | **1** | **1.00 USD** | **2** | **2.00 USD** | **3** | **3.00 USD** |\n\n"
+        "- Window end: 2026-11-04T15:38:24Z. Both figures stop at the go-ahead to push.\n\n"
+        + FOOTER_1
+    )
+    old3 = old2.replace(
+        "Opus est. cost | Total",
+        "Opus est. cost | Other tokens | Other est. cost | Total",
+    ).replace(
+        "**2.00 USD** | **3** | **3.00 USD**",
+        "**2.00 USD** | **3** | **3.00 USD** | **6** | **6.00 USD**",
+    )
+    check(
+        "comment: records posted with the old 2- and 3-family headers still parse",
+        (parse_record(old2) or {}).get("fams") == ["Sonnet", "Opus"]
+        and (parse_record(old3) or {}).get("fams") == ["Sonnet", "Opus", "Other"],
+        repr((parse_record(old2), parse_record(old3))),
+    )
+    k2 = "\n".join(
+        comment_lines(
+            full,
+            1,
+            "2026-11-04T16:00:00Z",
+            "subagent-tokens: model claude-fable-5-2 7\norchestrator-tokens: model claude-fable-5-2 3",
+            record=2,
+            since="2026-11-04T15:40:00Z",
+            prior={"records": [parse_record(old3)], "gaps": []},
+        )
+    )
+    check(
+        "comment: a prior 3-family record counts as Fable 0 in the running total",
+        "Fable tokens" in k2 and "**10**" in k2 and "Other tokens" in k2,
+        k2,
+    )
+    # #5059: an unpriced model blanks only its own dollar cells; the total is visibly partial.
+    part = "\n".join(
+        comment_lines(
+            desc(
+                "subagent-tokens: 12\norchestrator-tokens: 0\nest-cost-usd: 2.00+ (prices 2026-11-03, excludes claude-fable-9)"
+            ),
+            1,
+            None,
+            "subagent-tokens: model claude-sonnet-5-5 5\nsubagent-tokens: model claude-fable-9 7\n"
+            "est-cost: subagent model claude-sonnet-5-5 2.00 USD\n"
+            "est-cost: model claude-fable-9 has no row in the price table; excluded from the estimate\n"
+            "orchestrator-tokens: model claude-sonnet-5-5 0",
+        )
+    )
+    check(
+        "comment: one unpriced model leaves the priced family's dollars and marks the total partial",
+        "| 5 | 2.00 USD |" in part
+        and "n/a (no estimate for this model" in part
+        and "**2.00+ USD**" in part
+        and "- Model `claude-fable-9` has no row in `.claude/model-prices.json`"
+        in part,
+        part,
+    )
+    check(
+        "comment: a partial total parses back and is flagged partial",
+        (parse_record(part) or {}).get("total", {}).get(("partial", "all")) is True,
+        repr(parse_record(part)),
+    )
+    check(
+        "ledger line: a partial est-cost-usd line is read by the ledger regex",
+        figures(desc("est-cost-usd: 2.00+ (prices 2026-11-03, excludes a, b)"))["usd"][
+            0
+        ]
+        == ("2.00", "2026-11-03"),
+        repr(
+            figures(desc("est-cost-usd: 2.00+ (prices 2026-11-03, excludes a, b)"))[
+                "usd"
+            ]
+        ),
     )
     check(
         "comment: partial ledger renders n/a",
