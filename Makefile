@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check api-engine-boundary-check schema-check openapi-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
+        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check api-engine-boundary-check schema-check openapi-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks semgrep-freshness-check e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -662,6 +662,11 @@ web-types-drift-check: ## Run the lint:web-types-drift CI job locally (#2633)
 	@python3 scripts/check-web-types-drift.py --self-test
 	@python3 scripts/check-web-types-drift.py
 
+semgrep-freshness-check: ## Run the lint:semgrep-freshness CI job locally (#3103)
+	@# Exit 77 (a warning in CI) is not a failure of the push, so it is tolerated here.
+	@bash scripts/check-semgrep-freshness.sh --self-test
+	@bash scripts/check-semgrep-freshness.sh || [ $$? -eq 77 ]
+
 e2e-schema-guard-check: ## Run the lint:e2e-schema-guard CI job locally (#3440)
 	@# The e2e mock layer is bound to docs/api/openapi.json by ONE line inside
 	@# setupCatchAll. Delete it and 290 specs go back to asserting the front end
@@ -878,6 +883,7 @@ pre-push-checks: pre-push-wasm
 pre-push-checks: pre-push-mobile
 pre-push-checks: e2e-schema-guard-check
 pre-push-checks: web-types-drift-check
+pre-push-checks: semgrep-freshness-check
 pre-push-checks: cost-ledger-check
 pre-push-checks: negated-closing-keywords-check
 
