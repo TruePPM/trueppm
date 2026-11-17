@@ -143,7 +143,7 @@ Pass `model` (and `effort`) explicitly on every spawn:
 
 ### Rescue escalation: Fable, only after Opus failed (macrodream/blueprint#399)
 
-Fable (`claude-fable-5-1`) is priced about 2.5x Opus (`.claude/model-prices.json`), so it
+Fable (`claude-fable-5-2`) is priced about 2x Opus (`.claude/model-prices.json`), so it
 earns its price only where Opus has already failed on the same issue. It is never a default,
 never chosen up front, and never a standing tier. **A Fable spawn with no prior Opus failure on
 that issue is a defect in the run**: report it as one, like an omitted `model`.
@@ -173,7 +173,7 @@ with `AskUserQuestion`, Fable first and marked recommended:
 - **"Run Opus again" is not the wrong answer.** The recommendation is Fable, the choice is the
   user's, and nothing in this skill treats `opus-again` as a lesser outcome.
 - **The estimate** prices the failed Opus run's measured tokens (`subagent-tokens:` from
-  `scripts/post-mr-cost.py --measure`, per usage class) at the `claude-fable-5-1` row of
+  `scripts/post-mr-cost.py --measure`, per usage class) at the `claude-fable-5-2` row of
   `.claude/model-prices.json`, and is labeled an estimate. With no measured tokens (the cost
   ledger off, or no transcript), say "no estimate: <why>" rather than invent one.
 - **Non-interactive runs do not escalate.** A run that cannot ask reports the issue as
@@ -192,7 +192,7 @@ files and lines, what is committed, so it does not re-read what Opus already est
 **Reporting.** Show the model as `fable` in every status table and the Step 8 report, with the
 trigger and the user's answer. A gate a Fable agent ran is recorded `(fable)` in its
 `## Gates` line, like any model. The cost record's per-model split already handles the
-`claude-fable-5-1` id. Step 8 carries one `rescue:` line per issue a trigger fired on.
+`claude-fable-5-2` id. Step 8 carries one `rescue:` line per issue a trigger fired on.
 
 **Read-only gates always run on Sonnet.** `regression-check`, `rbac-check`,
 `perf-check`, `security-review`, `broadcast-check`, `migration-check` read a diff
