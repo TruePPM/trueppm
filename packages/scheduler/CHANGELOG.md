@@ -140,11 +140,22 @@ change between releases. Pin an exact version (e.g.
 - **A start-of-day milestone's `total_float` equals the working days from its
   `early_start` to its `late_start`
   ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)).** When its float
-  ran to a weekend midnight (a calendar-day lag, the data date or a weekend
-  `actual_start`), its `late_start` / `late_finish` were shown on the Friday
-  before that midnight, one working day short of the float. They are now shown
-  on the Monday after it, where the milestone can be pinned without moving the
-  finish. `total_float` itself is unchanged.
+  ran to a non-working midnight (weekends and holidays, reached through a
+  calendar-day lag, the data date or a non-working `actual_start`), its
+  `late_start` / `late_finish` were shown on the working day before that
+  midnight (the Friday, across a weekend), one working day short of the float.
+  They are now shown on the next working day after it (the Monday), unless that
+  day is past `project_finish`. `total_float` itself is unchanged.
+
+  That late start is the latest the milestone can start in working time *when
+  the milestone itself is held there*. When its predecessor is what places it on
+  that day, `project_finish` can still move. In `P -SS-> M -FS+3cd-> S`, with a
+  base finish of Tue 2027-03-16, holding `M` on Mon 03-15 with `planned_start`
+  leaves the finish where it is, but holding `P` on Mon 03-15, so that the SS
+  link puts `M` at Mon 00:00, moves `S` to Thu 03-18 and the finish by two
+  working days. Whether lag counts calendar or working days is a separate open
+  decision ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535)) that this
+  fix does not settle.
 
 - **The CLI's human-readable output escapes control, bidi and zero-width
   characters
