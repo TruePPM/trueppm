@@ -537,7 +537,9 @@ export function isNonWorkingDay(date: Date, workingTime: WorkingTimeConfig): boo
 const _exceptionDayCache = new WeakMap<object, ReadonlySet<string>>();
 const MAX_EXCEPTION_RANGE_DAYS = 3660;
 
-function expandedExceptionDays(exceptions: WorkingTimeConfig['exceptions']): ReadonlySet<string> {
+function expandedExceptionDays(
+  exceptions: WorkingTimeConfig['exceptions'],
+): ReadonlySet<string> {
   const cached = _exceptionDayCache.get(exceptions);
   if (cached) return cached;
   const days = new Set<string>();
