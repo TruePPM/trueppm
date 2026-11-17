@@ -124,7 +124,9 @@ test.describe('Workspace methodology defaults', () => {
     await page.route('**/api/v1/workspace/', async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        await r.fulfill(json(workspace({ methodology: 'AGILE', methodology_override_policy: 'inherit' })));
+        await r.fulfill(
+          json(workspace({ methodology: 'AGILE', methodology_override_policy: 'inherit' })),
+        );
         return;
       }
       await r.fulfill(json(workspace()));
@@ -138,7 +140,9 @@ test.describe('Workspace methodology defaults', () => {
     const methodology = page.locator('[data-settings-section="methodology"]');
 
     // Seeded selection — Waterfall + Suggest.
-    await expect(methodology.getByRole('radio', { name: /Waterfall/i, checked: true })).toBeVisible();
+    await expect(
+      methodology.getByRole('radio', { name: /Waterfall/i, checked: true }),
+    ).toBeVisible();
     await expect(
       methodology.getByRole('radio', { name: /Suggest \(recommended\)/i, checked: true }),
     ).toBeVisible();
@@ -153,11 +157,16 @@ test.describe('Workspace methodology defaults', () => {
     // input's onChange. (check()/clicking the input is intercepted by the label.)
     await methodology.getByRole('radio', { name: /Agile/i }).click();
     await methodology.getByText('Inherit', { exact: true }).click();
-    await expect(methodology.getByRole('radio', { name: /^Inherit/i, checked: true })).toBeVisible();
+    await expect(
+      methodology.getByRole('radio', { name: /^Inherit/i, checked: true }),
+    ).toBeVisible();
     await page.getByRole('button', { name: /Save changes/i }).click();
 
     await expect.poll(() => patchBody).not.toBeNull();
-    expect(patchBody).toMatchObject({ methodology: 'AGILE', methodology_override_policy: 'inherit' });
+    expect(patchBody).toMatchObject({
+      methodology: 'AGILE',
+      methodology_override_policy: 'inherit',
+    });
   });
 
   // #3314 gave this page its own fail-closed role gate because `RequireWorkspaceAdmin`
@@ -207,12 +216,11 @@ test.describe('Workspace methodology defaults', () => {
   }) => {
     await baseSetup(page);
 
-    let attempts = 0;
+    let serverRecovered = false;
     await page.route('**/api/v1/workspace/', async (r) => {
-      attempts += 1;
-      // The query client retries once (`failureCount < 1`), so the initial load is
-      // two attempts — fail both, then serve the request the Retry button fires.
-      if (attempts <= 2) {
+      // Fail every GET until the Retry click: the query client's automatic retry has a
+      // backoff, so "fail the first two" is a race under load (#3349).
+      if (!serverRecovered) {
         await r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -232,6 +240,7 @@ test.describe('Workspace methodology defaults', () => {
     await expect(methodology.getByRole('heading', { name: 'Methodology defaults' })).toBeVisible();
 
     // Retry re-runs just this request and the section recovers in place.
+    serverRecovered = true;
     await methodology.getByRole('button', { name: 'Retry' }).click();
     await expect(
       methodology.getByRole('radio', { name: /Waterfall/i, checked: true }),
@@ -285,7 +294,9 @@ test.describe('Project methodology', () => {
     await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        await r.fulfill(json(projectDetail({ methodology: 'WATERFALL', effective_methodology: 'WATERFALL' })));
+        await r.fulfill(
+          json(projectDetail({ methodology: 'WATERFALL', effective_methodology: 'WATERFALL' })),
+        );
         return;
       }
       await r.fulfill(json(projectDetail()));
@@ -375,7 +386,9 @@ test.describe('Project methodology', () => {
         await r.fulfill(json(projectDetail({ estimation_mode: 'pm_only' })));
         return;
       }
-      await r.fulfill(json(projectDetail({ methodology: 'AGILE', effective_methodology: 'WATERFALL' })));
+      await r.fulfill(
+        json(projectDetail({ methodology: 'AGILE', effective_methodology: 'WATERFALL' })),
+      );
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
@@ -446,9 +459,8 @@ test.describe('Project methodology', () => {
 
     let healed = false;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
-      // Two attempts on the initial load (the query client retries once) — fail
-      // both, then serve the request the Retry button fires.
-      // Fail until Retry is clicked: sections mount after the failure settles and re-fetch on mount (#3005).
+      // Fail every request until Retry is clicked (the flag flips there), however many times
+      // the query client retries or sections re-fetch on mount (#3005); then serve it.
       if (!healed) {
         await r.fulfill({
           status: 500,
@@ -748,7 +760,9 @@ test.describe('Project methodology', () => {
 
     const dialog = page.getByRole('alertdialog', { name: 'Switch to Agile?', exact: true });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('has 64 tasks on the schedule and 17 dependency links')).toBeVisible();
+    await expect(
+      dialog.getByText('has 64 tasks on the schedule and 17 dependency links'),
+    ).toBeVisible();
     await expect(dialog.getByText('Agile hides the Schedule and Calendar views')).toBeVisible();
     expect(patchBody).toBeNull();
 

@@ -118,12 +118,11 @@ test.describe('Project Settings → Sharing (#283 / #1486)', () => {
   // but the user still had no error and no way forward.
   test('a failed share-links GET surfaces Retry, not "No share links yet"', async ({ page }) => {
     await setup(page);
-    let requestCount = 0;
+    let serverRecovered = false;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/share-links/`, (r) => {
-      requestCount += 1;
       // The query client retries a failed GET once before settling into
       // `isError` (src/lib/queryClient.ts).
-      if (requestCount <= 2) {
+      if (!serverRecovered) {
         return r.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -143,6 +142,7 @@ test.describe('Project Settings → Sharing (#283 / #1486)', () => {
     await expect(sharing.getByText("Couldn't load share links.")).toBeVisible();
     await expect(sharing.getByText(/No share links yet/i)).not.toBeVisible();
 
+    serverRecovered = true;
     await sharing.getByRole('button', { name: 'Retry' }).click();
     await expect(sharing.getByText('Client board')).toBeVisible();
   });

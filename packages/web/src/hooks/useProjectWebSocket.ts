@@ -50,7 +50,7 @@
  *                  first place and sees the change on their next load, see the handler below)
  *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
  *   slip_conflict_acknowledged / slip_conflicts_updated → invalidate slip-conflicts (ADR-0120 D4, issue 1359)
- *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
+ *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks + resource pool
  *   member_added / member_role_changed / member_removed → invalidate members
  *   team_member_changed → invalidate team-members[teamId] (facet/role reassign, ADR-0078)
  *   board_config_updated → invalidate boardConfig
@@ -162,7 +162,8 @@ type InvalidateKey =
   | 'project-attention'
   | 'project-my-tasks'
   | 'cp-tasks'
-  | 'monte-carlo-latest';
+  | 'monte-carlo-latest'
+  | 'project-resource-pool';
 // Whole-project multi-page loads: invalidating one mid-flight stacks overlapping fetches.
 const SLOW_LOAD_KEYS: ReadonlySet<InvalidateKey> = new Set(['tasks', 'dependencies']);
 type ScheduleInvalidateFn = (...keys: InvalidateKey[]) => void;
@@ -682,8 +683,15 @@ function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
       // orders by priority_rank, so refetch the tasks cache to snap to server order.
       'queue_reordered',
     ],
-    () => {
+    (_payload, event_type) => {
       scheduleInvalidate('tasks');
+      // `tasks/bulk/` accepts write-only `owners`, which creates TaskResource rows —
+      // the rows every capacity/utilization/heat-map number reads. The payload is
+      // just `{task_ids}` and does not say whether assignments changed, so a
+      // collaborator's resource pool is invalidated on every bulk mutation (#2793).
+      // This is cheap: invalidation only marks the query stale, and only an
+      // observer that is mounted right now (roster, capacity view) refetches.
+      if (event_type === 'tasks_bulk_mutated') scheduleInvalidate('project-resource-pool');
     },
   );
 
@@ -1072,6 +1080,10 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
   on(['assignment_created', 'assignment_updated', 'assignment_deleted', 'roster_changed'], () => {
     // Assignments are surfaced on task rows (assignee chips, overalloc flag).
     scheduleInvalidate('tasks');
+    // The roster/pool read (capacity, utilization, assignment counts) is built from the
+    // same TaskResource rows, so a collaborator's pool is stale until it refetches too.
+    // scheduleInvalidate coalesces, and only mounted observers refetch (staleTime 30s).
+    scheduleInvalidate('project-resource-pool');
   });
 
   // --- Membership events ---
