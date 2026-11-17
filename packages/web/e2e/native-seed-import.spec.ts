@@ -233,7 +233,7 @@ test('turns the replace 409 into a confirmation and re-sends with the compare-an
   await expect(confirm).toContainText(
     'Its projects move to Trash and can be restored individually as standalone projects.',
   );
-  await expect(confirm).toContainText('The program itself is not recoverable.');
+  await expect(confirm).toContainText('The program itself goes to program Trash without its code, and can be restored through the API only.');
 
   await confirm.getByRole('button', { name: 'Replace program' }).click();
 

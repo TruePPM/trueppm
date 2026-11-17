@@ -69,7 +69,8 @@ export function SeedReplaceConfirmDialog({
           </p>
           <p>
             Its projects move to Trash and can be restored individually as standalone projects. The
-            program itself is not recoverable.
+            program itself goes to program Trash without its code, and can be restored through the API
+            only.
           </p>
         </div>
         <div className="mt-4 flex justify-end gap-2">
