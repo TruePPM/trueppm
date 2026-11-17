@@ -134,7 +134,7 @@ lines are only as consistent as the skills that write them.
   different maintainer running `/kaizen` still reads the hook's records; a third party's note is never
   read, so summing the rest would read low); record numbers that are not
   exactly 1..n; a duplicate record number or an identical window (S and U both equal), which would
-  count a stretch twice; or a record whose cost is `n/a`. Partially overlapping windows are summed:
+  count a stretch twice; or a record whose cost is `n/a` or partial (`N+`, a model with no price row: summing it would read low). Partially overlapping windows are summed:
   records from different sessions on one MR overlap in time but never in tokens: a record also counts
   other sessions' subagents homed on the branch, but every claim is exclusive across records
   (`post-mr-cost.py` keeps per-session and per-agent watermarks), so nothing is counted twice. Every live MR's

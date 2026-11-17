@@ -285,7 +285,7 @@ glab mr list -R trueppm/trueppm -M -P 50 -F json 2>/dev/null \
 - An MR is **excluded** if it has no records, a record that did not parse, any legacy
   (`Window end:`-only) record (even beside windowed ones: the sum would be partial), a duplicate
   record number or an identical window, record numbers that are not exactly 1..n, a note by
-  anyone else (neither the token user nor the MR author; never read, so the rest would sum low), a record whose cost is `n/a`, or unreadable
+  anyone else (neither the token user nor the MR author; never read, so the rest would sum low), a record whose cost is `n/a` or partial (`N+`, a model with no price row: the sum would read low), or unreadable
   notes. Partially overlapping windows are summed (different sessions overlap in time, not tokens). Excluded MRs are left out of the cost mean, never counted as 0; the script
   prints the excluded count and the reasons, plus an accounting line (costed + excluded + not read
   by the 100-MR cap + ledger off = MRs read). Report those, do not repair them.
@@ -293,7 +293,8 @@ glab mr list -R trueppm/trueppm -M -P 50 -F json 2>/dev/null \
   disabled, never as 0, and draw no cost finding from a window of them.
 - A record whose cost reads `n/a` (excluded above) usually means the price table
   aged out (`checked` in `.claude/model-prices.json` is over 90 days old) or a model has no
-  row; re-copy the table from its `source`.
+  row (a family with no priced model reads `n/a`; one with a priced sibling reads `N+`, also
+  excluded); re-copy the table from its `source`.
 - `orchestrator-tokens:` is session spend over a window that several branches of one wave
   can share, because the `## Gates` lines are `--measure` snapshots: never sum those lines across
   MRs, and never add it to `subagent-tokens:` as an MR's cost. The `## Cost of this MR` records
