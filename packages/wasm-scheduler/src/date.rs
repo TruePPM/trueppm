@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn consecutive_days_leap_rules() {
+    fn leap_year_rules() {
         // 1900 and 2100 are not leap years, 2000 is.
         assert!(NaiveDate::from_ymd_opt(1900, 2, 29).is_none());
         assert!(NaiveDate::from_ymd_opt(2100, 2, 29).is_none());

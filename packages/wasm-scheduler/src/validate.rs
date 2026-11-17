@@ -52,8 +52,9 @@ fn py_date_max() -> NaiveDate {
 }
 
 /// The Python `datetime.date.min` (0001-01-01). The in-crate date type's `MIN`
-/// reaches year -262143 (the same bound chrono had), so without this floor a backward walk (an SF link or lead from a year-0001 start)
-/// schedules into year 0 or below, dates Python refuses and neither
+/// reaches year -262143 (the same bound chrono had), so without this floor a
+/// backward walk (an SF link or lead from a year-0001 start) schedules into
+/// year 0 or below, dates Python refuses and neither
 /// `date.fromisoformat` nor `Date.parse` can read back (#4707). Mirrors the
 /// `_MIN_ORDINAL` floor in `trueppm_scheduler.engine`.
 pub fn py_date_min() -> NaiveDate {
