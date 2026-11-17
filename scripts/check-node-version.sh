@@ -33,16 +33,27 @@ if [ "${1:-}" = "--self-test" ]; then
   version_ge 22.22.0 22.22.0 || { echo "self-test: equal failed" >&2; exit 1; }
   version_ge 22.21.9 22.22.0 && { echo "self-test: 22.21.9 should be < 22.22.0" >&2; exit 1; }
   version_ge 17.9.1 22.22.0 && { echo "self-test: 17.9.1 should be < 22.22.0" >&2; exit 1; }
+  # Failure branch: a too-old detected version must exit 1 with the actionable message.
+  rc=0
+  msg="$(TRUEPPM_NODE_VERSION_OVERRIDE=17.9.1 bash "${BASH_SOURCE[0]}" 2>&1)" || rc=$?
+  [ "${rc}" -eq 1 ] || { echo "self-test: too-old node should exit 1, got ${rc}" >&2; exit 1; }
+  case "${msg}" in
+    *"nvm use"*"--no-verify"*) ;;
+    *) echo "self-test: actionable message missing: ${msg}" >&2; exit 1 ;;
+  esac
+  TRUEPPM_NODE_VERSION_OVERRIDE=99.0.0 bash "${BASH_SOURCE[0]}" >/dev/null 2>&1 \
+    || { echo "self-test: new-enough node should exit 0" >&2; exit 1; }
   echo "check-node-version self-test OK"
   exit 0
 fi
 
-if ! command -v node >/dev/null 2>&1; then
+if [ -z "${TRUEPPM_NODE_VERSION_OVERRIDE:-}" ] && ! command -v node >/dev/null 2>&1; then
   echo "check-node-version: node not on PATH; skipping (web gates will report it)" >&2
   exit 0
 fi
 
-have="$(node -v | sed 's/^v//')"
+# TRUEPPM_NODE_VERSION_OVERRIDE exists only so --self-test can exercise the failure branch.
+have="${TRUEPPM_NODE_VERSION_OVERRIDE:-$(node -v | sed 's/^v//')}"
 want="$(sed -n 's/.*"node": *">=\([0-9.]*\)".*/\1/p' "${root}/packages/web/package.json" | sed -n 1p)"
 if [ -z "${want}" ]; then
   echo "check-node-version: could not read engines.node from packages/web/package.json" >&2
