@@ -35,6 +35,7 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { restoreRefusalMessage } from '@/hooks/restoreRefusal';
 import { useScheduleStore, type ScheduleActionToast } from '@/stores/scheduleStore';
+import { applyAssigneeCopies, ownersFromSource, type AssigneeCopy } from './copyAssignees';
 import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -925,15 +926,22 @@ function consumeTaskParam(ctx: {
   // Unknown id: latch (don't retry) and leave the drawer closed.
 }
 
+/** Closing toast copy for a duplicate — names what the clone does NOT carry (#2919). */
+export const DUPLICATE_NOT_CLONED_MESSAGE =
+  'Duplicated. Assignees and dependencies were not copied.';
+
 /**
  * The async work behind `buildModeApi.duplicateSubtree` (⌘D / Ctrl+D / row
  * menu Duplicate, #2727, ADR-0776 §2, amending ADR-0066 §Q1): create each
  * root's subtree top-down so every descendant's new parent id is already
  * known, then surface the Duplicate-into-an-active-sprint Undo affordance.
  *
- * Dependencies are never cloned — extended uniformly to every duplicated
- * node, including edges internal to the duplicated subtree. Only the root's
- * name gets the "(copy)" suffix; descendants move with the subtree unchanged.
+ * Dependencies and assignees are never cloned (assignees can be copied afterwards, onto leaf clones only) — extended uniformly to every
+ * duplicated node, including edges internal to the duplicated subtree. Only the
+ * root's name gets the "(copy)" suffix; descendants move with the subtree
+ * unchanged. A clone with no allocation is invisible to every capacity number,
+ * so the closing toast names what was left behind (#2919) and, when a source
+ * row had assignees, offers to copy them across.
  */
 async function duplicateSubtreeRoots(
   rootIds: string[],
@@ -945,6 +953,10 @@ async function duplicateSubtreeRoots(
   projectId: string,
   setScheduleActionToast: (toast: ScheduleActionToast | null) => void,
 ): Promise<void> {
+  // Clones whose source carried assignees, for the "Copy assignees" action.
+  const assigneeCopies: AssigneeCopy[] = [];
+  // The active-sprint Undo, kept so the closing toast does not displace it.
+  let sprintUndo: ScheduleActionToast['action'];
   for (const rootId of rootIds) {
     const subtree = collectSubtree(tree, rootId);
     if (subtree.length === 0) continue;
@@ -963,20 +975,19 @@ async function duplicateSubtreeRoots(
         ...(rootNode.task.deliveryMode ? { delivery_mode: rootNode.task.deliveryMode } : {}),
       });
       idMap.set(rootNode.task.id, rootCreated.id);
+      if (descendants.length === 0) noteAssignees(rootNode.task, rootCreated.id);
       const rootSprint = rootNode.task.sprintId
         ? sprintsById.get(rootNode.task.sprintId)
         : undefined;
       if (rootSprint && rootSprint.state === 'ACTIVE') {
-        setScheduleActionToast({
-          message: `Added to ${rootSprint.name}`,
-          action: {
-            label: 'Undo',
-            onClick: () => {
-              updateTaskMut.mutate({ id: rootCreated.id, projectId, sprint: null });
-              setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
-            },
+        sprintUndo = {
+          label: 'Undo',
+          onClick: () => {
+            updateTaskMut.mutate({ id: rootCreated.id, projectId, sprint: null });
+            setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
           },
-        });
+        };
+        setScheduleActionToast({ message: `Added to ${rootSprint.name}`, action: sprintUndo });
       }
       for (const node of descendants) {
         if (!node.task.parentId) continue; // unreachable — every descendant has a parent within the subtree
@@ -991,11 +1002,40 @@ async function duplicateSubtreeRoots(
           ...(node.task.deliveryMode ? { delivery_mode: node.task.deliveryMode } : {}),
         });
         idMap.set(node.task.id, created.id);
+        if (node.children.length === 0) noteAssignees(node.task, created.id);
       }
     } catch {
       toast.error("Couldn't duplicate the task — try again.");
       return;
     }
+  }
+  const hasAssignees = assigneeCopies.length > 0;
+  // One toast slot: the sprint Undo outranks Copy assignees because it reverses
+  // a side effect the user did not ask for, while copying is opt-in and the
+  // owners can still be set from the row.
+  const copyAssignees = hasAssignees
+    ? {
+        label: 'Copy assignees',
+        onClick: () => {
+          void applyAssigneeCopies(
+            assigneeCopies,
+            projectId,
+            updateTaskMut.mutateAsync,
+            setScheduleActionToast,
+          );
+        },
+      }
+    : undefined;
+  setScheduleActionToast({
+    message: DUPLICATE_NOT_CLONED_MESSAGE,
+    action: sprintUndo ?? copyAssignees,
+  });
+
+  // Leaf clones only: the server refuses `owners` on a summary task, and every
+  // cloned parent has children by the time the action is clicked.
+  function noteAssignees(source: Task, cloneId: string): void {
+    const owners = ownersFromSource(source);
+    if (owners) assigneeCopies.push({ cloneId, owners });
   }
 }
 
@@ -4502,7 +4542,8 @@ export function ScheduleView() {
 
   if ((isLoading || !rawTasks) && !isMobile) {
     return (
-      <div role="status"
+      <div
+        role="status"
         className="flex h-full bg-neutral-surface"
         aria-busy="true"
         aria-label="Loading Schedule"

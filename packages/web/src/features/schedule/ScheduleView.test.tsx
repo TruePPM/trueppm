@@ -128,6 +128,8 @@ const createTaskMutateAsync = vi.fn((vars: Record<string, unknown>) => {
   return Promise.resolve({ id: `dup-task-${createTaskCounter}`, ...(vars as object) });
 });
 const deleteTaskMutate = vi.fn();
+const updateTaskMutate = vi.fn();
+const updateTaskMutateAsync = vi.fn((_vars: Record<string, unknown>) => Promise.resolve({}));
 const reorderTaskMutate = vi.fn();
 // Group / Ungroup (#2955). Each drives its `onSuccess` synchronously with a fixture
 // response so the outcome copy, the trail entry and the ledger binding are all
@@ -345,7 +347,7 @@ vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
     ...actual,
     useIndentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
     useOutdentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-    useUpdateTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useUpdateTask: () => ({ mutate: updateTaskMutate, mutateAsync: updateTaskMutateAsync, isPending: false, variables: undefined }),
     useDeleteTask: () => ({ mutate: deleteTaskMutate, isPending: false, variables: undefined }),
     useRestoreTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
     useCreateTask: () => ({
@@ -760,17 +762,15 @@ import {
  * test reaches the structural-act one on purpose.
  */
 function getScheduleStatus(): HTMLElement {
-  const regions = screen
-    .getAllByRole('status')
-    .filter(
-      (n) =>
-        n.getAttribute('data-testid') !== 'reconcile-live' &&
-        n.getAttribute('data-testid') !== 'schedule-act-live' &&
-        // The toolbar's demotion announcer (#3076) — mounted unconditionally
-        // so the region is already in the a11y tree when its text changes, so
-        // it is always present and never the one these tests mean.
-        n.getAttribute('data-testid') !== 'schedule-demotion-live',
-    );
+  const regions = screen.getAllByRole('status').filter(
+    (n) =>
+      n.getAttribute('data-testid') !== 'reconcile-live' &&
+      n.getAttribute('data-testid') !== 'schedule-act-live' &&
+      // The toolbar's demotion announcer (#3076) — mounted unconditionally
+      // so the region is already in the a11y tree when its text changes, so
+      // it is always present and never the one these tests mean.
+      n.getAttribute('data-testid') !== 'schedule-demotion-live',
+  );
   expect(regions).toHaveLength(1);
   return regions[0];
 }
@@ -786,7 +786,6 @@ function getScheduleStatus(): HTMLElement {
 function getActLiveRegion(): HTMLElement {
   return screen.getByTestId('schedule-act-live');
 }
-
 
 /**
  * Turn on the Phase / Group / Ungroup toolbar buttons (#2955).
@@ -881,6 +880,9 @@ beforeEach(() => {
   nextCreateTaskFails = false;
   createTaskCounter = 0;
   deleteTaskMutate.mockReset();
+  updateTaskMutate.mockReset();
+  updateTaskMutateAsync.mockClear();
+  updateTaskMutateAsync.mockImplementation(() => Promise.resolve({}));
   groupTasksMutate.mockClear();
   ungroupTasksMutate.mockClear();
   nextGroupingError = null;
@@ -1033,7 +1035,7 @@ describe('ScheduleView — empty state', () => {
     expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
   });
 
-  it('shows no banner on an EMPTY schedule under AGILE — that is the empty state\'s job', () => {
+  it("shows no banner on an EMPTY schedule under AGILE — that is the empty state's job", () => {
     mockTasks = [];
     mockLinks = [];
     mockEffectiveMethodology = 'AGILE';
@@ -1751,9 +1753,7 @@ describe('ScheduleView — mod+alt+p phase authoring binding (#2955)', () => {
     // A summary has no transition to make; adopting it would be a plain "add a child",
     // which Enter already does. Asserted because the predicate is the whole gesture: a
     // wrong one silently turns ⌘⌥P into a second insert key.
-    mockTasks = [
-      { ...FIXTURE_TASKS[0], id: 'sum-1', name: 'Already a phase', isSummary: true },
-    ];
+    mockTasks = [{ ...FIXTURE_TASKS[0], id: 'sum-1', name: 'Already a phase', isSummary: true }];
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('sum-1'));
     const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
@@ -1787,7 +1787,9 @@ describe('ScheduleView — mod+alt+p phase authoring binding (#2955)', () => {
     // to the row that actually exists rather than to a container that does not.
     nextGroupingError = new TaskGroupingRefused({ code: 'selection_too_large', detail: 'x' });
     renderSchedule();
-    act(() => capturedKeyBindings['mod+alt+p']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+p']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     expect(createTaskMutate).toHaveBeenCalled();
     expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
       'too many rows to wrap',
@@ -1833,7 +1835,14 @@ describe('ScheduleView — phase-in-waiting after #2955', () => {
 
   it('does not read ordinary work as one', () => {
     mockTasks = [
-      { ...FIXTURE_TASKS[0], id: 'plain', name: 'Plain', wbs: '9', parentId: null, structureRole: 'work' },
+      {
+        ...FIXTURE_TASKS[0],
+        id: 'plain',
+        name: 'Plain',
+        wbs: '9',
+        parentId: null,
+        structureRole: 'work',
+      },
     ];
     renderSchedule();
     expect(screen.getByTestId('task-list-panel')).toHaveAttribute('data-phase-in-waiting', '');
@@ -1869,9 +1878,7 @@ describe('ScheduleView — the phase-in-waiting cleanup waits for an answer (#32
     // would leave the seeded value untouched and pass for the wrong reason.
     expect(screen.getByLabelText('Loading Schedule')).toBeInTheDocument();
 
-    expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? 'null')).toEqual([
-      'remembered-phase',
-    ]);
+    expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? 'null')).toEqual(['remembered-phase']);
   });
 
   it('still prunes an id once the answer arrives and the task is genuinely gone', () => {
@@ -1924,7 +1931,9 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() => capturedBuildMode!.focus.selectIds(['t3', 't1']));
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     expect(groupTasksMutate).toHaveBeenCalledTimes(1);
     const [vars] = groupTasksMutate.mock.calls[0] as [{ taskIds: string[]; name?: string | null }];
     // Visible order, not Set insertion order — the server's majority-parent tie-break
@@ -1937,16 +1946,18 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
   it('⌥⌘G falls back to the focused row — wrapping one row is a legal group', () => {
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t2'));
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     expect(groupTasksMutate).toHaveBeenCalledTimes(1);
-    expect(
-      (groupTasksMutate.mock.calls[0] as [{ taskIds: string[] }])[0].taskIds,
-    ).toEqual(['t2']);
+    expect((groupTasksMutate.mock.calls[0] as [{ taskIds: string[] }])[0].taskIds).toEqual(['t2']);
   });
 
   it('⌥⌘G STATES its refusal with nothing selected rather than doing nothing (rule 311)', () => {
     renderSchedule();
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     expect(groupTasksMutate).not.toHaveBeenCalled();
     expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
       'select the rows you want to wrap',
@@ -1957,7 +1968,9 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t2'));
     act(() =>
-      capturedKeyBindings['mod+shift+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+      capturedKeyBindings['mod+shift+alt+g']?.({
+        preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent),
     );
     expect(ungroupTasksMutate).not.toHaveBeenCalled();
     expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
@@ -1973,7 +1986,9 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     renderSchedule();
     await toggleAuthorMode(user);
     act(() => capturedBuildMode!.focus.focusRow('t1'));
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     expect(groupTasksMutate).not.toHaveBeenCalled();
     // Asserted through the formatter, not a literal: the toast is spelled for the
     // reader's platform (#3028), so a hardcoded glyph would pin the Mac branch and
@@ -1986,9 +2001,13 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
   it('stays silent for a viewer — no offer, so nothing to explain (rule 302)', () => {
     mockRole = ROLE_VIEWER;
     renderSchedule();
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
     act(() =>
-      capturedKeyBindings['mod+shift+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
+    act(() =>
+      capturedKeyBindings['mod+shift+alt+g']?.({
+        preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent),
     );
     expect(groupTasksMutate).not.toHaveBeenCalled();
     expect(ungroupTasksMutate).not.toHaveBeenCalled();
@@ -2000,7 +2019,9 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     // `t1` is a summary with children in the fixture, so it resolves as a phase.
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() =>
-      capturedKeyBindings['mod+shift+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+      capturedKeyBindings['mod+shift+alt+g']?.({
+        preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent),
     );
     expect(ungroupTasksMutate).toHaveBeenCalledTimes(1);
     expect((ungroupTasksMutate.mock.calls[0] as [string])[0]).toBe('t1');
@@ -2017,7 +2038,9 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() => capturedBuildMode!.focus.selectIds(['t1', 't3']));
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     // The outline's region carries `role="status"` since #3018, so it can be reached
     // directly instead of by scraping every polite region on the screen and hoping the
     // right one comes first in the DOM.
@@ -2035,7 +2058,9 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     });
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t1'));
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
       'sits inside another one you selected',
     );
@@ -2047,7 +2072,9 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     nextGroupingError = new Error('network');
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t1'));
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
       'Couldn’t group those rows. Nothing changed.',
     );
@@ -2061,11 +2088,11 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() =>
-      capturedKeyBindings['mod+shift+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+      capturedKeyBindings['mod+shift+alt+g']?.({
+        preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent),
     );
-    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
-      'carries subtasks',
-    );
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain('carries subtasks');
     expect(useTrailStore.getState().entries).toHaveLength(0);
   });
 
@@ -2073,7 +2100,9 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() => capturedBuildMode!.focus.selectIds(['t1', 't3']));
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     const entries = useTrailStore.getState().entries;
     expect(entries).toHaveLength(1);
     expect(entries[0].text).toBe('2 items are now a phase.');
@@ -2201,7 +2230,9 @@ describe('ScheduleView — insert announces and is recorded (#3018)', () => {
     renderSchedule();
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() => capturedBuildMode!.focus.selectIds(['t1', 't3']));
-    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
     act(() => capturedBuildMode!.insertBelow('t2'));
 
     const entries = useTrailStore.getState().entries;
@@ -2227,9 +2258,7 @@ describe('ScheduleView — insert announces and is recorded (#3018)', () => {
     expect(texts[0]).toBe('New item added above Discovery & Design, at the same level.');
     expect(texts[1]).toContain('couldn’t place it above Discovery & Design');
     expect(getActLiveRegion()).toHaveTextContent('couldn’t place it above');
-    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
-      'end of that level',
-    );
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain('end of that level');
   });
 });
 
@@ -2562,7 +2591,7 @@ describe('ScheduleView — milestone created side effect', () => {
 });
 
 describe('ScheduleView — build mode (default on desktop, #2682)', () => {
-  it('opens the cheatsheet from the mode chip (#3263 — the retired pill\'s job)', async () => {
+  it("opens the cheatsheet from the mode chip (#3263 — the retired pill's job)", async () => {
     // #3263 merged `BuildModePill` into the mode chip. The pill's only act was
     // opening this dialog, so the replacement ships in the same change that
     // removes it — the way IN to the keyboard surface must not become owed.
@@ -2593,7 +2622,9 @@ describe('ScheduleView — build mode (default on desktop, #2682)', () => {
     mockLinks = [];
     renderSchedule();
     // The blank canvas: a live outline row plus the quiet fill panel (#2733).
-    expect(screen.getByRole('complementary', { name: /ways to fill this project/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('complementary', { name: /ways to fill this project/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Add item' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'commit-draft' }));
     expect(createTaskMutate).toHaveBeenCalledWith(
@@ -2763,9 +2794,7 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
     expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
     unmount();
     renderSchedule();
-    await waitFor(() =>
-      expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read'),
-    );
+    await waitFor(() => expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read'));
   });
 });
 
@@ -2834,7 +2863,7 @@ describe('ScheduleView — Read mode refuses structural acts and renames, not si
   });
 });
 
-describe('ScheduleView — the authoring gate is the server\'s can_author (#3034)', () => {
+describe("ScheduleView — the authoring gate is the server's can_author (#3034)", () => {
   // ADR-0773 §(d) names `ProjectSerializer.can_author` "the web gate", and the
   // Designer ignored it: `hasEditRights` was `canEditTask(currentRole)`, a plain
   // `role >= ROLE_MEMBER` test. ROLE_SCHEDULER (200) passes that and is refused
@@ -2957,6 +2986,94 @@ describe('ScheduleView — buildModeApi.duplicateSubtree (#2727, ADR-0776 §2)',
     }
   });
 
+  it('names what was not cloned in the closing toast (#2919)', async () => {
+    mockTasks = FIXTURE_TASKS.map((t) => ({ ...t, assignees: [] }));
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t2');
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        'Duplicated. Assignees and dependencies were not copied.',
+      ),
+    );
+    // No source assignees -> nothing to offer.
+    expect(useScheduleStore.getState().scheduleActionToast?.action).toBeUndefined();
+  });
+
+  it('offers Copy assignees when a source row had assignees, and writes owners to the clone (#2919)', async () => {
+    mockTasks = FIXTURE_TASKS.map((t) =>
+      t.id === 't2' ? { ...t, assignees: [{ resourceId: 'r1', name: 'Ana', units: 0.5 }] } : t,
+    );
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t2');
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.action?.label).toBe('Copy assignees'),
+    );
+    act(() => {
+      useScheduleStore.getState().scheduleActionToast!.action!.onClick();
+    });
+    expect(updateTaskMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dup-task-1', owners: [{ resource: 'r1', units: 0.5 }] }),
+    );
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe('Assignees copied'),
+    );
+  });
+
+  it('reports a partial failure truthfully instead of claiming success (#2919)', async () => {
+    const ana = [{ resourceId: 'r1', name: 'Ana', units: 0.5 }];
+    mockTasks = FIXTURE_TASKS.map((t) =>
+      t.id === 't2' || t.id === 't3' ? { ...t, assignees: ana } : { ...t, assignees: [] },
+    );
+    updateTaskMutateAsync.mockImplementation((vars: Record<string, unknown>) =>
+      vars.id === 'dup-task-2' ? Promise.reject(new Error('400')) : Promise.resolve({}),
+    );
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t1');
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.action?.label).toBe('Copy assignees'),
+    );
+    act(() => {
+      useScheduleStore.getState().scheduleActionToast!.action!.onClick();
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        "Copied assignees to 1 of 2 tasks; 1 couldn't be assigned.",
+      ),
+    );
+  });
+
+  it('skips parent clones when copying assignees — the server refuses owners on a summary (#2919)', async () => {
+    const ana = [{ resourceId: 'r1', name: 'Ana', units: 0.5 }];
+    // t1 is the summary; t2 is a leaf child. Only the leaf clone may be PATCHed.
+    mockTasks = FIXTURE_TASKS.map((t) =>
+      t.id === 't1' || t.id === 't2' ? { ...t, assignees: ana } : { ...t, assignees: [] },
+    );
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t1');
+    });
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.action?.label).toBe('Copy assignees'),
+    );
+    act(() => {
+      useScheduleStore.getState().scheduleActionToast!.action!.onClick();
+    });
+    await waitFor(() => expect(updateTaskMutateAsync).toHaveBeenCalledTimes(1));
+    // dup-task-1 is the root (parent) clone; it must not be written.
+    expect(updateTaskMutateAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dup-task-1' }),
+    );
+    expect(updateTaskMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dup-task-2' }),
+    );
+  });
+
   it('is a no-op when the task is not found in the tree', () => {
     renderSchedule();
     act(() => {
@@ -3038,9 +3155,7 @@ describe('ScheduleView — F8/Shift+F8 unresolved-owner-token navigation (#2727,
   it('Shift+F8 with nothing focused jumps to the last unresolved row', () => {
     renderSchedule();
     const preventDefault = vi.fn();
-    act(() =>
-      capturedKeyBindings['shift+f8']?.({ preventDefault } as unknown as KeyboardEvent),
-    );
+    act(() => capturedKeyBindings['shift+f8']?.({ preventDefault } as unknown as KeyboardEvent));
     expect(preventDefault).toHaveBeenCalled();
     expect(capturedBuildMode!.focus.state.rowId).toBe('u4');
   });
@@ -3062,7 +3177,6 @@ describe('ScheduleView — F8/Shift+F8 unresolved-owner-token navigation (#2727,
     expect(capturedBuildMode!.focus.state.rowId).toBeNull();
   });
 });
-
 
 // ───────────────────────────────────────────────────────────────────────────
 // #3356 — the Schedule's own action toast had an unconditional auto-dismiss.
@@ -3166,24 +3280,24 @@ describe('resolveScheduleSeeding (#3312)', () => {
     // The blank canvas painting for even one render lets `BlankOutlineDraftRow`'s
     // mount effect steal the caret — unreproducible, and the exact invitation
     // this state exists to withhold.
-    expect(
-      resolveScheduleSeeding({ ...base, status: undefined, applicationLoading: true }),
-    ).toBe(true);
+    expect(resolveScheduleSeeding({ ...base, status: undefined, applicationLoading: true })).toBe(
+      true,
+    );
   });
 
   it('is false when the poll resolved with no status — an errored application', () => {
     // Settled (`applicationLoading: false`) but carrying no status: the query
     // rejected. Treating that as seeding would strand the user on a skeleton for
     // an apply nothing is tracking.
-    expect(
-      resolveScheduleSeeding({ ...base, status: undefined, applicationLoading: false }),
-    ).toBe(false);
+    expect(resolveScheduleSeeding({ ...base, status: undefined, applicationLoading: false })).toBe(
+      false,
+    );
   });
 
   it('is false with no application at all — an ordinary blank project', () => {
-    expect(
-      resolveScheduleSeeding({ ...base, applicationId: null, applicationLoading: true }),
-    ).toBe(false);
+    expect(resolveScheduleSeeding({ ...base, applicationId: null, applicationLoading: true })).toBe(
+      false,
+    );
   });
 
   it('is false once any row has landed', () => {
@@ -3208,15 +3322,13 @@ describe('resolveScheduleSeeding (#3312)', () => {
     // without this the skeleton pulses indefinitely over a surface offering no
     // row to type and no template to apply.
     expect(resolveScheduleSeeding({ ...base, status: 'running', timedOut: true })).toBe(false);
-    expect(
-      resolveScheduleSeeding({ ...base, applicationLoading: true, timedOut: true }),
-    ).toBe(false);
+    expect(resolveScheduleSeeding({ ...base, applicationLoading: true, timedOut: true })).toBe(
+      false,
+    );
   });
 
   it('lets a landed row outrank a still-pending status', () => {
-    expect(
-      resolveScheduleSeeding({ ...base, status: 'running', taskCount: 3 }),
-    ).toBe(false);
+    expect(resolveScheduleSeeding({ ...base, status: 'running', taskCount: 3 })).toBe(false);
   });
 });
 

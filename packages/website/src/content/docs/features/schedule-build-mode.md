@@ -80,7 +80,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Shift + F7 | Jump to the previous such row |
 | Alt + A | Toggle **Author** / **Read** mode for the whole Schedule (see below) — persists per project, per browser |
 | Space | Mark the focused row complete / un-complete |
-| ⌘ D / Ctrl + D | Duplicate the row **and its subtree**, appended below with "(copy)" on the duplicated root only — internal dependencies inside the subtree are not cloned, matching single-row duplicate's existing "dependencies are never cloned" rule. With a multi-row selection, duplicates every top-level selected row as its own subtree |
+| ⌘ D / Ctrl + D | Duplicate the row **and its subtree**, appended below with "(copy)" on the duplicated root only — neither **dependencies** (including those internal to the subtree) nor **assignees** are cloned, matching single-row duplicate's existing rule. A toast after the duplicate says so, and offers **Copy assignees** when a source row had any (when the duplicate also lands in an active sprint, the toast offers that sprint's **Undo** instead). With a multi-row selection, duplicates every top-level selected row as its own subtree |
 | Right-click | Open the row context menu (Edit / Indent / Outdent / Move to… / Convert to milestone / Delete) |
 | Hover a row | Reveal its row controls: **`+`** (insert below), **`⇤`** (outdent), **`⇥`** (indent) and **`◆`** (toggle milestone) — the same acts as the menu, one click each |
 | Delete / Backspace | Delete the focused row — or, with a multi-row selection active, every selected row (no confirm; undo via re-adding, or the delete toast's Undo action) |
@@ -347,7 +347,7 @@ Two other cases produce a refusal:
 
 ### How long an undo lasts
 
-The panel is scoped to your current session and holds the last ten changes. The server
+The panel is scoped to your current session and holds the last 50 changes. The server
 keeps the underlying record for **7 days**, so an undo is still possible through the API
 after a reload — but the panel itself starts empty in a new session.
 

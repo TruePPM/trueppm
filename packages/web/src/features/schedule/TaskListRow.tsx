@@ -31,6 +31,7 @@ import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore, type ScheduleActionToast } from '@/stores/scheduleStore';
 import { toast } from '@/components/Toast';
+import { applyAssigneeCopies, ownersFromSource } from './copyAssignees';
 import {
   useUpdateTask,
   useReparentTask,
@@ -1589,18 +1590,40 @@ function useRowActions(ctx: {
       },
       {
         onSuccess: (created) => {
-          if (sourceSprint && sourceSprint.state === 'ACTIVE') {
-            setScheduleActionToast({
-              message: `Added to ${sourceSprint.name}`,
-              action: {
-                label: 'Undo',
+          // Same closing toast as the subtree path (#2919): the clone carries no
+          // assignees or dependencies, and nothing else says so.
+          const sprintUndo =
+            sourceSprint && sourceSprint.state === 'ACTIVE'
+              ? {
+                  label: 'Undo',
+                  onClick: () => {
+                    updateTask.mutate({ id: created.id, projectId, sprint: null });
+                    setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
+                  },
+                }
+              : undefined;
+          // The clone is a single childless row, so it is never a summary and
+          // the server accepts `owners` on it.
+          const owners = ownersFromSource(task);
+          const copyAssignees = owners
+            ? {
+                label: 'Copy assignees',
                 onClick: () => {
-                  updateTask.mutate({ id: created.id, projectId, sprint: null });
-                  setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
+                  void applyAssigneeCopies(
+                    [{ cloneId: created.id, owners }],
+                    projectId,
+                    updateTask.mutateAsync,
+                    setScheduleActionToast,
+                  );
                 },
-              },
-            });
-          }
+              }
+            : undefined;
+          setScheduleActionToast({
+            message: sprintUndo
+              ? `Added to ${sourceSprint?.name}. Assignees and dependencies were not copied.`
+              : 'Duplicated. Assignees and dependencies were not copied.',
+            action: sprintUndo ?? copyAssignees,
+          });
         },
         onError: () => {
           setScheduleError('Failed to duplicate task.');
@@ -1611,12 +1634,7 @@ function useRowActions(ctx: {
   }, [
     projectId,
     buildMode,
-    task.id,
-    task.name,
-    task.duration,
-    task.parentId,
-    task.sprintId,
-    task.isMilestone,
+    task,
     siblingNames,
     sourceSprint,
     duplicateTask,
@@ -2190,7 +2208,9 @@ function RowPropertiesButton({
           // only focuses the row for keyboard editing, so this button is the
           // only path to the drawer. Same rationale as the Duration-cell pencil
           // icon (#2106): full-strength on hover/focus/selected, faint otherwise.
-          isSelected ? 'opacity-100' : 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100',
+          isSelected
+            ? 'opacity-100'
+            : 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
         ].join(' ')}
       >

@@ -21,6 +21,7 @@ import {
   modeChip,
   openScheduleCheatsheet,
 } from './fixtures';
+import { setupTaskStore } from './fixtures/task-store';
 
 const FIXTURE_PROJECT_ID = 'e2e-build-00000000-0000-0000-0000-000000000349';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}/schedule`;
@@ -873,5 +874,88 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
     // Caret at the END (not select-all): typing appends rather than replaces.
     await page.keyboard.type('!');
     await expect(mergedInput).toHaveValue('Wireframes!');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// #2919 — a duplicate carries no assignees or dependencies, so the closing
+// toast says so and, when the source row had assignees, offers to copy them
+// across by PATCHing the write-only `owners` field on the clone.
+// ───────────────────────────────────────────────────────────────────────────
+test.describe('Schedule build-mode — duplicate names what was not cloned (#2919)', () => {
+  const ASSIGNED_TASK = {
+    ...FIXTURE_TASKS[0],
+    id: 'bm3',
+    wbs_path: '3',
+    name: 'Welding',
+    assignments: [{ resource_id: 'res-1', resource_name: 'Ana', units: '0.50' }],
+  };
+  const tasks = [
+    ...FIXTURE_TASKS.map((t) => ({ ...t, assignments: [] as unknown[] })),
+    ASSIGNED_TASK,
+  ];
+
+  async function setup(page: import('@playwright/test').Page) {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks,
+    });
+    // `owners` is write-only and reads back as `assignments`; the default shallow
+    // merge would put a field on the row the real API never returns.
+    return setupTaskStore(page, {
+      tasks,
+      applyPatch: (body, current) => {
+        const { owners, ...rest } = body;
+        const next = { ...current, ...rest };
+        if (Array.isArray(owners)) {
+          next.assignments = (owners as { resource: string; units: number | string }[]).map((o) => ({
+            resource_id: o.resource,
+            resource_name: 'Ana',
+            units: Number(o.units).toFixed(2),
+          }));
+        }
+        return next;
+      },
+    });
+  }
+
+  async function duplicate(page: import('@playwright/test').Page, name: string) {
+    await page.goto(BASE_URL);
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    await page.getByText(name, { exact: true }).click({ button: 'right' });
+    await page
+      .getByRole('menu', { name: 'Row actions' })
+      .getByRole('menuitem', { name: /Duplicate/ })
+      .click();
+  }
+
+  test('offers Copy assignees and PATCHes owners onto the clone', async ({ page }) => {
+    const store = await setup(page);
+    await duplicate(page, 'Welding');
+
+    await expect(
+      page.getByText('Duplicated. Assignees and dependencies were not copied.'),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Copy assignees' }).click();
+
+    await expect.poll(() => store.patches.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    // The read payload's decimal string is forwarded as-is — the server's field accepts it.
+    expect(store.patches[0]).toMatchObject({ owners: [{ resource: 'res-1', units: '0.50' }] });
+    await expect(page.getByText('Assignees copied')).toBeVisible();
+  });
+
+  test('names what was not cloned but offers no action when the source had no assignees', async ({
+    page,
+  }) => {
+    await setup(page);
+    await duplicate(page, 'Foundation');
+
+    await expect(
+      page.getByText('Duplicated. Assignees and dependencies were not copied.'),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy assignees' })).toHaveCount(0);
   });
 });
