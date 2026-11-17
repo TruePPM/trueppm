@@ -587,7 +587,7 @@ def _render(
             % mdl
         )
     out.append(
-        "- Costs are estimates at list prices from `.claude/model-prices.json` (%s), not billed amounts; a model with no price row shows `n/a`."
+        "- Costs are estimates at list prices from `.claude/model-prices.json` (%s), not billed amounts; a model with no price row is left out of the dollar figures (`n/a`, or a lower bound marked `+`)."
         % ("prices %s" % prices if prices else "no price date on the ledger line")
     )
     if record == 1 and since is not None and end:
@@ -1814,7 +1814,7 @@ def self_test():
         "|---|---|---|---|---|---|---|\n| Subagents | 7,738,402 | 2.44 USD | none used | none used | 7,738,402 | 2.44 USD |\n"
         "| Orchestrator | 3,820,960 | 0.66 USD | none used | none used | 3,820,960 | 0.66 USD |\n"
         "| **Total** | **11,559,362** | **3.10 USD** | **0** | **0.00 USD** | **11,559,362** | **3.10 USD** |\n\n"
-        "- Costs are estimates at list prices from `.claude/model-prices.json` (prices 2026-11-03), not billed amounts; a model with no price row shows `n/a`.\n"
+        "- Costs are estimates at list prices from `.claude/model-prices.json` (prices 2026-11-03), not billed amounts; a model with no price row is left out of the dollar figures (`n/a`, or a lower bound marked `+`).\n"
         "- Window end: 2026-11-04T15:38:24Z. Both figures stop at the go-ahead to push; later work is not counted.\n"
         "- Agents over their /wave budget (`budget-exceeded:`): 0.\n"
         "- The orchestrator figure is the session's spend over the window and is shared by every branch of the same wave, "
