@@ -19,7 +19,6 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-chrono = { version = "0.4", default-features = false, features = ["serde"] }
 petgraph = "0.7"
 serde = { version = "1", features = ["derive"] }
 # `float_roundtrip`: serde_json's default float parser is not correctly rounded and

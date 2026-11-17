@@ -6,7 +6,7 @@
 
 use std::cell::OnceCell;
 
-use chrono::NaiveDate;
+use crate::date::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 /// Parse-time checks for fields this engine ignores but the shared document
@@ -44,29 +44,22 @@ pub mod enum_serde {
 
 /// Strict `YYYY-MM-DD` date deserialization (#4707).
 ///
-/// chrono's `NaiveDate` serde `FromStr` is lenient: it accepts `2026-3-2`, padded
+/// chrono's `NaiveDate` serde `FromStr` (used before #5058) was lenient: it accepts `2026-3-2`, padded
 /// whitespace, `+2026-03-02` and negative years, none of which Python's strict
 /// pre-check (`Project.from_dict`) accepts, and it has no lower bound where Python's
 /// `date.min` is 0001-01-01. A document the server refuses with a 400 must not be
 /// schedulable offline, so every date field goes through this shape: exactly ten
 /// ASCII characters, `\d{4}-\d{2}-\d{2}`, and a year of at least 1.
 pub mod date_serde {
-    use chrono::{Datelike, NaiveDate};
+    use crate::date::{NaiveDate, ParseError};
     use serde::{de::Error, Deserialize, Deserializer};
 
     /// Parse a canonical `YYYY-MM-DD` string, or describe why it is refused.
     pub fn parse_strict(s: &str) -> Result<NaiveDate, String> {
-        let b = s.as_bytes();
-        let shaped = b.len() == 10
-            && b.iter().enumerate().all(|(i, c)| match i {
-                4 | 7 => *c == b'-',
-                _ => c.is_ascii_digit(),
-            });
-        if !shaped {
-            return Err(format!("date {s:?} is not in canonical YYYY-MM-DD form"));
-        }
-        let d = NaiveDate::parse_from_str(s, "%Y-%m-%d")
-            .map_err(|e| format!("invalid date {s:?}: {e}"))?;
+        let d = NaiveDate::parse_iso(s).map_err(|e| match e {
+            ParseError::Invalid => format!("date {s:?} is not in canonical YYYY-MM-DD form"),
+            e => format!("invalid date {s:?}: {e}"),
+        })?;
         if d.year() < 1 {
             return Err(format!(
                 "date {s:?} is before 0001-01-01, the earliest representable date"
@@ -466,7 +459,7 @@ fn default_dep_type() -> DependencyType {
 }
 
 impl Dependency {
-    /// Lag as a chrono Duration in calendar days.
+    /// Lag as a date::Duration in calendar days.
     pub fn lag_days(&self) -> i64 {
         (self.lag / 86400.0).round() as i64
     }
@@ -810,7 +803,7 @@ mod date_serde_tests {
                 }
                 // Fail loudly rather than skip: any NaiveDate mention that is
                 // not the exact recognised form would silently drop out of the
-                // guard (`chrono::NaiveDate`, an alias, `pub(crate)`, a
+                // guard (`date::NaiveDate`, an alias, `pub(crate)`, a
                 // multi-line declaration).
                 let parsed = l.strip_prefix("pub ").and_then(|rest| {
                     let (name, ty) = rest.split_once(':')?;
@@ -828,7 +821,7 @@ mod date_serde_tests {
     }
 
     /// Every date field must refuse a non-canonical value, so an `Option` field
-    /// losing its `deserialize_with` (which falls back to chrono's lenient parse)
+    /// losing its `deserialize_with` (whose own `Deserialize` is canonical-only but has no year-0 floor)
     /// is caught here rather than in production.
     #[test]
     fn every_date_field_refuses_a_non_canonical_value() {

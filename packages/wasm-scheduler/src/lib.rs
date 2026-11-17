@@ -30,6 +30,7 @@
 
 mod backward;
 mod calendar;
+pub mod date;
 mod error;
 mod floats;
 mod forward;
@@ -47,7 +48,7 @@ pub use error::{ErrorKind, SchedulerError};
 
 use std::cell::RefCell;
 
-use chrono::{Datelike, NaiveDate};
+use crate::date::NaiveDate;
 use wasm_bindgen::prelude::*;
 
 use crate::backward::backward_pass;
@@ -304,8 +305,8 @@ impl SchedulerSession {
 
     /// The session epoch as an ISO `YYYY-MM-DD` string — crossed to JS **once**.
     /// Every date column in a [`DragResult`] is a day ordinal relative to this
-    /// epoch: `date = epoch + ordinal days`. Formatted explicitly (chrono is
-    /// built without its `format` feature) — the epoch is the project start, a
+    /// epoch: `date = epoch + ordinal days`. Formatted explicitly (the
+    /// in-crate date type is `YYYY-MM-DD`-only) — the epoch is the project start, a
     /// 4-digit-year date.
     #[wasm_bindgen(getter)]
     pub fn epoch(&self) -> String {
@@ -574,8 +575,8 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::date::NaiveDate;
     use crate::models::*;
-    use chrono::NaiveDate;
 
     fn make_task(id: &str, duration_days: i32) -> Task {
         Task {
@@ -630,12 +631,12 @@ mod tests {
         }];
         let mut d = NaiveDate::from_ymd_opt(2026, 1, 12).unwrap();
         while d < end {
-            let week_end = (d + chrono::Duration::days(4)).min(end);
+            let week_end = (d + crate::date::Duration::days(4)).min(end);
             ranges.push(DateRange {
                 start: d,
                 end: week_end,
             });
-            d += chrono::Duration::days(7);
+            d += crate::date::Duration::days(7);
         }
         ranges
     }
@@ -873,7 +874,7 @@ mod tests {
         // surface a clean Err (via checked_offset_days), never panic and trap the
         // WASM module. Before the fix this panicked at forward.rs.
         let mut p = make_task("P", 1);
-        p.planned_start = Some(NaiveDate::MAX - chrono::Duration::days(5));
+        p.planned_start = Some(NaiveDate::MAX - crate::date::Duration::days(5));
         let project = Project {
             id: "p-overflow".to_string(),
             name: "overflow".to_string(),
@@ -1368,11 +1369,9 @@ mod tests {
         let mut bounds = validate::SessionBounds::new(&project);
 
         // The issue's crafted input: NaiveDate::MAX (262142-12-31), fed as the
-        // ISO string a JS caller would pass — chrono's `%Y` needs an explicit
-        // `+` sign to parse a 6-digit year, so `"+262142-12-31"` is the exact
-        // string that reaches the mutation with date == MAX. (Built from
-        // Datelike::year; chrono is compiled without its `format` feature.)
-        use chrono::Datelike;
+        // ISO string a JS caller would pass — a 6-digit year needs an explicit
+        // `+` sign, so `"+262142-12-31"` is the exact string that reaches the
+        // mutation with date == MAX. (Built from `year()`/`month()`/`day()`.)
         let max_start = format!(
             "+{:04}-{:02}-{:02}",
             NaiveDate::MAX.year(),
@@ -1998,7 +1997,7 @@ mod tests {
         let mut bounds = validate::SessionBounds::new(&project);
         // 365_999 days after the start: under the SNET cap (366_000) but
         // base_span (5) + 365_999 > 366_000.
-        let pin = project.start_date + chrono::Duration::days(365_999);
+        let pin = project.start_date + crate::date::Duration::days(365_999);
         let s = format!("{:04}-{:02}-{:02}", pin.year(), pin.month(), pin.day());
         let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T0", &s).unwrap_err();
         assert!(err.message_str().contains("Total project span"), "{err}");
@@ -2021,7 +2020,7 @@ mod tests {
             t.duration = 10.0 * 86_400.0;
         }
         project.dependencies[0].lag = 400.0 * 86_400.0; // T0 -> T1 of the chain
-        let at = |days: i64| project.start_date + chrono::Duration::days(days);
+        let at = |days: i64| project.start_date + crate::date::Duration::days(days);
         let (p0, p1, p2, st, af) = (at(50), at(300_000), at(300_000), at(365_000), at(100));
         project.tasks[0].planned_start = Some(p0);
         project.tasks[1].planned_start = Some(p1);
@@ -2049,7 +2048,7 @@ mod tests {
             (4, 120),
         ];
         for (i, off) in moves {
-            let d = start + chrono::Duration::days(off);
+            let d = start + crate::date::Duration::days(off);
             let mut oracle = project.clone();
             oracle.tasks[i].planned_start = Some(d);
             let expected = validate::validate_project(&oracle);
@@ -2068,7 +2067,7 @@ mod tests {
         }
         // Lag-term control: base_span must include |lag| (400) - 365_000 + 460 is
         // fine but 365_600 + 60 (lag dropped) would pass while 365_600 + 460 must fail.
-        let d = start + chrono::Duration::days(365_600);
+        let d = start + crate::date::Duration::days(365_600);
         let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T1", &fmt(d)).unwrap_err();
         assert!(err.message_str().contains("Total project span"), "{err}");
     }
@@ -2084,7 +2083,7 @@ mod tests {
             let mut project = span_project(n);
             for (i, t) in project.tasks.iter_mut().enumerate() {
                 t.planned_start =
-                    Some(project.start_date + chrono::Duration::days((i % 3000) as i64));
+                    Some(project.start_date + crate::date::Duration::days((i % 3000) as i64));
             }
             let pg = crate::graph::build_graph(&project).unwrap();
             let mut bounds = validate::SessionBounds::new(&project);
