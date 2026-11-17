@@ -293,6 +293,21 @@ mod tests {
     }
 
     #[test]
+    fn min_and_max_bounds_round_trip() {
+        assert_eq!(NaiveDate::MIN.to_string(), "-262143-01-01");
+        for b in [NaiveDate::MIN, NaiveDate::MAX] {
+            assert_eq!(
+                NaiveDate::from_ymd_opt(b.year(), b.month(), b.day()),
+                Some(b)
+            );
+            assert_eq!(
+                NaiveDate::from_num_days_from_ce_opt(b.num_days_from_ce()),
+                Some(b)
+            );
+        }
+    }
+
+    #[test]
     fn known_ce_ordinals() {
         assert_eq!(d(1, 1, 1).num_days_from_ce(), 1);
         assert_eq!(d(1970, 1, 1).num_days_from_ce(), 719_163);

@@ -270,7 +270,7 @@ def test_parse_reject_fixture_rejected_at_parse(parse_reject_name: str) -> None:
     These documents are valid JSON but carry a date in a lenient ISO-8601 form
     (compact ``20260401``, week-date ``2026-W15-1``, ordinal ``2026-092``) that
     Python 3.11+ ``date.fromisoformat`` would happily accept while the Rust
-    engine's chrono ``NaiveDate`` serde (``%Y-%m-%d`` only) fails at parse time.
+    engine's strict ``YYYY-MM-DD`` parser fails at parse time.
     The contract is strict ``YYYY-MM-DD`` — the canonical ``to_json`` output —
     so Python must reject these in ``from_dict`` (before any scheduling), in
     parity with Rust's serde parse failure asserted in
