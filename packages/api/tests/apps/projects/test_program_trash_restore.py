@@ -220,3 +220,82 @@ def test_subtree_soft_delete_is_restorable(program: Program, owner: Any) -> None
     # a project — that stays the project Owner's call.
     assert a.program_id == program.pk
     assert a.is_deleted is True
+
+
+@pytest.mark.django_db
+def test_restore_bumps_membership_sync_cursor(program: Program, owner: Any, viewer: Any) -> None:
+    """A client that full-synced while the program was trashed never received the
+    memberships (the roster filters ``program__is_deleted=False``); the restore must
+    move their cursor past that client's checkpoint or they stay hidden for good."""
+    _delete(owner, program)
+    before = {
+        m.pk: (m.sync_seq, m.server_version)
+        for m in ProgramMembership.objects.filter(program=program)
+    }
+    assert len(before) == 2
+
+    assert _client(owner).post(f"/api/v1/programs/{program.pk}/restore/").status_code == 200
+
+    for m in ProgramMembership.objects.filter(program=program):
+        old_seq, old_version = before[m.pk]
+        assert m.sync_seq > old_seq
+        assert m.server_version == old_version + 1
+    # Every membership shares the one draw, and the program row's own cursor is not
+    # behind it for a client that pulls programs before memberships.
+    assert len({m.sync_seq for m in ProgramMembership.objects.filter(program=program)}) == 1
+
+
+@pytest.mark.django_db
+def test_trash_hides_opted_out_program_from_agent_token(program: Program, owner: Any) -> None:
+    """ADR-0678: an agent (MCP) token must not see a trashed program that opted out."""
+    import secrets
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+    from trueppm_api.apps.projects.models import SCOPE_MCP_READ, ApiToken
+
+    _delete(owner, program)
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="agent",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_MCP_READ],
+        expires_at=timezone.now() + timedelta(days=30),
+    )
+    agent = APIClient()
+    agent.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+    # Control: consenting program is visible to the agent.
+    assert [r["id"] for r in agent.get("/api/v1/programs/trash/").json()] == [str(program.pk)]
+
+    Program.objects.filter(pk=program.pk).update(mcp_enabled=False)
+    assert agent.get("/api/v1/programs/trash/").json() == []
+    # The same program is still listed for its human owner.
+    assert [r["id"] for r in _client(owner).get("/api/v1/programs/trash/").json()] == [
+        str(program.pk)
+    ]
+
+
+@pytest.mark.django_db
+def test_concurrent_restore_losing_the_lock_is_404(program: Program, owner: Any) -> None:
+    """A second restore that passes the view's unlocked lookup but loses the row lock
+    raises ``Program.DoesNotExist`` in the service; that must be the 404 a
+    double-submit gets, not a 500."""
+    from trueppm_api.apps.projects import services
+
+    _delete(owner, program)
+    real = services.restore_program
+
+    def lose_the_race(prog: Any, *, actor: Any) -> list[str]:
+        # The winner commits between the view's lookup and this call's lock.
+        Program.objects.filter(pk=prog.pk).update(is_deleted=False)
+        return real(prog, actor=actor)
+
+    with patch.object(services, "restore_program", lose_the_race):
+        resp = _client(owner).post(f"/api/v1/programs/{program.pk}/restore/")
+    assert resp.status_code == 404, resp.content

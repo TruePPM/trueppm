@@ -7286,7 +7286,10 @@ def restore_program(program: Any, *, actor: Any) -> list[str]:
     * **A program that lost its key gets a fresh one.** A seed re-import hands the
       replaced program's key to its rebuilt successor (ADR-1237), so the shell can
       come back keyless; deriving a new key mirrors ``ProjectViewSet.restore``.
-    * Memberships were left live by the delete, so nothing is restored there.
+    * Memberships were left live by the delete, so no row is restored — but their
+      ``sync_seq`` / ``server_version`` are bumped. The sync roster filters
+      ``program__is_deleted=False``, so a client that full-synced while the program
+      was trashed never received them and the old cursor would hide them for good.
 
     Returns:
         The ids of the live projects that were re-attached — the ones whose open
@@ -7295,11 +7298,20 @@ def restore_program(program: Any, *, actor: Any) -> list[str]:
     Raises:
         KeyAssignmentError: a fresh key could not be derived; the caller rolls back.
     """
-    from trueppm_api.apps.projects.models import ObjectKeySource, Program, Project
+    from django.db.models import F
 
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.projects.models import ObjectKeySource, Program, Project
+    from trueppm_api.apps.sync.sequence import allocate_program_seq
+
+    # Raises Program.DoesNotExist when a concurrent restore already won the lock;
+    # the view maps that to the same 404 an already-restored program gets.
     locked = Program.objects.select_for_update().get(pk=program.pk, is_deleted=True)
     detached = list(locked.detached_project_ids or [])
     locked.restore()
+    ProgramMembership.objects.filter(program=locked).update(
+        server_version=F("server_version") + 1, sync_seq=allocate_program_seq()
+    )
     if not locked.code:
         assign_key(
             locked,

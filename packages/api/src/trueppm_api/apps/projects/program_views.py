@@ -2572,6 +2572,11 @@ class ProgramViewSet(
             except KeyAssignmentError as exc:
                 transaction.set_rollback(True)
                 return Response({"code": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
+            except Program.DoesNotExist:
+                # A concurrent restore won the row lock after the unlocked lookup
+                # above: same outcome as a double-submit, so the same 404.
+                transaction.set_rollback(True)
+                raise Http404 from None
 
         # Program-scoped events cannot reach a client yet (#836), so the signal an
         # open tab can act on is per project: each re-attached live project's
