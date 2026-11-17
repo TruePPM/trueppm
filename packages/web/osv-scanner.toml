@@ -92,3 +92,38 @@ ecosystem = "npm"
 ignore = true
 effectiveUntil = 2027-03-31
 reason = "GHSA-g3hv-75wg-m249: fixed only in >= 11.0.1; 5.1.9 is the newest 5.x release and @redocly/openapi-core pins it exactly. Dev-only (API docs tooling). Not bundled; inputs are our own OpenAPI files. Tracked in #4680."
+
+# GHSA-fc5q-39xc-vjpf — picomatch ReDoS through single-branch repeated extglobs
+# (HIGH, CWE-1333; the OSV gate scores it 8.7). `first_patched_version: null`
+# and npm's `latest` IS 4.0.7, the newest flagged version, so there is nothing
+# to bump to in the 2.x or 4.x line; confirmed against the npm registry and the
+# GHSA API. Each resolution below is pinned by name + version so a future
+# advisory against a version we do upgrade to still blocks the pipeline.
+#
+# Glob matching inside build/test tooling only, never bundled; the patterns are
+# the toolchain's own config, not user or network input. Re-evaluate when
+# picomatch ships any release past 4.0.7. Tracked in #5060.
+
+[[PackageOverrides]]
+name = "picomatch"
+version = "2.3.2"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2027-02-28
+reason = "GHSA-fc5q-39xc-vjpf: no patched release exists in any line — advisory range is <= 4.0.7 with first_patched_version null, and npm `latest` is 4.0.7, the flagged version itself. Dev-only, glob matching in vite/vitest/knip/tinyglobby (devDependencies). Not bundled; patterns come from our own tool config, not user input. Tracked in #5060."
+
+[[PackageOverrides]]
+name = "picomatch"
+version = "4.0.4"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2027-02-28
+reason = "GHSA-fc5q-39xc-vjpf: no patched release exists in any line — advisory range is <= 4.0.7 with first_patched_version null, and npm `latest` is 4.0.7, the flagged version itself. Dev-only, glob matching in vite/vitest/knip/tinyglobby (devDependencies). Not bundled; patterns come from our own tool config, not user input. Tracked in #5060."
+
+[[PackageOverrides]]
+name = "picomatch"
+version = "4.0.7"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2027-02-28
+reason = "GHSA-fc5q-39xc-vjpf: no patched release exists in any line — advisory range is <= 4.0.7 with first_patched_version null, and npm `latest` is 4.0.7, the flagged version itself. Dev-only, glob matching in vite/vitest/knip/tinyglobby (devDependencies). Not bundled; patterns come from our own tool config, not user input. Tracked in #5060."
