@@ -247,6 +247,8 @@ point, and treat it as you would any file containing contact information.
 
 :::note[Ships in 0.5]
 The integrity manifest ships in 0.5. Bundles built by 0.4 carry no digests; they still import, but cannot be verified.
+
+Program Trash and restore also ship in 0.5, which changes the replaced-program note under "Trash holds the projects". In the current release the replaced program shell is not recoverable.
 :::
 
 From 0.5, every export bundle records SHA-256 digests so you can prove an archive

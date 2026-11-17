@@ -214,6 +214,17 @@ no restore endpoint, and no `deleted_at` / `deleted_by` to build one on.
   hands its key to the rebuild, ADR-1237) gets a fresh derived key, as a project does.
 - **No retention window.** There is no program purge, so a trashed program stays until an
   operator removes it; `days_remaining` is deliberately absent from the list payload.
-- **API only for now.** The web app has no program Trash page; adding one to
-  `WorkspaceTrashPage` is follow-up work. The recovery is real, but a user reaches it
-  through the API, and the posture row says so.
+- **API only for now.** The web app has no program Trash page:
+  `WorkspaceTrashPage` does not list programs, and program recovery is API-only today.
+  The posture row says so.
+- **Restore skips ADR-0070's project-side consent check.** It re-attaches the recorded
+  still-unparented projects without the project Admin consent that attaching a project
+  to a program normally needs. It exposes nothing new: program membership reaches only
+  roster and rollup metadata, and `live_member_project_ids` keeps project content gated.
+  The cost is that a project left standalone on purpose after the delete is pulled back
+  into the program, and a project re-attached while it sits in project Trash rejoins the
+  program when its Owner restores it.
+- **Restore bumps the memberships' sync cursor.** The roster filters
+  `program__is_deleted=False`, so a client that full-synced while the program was trashed
+  never received the rows; `restore_program` advances their `sync_seq` and
+  `server_version` so the next delta delivers them.

@@ -6,6 +6,8 @@ description: How TruePPM bounds its transactional outbox and audit tables with p
 
 :::note[Ships in 0.5]
 The one-time deprecation warning when a legacy bare retention name is read, and the 1.0 removal of those names, ship in 0.5. Empty prefixed values count as unset from 0.5.
+
+Program Trash and program restore (`GET /api/v1/programs/trash/`, `POST /api/v1/programs/{id}/restore/`) also ship in 0.5. In the current release a deleted program is not recoverable.
 :::
 
 :::note[Added in 0.2 (alpha)]
@@ -304,10 +306,10 @@ recover it before the countdown reaches zero.
 
 :::caution[Projects replaced by a seed re-import come back standalone]
 Re-importing a JSON seed over a program you own sends that program's projects to Trash
-individually, **detached from the program at delete time**. Restoring one puts the project
-back as a standalone project — it does not return to the program it belonged to, because
-the program shell is gone and is not itself recoverable
-([#2587](https://gitlab.com/trueppm/trueppm/-/issues/2587)). See
+individually, **detached from the program at delete time**. Restoring a project while its
+program is still deleted puts it back as a standalone project. A Program Admin can restore
+the program shell from program Trash through the API; if the program is restored first, a
+project restored afterwards comes back under it. See
 [Data export](/administration/data-export/#check-a-file-before-you-import-it).
 :::
 
