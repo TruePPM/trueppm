@@ -54,8 +54,7 @@ repos:
   # Pre-push gate — checks that require the full codebase state and are NOT
   # covered by the per-file commit hooks above: web eslint and tsc (no
   # commit-time hook because cross-file TS errors need a project-wide pass),
-  # missing migrations, and stale openapi.json. Requires `make up` (migrations
-  # needs a live DB).
+  # missing migrations (DB-free, like CI), and stale openapi.json.
   - repo: local
     hooks:
       - id: pre-push-ci-gates
