@@ -12,10 +12,12 @@ The Rust engine mirrors the fix, so the conformance snapshots only prove the two
 agree. The independent oracle here is twofold: the identity itself, asserted over
 the full link matrix and the plausible-project fuzz generator, and a slip test on
 the reported shape (pin the milestone to its shown late start and the finish must
-not move; one working day later and it must).
+not move; one working day later and it must). A third test pins the disclosed
+limit: when the *predecessor* puts the milestone on that late start, the finish
+still moves.
 
-The matrix test and the known-answer test fail against the pre-fix engine. The
-two Hypothesis properties did not under the derandomized CI profile (the
+The matrix, known-answer, slip and predecessor tests fail against the pre-fix
+engine. The two Hypothesis properties did not under the derandomized CI profile (the
 plausible generator rarely builds a calendar-day lag onto a weekend midnight), so
 they widen coverage under ``scheduler:fuzz-deep`` but are not the regression
 witness.
@@ -40,7 +42,7 @@ from trueppm_scheduler import (
     Task,
     schedule,
 )
-from trueppm_scheduler.engine.calendar_math import _working_days_between
+from trueppm_scheduler.engine.calendar_math import _next_working_day, _working_days_between
 
 MON = date(2027, 3, 1)
 SAT = date(2027, 3, 6)
@@ -162,14 +164,18 @@ def test_total_float_is_shown_span_with_per_task_calendars(project: Project) -> 
     _assert_float_is_shown_span(project, result)
 
 
-def _lagged_out(pin: date | None = None) -> Project:
-    """``P -SS-> M -FS+3cd-> S`` beside 12 days of work: M's late instant is Saturday 00:00."""
+def _lagged_out(pin: date | None = None, pred_pin: date | None = None) -> Project:
+    """``P -SS-> M -FS+3cd-> S`` beside 12 days of work: M's late instant is Saturday 00:00.
+
+    ``pin`` holds M itself (``planned_start``); ``pred_pin`` holds P, so the SS
+    link is what places M.
+    """
     return Project(
         "p",
         "p",
         MON,
         [
-            Task("P", "P", timedelta(days=3)),
+            Task("P", "P", timedelta(days=3), planned_start=pred_pin),
             Task("M", "M", timedelta(0), planned_start=pin),
             Task("S", "S", timedelta(days=1)),
             Task("L", "L", timedelta(days=12)),
@@ -194,16 +200,63 @@ def test_start_of_day_milestone_late_start_is_the_monday_its_float_runs_to() -> 
     assert m.total_float == timedelta(days=10)
 
 
-@pytest.mark.parametrize(
-    ("pin", "finish_moves"),
-    [(date(2027, 3, 15), False), (date(2027, 3, 16), True)],
-)
+def _task(result: ScheduleResult, task_id: str) -> Task:
+    return next(t for t in result.tasks if t.id == task_id)
+
+
+@pytest.mark.parametrize(("working_days_past", "finish_moves"), [(0, False), (1, True)])
 def test_pinning_the_milestone_at_its_late_start_does_not_move_the_finish(
-    pin: date, finish_moves: bool
+    working_days_past: int, finish_moves: bool
 ) -> None:
-    """Slip oracle: the shown late start is a date the milestone can really be moved to."""
-    base = schedule(_lagged_out()).project_finish
+    """Slip oracle: the shown late start is the last day the milestone can be held on.
+
+    The pin is derived from the *reported* late start, not hard-coded, so this
+    fails if the late start is shown on a day short of the real one: on the pre-fix
+    engine (late start Friday 03-12) holding M on the next working day, Monday
+    03-15, leaves the finish where it was, and the ``(1, True)`` case fails.
+    """
+    base = schedule(_lagged_out())
+    shown_late = _task(base, "M").late_start
+    assert shown_late is not None
+    pin = shown_late
+    for _ in range(working_days_past):
+        pin = _next_working_day(pin + timedelta(days=1), Calendar())
     pinned = schedule(_lagged_out(pin))
-    m = next(t for t in pinned.tasks if t.id == "M")
-    assert m.early_start == pin
-    assert (pinned.project_finish != base) is finish_moves
+    assert _task(pinned, "M").early_start == pin
+    assert (pinned.project_finish != base.project_finish) is finish_moves
+
+
+def test_predecessor_placing_the_milestone_on_its_late_start_moves_the_finish() -> None:
+    """Pins the disclosed limit of the shown late start (#4528); see the conventions page.
+
+    M's late start (Monday 03-15) is the latest M can start in working time *when M
+    itself is held there*: a milestone pinned to Monday links from Saturday 00:00,
+    the same working-time point. When its predecessor is what puts it on that
+    Monday, the SS link places M at Monday 00:00, and the calendar-day lag to S then
+    runs from Monday rather than Saturday, so S lands on Thursday 03-18 and the
+    finish moves two working days. (P itself is past its own late start, Friday
+    03-12, by then.) Whether lag should count working or calendar days is #2535 and
+    is not decided here.
+
+    If either half changes, an engine or doc decision changed: a late start shown
+    on Friday again fails the ``m_late`` lines, and a predecessor-driven Monday
+    that stops moving the finish fails the ``project_finish`` lines. Update the
+    conventions page and changelog with it rather than this test alone.
+    """
+    base = schedule(_lagged_out())
+    m_late = _task(base, "M").late_start
+    assert m_late == date(2027, 3, 15)
+    assert _task(base, "P").late_start == date(2027, 3, 12)
+    assert base.project_finish == date(2027, 3, 16)
+
+    held_itself = schedule(_lagged_out(pin=m_late))
+    assert _task(held_itself, "M").early_start == m_late
+    assert held_itself.project_finish == base.project_finish
+
+    held_by_pred = schedule(_lagged_out(pred_pin=m_late))
+    m = _task(held_by_pred, "M")
+    assert m.early_start == m_late
+    assert not m.milestone_at_day_end
+    assert _task(held_by_pred, "S").early_start == date(2027, 3, 18)
+    assert held_by_pred.project_finish == date(2027, 3, 18)
+    assert _working_days_between(base.project_finish, held_by_pred.project_finish, Calendar()) == 2

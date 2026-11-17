@@ -445,10 +445,13 @@ pub fn backward_pass(
             // early start and its shown late start, which `late_display` already
             // caps at `project_finish`. It is a semantic choice with effects beyond
             // the reported tie (a floored milestone, `X -SF-> M`: 5 -> 4 days, and
-            // new critical milestones), and not a general invariant: a start-of-day
-            // milestone whose late instant is a weekend midnight before the finish
-            // is still shown late on the Friday while its float runs through it.
-            // Mirrors the Python `_float_late_instant`.
+            // new critical milestones). The cap alone does not make float the
+            // shown-day span everywhere: it only reaches a late instant past the
+            // last working day of `project_finish`. The remaining class, a
+            // start-of-day milestone whose late instant is a non-working midnight
+            // before the finish, is shown on the next working day by
+            // `late_display` (#4528), so `total_float` equals the shown span for
+            // every milestone. Mirrors the Python `_float_late_instant`.
             // Summarized from the direct inheritors' summaries, never by listing
             // paths (#4526): O(C) per link, C the distinct inheritor calendars.
             let mut summary = Inheritors::default();

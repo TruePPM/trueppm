@@ -231,6 +231,21 @@
       "issue": "#4431",
       "evidence": "62a00a138: last change carries no regeneration or hand-derivation statement"
     },
+    "expected/milestone_start_of_day_late_start_after_lag_weekend.json": {
+      "provenance": "regenerated",
+      "issue": "#4528",
+      "evidence": "#4528: REGEN_EXPECTED=1 snapshot of the Python engine; hand-checked total_float == working days [early_start, late_start) for every task (M: Mon 03-01 -> Mon 03-15, 10 days; S's late start Tue 03-16 less the 3-calendar-day lag is Sat 03-13 00:00, shown Mon 03-15); fails the pre-fix Rust late_display (M late_start Fri 03-12)"
+    },
+    "expected/milestone_start_of_day_late_start_after_lag_weekend_data_date.json": {
+      "provenance": "regenerated",
+      "issue": "#4528",
+      "evidence": "#4528: REGEN_EXPECTED=1 snapshot of the Python engine; hand-checked total_float == working days [early_start, late_start) for every task (data date Wed 03-03; M: Wed 03-03 -> Mon 03-15, 8 days, where the pre-fix engine showed Fri 03-12 with the same float)"
+    },
+    "expected/milestone_start_of_day_late_start_capped_at_finish.json": {
+      "provenance": "regenerated",
+      "issue": "#4528",
+      "evidence": "#4528: REGEN_EXPECTED=1 snapshot of the Python engine; hand-checked total_float == working days [early_start, late_start) for every task (M's late instant is the finish instant Sat 03-13 00:00; the next working day Mon 03-15 is past project_finish Fri 03-12, so the Friday is kept: M Mon 03-01 -> Fri 03-12, 9 days)"
+    },
     "expected/milestone_start_of_day_ties_finish_instant.json": {
       "provenance": "unknown",
       "issue": "#4183",
@@ -785,6 +800,21 @@
       "provenance": "unknown",
       "issue": "#4431",
       "evidence": "62a00a138: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_start_of_day_late_start_after_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#4528",
+      "evidence": "added for #4528; input fixture, no hand-derivation claimed"
+    },
+    "milestone_start_of_day_late_start_after_lag_weekend_data_date.json": {
+      "provenance": "unknown",
+      "issue": "#4528",
+      "evidence": "added for #4528; input fixture, no hand-derivation claimed"
+    },
+    "milestone_start_of_day_late_start_capped_at_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4528",
+      "evidence": "added for #4528; input fixture, no hand-derivation claimed"
     },
     "milestone_start_of_day_ties_finish_instant.json": {
       "provenance": "unknown",

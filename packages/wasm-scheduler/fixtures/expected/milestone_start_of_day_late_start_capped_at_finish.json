@@ -1,0 +1,50 @@
+{
+  "project_id": "p-milestone-sod-late-start-capped-at-finish",
+  "project_start": "2027-03-01",
+  "project_finish": "2027-03-12",
+  "tasks": [
+    {
+      "id": "P",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-03",
+      "late_start": "2027-03-10",
+      "late_finish": "2027-03-12",
+      "total_float": 604800.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "M",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-01",
+      "late_start": "2027-03-12",
+      "late_finish": "2027-03-12",
+      "total_float": 777600.0,
+      "free_float": 777600.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "L",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-12",
+      "late_start": "2027-03-01",
+      "late_finish": "2027-03-12",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-01"
+    }
+  ],
+  "critical_path": [
+    "L"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "P",
+      "successor_id": "M",
+      "dep_type": "SS"
+    }
+  ]
+}
