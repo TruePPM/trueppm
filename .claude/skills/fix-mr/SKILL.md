@@ -64,7 +64,7 @@ one of them is already an answer:
 |---|---|---|
 | `failed` | `mergeable` | Step 2 (pipeline only) |
 | `success` | `conflict` | **Step 4j** (conflict only) |
-| `failed` | `conflict` | **Step 4j first** — merging `main` often clears the red too (see 4j) |
+| `failed` | `conflict` | **Step 4j first** — rebasing onto `main` often clears the red too (see 4j) |
 | `success` | `mergeable` | Step 7 — genuinely done |
 | `running`/`pending` | either | Step 6, then re-read both |
 
@@ -106,6 +106,10 @@ glab job log <JOB_ID>
 ```
 
 Read the **last 100 lines** first — most failures surface at the end. Scroll up only if the error references an earlier step.
+
+**Read every failed job's log tail up front, in parallel**, before fixing anything, and
+cluster the failures by root cause — one bad import often reds several jobs. Diagnose a
+failure as soon as its job fails; do not wait for the rest of the pipeline to finish.
 
 ---
 
@@ -151,11 +155,11 @@ Match the log output to one of these categories, then follow the fix procedure.
 - The import must be removed or moved behind a feature flag / plugin hook
 - Flag to user before proceeding
 
-### 4g. CHANGELOG check failure
-- Error looks like: `CHANGELOG.md [Unreleased] section not updated`
-- Add an entry to the `[Unreleased]` block under the correct heading (`### Added`, `### Changed`, or `### Fixed`)
-- Never create a duplicate heading within the same release block
-- Commit: `docs: update CHANGELOG for <feature>`
+### 4g. Changelog check failure
+- Error looks like: `changelog:check` finding no fragment
+- Add a fragment `changelog.d/<issue-or-slug>.<type>.md` (types: `added`, `changed`, `fixed`, `security`). **Never edit `CHANGELOG.md` directly.**
+- `changelog:check` only auto-exempts `chore|ci|docs/` branches. A `feat/` branch that is really a chore needs the `no-changelog` label instead: `glab mr update <MR> --label no-changelog`
+- Commit: `docs: add changelog fragment for <feature>`
 
 ### 4h. Docker build / Helm lint failure
 - Run locally if possible: `docker build -f packages/api/Dockerfile .` or `helm lint packages/helm`
@@ -185,42 +189,73 @@ git rev-list --left-right --count HEAD...origin/<branch>  # LEFT=ahead RIGHT=beh
 |---|---|---|
 | `N / 0` | local is strictly ahead | a plain **non-force** push clears it — done |
 | `0 / N` | another session pushed | do not build on this HEAD; sync first |
-| `N / M` | diverged — usually an unpushed **amend** | confirm with `git rev-parse HEAD^` vs `git rev-parse origin/<branch>^`; identical parents means the local commit *replaces* the remote one, and landing it needs a force-push — confirm with the user first |
+| `N / M` | diverged — usually an unpushed **amend** | confirm with `git rev-parse HEAD^` vs `git rev-parse origin/<branch>^`; identical parents means the local commit *replaces* the remote one, and landing it needs a force-push — confirm with the user first (a plain `--force` always needs confirmation) |
 
 **Then resolve, if there is genuinely something to resolve:**
 
 ```bash
 git fetch origin
-git merge origin/main
+git rebase origin/main
 ```
 
-Prefer **merge over rebase** — it needs no force-push, so the "do not rebase or
-force-push without user confirmation" rule below stays satisfied without a round trip.
+**Rebase, never merge `main`.** That is the user's standing preference (it matches
+`/wave` Step 6 item 7); never add a `chore: merge main` commit. Rebasing the MR's own
+branch and pushing with `git push --force-with-lease` needs no confirmation
+(`--force-with-lease` is allowed by `.claude/hooks/pre-bash-deny.sh`). Still confirm
+first for plain `--force`, for rewriting another author's commits, and for the diverged
+`N / M` row above.
+
+**Rebase only when you are pushing anyway.** A rebase whose sole purpose is tidying
+history cancels the running pipeline and starts another. The exception is a stale-base
+red (0 jobs, `yaml_errors: null`), which is failing regardless.
+
+If the branch already carries a merge commit from `main`, the rebase can conflict
+spuriously. Abort (`git rebase --abort`) and report rather than hand-resolving.
 
 **Resolve in place, between the conflict markers.** Never rebuild a conflicted file
-from `git show :2:<path>`. Stage 2 is the branch's *pre-merge* blob, so copying it over
-the working-tree file silently discards every hunk the merge already auto-settled
-elsewhere in that same file — and `git status` still reports the file resolved. The
-tell is a test failing on a symbol your change never mentions, in a block the *other*
-branch contributed.
+from `git show :2:<path>` or `:3:<path>` — under rebase ours/theirs are swapped, so
+neither stage is "your side", and either one is a *single-sided* blob that silently
+discards every hunk git already auto-settled elsewhere in that same file while
+`git status` still reports the file resolved. The tell is a test failing on a symbol
+your change never mentions, in a block the *other* branch contributed.
 
-**After merging `main`, check the two things a merge commonly breaks:**
-- `ls changelog.d/` — a merge can leave a **duplicate** changelog fragment
+**After the rebase, check the two things an integration commonly breaks:**
+- `ls changelog.d/` — can leave a **duplicate** changelog fragment
 - Migration numbers and `packages/web/CLAUDE.md` rule numbers — these collide only on
-  the *merged* tree, so both sides were green alone
+  the *integrated* tree, so both sides were green alone
 
-Then `make pre-push` and push. Commit: `chore: merge main to resolve conflicts`
-(a merge commit's default message is fine).
+Then `make pre-push` (logged to a file) and `git push --force-with-lease`.
 
 **Why to do this before diagnosing a red pipeline.** A stale merge base is one of the
 two causes of a pipeline that fails instantly with **0 jobs and `yaml_errors: null`**
-(the other is job-quota exhaustion). Merging `main` clears that shape. More generally,
+(the other is job-quota exhaustion). Rebasing onto `main` clears that shape. More generally,
 a gate that reds while naming your files is frequently a stale base rather than your
 diff.
 
+### 4k. Red with no code cause, and CI-only reds
+
+Do not debug code that is not broken. Match the shape first:
+
+| Red shape | Action |
+|---|---|
+| 0 jobs, `yaml_errors: null` | Stale base or job-quota exhaustion — rebase (4j) or wait; not a code fix |
+| `lint:todo-grep` failing closed on an API timeout | Retry the job |
+| `boundary:check` red from a tracker label edit | Fix the label, not the code |
+| Helm gates | They discriminate by path — check whether your diff touches the path before debugging |
+| `success` hiding a failed `allow_failure` job | Query the jobs, not the pipeline summary |
+
+Reds that only appear in CI, because local scoped runs and `make pre-push` miss them:
+- A new URL route reds `api:test` via `test_role_route_matrix.py` until the route is added to its oracle.
+- A scheduler `pyproject.toml` specifier change needs `uv lock`; pre-push is green without it.
+
 ---
 
-## Step 5 — Apply fix, commit, push
+## Step 5 — Reproduce locally, fix everything, push once
+
+Before every push, run the failing job's local equivalent (scoped `pytest`, `tsc`, the
+specific Playwright spec, or the gate script), then `make pre-push > prepush.log 2>&1`
+and read the tail. Fix each root-cause cluster from Step 3 as its own commit, then
+push **once** for all of them — every push is a full pipeline.
 
 ```bash
 # Stage only the files you changed
@@ -232,12 +267,15 @@ fix(<scope>): <description of what was broken and why>
 
 <optional body explaining root cause>
 
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Co-Authored-By: Claude <model> <noreply@anthropic.com>
 EOF
 )"
 
-git push
+git push    # after a rebase: git push --force-with-lease
 ```
+
+Fill `<model>` in the trailer with the model running this session; do not copy a name
+from an earlier commit.
 
 **Never use `--no-verify` to skip hooks.** If a pre-commit hook fails, fix the underlying issue.
 
@@ -245,26 +283,41 @@ git push
 
 ## Step 6 — Wait and watch
 
-After pushing, poll until the pipeline completes:
+After pushing, wait on the MR's pipeline, not the branch's — `--ref=<branch>` shows the
+frozen pre-MR success (see Step 1):
 
 ```bash
-# Watch pipeline status (poll every 30s)
-glab pipeline list --ref=<branch> | head -3
+glab api "projects/:id/merge_requests/<MR>" | jq -r '.head_pipeline | "\(.id) \(.status)"'
 ```
 
-Or open in browser:
-```bash
-glab mr view <MR> --web
-```
+Use a background wait or a scheduled wakeup rather than polling every 30 seconds, and
+act on the first failed job instead of waiting for the whole pipeline. If it fails
+again, return to Step 3 with the new job logs, subject to the strike rule below.
 
-Wait for the pipeline to finish. If it fails again, return to Step 3 with the new job logs.
+---
+
+## Escalation and the strike rule
+
+**Strike rule.** If the same job fails twice with no new diagnosis, stop pushing and ask
+the user. Never loop a third time on the same failure. A new diagnosis means a different
+root cause, not a different guess at the same one.
+
+**Escalate to Opus** (this skill pins `model: sonnet`) when any of these holds, and name
+the criterion in the report:
+- 4c, where either the test or the code could be wrong — that is a design judgment
+- 4j conflicts in scheduler, sync, or migration files
+- a red job whose root cause is not in the log tail
+
+`/fix-mr` runs in the user's main session, so escalating means recommending that the user
+rerun it on Opus, or spawning one Opus agent for that diagnosis only. There is no tier
+above Opus: a pipeline Opus cannot diagnose after a strike-two stop goes to the user.
 
 ---
 
 ## Step 7 — Confirm green AND mergeable
 
 Re-read both axes — the same call as Step 1. A fix pushed for one axis can change the
-other (merging `main` re-runs the pipeline; a new commit re-evaluates mergeability):
+other (rebasing onto `main` re-runs the pipeline; a new commit re-evaluates mergeability):
 
 ```bash
 glab api "projects/:id/merge_requests/<MR>" | jq -r '
@@ -316,6 +369,7 @@ exactly the git-workflow rule this repo forbids.
 - **Check both axes before reporting anything** — a green pipeline is half the answer; `detailed_merge_status` is the other half
 - **Fix root causes only** — never skip tests, suppress lint rules inline, or cast types to silence errors
 - **One fix per commit** — do not bundle unrelated fixes in the same commit
-- **Do not rebase or force-push** without user confirmation — prefer new commits on top of the branch
+- **Rebase onto `origin/main`, never merge it** — push with `--force-with-lease`; plain `--force`, another author's commits, and a diverged branch still need user confirmation (4j)
+- **Stop at two strikes, escalate by the list** — see Escalation and the strike rule
 - **Stop and ask** if the fix requires changing behaviour that the user should sign off on (e.g. a test was asserting something that turns out to be wrong by design)
 - **Stop and ask** on OSS/Enterprise boundary violations — do not guess the architectural solution
