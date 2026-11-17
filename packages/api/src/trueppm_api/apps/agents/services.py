@@ -246,7 +246,10 @@ def record_agent_action(
     if not sample:
         transaction.on_commit(
             lambda: dispatch_extension_signal(
-                agent_action_recorded, sender=AgentAction, action=entry
+                agent_action_recorded,
+                sender=AgentAction,
+                action=entry,
+                action_id=str(entry.pk),
             )
         )
     return entry

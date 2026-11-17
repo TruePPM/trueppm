@@ -568,6 +568,7 @@ _SPLIT_DOES_NOT_CARRY = {
     "effort_estimate": _RE_ESTIMATED,
     "own_estimate": _RE_ESTIMATED,
     "estimate_status": _RE_ESTIMATED,
+    "estimate_authority": _RE_ESTIMATED,
     "own_status": _RE_ESTIMATED,
     "confidence": _RE_ESTIMATED,
     "duration": _RE_ESTIMATED,

@@ -172,7 +172,12 @@ def record_audit_event(
         metadata=metadata or {},
     )
     transaction.on_commit(
-        lambda: dispatch_extension_signal(audit_event_created, sender=AuditEvent, audit_event=event)
+        lambda: dispatch_extension_signal(
+            audit_event_created,
+            sender=AuditEvent,
+            audit_event=event,
+            audit_event_id=str(event.pk),
+        )
     )
     return event
 

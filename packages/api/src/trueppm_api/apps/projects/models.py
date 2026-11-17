@@ -2858,6 +2858,21 @@ class EstimateStatus(models.TextChoices):
     ACCEPTED = "accepted", "Accepted"
 
 
+class EstimateAuthority(models.TextChoices):
+    """Who was permitted to author a task's three-point estimate (#2646).
+
+    ``estimate_status`` is ``None`` under both ``open`` and ``pm_only``, so it
+    cannot tell a reader whether a range is PM-authored or contributor-authored.
+    This is the discriminating server fact, stamped at write time from the
+    project's ``estimation_mode``. It is ``None`` for rows written before the field
+    existed ("unknown"): grandfathered rows are flagged, not backfilled, because a
+    backfill would have to guess the mode in force at each historical write.
+    """
+
+    PM_AUTHORED = "pm_authored", "PM authored"
+    OPEN = "open", "Open (any member)"
+
+
 class DurationUnit(models.TextChoices):
     """Unit a task's estimate is authored and displayed in (#2975).
 
@@ -3982,6 +3997,19 @@ class Task(VersionedModel):
         null=True,
         db_index=True,
         help_text="Approval state for three-point estimates (suggest_approve mode only).",
+    )
+    estimate_authority = models.CharField(  # noqa: DJ001 — null means "unknown/not stamped"
+        max_length=12,
+        choices=EstimateAuthority.choices,
+        null=True,
+        blank=True,
+        help_text=(
+            "Trust level of the estimate's author, stamped from the project's "
+            "estimation_mode when an estimate is created or edited (open / "
+            "pm_only). Null means either suggest_approve (read estimate_status, "
+            "which is then non-null, to tell) or a row that predates the field "
+            "or was imported with its estimate accepted directly."
+        ),
     )
 
     # Timestamp of the most recent status column transition.  Auto-set by save()

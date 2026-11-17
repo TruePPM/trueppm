@@ -210,3 +210,9 @@ aggregation, and SOC 2-aligned export. It does this by registering a receiver
 against the OSS `audit_event_created` signal — the community core never imports
 Enterprise code. If you need a defensible audit trail for compliance, that is an
 Enterprise capability.
+
+For extension authors: the `audit_event_created` signal carries `audit_event_id` (a
+stringified UUID) alongside the `audit_event` instance. New receivers should bind to
+the id and re-read the committed row; the `audit_event` kwarg is deprecated and will be
+withdrawn only in a release that announces it. The `agent_action_recorded` signal
+follows the same pattern with `action_id` and `action`.

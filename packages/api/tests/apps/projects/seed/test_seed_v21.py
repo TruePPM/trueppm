@@ -517,8 +517,11 @@ def test_non_sample_record_still_dispatches_the_extension_signal(
 
     received: list[Any] = []
 
+    received_ids: list[str] = []
+
     def _receiver(**kwargs: Any) -> None:
         received.append(kwargs["action"])
+        received_ids.append(kwargs["action_id"])
 
     agent_action_recorded.connect(_receiver, weak=False)
     try:
@@ -536,6 +539,8 @@ def test_non_sample_record_still_dispatches_the_extension_signal(
         agent_action_recorded.disconnect(_receiver)
     assert len(received) == 1
     assert received[0].actor_token_prefix == ""
+    # #3807: the id sibling is a stringified UUID matching the instance.
+    assert received_ids == [str(received[0].pk)]
 
 
 def _enable_workspace_sharing() -> None:

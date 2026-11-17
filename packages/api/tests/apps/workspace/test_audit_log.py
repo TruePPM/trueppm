@@ -110,9 +110,11 @@ def test_actor_label_survives_user_deletion(member: object) -> None:
 @pytest.mark.django_db
 def test_signal_fires_after_commit(member, django_capture_on_commit_callbacks) -> None:
     received: list[AuditEvent] = []
+    received_ids: list[str] = []
 
-    def _receiver(sender, audit_event, **kwargs):
+    def _receiver(sender, audit_event, audit_event_id, **kwargs):
         received.append(audit_event)
+        received_ids.append(audit_event_id)
 
     audit_event_created.connect(_receiver, weak=False)
     try:
@@ -120,6 +122,8 @@ def test_signal_fires_after_commit(member, django_capture_on_commit_callbacks) -
             services.record_audit_event(event_type=AuditEventType.SETTINGS_CHANGED, actor=member)
         assert len(received) == 1
         assert received[0].event_type == AuditEventType.SETTINGS_CHANGED
+        # #3807: the id sibling is a stringified UUID matching the instance.
+        assert received_ids == [str(received[0].pk)]
     finally:
         audit_event_created.disconnect(_receiver)
 
