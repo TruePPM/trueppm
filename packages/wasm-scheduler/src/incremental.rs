@@ -255,7 +255,7 @@ fn bfs_downstream(pg: &ProjectGraph, start: NodeIndex, node_count: usize) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use crate::date::NaiveDate;
 
     use super::incremental_update;
     use crate::models::{Calendar, Dependency, DependencyType, Project, Task};

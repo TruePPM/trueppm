@@ -453,7 +453,7 @@ fn sub_start_floors_move_nothing() {
 /// 01-14, 01-07 and 12-30, while the UI reported it placed.
 #[test]
 fn sf_linked_snet_commit_paths_hold_the_task() {
-    let d = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    let d = |s: &str| trueppm_wasm_scheduler::date::NaiveDate::parse_iso(s).unwrap();
     for (stem, b_start) in [
         ("sf_linked_snet_snap_to_start", "2026-02-02"),
         ("sf_linked_snet_move_project_start", "2026-01-26"),

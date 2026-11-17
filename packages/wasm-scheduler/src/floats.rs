@@ -2,7 +2,7 @@
 //!
 //! Mirrors the Python `_compute_floats` function from `trueppm_scheduler.engine.backward`.
 
-use chrono::NaiveDate;
+use crate::date::NaiveDate;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;

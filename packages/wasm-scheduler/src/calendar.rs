@@ -4,7 +4,7 @@
 //! `_finish_from_start`, `_start_from_finish`, and `_working_days_between`
 //! functions from `trueppm_scheduler.engine.calendar_math`.
 
-use chrono::{Datelike, Duration, NaiveDate};
+use crate::date::{Duration, NaiveDate};
 
 use crate::models::{Calendar, DateRange, ExceptionIndex, Project, Task};
 use crate::validate::{py_date_min, MAX_CALENDAR_SCAN_DAYS, MAX_PROJECT_SPAN_DAYS};

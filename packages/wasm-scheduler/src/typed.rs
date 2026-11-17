@@ -45,7 +45,7 @@
 //! heap `String`s per task (id, name) stay resident and only the `Copy` input
 //! fields are refreshed before the passes overwrite the computed fields.
 
-use chrono::{Datelike, NaiveDate};
+use crate::date::NaiveDate;
 
 use crate::backward::backward_pass;
 use crate::floats::compute_floats;
@@ -279,11 +279,11 @@ pub(crate) fn compute_downstream_typed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::date::NaiveDate;
     use crate::graph::build_graph;
     use crate::incremental::{compute_downstream, incremental_update};
     use crate::models::{Calendar, Dependency, DependencyType, Project, Task};
     use crate::{compute_full, schedule_impl};
-    use chrono::NaiveDate;
 
     fn make_task(id: &str, days: i32) -> Task {
         Task {
@@ -771,7 +771,7 @@ mod tests {
         };
 
         // Frame 1: slip B by 4 days. P and A gain float; both are emitted.
-        project.tasks[1].planned_start = Some(b_start + chrono::Duration::days(4));
+        project.tasks[1].planned_start = Some(b_start + crate::date::Duration::days(4));
         let slipped = compute_downstream_typed(&project, &pg, &mut scratch, epoch, "B").unwrap();
         assert!(
             typed_row_ids(&slipped, &project).contains(&"P".to_string()),

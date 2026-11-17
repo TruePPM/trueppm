@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::NaiveDate;
+use crate::date::NaiveDate;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;

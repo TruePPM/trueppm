@@ -210,8 +210,8 @@ measured line, and never added to a measured figure.
   person and checked in review, never invented. Keys are matched exactly against each response's
   `message.model`: there is no prefix or family fallback, so a new model ID (or an older one still
   inside the 30-day transcript window) needs its own row. The table carries every current model
-  plus previous-generation rows (`claude-sonnet-5`, `claude-opus-5`, `claude-fable-5`,
-  `claude-haiku-4-5`) kept so a session that still runs on one is priced rather than omitted
+  (`claude-fable-5-2` is the current Fable row) plus previous-generation rows (`claude-sonnet-5`, `claude-opus-5`, `claude-fable-5-1`,
+  `claude-fable-5`, `claude-haiku-4-5`) kept so a session that still runs on one is priced rather than omitted
   (`claude-sonnet-5` was the one seen in local transcripts when they were added); a model with no row makes the whole
   line omitted with `note: est-cost-usd omitted: model <id> has no row in the price table`,
   never a $0 row. Responses with all-zero usage (`<synthetic>` entries) price at 0 without a row. A table older than 90 days, missing, malformed or

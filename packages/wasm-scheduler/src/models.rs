@@ -6,7 +6,7 @@
 
 use std::cell::OnceCell;
 
-use chrono::NaiveDate;
+use crate::date::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 /// Parse-time checks for fields this engine ignores but the shared document
@@ -44,29 +44,22 @@ pub mod enum_serde {
 
 /// Strict `YYYY-MM-DD` date deserialization (#4707).
 ///
-/// chrono's `NaiveDate` serde `FromStr` is lenient: it accepts `2026-3-2`, padded
+/// chrono's `NaiveDate` serde `FromStr` (used before #5058) was lenient: it accepts `2026-3-2`, padded
 /// whitespace, `+2026-03-02` and negative years, none of which Python's strict
 /// pre-check (`Project.from_dict`) accepts, and it has no lower bound where Python's
 /// `date.min` is 0001-01-01. A document the server refuses with a 400 must not be
 /// schedulable offline, so every date field goes through this shape: exactly ten
 /// ASCII characters, `\d{4}-\d{2}-\d{2}`, and a year of at least 1.
 pub mod date_serde {
-    use chrono::{Datelike, NaiveDate};
+    use crate::date::{NaiveDate, ParseError};
     use serde::{de::Error, Deserialize, Deserializer};
 
     /// Parse a canonical `YYYY-MM-DD` string, or describe why it is refused.
     pub fn parse_strict(s: &str) -> Result<NaiveDate, String> {
-        let b = s.as_bytes();
-        let shaped = b.len() == 10
-            && b.iter().enumerate().all(|(i, c)| match i {
-                4 | 7 => *c == b'-',
-                _ => c.is_ascii_digit(),
-            });
-        if !shaped {
-            return Err(format!("date {s:?} is not in canonical YYYY-MM-DD form"));
-        }
-        let d = NaiveDate::parse_from_str(s, "%Y-%m-%d")
-            .map_err(|e| format!("invalid date {s:?}: {e}"))?;
+        let d = NaiveDate::parse_iso(s).map_err(|e| match e {
+            ParseError::Invalid => format!("date {s:?} is not in canonical YYYY-MM-DD form"),
+            e => format!("invalid date {s:?}: {e}"),
+        })?;
         if d.year() < 1 {
             return Err(format!(
                 "date {s:?} is before 0001-01-01, the earliest representable date"
@@ -466,7 +459,7 @@ fn default_dep_type() -> DependencyType {
 }
 
 impl Dependency {
-    /// Lag as a chrono Duration in calendar days.
+    /// Lag as a date::Duration in calendar days.
     pub fn lag_days(&self) -> i64 {
         (self.lag / 86400.0).round() as i64
     }
@@ -789,9 +782,19 @@ mod date_serde_tests {
 
     #[test]
     fn project_json_rejects_lenient_optional_date() {
-        let doc = r#"{"id":"p","name":"p","start_date":"2026-03-02","status_date":"2026-3-2",
-            "tasks":[],"dependencies":[],"calendar":{"working_days":31,"exceptions":[]}}"#;
-        assert!(serde_json::from_str::<super::Project>(doc).is_err());
+        // The year-zero probe is what separates `date_serde` from the bare
+        // `Deserialize` on the date type: that one is canonical-only but has no
+        // year-1 floor, so only `date_serde` refuses "0000-12-28".
+        for bad in ["2026-3-2", "0000-12-28"] {
+            let doc = format!(
+                r#"{{"id":"p","name":"p","start_date":"2026-03-02","status_date":"{bad}",
+            "tasks":[],"dependencies":[],"calendar":{{"working_days":31,"exceptions":[]}}}}"#
+            );
+            assert!(
+                serde_json::from_str::<super::Project>(&doc).is_err(),
+                "status_date {bad}"
+            );
+        }
     }
 
     /// Names of every `Option<NaiveDate>` field declared on `pub struct Task`,
@@ -810,7 +813,7 @@ mod date_serde_tests {
                 }
                 // Fail loudly rather than skip: any NaiveDate mention that is
                 // not the exact recognised form would silently drop out of the
-                // guard (`chrono::NaiveDate`, an alias, `pub(crate)`, a
+                // guard (`date::NaiveDate`, an alias, `pub(crate)`, a
                 // multi-line declaration).
                 let parsed = l.strip_prefix("pub ").and_then(|rest| {
                     let (name, ty) = rest.split_once(':')?;
@@ -828,7 +831,7 @@ mod date_serde_tests {
     }
 
     /// Every date field must refuse a non-canonical value, so an `Option` field
-    /// losing its `deserialize_with` (which falls back to chrono's lenient parse)
+    /// losing its `deserialize_with` (whose own `Deserialize` is canonical-only but has no year-0 floor)
     /// is caught here rather than in production.
     #[test]
     fn every_date_field_refuses_a_non_canonical_value() {
@@ -854,25 +857,31 @@ mod date_serde_tests {
         assert!(serde_json::from_value::<super::Project>(canonical).is_ok());
 
         let mut docs: Vec<(String, Value)> = Vec::new();
-        for f in ["start_date", "status_date"] {
-            let mut d = template();
-            d[f] = json!("2026-3-2");
-            docs.push((f.to_string(), d));
-        }
-        for f in ["start", "end"] {
-            let mut d = template();
-            d["calendar"]["exceptions"][0][f] = json!("2026-3-2");
-            docs.push((format!("exception.{f}"), d));
-        }
-        for f in &task_fields {
-            let mut d = template();
-            d["tasks"][0][f.as_str()] = json!("2026-3-2");
-            docs.push((format!("task.{f}"), d));
+        // "2026-3-2" is non-canonical; "0000-12-28" is canonical but below the
+        // year-1 floor, which only `date_serde` enforces (the bare `Deserialize`
+        // on the date type accepts it), so it is the probe that detects a field
+        // that lost `deserialize_with`.
+        for bad in ["2026-3-2", "0000-12-28"] {
+            for f in ["start_date", "status_date"] {
+                let mut d = template();
+                d[f] = json!(bad);
+                docs.push((format!("{f}={bad}"), d));
+            }
+            for f in ["start", "end"] {
+                let mut d = template();
+                d["calendar"]["exceptions"][0][f] = json!(bad);
+                docs.push((format!("exception.{f}={bad}"), d));
+            }
+            for f in &task_fields {
+                let mut d = template();
+                d["tasks"][0][f.as_str()] = json!(bad);
+                docs.push((format!("task.{f}={bad}"), d));
+            }
         }
         for (name, doc) in docs {
             assert!(
                 serde_json::from_value::<super::Project>(doc).is_err(),
-                "{name} accepted a non-canonical date"
+                "{name} accepted a non-canonical or year-zero date"
             );
         }
         // The same field set with canonical values still parses.
