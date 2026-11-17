@@ -10,7 +10,11 @@ explanation, rule 120) fails on an input nobody wrote down:
 3. For a date quantity, ``binding.imposed_date == value`` whenever it carries a date.
 4. Link removal is monotone on the early (forward) pass: dropping a predecessor
    link the derivation reports as strictly losing must not move any ES/EF, and
-   dropping a strictly dominant binding link must move that task's ES.
+   dropping a strictly dominant binding link must move that task's ES. Property 4
+   covers the forward pass (ES/EF) only; LS/LF are not asserted. It excludes SF
+   links (removing the last one changes the project-start floor; the rule is
+   unverified against MS Project, open issue #4319) and projects containing
+   zero-duration tasks.
 
 The generator is the plausible-project space of ``test_contract_fuzz`` (all four
 link types, negative lag, per-task calendars, calendar exceptions, status date,
@@ -84,7 +88,10 @@ def test_derivation_matches_result_and_has_one_binding(project: Project) -> None
                 expected = engine_value.isoformat() if engine_value is not None else None
                 assert d.value == expected, (t.id, q)
             else:
-                assert d.value == engine_value.days or d.value == engine_value, (t.id, q)
+                # Float quantities are whole days (int) on the derivation, a timedelta
+                # on the result; type-check so a bool/float/str cannot slip through.
+                assert isinstance(d.value, int) and not isinstance(d.value, bool), (t.id, q)
+                assert d.value == engine_value.days, (t.id, q)
             # (2) exactly one binding contribution, and it is Derivation.binding.
             flagged = [c for c in d.contributions if c.is_binding]
             assert len(flagged) == 1, (t.id, q, [c.kind for c in flagged])
@@ -161,10 +168,11 @@ def test_link_removal_is_monotone_on_the_forward_pass(project: Project) -> None:
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "derive_value binds data_date at the raw data date for a completed no-actuals "
-        "task, but the engine caps the work at it (ES = data date less the duration); "
-        "tracked by the issue filed with this MR (draft: scratchpad "
-        "issue-4440-derive-completed-no-actuals.md)"
+        "For a task completed by percent (100%) with no actuals and a status_date, "
+        "derive_value(EARLY_START) reports a data_date binding whose imposed_date is "
+        "the raw data date, but the engine places ES at the data date minus the "
+        "duration. Repro: a 2-day task, status_date 2027-01-01, percent_complete 100: "
+        "the binding says 2027-01-01 while the engine's early_start is earlier."
     ),
 )
 def test_completed_no_actuals_binding_reproduces_the_value() -> None:
