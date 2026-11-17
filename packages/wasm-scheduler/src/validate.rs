@@ -51,8 +51,8 @@ fn py_date_max() -> NaiveDate {
     NaiveDate::from_ymd_opt(9999, 12, 31).expect("9999-12-31 is a valid date")
 }
 
-/// The Python `datetime.date.min` (0001-01-01). chrono reaches year -262143, so
-/// without this floor a backward walk (an SF link or lead from a year-0001 start)
+/// The Python `datetime.date.min` (0001-01-01). The in-crate date type's `MIN`
+/// reaches year -262143 (the same bound chrono had), so without this floor a backward walk (an SF link or lead from a year-0001 start)
 /// schedules into year 0 or below, dates Python refuses and neither
 /// `date.fromisoformat` nor `Date.parse` can read back (#4707). Mirrors the
 /// `_MIN_ORDINAL` floor in `trueppm_scheduler.engine`.

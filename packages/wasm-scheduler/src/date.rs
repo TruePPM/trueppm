@@ -78,7 +78,7 @@ impl fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 /// A proleptic-Gregorian calendar date with no time zone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NaiveDate {
     /// Days since the Common Era: 0001-01-01 is 1.
     ce: i32,
@@ -220,6 +220,13 @@ impl NaiveDate {
     }
 }
 
+/// Prints the ISO date, like chrono, so assertion failures stay readable.
+impl fmt::Debug for NaiveDate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 impl fmt::Display for NaiveDate {
     /// `YYYY-MM-DD`; a year outside 0000..=9999 carries a sign and at least four
     /// digits (`+12345-01-01`, `-0001-01-01`), as chrono printed it.
@@ -333,15 +340,67 @@ mod tests {
         }
     }
 
+    /// Steps the civil calendar with an independent month-length stepper and
+    /// requires every date to be the next ordinal and the next weekday, over
+    /// whole 400-year cycles on both sides of year 1.
     #[test]
-    fn consecutive_days_are_consecutive_ordinals_across_the_leap_rules() {
-        let mut prev = d(1899, 12, 31);
-        for _ in 0..(366 * 600) {
-            let next = prev + Duration::days(1);
-            assert_eq!(next.num_days_from_ce(), prev.num_days_from_ce() + 1);
-            assert!(next > prev);
-            prev = next;
+    fn civil_walk_matches_ordinals_and_weekdays_over_whole_400_year_cycles() {
+        let (mut y, mut m, mut day) = (-401, 1, 1);
+        let first = d(y, m, day);
+        let mut ce = first.num_days_from_ce();
+        let mut wd = first.weekday().num_days_from_monday();
+        while y <= 2401 {
+            let date = d(y, m, day);
+            assert_eq!(date.num_days_from_ce(), ce, "{y}-{m}-{day}");
+            assert_eq!((date.year(), date.month(), date.day()), (y, m, day));
+            assert_eq!(date.weekday().num_days_from_monday(), wd, "{y}-{m}-{day}");
+            ce += 1;
+            wd = (wd + 1) % 7;
+            day += 1;
+            if day > days_in_month(y, m) {
+                day = 1;
+                m += 1;
+                if m > 12 {
+                    m = 1;
+                    y += 1;
+                }
+            }
         }
+        assert_eq!(d(1, 1, 1).num_days_from_ce(), 1);
+        assert_eq!(d(2026, 1, 5).num_days_from_ce(), 739_621);
+    }
+
+    #[test]
+    fn parse_refuses_a_sign_inside_a_ten_character_field() {
+        for bad in ["+026-01-05", "2026-+1-05", "2026-01-+5", "-026-01-05"] {
+            assert_eq!(
+                NaiveDate::parse_iso(bad),
+                Err(ParseError::Invalid),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn checked_arithmetic_returns_none_at_the_i64_extremes() {
+        let d0 = d(2026, 1, 5);
+        for n in [i64::MIN, i64::MIN + 1, i64::MAX] {
+            assert_eq!(d0.checked_add_signed(Duration::days(n)), None);
+            assert_eq!(d0.checked_sub_signed(Duration::days(n)), None);
+        }
+        assert_eq!((NaiveDate::MAX - NaiveDate::MIN).num_days(), 191_491_528);
+        assert_eq!((NaiveDate::MIN - NaiveDate::MAX).num_days(), -191_491_528);
+    }
+
+    #[test]
+    fn debug_prints_the_iso_date() {
+        assert_eq!(format!("{:?}", d(2026, 1, 5)), "2026-01-05");
+        assert_eq!(format!("{:?}", NaiveDate::MIN), "-262143-01-01");
+        assert_eq!(format!("{:?}", NaiveDate::MAX), "+262142-12-31");
+    }
+
+    #[test]
+    fn consecutive_days_leap_rules() {
         // 1900 and 2100 are not leap years, 2000 is.
         assert!(NaiveDate::from_ymd_opt(1900, 2, 29).is_none());
         assert!(NaiveDate::from_ymd_opt(2100, 2, 29).is_none());

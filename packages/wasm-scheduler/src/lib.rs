@@ -305,9 +305,9 @@ impl SchedulerSession {
 
     /// The session epoch as an ISO `YYYY-MM-DD` string — crossed to JS **once**.
     /// Every date column in a [`DragResult`] is a day ordinal relative to this
-    /// epoch: `date = epoch + ordinal days`. Formatted explicitly (the
-    /// in-crate date type is `YYYY-MM-DD`-only) — the epoch is the project start, a
-    /// 4-digit-year date.
+    /// epoch: `date = epoch + ordinal days`. Formatted explicitly as
+    /// `YYYY-MM-DD`; the epoch is the project start, always a 4-digit-year date,
+    /// so this matches the type's `Display`.
     #[wasm_bindgen(getter)]
     pub fn epoch(&self) -> String {
         format!(
