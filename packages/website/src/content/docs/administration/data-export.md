@@ -388,11 +388,15 @@ The replacement is not silent, and it is not unconditional:
   disposable by design, and a sample reload never replaces a program containing a
   real, non-sample project.
 
-:::caution[Trash holds the projects, not the program]
+:::caution[The program comes back without its code]
 "Moves to Trash" applies to the replaced program's **projects**, individually and
-detached from their old parent. There is no program Trash and no program restore
-endpoint ([#2587](https://gitlab.com/trueppm/trueppm/-/issues/2587)). If you need
-the program itself back, export it to a seed file before you re-import over it.
+detached from their old parent. The program shell goes to program Trash too, but its
+code moves to the rebuilt program, and there is no program Trash page in the web app
+yet. A Program Admin restores it through the API: `GET /api/v1/programs/trash/`, then
+`POST /api/v1/programs/{id}/restore/`. The restored program gets a fresh code and its
+old projects re-attached; projects still in project Trash stay there until each is
+restored. If you need the program back exactly as it was, export it to a seed file
+before you re-import over it.
 :::
 
 Both import paths have a dry run that validates the file and reports every

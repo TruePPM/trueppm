@@ -7229,7 +7229,9 @@ def soft_delete_program_subtree(
        was already in Trash before the program was deleted keeps its original
        ``program`` and is not detached by this function.
     3. **The program row itself is only tombstoned**, never removed, so its
-       ``server_version`` bump reaches sync consumers.
+       ``server_version`` bump reaches sync consumers. It lands in program Trash
+       with the detached project ids recorded, so ``POST /programs/{id}/restore/``
+       can re-attach them (#2587).
 
     Returns:
         The ids of the projects that were tombstoned, in deletion order.
@@ -7256,12 +7258,66 @@ def soft_delete_program_subtree(
         soft_delete_project(project, actor=actor, reason=reason)
         deleted_ids.append(str(project.pk))
 
+    # Recorded so a restore of this program can re-attach the projects (#2587).
+    # They are in project Trash, so they come back under the program once each is
+    # restored — the program restore itself never revives a project.
+    locked.detached_project_ids = [uuid.UUID(pid) for pid in deleted_ids]
+    locked.deleted_by = actor if getattr(actor, "is_authenticated", False) else None
     locked.soft_delete()
     program_id = str(locked.pk)
     transaction.on_commit(
         lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
     )
     return deleted_ids
+
+
+def restore_program(program: Any, *, actor: Any) -> list[str]:
+    """Un-tombstone a program and re-attach the projects its delete detached (#2587).
+
+    The inverse of both delete paths (``delete_program_cascade`` and
+    :func:`soft_delete_program_subtree`). Runs inside the caller's transaction.
+
+    * **Re-attach only what is still unparented.** A detached project may have been
+      moved to another program since, by its own Admin; taking it back would undo a
+      decision made after the delete. Live and trashed projects are both
+      re-attached — a trashed one then comes back under this program when it is
+      restored from project Trash, instead of standalone. Restoring the program
+      never revives a trashed project: that stays the project Owner's call.
+    * **A program that lost its key gets a fresh one.** A seed re-import hands the
+      replaced program's key to its rebuilt successor (ADR-1237), so the shell can
+      come back keyless; deriving a new key mirrors ``ProjectViewSet.restore``.
+    * Memberships were left live by the delete, so nothing is restored there.
+
+    Returns:
+        The ids of the live projects that were re-attached — the ones whose open
+        tabs need a ``project_updated`` broadcast.
+
+    Raises:
+        KeyAssignmentError: a fresh key could not be derived; the caller rolls back.
+    """
+    from trueppm_api.apps.projects.models import ObjectKeySource, Program, Project
+
+    locked = Program.objects.select_for_update().get(pk=program.pk, is_deleted=True)
+    detached = list(locked.detached_project_ids or [])
+    locked.restore()
+    if not locked.code:
+        assign_key(
+            locked,
+            derive_key(locked.name, "program", exclude=locked),
+            source=ObjectKeySource.DERIVED,
+            actor=actor,
+        )
+
+    reattached_live: list[str] = []
+    for project in Project.objects.select_for_update().filter(
+        pk__in=detached, program__isnull=True
+    ):
+        project.program = locked
+        project.save(update_fields=["program"])
+        if not project.is_deleted:
+            reattached_live.append(str(project.pk))
+    program.refresh_from_db()
+    return reattached_live
 
 
 def store_seed_payload(payload_bytes: bytes) -> str:
@@ -7711,10 +7767,11 @@ def release_keys_for_replace(obj: Any) -> list[Any]:
     delete as tombstones) and the *next* re-import, which looks candidates up by
     slug, would no longer find it.
 
-    Only for objects a replace tears down: the program shell (never restorable)
-    and each replaced project, whose key moves to the rebuilt project of the same
-    name. A project released this way stays in Trash keyless; restoring it
-    derives a fresh key, so a restore still never collides (ADR-1237 §3).
+    Only for objects a replace tears down: the program shell (restorable from
+    program Trash, #2587, under a fresh key) and each replaced project, whose
+    key moves to the rebuilt project of the same name. A project released this
+    way stays in Trash keyless; restoring it derives a fresh key, so a restore
+    still never collides (ADR-1237 §3).
 
     Clears ``code`` in the database so the soft-delete that follows (which saves
     every column from a freshly locked row) does not write it back. Returns the

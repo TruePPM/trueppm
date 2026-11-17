@@ -1577,6 +1577,42 @@ class IsProgramOwner(BasePermission):
         return role == Role.OWNER
 
 
+class IsTrashedProgramOwner(BasePermission):
+    """Allow only the Program Admin of a **trashed** program — the Restore gate (#2587).
+
+    The program sibling of :class:`IsTrashedProjectOwner`. :class:`IsProgramOwner`
+    cannot gate Restore: :func:`_program_membership_role` floors
+    ``program__is_deleted`` so a trashed program confers no role. The membership row
+    itself survives the delete (``delete_program_cascade`` leaves it live), so this
+    reads it directly — and only for a trashed program, so it can never become a
+    second path to a live program's role.
+
+    ``has_permission`` admits only a ViewSet detail route; the real decision is the
+    object check ``restore`` runs on the row it fetched from the trashed queryset.
+    """
+
+    message = IsProgramOwner.message
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        return _object_permission_will_run(view)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        program_id = _get_program_id_from_obj(obj)
+        if program_id is None or not request.user or not request.user.is_authenticated:
+            return False
+        role = (
+            ProgramMembership.live()
+            .filter(program_id=program_id, user=request.user, program__is_deleted=True)
+            .values_list("role", flat=True)
+            .first()
+        )
+        return role == Role.OWNER
+
+
 def _is_project_archived(request: Request, project_id: Any) -> bool:
     """Per-request cache for ``Project.is_archived`` lookups (#530).
 

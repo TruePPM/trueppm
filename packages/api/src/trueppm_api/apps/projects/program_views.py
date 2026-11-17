@@ -41,7 +41,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
-from trueppm_api.apps.access.models import ProgramMembership
+from trueppm_api.apps.access.models import ProgramMembership, Role
 from trueppm_api.apps.access.permissions import (
     IsNotTokenAuthenticated,
     IsProgramAdmin,
@@ -49,6 +49,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramNotClosed,
     IsProgramOwner,
     IsProgramScheduler,
+    IsTrashedProgramOwner,
     McpProgramExportConsent,
     McpReadableViewMixin,
     McpScope,
@@ -121,7 +122,11 @@ from trueppm_api.apps.projects.views import (
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
 from trueppm_api.core.detail_lookup import DetailLookupIgnoresSearchMixin
 from trueppm_api.core.export_downloads import stream_export_job_or_error
-from trueppm_api.core.openapi import suppress_list_pagination, validation_envelope_400
+from trueppm_api.core.openapi import (
+    state_refusal_400,
+    suppress_list_pagination,
+    validation_envelope_400,
+)
 from trueppm_api.core.request_body import object_body
 
 # Upper bound on sub-programs created by a single split call (#967). Generous
@@ -817,7 +822,24 @@ class ProgramViewSet(
         refused: list[BasePermission] = (
             [IsNotTokenAuthenticated()] if self.action in self.token_refused_actions else []
         )
-        return [*self._rbac_permissions(), *refused, *self.mcp_token_guards()]
+        rbac = (
+            self._trash_permissions()
+            if self.action in ("trash", "restore")
+            else self._rbac_permissions()
+        )
+        return [*rbac, *refused, *self.mcp_token_guards()]
+
+    def _trash_permissions(self) -> list[BasePermission]:
+        # Program Trash (#2587), split out of _rbac_permissions to keep that
+        # dispatch inside its complexity budget. ``trash`` is a membership-scoped
+        # list built in the action body (``_trashed_queryset``), so it needs only an
+        # identity. ``restore`` cannot use IsProgramOwner — a trashed program confers
+        # no role through ``_program_membership_role`` — so it reads the surviving
+        # membership row through IsTrashedProgramOwner. No IsProgramNotClosed: a
+        # closed program that was deleted must still be recoverable.
+        if self.action == "restore":
+            return [IsAuthenticated(), IsTrashedProgramOwner()]
+        return [IsAuthenticated()]
 
     def _rbac_permissions(self) -> list[BasePermission]:
         # Bootstrap actions: no program exists yet for these to be scoped against
@@ -1234,8 +1256,8 @@ class ProgramViewSet(
                     "detail": (
                         f'A program you own already uses the code "{slug}". Re-importing '
                         "moves its projects to Trash, where each can be restored "
-                        "individually as a standalone project; the program itself is not "
-                        "recoverable. Confirm to continue."
+                        "individually as a standalone project; the program itself goes to "
+                        "program Trash without its code. Confirm to continue."
                     ),
                     "code": "seed_replace_required",
                     "conflict": describe_conflict(candidates[0]).as_dict(),
@@ -1343,7 +1365,9 @@ class ProgramViewSet(
                     "with `replace=true` to confirm; optionally pin the target with "
                     "`expected_program_id`. The replaced program's projects move to "
                     "Trash individually as standalone projects; the program shell "
-                    "itself is not recoverable. `code` is `seed_replace_required`, "
+                    "goes to program Trash (`GET /programs/trash/`), keyless, and "
+                    "`POST /programs/{id}/restore/` brings it back with a fresh key "
+                    "and its projects re-attached. `code` is `seed_replace_required`, "
                     "`seed_replace_mismatch`, or `seed_replace_ambiguous` — or "
                     "`seed_slug_taken` when the slug is the key of a program you "
                     "cannot replace (another user's, or one in Trash); keys are "
@@ -1389,8 +1413,8 @@ class ProgramViewSet(
         whose ``code`` matches this seed's slug is refused with ``409`` unless
         ``replace=true`` is sent. Confirmed, its projects are **soft**-deleted —
         they land in project Trash individually, as standalone projects, and
-        offline clients receive tombstones. The program shell itself is not
-        recoverable; there is no program Trash (#2587).
+        offline clients receive tombstones. The program shell goes to program
+        Trash and ``POST /programs/{id}/restore/`` re-attaches them (#2587).
 
         Rate-limited to the ``seed_import`` scope (:class:`SeedImportThrottle`).
         The bucket now bounds *job creation* rather than request CPU, which is
@@ -1508,7 +1532,8 @@ class ProgramViewSet(
                     return refusal
 
                 replaced_program_id = candidates[0].pk
-                # The replaced shell is unrecoverable, so its keys move to the new
+                # The rebuild is the program to its owner (a shell restored from
+                # program Trash gets a fresh key, #2587), so its keys move to the new
                 # one: same slug, and links to the old program keep resolving.
                 released_keys = release_keys_for_replace(candidates[0])
                 # The trashed projects keep their keys for now; the worker moves
@@ -2414,7 +2439,7 @@ class ProgramViewSet(
 
         instance = self.get_object()
         program_id = str(instance.pk)
-        delete_program_cascade(instance.pk)
+        delete_program_cascade(instance.pk, actor=request.user)
         # delete_program_cascade detaches projects (program=NULL) — emit a single
         # program-level event rather than fanning out per-project; clients
         # already invalidate project queries on program_deleted.
@@ -2422,6 +2447,141 @@ class ProgramViewSet(
             lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # -----------------------------------------------------------------------
+    # Trash + restore (#2587)
+    # -----------------------------------------------------------------------
+
+    def _trashed_queryset(self) -> QuerySet[Program]:
+        """The caller's soft-deleted programs, scoped by their surviving memberships.
+
+        Bypasses ``get_queryset()``'s ``is_deleted=False`` floor on purpose — Trash
+        and Restore exist to reach the tombstones it hides. Still scoped to programs
+        the caller holds a live ``ProgramMembership`` on, which the delete leaves in
+        place, so another team's Trash never leaks.
+        """
+        user = self.request.user
+        if not (user and user.is_authenticated):
+            return Program.objects.none()
+        program_ids = (
+            ProgramMembership.live().filter(user=user).values_list("program_id", flat=True)
+        )
+        return Program.objects.filter(pk__in=program_ids, is_deleted=True).select_related(
+            "deleted_by"
+        )
+
+    @extend_schema(
+        summary="List the caller's soft-deleted programs (program Trash)",
+        responses={
+            200: inline_serializer(
+                name="TrashProgramList",
+                many=True,
+                fields={
+                    "id": serializers.UUIDField(),
+                    "name": serializers.CharField(),
+                    "code": serializers.CharField(),
+                    "deleted_at": serializers.DateTimeField(allow_null=True),
+                    "deleted_by": serializers.CharField(allow_null=True),
+                    "deleted_by_name": serializers.CharField(allow_null=True),
+                    "detached_project_count": serializers.IntegerField(),
+                    "my_role": serializers.IntegerField(allow_null=True),
+                    "can_restore": serializers.BooleanField(),
+                },
+            )
+        },
+    )
+    @suppress_list_pagination
+    @action(detail=False, methods=["get"], url_path="trash")
+    def trash(self, request: Request) -> Response:
+        """List soft-deleted programs the caller was a member of (#2587).
+
+        Every member sees the row; ``can_restore`` is true only for the Program
+        Admin (``Role.OWNER``), matching the Restore gate. Programs have no
+        retention purge, so there is no ``days_remaining``: a trashed program stays
+        until an operator hard-deletes it. ``detached_project_count`` is how many
+        projects a restore would try to re-attach.
+
+        Re-applies the ADR-0678 agent opt-out explicitly, as ``ProjectViewSet.trash``
+        does: the trashed queryset bypasses the hooks that carry it.
+        """
+        qs = self._mcp_filter_queryset(self._trashed_queryset()).order_by("-deleted_at")
+        programs = list(qs)
+        role_by_program = dict(
+            ProgramMembership.live()
+            .filter(user=request.user.pk, program__in=programs)
+            .values_list("program_id", "role")
+        )
+        rows = []
+        for program in programs:
+            deleter = program.deleted_by
+            role = role_by_program.get(program.pk)
+            rows.append(
+                {
+                    "id": str(program.pk),
+                    "name": program.name,
+                    "code": program.code,
+                    "deleted_at": program.deleted_at,
+                    "deleted_by": str(program.deleted_by_id) if program.deleted_by_id else None,
+                    "deleted_by_name": (
+                        (deleter.get_full_name() or deleter.get_username()).strip()
+                        if deleter is not None
+                        else None
+                    ),
+                    "detached_project_count": len(program.detached_project_ids or []),
+                    "my_role": role,
+                    "can_restore": role == Role.OWNER,
+                }
+            )
+        return Response(rows, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Restore a soft-deleted program from Trash",
+        request=None,
+        responses={
+            200: ProgramSerializer,
+            400: state_refusal_400(
+                "The program came back keyless (a seed re-import handed its code to the "
+                "rebuild) and no free code could be derived from its name; the error is "
+                "keyed on ``code``. Nothing is restored.",
+                shape="fields",
+            ),
+            404: OpenApiResponse(description="No soft-deleted program with that id in your Trash."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="restore")
+    def restore(self, request: Request, pk: str | None = None) -> Response:
+        """Un-tombstone a program and re-attach the projects its delete detached (#2587).
+
+        Program Admin only (``IsTrashedProgramOwner``). The program row and every
+        re-attachment commit together or not at all. Projects moved to another
+        program since the delete stay where they are; projects in project Trash are
+        re-attached but stay trashed (see ``services.restore_program``).
+
+        Like project restore, a second restore of the same id is a **404**: once
+        live it is no longer in the caller's Trash, so the action fails closed on a
+        double-submit instead of re-applying.
+        """
+        from trueppm_api.apps.projects.services import KeyAssignmentError, restore_program
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        program = get_object_or_404(self._trashed_queryset(), pk=pk)
+        self.check_object_permissions(request, program)
+        with transaction.atomic():
+            try:
+                reattached = restore_program(program, actor=request.user)
+            except KeyAssignmentError as exc:
+                transaction.set_rollback(True)
+                return Response({"code": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Program-scoped events cannot reach a client yet (#836), so the signal an
+        # open tab can act on is per project: each re-attached live project's
+        # breadcrumb and program chip change.
+        for project_id in reattached:
+            transaction.on_commit(
+                partial(broadcast_board_event, project_id, "project_updated", {"id": project_id})
+            )
+        program = self.get_queryset().get(pk=program.pk)
+        return Response(self.get_serializer(program).data, status=status.HTTP_200_OK)
 
     # -----------------------------------------------------------------------
     # Lifecycle actions (#530)
@@ -3105,7 +3265,6 @@ class ProgramViewSet(
         ``{"available": False, "reason": "cost_restricted"}``. A token caller is
         judged by its user's role, so an MCP agent sees what its human would.
         """
-        from trueppm_api.apps.access.models import Role
         from trueppm_api.apps.access.permissions import effective_program_role
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
         from trueppm_api.apps.projects.program_rollup import compute_program_rollup

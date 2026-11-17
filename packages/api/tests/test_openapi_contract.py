@@ -340,6 +340,7 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         # #4858: a project restore that would revive a summary-to-own-descendant
         # link is refused whole with `{code, detail, offending}`; a key-assignment
         # failure also answers a bare `{code: [..]}` 400 inside the same handler.
+        ("post", "/api/v1/programs/{id}/restore/"),
         ("post", "/api/v1/projects/{id}/restore/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/indent/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/outdent/"),
