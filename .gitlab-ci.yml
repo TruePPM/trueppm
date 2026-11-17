@@ -1448,6 +1448,27 @@ lint:web-types-drift:
     - python3 scripts/check-web-types-drift.py --self-test
     - python3 scripts/check-web-types-drift.py
 
+lint:semgrep-freshness:
+  extends: .fast-job
+  # The vendored Semgrep packs under .semgrep/ never update on their own, and a
+  # frozen offline rule set reports clean forever (#3103). Warns (orange) after
+  # 45 days, fails after 90; the date is .semgrep/REFRESHED, written by
+  # scripts/update-semgrep-rules.sh. Exit 77 is the warning. Refresh by hand with
+  # that script; there is no scheduled refresh MR (it needs a write token and a
+  # new schedule, see #3103).
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  allow_failure:
+    exit_codes: 77
+  before_script:
+    - apk add --no-cache bash coreutils
+  script:
+    - bash scripts/check-semgrep-freshness.sh --self-test
+    - bash scripts/check-semgrep-freshness.sh
+
 lint:cost-ledger:
   extends: .fast-job
   # The MR cost-ledger tooling (docs/harness/cost-ledger.md). Each script carries its own
@@ -6405,6 +6426,81 @@ web:e2e:
       - packages/web/blob-report/
     expire_in: 1 day
 
+web:e2e:soak:detect:
+  # Names the spec files this MR adds or modifies, for web:e2e:soak (#2753). A
+  # separate job because the Playwright image carries no git, and the ci-api image
+  # does (web:diff-coverage uses it the same way). ~seconds. The self-test runs
+  # first: a detector that silently returns nothing would disarm the soak job
+  # while it still reads green.
+  extends: .fast-job
+  stage: analyze
+  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/e2e/**/*.spec.ts
+  script:
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - bash scripts/ci/changed-e2e-specs.sh --self-test
+    # The shallow clone has HEAD only; pull the MR's diff base so the two-dot diff
+    # below is the MR's own change, not a comparison against a moving target.
+    - git fetch --quiet --depth=1 origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    - bash scripts/ci/changed-e2e-specs.sh "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD > changed-e2e-specs.txt
+    - cat changed-e2e-specs.txt
+  artifacts:
+    paths:
+      - changed-e2e-specs.txt
+    expire_in: 1 day
+
+web:e2e:soak:
+  # Re-runs only the specs this MR touches, 5x each, under worker contention, so a
+  # probabilistic race fails on the branch instead of on main (#2753). A single-run
+  # job cannot see one: schedule-owner-token.spec.ts failed ~20% of runs under
+  # contention, went green on its branch, and reds appeared on main only (#2752).
+  #
+  # Two exposing variables, both needed: --repeat-each (the race has to be rolled
+  # more than once) and --workers=8 on a 4-core runner (the #2752 repro needed
+  # CPU contention, not repetition alone). --retries=0 is deliberate: a retry
+  # would turn a 1-of-5 failure into a pass, which is exactly what this exists
+  # to refuse. Blocking: a spec that cannot survive 5 runs is not ready to merge.
+  #
+  # Scope is the diff only. A source change that destabilizes an UNCHANGED spec is
+  # not covered; that is the proactive nightly run in #3547. Runs on MR pipelines
+  # only, so it cannot be exercised on main; an MR that edits no spec file does
+  # not create it at all.
+  stage: test
+  image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
+  needs:
+    - web:build
+    - job: web:e2e:soak:detect
+      artifacts: true
+    - job: ci:mirror-playwright-base
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/e2e/**/*.spec.ts
+  cache:
+    <<: *web-cache
+    policy: pull
+  before_script:
+    - *retry-fn
+    - cd packages/web
+    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
+  script:
+    - |
+      specs=$(cat ../../changed-e2e-specs.txt)
+      if [ -z "$specs" ]; then
+        echo "No runnable spec files in this MR's diff (integration/ and marketing-shots are not run here) — nothing to soak."
+        exit 0
+      fi
+      echo "Soaking: $specs"
+      # shellcheck disable=SC2086 -- word-splitting the newline-separated list is intended
+      npx playwright test $specs --repeat-each=5 --workers=8 --retries=0 --reporter=line
+
 web:e2e:report:
   # Stitches the per-shard blob reports into one HTML report. Runs even when a
   # shard fails (when: always) — that is exactly when the report matters. Pulls
@@ -6448,6 +6544,42 @@ web:e2e:report:
       - packages/web/playwright-report/
       - packages/web/flaky-report.json
     expire_in: 7 days
+
+web:flaky-ledger:
+  # Persists flake observations and adds the one signal check-flaky.mjs cannot see:
+  # a job-level retry — the same job failed and then succeeded for one sha (#2754).
+  # Both land in one append-only JSONL ledger, carried between pipelines by
+  # downloading the previous main run's artifact (artifacts are per-pipeline, so
+  # there is no other place for it to live). Schema and the contract the nightly
+  # --repeat-each run (#3547) must follow: docs/harness/flaky-ledger.md.
+  #
+  # main-only and fail-soft (allow_failure + the script never exits non-zero): a
+  # ledger problem must never red the merge train. Because it is main-only it can
+  # NOT be proven on an MR pipeline; the first main run after merge is its test.
+  # The CI_JOB_TOKEN read of the jobs API is likewise unproven until then — if
+  # GitLab refuses it the script logs the HTTP status and the job stays green.
+  stage: test
+  image: node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202
+  needs:
+    - job: web:e2e:report
+      artifacts: true
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+  allow_failure: true
+  script:
+    - cd packages/web
+    - |
+      wget -q --header="JOB-TOKEN: $CI_JOB_TOKEN" -O flaky-ledger.jsonl \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/main/raw/packages/web/flaky-ledger.jsonl?job=web:flaky-ledger" \
+        || { echo "No prior ledger (first run, or expired); starting empty."; : > flaky-ledger.jsonl; }
+    - CI_JOB_NAME=web:e2e:report node scripts/flaky-ledger.mjs record-report flaky-report.json flaky-ledger.jsonl
+    - node scripts/flaky-ledger.mjs scan-retries flaky-ledger.jsonl
+  artifacts:
+    when: always
+    paths:
+      - packages/web/flaky-ledger.jsonl
+    expire_in: 90 days
 
 web:integration:
   # Full-stack integration tests: real Django + PostgreSQL + Valkey + Vite dev
@@ -7475,11 +7607,12 @@ license:check:py:
         - scripts/ci/check-python-licenses.sh
         - .gitlab-ci.yml
   before_script:
-    # Image already has scheduler[dev] + api[dev] dev-dep wheels resident;
-    # these installs are fast editable re-links against the checked-out source.
+    # The image has every scheduler/api/mcp third-party dependency resident (the
+    # baked CI_API_TAG digest covers both pyproject.toml files, and this job runs
+    # whenever either changes), so the audit reads that installed set directly. No
+    # editable re-link: it only added trueppm-scheduler/-api themselves, which are
+    # this repo's own Apache-2.0 packages, not third-party licenses (#532).
     - pip install pip-licenses --quiet
-    - pip install -e "packages/scheduler[dev]" --quiet
-    - pip install -e packages/api --quiet
   script:
     - pip-licenses --order=license --format=plain-vertical
     # Allow-list, not a GPL block-list (#4108): scripts/ci/check-python-licenses.sh
