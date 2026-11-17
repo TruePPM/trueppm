@@ -109,7 +109,7 @@ Read the **last 100 lines** first — most failures surface at the end. Scroll u
 
 **Read every failed job's log tail up front, in parallel**, before fixing anything, and
 cluster the failures by root cause — one bad import often reds several jobs. Diagnose a
-failure as soon as its job fails; do not wait for the rest of the pipeline to finish.
+failure as soon as its job fails (diagnose early, push once); do not wait for the rest of the pipeline to finish.
 
 ---
 
@@ -158,7 +158,7 @@ Match the log output to one of these categories, then follow the fix procedure.
 ### 4g. Changelog check failure
 - Error looks like: `changelog:check` finding no fragment
 - Add a fragment `changelog.d/<issue-or-slug>.<type>.md` (types: `added`, `changed`, `fixed`, `security`). **Never edit `CHANGELOG.md` directly.**
-- `changelog:check` only auto-exempts `chore|ci|docs/` branches. A `feat/` branch that is really a chore needs the `no-changelog` label instead: `glab mr update <MR> --label no-changelog`
+- `changelog:check` only auto-exempts `chore|ci|docs|test/` branches. A `feat/` branch that is really a chore needs the `no-changelog` label instead: `glab mr update <MR> --label no-changelog`
 - Commit: `docs: add changelog fragment for <feature>`
 
 ### 4h. Docker build / Helm lint failure
