@@ -9,6 +9,7 @@ import {
   drawTimelineHeader,
   drawRowBands,
   resetTextMeasureCache,
+  resetLabelPlacement,
   drawGridLines,
   isNonWorkingDay,
   drawTodayLine,
@@ -51,7 +52,10 @@ import type { CadenceSegment, SprintBand } from '../sprintBands';
 
 // Text widths are memoized per (font, text) across calls (#1539); tests that
 // stub measureText differently must not inherit a prior test's cached widths.
-beforeEach(() => resetTextMeasureCache());
+beforeEach(() => {
+  resetTextMeasureCache();
+  resetLabelPlacement();
+});
 
 function makeCtxSpy() {
   const calls: Array<{ name: string; args: unknown[] }> = [];
@@ -577,7 +581,15 @@ describe('drawTaskBar — critical path as a red border frame (#1699)', () => {
     // Walk the call stream and record the dash pattern live at each stroke().
     const strokeDash = (selected: boolean, isCritical: boolean) => {
       const { ctx, calls } = makeCtxSpy();
-      drawTaskBar(ctx, makeBarTask({ isCritical, progress: 40 }), 0, scales, 0, selected, VIEWPORT_W);
+      drawTaskBar(
+        ctx,
+        makeBarTask({ isCritical, progress: 40 }),
+        0,
+        scales,
+        0,
+        selected,
+        VIEWPORT_W,
+      );
       let dash: unknown = [];
       let color: unknown;
       const out: Record<string, unknown> = {};
@@ -681,7 +693,11 @@ describe('drawTaskBar — delivery-mode encoding (#2727 pt.7, WCAG 1.4.1)', () =
 
   it('prefixes the % chip with the mode letter for scrum/kanban', () => {
     const { ctx, calls } = makeCtxSpy();
-    const t = makeBarTask({ deliveryMode: 'scrum', progress: 40, status: 'IN_PROGRESS' as Task['status'] });
+    const t = makeBarTask({
+      deliveryMode: 'scrum',
+      progress: 40,
+      status: 'IN_PROGRESS' as Task['status'],
+    });
     drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
     const textCalls = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
     expect(textCalls).toContain('S 40%');
@@ -717,7 +733,11 @@ describe('drawTaskBar — delivery-mode encoding (#2727 pt.7, WCAG 1.4.1)', () =
 
   it('draws no chip letter for a task with no delivery mode', () => {
     const { ctx, calls } = makeCtxSpy();
-    const t = makeBarTask({ deliveryMode: undefined, progress: 40, status: 'IN_PROGRESS' as Task['status'] });
+    const t = makeBarTask({
+      deliveryMode: undefined,
+      progress: 40,
+      status: 'IN_PROGRESS' as Task['status'],
+    });
     drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
     const textCalls = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
     expect(textCalls).toContain('40%');
@@ -1909,7 +1929,6 @@ describe('drawTaskBarLabel — paper halo + placement gate (#2096/#2097)', () =>
     drawLabel2096(ctx, makeBarTask({ name: 'Freeze window prep' }), 0, scales, 0, VIEWPORT_W);
     expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
   });
-
 });
 
 describe('drawHoverRowBand (#2096)', () => {
@@ -3371,7 +3390,9 @@ describe('dependency layer — merge junction trunk/junction visibility culling 
     // either predecessor's row to the target's row overlaps [0, 16], so
     // `groupSpanOverlapsRange` keeps the group alive — the feeder/trunk
     // crossing the viewport must not disappear.
-    const before = Array.from({ length: 9 }, (_, i) => depTask(`f${i}`, '2026-04-06', '2026-04-07'));
+    const before = Array.from({ length: 9 }, (_, i) =>
+      depTask(`f${i}`, '2026-04-06', '2026-04-07'),
+    );
     const after = Array.from({ length: 9 }, (_, i) => depTask(`g${i}`, '2026-04-06', '2026-04-07'));
     const p1 = depTask('p1', '2026-04-06', '2026-04-10');
     const p2 = depTask('p2', '2026-04-08', '2026-04-13');
@@ -3389,7 +3410,9 @@ describe('dependency layer — merge junction trunk/junction visibility culling 
   });
 
   it('culls a merge group entirely when neither the target nor any predecessor is near the visible row range', () => {
-    const filler = Array.from({ length: 50 }, (_, i) => depTask(`f${i}`, '2026-04-06', '2026-04-07'));
+    const filler = Array.from({ length: 50 }, (_, i) =>
+      depTask(`f${i}`, '2026-04-06', '2026-04-07'),
+    );
     const p1 = depTask('p1', '2026-04-06', '2026-04-10');
     const p2 = depTask('p2', '2026-04-08', '2026-04-13');
     const target = depTask('t', '2026-05-04', '2026-05-08');
@@ -3521,7 +3544,9 @@ describe('dependency layer — row-span pre-filter on non-FS (SS/FF/SF) links (#
     const tgt = depTask('u', '2026-05-04', '2026-05-08');
     // Both endpoints sit at rows 10/20 — nowhere near [500, 530] and on the
     // SAME side of it, so the row span itself never overlaps the band.
-    const filler = Array.from({ length: 30 }, (_, i) => depTask(`f${i}`, '2026-04-06', '2026-04-07'));
+    const filler = Array.from({ length: 30 }, (_, i) =>
+      depTask(`f${i}`, '2026-04-06', '2026-04-07'),
+    );
     const tasks = [...filler.slice(0, 10), src, ...filler.slice(10, 19), tgt, ...filler.slice(19)];
     const links = [depLink('s', 'u', { type: 'SS' })];
     const layout = prepareDependencyLayout(tasks, links, scales);
@@ -3540,7 +3565,10 @@ describe('dependency layer — per-frame screen-node cache (#4087)', () => {
   // prepareDependencyLayout short-circuits to an empty layout (no `nodes`)
   // when `links` is empty, so these need at least one real FS link to get
   // a populated `nodes` map — 'a' is the link's source, never its target.
-  const tasks = [depTask('a', '2026-04-06', '2026-04-10'), depTask('b', '2026-04-13', '2026-04-17')];
+  const tasks = [
+    depTask('a', '2026-04-06', '2026-04-10'),
+    depTask('b', '2026-04-13', '2026-04-17'),
+  ];
   const links = [depLink('a', 'b')];
 
   it('memoizes the projected screen node per id within one frame', () => {
@@ -3823,7 +3851,15 @@ describe('drawSprintBands — the window on the shared timeline (#2738)', () => 
   it('clamps the top to below the header so it cannot bleed over the date axis', () => {
     const { ctx, calls } = makeCtxSpy();
     // Scroll the band's first row above the fold.
-    drawSprintBands(ctx, [band({ firstRow: 0, lastRow: 20 })], scales, 0, 3 * ROW_HEIGHT, VIEW_W, VIEW_H);
+    drawSprintBands(
+      ctx,
+      [band({ firstRow: 0, lastRow: 20 })],
+      scales,
+      0,
+      3 * ROW_HEIGHT,
+      VIEW_W,
+      VIEW_H,
+    );
     const wash = calls.find((c) => c.name === 'fillRect');
     expect(wash).toBeDefined();
     expect(wash!.args[1]).toBe(HEADER_HEIGHT);
@@ -3993,7 +4029,7 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
     calls.filter((c) => c.name === 'fillRect' && c.args[2] === 3);
   /** The summary bar's top edge, from the roundRect it fills itself with. */
   const barTopOf = (calls: Array<{ name: string; args: unknown[] }>) =>
-    (calls.find((c) => c.name === 'roundRect')!.args[1] as number);
+    calls.find((c) => c.name === 'roundRect')!.args[1] as number;
 
   afterEach(() => setRendererRowModes(new Map()));
 
@@ -4002,7 +4038,9 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
     // waterfall override, so `computeRowModes` reads the phase MIXED while its own
     // `delivery_mode` still says scrum.
     const phase = { ...SUMMARY_TASK, id: 'p1', deliveryMode: 'scrum' } as Task;
-    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['waterfall', 'scrum'] } as const]]));
+    setRendererRowModes(
+      new Map([['p1', { kind: 'mixed', parts: ['waterfall', 'scrum'] } as const]]),
+    );
     const { ctx, calls } = makeCtxSpy();
     drawSummaryBar(ctx, phase, 0, scales, 0, false);
     const bands = gutterBands(calls);
@@ -4043,7 +4081,9 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
     // canvas, which IS a phase bar's fill. A waterfall band would be the bar painted
     // onto itself: invisible, and indistinguishable from a single-mode row.
     const phase = { ...SUMMARY_TASK, id: 'p1' } as Task;
-    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['waterfall', 'kanban'] } as const]]));
+    setRendererRowModes(
+      new Map([['p1', { kind: 'mixed', parts: ['waterfall', 'kanban'] } as const]]),
+    );
     const { ctx, calls } = makeCtxSpy();
     drawSummaryBar(ctx, phase, 0, scales, 0, false);
     expect(gutterBands(calls)).toHaveLength(1);
@@ -4066,7 +4106,9 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
 
   it('draws NO body texture for mixed — two overlaid textures would name a mode neither half has', () => {
     const leaf = makeBarTask({ deliveryMode: 'scrum' });
-    setRendererRowModes(new Map([[leaf.id, { kind: 'mixed', parts: ['waterfall', 'scrum'] } as const]]));
+    setRendererRowModes(
+      new Map([[leaf.id, { kind: 'mixed', parts: ['waterfall', 'scrum'] } as const]]),
+    );
     const { ctx, calls } = makeCtxSpy();
     drawTaskBar(ctx, leaf, 0, scales, 0, false, VIEWPORT_W);
     expect(styles(calls, 'strokeStyle')).not.toContain(COLOR.deliveryTexture);
@@ -4092,7 +4134,10 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
 
 describe('working-time shading (#1498)', () => {
   /** ISO dates of the day columns drawGridLines shades, recovered from fillRect x. */
-  function shadedDays(workingTime?: { mask: number; exceptions: { start: string; end: string }[] }) {
+  function shadedDays(workingTime?: {
+    mask: number;
+    exceptions: { start: string; end: string }[];
+  }) {
     const { ctx, calls } = makeCtxSpy();
     (ctx as unknown as { canvas: { width: number; height: number } }).canvas = {
       width: 100_000,
@@ -4154,7 +4199,79 @@ describe('working-time shading (#1498)', () => {
 
   it('reads the weekday in UTC, never the local getter', () => {
     // 23:30 UTC Friday must stay a Friday for a viewer in any timezone.
-    expect(isNonWorkingDay(new Date('2026-04-03T23:30:00Z'), { mask: 31, exceptions: [] })).toBe(false);
-    expect(isNonWorkingDay(new Date('2026-04-04T00:00:00Z'), { mask: 31, exceptions: [] })).toBe(true);
+    expect(isNonWorkingDay(new Date('2026-04-03T23:30:00Z'), { mask: 31, exceptions: [] })).toBe(
+      false,
+    );
+    expect(isNonWorkingDay(new Date('2026-04-04T00:00:00Z'), { mask: 31, exceptions: [] })).toBe(
+      true,
+    );
+  });
+});
+
+describe('drawTaskBarLabel — label collision suppression (#2434)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const pred = makeBarTask({ id: 'p', name: 'Pred', start: '2026-04-02', finish: '2026-04-06' });
+  const target = makeBarTask({
+    id: 't',
+    name: 'Target',
+    start: '2026-04-20',
+    finish: '2026-04-28',
+  });
+  const tasks = [pred, target];
+  const links = [depLink('p', 't')];
+  // A viewport just past the bar's right edge forces the label to flip left of the bar,
+  // which is exactly where the incoming arrowhead lands.
+  const flipViewport = () => dateToRight(target.finish, scales) + 10;
+  function makeArrowCtx() {
+    const { ctx, calls } = makeCtxSpy();
+    const aug = ctx as unknown as Record<string, unknown>;
+    aug.canvas = { width: 800, height: 600 };
+    aug.bezierCurveTo = vi.fn();
+    aug.quadraticCurveTo = vi.fn();
+    aug.closePath = vi.fn();
+    return { ctx, calls };
+  }
+  const nameCalls = (calls: Array<{ name: string; args: unknown[] }>) =>
+    calls.filter((c) => c.name === 'fillText' && c.args[0] === 'Target');
+
+  it('control: the flipped-left label draws when no arrow is routed into it', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, target, 1, scales, 0, flipViewport());
+    expect(nameCalls(calls)).toHaveLength(1);
+  });
+
+  it('suppresses a label that would overdraw an arrowhead', () => {
+    const arrows = makeArrowCtx();
+    paintDependencyLayout(arrows.ctx, prepareDependencyLayout(tasks, links, scales), 0, 0);
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, target, 1, scales, 0, flipViewport());
+    expect(nameCalls(calls)).toHaveLength(0);
+  });
+
+  it('never draws extra labels at any zoom tier once arrows are routed', () => {
+    for (const zoom of ['day', 'week', 'month'] as const) {
+      const z = buildScaleData(zoom, '2026-04-01', '2026-05-01');
+      const arrows = makeArrowCtx();
+      paintDependencyLayout(arrows.ctx, prepareDependencyLayout(tasks, links, z), 0, 0);
+      const { ctx, calls } = makeCtxSpy();
+      drawTaskBarLabel(ctx, target, 1, z, 0, dateToRight(target.finish, z) + 10);
+      expect(nameCalls(calls).length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('clears keep-outs on the next frame, so a label returns once the arrow is gone', () => {
+    const arrows = makeArrowCtx();
+    paintDependencyLayout(arrows.ctx, prepareDependencyLayout(tasks, links, scales), 0, 0);
+    paintDependencyLayout(arrows.ctx, prepareDependencyLayout(tasks, [], scales), 0, 0);
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, target, 1, scales, 0, flipViewport());
+    expect(nameCalls(calls)).toHaveLength(1);
+  });
+
+  it('repainting the same row replaces its own history instead of suppressing itself', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, target, 1, scales, 0, 2000);
+    drawTaskBarLabel(ctx, target, 1, scales, 0, 2000);
+    expect(nameCalls(calls)).toHaveLength(2);
   });
 });

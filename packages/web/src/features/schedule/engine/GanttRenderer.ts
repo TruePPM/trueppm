@@ -537,9 +537,7 @@ export function isNonWorkingDay(date: Date, workingTime: WorkingTimeConfig): boo
 const _exceptionDayCache = new WeakMap<object, ReadonlySet<string>>();
 const MAX_EXCEPTION_RANGE_DAYS = 3660;
 
-function expandedExceptionDays(
-  exceptions: WorkingTimeConfig['exceptions'],
-): ReadonlySet<string> {
+function expandedExceptionDays(exceptions: WorkingTimeConfig['exceptions']): ReadonlySet<string> {
   const cached = _exceptionDayCache.get(exceptions);
   if (cached) return cached;
   const days = new Set<string>();
@@ -592,6 +590,98 @@ function measureTextWidth(ctx: CanvasRenderingContext2D, text: string): number {
     _textWidthCache.set(key, w);
   }
   return w;
+}
+
+// ---------------------------------------------------------------------------
+// Label placement: measured text runs vs keep-out geometry (#2434)
+// ---------------------------------------------------------------------------
+
+/** Axis-aligned box in CONTENT space (y includes the scrollTop offset). */
+interface LabelRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** Half the vertical extent of a name run — the 11px label font's line box. */
+const LABEL_RUN_HALF_HEIGHT = 6;
+
+/**
+ * Geometry an on-bar task name must not overdraw, collected by
+ * {@link paintDependencyLayout} for the frame whose labels paint next:
+ * arrowheads and vertical arrow segments that pass THROUGH a label's row band.
+ * A segment that merely starts or ends in the row (the exit stub and trunk
+ * origin of the task's own arrow, which unavoidably leaves at row-center) is
+ * not a keep-out — the halo knocks those out of the glyphs (#2096).
+ */
+let _labelKeepouts: LabelRect[] = [];
+/** Labels already drawn this frame, by row — a later label yields to another row's. */
+let _drawnLabels = new Map<number, LabelRect>();
+
+/** Clear label keep-outs and drawn-label history (start of a label frame). */
+export function resetLabelPlacement(): void {
+  _labelKeepouts = [];
+  _drawnLabels = new Map();
+}
+
+function rectsOverlap(a: LabelRect, b: LabelRect): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+/**
+ * Whether a label occupying `rect` may be painted. Priority (highest first):
+ * arrows → labels drawn earlier (row order) → this label. Suppression, never
+ * truncation or repositioning: the outline already carries every name, so an
+ * absent label is cheaper than a half-struck one (ADR-1413).
+ */
+function labelFits(rect: LabelRect, rowIndex: number): boolean {
+  for (const k of _labelKeepouts) if (rectsOverlap(rect, k)) return false;
+  // A repaint of the same row replaces its own entry rather than colliding with it.
+  for (const [row, d] of _drawnLabels) if (row !== rowIndex && rectsOverlap(rect, d)) return false;
+  return true;
+}
+
+/** Record a frame's arrow geometry as label keep-outs. `scrollTop` re-adds the viewport offset. */
+function collectLabelKeepouts(paths: PendingPath[], scrollTop: number): void {
+  const out: LabelRect[] = [];
+  for (const p of paths) {
+    const ah = p.arrowhead;
+    if (ah) {
+      const sz = 9;
+      const xs = [
+        ah.tipX,
+        ah.tipX - sz * Math.cos(ah.angle - 0.4),
+        ah.tipX - sz * Math.cos(ah.angle + 0.4),
+      ];
+      const ys = [
+        ah.tipY,
+        ah.tipY - sz * Math.sin(ah.angle - 0.4),
+        ah.tipY - sz * Math.sin(ah.angle + 0.4),
+      ];
+      out.push({
+        left: Math.min(...xs),
+        right: Math.max(...xs),
+        top: Math.min(...ys) + scrollTop,
+        bottom: Math.max(...ys) + scrollTop,
+      });
+    }
+    if (p.bezier) continue;
+    for (let i = 1; i < p.pts.length; i++) {
+      const a = p.pts[i - 1];
+      const b = p.pts[i];
+      if (Math.abs(a.x - b.x) >= 0.5) continue; // not vertical
+      // Both endpoints sit at row-center; shrink by half a row each end so only
+      // the rows the segment passes THROUGH count. The endpoint rows hold the
+      // task's own stub/trunk origin, which the halo already handles.
+      const top = Math.min(a.y, b.y) + scrollTop + ROW_HEIGHT / 2;
+      const bottom = Math.max(a.y, b.y) + scrollTop - ROW_HEIGHT / 2;
+      if (bottom <= top) continue;
+      out.push({ left: a.x - 1, right: a.x + 1, top, bottom });
+    }
+  }
+  _labelKeepouts = out;
+  _drawnLabels = new Map();
 }
 
 /**
@@ -2110,10 +2200,23 @@ export function drawTaskBarLabel(
   const rightOfBar = barRight + (hasLinkStatusDot(task, scales) ? LINK_DOT_LABEL_OFFSET : 4);
   const nameRight = rightOfBar + nameWidth;
 
+  // Paint a measured run unless it would overdraw higher-priority geometry (#2434).
+  const paintRun = (text: string, x: number): void => {
+    const rect: LabelRect = {
+      left: x,
+      right: x + measureTextWidth(ctx, text),
+      top: nameY - LABEL_RUN_HALF_HEIGHT,
+      bottom: nameY + LABEL_RUN_HALF_HEIGHT,
+    };
+    if (!labelFits(rect, rowIndex)) return;
+    _drawnLabels.set(rowIndex, rect);
+    strokeLabelHalo(ctx, text, x, nameY);
+    ctx.fillText(text, x, nameY);
+  };
+
   if (nameRight <= viewportWidth - 8) {
     // Fits to the right of the bar end — the common case, drawn in full.
-    strokeLabelHalo(ctx, task.name, rightOfBar, nameY);
-    ctx.fillText(task.name, rightOfBar, nameY);
+    paintRun(task.name, rightOfBar);
   } else {
     // The bar runs long. Prefer flipping to its left, where a label reads
     // against the empty field ahead of the bar rather than off the edge.
@@ -2128,15 +2231,12 @@ export function drawTaskBarLabel(
     const rightRoom = viewportWidth - 8 - rightOfBar;
     if (leftRoom >= rightRoom && leftRoom >= floor) {
       const capped = truncateToWidth(ctx, task.name, leftRoom);
-      const leftX = barLeft - 4 - measureTextWidth(ctx, capped);
-      strokeLabelHalo(ctx, capped, leftX, nameY);
-      ctx.fillText(capped, leftX, nameY);
+      paintRun(capped, barLeft - 4 - measureTextWidth(ctx, capped));
     } else if (rightRoom >= floor) {
       // A bar flush against the left edge has nowhere to flip to; cap into
       // whatever the right-hand field still offers instead of drawing nothing.
       const capped = truncateToWidth(ctx, task.name, rightRoom);
-      strokeLabelHalo(ctx, capped, rightOfBar, nameY);
-      ctx.fillText(capped, rightOfBar, nameY);
+      paintRun(capped, rightOfBar);
     }
     // Neither side has room for a legible cap (extreme zoom-out): omitted.
   }
@@ -3890,6 +3990,7 @@ export function paintDependencyLayout(
   _lastPendingPathCount = 0;
   _lastPendingJunctionCount = 0;
   _lastFSGroupsEvaluated = 0;
+  resetLabelPlacement();
   if (layout.empty) return;
   const visibleFirstRow = visibleRowRange?.firstRow ?? 0;
   const visibleLastRow = visibleRowRange?.lastRow ?? layout.barByRow.length - 1;
@@ -3931,6 +4032,7 @@ export function paintDependencyLayout(
   // further to either array.
   _lastPendingPathCount = pendingPaths.length;
   _lastPendingJunctionCount = pendingJunctions.length;
+  collectLabelKeepouts(pendingPaths, scrollTop);
 
   // PHASE 2 — Rule 15 Type A: detect every orthogonal crossing across the full set of
   // Manhattan paths. Horizontal segments go OVER vertical by convention (Rule 15.4).
