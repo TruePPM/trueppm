@@ -463,7 +463,7 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
    number) that opened up while the branch, the gate batch, and the
    completeness-check round were all running against an older base.
    **Rebase, never `git merge origin/main`.** That is the user's standing
-   preference, and it overrides `/fix-mr` § 4j's "prefer merge" for wave branches.
+   preference, and `/fix-mr` § 4j agrees: rebase, never merge `main`.
    It applies to every agent on the branch, so do not brief a fix-round agent to
    "merge main". An unpushed branch rebases for free. A branch that is already
    pushed rebases with `git push --force-with-lease`, and only when it is being
