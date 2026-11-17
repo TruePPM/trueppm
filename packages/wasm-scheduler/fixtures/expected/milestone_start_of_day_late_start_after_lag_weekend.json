@@ -1,0 +1,66 @@
+{
+  "project_id": "p-milestone-sod-late-start-lag-weekend",
+  "project_start": "2027-03-01",
+  "project_finish": "2027-03-16",
+  "tasks": [
+    {
+      "id": "P",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-03",
+      "late_start": "2027-03-12",
+      "late_finish": "2027-03-16",
+      "total_float": 777600.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "M",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-01",
+      "late_start": "2027-03-15",
+      "late_finish": "2027-03-15",
+      "total_float": 864000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "S",
+      "early_start": "2027-03-04",
+      "early_finish": "2027-03-04",
+      "late_start": "2027-03-16",
+      "late_finish": "2027-03-16",
+      "total_float": 691200.0,
+      "free_float": 691200.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-04"
+    },
+    {
+      "id": "L",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-16",
+      "late_start": "2027-03-01",
+      "late_finish": "2027-03-16",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-01"
+    }
+  ],
+  "critical_path": [
+    "L"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "M",
+      "successor_id": "S",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "P",
+      "successor_id": "M",
+      "dep_type": "SS"
+    }
+  ]
+}

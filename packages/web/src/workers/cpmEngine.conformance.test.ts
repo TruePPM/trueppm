@@ -296,6 +296,12 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // planned_start-pinned Y are three sources, and M/N sit on a Mon-Thu calendar.
   milestone_sf_end_of_day_cap_own_calendar:
     'adapter: 3 source tasks; engine gap: per-task calendars not modeled',
+  // #4528. Each carries two unlinked sources (P and a long-running L that sets
+  // project_finish) so the milestone's late start has a finish to cap against.
+  milestone_start_of_day_late_start_after_lag_weekend: 'adapter: 2 source tasks',
+  milestone_start_of_day_late_start_after_lag_weekend_data_date:
+    'adapter: 2 source tasks; adapter: does not thread actuals/status date',
+  milestone_start_of_day_late_start_capped_at_finish: 'adapter: 2 source tasks',
 };
 
 interface FixtureTask {
