@@ -96,7 +96,7 @@ from trueppm_scheduler.models import (
 # Cells per row block when gathering a calendar's columns onto the reference ruler.
 _MC_REFERENCE_BLOCK_CELLS = 65_536
 
-# Cells (runs x tasks) per forward-pass chunk (#3824). The forward pass keeps five
+# Cells (runs x tasks) per forward-pass chunk (#3824). The forward pass kept five
 # runs x tasks matrices live (ES, EF and the instant deficit in float64, the instant
 # ordinal in int32, its display flag in bool: 29 bytes a cell) plus a working-time
 # copy, so running it over every run at once peaked at ~2.1 GB (2,088 MB) for 50k tasks x
@@ -111,7 +111,10 @@ _MC_REFERENCE_BLOCK_CELLS = 65_536
 # size) recovers about 0.6 s for ~130 MB; going further buys memory back faster than
 # it buys time. 10,000 tasks x 1,000 runs was never slower (2 chunks). A project of up
 # to 800 tasks still runs 10,000 runs in one chunk, so the common case pays no
-# per-chunk loop overhead at all.
+# per-chunk loop overhead at all. Those figures predate :class:`_InstantColumns`: the
+# instant ordinal, display flag and deficit are now held for milestone and zero-base
+# columns only, so a cell is 16 bytes plus 13 per instant column, and the same 8M-cell
+# chunk holds ~128 MB of ES/EF (50,000 x 1,000 replayed: ~590 MB -> ~475 MB RSS).
 _MC_FORWARD_CHUNK_CELLS = 8_000_000
 
 # Cells (runs x tasks) above which the sampled-duration matrix is replayed a row block
@@ -754,6 +757,10 @@ def monte_carlo(
                    requests should pass a smaller value; a table above it raises
                    :class:`InvalidScheduleInput` before the offending array is
                    allocated. It does not change any computed value.
+                   **Provisional** (#4472): its unit is an implementation
+                   structure, so it and ``MAX_LAG_DELTA_CELLS`` may be renamed or
+                   replaced by an implementation-neutral budget in any release,
+                   including after 1.0; such a change is recorded in the changelog.
         max_index_cells: Ceiling on the per-calendar working-day indices, counted as
                    (distinct calendars, by ``working_days`` and ``exceptions``) x
                    (index length) cells, each an 8-byte int64. Default
@@ -762,7 +769,8 @@ def monte_carlo(
                    accepting a ``calendars`` registry from untrusted callers, should
                    pass a smaller value; a project above it raises
                    :class:`SimulationCapExceeded` before any index is allocated. It
-                   does not change any computed value.
+                   does not change any computed value. **Provisional** (#4472), on
+                   the same terms as ``max_lag_delta_cells``.
         deadline:  A :func:`time.monotonic` timestamp after which the run stops
                    with :class:`SimulationTimeExceeded`, or ``None`` (the default)
                    for no time limit. Checked at phase boundaries — before and after

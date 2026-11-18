@@ -13,8 +13,10 @@ replay to the whole matrix.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import date, timedelta
-from itertools import pairwise
+from itertools import pairwise, product
 
 import numpy as np
 import pytest
@@ -24,6 +26,7 @@ from hypothesis import strategies as st
 from tests.test_contract_fuzz import _per_task_calendar_projects, _plausible_projects
 from trueppm_scheduler import (
     Calendar,
+    DateRange,
     DeliveryMode,
     Dependency,
     DependencyType,
@@ -32,6 +35,7 @@ from trueppm_scheduler import (
     monte_carlo,
 )
 from trueppm_scheduler.engine.montecarlo import run as mc_run
+from trueppm_scheduler.engine.montecarlo.instants import _InstantColumns
 from trueppm_scheduler.engine.montecarlo.sampling import (
     _sample_duration_matrix,
     _SampledDurations,
@@ -305,3 +309,204 @@ def test_replay_write_back_straddles_the_kept_rows(monkeypatch: pytest.MonkeyPat
     assert replayed == whole
     ranked = {entry["task_id"] for entry in whole["sensitivity"]}
     assert ranked & {"s0", "s1", "s2"}, "velocity tasks dropped out of the tornado"
+
+
+def _instant_dense_project() -> Project:
+    """Work, milestones and zero-base tasks interleaved, linked by every type and lag sign.
+
+    Tasks alternate between the default calendar and a four-day week with a holiday,
+    and every seventh carries recorded progress, so instants land on non-working
+    days, and with recorded progress. :func:`_instant_chain_project` is where a deficit
+    and a start-of-day reading arise.
+    """
+    tasks: list[Task] = []
+    for i in range(48):
+        if i % 4 == 1:  # a milestone
+            tasks.append(Task(id=f"t{i:02d}", name=f"m{i}", duration=timedelta(0)))
+        elif i % 4 == 3:  # zero-base: a 0-day task whose estimate can draw work (#4698)
+            tasks.append(
+                Task(
+                    id=f"t{i:02d}",
+                    name=f"z{i}",
+                    duration=timedelta(0),
+                    optimistic_duration=timedelta(0),
+                    most_likely_duration=timedelta(days=1),
+                    pessimistic_duration=timedelta(days=3),
+                )
+            )
+        else:
+            tasks.append(
+                Task(
+                    id=f"t{i:02d}",
+                    name=f"w{i}",
+                    duration=timedelta(days=2 + i % 3),
+                    optimistic_duration=timedelta(days=1 + i % 3),
+                    most_likely_duration=timedelta(days=2 + i % 3),
+                    pessimistic_duration=timedelta(days=6 + i % 5),
+                )
+            )
+    kinds = list(DependencyType)
+    deps = [
+        Dependency(
+            predecessor_id=f"t{i - 1 - (i % 2):02d}",
+            successor_id=f"t{i:02d}",
+            dep_type=kinds[i % 4],
+            lag=timedelta(days=i % 5 - 2),
+        )
+        for i in range(2, 48)
+    ]
+    for i, task in enumerate(tasks):
+        if i % 3 == 1:
+            task.calendar_id = "fourday"
+        if i % 7 == 0 and task.duration > timedelta(0):
+            task.percent_complete = 50.0
+            task.actual_start = date(2026, 1, 5)
+    return Project(
+        id="instants",
+        name="instants",
+        start_date=date(2026, 1, 5),
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(),
+        calendars={
+            "fourday": Calendar(
+                working_days=0b0001111,
+                exceptions=[DateRange(date(2026, 1, 14), date(2026, 1, 14))],
+            )
+        },
+    )
+
+
+def _instant_chain_project(
+    source: str, tail: str, dep_type: DependencyType, lag_days: int, per_task_calendar: bool
+) -> Project:
+    """``a -> m -> m2 -> b``: a milestone read two ways, carried to a second, then one link out.
+
+    ``source`` is how the milestone is reached. ``"finish"``: an FS link from PERT
+    work that ends part-way into a day, so the milestone sits short of its midnight
+    (a deficit, #4697). ``"start"``: an SS link from work, so it reads at the start of
+    its day. The link out of it, of every type and lag, then measures from that
+    reading. ``tail`` is the last task, so its finish is the project's: ``"work"`` is
+    ``b``, and ``"milestone"`` is a third milestone, whose reading the result carries
+    in ``p50_at_day_start``.
+    """
+    pert = {
+        "optimistic_duration": timedelta(days=1),
+        "most_likely_duration": timedelta(days=2),
+        "pessimistic_duration": timedelta(days=7),
+    }
+    cal = "fourday" if per_task_calendar else None
+    tasks = [
+        Task(
+            id="a",
+            name="a",
+            duration=timedelta(days=2),
+            calendar_id=cal,
+            percent_complete=50.0 if source == "start" and per_task_calendar else 0.0,
+            actual_start=date(2026, 1, 5) if source == "start" and per_task_calendar else None,
+            **pert,
+        ),
+        Task(id="m", name="m", duration=timedelta(0)),
+        Task(id="m2", name="m2", duration=timedelta(0)),
+        (
+            Task(id="b", name="b", duration=timedelta(days=3), calendar_id=cal)
+            if tail == "work"
+            else Task(id="b", name="b", duration=timedelta(0))
+        ),
+    ]
+    deps = [
+        Dependency(
+            predecessor_id="a",
+            successor_id="m",
+            dep_type=DependencyType.FS if source == "finish" else DependencyType.SS,
+        ),
+        # A zero-lag link between milestones carries the reading on (a start-of-day
+        # one stays so), whatever the type: the display flag reaches m2 only here.
+        Dependency(
+            predecessor_id="m",
+            successor_id="m2",
+            dep_type=DependencyType.SS if source == "start" else DependencyType.FS,
+        ),
+        Dependency(
+            predecessor_id="m2",
+            successor_id="b",
+            dep_type=dep_type,
+            lag=timedelta(days=lag_days),
+        ),
+    ]
+    return Project(
+        id="chain",
+        name="chain",
+        start_date=date(2026, 1, 5),
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(),
+        calendars={
+            "fourday": Calendar(
+                working_days=0b0001111,
+                exceptions=[DateRange(date(2026, 1, 14), date(2026, 1, 14))],
+            )
+        },
+    )
+
+
+# Seeded P50/P80/P95 and the SHA-256 of the full ``to_dict()`` of
+# _instant_dense_project() at runs=300, seed=3824, as the full-width instant matrices
+# of origin/main produced them before _InstantColumns.
+PINNED_INSTANT_PERCENTILES = ("2026-01-20", "2026-01-21", "2026-01-22")
+PINNED_INSTANT_RESULT_SHA256 = "f550e96fef017c5c09f60f4ffa4341d47a59f861ecd15113e0d07be3d4d927c3"
+
+
+def test_instant_columns_are_exact_under_chunking(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Milestone and zero-base link instants are held per instant column only (#3824).
+
+    Every link type out of an instant reads :class:`_InstantColumns`, under one-run
+    chunks and a single chunk alike. The pinned percentiles are the ones the
+    full-width instant matrices produced, so the narrower storage moved no result.
+    """
+    project = _instant_dense_project()
+    chunked, whole = _both_ways(monkeypatch, project, runs=300, seed=3824)
+    assert chunked == whole
+    assert isinstance(whole, dict)
+    assert (whole["p50"], whole["p80"], whole["p95"]) == PINNED_INSTANT_PERCENTILES
+    digest = hashlib.sha256(json.dumps(whole, sort_keys=True, default=str).encode())
+    assert digest.hexdigest() == PINNED_INSTANT_RESULT_SHA256
+
+
+def test_instant_columns_store_only_instant_columns() -> None:
+    instants = _InstantColumns(4, [7, 2, 7])
+    assert instants.ordinal.shape == instants.deficit.shape == (4, 2)
+    assert instants.ordinal.dtype == np.int32
+    instants.store(7, np.arange(4), np.array([True, False, True, False]), np.full(4, 0.25))
+    assert instants.ordinal_of(7).tolist() == [0, 1, 2, 3]
+    assert instants.start_display_of(7).tolist() == [True, False, True, False]
+    assert instants.deficit_of(2).tolist() == [0.0] * 4
+    # A work column has no instant: reading one is a bug, not a zero.
+    with pytest.raises(KeyError):
+        instants.ordinal_of(3)
+
+
+# SHA-256 over every chain of test_instant_chains_are_exact_under_chunking, as the
+# full-width instant matrices of origin/main produced them.
+PINNED_INSTANT_CHAINS_SHA256 = "01bf075da312eb01be7681966ffa7ce8e6973b5720e007db3248f10d89135a24"
+
+
+def test_instant_chains_are_exact_under_chunking(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deficit and a start-of-day reading both reach the work after the milestone (#3824).
+
+    Each chain is the full ``to_dict()``, one-run chunks against one chunk, and the
+    digest of them all is the one the full-width instant matrices produced. A
+    storage that dropped the deficit, flipped the display flag or shifted the
+    ordinal moves some chain's result, which the percentiles of one project may not.
+    """
+    results = []
+    shapes = product(
+        ("finish", "start"), ("work", "milestone"), DependencyType, (0, 1), (False, True)
+    )
+    for source, tail, dep_type, lag_days, per_task_calendar in shapes:
+        project = _instant_chain_project(source, tail, dep_type, lag_days, per_task_calendar)
+        chunked, whole = _both_ways(monkeypatch, project, runs=200, seed=3824)
+        assert chunked == whole
+        results.append(whole)
+    digest = hashlib.sha256(json.dumps(results, sort_keys=True, default=str).encode())
+    assert digest.hexdigest() == PINNED_INSTANT_CHAINS_SHA256

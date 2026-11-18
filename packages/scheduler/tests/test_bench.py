@@ -333,13 +333,15 @@ def test_monte_carlo_forward_pass_peak_memory() -> None:
     """The forward pass runs over row chunks, and its peak is asserted, not just its time (#3824).
 
     8,000 PERT tasks x 2,000 runs (16M cells: two chunks at the 8M-cell budget).
-    Unchunked, the pass holds five runs x tasks matrices (29 bytes a cell) for every
-    run at once and ``tracemalloc`` peaks at ~603 MB on this shape; chunked it peaks
-    at ~371 MB, 128 MB of which is the float64 sampled-duration matrix, held whole
-    at this size (below ``_MC_SAMPLED_MATRIX_CELLS``). The 480 MB bound sits between
-    the two, so an unchunked pass fails it while allocator noise does not. (The
-    shape was 4,000 tasks until #4955 doubled the chunk budget: that shape now fits
-    one chunk.)
+    The pass holds ES and EF (16 bytes a cell) plus the instant ordinal, display
+    flag and deficit for milestone and zero-base columns only (:class:`_InstantColumns`;
+    this shape has none). Chunked, ``tracemalloc`` peaks at ~267 MB, 128 MB of which
+    is the float64 sampled-duration matrix, held whole at this size (below
+    ``_MC_SAMPLED_MATRIX_CELLS``). Unchunked it peaks at ~395 MB, and with the
+    instant values held for every column (29 bytes a cell) at ~371 MB chunked and
+    ~603 MB unchunked. The 330 MB bound sits below both regressions, so either fails
+    it while allocator noise does not. (The shape was 4,000 tasks until #4955
+    doubled the chunk budget: that shape now fits one chunk.)
     """
     import tracemalloc
     from dataclasses import replace
@@ -366,9 +368,10 @@ def test_monte_carlo_forward_pass_peak_memory() -> None:
         tracemalloc.stop()
 
     assert result.p50 <= result.p80 <= result.p95
-    assert peak < 480_000_000, (
+    assert peak < 330_000_000, (
         f"peak {peak / 1e6:.1f} MB — the Monte Carlo forward pass is no longer chunked "
-        "over runs (unchunked it peaks at ~603 MB on this shape)."
+        "over runs (~395 MB unchunked), or holds the instant values for every column "
+        "again (~371 MB)."
     )
 
 
@@ -377,10 +380,11 @@ def test_monte_carlo_replayed_durations_peak_memory(monkeypatch: pytest.MonkeyPa
 
     The same 8,000 PERT tasks x 2,000 runs as above, with the replay threshold forced
     to zero so the shape stays cheap enough for the blocking pipeline. Held whole,
-    ``tracemalloc`` peaks at ~371 MB; replayed it peaks at ~309 MB, which is one
-    forward chunk plus its row block of durations. The 340 MB bound sits between the
-    two, so holding the 128 MB matrix again fails it. The seeded percentiles are the
-    whole-matrix ones (the byte-for-byte check is in test_monte_carlo_chunking.py).
+    ``tracemalloc`` peaks at ~267 MB; replayed it peaks at ~206 MB, which is one
+    forward chunk plus its row block of durations. The 240 MB bound sits between the
+    two, so holding the 128 MB matrix again fails it. (Before :class:`_InstantColumns`
+    the two were ~371 MB and ~309 MB.) The seeded percentiles are the whole-matrix
+    ones (the byte-for-byte check is in test_monte_carlo_chunking.py).
     """
     import tracemalloc
     from dataclasses import replace
@@ -414,9 +418,9 @@ def test_monte_carlo_replayed_durations_peak_memory(monkeypatch: pytest.MonkeyPa
         date(2097, 10, 2),
         date(2097, 12, 10),
     )
-    assert peak < 340_000_000, (
+    assert peak < 240_000_000, (
         f"peak {peak / 1e6:.1f} MB — the sampled-duration matrix is held whole again "
-        "(held, this shape peaks at ~371 MB)."
+        "(held, this shape peaks at ~267 MB)."
     )
 
 
