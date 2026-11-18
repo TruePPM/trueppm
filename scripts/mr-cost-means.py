@@ -96,6 +96,9 @@ def mr_cost(iid, api, author_id=None):
     # One n/a record makes the sum unknowable; a partial sum would read low, which is worse than excluding.
     if any(u is None for u in usd):
         return None, None, "record with n/a cost"
+    # A `N+` record (a model with no price row) is a lower bound; summing it understates the MR.
+    if any(r["total"].get(("partial", "all")) for r in windowed):
+        return None, None, "record with partial cost (model has no price row)"
     return (
         sum(usd, decimal.Decimal(0)),
         sum(tok) if all(t is not None for t in tok) else None,
@@ -455,6 +458,24 @@ def self_test():
         "a renderer-produced legacy record is excluded",
         mr_cost(601, fake_api({601: [(legacy_rend, 7)]}))[2]
         == "legacy record (no window start)",
+    )
+    # A partial (`N+`) record rendered by cost-table's own renderer: the MR is excluded, not understated.
+    pgates = "## Gates\nsubagent-tokens: 12\norchestrator-tokens: 0\nest-cost-usd: 2.00+ (prices 2026-11-03, excludes claude-fable-9)\n"
+    ptext = (
+        "subagent-tokens: model claude-sonnet-5-5 5\nsubagent-tokens: model claude-fable-9 7\n"
+        "est-cost: subagent model claude-sonnet-5-5 2.00 USD\n"
+        "est-cost: model claude-fable-9 has no row in the price table; excluded from the estimate\n"
+        "orchestrator-tokens: model claude-sonnet-5-5 0"
+    )
+    prend = "\n".join(ct.comment_lines(pgates, 4884, B, ptext, 1, A)) + "\n"
+    check(
+        "a partial renderer-produced record is excluded, not understated",
+        mr_cost(602, fake_api({602: [(prend, 7)]}))
+        == (None, None, "record with partial cost (model has no price row)"),
+    )
+    check(
+        "control: a fully priced renderer-produced record is still included",
+        mr_cost(600, rapi)[2] is None,
     )
     if fails:
         for f in fails:

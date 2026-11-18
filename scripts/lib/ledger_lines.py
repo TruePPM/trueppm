@@ -14,7 +14,8 @@ GATE_PREFIX_RE = re.compile(r"^\s*(?:[-*]\s*)?gate:", re.I)
 SUBAGENT_TOKENS_RE = re.compile(r"^\s*(?:[-*]\s*)?subagent-tokens:\s*(\d+)\s*$", re.I)
 # A list-price ESTIMATE on its own line, never mixed with a billed-cost figure.
 EST_COST_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?est-cost-usd:\s*(\d+(?:\.\d+)?)(?:\s*\(prices\s+\d{4}-\d{2}-\d{2}\))?\s*$",
+    r"^\s*(?:[-*]\s*)?est-cost-usd:\s*(\d+(?:\.\d+)?)(\+)?"
+    r"(?:\s*\(prices\s+\d{4}-\d{2}-\d{2}(?:,\s*excludes\s+[0-9A-Za-z][0-9A-Za-z._:-]{0,63}(?:,\s*[0-9A-Za-z][0-9A-Za-z._:-]{0,63}){0,4})?\))?\s*$",
     re.I,
 )
 ORCH_TOKENS_RE = re.compile(r"^\s*(?:[-*]\s*)?orchestrator-tokens:\s*(\d+)\s*$", re.I)

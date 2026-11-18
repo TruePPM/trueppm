@@ -19,7 +19,8 @@ cents):
   (5-minute rate). When the response carries no valid split the whole write is priced at the
   5-minute rate, the cheaper one (so the estimate can understate, never overstate, on that
   field). A model row with `long_prompt` uses it for a response whose prompt tokens
-  (input + cache write + cache read) are over its threshold. A model with no row, a stale
+  (input + cache write + cache read) are over its threshold. A model with no row is
+  excluded and the total marked partial; a stale
   table (`checked` more than 90 days before today, or in the future), or a missing or
   malformed table, or a response with a pricing modifier the table has no rate for (fast mode,
   a non-global `inference_geo`, a non-standard `service_tier`): no line.
@@ -57,10 +58,11 @@ Usage:
   The cost-ledger setting is asked first (`scripts/cost-ledger enabled`): off or unreadable
   prints nothing and opens no transcript.
 
-Output: `est-cost-usd: <N.NN> (prices <checked date>)` on stdout and nothing else; the pieces
+Output: `est-cost-usd: <N.NN> (prices <checked date>)` on stdout and nothing else (`<N.NN>+ (prices
+        <date>, excludes <model>[, <model>])` when a model had no price row); the pieces
         and per-model figures, or the reason for an omission as a `note:` line (the text for
         the MR's `## Notes`), on stderr.
-Exit:   0 priced - 1 omitted (stale or bad table, a model with no row, a response in fast
+Exit:   0 priced (possibly partial) - 1 omitted (stale or bad table, no model with a row, a response in fast
         mode or with a non-global inference_geo or non-standard service_tier, a missing agent or
         session, no usage) - 2 usage error - 3 the cost ledger is off or unreadable
 """
@@ -180,12 +182,17 @@ def price_row(table, vals, model, w1h, modifier=None):
     ) / MILLION
 
 
-def price_rows(table, rows):
+def price_rows(table, rows, unpriced=None):
     """(total Decimal, {model: Decimal}) over measure_rows output. All-zero rows (a synthetic
-    message) cost nothing and need no price row."""
+    message) cost nothing and need no price row. With `unpriced` (a set), a model with no price
+    row is added to it and left out of the total, so one unpriced model no longer blanks the
+    estimate for the priced ones (#5059); a pricing modifier still raises Omit."""
     total, per = D(0), {}
     for vals, model, w1h, modifier in rows:
         if not any(vals):
+            continue
+        if unpriced is not None and modifier is None and table.get(model) is None:
+            unpriced.add(model)
             continue
         c = price_row(table, vals, model, w1h, modifier)
         total += c
@@ -195,6 +202,13 @@ def price_rows(table, rows):
 
 def cents(x):
     return x.quantize(D("0.01"), rounding=decimal.ROUND_HALF_UP)
+
+
+class Estimate(decimal.Decimal):
+    """The total, with `.excluded`: the sorted model ids that had usage but no price row, so the
+    total is a lower bound and the ledger line says so."""
+
+    excluded = ()
 
 
 def estimate(
@@ -243,8 +257,14 @@ def estimate(
     # estimate: the agents' own usage still prices (#4918). Unreadable transcripts raised above.
     if not sstats["messages"] and not orchestrator_only:
         raise Omit("no subagent usage found for the named agents")
-    otot, oper = price_rows(table, orows)
-    stot, sper = price_rows(table, srows)
+    unpriced = set()
+    otot, oper = price_rows(table, orows, unpriced)
+    stot, sper = price_rows(table, srows, unpriced)
+    if unpriced and not (oper or sper):
+        raise Omit(
+            "no model in the window has a row in the price table (%s)"
+            % ", ".join(sorted(unpriced)[:5])
+        )
     if orchestrator_only:
         print(
             "est-cost: orchestrator-only (--no-agents): orchestrator %d messages %s USD; no subagent"
@@ -278,7 +298,15 @@ def estimate(
                 "est-cost: %s model %s %s USD" % (side, model, cents(per[model])),
                 file=err,
             )
-    return otot + stot
+    for model in sorted(unpriced):
+        print(
+            "est-cost: model %s has no row in the price table; excluded from the estimate"
+            % model,
+            file=err,
+        )
+    total = Estimate(otot + stot)
+    total.excluded = tuple(sorted(unpriced)[:5])
+    return total
 
 
 def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled, today=None):
@@ -410,7 +438,14 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled, today=None
         print("FAIL: %s; no line printed" % e, file=err)
         print("note: est-cost-usd omitted: %s" % e, file=err)
         return 1
-    print("est-cost-usd: %s (prices %s)" % (cents(total), checked), file=out)
+    if total.excluded:
+        print(
+            "est-cost-usd: %s+ (prices %s, excludes %s)"
+            % (cents(total), checked, ", ".join(total.excluded)),
+            file=out,
+        )
+    else:
+        print("est-cost-usd: %s (prices %s)" % (cents(total), checked), file=out)
     return 0
 
 
@@ -754,9 +789,36 @@ def _cases(tmp, check):
         "--agent", a1, prices=prices_file("norow.json", models={"m-a": table["m-a"]})
     )
     check(
-        "a model with no price row: no line, names the model",
-        rc == 1 and out == "" and "model m-b has no row" in err,
+        "a model with no price row: the priced model still prices, the total is partial and names the model",
+        rc == 0
+        and re.match(
+            r"^est-cost-usd: \d+\.\d\d\+ \(prices 2026-11-03, excludes m-b\)\n$", out
+        )
+        and "est-cost: model m-b has no row in the price table; excluded" in err
+        and "est-cost: model m-a " in err
+        and "est-cost: model m-b " not in err.replace("model m-b has no row", ""),
+        repr((rc, out, err)),
+    )
+    # cost-table's NOROW_RE must keep matching the line est-cost prints.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "cost_table_5059", os.path.join(HERE, "cost-table.py")
+    )
+    ct = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ct)
+    check(
+        "cost-table's NOROW_RE matches est-cost's excluded-model line",
+        any(ct.NOROW_RE.match(ln) for ln in err.splitlines()),
         err,
+    )
+    rc, out, err = call(
+        "--agent", a1, prices=prices_file("none.json", models={"m-z": table["m-a"]})
+    )
+    check(
+        "no model with a price row: no line",
+        rc == 1 and out == "" and "no model in the window has a row" in err,
+        repr((rc, out, err)),
     )
     rc, out, err = call("--agent", "a9999999999999999")
     check(
@@ -886,8 +948,8 @@ def _cases(tmp, check):
         "--no-agents", prices=prices_file("norow2.json", models={"m-b": table["m-b"]})
     )
     check(
-        "--no-agents still omits on a model with no row",
-        rc == 1 and out == "" and "model m-a has no row" in err,
+        "--no-agents omits when no model has a row",
+        rc == 1 and out == "" and "no model in the window has a row" in err,
         err,
     )
     # Per-agent since (macrodream/blueprint#387): a1 (30.0024 USD) responded at `ts`; a2 (0.012006 USD) is its descendant.
@@ -1049,6 +1111,24 @@ def _cases(tmp, check):
     check(
         "the shipped .claude/model-prices.json is well formed and covers the repo's models",
         have,
+    )
+    # #5059: the wave skill names models by family, so no id in it can go stale against the table.
+    try:
+        with open(
+            os.path.join(os.path.dirname(HERE), ".claude", "skills", "wave", "SKILL.md")
+        ) as f:
+            ids = set(
+                re.findall(
+                    r"claude-(?:fable|opus|sonnet|haiku)-[0-9][0-9-]*[0-9]", f.read()
+                )
+            )
+        missing = sorted(i for i in ids if i not in shipped)
+    except (OSError, NameError):
+        missing = ["(wave/SKILL.md or the table could not be read)"]
+    check(
+        "wave/SKILL.md names no model id the price table lacks",
+        not missing,
+        repr(missing),
     )
 
 
