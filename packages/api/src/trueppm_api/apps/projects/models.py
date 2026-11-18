@@ -1168,7 +1168,34 @@ class Program(VersionedModel):
     # computes a zero delta and writes nothing).
     sample_anchor_date = models.DateField(null=True, blank=True)
 
-    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+    # Program Trash (#2587). Mirrors ``Project.deleted_at``/``deleted_by``: stamped
+    # by the soft-delete paths, cleared on restore, NULL while the row is live and
+    # for programs deleted before these columns existed. Programs have no retention
+    # purge, so ``deleted_at`` is display-only ("Deleted 3 days ago"), never a
+    # reap clock.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="programs_deleted",
+    )
+    # The projects this program's delete detached (``program = NULL``), recorded so
+    # ``POST /programs/{id}/restore/`` can re-attach them. Both delete paths detach
+    # deliberately — ``delete_program_cascade`` so no live project points at a
+    # tombstone, ``soft_delete_program_subtree`` (ADR-0726 §3) so a project restored
+    # on its own comes back standalone — which is exactly why the link has to be
+    # written down: after the detach nothing else remembers it. Nullable rather than
+    # ``default=list`` so a pod from before this column can still INSERT a program
+    # during a rolling upgrade (migration rule 8). NULL and ``[]`` mean the same.
+    detached_project_ids = ArrayField(models.UUIDField(), null=True, blank=True)
+
+    history = HistoricalRecords(
+        # Both are bookkeeping for the is_deleted transition history already
+        # records, the same reason Project excludes ``deleted_at``.
+        excluded_fields=[*_HISTORY_EXCLUDED_BASE, "deleted_at", "detached_project_ids"]
+    )
 
     class Meta:
         db_table = "projects_program"
@@ -1196,6 +1223,27 @@ class Program(VersionedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def soft_delete(self) -> None:
+        """Tombstone the program and stamp ``deleted_at`` in the same UPDATE (#2587).
+
+        Callers set ``deleted_by`` and ``detached_project_ids`` before calling, so
+        all three ride the one ``save()`` that writes ``is_deleted``.
+        """
+        self.deleted_at = timezone.now()
+        super().soft_delete()
+
+    def restore(self) -> None:
+        """Clear the Trash bookkeeping and un-tombstone the row (#2587).
+
+        Re-attaching the detached projects is the caller's job
+        (:func:`~trueppm_api.apps.projects.services.restore_program`), which reads
+        ``detached_project_ids`` before this clears it.
+        """
+        self.deleted_at = None
+        self.deleted_by = None
+        self.detached_project_ids = None
+        super().restore()
 
     @property
     def sample_days_stale(self) -> int | None:

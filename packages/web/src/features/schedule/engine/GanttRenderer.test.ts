@@ -9,6 +9,7 @@ import {
   drawTimelineHeader,
   drawRowBands,
   resetTextMeasureCache,
+  resetLabelPlacement,
   drawGridLines,
   isNonWorkingDay,
   drawTodayLine,
@@ -51,7 +52,10 @@ import type { CadenceSegment, SprintBand } from '../sprintBands';
 
 // Text widths are memoized per (font, text) across calls (#1539); tests that
 // stub measureText differently must not inherit a prior test's cached widths.
-beforeEach(() => resetTextMeasureCache());
+beforeEach(() => {
+  resetTextMeasureCache();
+  resetLabelPlacement();
+});
 
 function makeCtxSpy() {
   const calls: Array<{ name: string; args: unknown[] }> = [];
@@ -4154,7 +4158,209 @@ describe('working-time shading (#1498)', () => {
 
   it('reads the weekday in UTC, never the local getter', () => {
     // 23:30 UTC Friday must stay a Friday for a viewer in any timezone.
-    expect(isNonWorkingDay(new Date('2026-04-03T23:30:00Z'), { mask: 31, exceptions: [] })).toBe(false);
-    expect(isNonWorkingDay(new Date('2026-04-04T00:00:00Z'), { mask: 31, exceptions: [] })).toBe(true);
+    expect(isNonWorkingDay(new Date('2026-04-03T23:30:00Z'), { mask: 31, exceptions: [] })).toBe(
+      false,
+    );
+    expect(isNonWorkingDay(new Date('2026-04-04T00:00:00Z'), { mask: 31, exceptions: [] })).toBe(
+      true,
+    );
+  });
+});
+
+describe('drawTaskBarLabel — label collision suppression (#2434)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const pred = makeBarTask({ id: 'p', name: 'Pred', start: '2026-04-02', finish: '2026-04-06' });
+  const target = makeBarTask({
+    id: 't',
+    name: 'Target',
+    start: '2026-04-20',
+    finish: '2026-04-28',
+  });
+  const tasks = [pred, target];
+  const links = [depLink('p', 't')];
+  // A viewport just past the bar's right edge forces the label to flip left of the bar,
+  // which is exactly where the incoming arrowhead lands.
+  const flipViewport = () => dateToRight(target.finish, scales) + 10;
+  function makeArrowCtx() {
+    const { ctx, calls } = makeCtxSpy();
+    const aug = ctx as unknown as Record<string, unknown>;
+    aug.canvas = { width: 800, height: 600 };
+    aug.bezierCurveTo = vi.fn();
+    aug.quadraticCurveTo = vi.fn();
+    aug.closePath = vi.fn(() => {
+      calls.push({ name: 'closePath', args: [] });
+    });
+    return { ctx, calls };
+  }
+  const nameCalls = (calls: Array<{ name: string; args: unknown[] }>) =>
+    calls.filter((c) => c.name === 'fillText' && c.args[0] === 'Target');
+
+  it('control: the flipped-left label draws when no arrow is routed into it', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, target, 1, scales, 0, flipViewport());
+    expect(nameCalls(calls)).toHaveLength(1);
+  });
+
+  it('suppresses a label that would overdraw an arrowhead', () => {
+    const arrows = makeArrowCtx();
+    paintDependencyLayout(arrows.ctx, prepareDependencyLayout(tasks, links, scales), 0, 0);
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, target, 1, scales, 0, flipViewport());
+    expect(nameCalls(calls)).toHaveLength(0);
+  });
+
+  // ---- geometry recovered from the recorded canvas calls --------------------
+  interface Box {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }
+  const overlaps = (a: Box, b: Box) =>
+    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  type Calls = Array<{ name: string; args: unknown[] }>;
+  const CHAR_W = 6;
+  const withCharWidths = (ctx: CanvasRenderingContext2D) =>
+    (ctx.measureText as ReturnType<typeof vi.fn>).mockImplementation((t: string) => ({
+      width: t.length * CHAR_W,
+    }));
+  /** Drawn name runs as measured boxes (fillText only — strokeText is the halo). */
+  const textRuns = (calls: Calls) =>
+    calls
+      .filter((c) => c.name === 'fillText')
+      .map((c) => {
+        const [text, x, y] = c.args as [string, number, number];
+        return {
+          text,
+          box: { left: x, right: x + text.length * CHAR_W, top: y - 6, bottom: y + 6 } as Box,
+        };
+      });
+  /** Arrowhead triangles (closed 3-point fills) and open-polyline vertical segments. */
+  function arrowGeometry(calls: Calls) {
+    const heads: Box[] = [];
+    const verticals: Array<{ x: number; y0: number; y1: number }> = [];
+    let pts: Array<{ x: number; y: number }> = [];
+    let closed = false;
+    for (const c of calls) {
+      if (c.name === 'beginPath') {
+        pts = [];
+        closed = false;
+      } else if (c.name === 'moveTo' || c.name === 'lineTo') {
+        pts.push({ x: c.args[0] as number, y: c.args[1] as number });
+      } else if (c.name === 'closePath') {
+        closed = true;
+      } else if (c.name === 'fill' && closed && pts.length === 3) {
+        const xs = pts.map((p) => p.x);
+        const ys = pts.map((p) => p.y);
+        heads.push({
+          left: Math.min(...xs),
+          right: Math.max(...xs),
+          top: Math.min(...ys),
+          bottom: Math.max(...ys),
+        });
+      } else if (c.name === 'stroke' && !closed) {
+        for (let i = 1; i < pts.length; i++) {
+          if (Math.abs(pts[i].x - pts[i - 1].x) < 0.5 && pts[i].y !== pts[i - 1].y) {
+            verticals.push({ x: pts[i].x, y0: pts[i - 1].y, y1: pts[i].y });
+          }
+        }
+      }
+    }
+    return { heads, verticals };
+  }
+  /** A vertical segment's span over rows it passes THROUGH (half a row off each end). */
+  const throughBox = (v: { x: number; y0: number; y1: number }): Box | null => {
+    const top = Math.min(v.y0, v.y1) + ROW_HEIGHT / 2;
+    const bottom = Math.max(v.y0, v.y1) - ROW_HEIGHT / 2;
+    return bottom > top ? { left: v.x - 1, right: v.x + 1, top, bottom } : null;
+  };
+  const pipeline = (rows: Task[], rowLinks: TaskLink[], z: GanttScaleData) => {
+    const arrows = makeArrowCtx();
+    paintDependencyLayout(arrows.ctx, prepareDependencyLayout(rows, rowLinks, z), 0, 0);
+    const geo = arrowGeometry(arrows.calls);
+    const labels = makeCtxSpy();
+    withCharWidths(labels.ctx);
+    rows.forEach((t, i) => drawTaskBarLabel(labels.ctx, t, i, z, 0, 4000));
+    return { geo, runs: textRuns(labels.calls) };
+  };
+
+  // Crossing links (p0->t3, p1->t4, p2->t3) over bars that end just short of their
+  // successors, so trunks run down through rows whose labels sit right of the bar.
+  const crossRows = [
+    depTask('c0', '2026-04-01', '2026-04-14', { name: 'Crossing source zero' }),
+    depTask('c1', '2026-04-01', '2026-04-14', { name: 'Crossing source one' }),
+    depTask('c2', '2026-04-01', '2026-04-14', { name: 'Crossing source two' }),
+    depTask('c3', '2026-04-17', '2026-04-24', { name: 'Crossing target three' }),
+    depTask('c4', '2026-04-17', '2026-04-24', { name: 'Crossing target four' }),
+  ];
+  const crossLinks = [depLink('c0', 'c3'), depLink('c1', 'c4'), depLink('c2', 'c3')];
+
+  it.each(['day', 'week', 'month'] as const)(
+    'at the %s tier no two text runs overlap and no label overdraws an arrowhead or vertical arrow segment',
+    (zoom) => {
+      const z = buildScaleData(zoom, '2026-04-01', '2026-05-01');
+      const { geo, runs } = pipeline(crossRows, crossLinks, z);
+      // Not vacuous: the fixture must route arrows and still paint some labels.
+      expect(geo.heads.length).toBeGreaterThan(0);
+      expect(runs.length).toBeGreaterThan(0);
+      for (let i = 0; i < runs.length; i++) {
+        for (let j = i + 1; j < runs.length; j++) {
+          expect(overlaps(runs[i].box, runs[j].box), `${runs[i].text} x ${runs[j].text}`).toBe(
+            false,
+          );
+        }
+        for (const h of geo.heads) expect(overlaps(runs[i].box, h), runs[i].text).toBe(false);
+        for (const v of geo.verticals) {
+          const t = throughBox(v);
+          if (t) expect(overlaps(runs[i].box, t), runs[i].text).toBe(false);
+        }
+      }
+    },
+  );
+
+  describe('vertical pass-through keep-out', () => {
+    // Source row 0 -> target row 3: the trunk drops through rows 1 and 2, whose
+    // labels (right of a bar ending just before the trunk) straddle its x.
+    const rows = [
+      depTask('v0', '2026-04-01', '2026-04-14', { name: 'Source label' }),
+      depTask('v1', '2026-04-01', '2026-04-14', { name: 'Middle row one label' }),
+      depTask('v2', '2026-04-01', '2026-04-14', { name: 'Middle row two label' }),
+      depTask('v3', '2026-04-20', '2026-04-27', { name: 'Target label' }),
+    ];
+    const names = (runs: Array<{ text: string }>) => runs.map((r) => r.text);
+
+    it('control: with no arrows routed, every label draws', () => {
+      const labels = makeCtxSpy();
+      withCharWidths(labels.ctx);
+      rows.forEach((t, i) => drawTaskBarLabel(labels.ctx, t, i, scales, 0, 4000));
+      expect(names(textRuns(labels.calls))).toEqual(rows.map((t) => t.name));
+    });
+
+    it('suppresses labels the trunk passes through but keeps the endpoint rows', () => {
+      const { geo, runs } = pipeline(rows, [depLink('v0', 'v3')], scales);
+      expect(geo.verticals.some((v) => throughBox(v))).toBe(true);
+      const drawn = names(runs);
+      expect(drawn).not.toContain('Middle row one label');
+      expect(drawn).not.toContain('Middle row two label');
+      // The source row holds the trunk's own origin; the half-row shrink spares it.
+      expect(drawn).toContain('Source label');
+      expect(drawn).toContain('Target label');
+    });
+  });
+
+  it('clears keep-outs on the next frame, so a label returns once the arrow is gone', () => {
+    const arrows = makeArrowCtx();
+    paintDependencyLayout(arrows.ctx, prepareDependencyLayout(tasks, links, scales), 0, 0);
+    paintDependencyLayout(arrows.ctx, prepareDependencyLayout(tasks, [], scales), 0, 0);
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, target, 1, scales, 0, flipViewport());
+    expect(nameCalls(calls)).toHaveLength(1);
+  });
+
+  it('repainting the same row replaces its own history instead of suppressing itself', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, target, 1, scales, 0, 2000);
+    drawTaskBarLabel(ctx, target, 1, scales, 0, 2000);
+    expect(nameCalls(calls)).toHaveLength(2);
   });
 });

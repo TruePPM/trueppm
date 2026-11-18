@@ -108,6 +108,7 @@ between them:
 
 | Entity | Posture | Why |
 |---|---|---|
+| `Program` | **Recoverable through the API** — `GET /programs/trash/`, `POST /programs/{id}/restore/`, Program Admin, indefinite; no web Trash page yet | Amendment 2026-11-17 below (#2587) |
 | `Project` | **Recoverable** — Settings → Workspace → Trash, 30 days, Owner | ADR-0202 |
 | `Task` | **Recoverable** — Recently deleted, 90 days, delete-parity gate | This ADR |
 | `Resource` | **Recoverable** — Resources → Show deactivated → Restore, indefinite | Deactivation, not deletion; never reaped |
@@ -193,3 +194,37 @@ still exist as tombstones for the sync window, because that is what tombstones a
 8. **Dead-letter / failure handling:** N/A for the read. Restore failures roll back inside
    a single `transaction.atomic()` and surface as a 4xx/5xx to the caller, which the panel
    renders inline on the row.
+
+## Amendment 2026-11-17 — `Program` (#2587)
+
+`Program` was missing from both tables above: it soft-deletes (`delete_program_cascade`,
+and since ADR-0726 the seed-replace `soft_delete_program_subtree`), but had no Trash list,
+no restore endpoint, and no `deleted_at` / `deleted_by` to build one on.
+
+- `Program` gains `deleted_at`, `deleted_by` and `detached_project_ids`. Both delete paths
+  detach the program's projects (`program = NULL`) on purpose, so the ids are recorded on
+  the tombstone; after the detach nothing else remembers the link.
+- `GET /programs/trash/` lists the caller's trashed programs, scoped by their surviving
+  `ProgramMembership` rows (the delete leaves them live). `can_restore` is Program Admin
+  (`Role.OWNER`) only.
+- `POST /programs/{id}/restore/` (`IsTrashedProgramOwner`) un-tombstones the program and
+  re-attaches every recorded project that is **still unparented**: one moved to another
+  program since stays there. A project still in project Trash is re-attached but not
+  revived — that remains the project Owner's call. A keyless shell (the seed-replace path
+  hands its key to the rebuild, ADR-1237) gets a fresh derived key, as a project does.
+- **No retention window.** There is no program purge, so a trashed program stays until an
+  operator removes it; `days_remaining` is deliberately absent from the list payload.
+- **API only for now.** The web app has no program Trash page:
+  `WorkspaceTrashPage` does not list programs, and program recovery is API-only today.
+  The posture row says so.
+- **Restore skips ADR-0070's project-side consent check.** It re-attaches the recorded
+  still-unparented projects without the project Admin consent that attaching a project
+  to a program normally needs. It exposes nothing new: program membership reaches only
+  roster and rollup metadata, and `live_member_project_ids` keeps project content gated.
+  The cost is that a project left standalone on purpose after the delete is pulled back
+  into the program, and a project re-attached while it sits in project Trash rejoins the
+  program when its Owner restores it.
+- **Restore bumps the memberships' sync cursor.** The roster filters
+  `program__is_deleted=False`, so a client that full-synced while the program was trashed
+  never received the rows; `restore_program` advances their `sync_seq` and
+  `server_version` so the next delta delivers them.

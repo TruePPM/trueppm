@@ -540,7 +540,7 @@ convention. The same list, with the comparison spelled out, is on
 
 **Float and output**
 
-- `is_critical` is `total_float == 0` on live work; completed work has total float 0 and is never critical, so filter on `is_critical` (or `critical_path`), not on `total_float == 0` alone. Total float is the working days from early to late start.
+- `is_critical` is `total_float == 0` on live work; completed work has total float 0 and is never critical, so filter on `is_critical` (or `critical_path`), not on `total_float == 0` alone. Total float is the working days from early to late start. From 0.5 that will hold for milestones too: a start-of-day milestone whose float runs to a non-working midnight (weekends and holidays) will show its late start on the next working day after it, where 0.4 shows the working day before ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)). That late start is the latest the milestone can start *when it is itself held there*; when its predecessor places it on that day, a calendar-day lag out of it runs from that day's midnight instead of the non-working one, and `project_finish` can move. Whether lag counts calendar or working days is a separate open decision ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535)).
 - `free_float` inverts the forward constraint across **all four** link types, capped at total float; no live successor → total float. ([#1828](https://gitlab.com/trueppm/trueppm/-/issues/1828))
 - The order of `ScheduleResult.tasks` is **unspecified** — look tasks up by `id`. ([#1862](https://gitlab.com/trueppm/trueppm/-/issues/1862))
 - `project_finish` and a milestone's `early_finish` are the **day the finish is shown on**, and `milestone_at_day_end` says which edge of it. The end of a Friday and the start of the next Monday are the same point in working time, so the shown day can hop a weekend or holiday with no working-time move. **Compute slip in working time**, reading a start-of-day milestone finish as the end of the working day before it — never as a calendar-day difference of two finishes. ([#4178](https://gitlab.com/trueppm/trueppm/-/issues/4178))
@@ -855,9 +855,7 @@ release it is scheduled for:
   its lagged successors
   ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), and which calendar anchors and snaps an FF/SF link across
   different calendars is still undecided
-  ([#4639](https://gitlab.com/trueppm/trueppm/-/issues/4639)); a start-of-day milestone's total float can run to a
-  non-working midnight, so TF differs from LS-ES
-  ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)); the Python engine and the reference oracle disagree on
+  ([#4639](https://gitlab.com/trueppm/trueppm/-/issues/4639)); the Python engine and the reference oracle disagree on
   `free_float` for an FF-1 link into a four-day-calendar task with actuals
   ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790), [#4789](https://gitlab.com/trueppm/trueppm/-/issues/4789)); and several
   MS-Project-parity cases — SF out of a milestone, mixed SF+FS/SS/FF at the
@@ -923,8 +921,7 @@ they will ship with 0.5 or that release will slip:
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a
   milestone: closing a milestone ahead of an open
-  predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), start-of-day milestone total float ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)),
-  and the `free_float` oracle disagreement
+  predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)) and the `free_float` oracle disagreement
   ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)).
 - **Scheduling semantics** — the calendar-day-vs-working-day lag question will be
   decided ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535));

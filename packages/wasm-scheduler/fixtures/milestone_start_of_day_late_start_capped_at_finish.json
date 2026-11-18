@@ -1,0 +1,19 @@
+{
+  "id": "p-milestone-sod-late-start-capped-at-finish",
+  "name": "Start-of-day milestone at the Saturday-midnight finish instant keeps the Friday: the next working day is past project_finish (#4528)",
+  "start_date": "2027-03-01",
+  "tasks": [
+    {"id": "P", "name": "SS source work", "duration": 259200.0},
+    {"id": "M", "name": "Start-of-day gate", "duration": 0.0},
+    {"id": "L", "name": "Parallel work that sets the finish", "duration": 864000.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "P", "successor_id": "M", "dep_type": "SS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

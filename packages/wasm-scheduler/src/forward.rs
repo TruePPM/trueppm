@@ -5,7 +5,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
+use crate::date::NaiveDate;
 use petgraph::graph::{EdgeReference, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
@@ -1046,7 +1046,7 @@ fn edge_constraints(
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use crate::date::NaiveDate;
     use serde_json::json;
 
     use crate::models::{Project, TaskResult};
@@ -1544,9 +1544,7 @@ mod tests {
                 for pct in [0.0, 20.0] {
                     let (base, _) = started_link(kind, lag, pct, "2026-01-05");
                     for status in ["2026-01-06", "2026-01-07", "2026-01-08"] {
-                        if NaiveDate::parse_from_str(status, "%Y-%m-%d").unwrap()
-                            >= base.early_start
-                        {
+                        if NaiveDate::parse_iso(status).unwrap() >= base.early_start {
                             break;
                         }
                         let (moved, _) = started_link(kind, lag, pct, status);

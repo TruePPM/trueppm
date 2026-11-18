@@ -845,14 +845,13 @@ def _float_late_instant(
     also reports one day less float when its late instant is the end-of-day finish
     instant, and can now be ``is_critical`` / on ``critical_path`` where it was not.
 
-    It is also **not** a general "float == shown-day span" invariant. The cap only
-    reaches a late instant past the last working day of ``project_finish``, i.e.
-    the window near the *finish* instant. Elsewhere a milestone can still report a
-    float that differs from the span between its shown days: the remaining cases
-    seen are a start-of-day milestone whose late instant is a Saturday or Sunday
-    midnight before the finish, shown late on the Friday before it while its float
-    runs through that Friday. A derandomized sample of 1,500 fuzzed networks during
-    review found 43 such milestones left, down from 643 before this change.
+    The cap alone is not what makes float the shown-day span everywhere: it only
+    reaches a late instant past the last working day of ``project_finish``. The
+    remaining class, a start-of-day milestone whose late instant is a Saturday or
+    Sunday midnight before the finish, was shown late on the Friday before it while
+    its float ran through that Friday; :func:`_late_display` now shows it on the
+    Monday, so ``total_float`` equals the shown span for every milestone (#4528,
+    asserted by ``tests/test_total_float_shown_span.py``).
 
     ``inheritors`` carry the cap onto every milestone that takes this one's
     reading at zero lag, as :func:`_link_start_ref` does (#4526).
@@ -909,12 +908,24 @@ def _late_display(
     milestone is shown the way it is shown early, except that a start-of-day
     reading is never shown past the project finish: the latest instant is often
     the end of the finish day, which is shown as that day.
+
+    A start-of-day reading is shown on the first working day at or after the
+    instant, exactly as :func:`_instant_day` shows an early one. A late instant on
+    a non-working midnight (Saturday 00:00, reached through a calendar-day lag or
+    a data date) was shown on the Friday before it, while ``total_float`` runs to
+    the midnight itself, so the milestone reported one working day more float than
+    the span between its shown early and late starts (#4528). Saturday 00:00 and
+    Monday 00:00 are one working-time position, and a milestone pinned to that
+    Monday links from Saturday midnight (the floor rule, #4690), so showing it on
+    Monday names a date it can really be moved to without moving the finish.
     """
     assert task.early_start is not None
     if _next_working_day(late_instant, cal) == _next_working_day(early[0], cal):
         return task.early_start
-    if early[1] and cal.is_working_day(late_instant) and late_instant <= project_finish:
-        return late_instant
+    if early[1]:
+        shown = _next_working_day(late_instant, cal)
+        if shown <= project_finish:
+            return shown
     return _prev_working_day(_safe_offset(late_instant, -_ONE_DAY), cal)
 
 

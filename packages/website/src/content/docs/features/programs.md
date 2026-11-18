@@ -1,7 +1,12 @@
 ---
 title: Programs
 description: Lightweight OSS coordination unit for one PM managing several related projects — shared membership, shared backlog, and combined rollup KPIs.
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+Program Trash and program restore (the last paragraph of "Deleting a program" / the **Delete program** action) ship in 0.5. In the current release a deleted program cannot be recovered.
+:::
 
 
 :::note[Added in 0.2 (alpha)]
@@ -260,6 +265,10 @@ Only the **Program Admin** (Owner) can delete a program. Deleting it:
 You must type the program code or name to confirm. Detaching the projects and
 deleting the program happen in one step — there is no intermediate state where
 only some projects are detached.
+
+From 0.5, a deleted program goes to program Trash and a Program Admin can restore it
+through the API. The web app has no program Trash page. In the current release a
+deleted program is not recoverable.
 
 ## Roles and permissions
 

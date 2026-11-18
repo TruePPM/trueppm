@@ -4,7 +4,7 @@
 //! degenerate; the Python engine rejects each (see
 //! `packages/scheduler/tests/test_wasm_conformance.py::test_invalid_fixture_rejected`),
 //! and the Rust engine must return `Err` rather than spin the calendar walk or
-//! panic on a `chrono` date overflow. Both suites iterate the directory (#1505),
+//! panic on a date overflow. Both suites iterate the directory (#1505),
 //! so a new adversarial fixture is auto-checked by both engines.
 //!
 //! There is deliberately no `rust_rejects/` directory any more. It existed for
@@ -17,8 +17,8 @@
 //!
 //! `fixtures/parse_rejects/` — documents that must fail *deserialization* in
 //! both engines (#1861): dates in lenient ISO-8601 forms (compact `20260401`,
-//! week-date `2026-W15-1`, ordinal `2026-092`) that chrono's `%Y-%m-%d`
-//! `NaiveDate` serde never accepted and that Python now rejects with a strict
+//! week-date `2026-W15-1`, ordinal `2026-092`) that the engine's strict `YYYY-MM-DD`
+//! parser never accepted and that Python now rejects with a strict
 //! `YYYY-MM-DD` pre-check. They cannot live in `invalid/` because that suite
 //! requires every fixture to parse; these by design do not. The Python side is
 //! `test_wasm_conformance.py::test_parse_reject_fixture_rejected_at_parse`.
@@ -76,8 +76,8 @@ fn all_invalid_fixtures_rejected() {
 
 /// Every `fixtures/parse_rejects/*.json` must fail deserialization (#1861).
 /// These carry dates in lenient ISO-8601 forms (compact / week-date / ordinal)
-/// that Python's `date.fromisoformat` used to accept while chrono's `%Y-%m-%d`
-/// serde rejects — a silent cross-engine divergence. Both engines now reject
+/// that Python's `date.fromisoformat` used to accept while the engine's strict `YYYY-MM-DD`
+/// parser rejects — a silent cross-engine divergence. Both engines now reject
 /// them at parse time; iterating the directory means a new lenient-form fixture
 /// added on either side is automatically enforced in both engines.
 #[test]

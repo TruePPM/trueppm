@@ -153,7 +153,7 @@ Pass `model` (and `effort`) explicitly on every spawn:
 
 ### Rescue escalation: Fable, only after Opus failed (macrodream/blueprint#399)
 
-Fable (the current Fable row in `.claude/model-prices.json`) is priced about 2.5x Opus (`.claude/model-prices.json`), so it
+Fable (`claude-fable-5-2`) is priced about 2x Opus (`.claude/model-prices.json`), so it
 earns its price only where Opus has already failed on the same issue. It is never a default,
 never chosen up front, and never a standing tier. **A Fable spawn with no prior Opus failure on
 that issue is a defect in the run**: report it as one, like an omitted `model`.
@@ -183,7 +183,7 @@ with `AskUserQuestion`, Fable first and marked recommended:
 - **"Run Opus again" is not the wrong answer.** The recommendation is Fable, the choice is the
   user's, and nothing in this skill treats `opus-again` as a lesser outcome.
 - **The estimate** prices the failed Opus run's measured tokens (`subagent-tokens:` from
-  `scripts/post-mr-cost.py --measure`, per usage class) at the current Fable row of
+  `scripts/post-mr-cost.py --measure`, per usage class) at the `claude-fable-5-2` row of
   `.claude/model-prices.json`, and is labeled an estimate. With no measured tokens (the cost
   ledger off, or no transcript), say "no estimate: <why>" rather than invent one.
 - **Non-interactive runs do not escalate.** A run that cannot ask reports the issue as
@@ -201,8 +201,8 @@ files and lines, what is committed, so it does not re-read what Opus already est
 
 **Reporting.** Show the model as `fable` in every status table and the Step 8 report, with the
 trigger and the user's answer. A gate a Fable agent ran is recorded `(fable)` in its
-`## Gates` line, like any model. The cost record's per-model split groups every Fable id
-under one Fable column. Step 8 carries one `rescue:` line per issue a trigger fired on.
+`## Gates` line, like any model. The cost record's per-model split already handles the
+`claude-fable-5-2` id. Step 8 carries one `rescue:` line per issue a trigger fired on.
 
 **Read-only gates always run on Sonnet.** `regression-check`, `rbac-check`,
 `perf-check`, `security-review`, `broadcast-check`, `migration-check` read a diff
@@ -473,7 +473,7 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
    number) that opened up while the branch, the gate batch, and the
    completeness-check round were all running against an older base.
    **Rebase, never `git merge origin/main`.** That is the user's standing
-   preference, and it overrides `/fix-mr` § 4j's "prefer merge" for wave branches.
+   preference, and `/fix-mr` § 4j agrees: rebase, never merge `main`.
    It applies to every agent on the branch, so do not brief a fix-round agent to
    "merge main". An unpushed branch rebases for free. A branch that is already
    pushed rebases with `git push --force-with-lease`, and only when it is being

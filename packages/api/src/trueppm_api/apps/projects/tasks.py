@@ -2009,8 +2009,8 @@ def _reap_empty_import_shell(job: Any) -> bool:
     bump is what reaches offline sync consumers, and a hard delete would strand
     a client that had already seen the shell — the same reasoning that makes
     ``soft_delete_program_subtree`` tombstone the program instead of removing it.
-    There is no program Trash (#2587), so this is not recoverable through the UI;
-    that is why every guard below is a *reason not to touch it*.
+    The shell lands in program Trash (#2587) but is restorable only through the
+    API, so every guard below is still a *reason not to touch it*.
 
     Returns True when a shell was retired.
     """

@@ -12005,6 +12005,105 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/restore/": {
+            "post": {
+                "operationId": "v1_programs_restore_create",
+                "description": "Un-tombstone a program and re-attach the projects its delete detached (#2587).\n\nProgram Admin only (``IsTrashedProgramOwner``). The program row and every\nre-attachment commit together or not at all. Projects moved to another\nprogram since the delete stay where they are; projects in project Trash are\nre-attached but stay trashed (see ``services.restore_program``).\n\nLike project restore, a second restore of the same id is a **404**: once\nlive it is no longer in the caller's Trash, so the action fails closed on a\ndouble-submit instead of re-applying.",
+                "summary": "Restore a soft-deleted program from Trash",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The program came back keyless (a seed re-import handed its code to the rebuild) and no free code could be derived from its name; the error is keyed on ``code``. Nothing is restored."
+                    },
+                    "404": {
+                        "description": "No soft-deleted program with that id in your Trash."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/risk-policy/": {
             "get": {
                 "operationId": "v1_programs_risk_policy_retrieve",
@@ -18674,7 +18773,7 @@
         "/api/v1/programs/import/": {
             "post": {
                 "operationId": "v1_programs_import_create",
-                "description": "Queue a JSON seed import, returning ``202`` with the program and job ids.\n\nAccepts either a ``file`` multipart upload or a raw JSON body. The caller\nbecomes the program OWNER (same authorization as ``create`` — any\nauthenticated user may create a program). ``create_users`` is forced off:\nimporting a seed on a live instance must never mint arbitrary logins.\n\n**The split (ADR-0726 §4).** Validation, the replace decision, the\nreplacement itself, and the program shell all happen *here*, inside the\nrequest; only the O(n) subtree build is queued. Two reasons, both\ndeliberate: a destructive act belongs in the request the operator\nauthorized rather than behind a queue, and resolving the collision here\ncloses the TOCTOU window between \"nothing collides\" and a worker deleting\nsomething. What is left to the worker is purely additive, which is why a\n100k-entity document no longer 504s mid-transaction (#2574).\n\n**Replacement requires consent (#2581).** A live program of the caller's\nwhose ``code`` matches this seed's slug is refused with ``409`` unless\n``replace=true`` is sent. Confirmed, its projects are **soft**-deleted —\nthey land in project Trash individually, as standalone projects, and\noffline clients receive tombstones. The program shell itself is not\nrecoverable; there is no program Trash (#2587).\n\nRate-limited to the ``seed_import`` scope (:class:`SeedImportThrottle`).\nThe bucket now bounds *job creation* rather than request CPU, which is\nthe correct unit once the build is async — paired with the per-program\nin-flight de-dupe in ``enqueue_program_import``, that is what keeps this\nfrom trading a CPU exhaustion vector for a queue backlog.\n\nPermission parity (#1957): import stays ``IsAuthenticated`` (via the\nget_permissions default) deliberately, because program ``create`` is\nlikewise ``IsAuthenticated``. The *replace* is separately scoped to\nprograms the caller owns outright (#994), so the looser gate on create\nnever widens what a seed can destroy.",
+                "description": "Queue a JSON seed import, returning ``202`` with the program and job ids.\n\nAccepts either a ``file`` multipart upload or a raw JSON body. The caller\nbecomes the program OWNER (same authorization as ``create`` — any\nauthenticated user may create a program). ``create_users`` is forced off:\nimporting a seed on a live instance must never mint arbitrary logins.\n\n**The split (ADR-0726 §4).** Validation, the replace decision, the\nreplacement itself, and the program shell all happen *here*, inside the\nrequest; only the O(n) subtree build is queued. Two reasons, both\ndeliberate: a destructive act belongs in the request the operator\nauthorized rather than behind a queue, and resolving the collision here\ncloses the TOCTOU window between \"nothing collides\" and a worker deleting\nsomething. What is left to the worker is purely additive, which is why a\n100k-entity document no longer 504s mid-transaction (#2574).\n\n**Replacement requires consent (#2581).** A live program of the caller's\nwhose ``code`` matches this seed's slug is refused with ``409`` unless\n``replace=true`` is sent. Confirmed, its projects are **soft**-deleted —\nthey land in project Trash individually, as standalone projects, and\noffline clients receive tombstones. The program shell goes to program\nTrash and ``POST /programs/{id}/restore/`` re-attaches them (#2587).\n\nRate-limited to the ``seed_import`` scope (:class:`SeedImportThrottle`).\nThe bucket now bounds *job creation* rather than request CPU, which is\nthe correct unit once the build is async — paired with the per-program\nin-flight de-dupe in ``enqueue_program_import``, that is what keeps this\nfrom trading a CPU exhaustion vector for a queue backlog.\n\nPermission parity (#1957): import stays ``IsAuthenticated`` (via the\nget_permissions default) deliberately, because program ``create`` is\nlikewise ``IsAuthenticated``. The *replace* is separately scoped to\nprograms the caller owns outright (#994), so the looser gate on create\nnever widens what a seed can destroy.",
                 "summary": "Queue a JSON seed bundle as a new program",
                 "tags": [
                     "import-export"
@@ -18740,7 +18839,7 @@
                                 }
                             }
                         },
-                        "description": "A live program you own already holds this seed's slug. Re-send with `replace=true` to confirm; optionally pin the target with `expected_program_id`. The replaced program's projects move to Trash individually as standalone projects; the program shell itself is not recoverable. `code` is `seed_replace_required`, `seed_replace_mismatch`, or `seed_replace_ambiguous` — or `seed_slug_taken` when the slug is the key of a program you cannot replace (another user's, or one in Trash); keys are never reissued, so change `program.slug` and re-import."
+                        "description": "A live program you own already holds this seed's slug. Re-send with `replace=true` to confirm; optionally pin the target with `expected_program_id`. The replaced program's projects move to Trash individually as standalone projects; the program shell goes to program Trash (`GET /programs/trash/`), keyless, and `POST /programs/{id}/restore/` brings it back with a fresh key and its projects re-attached. `code` is `seed_replace_required`, `seed_replace_mismatch`, or `seed_replace_ambiguous` — or `seed_slug_taken` when the slug is the key of a program you cannot replace (another user's, or one in Trash); keys are never reissued, so change `program.slug` and re-import."
                     },
                     "429": {
                         "content": {
@@ -19095,6 +19194,61 @@
                     },
                     "404": {
                         "description": "No such sample key, or the file is missing."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/trash/": {
+            "get": {
+                "operationId": "v1_programs_trash_list",
+                "description": "List soft-deleted programs the caller was a member of (#2587).\n\nEvery member sees the row; ``can_restore`` is true only for the Program\nAdmin (``Role.OWNER``), matching the Restore gate. Programs have no\nretention purge, so there is no ``days_remaining``: a trashed program stays\nuntil an operator hard-deletes it. ``detached_project_count`` is how many\nprojects a restore would try to re-attach.\n\nRe-applies the ADR-0678 agent opt-out explicitly, as ``ProjectViewSet.trash``\ndoes: the trashed queryset bypasses the hooks that carry it.",
+                "summary": "List the caller's soft-deleted programs (program Trash)",
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TrashProgramList"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -90427,6 +90581,59 @@
                 "type": "string",
                 "description": "* `cloud` - TruePPM cloud (Django settings)\n* `smtp` - Custom SMTP\n* `sendgrid` - SendGrid\n* `ses` - Amazon SES",
                 "x-trueppm-enum": "open"
+            },
+            "TrashProgramList": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "deleted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "deleted_by": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "deleted_by_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "detached_project_count": {
+                        "type": "integer"
+                    },
+                    "my_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "can_restore": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "can_restore",
+                    "code",
+                    "deleted_at",
+                    "deleted_by",
+                    "deleted_by_name",
+                    "detached_project_count",
+                    "id",
+                    "my_role",
+                    "name"
+                ]
             },
             "TrashProjectList": {
                 "type": "object",

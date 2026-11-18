@@ -307,9 +307,10 @@ Stated plainly, because these are the ones people discover the hard way:
    single-project program, not back into its original parent.
 3. **A matching program slug is replaced wholesale**, not merged. Field-level upsert does
    not exist. The REST endpoint refuses the replacement until you confirm it, and the
-   replaced program's **projects** land in project Trash — but the **program shell itself
-   is not recoverable**. There is no program Trash and no program restore endpoint
-   (#2587), and a project restored from Trash comes back as a standalone project, not
+   replaced program's **projects** land in project Trash. From 0.5 the replaced
+   **shell** goes to program Trash too, without its code (#2587); an Owner can restore it
+   through the API only, as there is no web Trash page for programs. A project restored
+   from Trash before its program is restored comes back as a standalone project, not
    regrouped under the program it was removed from. Export before you re-import over a
    program you care about.
 4. **The v1 seed is final-state only.** Comments, time entries, attachments, and change

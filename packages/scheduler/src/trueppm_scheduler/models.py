@@ -1461,7 +1461,7 @@ def _parse_date(val: Any, field_name: str) -> date:
 
     Python 3.11+ ``date.fromisoformat`` is lenient — it also accepts compact
     (``"20260401"``), week-date (``"2026-W15-1"``), and ordinal (``"2026-092"``)
-    forms. The Rust/WASM engine's chrono ``NaiveDate`` parser accepts
+    forms. The Rust/WASM engine's strict ``YYYY-MM-DD`` parser accepts
     ``%Y-%m-%d`` only, so a lenient form would schedule in Python but fail to
     parse in Rust — a silent cross-engine divergence (#1861). The
     deserialization surface therefore pins the single canonical format that

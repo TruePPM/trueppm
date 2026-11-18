@@ -45,4 +45,9 @@ for pack in "${PACKS[@]}"; do
   echo "  wrote ${DEST}/${pack}.yml (${bytes} bytes)"
 done
 
+# Stamp the refresh date: scripts/check-semgrep-freshness.sh (CI job
+# lint:semgrep-freshness) reads it, because shallow clones and checkout mtimes
+# cannot say when the packs were fetched (#3103).
+date -u +%Y-%m-%d > "${DEST}/REFRESHED"
+
 echo "done. Review the diff, then commit .semgrep/."

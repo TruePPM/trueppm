@@ -1473,6 +1473,7 @@ def test_the_unresolvable_scope_scan_is_not_vacuous() -> None:
 #: its `has_permission` is not merely `is_authenticated`.
 HAS_PERMISSION_DECIDES: dict[str, str] = {
     "IsTrashedProjectOwner": "has_permission refuses unless the object check will run",
+    "IsTrashedProgramOwner": "has_permission refuses unless the object check will run",
     "IsProjectNotArchived": "lifecycle gate: archived state decided in has_permission (#3587)",
     "IsProgramNotClosed": "lifecycle gate: closed state decided in has_permission (#3587)",
     "IsTeamMember": "teams: route project membership in has_permission, fails closed",

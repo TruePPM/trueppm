@@ -5,7 +5,7 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
-use chrono::NaiveDate;
+use crate::date::NaiveDate;
 use petgraph::algo::{tarjan_scc, toposort};
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
@@ -399,7 +399,7 @@ mod tests {
         let project = Project {
             id: "p1".to_string(),
             name: "Test".to_string(),
-            start_date: chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
             tasks: vec![make_task("A", 5), make_task("B", 3)],
             dependencies: vec![Dependency {
                 predecessor_id: "A".to_string(),
@@ -427,7 +427,7 @@ mod tests {
         let project = Project {
             id: "p1".to_string(),
             name: "Test".to_string(),
-            start_date: chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
             tasks: vec![make_task("A", 5), make_task("B", 3)],
             dependencies: vec![
                 Dependency {
@@ -484,7 +484,7 @@ mod tests {
         let project = Project {
             id: "p1".to_string(),
             name: "Test".to_string(),
-            start_date: chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
             tasks: vec![make_task("A", 1), make_task("B", 1), make_task("C", 1)],
             dependencies: vec![
                 Dependency {
@@ -533,7 +533,7 @@ mod tests {
         let project = Project {
             id: "p1".to_string(),
             name: "Test".to_string(),
-            start_date: chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
             tasks: vec![make_task("A", 5)],
             dependencies: vec![Dependency {
                 predecessor_id: "A".to_string(),
@@ -557,7 +557,7 @@ mod tests {
         let project = Project {
             id: "p".to_string(),
             name: "t".to_string(),
-            start_date: chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
             tasks: ids.iter().map(|i| make_task(i, 1)).collect(),
             dependencies: edges
                 .iter()

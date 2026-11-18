@@ -214,7 +214,7 @@ class TestDeserializationExceptionSurface:
 
 
 # ISO-8601 forms Python 3.11+ ``date.fromisoformat`` accepts but the Rust/WASM
-# engine's chrono ``%Y-%m-%d`` parser rejects (#1861). All represent 2026-04-02.
+# engine's strict ``YYYY-MM-DD`` parser rejects (#1861). All represent 2026-04-02.
 LENIENT_ISO_FORMS = ["20260402", "2026-W14-4", "2026-092", "2026W144"]
 
 
@@ -222,7 +222,7 @@ class TestStrictDateFormat:
     """The deserialization surface accepts strict ``YYYY-MM-DD`` only (#1861).
 
     Python's ``date.fromisoformat`` (3.11+) is more lenient than the Rust
-    engine's chrono parser; a compact/week-date/ordinal form would schedule in
+    engine's strict ``YYYY-MM-DD`` parser; a compact/week-date/ordinal form would schedule in
     Python but fail to parse in Rust. Every date field is therefore pinned to
     the canonical form ``to_json`` emits. Cross-engine parity for the same
     inputs is asserted by the shared ``fixtures/parse_rejects/`` suite.

@@ -1,0 +1,22 @@
+{
+  "id": "p-milestone-sod-late-start-lag-weekend-data-date",
+  "name": "The same Saturday-midnight late instant with a mid-week data date floor (#4528)",
+  "start_date": "2027-03-01",
+  "status_date": "2027-03-03",
+  "tasks": [
+    {"id": "P", "name": "SS source work", "duration": 259200.0},
+    {"id": "M", "name": "Start-of-day gate", "duration": 0.0},
+    {"id": "S", "name": "Follow-on after a 3-calendar-day lag", "duration": 86400.0},
+    {"id": "L", "name": "Parallel work that sets the finish", "duration": 864000.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "P", "successor_id": "M", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "M", "successor_id": "S", "dep_type": "FS", "lag": 259200.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

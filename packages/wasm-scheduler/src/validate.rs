@@ -1,13 +1,13 @@
 //! Input validation, mirroring `trueppm_scheduler.engine.validate._validate_project` (#749).
 //!
-//! The CPM engine walks the calendar one day at a time, and `chrono`'s default
-//! `NaiveDate + Duration` arithmetic *panics* on overflow — so a calendar with
+//! The CPM engine walks the calendar one day at a time, and the in-crate
+//! `NaiveDate + Duration` arithmetic (like chrono's before it) *panics* on overflow — so a calendar with
 //! no working day, or an absurd duration/lag, would spin the day-by-day walk
 //! and then trap the entire WASM module in the browser. Rejecting that input up
 //! front turns it into a clean error string (surfaced to JS as an exception),
 //! keeping parity with the Python engine's behaviour and bounds.
 
-use chrono::{Duration, NaiveDate};
+use crate::date::{Duration, NaiveDate};
 
 use crate::calendar::next_working_day;
 use crate::models::{Calendar, Project, Task};
@@ -43,7 +43,7 @@ pub const MAX_DEPENDENCIES: usize = 100_000;
 pub const MAX_CALENDAR_EXCEPTIONS: usize = 100_000;
 
 /// The Python `datetime.date.max` (9999-12-31). The Python engine bounds a
-/// far-future `start_date` against *this* ceiling, not `chrono::NaiveDate::MAX`
+/// far-future `start_date` against *this* ceiling, not `NaiveDate::MAX`
 /// (~year 262143), so the Rust engine must use the same ceiling to reject the
 /// identical inputs (#1826) — otherwise a year-9950 start is rejected by Python
 /// but scheduled by Rust.
@@ -51,9 +51,10 @@ fn py_date_max() -> NaiveDate {
     NaiveDate::from_ymd_opt(9999, 12, 31).expect("9999-12-31 is a valid date")
 }
 
-/// The Python `datetime.date.min` (0001-01-01). chrono reaches year -262143, so
-/// without this floor a backward walk (an SF link or lead from a year-0001 start)
-/// schedules into year 0 or below, dates Python refuses and neither
+/// The Python `datetime.date.min` (0001-01-01). The in-crate date type's `MIN`
+/// reaches year -262143 (the same bound chrono had), so without this floor a
+/// backward walk (an SF link or lead from a year-0001 start) schedules into
+/// year 0 or below, dates Python refuses and neither
 /// `date.fromisoformat` nor `Date.parse` can read back (#4707). Mirrors the
 /// `_MIN_ORDINAL` floor in `trueppm_scheduler.engine`.
 pub fn py_date_min() -> NaiveDate {
@@ -603,7 +604,7 @@ fn validate_span(project: &Project, status_offset: i64) -> Result<(), String> {
     // Far-future start (#1826): the engine walks in *calendar* days (a weekday-only
     // calendar inflates a working-day span up to 7x) and a single snap advances up
     // to MAX_CALENDAR_SCAN_DAYS. Python rejects a start close enough to date.max
-    // (9999-12-31) that the walk would step past it; this engine's `chrono` ceiling
+    // (9999-12-31) that the walk would step past it; this engine's date ceiling
     // is far higher (~262143), so without matching the Python ceiling a year-9950
     // start is rejected by Python but scheduled here. Use the *same* conservative
     // estimate (span x 7 + one scan) against the Python date ceiling.
@@ -774,7 +775,7 @@ fn check_whole_days(seconds: f64, label: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use crate::date::NaiveDate;
 
     use super::*;
     use crate::models::{Calendar, DateRange, Dependency, DependencyType, Project, Task};
@@ -1078,7 +1079,7 @@ mod tests {
         let mut t = task("A", 1);
         t.planned_start = Some(
             NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
-                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
+                + Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
         );
         let p = project(vec![t], vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
@@ -1092,8 +1093,7 @@ mod tests {
         // the accumulator path, not the eager check.)
         let mut t = task("A", MAX_DURATION_DAYS);
         t.planned_start = Some(
-            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
-                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS),
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap() + Duration::days(MAX_PROJECT_SPAN_DAYS),
         );
         let p = project(vec![t], vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
@@ -1108,7 +1108,7 @@ mod tests {
         let mut t = task("A", 1);
         t.actual_finish = Some(
             NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
-                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
+                + Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
         );
         let p = project(vec![t], vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
@@ -1121,7 +1121,7 @@ mod tests {
         let mut t = task("A", 1);
         t.actual_start = Some(
             NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
-                - chrono::Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
+                - Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
         );
         let p = project(vec![t], vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
@@ -1165,7 +1165,7 @@ mod tests {
         let mut p = project(vec![task("A", 1)], vec![], Calendar::default());
         p.status_date = Some(
             NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
-                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
+                + Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
         );
         assert!(validate_project(&p).is_err());
     }
@@ -1190,8 +1190,7 @@ mod tests {
             Calendar::default(),
         );
         p.status_date = Some(
-            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
-                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS),
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap() + Duration::days(MAX_PROJECT_SPAN_DAYS),
         );
         assert!(validate_project(&p).is_err());
     }

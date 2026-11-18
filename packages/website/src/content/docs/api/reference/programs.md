@@ -4,6 +4,10 @@ description: "Programs, program membership sync, and the program backlog."
 documentedFor: "0.5"
 ---
 
+:::note[Ships in 0.5]
+`GET /api/v1/programs/trash/` and `POST /api/v1/programs/{id}/restore/` ship in 0.5. In the current release a deleted program is not recoverable.
+:::
+
 ## Programs
 
 A program is a container for related projects (see [Programs](/features/programs/)).
@@ -15,6 +19,8 @@ A program is a container for related projects (see [Programs](/features/programs
 | GET | `/api/v1/programs/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/programs/{id}/` | Update |
 | DELETE | `/api/v1/programs/{id}/` | Soft-delete |
+| GET | `/api/v1/programs/trash/` | List soft-deleted programs you were a member of. Every member sees the row; `can_restore` is true only for the Program Admin (Owner) |
+| POST | `/api/v1/programs/{id}/restore/` | Restore a soft-deleted program (Owner only). Re-attaches the projects it had when deleted, except any that were moved under another program in the meantime |
 | GET | `/api/v1/programs/{id}/projects/` | The program's project roster — an unpaginated array of **roster rows**, not full project objects (see below). Any program member, Viewer included. Optional `?search=` (project name or code) and `?ordering=name` / `-name`; default order is start date, then name |
 | GET | `/api/v1/programs/samples/` | List the bundled samples available to the demo loader |
 | POST | `/api/v1/programs/load-sample/` | Load a bundled sample program (the in-app "Load demo data" action); body `{"sample": "<key>"}` |

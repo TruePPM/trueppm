@@ -1097,11 +1097,11 @@ def _cases(tmp, check):
                 "claude-opus-5-5",
                 "claude-sonnet-5-5",
                 "claude-haiku-5-5",
-                "claude-fable-5-1",
                 "claude-fable-5-2",
                 # Previous-generation rows, kept so a session still on one is priced.
                 "claude-sonnet-5",
                 "claude-opus-5",
+                "claude-fable-5-1",
                 "claude-fable-5",
                 "claude-haiku-4-5",
             )

@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check api-engine-boundary-check schema-check openapi-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
+        migrations-check node-version-check e2e-drift-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check api-engine-boundary-check schema-check openapi-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks semgrep-freshness-check e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -113,12 +113,19 @@ migrations-check: ## Verify no missing Django migrations (local venv, PYTHONPATH
 	@# (2) the container bind-mounts the MAIN checkout, so from a worktree it would check
 	@# main's models, not the branch's. PYTHONPATH=src forces the *worktree* source
 	@# rather than main's editable install. makemigrations --check is a model-vs-files
-	@# diff and makes no DB connection; DATABASE_URL only has to parse.
+	@# diff and needs no database, but it still runs check_consistent_history against
+	@# any REACHABLE default DB, and the shared dev DB's applied order disagrees with
+	@# the #1286 `replaces=` squash graph (InconsistentMigrationHistory, locally only,
+	@# which drove routine `git push --no-verify`, #1293). So DATABASE_URL is pinned
+	@# to a refused port, ignoring any exported value: Django downgrades the failed
+	@# connection to a RuntimeWarning (silenced below) and the diff still runs,
+	@# exactly as in CI's DB-free `.api-no-db` api:migration-check.
 	@cd packages/api && \
 	  PYTHONPATH=src \
 	  TRUEPPM_ALLOW_DEV_SETTINGS=1 \
-	  DATABASE_URL="$${DATABASE_URL:-postgres://trueppm:trueppm@localhost:5432/trueppm}" \
-	  .venv/bin/python manage.py makemigrations --check --dry-run
+	  DATABASE_URL="postgres://trueppm:trueppm@127.0.0.1:1/trueppm_nodb" \
+	  .venv/bin/python -W "ignore:Got an error checking a consistent migration history:RuntimeWarning" \
+	  manage.py makemigrations --check --dry-run
 
 migrations-numbering: ## Detect cross-branch migration-numbering collisions vs origin/main (no DB)
 	@# Closes the gap makemigrations --check misses: it only sees this tree, so two
@@ -295,6 +302,17 @@ coverage-diff-web: ## Diff coverage for packages/web
 
 sonar: ## Run a local SonarCloud scan with coverage import (needs SONAR_TOKEN; run `make coverage-diff` first)
 	scripts/sonar-scan.sh
+
+node-version-check: ## Fail fast with an actionable message when node is older than packages/web's engines floor (#1368)
+	@# Runs before the parallel gates so an old shell node reads as "run nvm use",
+	@# not as an opaque eslint/vitest ABI crash that invites `--no-verify`.
+	@bash scripts/check-node-version.sh --self-test >/dev/null
+	@bash scripts/check-node-version.sh
+
+e2e-drift-check: ## Warn when strings removed from packages/web/src still appear in packages/web/e2e/ (#1450)
+	@# Static half of the CLAUDE.md e2e-grep recipe; warning-only, diff-scoped, ~0.1s.
+	@bash scripts/check-e2e-drift.sh --self-test >/dev/null
+	@bash scripts/check-e2e-drift.sh
 
 pre-push-collision-check: ## Block the push if this branch's issue already has an open MR from another branch (#2000)
 	@# Fail-fast duplicate-work guard: runs BEFORE the parallel code gates so a
@@ -662,6 +680,11 @@ web-types-drift-check: ## Run the lint:web-types-drift CI job locally (#2633)
 	@python3 scripts/check-web-types-drift.py --self-test
 	@python3 scripts/check-web-types-drift.py
 
+semgrep-freshness-check: ## Run the lint:semgrep-freshness CI job locally (#3103)
+	@# Exit 77 (a warning in CI) is not a failure of the push, so it is tolerated here.
+	@bash scripts/check-semgrep-freshness.sh --self-test
+	@bash scripts/check-semgrep-freshness.sh || [ $$? -eq 77 ]
+
 e2e-schema-guard-check: ## Run the lint:e2e-schema-guard CI job locally (#3440)
 	@# The e2e mock layer is bound to docs/api/openapi.json by ONE line inside
 	@# setupCatchAll. Delete it and 290 specs go back to asserting the front end
@@ -878,10 +901,12 @@ pre-push-checks: pre-push-wasm
 pre-push-checks: pre-push-mobile
 pre-push-checks: e2e-schema-guard-check
 pre-push-checks: web-types-drift-check
+pre-push-checks: semgrep-freshness-check
 pre-push-checks: cost-ledger-check
 pre-push-checks: negated-closing-keywords-check
+pre-push-checks: e2e-drift-check
 
-pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
+pre-push: node-version-check pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
 	@# migration/schema jobs across cores. Output may interleave on failure;
 	@# each subtarget prefixes its own output so attribution is still readable.

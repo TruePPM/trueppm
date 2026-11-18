@@ -34,3 +34,11 @@ Refresh on a documented cadence — e.g. once per dot-release, alongside the
 dependency and image-digest refresh — to pick up upstream rule improvements. The
 pack list in the script and the `--config` flags in `.gitlab-ci.yml`
 (`security:semgrep`) must stay in lockstep.
+
+## Staleness signal
+
+`.semgrep/REFRESHED` holds the date of the last refresh (written by the update
+script). The `lint:semgrep-freshness` CI job reads it: it warns (orange,
+`allow_failure`) after 45 days and fails after 90, via
+`scripts/check-semgrep-freshness.sh`. A frozen offline pack otherwise reports
+clean forever (#3103).
