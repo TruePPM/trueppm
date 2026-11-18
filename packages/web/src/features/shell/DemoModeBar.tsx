@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { Tooltip } from '@/components/Tooltip';
 import { useDemoMode } from '@/hooks/useDemoMode';
 import { parseDemoResetLine } from './demoResetSchedule';
@@ -95,6 +96,18 @@ export function DemoModeBar() {
       </span>
 
       <DemoProjectSwitcher />
+
+      {/* Entry to the static admin-screens preview (#3973). A plain link, not a
+          role switch: the visitor stays a Member and the page makes no API call. */}
+      <Link
+        to="/demo/admin-preview"
+        data-testid="demo-admin-preview-link"
+        className="flex-shrink-0 whitespace-nowrap font-semibold underline underline-offset-2
+          hover:no-underline rounded focus-visible:outline-none focus-visible:ring-2
+          focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      >
+        Admin screens
+      </Link>
 
       {/* The forecast bar's headline, relocated (#4050 A1). Hidden below `md`,
           where the phone keeps `MobileMonteCarloCard` as its forecast surface. */}
