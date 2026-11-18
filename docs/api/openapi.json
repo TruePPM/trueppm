@@ -19219,26 +19219,6 @@
                 "operationId": "v1_programs_trash_list",
                 "description": "List soft-deleted programs the caller was a member of (#2587).\n\nEvery member sees the row; ``can_restore`` is true only for the Program\nAdmin (``Role.OWNER``), matching the Restore gate. Programs have no\nretention purge, so there is no ``days_remaining``: a trashed program stays\nuntil an operator hard-deletes it. ``detached_project_count`` is how many\nprojects a restore would try to re-attach.\n\nRe-applies the ADR-0678 agent opt-out explicitly, as ``ProjectViewSet.trash``\ndoes: the trashed queryset bypasses the hooks that carry it.",
                 "summary": "List the caller's soft-deleted programs (program Trash)",
-                "parameters": [
-                    {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
                 "tags": [
                     "programs"
                 ],

@@ -2472,6 +2472,7 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="List the caller's soft-deleted programs (program Trash)",
+        parameters=_UNDECLARE_FILTER_PARAMS,
         responses={
             200: inline_serializer(
                 name="TrashProgramList",
