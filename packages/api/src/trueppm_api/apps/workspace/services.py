@@ -507,7 +507,7 @@ def _reconcile_pair(
             )
         )
     elif existing.is_deleted:
-        # Resurrect a previously-removed row as group-derived (unique_together on
+        # Resurrect a previously-removed row as group-derived (the unique constraint on
         # (project, user) means we cannot insert a second row).
         existing.is_deleted = False
         existing.deleted_version = None

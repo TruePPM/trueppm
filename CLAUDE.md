@@ -257,6 +257,7 @@ short enough to be signal. Eight rules:
    which a squash deletes (this broke five test files in #1286). Assert the *outcome*
    on the model/serializer instead; if a data backfill needs a unit test, test the
    underlying function it calls, not the migration wrapper.
+   A migration also never imports live `apps.*.services` or `bundled_templates`: copy the callee into the app's `backfill` module (a frozen snapshot, deliberately not kept in sync). `make migration-imports-check` / `api:migration-imports` enforces it.
 4. **Keep the `api:migration-check` CI gate (`makemigrations --check --dry-run`).**
    It proves the committed migrations fully describe the models — catching a
    hand-edited migration that diverged, a forgotten regenerate after a model change,
@@ -301,6 +302,7 @@ short enough to be signal. Eight rules:
    not scanned: a new column has no pre-existing duplicate values unless a default is
    supplied — a default-valued unique `AddField` on a populated table must carry a
    repair or be rejected in review.
+   On a table too large to validate under lock, add a `CheckConstraint` as `NOT VALID` then `VALIDATE CONSTRAINT` in a separate step, and batch any bulk `UPDATE`. Editing an already-applied migration does nothing for existing installs, so this applies to new migrations only.
 
    Be honest about what that buys: an opt-out comment is a rubber stamp, exactly like
    `--update-baseline` on the docs gate, and it cannot stop a wrong answer. What it
