@@ -352,11 +352,16 @@ test.describe('Reports tab — sprint-scoped burndown (#1983)', () => {
 });
 
 test.describe('Reports tab — sprint read cache (#3568)', () => {
-  test('a tab switch back (visibilitychange) re-requests neither the sprint list nor the burndown', async ({
+  // refetchOnWindowFocus is globally off, so a focus event cannot tell a cached read
+  // from an uncached one. What staleTime actually buys is the remount: the global
+  // default (60 s) would refetch a sprint list re-read after two minutes, the 5 min
+  // window must not.
+  test('re-opening Reports after two minutes re-requests neither the sprint list nor the burndown', async ({
     page,
   }) => {
     let sprintListHits = 0;
     let burndownHits = 0;
+    await page.clock.install();
     await setup(page);
     // Registered after setup() so these last-wins routes count the requests.
     await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (r) => {
@@ -377,13 +382,91 @@ test.describe('Reports tab — sprint read cache (#3568)', () => {
     const sprintBefore = sprintListHits;
     const burndownBefore = burndownHits;
 
-    await page.evaluate(() => {
-      document.dispatchEvent(new Event('visibilitychange'));
-      window.dispatchEvent(new Event('focus'));
-    });
-    await page.waitForTimeout(500);
+    const views = page.getByRole('navigation', { name: 'View' });
+    await views.getByRole('link', { name: 'Schedule' }).click();
+    await expect(page.getByLabel(/to chart/i)).toBeHidden();
+    await page.clock.fastForward('02:00');
+    await views.getByRole('link', { name: 'Reports' }).click();
+    await expect(page.getByLabel(/to chart/i)).toHaveValue(SPRINT.id, { timeout: 10_000 });
+    await page.waitForLoadState('networkidle');
     expect(sprintListHits).toBe(sprintBefore);
     expect(burndownHits).toBe(burndownBefore);
+  });
+});
+
+test.describe('Reports tab — sprint cache stays live on pushed events (#3568)', () => {
+  const NEXT_SPRINT = { ...SPRINT, id: 'sp-reports-2', name: 'Iteration 10', state: 'PLANNED' };
+
+  async function setupLive(page: Page) {
+    const hits = { list: 0 };
+    // Stateful list: the refetch echoes the write, so the assertion cannot pass
+    // on a stale-cache render (the stateless-mock trap in CLAUDE.md).
+    let sprints: unknown[] = [SPRINT];
+    const sockets: import('@playwright/test').WebSocketRoute[] = [];
+    await setup(page);
+    await page.route('**/api/v1/ws/ticket/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }),
+      }),
+    );
+    await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+      sockets.push(ws);
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (r) => {
+      hits.list += 1;
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: sprints.length, next: null, previous: null, results: sprints }),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    await expect(page.getByLabel(/to chart/i)).toHaveValue(SPRINT.id, { timeout: 10_000 });
+    await expect.poll(() => sockets.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    return {
+      hits,
+      setSprints: (next: unknown[]) => {
+        sprints = next;
+      },
+      push: (event_type: string, payload: object = {}) => {
+        for (const ws of sockets) ws.send(JSON.stringify({ event_type, payload, seq: null }));
+      },
+    };
+  }
+
+  test('a pushed sprint_created updates the Reports sprint selector without a reload', async ({
+    page,
+  }) => {
+    const live = await setupLive(page);
+    const selector = page.getByLabel(/to chart/i);
+    await expect(selector.locator('option')).toHaveCount(1);
+    live.setSprints([SPRINT, NEXT_SPRINT]);
+    live.push('sprint_created');
+    await expect(selector.locator('option')).toHaveCount(2, { timeout: 10_000 });
+  });
+
+  test('a pushed sprint_closed flips the active sprint label without a reload', async ({
+    page,
+  }) => {
+    const live = await setupLive(page);
+    const selector = page.getByLabel(/to chart/i);
+    await expect(selector.locator('option', { hasText: '(active)' })).toHaveCount(1);
+    live.setSprints([{ ...SPRINT, state: 'COMPLETED' }]);
+    live.push('sprint_closed');
+    await expect(selector.locator('option', { hasText: '(active)' })).toHaveCount(0, {
+      timeout: 10_000,
+    });
+  });
+
+  test('a task move refetches the cached sprint list so WIP/completed aggregates stay live', async ({
+    page,
+  }) => {
+    const live = await setupLive(page);
+    const before = live.hits.list;
+    live.push('task_updated', { id: 't1', actor_id: 'someone-else', version: 3 });
+    await expect.poll(() => live.hits.list, { timeout: 10_000 }).toBeGreaterThan(before);
   });
 });
 

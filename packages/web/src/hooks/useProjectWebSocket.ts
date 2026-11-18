@@ -163,7 +163,8 @@ type InvalidateKey =
   | 'project-my-tasks'
   | 'cp-tasks'
   | 'monte-carlo-latest'
-  | 'project-resource-pool';
+  | 'project-resource-pool'
+  | 'sprints';
 // Whole-project multi-page loads: invalidating one mid-flight stacks overlapping fetches.
 const SLOW_LOAD_KEYS: ReadonlySet<InvalidateKey> = new Set(['tasks', 'dependencies']);
 type ScheduleInvalidateFn = (...keys: InvalidateKey[]) => void;
@@ -248,6 +249,11 @@ function invalidateProjectCaches(
 ): void {
   void queryClient.invalidateQueries({
     predicate: (q) => q.queryKey.includes(projectIdRef.current),
+  });
+  // ['sprint', sprintId, 'burndown'] carries no project id, so the predicate
+  // above misses it; without this a 5-minute-cached burndown survives a resync.
+  void queryClient.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
   });
   void queryClient.invalidateQueries({ queryKey: ['projects'] });
 }
@@ -576,6 +582,12 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     // still skipped: the aggregate cannot have moved twice for one version.
     if (!isDuplicate) {
       scheduleInvalidate(...OVERVIEW_KEYS);
+      // The sprint list payload carries live task aggregates (wip_count,
+      // completed_points, completed_task_count) and is cached for 5 minutes, so
+      // a status/sprint move must refresh it. Coalesced: a burst is one refetch.
+      // The burndown stays snapshot-driven (server writes daily snapshots), so
+      // it is deliberately not invalidated per task event.
+      scheduleInvalidate('sprints');
     }
     // The board activity feed is an append-only audit log, so it refetches
     // even for the originating client's own edit (you want your action to land
@@ -595,7 +607,7 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     }
   });
   on(['task_created', 'task_deleted', 'task_restored'], (payload) => {
-    scheduleInvalidate('tasks', 'board-activity', 'standup', ...OVERVIEW_KEYS);
+    scheduleInvalidate('tasks', 'board-activity', 'standup', 'sprints', ...OVERVIEW_KEYS);
     // The drawer Activity tab merges the per-task history feed (#1867) —
     // create/delete/restore all append a history record for the affected task.
     const historyTaskId = typeof payload.id === 'string' ? payload.id : null;

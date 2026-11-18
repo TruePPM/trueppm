@@ -558,6 +558,15 @@ describe('useUpdateTask', () => {
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }));
   });
 
+  it('refreshes the cached sprint list on success so WIP/completed aggregates stay live (#3568)', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'p1', status: 'IN_PROGRESS' });
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprints', 'p1'] }),
+    );
+  });
+
   it('invalidates the edited task-history key on success (#1867)', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
