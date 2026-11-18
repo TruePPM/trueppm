@@ -1,6 +1,6 @@
 """The API velocity sampler is bound to the scheduler's, run for run (#2645).
 
-``sample_velocity_period_counts`` documents that it matches the scheduler's
+``_sample_backlog_sprint_counts`` documents that it matches the scheduler's
 ``_sample_velocity_durations``. Nothing enforced that, and the two drifted on the
 horizon cap (2000 vs 10,000). This pins them together under a shared seed: same
 observation filter, same horizon formula and cap, same reach tolerance, same
@@ -12,7 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from trueppm_scheduler.engine import _sample_velocity_durations
-from trueppm_scheduler.forecast import sample_velocity_period_counts
+
+from trueppm_api.apps.projects.services import _sample_backlog_sprint_counts
 
 CASES = [
     (35.0, [10.0, 10.0]),
@@ -36,7 +37,7 @@ def test_api_sampler_matches_library_run_for_run(
     library = _sample_velocity_durations(
         points, samples, 1, runs, np.random.default_rng(seed), saturated
     )
-    api = sample_velocity_period_counts(points, samples, runs=runs, seed=seed)
+    api = _sample_backlog_sprint_counts(points, samples, runs=runs, seed=seed)
     assert library is not None
     assert api is not None
     assert np.array_equal(api.counts, library)
@@ -46,4 +47,4 @@ def test_api_sampler_matches_library_run_for_run(
 @pytest.mark.parametrize("samples", [[], [0.0, 0.0], [None, -1.0]])
 def test_both_report_no_signal_alike(samples: list[float]) -> None:
     assert _sample_velocity_durations(10.0, samples, 1, 5, np.random.default_rng(1)) is None
-    assert sample_velocity_period_counts(10.0, samples, runs=5, seed=1) is None
+    assert _sample_backlog_sprint_counts(10.0, samples, runs=5, seed=1) is None

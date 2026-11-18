@@ -18,16 +18,10 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from django.db import transaction
 from django.utils import timezone
-from trueppm_scheduler import (
-    duration_percentiles,
-    forecast_throughput_delivery,
-    forecast_velocity_delivery,
-    velocity_band_dates,
-)
 
 # Re-exported (not just used internally) so every existing ``from
 # trueppm_api.apps.projects.services import KeyAssignmentError`` keeps working.
@@ -4558,6 +4552,38 @@ def _unmodeled_predecessors(milestone: Any) -> list[str]:
     return unmodeled
 
 
+def _velocity_band_percentiles(
+    *,
+    cpm_finish: Any,
+    remaining: int,
+    sprint_days: int,
+    velocity_low: int | None,
+    avg: float | None,
+) -> tuple[Any, Any, Any, bool]:
+    """Coarse velocity-band percentile derivation (ADR-0106 §E1.1, band fallback).
+
+    Shared by the dry-run preview (§E1.1) and the on-close reforecast (§3) so both
+    produce an identical range from the same inputs — the true percentiles arrive
+    with #411's agile-aware Monte Carlo. The 1-σ slow-pace day penalty re-paces the
+    remaining committed work from the team's average to its slow-tail velocity:
+    ``penalty = remaining × (sprint_days/velocity_low − sprint_days/avg)``. ``p80``
+    takes 0.6 of it, ``p95`` the whole tail. Below the 2-closed-sprint floor (band
+    null) or with no remaining work the spread collapses to ``cpm_finish``.
+
+    Returns ``(p50, p80, p95, usable)`` where ``usable`` is True only when a real
+    band was applied — the caller nulls ``velocity_low``/``velocity_high`` when
+    False so an absent band is never surfaced as a zero-width range. Monotonic by
+    construction: ``p50 ≤ p80 ≤ p95``.
+    """
+    p50 = p80 = p95 = cpm_finish
+    if velocity_low and avg and cpm_finish is not None and remaining > 0:
+        penalty_days = max(0, round(remaining * (sprint_days / velocity_low - sprint_days / avg)))
+        p80 = cpm_finish + timedelta(days=round(penalty_days * 0.6))
+        p95 = cpm_finish + timedelta(days=penalty_days)
+        return p50, p80, p95, True
+    return p50, p80, p95, False
+
+
 def _project_sched_calendar(project_id: Any) -> Any:
     """The project's composed scheduler ``Calendar`` (``None`` if the project is gone)."""
     from trueppm_api.apps.scheduling.calendars import project_sched_calendars
@@ -4645,7 +4671,7 @@ def reforecast_preview(
     # committed work as the basis.
     remaining = current_committed_points(sprint.pk)
     sprint_days = max(1, (sprint.finish_date - sprint.start_date).days)
-    p50, p80, p95, usable = velocity_band_dates(
+    p50, p80, p95, usable = _velocity_band_percentiles(
         cpm_finish=cpm_finish,
         remaining=remaining,
         sprint_days=sprint_days,
@@ -4847,7 +4873,7 @@ def reforecast_bound_milestone(
 
     remaining, sprint_days, binding_drifted = _scan_targeting_sprints(milestone.pk)
 
-    p50, p80, _p95, usable = velocity_band_dates(
+    p50, p80, _p95, usable = _velocity_band_percentiles(
         cpm_finish=cpm_finish,
         remaining=remaining,
         sprint_days=sprint_days,
@@ -4941,7 +4967,7 @@ def _forecast_unmoved(prior: Any, snapshot: Any) -> bool:
     """Whether two milestone snapshots forecast the same finish (#861, #4178).
 
     ``p50``/``p80`` are ``cpm_finish`` plus a velocity penalty in calendar days
-    (:func:`velocity_band_dates`), so they hop a weekend whenever the CPM
+    (:func:`_velocity_band_percentiles`), so they hop a weekend whenever the CPM
     finish does. The band is therefore compared as offsets from ``cpm_finish``,
     and ``cpm_finish`` itself in working time: a milestone whose shown day moves
     from the end of a Friday to the start of the next Monday has not moved, and
@@ -5633,6 +5659,108 @@ def _typical_sprint_length_days(project_id: str | uuid.UUID, default: int = 14) 
     return span if span and span > 0 else default
 
 
+# Cells (runs x horizon) per bootstrap draw block — the same bound, and therefore
+# the same row-major stream order, as the scheduler's ``_sample_velocity_durations``:
+# drawing whole-row blocks consumes the seeded stream exactly as one full
+# ``(runs, horizon)`` matrix would, while peak memory stays ~20 MB at any horizon.
+_BOOTSTRAP_CHUNK_CELLS = 2_500_000
+
+
+def _bootstrap_horizon(target: float, mean: float) -> int:
+    """Per-run period horizon of a bootstrap burn-down (#2645).
+
+    The one formula both API samplers use, and the scheduler's velocity sampler too:
+    ~4x the mean-pace period count plus a floor, capped at the scheduler's own
+    :data:`trueppm_scheduler.MAX_VELOCITY_SPRINTS` (imported, not restated, so the
+    two cannot drift: the API once capped at a literal 2000 while the library
+    capped at 10,000). A run that has not burned down by the horizon is clamped to
+    it, which the samplers report as saturation (#2469).
+    """
+    import numpy as np
+    from trueppm_scheduler import MAX_VELOCITY_SPRINTS
+
+    return min(int(np.ceil(target / mean)) * 4 + 10, MAX_VELOCITY_SPRINTS)
+
+
+class _BootstrapCounts(NamedTuple):
+    """Periods-to-completion per run, and how many runs the horizon clamped."""
+
+    counts: Any
+    saturated_runs: int
+
+
+def _bootstrap_periods_to_completion(
+    observations: Any, target: float, n: int, rng: Any, *, rtol: float
+) -> _BootstrapCounts:
+    """Bootstrap periods needed to burn down ``target`` from per-period ``observations``.
+
+    For each of ``n`` runs, draw observations with replacement and count the periods
+    until the running total reaches ``target * rtol``; a run that never reaches it
+    by :func:`_bootstrap_horizon` counts as the horizon and is reported in
+    ``saturated_runs``, because its count is a lower bound rather than an estimate
+    (#2469). ``observations`` must have a positive mean.
+    """
+    import numpy as np
+
+    horizon = _bootstrap_horizon(target, float(observations.mean()))
+    counts = np.empty(n, dtype=np.int64)
+    saturated = 0
+    chunk_rows = max(1, _BOOTSTRAP_CHUNK_CELLS // horizon)
+    for lo in range(0, n, chunk_rows):
+        rows = min(chunk_rows, n - lo)
+        draws = rng.choice(observations, size=(rows, horizon), replace=True)
+        reached = np.cumsum(draws, axis=1) >= target * rtol
+        burned_down = reached.any(axis=1)
+        counts[lo : lo + rows] = np.where(burned_down, reached.argmax(axis=1) + 1, horizon)
+        saturated += int(np.count_nonzero(~burned_down))
+    return _BootstrapCounts(counts.astype(np.float64), saturated)
+
+
+def _sample_backlog_sprint_counts(
+    remaining_points: float,
+    velocity_samples: list[float],
+    runs: int,
+    seed: int,
+) -> _BootstrapCounts | None:
+    """Bootstrap sprint-count-to-completion from team velocity (#487).
+
+    Throughput Monte Carlo: for each run, bootstrap-sample completed-points-per-
+    sprint observations with replacement, accumulate, and count the sprints needed
+    to reach ``remaining_points``. It matches the scheduler's
+    ``_sample_velocity_durations`` at ``sprint_length_days=1`` run for run under a
+    shared seed — same observation filter, horizon (:func:`_bootstrap_horizon`),
+    reach tolerance and stream order — and
+    ``tests/apps/projects/test_velocity_sampler_conformance.py`` enforces that
+    (#2645). It stays API-local and calendar-free rather than calling the
+    scheduler's private primitive, since sprint_forecast is a Django-layer read.
+
+    A zero-point sprint is a real observation — the team ran the sprint and delivered
+    nothing — and is bootstrapped like any other (#4535); ``exclude_from_velocity`` is
+    the one intentional exclusion, applied upstream. Dropping zeros here forecast a
+    ``[20, 0, 0, 0]`` team (mean 5) exactly like a ``[20]`` team (mean 20).
+
+    Returns ``None`` (no usable signal) when there is no observation, every
+    observation is zero (no pace to project — sprints-to-completion is unbounded), or
+    ``remaining_points`` is non-positive; a single observation yields a constant
+    (degenerate) distribution, which is honest — one observation cannot express
+    variance. Otherwise returns the per-run counts and how many runs the horizon
+    clamped (#2469).
+    """
+    import numpy as np
+
+    observations = np.asarray(
+        [s for s in velocity_samples if s is not None and s >= 0], dtype=float
+    )
+    if remaining_points <= 0 or observations.size == 0:
+        return None
+    if float(observations.mean()) <= 0:
+        return None
+    # Relative tolerance: float accumulation can land an ulp short of an exact target (#4699).
+    return _bootstrap_periods_to_completion(
+        observations, remaining_points, runs, np.random.default_rng(seed), rtol=1.0 - 1e-12
+    )
+
+
 def _prefers_throughput_forecast(
     project_id: str | uuid.UUID, *, velocity_sample_count: int
 ) -> bool:
@@ -5681,7 +5809,7 @@ def sprint_forecast(
 
     - **velocity** (default): reuses :func:`project_forecast`'s velocity series and
       remaining committed *points*, runs ``runs`` velocity-bootstrap simulations
-      (:func:`forecast_velocity_delivery`), and returns P50/P80/P95 sprint counts
+      (:func:`_sample_backlog_sprint_counts`), and returns P50/P80/P95 sprint counts
       paced onto the calendar at the team's typical sprint length.
     - **throughput**: for a continuous-flow / kanban team — no closed sprints, or a
       kanban-mode board — delegates to :func:`throughput_forecast`, a count-based
@@ -5699,6 +5827,8 @@ def sprint_forecast(
     for a below-tier reader at the sink (the forecast dates themselves follow the
     velocity precedent: schedule confidence stays, the underlying series does not).
     """
+    from datetime import timedelta
+
     from django.core.cache import cache
     from django.utils import timezone
 
@@ -5772,27 +5902,31 @@ def sprint_forecast(
     if cached is not None:
         return cached
 
-    forecast = forecast_velocity_delivery(
-        float(remaining),
-        samples,
-        sprint_length_days=sprint_length,
-        today=timezone.localdate(),
-        runs=runs,
-        seed=seed,
-    )
-    if forecast is None:
+    sampled = _sample_backlog_sprint_counts(float(remaining), samples, runs=runs, seed=seed)
+    if sampled is None:
         base["status"] = "warming_up"
         return base
+    counts = sampled.counts
 
+    import numpy as np
+
+    today = timezone.localdate()
+    p50_sprints = int(np.ceil(float(np.percentile(counts, 50))))
+    p80_sprints = int(np.ceil(float(np.percentile(counts, 80))))
+    # Pace the continuous percentile (not the rounded sprint count) onto the
+    # calendar so the P80/P95 dates land strictly after P50.
+    p50_days = round(float(np.percentile(counts, 50)) * sprint_length)
+    p80_days = round(float(np.percentile(counts, 80)) * sprint_length)
+    p95_days = round(float(np.percentile(counts, 95)) * sprint_length)
     result = {
         **base,
         "status": "ready",
-        "p50_sprints": forecast.p50_periods,
-        "p80_sprints": forecast.p80_periods,
-        "p50_date": forecast.p50_date.isoformat(),
-        "p80_date": forecast.p80_date.isoformat(),
-        "p95_date": forecast.p95_date.isoformat(),
-        "horizon_saturated": forecast.horizon_saturated,
+        "p50_sprints": p50_sprints,
+        "p80_sprints": p80_sprints,
+        "p50_date": (today + timedelta(days=p50_days)).isoformat(),
+        "p80_date": (today + timedelta(days=p80_days)).isoformat(),
+        "p95_date": (today + timedelta(days=p95_days)).isoformat(),
+        "horizon_saturated": sampled.saturated_runs > 0,
     }
     cache.set(key, result, 3600)
     return result
@@ -6065,12 +6199,26 @@ def flow_metrics(project_id: str | uuid.UUID, *, window_days: int = 90) -> dict[
         "window_days": window_days,
         "since": since_date.isoformat(),
         "until": until_date.isoformat(),
-        "cycle_time": duration_percentiles(timings["cycle"]),
-        "lead_time": duration_percentiles(timings["lead"]),
+        "cycle_time": _percentiles(timings["cycle"]),
+        "lead_time": _percentiles(timings["lead"]),
         "cfd": _cumulative_flow(by_task, since_date, until_date, tz),
         "throughput": _weekly_throughput(completions, since=since_date, until=until_date),
         "data_integrity": integrity,
         "flow_metrics_suppressed": False,
+    }
+
+
+def _percentiles(values: list[float]) -> dict[str, int | None]:
+    """p50/p80/p95 in whole days, or all-``None`` for an empty distribution."""
+    import numpy as np
+
+    if not values:
+        return {"p50": None, "p80": None, "p95": None}
+    arr = np.asarray(values, dtype=float)
+    return {
+        "p50": round(float(np.percentile(arr, 50))),
+        "p80": round(float(np.percentile(arr, 80))),
+        "p95": round(float(np.percentile(arr, 95))),
     }
 
 
@@ -6279,6 +6427,53 @@ def _project_weekly_throughput(
     return _weekly_throughput(completions, since=since_date, until=until_date), since_date
 
 
+def _sample_throughput_counts(
+    weekly_throughput: list[int],
+    remaining_count: float,
+    n: int,
+    rng: Any,
+) -> _BootstrapCounts | None:
+    """Bootstrap weeks-to-completion from a weekly throughput series (ADR-0130 D3).
+
+    Count-based Monte Carlo, the item-count analogue of
+    :func:`_sample_backlog_sprint_counts`: for each of ``n`` runs, bootstrap-sample
+    completed-items-per-week observations with replacement, accumulate, and count the
+    weeks needed to clear ``remaining_count`` items. The ``rng`` is a seeded
+    ``np.random.Generator`` so a given window yields a stable distribution within a
+    request (idempotent reads, ADR-0130 §DE).
+
+    Zero-throughput weeks are real observations and are bootstrapped, so a team that
+    finishes 4 items in one week out of four forecasts at ~1/week, not 4/week (the same
+    "zero is data" principle as the velocity sampler, #4535). The one exception is the
+    *leading* run of zero weeks: the series is a fixed, zero-filled calendar window that
+    is not trimmed to the project's start, so weeks before the first completion are
+    artifacts of the window, not evidence of a slow team, and counting them would
+    penalize every young project. Interior and trailing zeros are kept.
+
+    Returns ``None`` when every week is zero (no pace to project — the horizon would be
+    unbounded) or ``remaining_count`` is non-positive; a single positive week yields a
+    degenerate (constant) distribution, which is honest — one observation cannot
+    express variance.
+
+    Trailing zero weeks are kept as genuine stalls. That includes the in-progress
+    current week: :func:`_weekly_throughput` zero-fills up to today, so early in a
+    week the last bucket is a partial, near-zero week and can bias the forecast
+    slightly slow until the week fills in.
+    """
+    import numpy as np
+
+    first_active = next((i for i, w in enumerate(weekly_throughput) if w and w > 0), None)
+    if remaining_count <= 0 or first_active is None:
+        return None
+    observations = np.asarray(
+        [max(w or 0, 0) for w in weekly_throughput[first_active:]], dtype=float
+    )
+    # The horizon is the velocity sampler's (_bootstrap_horizon, #2645). No float
+    # tolerance here (cf. _sample_backlog_sprint_counts, #4699): weekly throughput is
+    # integer completion counts, so the cumsum is exact.
+    return _bootstrap_periods_to_completion(observations, remaining_count, n, rng, rtol=1.0)
+
+
 def throughput_forecast(
     project_id: str | uuid.UUID,
     *,
@@ -6308,6 +6503,8 @@ def throughput_forecast(
         ``"warming_up"`` — no false precision). Returns ``None`` only when there is no
         completed-task history at all, so the caller can fall back to ``"warming_up"``.
     """
+    import numpy as np
+
     from trueppm_api.apps.projects.models import Task
 
     series, _since = _project_weekly_throughput(project_id, window_days=window_days)
@@ -6355,20 +6552,26 @@ def throughput_forecast(
         base["status"] = "insufficient_flow_history"
         return base
 
-    forecast = forecast_throughput_delivery(
-        weekly, float(remaining_count), today=timezone.localdate(), runs=runs, seed=seed
-    )
-    if forecast is None:
+    rng = np.random.default_rng(seed)
+    sampled = _sample_throughput_counts(weekly, float(remaining_count), runs, rng)
+    if sampled is None:
         base["status"] = "insufficient_flow_history"
         return base
+    counts = sampled.counts
 
+    today = timezone.localdate()
+    # Pace the continuous percentile (in weeks) onto the calendar so P80/P95 land
+    # strictly after P50.
+    p50_days = round(float(np.percentile(counts, 50)) * 7)
+    p80_days = round(float(np.percentile(counts, 80)) * 7)
+    p95_days = round(float(np.percentile(counts, 95)) * 7)
     return {
         **base,
         "status": "ready",
-        "p50_date": forecast.p50_date.isoformat(),
-        "p80_date": forecast.p80_date.isoformat(),
-        "p95_date": forecast.p95_date.isoformat(),
-        "horizon_saturated": forecast.horizon_saturated,
+        "p50_date": (today + timedelta(days=p50_days)).isoformat(),
+        "p80_date": (today + timedelta(days=p80_days)).isoformat(),
+        "p95_date": (today + timedelta(days=p95_days)).isoformat(),
+        "horizon_saturated": sampled.saturated_runs > 0,
     }
 
 

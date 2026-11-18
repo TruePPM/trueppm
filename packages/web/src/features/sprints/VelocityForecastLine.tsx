@@ -41,7 +41,7 @@ interface Props {
  * `BacklogForecast`'s `sprints_to_complete_low/high` comes from
  * `_sprints_to_complete` (services.py): a plain avg±1σ division over the rolling
  * velocity window, with no resampling and no horizon clamp — a different,
- * unbiased-in-that-specific-sense computation from `forecast_velocity_delivery`.
+ * unbiased-in-that-specific-sense computation from `_sample_backlog_sprint_counts`.
  * Mounting the caveat here would misdescribe the mechanism (its copy says "each
  * run re-samples past sprints" and "stops at a fixed sprint horizon", neither of
  * which is true of this number). See the mount gate in

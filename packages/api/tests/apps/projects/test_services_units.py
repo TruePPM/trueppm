@@ -25,11 +25,6 @@ from typing import Any
 
 import pytest
 from django.utils import timezone
-from trueppm_scheduler import velocity_band_dates
-from trueppm_scheduler.forecast import (
-    sample_throughput_period_counts,
-    sample_velocity_period_counts,
-)
 
 from trueppm_api.apps.projects.models import (
     AggregationPolicy,
@@ -79,10 +74,13 @@ from trueppm_api.apps.projects.services import (
     _new_blocker_entry,
     _occurrence_matches,
     _prefers_throughput_forecast,
+    _sample_backlog_sprint_counts,
+    _sample_throughput_counts,
     _sprint_load,
     _sprint_rollup_aggregates,
     _status_move_entry,
     _typical_sprint_length_days,
+    _velocity_band_percentiles,
     _weekly_throughput,
     _working_days,
     annotate_wip_breach,
@@ -654,7 +652,7 @@ class TestSprintLoadPrivacyGate:
 class TestVelocityBandPercentiles:
     def test_slow_tail_penalty_spreads_p80_and_p95_after_p50(self) -> None:
         cpm = date(2026, 6, 1)
-        p50, p80, p95, usable = velocity_band_dates(
+        p50, p80, p95, usable = _velocity_band_percentiles(
             cpm_finish=cpm, remaining=10, sprint_days=10, velocity_low=5, avg=10.0
         )
         assert usable is True
@@ -666,7 +664,7 @@ class TestVelocityBandPercentiles:
     def test_missing_band_collapses_the_spread_and_reports_unusable(self) -> None:
         """Below the 2-closed-sprint floor there is no defensible range."""
         cpm = date(2026, 6, 1)
-        p50, p80, p95, usable = velocity_band_dates(
+        p50, p80, p95, usable = _velocity_band_percentiles(
             cpm_finish=cpm, remaining=10, sprint_days=10, velocity_low=None, avg=None
         )
         assert (p50, p80, p95) == (cpm, cpm, cpm)
@@ -674,14 +672,14 @@ class TestVelocityBandPercentiles:
 
     def test_no_remaining_work_collapses_the_spread(self) -> None:
         cpm = date(2026, 6, 1)
-        _p50, p80, p95, usable = velocity_band_dates(
+        _p50, p80, p95, usable = _velocity_band_percentiles(
             cpm_finish=cpm, remaining=0, sprint_days=10, velocity_low=5, avg=10.0
         )
         assert (p80, p95) == (cpm, cpm)
         assert usable is False
 
     def test_missing_cpm_spine_collapses_the_spread(self) -> None:
-        p50, p80, p95, usable = velocity_band_dates(
+        p50, p80, p95, usable = _velocity_band_percentiles(
             cpm_finish=None, remaining=10, sprint_days=10, velocity_low=5, avg=10.0
         )
         assert (p50, p80, p95) == (None, None, None)
@@ -824,12 +822,12 @@ class TestCompletionRows:
 class TestBootstrapSamplers:
     def test_velocity_sampler_returns_the_expected_sprint_count(self) -> None:
         """A steady 10-points-per-sprint team clears 35 points in 4 sprints."""
-        counts = sample_velocity_period_counts(35.0, [10.0, 10.0], runs=50, seed=1)
+        counts = _sample_backlog_sprint_counts(35.0, [10.0, 10.0], runs=50, seed=1)
         assert counts is not None
         assert set(counts.counts.tolist()) == {4.0}
 
     def test_velocity_sampler_returns_none_without_positive_samples(self) -> None:
-        assert sample_velocity_period_counts(35.0, [0.0, 0.0], runs=10, seed=1) is None
+        assert _sample_backlog_sprint_counts(35.0, [0.0, 0.0], runs=10, seed=1) is None
 
     def test_velocity_sampler_bootstraps_zero_point_sprints(self) -> None:
         """A zero-point sprint is an observation, not noise to drop (#4535).
@@ -839,8 +837,8 @@ class TestBootstrapSamplers:
         """
         import numpy as np
 
-        lean = sample_velocity_period_counts(60.0, [20.0, 0.0, 0.0, 0.0] * 2, runs=2000, seed=3)
-        steady = sample_velocity_period_counts(60.0, [20.0] * 6, runs=2000, seed=3)
+        lean = _sample_backlog_sprint_counts(60.0, [20.0, 0.0, 0.0, 0.0] * 2, runs=2000, seed=3)
+        steady = _sample_backlog_sprint_counts(60.0, [20.0] * 6, runs=2000, seed=3)
         assert lean is not None
         assert steady is not None
         assert set(steady.counts.tolist()) == {3.0}
@@ -849,15 +847,15 @@ class TestBootstrapSamplers:
 
     def test_velocity_sampler_all_zero_history_is_no_signal(self) -> None:
         """An all-zero history has no pace to project — ``None``, never an unbounded horizon."""
-        assert sample_velocity_period_counts(35.0, [0.0], runs=10, seed=1) is None
-        assert sample_velocity_period_counts(35.0, [0.0, 0.0, 0.0, 0.0], runs=10, seed=1) is None
+        assert _sample_backlog_sprint_counts(35.0, [0.0], runs=10, seed=1) is None
+        assert _sample_backlog_sprint_counts(35.0, [0.0, 0.0, 0.0, 0.0], runs=10, seed=1) is None
 
     def test_velocity_sampler_returns_none_with_no_remaining_work(self) -> None:
-        assert sample_velocity_period_counts(0.0, [10.0], runs=10, seed=1) is None
+        assert _sample_backlog_sprint_counts(0.0, [10.0], runs=10, seed=1) is None
 
     def test_velocity_sampler_is_reproducible_for_a_fixed_seed(self) -> None:
-        first = sample_velocity_period_counts(37.0, [5.0, 15.0], runs=40, seed=99)
-        second = sample_velocity_period_counts(37.0, [5.0, 15.0], runs=40, seed=99)
+        first = _sample_backlog_sprint_counts(37.0, [5.0, 15.0], runs=40, seed=99)
+        second = _sample_backlog_sprint_counts(37.0, [5.0, 15.0], runs=40, seed=99)
         assert first is not None
         assert second is not None
         assert first.counts.tolist() == second.counts.tolist()
@@ -865,23 +863,21 @@ class TestBootstrapSamplers:
     def test_throughput_sampler_returns_the_expected_week_count(self) -> None:
         import numpy as np
 
-        counts = sample_throughput_period_counts([4, 4], 12.0, 25, np.random.default_rng(3))
+        counts = _sample_throughput_counts([4, 4], 12.0, 25, np.random.default_rng(3))
         assert counts is not None
         assert set(counts.counts.tolist()) == {3.0}
 
     def test_throughput_sampler_returns_none_without_positive_weeks(self) -> None:
         import numpy as np
 
-        assert sample_throughput_period_counts([0, 0], 12.0, 5, np.random.default_rng(3)) is None
+        assert _sample_throughput_counts([0, 0], 12.0, 5, np.random.default_rng(3)) is None
 
     def test_throughput_sampler_keeps_interior_zero_weeks(self) -> None:
         """1 item in 1 of 4 weeks forecasts ~1/week, not the 4/week of the nonzero-only mean."""
         import numpy as np
 
-        counts = sample_throughput_period_counts(
-            [4, 0, 0, 0] * 3, 20.0, 400, np.random.default_rng(3)
-        )
-        dense = sample_throughput_period_counts([4, 4, 4, 4], 20.0, 400, np.random.default_rng(3))
+        counts = _sample_throughput_counts([4, 0, 0, 0] * 3, 20.0, 400, np.random.default_rng(3))
+        dense = _sample_throughput_counts([4, 4, 4, 4], 20.0, 400, np.random.default_rng(3))
         assert counts is not None
         assert dense is not None
         assert set(dense.counts.tolist()) == {5.0}
@@ -892,25 +888,21 @@ class TestBootstrapSamplers:
         import numpy as np
 
         interior = [3, 0, 2, 0, 3, 1]
-        bare = sample_throughput_period_counts(interior, 15.0, 300, np.random.default_rng(5))
-        padded = sample_throughput_period_counts(
-            [0] * 8 + interior, 15.0, 300, np.random.default_rng(5)
-        )
+        bare = _sample_throughput_counts(interior, 15.0, 300, np.random.default_rng(5))
+        padded = _sample_throughput_counts([0] * 8 + interior, 15.0, 300, np.random.default_rng(5))
         assert bare is not None
         assert padded is not None
         assert padded.counts.tolist() == bare.counts.tolist()
         # ...while the interior zeros still slow the forecast versus an all-active history.
-        active = sample_throughput_period_counts([3, 2, 3, 1], 15.0, 300, np.random.default_rng(5))
+        active = _sample_throughput_counts([3, 2, 3, 1], 15.0, 300, np.random.default_rng(5))
         assert active is not None
         assert float(np.median(bare.counts)) > float(np.median(active.counts))
 
     def test_throughput_sampler_keeps_trailing_zero_weeks(self) -> None:
         import numpy as np
 
-        trailing = sample_throughput_period_counts(
-            [4, 4, 0, 0], 20.0, 400, np.random.default_rng(3)
-        )
-        steady = sample_throughput_period_counts([4, 4], 20.0, 400, np.random.default_rng(3))
+        trailing = _sample_throughput_counts([4, 4, 0, 0], 20.0, 400, np.random.default_rng(3))
+        steady = _sample_throughput_counts([4, 4], 20.0, 400, np.random.default_rng(3))
         assert trailing is not None
         assert steady is not None
         assert float(np.median(trailing.counts)) > float(np.median(steady.counts))
@@ -918,7 +910,7 @@ class TestBootstrapSamplers:
     def test_throughput_sampler_returns_none_with_an_empty_backlog(self) -> None:
         import numpy as np
 
-        assert sample_throughput_period_counts([4], 0.0, 5, np.random.default_rng(3)) is None
+        assert _sample_throughput_counts([4], 0.0, 5, np.random.default_rng(3)) is None
 
     def test_samplers_report_runs_clamped_at_the_horizon(self) -> None:
         """A run that never burns down is clamped AND counted (#2469).
@@ -929,27 +921,28 @@ class TestBootstrapSamplers:
         import numpy as np
 
         lumpy = [100.0] + [0.0] * 99
-        out = sample_velocity_period_counts(100.0, lumpy, runs=2000, seed=2469)
+        out = _sample_backlog_sprint_counts(100.0, lumpy, runs=2000, seed=2469)
         assert out is not None
         assert 5 <= out.saturated_runs <= 80
         assert int(np.count_nonzero(out.counts == 410)) >= out.saturated_runs
-        steady = sample_velocity_period_counts(35.0, [10.0, 10.0], runs=50, seed=1)
+        steady = _sample_backlog_sprint_counts(35.0, [10.0, 10.0], runs=50, seed=1)
         assert steady is not None
         assert steady.saturated_runs == 0
 
         weekly = [100] + [0] * 99
-        flow = sample_throughput_period_counts(weekly, 100.0, 2000, np.random.default_rng(2469))
+        flow = _sample_throughput_counts(weekly, 100.0, 2000, np.random.default_rng(2469))
         assert flow is not None
         assert flow.saturated_runs > 0
 
     def test_horizon_uses_the_scheduler_cap_not_a_restated_literal(self) -> None:
         """The API horizon is capped by the scheduler's own constant (#2645)."""
         from trueppm_scheduler import MAX_VELOCITY_SPRINTS
-        from trueppm_scheduler.forecast import bootstrap_horizon
 
-        assert bootstrap_horizon(35.0, 10.0) == 4 * 4 + 10
+        from trueppm_api.apps.projects.services import _bootstrap_horizon
+
+        assert _bootstrap_horizon(35.0, 10.0) == 4 * 4 + 10
         # A bad-data backlog: the cap binds, at the library's value (it was 2000).
-        assert bootstrap_horizon(1e9, 1.0) == MAX_VELOCITY_SPRINTS
+        assert _bootstrap_horizon(1e9, 1.0) == MAX_VELOCITY_SPRINTS
 
 
 # ---------------------------------------------------------------------------

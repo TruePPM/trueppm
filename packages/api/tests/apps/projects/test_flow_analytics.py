@@ -627,8 +627,8 @@ def test_can_read_signal_handles_flow_metrics_key(project: Project, member: Any)
 @pytest.mark.parametrize(("v", "k"), [(0.1, 10), (0.3, 7), (0.7, 3), (1.1, 9)])
 def test_backlog_sprint_counts_tolerate_float_accumulation(v: float, k: int) -> None:
     """An ulp-short cumulative sum must not add a phantom sprint (#4699)."""
-    from trueppm_scheduler.forecast import sample_velocity_period_counts
+    from trueppm_api.apps.projects.services import _sample_backlog_sprint_counts
 
-    out = sample_velocity_period_counts(round(v * k, 10), [v], 20, 1)
+    out = _sample_backlog_sprint_counts(round(v * k, 10), [v], 20, 1)
     assert out is not None
     assert set(out.counts.tolist()) == {float(k)}

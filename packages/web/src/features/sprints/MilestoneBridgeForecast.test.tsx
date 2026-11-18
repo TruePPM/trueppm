@@ -185,9 +185,9 @@ describe('MilestoneBridgeForecast (#730)', () => {
 
   /**
    * #2495 scope boundary, asserted so it can't be widened by accident. The clamped
-   * sampler that makes a percentile a floor is `forecast_velocity_delivery` behind
+   * sampler that makes a percentile a floor is `_sample_backlog_sprint_counts` behind
    * `/sprint-forecast/`. This card reads `/forecast/`, whose milestone snapshots are
-   * written `velocity_band` (services.py `velocity_band_dates`) — a deterministic
+   * written `velocity_band` (services.py `_velocity_band_percentiles`) — a deterministic
    * band, not a simulation, and not clamped. Its existing "(velocity estimate)" is the
    * correct and sufficient qualifier; adding a floor caveat here would claim a bias
    * this number does not have.

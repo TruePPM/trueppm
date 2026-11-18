@@ -262,7 +262,7 @@ def test_clamped_runs_report_a_saturated_horizon(project: Project) -> None:
     for name, pts in [("S1", 18), ("S2", 20), ("S3", 22)]:
         _closed_sprint(project, name, pts)
     _backlog(project, 60)
-    with patch("trueppm_scheduler.forecast.bootstrap_horizon", return_value=2):
+    with patch("trueppm_api.apps.projects.services._bootstrap_horizon", return_value=2):
         result = sprint_forecast(project.pk)
     assert result["status"] == "ready"
     assert result["horizon_saturated"] is True
