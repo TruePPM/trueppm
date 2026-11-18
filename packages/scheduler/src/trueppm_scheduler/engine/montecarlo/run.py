@@ -757,6 +757,10 @@ def monte_carlo(
                    requests should pass a smaller value; a table above it raises
                    :class:`InvalidScheduleInput` before the offending array is
                    allocated. It does not change any computed value.
+                   **Provisional** (#4472): its unit is an implementation
+                   structure, so it and ``MAX_LAG_DELTA_CELLS`` may be renamed or
+                   replaced by an implementation-neutral budget in any release,
+                   including after 1.0; such a change is recorded in the changelog.
         max_index_cells: Ceiling on the per-calendar working-day indices, counted as
                    (distinct calendars, by ``working_days`` and ``exceptions``) x
                    (index length) cells, each an 8-byte int64. Default
@@ -765,7 +769,8 @@ def monte_carlo(
                    accepting a ``calendars`` registry from untrusted callers, should
                    pass a smaller value; a project above it raises
                    :class:`SimulationCapExceeded` before any index is allocated. It
-                   does not change any computed value.
+                   does not change any computed value. **Provisional** (#4472), on
+                   the same terms as ``max_lag_delta_cells``.
         deadline:  A :func:`time.monotonic` timestamp after which the run stops
                    with :class:`SimulationTimeExceeded`, or ``None`` (the default)
                    for no time limit. Checked at phase boundaries — before and after

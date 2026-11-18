@@ -98,7 +98,9 @@ MAX_CALENDAR_EXCEPTIONS = 100_000
 # materialised. This is the *library* default: it protects a batch caller that
 # owns the whole machine. A request-scoped embedder (a synchronous web endpoint
 # sharing a pod with other requests) should pass a much smaller
-# ``max_lag_delta_cells`` to :func:`monte_carlo`.
+# ``max_lag_delta_cells`` to :func:`monte_carlo`. Provisional, like ``MAX_INDEX_CELLS``
+# (#4472): the cell is this implementation's unit, so neither the constant nor the
+# parameter is covered by the 1.x signature freeze (README "API stability").
 MAX_LAG_DELTA_CELLS = 50_000_000
 
 
@@ -111,7 +113,8 @@ MAX_LAG_DELTA_CELLS = 50_000_000
 # and effectively unlimited for any real project, which has a handful of calendars
 # over a span of thousands of days. This is the *library* default for a batch caller
 # that owns the machine; a request-scoped embedder should pass a smaller
-# ``max_index_cells`` to :func:`monte_carlo`.
+# ``max_index_cells`` to :func:`monte_carlo`. Provisional (#4472), like
+# ``MAX_LAG_DELTA_CELLS`` above.
 MAX_INDEX_CELLS = 25_000_000
 
 

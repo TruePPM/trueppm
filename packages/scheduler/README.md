@@ -667,8 +667,8 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_EXPANDED_EDGES` | `100000` | Leaf-level edges after expanding a summary↔summary dependency |
 | `MAX_CALENDAR_EXCEPTIONS` | `100000` | Exception ranges on one `Calendar` |
 | `MAX_CALENDAR_SCAN_DAYS` | `36600` | Longest run of consecutive non-working days before a calendar is declared degenerate |
-| `MAX_LAG_DELTA_CELLS` | `50000000` | Monte Carlo's `(distinct dep-type/lag combos) x (index span)` precompute |
-| `MAX_INDEX_CELLS` | `25000000` | From 0.5 (not in 0.4): Monte Carlo's `(distinct calendars by content) x (index span)` working-day indices, 8 bytes per cell; over it `monte_carlo()` will raise `SimulationCapExceeded`. Override per call with `max_index_cells` |
+| `MAX_LAG_DELTA_CELLS` | `50000000` | Monte Carlo's `(distinct dep-type/lag combos) x (index span)` precompute. Provisional (see [API stability](#api-stability-and-versioning)) |
+| `MAX_INDEX_CELLS` | `25000000` | From 0.5 (not in 0.4): Monte Carlo's `(distinct calendars by content) x (index span)` working-day indices, 8 bytes per cell; over it `monte_carlo()` will raise `SimulationCapExceeded`. Override per call with `max_index_cells`. Provisional (see [API stability](#api-stability-and-versioning)) |
 | `MAX_VELOCITY_SPRINTS` | `10000` | Per-run sprint horizon the velocity sampler will bootstrap |
 | `MC_SENSITIVITY_CAP` | `20` | Tasks returned by the sensitivity ("tornado") ranking |
 | `_MAX_RUNS_ABSOLUTE` | `100000000` | Hard ceiling on `monte_carlo(runs=…)`, enforced regardless of `max_runs`; over it `monte_carlo()` raises `InvalidScheduleInput`. A caller-supplied `max_runs` below `runs` is checked as well and raises `SimulationCapExceeded` instead. Not exported from the package: it is a private engine constant, listed so the number is documented |
@@ -743,6 +743,15 @@ distinct leaf IDs under a summary task); the old `engine._WorkingDayCounter` and
 Everything else — the `trueppm_scheduler.engine` internals, any underscore-
 prefixed helper, and module layout — is **unstable** and may move or change
 without notice.
+
+**Provisional names.** Two Monte Carlo memory ceilings are exported because a
+request-scoped embedder needs them, but they are counted in the units of today's
+implementation rather than in anything a caller observes: `monte_carlo(max_lag_delta_cells=…)`
+with `MAX_LAG_DELTA_CELLS`, and `monte_carlo(max_index_cells=…)` with
+`MAX_INDEX_CELLS`. They are **provisional**: exempt from the 1.x signature freeze,
+they may be renamed or replaced by an implementation-neutral budget in any release,
+and any such change is listed in the changelog. Neither changes a computed value:
+a ceiling only decides which inputs are refused.
 
 This package is **`Development Status :: 4 - Beta`** as of 0.4.0b1: the public
 API may still change before 1.0. **Pin an exact version** rather than a range:

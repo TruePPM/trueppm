@@ -745,3 +745,39 @@ def test_exported_dataclasses_document_every_field_under_attributes() -> None:
             if not re.search(rf"^\s+{re.escape(f.name)}: ", section, re.MULTILINE):
                 problems.append(f"{cls.__name__}.{f.name}: not documented under Attributes:")
     assert not problems, "\n".join(problems)
+
+
+# Exported for request-scoped embedders, but counted in the implementation's own
+# units, so they are held out of the 1.x signature freeze (#4472). Each pair is
+# (monte_carlo parameter, its default constant).
+_PROVISIONAL_MC_CEILINGS = (
+    ("max_lag_delta_cells", "MAX_LAG_DELTA_CELLS"),
+    ("max_index_cells", "MAX_INDEX_CELLS"),
+)
+
+
+@pytest.mark.parametrize(("param", "constant"), _PROVISIONAL_MC_CEILINGS)
+def test_implementation_unit_ceilings_are_declared_provisional(param: str, constant: str) -> None:
+    """A ceiling counted in implementation cells says it is provisional where callers read it.
+
+    Locking ``max_lag_delta_cells`` into 1.x would force any Monte Carlo rewrite to
+    keep a knob whose meaning is today's table layout. The README's API-stability
+    section and the parameter's own docstring entry both have to say so, and the
+    constant must still be the parameter's default, so the pair moves together.
+    """
+    import inspect
+
+    assert inspect.signature(monte_carlo).parameters[param].default == getattr(ts, constant)
+    doc = monte_carlo.__doc__ or ""
+    entry = doc[doc.index(f"        {param}:") + 1 :]
+    next_entry = re.search(r"\n {8}\w+:", entry)
+    entry = entry[: next_entry.start()] if next_entry else entry
+    assert "Provisional" in entry, f"monte_carlo's {param} entry does not say it is provisional"
+
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    stability = readme[readme.index("## API stability and versioning") :]
+    stability = stability[: stability.index("\n### ")]
+    flat = " ".join(stability.split())
+    assert "provisional" in flat.lower()
+    for name in (f"`monte_carlo({param}=…)`", f"`{constant}`"):
+        assert name in flat, f"README API-stability section does not name {name} as provisional"
