@@ -354,6 +354,9 @@ export function useUpdateTask() {
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+      // The cached sprint list carries task aggregates (wip_count, completed_*)
+      // that a status/sprint change moves. Burndown stays snapshot-driven.
+      void queryClient.invalidateQueries({ queryKey: ['sprints', variables.projectId] });
       // Refresh the drawer Activity feed so the edit appears immediately (#1867).
       void queryClient.invalidateQueries({
         queryKey: ['task-history', variables.projectId, variables.id],

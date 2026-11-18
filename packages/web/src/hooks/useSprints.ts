@@ -37,6 +37,9 @@ export interface UseSprintsResult {
   refetch?: () => void;
 }
 
+/** Stale window for the sprint list and burndown reads; mirrors `useBurnChart`. */
+export const SPRINT_READ_STALE_MS = 5 * 60 * 1000;
+
 /**
  * GET /api/v1/projects/{id}/sprints/ — fetch every sprint for a project.
  *
@@ -58,6 +61,10 @@ export function useSprints(projectId: string | null | undefined): UseSprintsResu
       return res.data;
     },
     enabled: !!projectId,
+    // Lifecycle mutations and the sprint_* WS handlers invalidate this key, so
+    // a zero stale window only buys a refetch on every focus/mount (Reports,
+    // Board and Sprints all mount it). Matches useBurnChart.
+    staleTime: SPRINT_READ_STALE_MS,
   });
 
   return {
@@ -283,6 +290,9 @@ export function useSprintMutations(projectId: string | null | undefined) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sprints', projectId] });
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
+      });
     },
   });
 
@@ -300,6 +310,9 @@ export function useSprintMutations(projectId: string | null | undefined) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sprints', projectId] });
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
+      });
     },
   });
 
@@ -598,6 +611,9 @@ export function useSprintBurndown(sprintId: string | null | undefined) {
       return res.data;
     },
     enabled: !!sprintId,
+    // Snapshot-driven (changes daily); sprint close/activate/scope-change
+    // invalidate ['sprint', id, 'burndown'] explicitly.
+    staleTime: SPRINT_READ_STALE_MS,
   });
 }
 

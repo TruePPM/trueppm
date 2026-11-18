@@ -461,6 +461,22 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  it('invalidates every mounted sprint burndown on sprint_activated', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('sprint_activated');
+    const predicateCall = invalidateSpy.mock.calls.find(
+      ([f]) => typeof (f as { predicate?: unknown })?.predicate === 'function',
+    );
+    expect(predicateCall).toBeDefined();
+    const pred = (predicateCall![0] as unknown as {
+      predicate: (q: { queryKey: unknown[] }) => boolean;
+    }).predicate;
+    expect(pred({ queryKey: ['sprint', 'sp-1', 'burndown'] })).toBe(true);
+    expect(pred({ queryKey: ['sprint', 'sp-1', 'retro'] })).toBe(false);
+  });
+
   // #2992 — a terminal close failure is pushed, not polled for -------------
 
   it('invalidates sprints and the close-request read on sprint_close_failed', () => {
@@ -1752,6 +1768,25 @@ describe('useProjectWebSocket — board activity feed live updates (#1264)', () 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board-activity', 'proj-1'] });
   });
 
+  it('refreshes the cached sprint list on task_updated and task_created, coalesced (#3568)', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_updated', { id: 't1', actor_id: 'someone-else', version: 3 });
+    dispatch('task_created', { id: 't2' });
+    dispatch('task_deleted', { id: 't3' });
+    // Nothing fires until the debounce window closes ...
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['sprints', 'proj-1'] });
+    flushDebounce();
+    // ... and a burst of three events is ONE refetch.
+    const sprintCalls = invalidateSpy.mock.calls.filter((c) => {
+      const k = (c[0] as { queryKey?: unknown[] })?.queryKey;
+      return Array.isArray(k) && k[0] === 'sprints';
+    });
+    expect(sprintCalls).toHaveLength(1);
+  });
+
   it('refetches the feed even on a self-echo task_updated (append-only audit log)', () => {
     // Unlike the tasks cache (which suppresses self-echo to protect an in-flight
     // optimistic edit), the activity feed has no optimistic state and should show
@@ -2131,6 +2166,19 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
       (call) => typeof call[0]?.predicate === 'function',
     );
     expect(sawPredicateSweep).toBe(true);
+  });
+
+  it('resync_required also refreshes cached sprint burndowns, whose key carries no project id (#3568)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    dispatch({ event_type: 'resync_required', payload: { latest_seq: 42 }, seq: null });
+
+    const preds = invalidateSpy.mock.calls
+      .map((c) => (c[0] as { predicate?: (q: { queryKey: unknown[] }) => boolean })?.predicate)
+      .filter((p): p is (q: { queryKey: unknown[] }) => boolean => typeof p === 'function');
+    expect(preds.some((p) => p({ queryKey: ['sprint', 'sp-1', 'burndown'] }))).toBe(true);
+    expect(preds.some((p) => p({ queryKey: ['sprint', 'sp-1', 'retro'] }))).toBe(false);
   });
 
   it('after resync, the next reconnect requests since=latest_seq from the frame', () => {
