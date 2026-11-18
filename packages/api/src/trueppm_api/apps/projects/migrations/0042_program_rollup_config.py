@@ -26,15 +26,15 @@ from django.db import migrations, models
 def _seed_existing_programs(apps: Any, schema_editor: Any) -> None:
     """Backfill methodology-aware rollup defaults on every existing Program.
 
-    Imports from the live services module (not the historical models) because
-    ``rollup_config_defaults`` is a pure function that only depends on the
-    Methodology choice values, which are stable across migrations.
+    Uses a frozen copy of the defaults (``projects.backfill``) rather than the live
+    services module, so a later change to the live defaults cannot alter what this
+    migration seeds on a fresh install (#4603).
     """
-    from trueppm_api.apps.projects.services import rollup_config_defaults
+    from trueppm_api.apps.projects.backfill import frozen_rollup_config_defaults
 
     Program = apps.get_model("projects", "Program")
     for program in Program.objects.all():
-        enabled, policy = rollup_config_defaults(program.methodology)
+        enabled, policy = frozen_rollup_config_defaults(program.methodology)
         program.rollup_enabled_kpis = enabled
         program.rollup_aggregation_policy = policy
         program.save(update_fields=["rollup_enabled_kpis", "rollup_aggregation_policy"])
