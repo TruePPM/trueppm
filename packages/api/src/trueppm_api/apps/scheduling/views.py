@@ -100,7 +100,9 @@ from trueppm_api.apps.scheduling.risk_premium import (
     risk_premium_from_values,
 )
 from trueppm_api.apps.scheduling.serializers import (
+    FailedTaskBulkActionResultSerializer,
     FailedTaskDropSerializer,
+    FailedTaskRequeueResultSerializer,
     FailedTaskRequeueSerializer,
     FailedTaskSerializer,
     MonteCarloForecastSerializer,
@@ -2192,7 +2194,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
 
     @extend_schema(
         request=FailedTaskRequeueSerializer,
-        responses={200: FailedTaskSerializer},
+        responses={200: FailedTaskRequeueResultSerializer},
         summary="Requeue a dead-lettered task with an operator-chosen backoff",
     )
     @action(detail=True, methods=["post"], permission_classes=[IsWorkspaceOperator])
@@ -2229,9 +2231,8 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
             backoff_seconds,
             workflow_id,
         )
-        data = dict(FailedTaskSerializer(failed).data)
-        data["workflow_id"] = workflow_id
-        return Response(data)
+        failed.workflow_id = workflow_id
+        return Response(FailedTaskRequeueResultSerializer(failed).data)
 
     @extend_schema(
         request=FailedTaskDropSerializer,
@@ -2272,7 +2273,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
 
     @extend_schema(
         request=FailedTaskRequeueSerializer,
-        responses={200: OpenApiResponse(description="{processed, matched, capped}")},
+        responses={200: FailedTaskBulkActionResultSerializer},
         summary="Requeue every actionable task in the current filter set (bounded)",
     )
     @action(
@@ -2333,7 +2334,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
 
     @extend_schema(
         request=FailedTaskDropSerializer,
-        responses={200: OpenApiResponse(description="{processed, matched, capped}")},
+        responses={200: FailedTaskBulkActionResultSerializer},
         summary="Drop every task in the current filter set (bounded)",
     )
     @action(

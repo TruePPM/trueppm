@@ -5,8 +5,8 @@ import { delayRoute } from './fixtures/cold-load';
 /**
  * Workspace Settings → System health E2E (#692 / #694, ADR-0086).
  *
- * Read-only operator surfaces backed by GET /api/v1/health/system/ (overview)
- * and GET /api/v1/admin/failed-tasks/ (dead-letter inspector). Covers:
+ * Operator surfaces backed by GET /api/v1/health/system/ (overview) and
+ * /api/v1/admin/failed-tasks/ (dead-letter inspector and its actions). Covers:
  * - Overview golden path: 5 component cards, Retention-purge "unknown", beat
  *   panel, dead-letter summary + Open inspector link.
  * - Dead-letter inspector golden path: list → select row → detail (attempt
@@ -14,6 +14,8 @@ import { delayRoute } from './fixtures/cold-load';
  * - Dead-letter inspector empty state (the healthy all-clear case).
  * - Write actions (#695, ADR-0210): requeue one with backoff, drop one with a
  *   note, and bulk requeue-all over the current filter set.
+ * - Action error state (#2412): a requeue the server refuses because the task
+ *   was already handled keeps the dialog open with the server's reason.
  */
 
 const FIXTURE_ME = {
@@ -396,6 +398,36 @@ test.describe('Workspace Settings → System health', () => {
     // Success toast; dialog closes.
     await expect(page.getByText(/Requeued scheduling\.recalculate_schedule/)).toBeVisible();
     await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  });
+
+  test('a requeue refused as already handled keeps the dialog open with the reason', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Registered after setup, so it takes priority over the shared handler: the
+    // task was requeued from another tab and its workflow has stamped it retried,
+    // so the server refuses with the view's real 400 `{detail}` body.
+    const refusal = "Cannot requeue a task with status 'retried'.";
+    await page.route('**/api/v1/admin/failed-tasks/ft-1/requeue/', (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: refusal }),
+      }),
+    );
+    await page.goto('/settings/health/dead-letters?selected=ft-1');
+    await expect(page.getByRole('heading', { name: 'Attempt summary' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Requeue', exact: true }).click();
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Requeue', exact: true }).click();
+
+    // The inline alert names the server's reason and the dialog stays open, so the
+    // operator is not left believing the requeue went through.
+    await expect(dialog.getByRole('alert')).toHaveText(refusal);
+    await expect(dialog).toBeVisible();
+    await expect(page.getByText(/Requeued scheduling\.recalculate_schedule/)).toHaveCount(0);
   });
 
   test('drop one with a note confirms and toasts', async ({ page }) => {

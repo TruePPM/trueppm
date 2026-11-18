@@ -1,6 +1,6 @@
 ---
 title: System Health
-description: The workspace-admin System Health console — inspect durable-execution health, the Celery Beat heartbeat, and the dead-letter queue from the UI, without shelling into the cluster.
+description: The workspace-operator System Health console — inspect durable-execution health, the Celery Beat heartbeat, and the dead-letter queue from the UI, without shelling into the cluster.
 documentedFor: "0.5"
 ---
 
@@ -15,8 +15,8 @@ them, via **Celery** (the worker processes that do the work), **Celery Beat** (t
 single scheduler process that dispatches jobs on a timer), and a **transactional
 outbox** (a database table of pending jobs that survives a crash between "the
 triggering change committed" and "the job actually ran"). The **System Health**
-console gives a workspace administrator a read-only operator view of that machinery —
-without shelling into the cluster or scraping Prometheus by hand. Reach for this page
+console gives a workspace operator a view of that machinery, and the actions to drain
+its dead-letter queue, without shelling into the cluster or scraping Prometheus by hand. Reach for this page
 first whenever something that should have happened automatically — a schedule
 recompute, a notification email, a webhook delivery — appears not to have.
 
@@ -127,8 +127,8 @@ left/detail, then requeue or drop it — a 0.4 action, see
 
 ## Triaging dead-lettered tasks
 
-From the detail pane you can act on a parked task; both actions are workspace-admin
-gated and each opens a confirmation before it runs.
+From the detail pane you can act on a parked task. Both actions require a workspace
+operator account (see **Access** above), and each opens a confirmation before it runs.
 
 - **Requeue** re-enqueues the original task with its stored `args`/`kwargs` after an
   operator-chosen **backoff** (immediately, or in 5 minutes / 30 minutes / 1 hour).
@@ -138,6 +138,12 @@ gated and each opens a confirmation before it runs.
   `pending_retry` tasks are requeueable. The backoff is applied as a best-effort delay
   on the re-dispatched task; the guarantee that the re-enqueue *happens* is durable,
   while the delay itself is not yet durable across a broker restart.
+
+  :::note[Ships in 0.5]
+  A repeated requeue of the same failure, such as a double-click, starts no second
+  re-enqueue: the server returns the workflow it already started. In 0.4 the first request
+  marks the task `retried` at once, so a second click is refused with a `400`.
+  :::
 - **Drop** removes a parked task from the active queue with an optional **note**. A
   drop is a *soft* remove: the task moves to `dismissed` and the record — including the
   note, the operator, and the timestamp — is **retained** for audit (nothing is
@@ -184,7 +190,15 @@ The first three read endpoints above shipped in 0.4; the two workflow endpoints 
 in 0.5. The four write endpoints below shipped in 0.4.
 
 - `POST /api/v1/admin/failed-tasks/{id}/requeue/` — re-enqueue the task through the
-  durable workflow backend with an optional `{ "backoff_seconds": N }` (0–86400).
+  durable workflow backend with an optional `{ "backoff_seconds": N }` (0–86400). The
+  response is the task record plus a `workflow_id`. A task that is no longer `dead` or
+  `pending_retry` is refused with a `400`.
+
+  :::note[Ships in 0.5]
+  The record stays `dead` until the workflow has re-dispatched the task and marks it
+  `retried`. In 0.4 the record reads `retried` as soon as the request is accepted.
+  :::
+
 - `POST /api/v1/admin/failed-tasks/{id}/drop/` — soft-remove the task (→ `dismissed`)
   with an optional `{ "note": "…" }`.
 - `POST /api/v1/admin/failed-tasks/requeue-all/` and `.../drop-all/` — the bulk actions

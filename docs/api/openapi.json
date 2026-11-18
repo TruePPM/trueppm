@@ -978,7 +978,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/FailedTask"
+                                    "$ref": "#/components/schemas/FailedTaskRequeueResult"
                                 }
                             }
                         },
@@ -1088,7 +1088,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "{processed, matched, capped}",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FailedTaskBulkActionResult"
+                                }
+                            }
+                        },
+                        "description": "",
                         "headers": {
                             "Idempotent-Replay": {
                                 "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
@@ -1206,7 +1213,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "{processed, matched, capped}",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FailedTaskBulkActionResult"
+                                }
+                            }
+                        },
+                        "description": "",
                         "headers": {
                             "Idempotent-Replay": {
                                 "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
@@ -64172,6 +64186,29 @@
                     "traceback"
                 ]
             },
+            "FailedTaskBulkActionResult": {
+                "type": "object",
+                "description": "Response of ``requeue-all`` / ``drop-all`` (ADR-0210 §4).",
+                "properties": {
+                    "processed": {
+                        "type": "integer",
+                        "description": "Tasks the action processed in this run (at most the bulk cap)."
+                    },
+                    "matched": {
+                        "type": "integer",
+                        "description": "Tasks the current filter set matched before the cap was applied."
+                    },
+                    "capped": {
+                        "type": "boolean",
+                        "description": "True when more tasks remain than this run processed; repeat the action."
+                    }
+                },
+                "required": [
+                    "capped",
+                    "matched",
+                    "processed"
+                ]
+            },
             "FailedTaskDropRequest": {
                 "type": "object",
                 "description": "Validate the drop-with-note request body (ADR-0210).\n\n``note`` is optional free-text audit context. Bounded and trimmed; stored as\ndata and rendered as text (never interpolated into task args), so it carries no\ninjection surface.",
@@ -64196,6 +64233,114 @@
                         "description": "Backoff before re-dispatch, in seconds (0-86400). 0 = immediate."
                     }
                 }
+            },
+            "FailedTaskRequeueResult": {
+                "type": "object",
+                "description": "Response of a single requeue: the task row plus the started workflow's id.\n\nDeclared separately from :class:`FailedTaskSerializer` because the requeue view\nappends ``workflow_id`` to the row it returns, and a schema that omitted it left\nclients unable to rely on the one handle that lets them observe the attempt —\nthe row itself stays ``dead`` until the workflow stamps it ``retried`` (#2994).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Project the failing task acted on, when known.",
+                        "readOnly": true
+                    },
+                    "args": {
+                        "readOnly": true
+                    },
+                    "kwargs": {
+                        "readOnly": true
+                    },
+                    "exception_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "exception_message": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "traceback": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "failure_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "first_failed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "last_failed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/FailedTaskStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "resolution_note": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Operator's free-text note recorded when the task was dropped."
+                    },
+                    "resolved_by_display": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Display name of the operator who last acted, or None if unresolved.",
+                        "readOnly": true
+                    },
+                    "resolved_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "When an operator requeued or dropped this task."
+                    },
+                    "workflow_id": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Id of the durable requeue workflow. A repeated requeue of the same observed failure returns the same id rather than starting a second one."
+                    }
+                },
+                "required": [
+                    "args",
+                    "exception_message",
+                    "exception_type",
+                    "failure_count",
+                    "first_failed_at",
+                    "id",
+                    "kwargs",
+                    "last_failed_at",
+                    "project_id",
+                    "resolution_note",
+                    "resolved_at",
+                    "resolved_by_display",
+                    "status",
+                    "task_id",
+                    "task_name",
+                    "traceback",
+                    "workflow_id"
+                ]
             },
             "FailedTaskStatusEnum": {
                 "enum": [

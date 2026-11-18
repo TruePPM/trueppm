@@ -670,6 +670,42 @@ class FailedTaskDropSerializer(serializers.Serializer[dict[str, Any]]):
     )
 
 
+class FailedTaskRequeueResultSerializer(FailedTaskSerializer):
+    """Response of a single requeue: the task row plus the started workflow's id.
+
+    Declared separately from :class:`FailedTaskSerializer` because the requeue view
+    appends ``workflow_id`` to the row it returns, and a schema that omitted it left
+    clients unable to rely on the one handle that lets them observe the attempt —
+    the row itself stays ``dead`` until the workflow stamps it ``retried`` (#2994).
+    """
+
+    workflow_id = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Id of the durable requeue workflow. A repeated requeue of the same "
+            "observed failure returns the same id rather than starting a second one."
+        ),
+    )
+
+    class Meta(FailedTaskSerializer.Meta):
+        fields = [*FailedTaskSerializer.Meta.fields, "workflow_id"]
+        read_only_fields = fields
+
+
+class FailedTaskBulkActionResultSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response of ``requeue-all`` / ``drop-all`` (ADR-0210 §4)."""
+
+    processed = serializers.IntegerField(
+        help_text="Tasks the action processed in this run (at most the bulk cap)."
+    )
+    matched = serializers.IntegerField(
+        help_text="Tasks the current filter set matched before the cap was applied."
+    )
+    capped = serializers.BooleanField(
+        help_text="True when more tasks remain than this run processed; repeat the action."
+    )
+
+
 class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestion]):
     """Read serializer for a velocity-calibration suggestion (ADR-0065).
 
