@@ -243,32 +243,81 @@ def _branch_changes() -> tuple[list[str], list[str]] | None:
 def check_restamp_has_fragment(
     changed: list[str], added: list[str], read: Any = lambda p: Path(p).read_text()
 ) -> str | None:
-    """Return a failure message if a stamp changed without an explaining fragment."""
+    """Return a failure message if a stamp changed without an explaining fragment.
+
+    The fragment must name an issue or ADR *and* the stamp directory it re-blesses,
+    so an unrelated fragment that happens to cite ``#N`` cannot satisfy the rule.
+    """
     # A brand-new stamp is the release flow (a new version directory); only an
     # existing stamp being rewritten or deleted is a drift being re-blessed.
     touched = [p for p in changed if "tests/fixtures/stability/" in p and p not in added]
     if not touched:
         return None
+    stamps = {p.split("tests/fixtures/stability/", 1)[1].split("/", 1)[0] for p in touched}
     for p in added:
         if _FRAGMENT.search(p):
             try:
-                if _REFERENCE.search(read(p)):
-                    return None
+                text = read(p)
             except OSError:
                 continue
+            if _REFERENCE.search(text) and all(s in text for s in stamps):
+                return None
     return (
         f"stability stamp changed ({touched[0]}…) but no new changelog.d/*.changed.md or "
-        "*.fixed.md fragment naming an issue (#N) or ADR (ADR-N) accompanies it (#4686)"
+        "*.fixed.md fragment naming an issue (#N) or ADR (ADR-N) and the re-stamped "
+        f"version ({', '.join(sorted(stamps))}) accompanies it (#4686)"
     )
+
+
+_STAMP_LINE = re.compile(r'^\+CURRENT_STAMP\s*=\s*"([^"]+)"', re.MULTILINE)
+
+
+def check_current_stamp_bump(test_file_diff: str, package_version: str) -> str | None:
+    """Fail if the diff points ``CURRENT_STAMP`` at a name that is not the package version.
+
+    A new stamp directory counts as "added" and needs no fragment, so pointing
+    ``CURRENT_STAMP`` at a fresh directory would otherwise sidestep the re-stamp rule.
+    """
+    stem = package_version.split("-", 1)[0]
+    for m in _STAMP_LINE.finditer(test_file_diff):
+        if m.group(1).split("-", 1)[0] != stem:
+            return (
+                f'CURRENT_STAMP changed to "{m.group(1)}" but the scheduler version is '
+                f"{package_version}; a stamp bump is a release step (#4686)"
+            )
+    return None
+
+
+def missing_merge_base_policy(in_ci: bool) -> str:
+    """'fail' in CI (a skipped rule there is a silent hole), 'skip' on a local clone."""
+    return "fail" if in_ci else "skip"
 
 
 def test_restamp_carries_a_changelog_fragment() -> None:
     """A changed stamp must ship with a fragment saying why dates moved."""
     changes = _branch_changes()
     if changes is None:
-        pytest.skip("no origin/main merge base available (shallow clone or sdist)")
+        msg = "no origin/main merge base available (shallow clone or sdist)"
+        if missing_merge_base_policy(bool(os.environ.get("CI"))) == "fail":
+            pytest.fail(f"{msg}; set GIT_DEPTH=0 on the CI job so this rule can run (#4686)")
+        pytest.skip(msg)
     root = PKG_DIR.parent.parent
     msg = check_restamp_has_fragment(*changes, read=lambda p: (root / p).read_text())
+    assert msg is None, msg
+
+
+def test_current_stamp_tracks_the_package_version() -> None:
+    """Bumping CURRENT_STAMP is only legitimate as a release step."""
+    changes = _branch_changes()
+    if changes is None:
+        pytest.skip("covered by the merge-base policy in the fragment test")
+    this_file = "packages/scheduler/tests/test_result_stability.py"
+    if this_file in changes[1]:
+        return  # the file's first appearance declares the initial stamp; nothing to bump
+    base = _git("merge-base", "origin/main", "HEAD")
+    diff = _git("diff", (base or "").strip(), "--", Path(__file__).name) or ""
+    version = tomllib.loads((PKG_DIR / "pyproject.toml").read_text())["project"]["version"]
+    msg = check_current_stamp_bump(diff, version)
     assert msg is None, msg
 
 
@@ -290,7 +339,10 @@ class TestFragmentRule:
     def test_fragment_must_name_an_issue_or_adr(self) -> None:
         args = ([self.STAMP, self.FRAG], [self.FRAG])
         assert check_restamp_has_fragment(*args, read=lambda p: "- floats changed") is not None
-        assert check_restamp_has_fragment(*args, read=lambda p: "- floats changed (#123)") is None
+        assert (
+            check_restamp_has_fragment(*args, read=lambda p: "- 0.4.0 floats changed (#123)")
+            is None
+        )
 
     def test_added_type_does_not_count(self) -> None:
         frag = "changelog.d/1.added.md"
@@ -301,5 +353,24 @@ class TestFragmentRule:
     def test_fixed_fragment_counts(self) -> None:
         frag = "changelog.d/1.fixed.md"
         assert (
-            check_restamp_has_fragment([self.STAMP, frag], [frag], read=lambda p: "ADR-9") is None
+            check_restamp_has_fragment([self.STAMP, frag], [frag], read=lambda p: "0.4.0 ADR-9")
+            is None
         )
+
+    def test_fragment_must_name_the_restamped_version(self) -> None:
+        # Bypass: an unrelated fragment citing some #N must not satisfy the rule.
+        args = ([self.STAMP, self.FRAG], [self.FRAG])
+        assert check_restamp_has_fragment(*args, read=lambda p: "unrelated (#123)") is not None
+        assert check_restamp_has_fragment(*args, read=lambda p: "0.4.0 dates moved (#123)") is None
+
+    def test_bumping_current_stamp_to_a_new_name_fails(self) -> None:
+        # Bypass: a new stamp dir is "added", so only the CURRENT_STAMP line gives it away.
+        diff = '-CURRENT_STAMP = "0.4.0"\n+CURRENT_STAMP = "9.9.9-dev"\n'
+        assert check_current_stamp_bump(diff, "0.4.0") is not None
+        ok = '-CURRENT_STAMP = "0.3.0"\n+CURRENT_STAMP = "0.4.0"\n'
+        assert check_current_stamp_bump(ok, "0.4.0") is None
+        assert check_current_stamp_bump("", "0.4.0") is None
+
+    def test_missing_merge_base_fails_in_ci_and_skips_locally(self) -> None:
+        assert missing_merge_base_policy(True) == "fail"
+        assert missing_merge_base_policy(False) == "skip"

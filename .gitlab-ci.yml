@@ -4660,7 +4660,13 @@ scheduler:test:
     - job: ci:build-scheduler-image
       optional: true
   <<: *rules-scheduler
+  variables:
+    # test_restamp_carries_a_changelog_fragment diffs against the merge base with
+    # origin/main; the default GIT_DEPTH=20 loses it on long branches (see
+    # changelog:check), and that test fails rather than skips when CI is set.
+    GIT_DEPTH: "0"
   script:
+    - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}" || true
     - cd packages/scheduler
     - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-report=xml --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
