@@ -421,6 +421,77 @@ describe('TimesheetPage fill across (#1950)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Task is closed.');
     expect(screen.getByDisplayValue('2:00')).toBeInTheDocument();
   });
+
+  function deferred() {
+    let resolve!: () => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  function rejection400(): AxiosError {
+    const e = new AxiosError('Request failed with status code 400');
+    e.response = { status: 400, data: { entry_date: ['Task is closed.'] } } as AxiosResponse;
+    return e;
+  }
+
+  it('ignores a second click while the loop runs: no second loop, no duplicate writes', async () => {
+    const d = deferred();
+    cellMutateAsync.mockReturnValueOnce(d.promise);
+    render(<TimesheetPage />);
+    const btn = screen.getByRole('button', { name: /Fill across the week for ENG-1/ });
+    await act(async () => {
+      fireEvent.click(btn);
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(cellMutateAsync).toHaveBeenCalledTimes(1);
+    expect(btn).toBeDisabled();
+    await act(async () => {
+      d.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // Tue + Wed only, once each.
+    expect(cellMutateAsync).toHaveBeenCalledTimes(2);
+    expect(btn).toBeEnabled();
+  });
+
+  it('drops results of a loop that outlives its week', async () => {
+    const d = deferred();
+    cellMutateAsync.mockReturnValueOnce(d.promise);
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Fill across the week for ENG-1/ }));
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    await act(async () => {
+      d.reject(rejection400());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // The loop stopped at the week change: no further writes.
+    expect(cellMutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops at the first network/5xx failure instead of firing every remaining write', async () => {
+    cellMutateAsync.mockRejectedValue(new Error('Network Error'));
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Fill across the week for ENG-1/ }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(cellMutateAsync).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fill across the week for ENG-1/ })).toBeEnabled();
+  });
 });
 
 function addDays(iso: string, n: number): string {

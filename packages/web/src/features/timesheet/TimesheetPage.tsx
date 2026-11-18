@@ -12,7 +12,7 @@
  * endpoints (create / PATCH / DELETE); the multi-entry cell is read-only (ADR-0224). No
  * portfolio/governance surface — a contributor reviews and submits *their own* time (OSS).
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { ClockIcon } from '@/components/Icons';
@@ -73,6 +73,13 @@ export function TimesheetPage() {
   const cellMutation = useTimesheetCell(monday);
   const submitMutation = useSubmitWeek(monday);
   const fetchWeek = useFetchWeek();
+  // Rows with a fill-across loop in flight. The ref is the synchronous re-entry guard (a
+  // double-click lands before React re-renders); the state only drives the disabled button.
+  const fillingRef = useRef<Set<string>>(new Set());
+  const [fillingTaskIds, setFillingTaskIds] = useState<ReadonlySet<string>>(new Set());
+  // The week currently displayed, so a loop that outlives a week change can tell.
+  const mondayRef = useRef(monday);
+  mondayRef.current = monday;
   const [copying, setCopying] = useState(false);
   const [copyNote, setCopyNote] = useState('');
 
@@ -106,7 +113,9 @@ export function TimesheetPage() {
   const submitted = data?.submission.submitted ?? false;
 
   function stepWeek(deltaWeeks: number) {
-    setMonday((m) => addDaysIso(m, deltaWeeks * 7));
+    const next = addDaysIso(mondayRef.current, deltaWeeks * 7);
+    mondayRef.current = next;
+    setMonday(next);
     setExtraTasks([]); // add-row context is per-week
     setCellErrors({}); // inline validation errors are per-week too
     setCopyNote('');
@@ -177,22 +186,37 @@ export function TimesheetPage() {
   // snapshot each other's optimistic state, so one failure's rollback could undo a sibling's
   // success. Awaiting each write in turn via `mutateAsync` keeps every call's own error and
   // rollback scoped to its own cell.
+  //
+  // The loop stops at the first non-client failure (network / 5xx): the hook already toasted
+  // once, and the remaining writes would only fail and toast again. A 4xx is per-cell, so the
+  // loop carries on. Results are dropped once the displayed week changes, so a stale loop can
+  // never repaint old-week errors that reappear when the user steps back.
   async function handleFillAcross(row: TimesheetRow) {
-    for (const w of fillAcrossWrites(row, days)) {
-      const cellKey = `${row.taskId}|${w.date}`;
-      clearCellError(cellKey);
-      try {
-        await cellMutation.mutateAsync({
-          meta: rowMeta(row),
-          date: w.date,
-          minutes: w.minutes,
-          entryId: cellAt(row, w.date).entryId,
-        });
-      } catch (err) {
-        if (isClientRejection(err)) {
+    if (fillingRef.current.has(row.taskId)) return;
+    fillingRef.current.add(row.taskId);
+    setFillingTaskIds(new Set(fillingRef.current));
+    const loopMonday = monday;
+    try {
+      for (const w of fillAcrossWrites(row, days)) {
+        if (mondayRef.current !== loopMonday) return;
+        const cellKey = `${row.taskId}|${w.date}`;
+        clearCellError(cellKey);
+        try {
+          await cellMutation.mutateAsync({
+            meta: rowMeta(row),
+            date: w.date,
+            minutes: w.minutes,
+            entryId: cellAt(row, w.date).entryId,
+          });
+        } catch (err) {
+          if (mondayRef.current !== loopMonday) return;
+          if (!isClientRejection(err)) return;
           setCellErrors((prev) => ({ ...prev, [cellKey]: rejectionMessage(err) }));
         }
       }
+    } finally {
+      fillingRef.current.delete(row.taskId);
+      setFillingTaskIds(new Set(fillingRef.current));
     }
   }
 
@@ -352,6 +376,7 @@ export function TimesheetPage() {
           existingTaskIds={existingTaskIds}
           submitted={submitted}
           cellErrors={cellErrors}
+          fillingTaskIds={fillingTaskIds}
           onCellSave={handleCellSave}
           onAddTask={handleAddTask}
           onFillAcross={(row) => void handleFillAcross(row)}
