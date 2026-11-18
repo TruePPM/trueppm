@@ -1,7 +1,7 @@
 /**
  * Write-action mutations for the dead-letter inspector (issue 695, ADR-0210).
  *
- * Four workspace-admin operator actions on parked/dead-lettered Celery tasks:
+ * Four workspace-operator actions on parked/dead-lettered Celery tasks:
  *   - requeue one (with backoff) / drop one (with note)
  *   - requeue all / drop all over the CURRENT FILTER SET (bounded server-side)
  *

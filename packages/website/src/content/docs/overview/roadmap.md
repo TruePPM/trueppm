@@ -283,7 +283,7 @@ A second pass on 2026-09-26 read the same scope through the questions the platfo
 - **Deep CPM-aware bridge** (#372) — live finish-date forecast and incremental CPM recompute, reconciling sprint capacity with the schedule
 - **Durable execution (ADR-0080)** — default workflow backend, workflow versioning, transactional mobile sync upload
 - **Fully cloud native — basic HA in the OSS core** (#3408) — operator-managed in-cluster HA PostgreSQL with automatic failover and WAL archiving (#3403), replicated Valkey with Sentinel and a CI failover drill (#3404), one application Secret contract with an ExternalSecret template and rollout-on-rotation (#3405), and zero-downtime rotation of every application key (#3406). Multi-arch images moved up to 0.4 (#3407). External managed datastores stay fully supported; cross-region and DR remain Enterprise
-- **System Health operator UI** (#691) — dead-letter requeue/drop write actions over the durable-execution backbone (outbox dispatch, Beat heartbeat, retention purge), building on the read-only overview dashboard and dead-letter inspector that shipped at 0.2; rich outbox metrics and subscriber breakdown follow at 1.0
+- **System Health operator UI** (#691) — the dead-letter requeue/drop write actions shipped in 0.4; 0.5 adds idempotent requeue (a repeated requeue returns the workflow already started, and the record stays `dead` until the workflow marks it `retried`) and the workflow read endpoints; rich outbox metrics and subscriber breakdown follow at 1.0
 
 ## Planned
 
