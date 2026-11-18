@@ -647,13 +647,6 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       'user_detail:unknown-property, role_label:unknown-property.',
     allow: ['*'],
   },
-  'POST /api/v1/admin/failed-tasks/{id}/requeue/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: workflow_id:unknown-property.',
-    allow: ['*'],
-  },
   'POST /api/v1/me/api-tokens/': {
     reason:
       'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +

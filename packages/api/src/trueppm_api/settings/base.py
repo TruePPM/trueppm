@@ -2582,6 +2582,10 @@ SPECTACULAR_SETTINGS = {
         "Status9bdEnum": "trueppm_api.apps.taskruns.models.TaskRunStatus",
         "RoleF2cEnum": "trueppm_api.apps.projects.models.CalendarRole",
         "StatusE83Enum": "trueppm_api.apps.projects.models.SyncBatchOperationStatus",
+        # #2412: FailedTaskRequeueResult reuses FailedTask's `status` choice set, so
+        # two components now carry it and drf-spectacular would fall back to a hash
+        # name. Pinned to the name it was already published under.
+        "FailedTaskStatusEnum": "trueppm_api.apps.scheduling.models.FailedTaskStatus",
         # #3037: the bulk refusal vocabulary. Pinned rather than left to
         # drf-spectacular's derived naming because these two names are the handle a
         # generated client's types carry — the whole point of publishing the enum is

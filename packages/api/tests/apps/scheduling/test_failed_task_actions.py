@@ -669,3 +669,54 @@ def test_stamp_locks_the_operator_row_without_blocking_fk_checks() -> None:
         assert mark_failed_task_retried(str(failed.id), operator.pk) == 1
     locks = [q["sql"] for q in ctx.captured_queries if " FOR " in q["sql"]]
     assert locks and all("FOR NO KEY UPDATE" in sql for sql in locks)
+
+
+@pytest.mark.django_db
+class TestActionContract:
+    """The declared response schema is the shape the actions return (#2412).
+
+    The requeue schema used to declare a bare ``FailedTask`` while the view appended
+    ``workflow_id``, and the bulk actions declared a free-form body. A client
+    generated from the schema could not see the one handle that observes a requeue.
+    """
+
+    @staticmethod
+    def _schema_properties(component: str) -> set[str]:
+        import json
+        from pathlib import Path
+
+        schema_path = Path(__file__).resolve().parents[5] / "docs" / "api" / "openapi.json"
+        schema = json.loads(schema_path.read_text())
+        return set(schema["components"]["schemas"][component]["properties"])
+
+    def test_double_click_requeue_returns_the_same_workflow(self) -> None:
+        """Two requeues of one observed failure answer with one workflow id."""
+        failed = _failed()
+        client = _admin_client()
+        first = client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        second = client.post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        assert first.status_code == second.status_code == 200
+        assert first.data["workflow_id"] == second.data["workflow_id"]
+        assert WorkflowInstance.objects.filter(name=WORKFLOW_NAME).count() == 1
+
+    def test_requeue_response_matches_its_declared_schema(self) -> None:
+        failed = _failed()
+        res = _admin_client().post(f"{BASE}/{failed.id}/requeue/", {}, format="json")
+        assert res.status_code == 200
+        assert set(res.data) == self._schema_properties("FailedTaskRequeueResult")
+
+    @pytest.mark.parametrize("action", ["requeue-all", "drop-all"])
+    def test_bulk_response_matches_its_declared_schema(self, action: str) -> None:
+        _failed()
+        res = _admin_client().post(f"{BASE}/{action}/", {}, format="json")
+        assert res.status_code == 200
+        assert set(res.data) == self._schema_properties("FailedTaskBulkActionResult")
+
+    @pytest.mark.parametrize("action", ["requeue", "drop"])
+    def test_unknown_task_is_404_and_starts_nothing(self, action: str) -> None:
+        import uuid
+
+        res = _admin_client().post(f"{BASE}/{uuid.uuid4()}/{action}/", {}, format="json")
+        assert res.status_code == 404
+        assert WorkflowInstance.objects.count() == 0
+        assert FailedTask.objects.count() == 0
