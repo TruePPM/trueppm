@@ -4666,7 +4666,7 @@ scheduler:test:
     # changelog:check), and that test fails rather than skips when CI is set.
     GIT_DEPTH: "0"
   script:
-    - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}" || true
+    - 'git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}" || echo "warning: could not fetch origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}; the stability fragment check may fail on a missing merge base"'
     - cd packages/scheduler
     - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-report=xml --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'

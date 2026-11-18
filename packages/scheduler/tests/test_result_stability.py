@@ -208,10 +208,10 @@ _FRAGMENT = re.compile(r"(^|/)changelog\.d/[^/]+\.(changed|fixed)\.md$")
 _REFERENCE = re.compile(r"#\d+|ADR-\d+", re.IGNORECASE)
 
 
-def _git(*args: str) -> str | None:
+def _git(*args: str, cwd: Path = PKG_DIR) -> str | None:
     try:
         r = subprocess.run(
-            ["git", *args], cwd=PKG_DIR, capture_output=True, text=True, timeout=60, check=False
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=60, check=False
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -306,18 +306,32 @@ def test_restamp_carries_a_changelog_fragment() -> None:
     assert msg is None, msg
 
 
+# Relative to PKG_DIR because ``_git`` runs there: a bare file name is a pathspec
+# that matches nothing, which silently turned this rule into a no-op.
+THIS_FILE_REL = str(Path(__file__).resolve().relative_to(PKG_DIR))
+
+
+def stamp_bump_failure(
+    cwd: Path, rel_path: str, version: str, base_ref: str = "origin/main"
+) -> str | None:
+    """Run the real git wiring: diff ``rel_path`` against the merge base, then judge it."""
+    base = _git("merge-base", base_ref, "HEAD", cwd=cwd)
+    diff = _git("diff", (base or "").strip(), "--", rel_path, cwd=cwd) or ""
+    return check_current_stamp_bump(diff, version)
+
+
 def test_current_stamp_tracks_the_package_version() -> None:
     """Bumping CURRENT_STAMP is only legitimate as a release step."""
     changes = _branch_changes()
     if changes is None:
-        pytest.skip("covered by the merge-base policy in the fragment test")
-    this_file = "packages/scheduler/tests/test_result_stability.py"
-    if this_file in changes[1]:
+        msg = "no origin/main merge base available (shallow clone or sdist)"
+        if missing_merge_base_policy(bool(os.environ.get("CI"))) == "fail":
+            pytest.fail(f"{msg}; set GIT_DEPTH=0 on the CI job so this rule can run (#4686)")
+        pytest.skip(msg)
+    if "packages/scheduler/" + THIS_FILE_REL in changes[1]:
         return  # the file's first appearance declares the initial stamp; nothing to bump
-    base = _git("merge-base", "origin/main", "HEAD")
-    diff = _git("diff", (base or "").strip(), "--", Path(__file__).name) or ""
     version = tomllib.loads((PKG_DIR / "pyproject.toml").read_text())["project"]["version"]
-    msg = check_current_stamp_bump(diff, version)
+    msg = stamp_bump_failure(PKG_DIR, THIS_FILE_REL, version)
     assert msg is None, msg
 
 
@@ -374,3 +388,25 @@ class TestFragmentRule:
     def test_missing_merge_base_fails_in_ci_and_skips_locally(self) -> None:
         assert missing_merge_base_policy(True) == "fail"
         assert missing_merge_base_policy(False) == "skip"
+
+    def test_git_wiring_detects_a_bad_stamp_in_a_real_repo(self, tmp_path: Path) -> None:
+        """End to end: the pathspec, cwd and merge-base wiring, on a throwaway repo."""
+        pkg = tmp_path / "packages" / "scheduler"  # mirrors PKG_DIR sitting below the root
+        f = pkg / THIS_FILE_REL
+        f.parent.mkdir(parents=True)
+        f.write_text('CURRENT_STAMP = "0.4.0"\n')
+
+        def git(*a: str) -> None:
+            subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        git("add", ".")
+        git("commit", "-q", "-m", "base")
+        git("checkout", "-q", "-b", "feature")
+        assert stamp_bump_failure(pkg, THIS_FILE_REL, "0.4.0", "main") is None
+        f.write_text('CURRENT_STAMP = "9.9.9-dev"\n')
+        assert stamp_bump_failure(pkg, THIS_FILE_REL, "0.4.0", "main") is not None
+        # The old bare-file-name pathspec matches nothing and misses the bump.
+        assert stamp_bump_failure(pkg, f.name, "0.4.0", "main") is None
