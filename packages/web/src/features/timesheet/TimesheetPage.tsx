@@ -112,6 +112,10 @@ export function TimesheetPage() {
     setCopyNote('');
   }
 
+  function rejectionMessage(err: unknown): string {
+    return extractValidationMessage(err, 'That time entry was rejected.');
+  }
+
   function handleCellSave(row: TimesheetRow, date: string, minutes: number) {
     const cell = cellAt(row, date);
     const cellKey = `${row.taskId}|${date}`;
@@ -125,7 +129,7 @@ export function TimesheetPage() {
           if (isClientRejection(err)) {
             setCellErrors((prev) => ({
               ...prev,
-              [cellKey]: extractValidationMessage(err, 'That time entry was rejected.'),
+              [cellKey]: rejectionMessage(err),
             }));
           }
         },
@@ -146,6 +150,8 @@ export function TimesheetPage() {
   // never writes an entry and never submits — the user keys the hours (seed-then-correct).
   async function handleCopyLastWeek() {
     setCopying(true);
+    // Clear first so an identical result message is a fresh insertion the live region announces.
+    setCopyNote('');
     try {
       const prev = await fetchWeek(addDaysIso(monday, -7));
       const toAdd = rowsToCopy(prev.results, existingTaskIds);
@@ -166,8 +172,28 @@ export function TimesheetPage() {
     }
   }
 
-  function handleFillAcross(row: TimesheetRow) {
-    for (const w of fillAcrossWrites(row, days)) handleCellSave(row, w.date, w.minutes);
+  // Fill-across issues several writes on one shared mutation. Per-`mutate` callbacks only fire
+  // for the latest call, so earlier rejections would revert silently; and concurrent calls
+  // snapshot each other's optimistic state, so one failure's rollback could undo a sibling's
+  // success. Awaiting each write in turn via `mutateAsync` keeps every call's own error and
+  // rollback scoped to its own cell.
+  async function handleFillAcross(row: TimesheetRow) {
+    for (const w of fillAcrossWrites(row, days)) {
+      const cellKey = `${row.taskId}|${w.date}`;
+      clearCellError(cellKey);
+      try {
+        await cellMutation.mutateAsync({
+          meta: rowMeta(row),
+          date: w.date,
+          minutes: w.minutes,
+          entryId: cellAt(row, w.date).entryId,
+        });
+      } catch (err) {
+        if (isClientRejection(err)) {
+          setCellErrors((prev) => ({ ...prev, [cellKey]: rejectionMessage(err) }));
+        }
+      }
+    }
   }
 
   function handleAddTask(meta: CellTaskMeta) {
@@ -237,7 +263,7 @@ export function TimesheetPage() {
           </button>
         </div>
         {!submitted && (
-          <Button variant="secondary" size="sm" onClick={() => void handleCopyLastWeek()} disabled={copying}>
+          <Button variant="secondary" size="sm" onClick={() => void handleCopyLastWeek()} disabled={copying || isLoading || data === undefined}>
             Copy last week&rsquo;s rows
           </Button>
         )}
@@ -248,7 +274,14 @@ export function TimesheetPage() {
         )}
       </div>
 
-      <p role="status" aria-live="polite" data-testid="timesheet-copy-note" className="mb-3 text-xs text-neutral-text-secondary empty:hidden">
+      {/* Always rendered: a live region that goes display:none -> visible is often not
+          announced, so it stays in the layout (visually hidden while empty). */}
+      <p
+        role="status"
+        aria-live="polite"
+        data-testid="timesheet-copy-note"
+        className={copyNote ? 'mb-3 text-xs text-neutral-text-secondary' : 'sr-only'}
+      >
         {copyNote}
       </p>
 
@@ -321,7 +354,7 @@ export function TimesheetPage() {
           cellErrors={cellErrors}
           onCellSave={handleCellSave}
           onAddTask={handleAddTask}
-          onFillAcross={handleFillAcross}
+          onFillAcross={(row) => void handleFillAcross(row)}
           />
         </>
       )}

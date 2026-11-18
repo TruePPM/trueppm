@@ -111,7 +111,7 @@ export function TimesheetGrid({
                     type="button"
                     onClick={() => onFillAcross(row)}
                     aria-label={`Fill across the week for ${row.taskShortId} ${row.taskName}`}
-                    className="mt-0.5 text-xs text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                    className="mt-0.5 inline-flex min-h-[24px] min-w-[24px] items-center text-xs text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary"
                   >
                     Fill across
                   </button>
