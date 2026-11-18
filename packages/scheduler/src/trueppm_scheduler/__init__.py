@@ -57,6 +57,13 @@ from trueppm_scheduler.engine import (
     perturb_task_duration,
     schedule,
 )
+from trueppm_scheduler.forecast import (
+    DeliveryForecast,
+    duration_percentiles,
+    forecast_throughput_delivery,
+    forecast_velocity_delivery,
+    velocity_band_dates,
+)
 from trueppm_scheduler.graph_export import (
     GRAPH_FORMAT_VERSION,
     GraphEdge,
@@ -96,6 +103,7 @@ __all__ = [
     "CycleCheck",
     "CyclicDependencyError",
     "DateRange",
+    "DeliveryForecast",
     "DeliveryMode",
     "Dependency",
     "DependencyType",
@@ -121,8 +129,11 @@ __all__ = [
     "WorkingDayCounter",
     "collect_leaves",
     "derive_value",
+    "duration_percentiles",
     "expand_summary_dependencies",
     "find_cycle",
+    "forecast_throughput_delivery",
+    "forecast_velocity_delivery",
     "monte_carlo",
     "next_working_day",
     "nth_working_day",
@@ -131,5 +142,6 @@ __all__ = [
     "roll_up_summary",
     "schedule",
     "to_graph",
+    "velocity_band_dates",
     "working_day_count",
 ]
