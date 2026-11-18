@@ -26,6 +26,11 @@ screenshot tour, but nothing you do can change it. The demo is `noindex`, resour
 
 ### Previewing the admin screens
 
+:::note[Ships in 0.5]
+The admin-screens preview described in this section is not in the latest release.
+Until 0.5, the hosted demo has no admin preview: you see the Member experience only.
+:::
+
 The interactive demo signs you in as a **Member**, so the invite, role and
 workspace-settings screens are not available to you. Choose **Admin screens** in
 the demo bar to open a static preview of them instead: sample members and

@@ -66,7 +66,7 @@ export function DemoAdminPreviewPage() {
         className="border-b border-brand-primary/30 bg-brand-primary/10 px-6 py-3 text-[13px] text-brand-primary"
       >
         <strong>Static preview.</strong> This is what a workspace admin sees. The people below
-        are fictional sample data, the controls are not active, and nothing on this page is
+        are fictional sample data, controls that change data are not active, and nothing on this page is
         saved. You are signed in as a Member, so the real admin screens are not available to
         you.
       </div>
