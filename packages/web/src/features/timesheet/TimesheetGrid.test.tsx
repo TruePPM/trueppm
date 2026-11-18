@@ -60,6 +60,7 @@ function renderGrid(
     cellErrors: {},
     onCellSave: vi.fn(),
     onAddTask: vi.fn(),
+    onFillAcross: vi.fn(),
     ...overrides,
   };
   render(<TimesheetGrid {...props} />);
@@ -152,5 +153,17 @@ describe('TimesheetGrid', () => {
       .find((c) => /2 entries — edit on My Work/.test(c.getAttribute('aria-label') ?? ''));
     expect(multiCell).toBeDefined();
     expect(multiCell).not.toHaveAttribute('aria-label', expect.stringMatching(/week submitted/));
+  });
+
+  it('offers Fill across on an open week with empty past weekdays (#1950)', () => {
+    const props = renderGrid({ days: weekDays(MONDAY, '2026-06-17') });
+    const btn = screen.getByRole('button', { name: /Fill across the week for ENG-1/ });
+    fireEvent.click(btn);
+    expect(props.onFillAcross).toHaveBeenCalledWith(expect.objectContaining({ taskId: 't1' }));
+  });
+
+  it('hides Fill across on a submitted week (#1950)', () => {
+    renderGrid({ days: weekDays(MONDAY, '2026-06-17'), submitted: true });
+    expect(screen.queryByRole('button', { name: /Fill across/ })).not.toBeInTheDocument();
   });
 });

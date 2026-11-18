@@ -13,6 +13,7 @@ import { AddTaskRow } from './AddTaskRow';
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import {
   cellAt,
+  fillAcrossWrites,
   isOverDaily,
   rowTotalMinutes,
   type DayColumn,
@@ -24,7 +25,9 @@ const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 // task label (flexible) · 7 day columns · row total. Inline so the many repeats don't
 // depend on Tailwind arbitrary-value purge.
-const GRID_COLS = 'minmax(11rem, 1fr) repeat(7, minmax(3.25rem, 1fr)) 4rem';
+const GRID_COLS = 'minmax(15rem, 1fr) repeat(7, minmax(3.25rem, 1fr)) 4rem';
+
+const EMPTY_IDS: ReadonlySet<string> = new Set();
 
 interface TimesheetGridProps {
   rows: TimesheetRow[];
@@ -37,6 +40,10 @@ interface TimesheetGridProps {
   cellErrors: Record<string, string>;
   onCellSave: (row: TimesheetRow, date: string, minutes: number) => void;
   onAddTask: (meta: CellTaskMeta) => void;
+  /** Fill a row's empty past weekdays with its first weekday's hours (#1950). */
+  onFillAcross: (row: TimesheetRow) => void;
+  /** Rows whose fill-across is in flight; their button is disabled (#1950). */
+  fillingTaskIds?: ReadonlySet<string>;
 }
 
 function dayOfMonth(iso: string): number {
@@ -53,10 +60,12 @@ export function TimesheetGrid({
   cellErrors,
   onCellSave,
   onAddTask,
+  onFillAcross,
+  fillingTaskIds = EMPTY_IDS,
 }: TimesheetGridProps) {
   return (
     <div className="overflow-x-auto rounded-card border border-neutral-border bg-neutral-surface">
-      <div role="grid" aria-label="Weekly timesheet" className="min-w-[46rem] text-sm">
+      <div role="grid" aria-label="Weekly timesheet" className="min-w-[50rem] text-sm">
         {/* Header */}
         <div
           role="row"
@@ -94,14 +103,27 @@ export function TimesheetGrid({
               className="grid items-stretch border-b border-neutral-border/60 last:border-b-0 hover:bg-neutral-surface-raised/40"
               style={{ gridTemplateColumns: GRID_COLS }}
             >
-              <div role="rowheader" className="min-w-0 px-3 py-1.5">
-                <div className="truncate font-medium text-neutral-text-primary" title={row.taskName}>
-                  <span className="tppm-mono text-xs text-neutral-text-secondary">{row.taskShortId}</span>{' '}
-                  {row.taskName}
+              <div role="rowheader" className="flex min-w-0 items-center gap-2 px-3 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-neutral-text-primary" title={row.taskName}>
+                    <span className="tppm-mono text-xs text-neutral-text-secondary">{row.taskShortId}</span>{' '}
+                    {row.taskName}
+                  </div>
+                  <div className="truncate text-xs text-neutral-text-secondary" title={row.projectName}>
+                    {row.projectName}
+                  </div>
                 </div>
-                <div className="truncate text-xs text-neutral-text-secondary" title={row.projectName}>
-                  {row.projectName}
-                </div>
+                {!submitted && fillAcrossWrites(row, days).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onFillAcross(row)}
+                    disabled={fillingTaskIds.has(row.taskId)}
+                    aria-label={`Fill across the week for ${row.taskShortId} ${row.taskName}`}
+                    className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-control px-2 text-xs text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Fill across
+                  </button>
+                )}
               </div>
               {days.map((d, i) => {
                 const cell = cellAt(row, d.date);

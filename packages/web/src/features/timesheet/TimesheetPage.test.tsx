@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
 import { TimesheetPage } from './TimesheetPage';
@@ -9,6 +9,11 @@ vi.mock('@/hooks/useWeekTimesheet', () => ({
   useWeekTimesheet: vi.fn(),
   useTimesheetCell: vi.fn(),
   useSubmitWeek: vi.fn(),
+  useFetchWeek: vi.fn(),
+}));
+vi.mock('@/components/Toast', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/components/Toast')>()),
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 vi.mock('@/hooks/useTimesheetAssignments', () => ({
   useTimesheetAssignments: vi.fn(),
@@ -18,8 +23,11 @@ import {
   useWeekTimesheet,
   useTimesheetCell,
   useSubmitWeek,
+  useFetchWeek,
 } from '@/hooks/useWeekTimesheet';
+const mockUseFetchWeek = useFetchWeek as ReturnType<typeof vi.fn>;
 import { useTimesheetAssignments } from '@/hooks/useTimesheetAssignments';
+import { toast } from '@/components/Toast';
 
 const mockUseWeek = useWeekTimesheet as ReturnType<typeof vi.fn>;
 const mockUseCell = useTimesheetCell as ReturnType<typeof vi.fn>;
@@ -37,6 +45,7 @@ function setAssignments(tasks: unknown[], state: Record<string, unknown> = {}) {
 
 const submitMutate = vi.fn();
 const cellMutate = vi.fn();
+const cellMutateAsync = vi.fn();
 const refetch = vi.fn();
 
 /**
@@ -95,8 +104,11 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(PINNED_NOW);
   vi.clearAllMocks();
-  mockUseCell.mockReturnValue({ mutate: cellMutate, isPending: false });
+  cellMutateAsync.mockResolvedValue(undefined);
+  mockUseCell.mockReturnValue({ mutate: cellMutate, mutateAsync: cellMutateAsync, isPending: false });
   mockUseSubmit.mockReturnValue({ mutate: submitMutate, isPending: false });
+  const fetchWeek = vi.fn().mockResolvedValue(weekData(false, []));
+  mockUseFetchWeek.mockReturnValue(fetchWeek);
   setAssignments([]);
   setWeek({ data: weekData(false, [weekEntry(120)]) });
 });
@@ -326,3 +338,164 @@ describe('TimesheetPage', () => {
     expect(screen.queryByTestId('timesheet-partial-assignments')).not.toBeInTheDocument();
   });
 });
+
+describe('TimesheetPage copy last week (#1950)', () => {
+  it('adds last week\u2019s task rows as zeros without writing anything', async () => {
+    const prev = { ...weekEntry(300), id: 'p1', task: 't9', task_short_id: 'ENG-9', task_name: 'Old task' };
+    mockUseFetchWeek.mockReturnValue(vi.fn().mockResolvedValue(weekData(false, [prev])));
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Copy last week.s rows/ }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Old task')).toBeInTheDocument();
+    expect(screen.getByTestId('timesheet-copy-note')).toHaveTextContent('Added 1 row from last week');
+    expect(cellMutate).not.toHaveBeenCalled();
+    expect(submitMutate).not.toHaveBeenCalled();
+  });
+
+  it('says so when last week had no rows', async () => {
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Copy last week.s rows/ }));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('timesheet-copy-note')).toHaveTextContent('No rows last week to copy.');
+  });
+
+  it('is not offered on a submitted week', () => {
+    setWeek({ data: weekData(true, [weekEntry(120)]) });
+    render(<TimesheetPage />);
+    expect(screen.queryByRole('button', { name: /Copy last week.s rows/ })).not.toBeInTheDocument();
+  });
+
+  it('toasts and adds nothing when last week fails to load', async () => {
+    mockUseFetchWeek.mockReturnValue(vi.fn().mockRejectedValue(new Error('boom')));
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Copy last week.s rows/ }));
+      await Promise.resolve();
+    });
+    expect(toast.error).toHaveBeenCalledWith('Could not load last week. Please try again.');
+    expect(screen.getByTestId('timesheet-copy-note')).toBeEmptyDOMElement();
+    expect(screen.getByRole('button', { name: /Copy last week.s rows/ })).toBeEnabled();
+  });
+
+  it('disables Copy until the current week has loaded', () => {
+    setWeek({ isLoading: true });
+    render(<TimesheetPage />);
+    expect(screen.getByRole('button', { name: /Copy last week.s rows/ })).toBeDisabled();
+  });
+
+  it('keeps the live region mounted while empty', () => {
+    render(<TimesheetPage />);
+    const note = screen.getByTestId('timesheet-copy-note');
+    expect(note).toBeInTheDocument();
+    expect(note).toHaveClass('sr-only');
+  });
+});
+
+describe('TimesheetPage fill across (#1950)', () => {
+  it('shows a rejected write inline on its own cell while sibling writes still go through', async () => {
+    const rejection = new AxiosError('Request failed with status code 400');
+    rejection.response = {
+      status: 400,
+      data: { entry_date: ['Task is closed.'] },
+    } as AxiosResponse;
+    // Mon holds 2h; today is Wed, so Tue and Wed are the empty, past, editable targets.
+    cellMutateAsync.mockImplementation((vars: { date: string }) =>
+      vars.date === addDays(THIS_MONDAY, 1) ? Promise.reject(rejection) : Promise.resolve(undefined),
+    );
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Fill across the week for ENG-1/ }));
+      await Promise.resolve();
+    });
+    expect(cellMutateAsync).toHaveBeenCalledTimes(2);
+    expect(cellMutateAsync.mock.calls.map((c) => (c[0] as { date: string }).date)).toEqual([
+      addDays(THIS_MONDAY, 1),
+      addDays(THIS_MONDAY, 2),
+    ]);
+    // Only the rejected cell shows an error; the source cell keeps its value.
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('alert')).toHaveTextContent('Task is closed.');
+    expect(screen.getByDisplayValue('2:00')).toBeInTheDocument();
+  });
+
+  function deferred() {
+    let resolve!: () => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  function rejection400(): AxiosError {
+    const e = new AxiosError('Request failed with status code 400');
+    e.response = { status: 400, data: { entry_date: ['Task is closed.'] } } as AxiosResponse;
+    return e;
+  }
+
+  it('ignores a second click while the loop runs: no second loop, no duplicate writes', async () => {
+    const d = deferred();
+    cellMutateAsync.mockReturnValueOnce(d.promise);
+    render(<TimesheetPage />);
+    const btn = screen.getByRole('button', { name: /Fill across the week for ENG-1/ });
+    await act(async () => {
+      fireEvent.click(btn);
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(cellMutateAsync).toHaveBeenCalledTimes(1);
+    expect(btn).toBeDisabled();
+    await act(async () => {
+      d.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // Tue + Wed only, once each.
+    expect(cellMutateAsync).toHaveBeenCalledTimes(2);
+    expect(btn).toBeEnabled();
+  });
+
+  it('drops results of a loop that outlives its week', async () => {
+    const d = deferred();
+    cellMutateAsync.mockReturnValueOnce(d.promise);
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Fill across the week for ENG-1/ }));
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    await act(async () => {
+      d.reject(rejection400());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // The loop stopped at the week change: no further writes.
+    expect(cellMutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops at the first network/5xx failure instead of firing every remaining write', async () => {
+    cellMutateAsync.mockRejectedValue(new Error('Network Error'));
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Fill across the week for ENG-1/ }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(cellMutateAsync).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fill across the week for ENG-1/ })).toBeEnabled();
+  });
+});
+
+function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}

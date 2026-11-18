@@ -1,5 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AxiosError, type AxiosResponse } from 'axios';
+import { act } from 'react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
@@ -148,6 +150,43 @@ describe('useTimesheetCell endpoint mapping', () => {
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     const cached = qc.getQueryData<WeeklyResponse>(weekTimesheetKey('2026-06-15'));
     expect(cached?.results[0].minutes).toBe(60); // restored
+  });
+});
+
+describe('sequential fill-across writes through the real hook (#1950)', () => {
+  beforeEach(() => {
+    postMock.mockReset();
+    toastError.mockReset();
+  });
+
+  it('rolls back only the rejected cell; successful cells keep their values', async () => {
+    const { qc, Wrapper } = wrapper();
+    const rejection = new AxiosError('Request failed with status code 400');
+    rejection.response = { status: 400, data: { entry_date: ['Task is closed.'] } } as AxiosResponse;
+    postMock
+      .mockResolvedValueOnce({ data: {} })
+      .mockRejectedValueOnce(rejection)
+      .mockResolvedValueOnce({ data: {} });
+    const { result } = renderHook(() => useTimesheetCell('2026-06-15'), { wrapper: Wrapper });
+    const outcomes: boolean[] = [];
+    for (const date of ['2026-06-16', '2026-06-17', '2026-06-18']) {
+      await act(async () => {
+        try {
+          await result.current.mutateAsync({ meta: META, date, minutes: 120, entryId: null });
+          outcomes.push(true);
+        } catch {
+          outcomes.push(false);
+        }
+      });
+    }
+    expect(outcomes).toEqual([true, false, true]);
+    const dates = (qc.getQueryData<WeeklyResponse>(weekTimesheetKey('2026-06-15'))?.results ?? [])
+      .map((e) => e.entry_date)
+      .sort();
+    // Source cell and both successful writes survive; only the rejected 06-17 is gone.
+    expect(dates).toEqual(['2026-06-15', '2026-06-16', '2026-06-18']);
+    // A 4xx is shown inline by the page, so the hook adds no toast for it.
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
 

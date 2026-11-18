@@ -12,17 +12,19 @@
  * endpoints (create / PATCH / DELETE); the multi-entry cell is read-only (ADR-0224). No
  * portfolio/governance surface — a contributor reviews and submits *their own* time (OSS).
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { ClockIcon } from '@/components/Icons';
 import { useTimesheetAssignments } from '@/hooks/useTimesheetAssignments';
 import {
+  useFetchWeek,
   useSubmitWeek,
   useTimesheetCell,
   useWeekTimesheet,
   type CellTaskMeta,
 } from '@/hooks/useWeekTimesheet';
+import { toast } from '@/components/Toast';
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
 import { TimesheetGrid } from './TimesheetGrid';
@@ -32,9 +34,11 @@ import {
   buildWeekRows,
   cellAt,
   dailyTotals,
+  fillAcrossWrites,
   formatWeekRange,
   localTodayIso,
   mondayOf,
+  rowsToCopy,
   weekDays,
   weekTotalMinutes,
   type TimesheetRow,
@@ -68,6 +72,16 @@ export function TimesheetPage() {
   const { data, isLoading, isError, refetch } = useWeekTimesheet(monday);
   const cellMutation = useTimesheetCell(monday);
   const submitMutation = useSubmitWeek(monday);
+  const fetchWeek = useFetchWeek();
+  // Rows with a fill-across loop in flight. The ref is the synchronous re-entry guard (a
+  // double-click lands before React re-renders); the state only drives the disabled button.
+  const fillingRef = useRef<Set<string>>(new Set());
+  const [fillingTaskIds, setFillingTaskIds] = useState<ReadonlySet<string>>(new Set());
+  // The week currently displayed, so a loop that outlives a week change can tell.
+  const mondayRef = useRef(monday);
+  mondayRef.current = monday;
+  const [copying, setCopying] = useState(false);
+  const [copyNote, setCopyNote] = useState('');
 
   // Rows come from the same assignment source My Work renders (`GET /me/work/`), so a
   // contributor with open assigned tasks scheduled this week and no entries yet gets rows
@@ -99,9 +113,16 @@ export function TimesheetPage() {
   const submitted = data?.submission.submitted ?? false;
 
   function stepWeek(deltaWeeks: number) {
-    setMonday((m) => addDaysIso(m, deltaWeeks * 7));
+    const next = addDaysIso(mondayRef.current, deltaWeeks * 7);
+    mondayRef.current = next;
+    setMonday(next);
     setExtraTasks([]); // add-row context is per-week
     setCellErrors({}); // inline validation errors are per-week too
+    setCopyNote('');
+  }
+
+  function rejectionMessage(err: unknown): string {
+    return extractValidationMessage(err, 'That time entry was rejected.');
   }
 
   function handleCellSave(row: TimesheetRow, date: string, minutes: number) {
@@ -117,7 +138,7 @@ export function TimesheetPage() {
           if (isClientRejection(err)) {
             setCellErrors((prev) => ({
               ...prev,
-              [cellKey]: extractValidationMessage(err, 'That time entry was rejected.'),
+              [cellKey]: rejectionMessage(err),
             }));
           }
         },
@@ -132,6 +153,71 @@ export function TimesheetPage() {
       delete rest[cellKey];
       return rest;
     });
+  }
+
+  // Seed this week with last week's task rows at zero hours (#1950). Never copies minutes,
+  // never writes an entry and never submits — the user keys the hours (seed-then-correct).
+  async function handleCopyLastWeek() {
+    setCopying(true);
+    // Clear first so an identical result message is a fresh insertion the live region announces.
+    setCopyNote('');
+    try {
+      const prev = await fetchWeek(addDaysIso(monday, -7));
+      const toAdd = rowsToCopy(prev.results, existingTaskIds);
+      if (toAdd.length === 0) {
+        setCopyNote(
+          prev.results.length === 0
+            ? 'No rows last week to copy.'
+            : 'This week already has all of last week\u2019s rows.',
+        );
+        return;
+      }
+      setExtraTasks((cur) => [...cur, ...toAdd.filter((t) => !cur.some((c) => c.taskId === t.taskId))]);
+      setCopyNote(`Added ${toAdd.length} ${toAdd.length === 1 ? 'row' : 'rows'} from last week, with no hours.`);
+    } catch {
+      toast.error('Could not load last week. Please try again.');
+    } finally {
+      setCopying(false);
+    }
+  }
+
+  // Fill-across issues several writes on one shared mutation. Per-`mutate` callbacks only fire
+  // for the latest call, so earlier rejections would revert silently; and concurrent calls
+  // snapshot each other's optimistic state, so one failure's rollback could undo a sibling's
+  // success. Awaiting each write in turn via `mutateAsync` keeps every call's own error and
+  // rollback scoped to its own cell.
+  //
+  // The loop stops at the first non-client failure (network / 5xx): the hook already toasted
+  // once, and the remaining writes would only fail and toast again. A 4xx is per-cell, so the
+  // loop carries on. Results are dropped once the displayed week changes, so a stale loop can
+  // never repaint old-week errors that reappear when the user steps back.
+  async function handleFillAcross(row: TimesheetRow) {
+    if (fillingRef.current.has(row.taskId)) return;
+    fillingRef.current.add(row.taskId);
+    setFillingTaskIds(new Set(fillingRef.current));
+    const loopMonday = monday;
+    try {
+      for (const w of fillAcrossWrites(row, days)) {
+        if (mondayRef.current !== loopMonday) return;
+        const cellKey = `${row.taskId}|${w.date}`;
+        clearCellError(cellKey);
+        try {
+          await cellMutation.mutateAsync({
+            meta: rowMeta(row),
+            date: w.date,
+            minutes: w.minutes,
+            entryId: cellAt(row, w.date).entryId,
+          });
+        } catch (err) {
+          if (mondayRef.current !== loopMonday) return;
+          if (!isClientRejection(err)) return;
+          setCellErrors((prev) => ({ ...prev, [cellKey]: rejectionMessage(err) }));
+        }
+      }
+    } finally {
+      fillingRef.current.delete(row.taskId);
+      setFillingTaskIds(new Set(fillingRef.current));
+    }
   }
 
   function handleAddTask(meta: CellTaskMeta) {
@@ -200,12 +286,28 @@ export function TimesheetPage() {
             ›
           </button>
         </div>
+        {!submitted && (
+          <Button variant="secondary" size="sm" onClick={() => void handleCopyLastWeek()} disabled={copying || isLoading || data === undefined}>
+            Copy last week&rsquo;s rows
+          </Button>
+        )}
         {submitted && (
           <span className="rounded-chip bg-semantic-on-track-bg px-2 py-0.5 text-xs font-medium text-semantic-on-track">
             Submitted
           </span>
         )}
       </div>
+
+      {/* Always rendered: a live region that goes display:none -> visible is often not
+          announced, so it stays in the layout (visually hidden while empty). */}
+      <p
+        role="status"
+        aria-live="polite"
+        data-testid="timesheet-copy-note"
+        className={copyNote ? 'mb-3 text-xs text-neutral-text-secondary' : 'sr-only'}
+      >
+        {copyNote}
+      </p>
 
       {/* Submission is a marker, not an approval lock (ADR-0224: "no approver, no lock,
           no return"). The grid renders a submitted week read-only, which reads as an
@@ -274,8 +376,10 @@ export function TimesheetPage() {
           existingTaskIds={existingTaskIds}
           submitted={submitted}
           cellErrors={cellErrors}
+          fillingTaskIds={fillingTaskIds}
           onCellSave={handleCellSave}
           onAddTask={handleAddTask}
+          onFillAcross={(row) => void handleFillAcross(row)}
           />
         </>
       )}

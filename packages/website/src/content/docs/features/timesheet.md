@@ -105,6 +105,12 @@ yet, such as one scheduled for a later week that you've started early. To log ti
 completed task you haven't logged against that week, use the quick-log popover. If nothing
 is assigned to you for the week and nothing is logged, the grid will say so instead of
 showing an empty table.
+
+Two shortcuts for filling a week will ship alongside it. In the current release neither exists:
+you add rows with **Add project or task** and key every cell by hand.
+
+- **Copy last week's rows.** **Copy last week's rows**, beside the week stepper, will add a row for every task you logged against the previous week that this week doesn't already show. The new rows start at **zero hours** — only the rows are copied, never last week's hours — so what you key stays your own. Nothing is saved and nothing is submitted until you type hours. If last week had no rows, or this week already has them all, a short note says so. The action is hidden once the week is submitted, and disabled until the current week has loaded.
+- **Fill across.** A row with hours on a weekday will show **Fill across**: it copies the hours from the first weekday that has hours into that row's empty Monday–Friday cells that aren't in the future. It never overwrites a cell that already has hours and never touches weekends. A failed write (for example on a closed task) is shown on its own cell and doesn't undo the others. Review the numbers, then correct any day that differed.
 :::
 
 ### Days with more than one entry
