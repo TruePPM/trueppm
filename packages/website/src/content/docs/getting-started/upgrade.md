@@ -1289,6 +1289,21 @@ note](#per-release-operational-change-notes) states this):
   cannot recover dropped or transformed data. This is why the [pre-upgrade
   backup](#before-you-upgrade) is mandatory, not optional.
 
+### Known migration constraints
+
+A few data migrations are **intentionally irreversible**: `migrate <app> <previous>`
+runs, but the reverse step is a no-op or cannot rebuild what the forward step
+removed. They are deliberate (restoring the old state would recreate a bug or needs
+data that no longer exists), so the only way back across them is the pre-upgrade
+backup described above.
+
+| Migration | What the forward step does | What reversing does not restore |
+|---|---|---|
+| `projects.0075` | Renumbers risk short IDs from 8-character hex to a contiguous decimal sequence per project. | The original hex IDs. The decimal IDs stay valid and unique. |
+| `projects.0121` | Clears the three-point estimate fields on any task where they were mis-ordered (optimistic above most likely, or most likely above pessimistic), so the new check constraint can validate. The task falls back to its fixed duration. | The mis-ordered values, which were already unusable. |
+| `projects.0137` | Strips the redundant `mcp:read` scope from API tokens that also carry `legacy:full`. | The stripped scope. Stored state matches what the token already resolved to. |
+| `projects.0149` | Drops the retired Board Workshop Mode tables and their `django_migrations` rows. | The tables and their rows. Restore from a backup taken before the upgrade. |
+
 :::caution[The readiness probe is not a rollback safety net]
 The API readiness probe (`/api/v1/readyz`) reports the pod's **migration drift**,
 in one of four states — but it is a *schema-presence* check, not a
