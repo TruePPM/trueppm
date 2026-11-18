@@ -11,7 +11,7 @@
  * The signal is deliberately narrow: a source file that calls `useSprintForecast(`
  * — the hook backed by `GET /projects/{id}/sprint-forecast/`, whose velocity and
  * throughput readings both come from a clamped-horizon bootstrap sampler
- * (`_sample_backlog_sprint_counts` and the weekly throughput sampler; see #2469)
+ * (`forecast_velocity_delivery` and the weekly throughput sampler; see #2469)
  * — must also mount `<ForecastHorizonHelp` somewhere in the same file.
  *
  * This is narrower than "renders any velocity/throughput-flavored number" on

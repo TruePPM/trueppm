@@ -294,7 +294,7 @@ function VelocityColumn({
               #2495 scope-boundary test in this component's spec. That affordance
               states a *floor* bias, which comes from the clamped sampler behind
               /sprint-forecast/. This card reads /forecast/, whose snapshots are the
-              deterministic, unclamped `_velocity_band_percentiles` derivation, so a
+              deterministic, unclamped `velocity_band_dates` derivation, so a
               floor caveat here would claim a bias this number does not have (#2643). */}
           <span className="text-xs italic text-neutral-text-secondary">(velocity estimate)</span>
         </>

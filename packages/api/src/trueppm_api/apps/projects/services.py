@@ -4941,7 +4941,7 @@ def _forecast_unmoved(prior: Any, snapshot: Any) -> bool:
     """Whether two milestone snapshots forecast the same finish (#861, #4178).
 
     ``p50``/``p80`` are ``cpm_finish`` plus a velocity penalty in calendar days
-    (:func:`_velocity_band_percentiles`), so they hop a weekend whenever the CPM
+    (:func:`velocity_band_dates`), so they hop a weekend whenever the CPM
     finish does. The band is therefore compared as offsets from ``cpm_finish``,
     and ``cpm_finish`` itself in working time: a milestone whose shown day moves
     from the end of a Friday to the start of the next Monday has not moved, and
@@ -5681,7 +5681,7 @@ def sprint_forecast(
 
     - **velocity** (default): reuses :func:`project_forecast`'s velocity series and
       remaining committed *points*, runs ``runs`` velocity-bootstrap simulations
-      (:func:`_sample_backlog_sprint_counts`), and returns P50/P80/P95 sprint counts
+      (:func:`forecast_velocity_delivery`), and returns P50/P80/P95 sprint counts
       paced onto the calendar at the team's typical sprint length.
     - **throughput**: for a continuous-flow / kanban team — no closed sprints, or a
       kanban-mode board — delegates to :func:`throughput_forecast`, a count-based
@@ -5699,7 +5699,6 @@ def sprint_forecast(
     for a below-tier reader at the sink (the forecast dates themselves follow the
     velocity precedent: schedule confidence stays, the underlying series does not).
     """
-
     from django.core.cache import cache
     from django.utils import timezone
 

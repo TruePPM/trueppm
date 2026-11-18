@@ -216,3 +216,5 @@ framing. A second forecast basis means consumers must read `basis`.
 8. **Dead-letter / failure handling:** N/A — no tasks. A computation error surfaces as a normal
    `5xx`; an empty/insufficient history surfaces as `status:"insufficient_flow_history"` (D3) or
    empty series (D1), never an exception.
+
+> **Superseded pointer (2026-11-18):** the private sampler functions named above (`_sample_backlog_sprint_counts` and the velocity/throughput bootstrap helpers) moved out of `apps/projects/services.py` into the public `trueppm_scheduler.forecast` module (#5008); the API now only selects inputs and serializes the result.

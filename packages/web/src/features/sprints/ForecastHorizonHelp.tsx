@@ -8,7 +8,7 @@ export type ForecastHorizonBasis = 'velocity' | 'throughput';
  * **floor**, not an unbiased percentile.
  *
  * Why this exists (#2495): both bootstrap samplers bound each run's horizon —
- * `_sample_backlog_sprint_counts` at `ceil(remaining / mean) * 4 + 10` sprints,
+ * `forecast_velocity_delivery` at `ceil(remaining / mean) * 4 + 10` sprints,
  * and the weekly throughput sampler identically at `max_weeks`. A run that has
  * not burned down by that horizon is *assigned* the horizon rather than sampled
  * further (`np.where(reached.any(...), argmax + 1, max_sprints)`), which truncates
