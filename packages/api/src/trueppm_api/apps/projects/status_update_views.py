@@ -22,7 +22,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle, UserRateThrottle
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.permissions import (
@@ -30,6 +30,8 @@ from trueppm_api.apps.access.permissions import (
     IsProjectAdmin,
     IsProjectMember,
     IsProjectNotArchived,
+    McpReadableViewMixin,
+    McpScope,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects import status_update_services
@@ -41,6 +43,33 @@ class StatusUpdatePostThrottle(UserRateThrottle):
     """Caps how fast one account can post status updates."""
 
     scope = "status_update_post"
+
+
+class StatusUpdateProjectPostThrottle(SimpleRateThrottle):
+    """Caps how fast one project can receive status updates, whoever posts them.
+
+    The per-user bucket alone lets several Project Managers on one project (or one
+    person holding several accounts) post a run of immutable updates between them;
+    every post is permanent history, so the project is the unit the cap protects.
+    """
+
+    scope = "status_update_post_project"
+
+    def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        project_pk = getattr(view, "kwargs", {}).get("project_pk")
+        if project_pk is None:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": str(project_pk)}
+
+
+#: The 403 an API token gets on a post. ``IsNotTokenAuthenticated``'s own message
+#: speaks of credentials and memberships, which misdiagnoses this route; it is set on
+#: the instance so the class (which the route-table inventory matches by name) is
+#: unchanged everywhere else.
+_POST_TOKEN_REFUSED_MESSAGE = (
+    "API tokens cannot post a status update: it is the Project Manager's own signed "
+    "call. Sign in to post one."
+)
 
 
 class StatusUpdateCreateSerializer(serializers.Serializer[Any]):
@@ -56,8 +85,9 @@ class StatusUpdateSerializer(serializers.ModelSerializer[StatusUpdate]):
     ``snapshot`` is returned exactly as stored at ``posted_at``. ``live_diff`` maps
     a dotted snapshot key to the current value, present only where the plan has
     moved since; the client prints it beside the frozen value and computes nothing.
-    ``snapshot_verified`` is False when the stored snapshot no longer hashes to the
-    digest recorded at post time (a row altered outside the application).
+    ``snapshot_verified`` is False when the stored row (the call, narrative, number,
+    time, health band or snapshot) no longer hashes to the digest recorded at post
+    time: a row altered outside the application.
     """
 
     author: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
@@ -109,7 +139,7 @@ class StatusUpdatePagination(PageNumberPagination):
     page_size_query_param = "page_size"
 
 
-class ProjectStatusUpdateListCreateView(IdempotencyMixin, APIView):
+class ProjectStatusUpdateListCreateView(McpReadableViewMixin, IdempotencyMixin, APIView):
     """GET (project members) / POST (Project Manager and above) a project's status updates.
 
     POST allocates the next ``seq`` and freezes the snapshot in one transaction
@@ -118,26 +148,36 @@ class ProjectStatusUpdateListCreateView(IdempotencyMixin, APIView):
     live diff is computed against one current reading built once per request.
     """
 
+    # ADR-0678: projects/<project_pk>/status-updates/
+    mcp_scope = McpScope.PATH
     permission_classes = [IsAuthenticated, IsProjectMember]  # noqa: RUF012
     # A status update is the PM's own signed call: posting needs the person present
     # (a session or JWT). Every API token is refused, an agent's included, even one
-    # acting for the PM; reading the history stays token-reachable so an agent can
-    # read it. Read by the OpenAPI hook, which cannot see get_permissions().
+    # acting for the PM; reading the history stays token-reachable (``mcp:read``)
+    # so an agent can read it. Read by the OpenAPI hook, which cannot see
+    # get_permissions().
     token_refused_methods = frozenset({"POST"})
 
     def get_permissions(self) -> list[BasePermission]:
+        # This override replaces the mixin's get_permissions, so the MCP token
+        # guards are re-appended on both branches (the conformance test in
+        # test_mcp_team_opt_out.py asserts it).
         if self.request.method in self.token_refused_methods:
-            return [
+            token_refused = IsNotTokenAuthenticated()
+            token_refused.message = _POST_TOKEN_REFUSED_MESSAGE
+            rbac: list[BasePermission] = [
                 IsAuthenticated(),
                 IsProjectAdmin(),
                 IsProjectNotArchived(),
-                IsNotTokenAuthenticated(),
+                token_refused,
             ]
-        return [IsAuthenticated(), IsProjectMember()]
+        else:
+            rbac = [IsAuthenticated(), IsProjectMember()]
+        return [*rbac, *self.mcp_token_guards()]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.request.method == "POST":
-            return [StatusUpdatePostThrottle()]
+            return [StatusUpdatePostThrottle(), StatusUpdateProjectPostThrottle()]
         return super().get_throttles()
 
     @extend_schema(
@@ -188,9 +228,11 @@ class ProjectStatusUpdateListCreateView(IdempotencyMixin, APIView):
         return Response(body, status=status.HTTP_201_CREATED)
 
 
-class ProjectStatusUpdateDetailView(APIView):
-    """GET one posted status update (project members). Read-only by design."""
+class ProjectStatusUpdateDetailView(McpReadableViewMixin, APIView):
+    """GET one posted status update (project members, and ``mcp:read`` tokens). Read-only."""
 
+    # ADR-0678: projects/<project_pk>/status-updates/<update_id>/
+    mcp_scope = McpScope.PATH
     permission_classes = [IsAuthenticated, IsProjectMember]  # noqa: RUF012
     http_method_names = ["get", "head", "options"]  # noqa: RUF012
 

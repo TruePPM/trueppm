@@ -1979,6 +1979,11 @@ REST_FRAMEWORK = {
         "status_update_post": env(
             "TRUEPPM_THROTTLE_STATUS_UPDATE_POST_RATE", default=_MODERATE_RATE
         ),
+        # The same cap per project, whoever posts: several Project Managers on one
+        # project share this bucket, so the project's history is the unit protected.
+        "status_update_post_project": env(
+            "TRUEPPM_THROTTLE_STATUS_UPDATE_POST_PROJECT_RATE", default=_MODERATE_RATE
+        ),
         # Telemetry test-export probe (#2110). An admin-only button that opens one
         # outbound canary/reachability probe to the configured OTLP collector;
         # scoped-throttled so it can't be used to hammer the collector.

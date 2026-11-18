@@ -6009,8 +6009,11 @@ class StatusUpdate(models.Model):
     there is no PATCH or DELETE route, ``save()`` refuses an existing row, and the
     queryset refuses bulk writes. The snapshot is a JSON document built by
     ``status_update_services.build_snapshot`` at ``posted_at`` and never recomputed on
-    read; ``snapshot_sha256`` is the SHA-256 of its canonical JSON, checked on every
-    read so a row altered outside the ORM is reported rather than served.
+    read; ``snapshot_sha256`` is the SHA-256 of the canonical JSON of every served
+    field (project, seq, rag, narrative, posted_at, computed_health and the snapshot;
+    ``status_update_services.record_sha256``), checked on every read so a row altered
+    outside the ORM is reported rather than served. The column keeps its name; what
+    it digests is the whole row a reader sees, not the snapshot alone.
 
     Plain ``models.Model`` (not ``VersionedModel``): a posted update never changes,
     so there is no version to bump and nothing for the offline delta to reconcile.

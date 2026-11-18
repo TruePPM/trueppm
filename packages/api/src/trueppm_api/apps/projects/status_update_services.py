@@ -17,7 +17,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from django.db import transaction
@@ -76,36 +76,72 @@ def canonical_sha256(snapshot: dict[str, Any]) -> str:
     return hashlib.sha256(body.encode()).hexdigest()
 
 
+def record_sha256(
+    *,
+    project_id: Any,
+    seq: int,
+    rag: str,
+    narrative: str,
+    posted_at: datetime,
+    computed_health: str,
+    snapshot: dict[str, Any],
+) -> str:
+    """SHA-256 over every field a reader or a share link is served, canonically encoded.
+
+    Stored in ``StatusUpdate.snapshot_sha256``. Covering the snapshot alone would let
+    a row rewritten outside the ORM (``UPDATE ... SET narrative = ...``) keep a valid
+    digest while the share served the rewritten narrative, so the PM's call, the
+    number, the time and the stored health band are inside the digest too.
+    ``posted_at`` is normalized to UTC so a session time zone cannot change it.
+    ``author`` is deliberately outside: it is ``SET_NULL`` when the account is
+    deleted, which is a legitimate change, and it is never served on its own.
+    """
+    return canonical_sha256(
+        {
+            "project": str(project_id),
+            "seq": seq,
+            "rag": rag,
+            "narrative": narrative,
+            "posted_at": posted_at.astimezone(UTC).isoformat(),
+            "computed_health": computed_health,
+            "snapshot": snapshot,
+        }
+    )
+
+
 def snapshot_verified(update: StatusUpdate) -> bool:
-    """Whether the stored snapshot still hashes to the digest recorded at post time."""
-    return canonical_sha256(update.snapshot) == update.snapshot_sha256
+    """Whether the stored row still hashes to the digest recorded at post time."""
+    return (
+        record_sha256(
+            project_id=update.project_id,
+            seq=update.seq,
+            rag=update.rag,
+            narrative=update.narrative,
+            posted_at=update.posted_at,
+            computed_health=update.computed_health,
+            snapshot=update.snapshot,
+        )
+        == update.snapshot_sha256
+    )
 
 
 def derived_health(project: Project) -> str:
     """The derived health band now: counts only, the ``Project.health`` override ignored.
 
-    Same counts and rule as status-summary's band (``compute_health_band``): incomplete
-    leaf tasks on the critical path, and incomplete leaf tasks with 5 or fewer working
-    days of total float. Passing ``Health.AUTO`` is what makes it the derived branch.
+    Same counts and rule as status-summary's band: the filters come from
+    ``health_count_filters`` and the band from ``compute_health_band``, both shared
+    with that view. Passing ``Health.AUTO`` is what makes it the derived branch.
     """
     from trueppm_api.apps.projects.program_rollup import task_is_phase_expr
-    from trueppm_api.apps.projects.views import compute_health_band
+    from trueppm_api.apps.projects.views import compute_health_band, health_count_filters
 
+    at_risk_filter, critical_filter = health_count_filters()
     counts = (
         project.tasks.filter(is_deleted=False)
         .annotate(_is_phase=task_is_phase_expr())
         .aggregate(
-            at_risk=Count(
-                "id",
-                filter=~Q(status=TaskStatus.COMPLETE)
-                & Q(total_float__isnull=False)
-                & Q(total_float__lte=5)
-                & Q(_is_phase=False),
-            ),
-            critical=Count(
-                "id",
-                filter=~Q(status=TaskStatus.COMPLETE) & Q(is_critical=True) & Q(_is_phase=False),
-            ),
+            at_risk=Count("id", filter=at_risk_filter),
+            critical=Count("id", filter=critical_filter),
         )
     )
     band, _source = compute_health_band(
@@ -387,6 +423,7 @@ def post_status_update(project: Project, user: Any, *, rag: str, narrative: str)
         ) + 1
         posted_at = timezone.now()
         snapshot = build_snapshot(project, posted_at=posted_at, previous=previous)
+        computed_health = derived_health(project)
         update = StatusUpdate.objects.create(
             project=project,
             seq=next_seq,
@@ -394,9 +431,17 @@ def post_status_update(project: Project, user: Any, *, rag: str, narrative: str)
             narrative=narrative,
             author=user if getattr(user, "is_authenticated", False) else None,
             posted_at=posted_at,
-            computed_health=derived_health(project),
+            computed_health=computed_health,
             snapshot=snapshot,
-            snapshot_sha256=canonical_sha256(snapshot),
+            snapshot_sha256=record_sha256(
+                project_id=project.pk,
+                seq=next_seq,
+                rag=rag,
+                narrative=narrative,
+                posted_at=posted_at,
+                computed_health=computed_health,
+                snapshot=snapshot,
+            ),
         )
     logger.info(
         "status_update.posted id=%s project=%s seq=%s rag=%s by=%s sha256=%s",

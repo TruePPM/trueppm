@@ -21,12 +21,20 @@ plan said when it was posted, and separately what has changed since.
 | Action | Who |
 |---|---|
 | Post a status update | Project Manager or above, signed in. An API token cannot post, an agent's included, even one acting for the project manager. |
-| Read the history | Every project member, Viewer and above. API tokens can read it. |
+| Read the history | Every project member, Viewer and above. An `mcp:read` token (an agent) can read the history and one update, as the person it acts for, unless the project has turned agent access off. |
 | Create or revoke a share link for an update | Project Manager or above. |
 | Open a share link | Anyone holding the link, with no sign-in. |
 
 A posted update cannot be edited or deleted. To correct one, post a new update.
 Updates on an archived project cannot be posted.
+
+An agent can read status updates and cannot post one. A post sent with any API
+token, an `mcp:read` token or a full-access personal access token alike, is
+refused with `403`, even when the token belongs to the project manager. Posting
+needs the person signed in.
+
+Posting is rate limited per account and per project: every project manager on a
+project shares the project's limit.
 
 ## What the snapshot holds
 
@@ -38,9 +46,15 @@ or `no_baseline`, rather than left out.
 - **Forecast**: the P50 and P80 finish from the latest Monte Carlo result, the
   CPM finish, and the CPM finish's variance against the active baseline.
 - **Milestones**: each milestone's CPM finish, baseline finish and variance, up to
-  50 rows.
+  50 rows, earliest first. `milestones_truncated` is true when the project has more.
 - **Since the previous update**: tasks completed and milestones slipped. On the
   first update both are null with the reason `no_previous_update`.
+  - *Completed* counts tasks whose actual finish falls on or after the **day** the
+    previous update was posted, in the server's time zone. It is day-granular, so
+    two updates posted on the same day both count that day's completions.
+  - *Slipped* counts milestones whose CPM finish moved later between the two
+    snapshots. Only the milestones inside each snapshot's 50-row cap are compared,
+    so a slip on a milestone past the cap is not counted.
 - **Top risks**: the three open or mitigating risks with the highest probability
   times impact.
 - **Open decisions**: awaiting program decisions linked to a task or risk of this
@@ -51,9 +65,11 @@ or `no_baseline`, rather than left out.
 The snapshot holds no cost figures.
 
 Every update is numbered within its project (`seq`), and two posts made at the
-same moment take consecutive numbers. The server records a SHA-256 digest of the
-snapshot at post time and checks it on every read; `snapshot_verified` is false
-if the stored snapshot was changed outside TruePPM.
+same moment take consecutive numbers. The server records a SHA-256 digest at post
+time over everything a reader is served (the number, the RAG call, the narrative,
+the posting time, the computed health and the snapshot) and checks it on every
+read; `snapshot_verified` is false if any of them was changed outside TruePPM, and
+a share link for such an update stops resolving.
 
 ## What has moved since
 

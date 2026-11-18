@@ -251,6 +251,10 @@ def _serve_public_share(
             {"detail": _LINK_UNAVAILABLE_DETAIL},
             status=status.HTTP_404_NOT_FOUND,
         )
+    if uniform_unavailable and "Cache-Control" not in resp:
+        # Every response on this route is private, the 404 included, so a shared
+        # cache never holds one and the unavailable outcomes stay byte-identical.
+        resp["Cache-Control"] = "private, no-store"
     # A capability URL's page must never be indexed, whatever the outcome.
     resp["X-Robots-Tag"] = "noindex, nofollow"
     if "Referrer-Policy" not in resp:

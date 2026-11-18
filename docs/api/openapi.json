@@ -36294,6 +36294,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -36469,7 +36472,7 @@
         "/api/v1/projects/{project_pk}/status-updates/{update_id}/": {
             "get": {
                 "operationId": "v1_projects_status_updates_retrieve_2",
-                "description": "GET one posted status update (project members). Read-only by design.",
+                "description": "GET one posted status update (project members, and ``mcp:read`` tokens). Read-only.",
                 "summary": "Retrieve one status update with its frozen snapshot and live diff",
                 "parameters": [
                     {
@@ -36494,6 +36497,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -85495,7 +85501,7 @@
             },
             "StatusUpdate": {
                 "type": "object",
-                "description": "Read serializer for one posted update, with its frozen snapshot and live diff.\n\n``snapshot`` is returned exactly as stored at ``posted_at``. ``live_diff`` maps\na dotted snapshot key to the current value, present only where the plan has\nmoved since; the client prints it beside the frozen value and computes nothing.\n``snapshot_verified`` is False when the stored snapshot no longer hashes to the\ndigest recorded at post time (a row altered outside the application).",
+                "description": "Read serializer for one posted update, with its frozen snapshot and live diff.\n\n``snapshot`` is returned exactly as stored at ``posted_at``. ``live_diff`` maps\na dotted snapshot key to the current value, present only where the plan has\nmoved since; the client prints it beside the frozen value and computes nothing.\n``snapshot_verified`` is False when the stored row (the call, narrative, number,\ntime, health band or snapshot) no longer hashes to the digest recorded at post\ntime: a row altered outside the application.",
                 "properties": {
                     "id": {
                         "type": "string",

@@ -141,26 +141,77 @@ def test_non_member_and_anonymous_are_refused(project: Project, pm_client: APICl
     assert _post(anon, project).status_code == 401
 
 
-@pytest.mark.django_db
-def test_agent_token_cannot_post_even_for_the_pm(project: Project, pm: Any) -> None:
+def _token(owner: Any, scopes: list[str]) -> APIClient:
+    """An APIClient carrying a fresh personal API token of ``owner`` with ``scopes``."""
     from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
-    from trueppm_api.apps.projects.models import SCOPE_MCP_READ, ApiToken
+    from trueppm_api.apps.projects.models import ApiToken
 
     raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
     ApiToken.objects.create(
-        owner=pm,
-        name="agent",
+        owner=owner,
+        name="token",
         token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
         token_hash=sha256_hex(raw),
-        created_by=pm,
-        scopes=[SCOPE_MCP_READ],
+        created_by=owner,
+        scopes=scopes,
         expires_at=timezone.now() + timedelta(days=30),
     )
-    agent = APIClient()
-    agent.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
-    # Refused either by the authenticator (an MCP credential reaches only the routes
-    # opted into MCP reads) or, past it, by IsNotTokenAuthenticated; never a 201.
-    assert _post(agent, project).status_code in (401, 403)
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    return client
+
+
+@pytest.mark.django_db
+def test_agent_reads_the_history_and_cannot_post(
+    project: Project, pm: Any, pm_client: APIClient, settings: Any
+) -> None:
+    """An ``mcp:read`` token reads list and detail as the PM it acts for; never posts."""
+    from trueppm_api.apps.projects.models import SCOPE_MCP_READ
+
+    settings.TRUEPPM_MCP_ENABLED = True
+    created = _post(pm_client, project).json()
+    agent = _token(pm, [SCOPE_MCP_READ])
+
+    listed = agent.get(_url(project))
+    assert listed.status_code == 200
+    assert [r["id"] for r in listed.json()["results"]] == [created["id"]]
+    detail = agent.get(f"{_url(project)}{created['id']}/")
+    assert detail.status_code == 200
+    assert detail.json()["snapshot"] == created["snapshot"]
+
+    assert _post(agent, project).status_code == 403
+    assert StatusUpdate.objects.filter(project=project).count() == 1
+
+
+@pytest.mark.django_db
+def test_agent_read_respects_the_project_opt_out(
+    project: Project, pm: Any, pm_client: APIClient, settings: Any
+) -> None:
+    from trueppm_api.apps.projects.models import SCOPE_MCP_READ
+
+    settings.TRUEPPM_MCP_ENABLED = True
+    created = _post(pm_client, project).json()
+    Project.objects.filter(pk=project.pk).update(mcp_enabled=False)
+    agent = _token(pm, [SCOPE_MCP_READ])
+    assert agent.get(_url(project)).status_code == 403
+    assert agent.get(f"{_url(project)}{created['id']}/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_full_access_token_cannot_post_even_for_the_pm(project: Project, pm: Any) -> None:
+    """A full-scope personal token authenticates and passes the PM gate, then is refused.
+
+    This is the case ``IsNotTokenAuthenticated`` alone decides: the token is the PM's
+    own, holds every scope, and the method guards pass a full-scope token. Removing
+    the refusal makes this a 201.
+    """
+    from trueppm_api.apps.projects.models import SCOPE_API_FULL
+
+    client = _token(pm, [SCOPE_API_FULL])
+    assert client.get(_url(project)).status_code == 200  # authenticated, a PM
+    resp = _post(client, project)
+    assert resp.status_code == 403
+    assert "status update" in resp.json()["detail"]
     assert not StatusUpdate.objects.filter(project=project).exists()
 
 
@@ -250,7 +301,16 @@ def test_snapshot_carries_provenance_and_reasons(project: Project, pm_client: AP
     assert [m["name"] for m in snap["milestones"]] == ["Gate A"]
     assert body["computed_health"] in ("on_track", "at_risk", "critical")
     assert body["snapshot_verified"] is True
-    assert body["snapshot_sha256"] == status_update_services.canonical_sha256(snap)
+    stored = StatusUpdate.objects.get(pk=body["id"])
+    assert body["snapshot_sha256"] == status_update_services.record_sha256(
+        project_id=project.pk,
+        seq=stored.seq,
+        rag=stored.rag,
+        narrative=stored.narrative,
+        posted_at=stored.posted_at,
+        computed_health=stored.computed_health,
+        snapshot=snap,
+    )
 
 
 @pytest.mark.django_db
@@ -306,6 +366,39 @@ def test_tampered_snapshot_is_reported(project: Project, pm_client: APIClient) -
         )
     body = pm_client.get(f"{_url(project)}{created['id']}/").json()
     assert body["snapshot_verified"] is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"narrative": "Rewritten after the fact."},
+        {"rag": "green"},
+        {"computed_health": "critical"},
+        {"seq": 99},
+    ],
+)
+def test_a_served_field_changed_alone_is_reported_and_not_shared(
+    project: Project, pm: Any, pm_client: APIClient, change: dict[str, Any]
+) -> None:
+    """The digest covers every served field, not the snapshot alone.
+
+    ``_base_manager`` is a plain manager, so this write gets past the queryset's
+    immutability guard: it stands in for a row rewritten outside the application.
+    """
+    update = status_update_services.post_status_update(
+        project, pm, rag="red", narrative="Original."
+    )
+    _link, raw = share_services.mint_share_link(
+        project, pm, content_kind=ShareContentKind.STATUS_UPDATE, status_update=update
+    )
+    assert _share(raw).status_code == 200
+    cache.clear()
+    StatusUpdate._base_manager.filter(pk=update.pk).update(**change)
+
+    body = pm_client.get(f"{_url(project)}{update.pk}/").json()
+    assert body["snapshot_verified"] is False
+    assert _share(raw).status_code == 404
 
 
 # ── share token ──────────────────────────────────────────────────────────────
@@ -385,16 +478,27 @@ def test_share_reveals_are_opt_in_and_enforced(project: Project, pm_client: APIC
     assert _share(t3).json()["milestones"] is None
 
 
+def _comparable(resp: Any) -> tuple[int, Any, dict[str, str]]:
+    # X-Request-ID is a per-request correlation id, unique on every response.
+    headers = {k: v for k, v in resp.headers.items() if k != "X-Request-ID"}
+    return resp.status_code, resp.json(), headers
+
+
 @pytest.mark.django_db
-def test_unavailable_outcomes_are_one_identical_404(project: Project, pm: Any) -> None:
+def test_unavailable_outcomes_are_one_identical_404(
+    project: Project, pm: Any, settings: Any
+) -> None:
+    """Every unavailable outcome is byte-identical to an unknown token: status, body, headers."""
     update = status_update_services.post_status_update(project, pm, rag="red", narrative="")
-    revoked, revoked_raw = share_services.mint_share_link(
-        project, pm, content_kind=ShareContentKind.STATUS_UPDATE, status_update=update
-    )
+
+    def mint(on: Project = project, by: Any = pm) -> tuple[Any, str]:
+        return share_services.mint_share_link(
+            on, by, content_kind=ShareContentKind.STATUS_UPDATE, status_update=update
+        )
+
+    revoked, revoked_raw = mint()
     share_services.revoke_share_link(revoked, pm)
-    expired, expired_raw = share_services.mint_share_link(
-        project, pm, content_kind=ShareContentKind.STATUS_UPDATE, status_update=update
-    )
+    expired, expired_raw = mint()
     type(expired).objects.filter(pk=expired.pk).update(
         expires_at=timezone.now() - timedelta(minutes=1)
     )
@@ -402,12 +506,42 @@ def test_unavailable_outcomes_are_one_identical_404(project: Project, pm: Any) -
     _sched, sched_raw = share_services.mint_share_link(
         project, pm, content_kind=ShareContentKind.SCHEDULE
     )
+    # A second PM's link, then the account is deactivated.
+    pm2 = _member(project, "pm2", Role.ADMIN)
+    _l2, deactivated_raw = mint(by=pm2)
+    User.objects.filter(pk=pm2.pk).update(is_active=False)
+    _live, live_raw = mint()
 
     unknown = _share(secrets.token_urlsafe(32))
     assert unknown.status_code == 404
-    for raw in (revoked_raw, expired_raw, board_raw, sched_raw):
-        resp = _share(raw)
-        assert (resp.status_code, resp.json()) == (unknown.status_code, unknown.json())
+    expected = _comparable(unknown)
+    assert expected[2]["Cache-Control"].startswith("private")
+    assert expected[2]["Referrer-Policy"] == "no-referrer"
+    assert "noindex" in expected[2]["X-Robots-Tag"]
+    for raw in (revoked_raw, expired_raw, board_raw, sched_raw, deactivated_raw):
+        assert _comparable(_share(raw)) == expected, raw
+
+    # Sharing policy turned off for the project after the mint.
+    Project.objects.filter(pk=project.pk).update(public_sharing=False)
+    cache.clear()
+    assert _comparable(_share(live_raw)) == expected
+    Project.objects.filter(pk=project.pk).update(public_sharing=True)
+
+    # Project moved to Trash.
+    Project.objects.filter(pk=project.pk).update(is_deleted=True)
+    cache.clear()
+    assert _comparable(_share(live_raw)) == expected
+    Project.objects.filter(pk=project.pk).update(is_deleted=False)
+
+    # Instance kill switch.
+    settings.TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED = False
+    cache.clear()
+    assert _comparable(_share(live_raw)) == expected
+    settings.TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED = True
+
+    # And the same link serves again once every condition is cleared.
+    cache.clear()
+    assert _share(live_raw).status_code == 200
 
 
 @pytest.mark.django_db
@@ -471,3 +605,53 @@ def test_board_link_never_carries_the_status_binding(
     assert resp.status_code == 201
     assert resp.json()["status_update"] is None
     assert resp.json()["show_risks"] is False
+
+
+# ── throttles and concurrency ────────────────────────────────────────────────
+
+
+@pytest.mark.django_db
+def test_post_rate_limit_is_per_project_across_posters(project: Project, pm: Any) -> None:
+    """Two PMs share one project bucket; another project's bucket is untouched."""
+    from trueppm_api.apps.projects.status_update_views import StatusUpdateProjectPostThrottle
+
+    other = Project.objects.create(name="Other", start_date=date(2026, 1, 5))
+    pm2 = _member(project, "pm2", Role.ADMIN)
+    ProjectMembership.objects.create(project=other, user=pm2, role=Role.ADMIN)
+    first, second = _client(pm), _client(pm2)
+    with patch.object(StatusUpdateProjectPostThrottle, "rate", "2/min", create=True):
+        assert _post(first, project).status_code == 201
+        assert _post(second, project).status_code == 201
+        assert _post(second, project).status_code == 429
+        assert _post(first, project).status_code == 429
+        assert _post(second, other).status_code == 201
+    assert StatusUpdate.objects.filter(project=project).count() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_posts_take_distinct_sequential_numbers(project: Project, pm: Any) -> None:
+    """Four posts racing on separate connections serialize on the project lock."""
+    import threading
+
+    from django.db import connections
+
+    barrier = threading.Barrier(4)
+    errors: list[BaseException] = []
+
+    def post() -> None:
+        try:
+            barrier.wait(timeout=10)
+            status_update_services.post_status_update(project, pm, rag="amber", narrative="")
+        except BaseException as exc:  # surfaced by the assertion below
+            errors.append(exc)
+        finally:
+            connections.close_all()
+
+    threads = [threading.Thread(target=post) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert not errors, errors
+    seqs = sorted(StatusUpdate.objects.filter(project=project).values_list("seq", flat=True))
+    assert seqs == [1, 2, 3, 4]

@@ -312,10 +312,13 @@ and expired included.
 | GET | `/api/v1/share/schedule/{token}/` | Public, unauthenticated schedule/Gantt snapshot |
 | GET | `/api/v1/share/status-update/{token}/` | Public, unauthenticated snapshot of one posted status update (ships in 0.5) |
 
-The two public endpoints return `410` for a revoked link and a uniform `404`
-for an unknown token or a disabled instance-wide sharing kill switch (so a
-caller cannot distinguish "never existed" from "feature disabled"), and
-support `ETag`/`If-None-Match` (`304` on an unchanged snapshot). See
+The board and schedule endpoints return `410` for a revoked link and a uniform
+`404` for an unknown token or a disabled instance-wide sharing kill switch (so a
+caller cannot distinguish "never existed" from "feature disabled"). The
+status-update endpoint returns the same `404` for every unavailable link: unknown,
+revoked, expired, for a project in Trash, blocked by the sharing policy, minted by
+a deactivated account, or the kill switch. All three support
+`ETag`/`If-None-Match` (`304` on an unchanged snapshot). See
 [Board sharing](/features/board-sharing/).
 
 ## Agent actions
