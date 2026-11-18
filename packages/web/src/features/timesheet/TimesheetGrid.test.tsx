@@ -60,6 +60,7 @@ function renderGrid(
     cellErrors: {},
     onCellSave: vi.fn(),
     onAddTask: vi.fn(),
+    onFillAcross: vi.fn(),
     ...overrides,
   };
   render(<TimesheetGrid {...props} />);

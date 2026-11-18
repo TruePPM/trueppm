@@ -18,11 +18,13 @@ import { EmptyState } from '@/components/EmptyState';
 import { ClockIcon } from '@/components/Icons';
 import { useTimesheetAssignments } from '@/hooks/useTimesheetAssignments';
 import {
+  useFetchWeek,
   useSubmitWeek,
   useTimesheetCell,
   useWeekTimesheet,
   type CellTaskMeta,
 } from '@/hooks/useWeekTimesheet';
+import { toast } from '@/components/Toast';
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
 import { TimesheetGrid } from './TimesheetGrid';
@@ -32,9 +34,11 @@ import {
   buildWeekRows,
   cellAt,
   dailyTotals,
+  fillAcrossWrites,
   formatWeekRange,
   localTodayIso,
   mondayOf,
+  rowsToCopy,
   weekDays,
   weekTotalMinutes,
   type TimesheetRow,
@@ -68,6 +72,9 @@ export function TimesheetPage() {
   const { data, isLoading, isError, refetch } = useWeekTimesheet(monday);
   const cellMutation = useTimesheetCell(monday);
   const submitMutation = useSubmitWeek(monday);
+  const fetchWeek = useFetchWeek();
+  const [copying, setCopying] = useState(false);
+  const [copyNote, setCopyNote] = useState('');
 
   // Rows come from the same assignment source My Work renders (`GET /me/work/`), so a
   // contributor with open assigned tasks scheduled this week and no entries yet gets rows
@@ -102,6 +109,7 @@ export function TimesheetPage() {
     setMonday((m) => addDaysIso(m, deltaWeeks * 7));
     setExtraTasks([]); // add-row context is per-week
     setCellErrors({}); // inline validation errors are per-week too
+    setCopyNote('');
   }
 
   function handleCellSave(row: TimesheetRow, date: string, minutes: number) {
@@ -132,6 +140,34 @@ export function TimesheetPage() {
       delete rest[cellKey];
       return rest;
     });
+  }
+
+  // Seed this week with last week's task rows at zero hours (#1950). Never copies minutes,
+  // never writes an entry and never submits — the user keys the hours (seed-then-correct).
+  async function handleCopyLastWeek() {
+    setCopying(true);
+    try {
+      const prev = await fetchWeek(addDaysIso(monday, -7));
+      const toAdd = rowsToCopy(prev.results, existingTaskIds);
+      if (toAdd.length === 0) {
+        setCopyNote(
+          prev.results.length === 0
+            ? 'No rows last week to copy.'
+            : 'This week already has all of last week\u2019s rows.',
+        );
+        return;
+      }
+      setExtraTasks((cur) => [...cur, ...toAdd.filter((t) => !cur.some((c) => c.taskId === t.taskId))]);
+      setCopyNote(`Added ${toAdd.length} ${toAdd.length === 1 ? 'row' : 'rows'} from last week, with no hours.`);
+    } catch {
+      toast.error('Could not load last week. Please try again.');
+    } finally {
+      setCopying(false);
+    }
+  }
+
+  function handleFillAcross(row: TimesheetRow) {
+    for (const w of fillAcrossWrites(row, days)) handleCellSave(row, w.date, w.minutes);
   }
 
   function handleAddTask(meta: CellTaskMeta) {
@@ -200,12 +236,21 @@ export function TimesheetPage() {
             ›
           </button>
         </div>
+        {!submitted && (
+          <Button variant="secondary" size="sm" onClick={() => void handleCopyLastWeek()} disabled={copying}>
+            Copy last week&rsquo;s rows
+          </Button>
+        )}
         {submitted && (
           <span className="rounded-chip bg-semantic-on-track-bg px-2 py-0.5 text-xs font-medium text-semantic-on-track">
             Submitted
           </span>
         )}
       </div>
+
+      <p role="status" aria-live="polite" data-testid="timesheet-copy-note" className="mb-3 text-xs text-neutral-text-secondary empty:hidden">
+        {copyNote}
+      </p>
 
       {/* Submission is a marker, not an approval lock (ADR-0224: "no approver, no lock,
           no return"). The grid renders a submitted week read-only, which reads as an
@@ -276,6 +321,7 @@ export function TimesheetPage() {
           cellErrors={cellErrors}
           onCellSave={handleCellSave}
           onAddTask={handleAddTask}
+          onFillAcross={handleFillAcross}
           />
         </>
       )}

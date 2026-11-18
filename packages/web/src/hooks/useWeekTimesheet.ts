@@ -203,3 +203,14 @@ export function useSubmitWeek(mondayIso: string) {
     },
   });
 }
+
+/**
+ * Imperative read of any week (#1950, copy-last-week). Goes through the query cache so a
+ * previous week the user already stepped to is not refetched, and reuses the existing
+ * `GET /me/time-entries/?from=&to=` read — no dedicated endpoint.
+ */
+export function useFetchWeek() {
+  const qc = useQueryClient();
+  return (mondayIso: string) =>
+    qc.fetchQuery({ queryKey: weekTimesheetKey(mondayIso), queryFn: () => fetchWeek(mondayIso), staleTime: 30_000 });
+}

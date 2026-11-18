@@ -270,3 +270,43 @@ export function computeTotals(results: WeeklyEntry[], todayIso: string): WeeklyT
   }
   return { by_day, by_cell, today_minutes, week_minutes };
 }
+
+/**
+ * Row structure to seed from a previous week (#1950): one {@link RowTaskMeta} per task in
+ * `prevEntries` that is not already a row (`presentTaskIds`), in first-appearance order.
+ *
+ * Deliberately returns labels only — never minutes. Copying last week's hours would
+ * manufacture plausible-looking actuals nobody logged; a seeded row is a row of zeros the
+ * contributor then fills, so the numbers stay their own.
+ */
+export function rowsToCopy(prevEntries: WeeklyEntry[], presentTaskIds: Set<string>): RowTaskMeta[] {
+  return buildRows(prevEntries)
+    .filter((r) => !presentTaskIds.has(r.taskId))
+    .map(({ cells: _cells, ...meta }) => meta);
+}
+
+/**
+ * Fill-across for one row (#1950): the first weekday cell holding hours is the source, and
+ * every other weekday (Mon–Fri) that is empty, editable and not in the future receives the
+ * same minutes. Returns the writes to perform — empty when there is no source or nothing to
+ * fill. Never overwrites a non-empty cell, never touches weekends or future days (the
+ * server rejects future-dated entries).
+ */
+export function fillAcrossWrites(
+  row: TimesheetRow,
+  days: DayColumn[],
+): Array<{ date: string; minutes: number }> {
+  const weekdays = days.filter((d) => !d.isWeekend);
+  const source = weekdays.find((d) => {
+    const c = cellAt(row, d.date);
+    return c.minutes > 0 && c.editable;
+  });
+  if (source === undefined) return [];
+  const minutes = cellAt(row, source.date).minutes;
+  return weekdays
+    .filter((d) => {
+      const c = cellAt(row, d.date);
+      return c.minutes === 0 && c.editable && !d.isFuture;
+    })
+    .map((d) => ({ date: d.date, minutes }));
+}

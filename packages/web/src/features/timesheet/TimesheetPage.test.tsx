@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
 import { TimesheetPage } from './TimesheetPage';
@@ -9,6 +9,7 @@ vi.mock('@/hooks/useWeekTimesheet', () => ({
   useWeekTimesheet: vi.fn(),
   useTimesheetCell: vi.fn(),
   useSubmitWeek: vi.fn(),
+  useFetchWeek: vi.fn(),
 }));
 vi.mock('@/hooks/useTimesheetAssignments', () => ({
   useTimesheetAssignments: vi.fn(),
@@ -18,7 +19,9 @@ import {
   useWeekTimesheet,
   useTimesheetCell,
   useSubmitWeek,
+  useFetchWeek,
 } from '@/hooks/useWeekTimesheet';
+const mockUseFetchWeek = useFetchWeek as ReturnType<typeof vi.fn>;
 import { useTimesheetAssignments } from '@/hooks/useTimesheetAssignments';
 
 const mockUseWeek = useWeekTimesheet as ReturnType<typeof vi.fn>;
@@ -97,6 +100,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockUseCell.mockReturnValue({ mutate: cellMutate, isPending: false });
   mockUseSubmit.mockReturnValue({ mutate: submitMutate, isPending: false });
+  const fetchWeek = vi.fn().mockResolvedValue(weekData(false, []));
+  mockUseFetchWeek.mockReturnValue(fetchWeek);
   setAssignments([]);
   setWeek({ data: weekData(false, [weekEntry(120)]) });
 });
@@ -324,5 +329,36 @@ describe('TimesheetPage', () => {
   it('shows no partial notice when the assignment list is complete', () => {
     render(<TimesheetPage />);
     expect(screen.queryByTestId('timesheet-partial-assignments')).not.toBeInTheDocument();
+  });
+});
+
+describe('TimesheetPage copy last week (#1950)', () => {
+  it('adds last week\u2019s task rows as zeros without writing anything', async () => {
+    const prev = { ...weekEntry(300), id: 'p1', task: 't9', task_short_id: 'ENG-9', task_name: 'Old task' };
+    mockUseFetchWeek.mockReturnValue(vi.fn().mockResolvedValue(weekData(false, [prev])));
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Copy last week.s rows/ }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Old task')).toBeInTheDocument();
+    expect(screen.getByTestId('timesheet-copy-note')).toHaveTextContent('Added 1 row from last week');
+    expect(cellMutate).not.toHaveBeenCalled();
+    expect(submitMutate).not.toHaveBeenCalled();
+  });
+
+  it('says so when last week had no rows', async () => {
+    render(<TimesheetPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Copy last week.s rows/ }));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('timesheet-copy-note')).toHaveTextContent('No rows last week to copy.');
+  });
+
+  it('is not offered on a submitted week', () => {
+    setWeek({ data: weekData(true, [weekEntry(120)]) });
+    render(<TimesheetPage />);
+    expect(screen.queryByRole('button', { name: /Copy last week.s rows/ })).not.toBeInTheDocument();
   });
 });

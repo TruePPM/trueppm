@@ -73,13 +73,19 @@ interface MockEntry {
 interface TimesheetOpts {
   /** Seed the week's entries (default true). False = a week with nothing logged yet. */
   seedEntries?: boolean;
+  /** Entries on any week before the pinned one: 'task-c' (default none) — drives copy-last-week (#1950). */
+  lastWeek?: 'roofing' | 'none';
   /** Tasks `/me/work/` reports as assigned (default all three). */
   assigned?: Array<
     (typeof TASKS)[number] & { status?: string; scheduled_start?: string; scheduled_finish?: string }
   >;
 }
 
-function seedFor(monday: string, seedEntries: boolean): MockEntry[] {
+function seedFor(monday: string, seedEntries: boolean, lastWeek?: 'roofing' | 'none'): MockEntry[] {
+  if (lastWeek !== undefined && monday < mondayOf('2026-06-19')) {
+    if (lastWeek === 'none') return [];
+    return [{ id: 'lw-c', task: TASK_C.id, task_short_id: TASK_C.short_id, task_name: TASK_C.name, project: TASK_C.project_id, project_code: 'RIV', project_name: TASK_C.project_name, minutes: 480, entry_date: monday }];
+  }
   if (!seedEntries) return [];
   return SEED.map((s) => ({
     id: s.id,
@@ -95,7 +101,7 @@ function seedFor(monday: string, seedEntries: boolean): MockEntry[] {
 }
 
 async function setupTimesheet(page: Page, opts: TimesheetOpts = {}): Promise<void> {
-  const { seedEntries = true, assigned = TASKS } = opts;
+  const { seedEntries = true, assigned = TASKS, lastWeek } = opts;
   // Pin the wall-clock before any navigation so "today" (and therefore which day-columns are
   // future/inert, #1926) is reproducible on any machine, any calendar day.
   await page.clock.setFixedTime(CLOCK);
@@ -110,7 +116,7 @@ async function setupTimesheet(page: Page, opts: TimesheetOpts = {}): Promise<voi
   function ensureWeek(from: string) {
     if (state.from !== from) {
       state.from = from;
-      state.entries = seedFor(from, seedEntries);
+      state.entries = seedFor(from, seedEntries, lastWeek);
     }
   }
 
@@ -424,5 +430,47 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
     ).toBeVisible();
     await expect(page.getByRole('grid', { name: 'Weekly timesheet' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Submit week' })).toBeDisabled();
+  });
+
+  test('copy last week\u2019s rows seeds zeroed rows and never writes or submits (#1950)', async ({ page }) => {
+    await setupTimesheet(page, { assigned: [], lastWeek: 'roofing' });
+    const writes: string[] = [];
+    page.on('request', (r) => {
+      if (r.method() !== 'GET' && r.url().includes('/api/v1/')) writes.push(`${r.method()} ${r.url()}`);
+    });
+    await page.goto('/me/timesheet');
+
+    const grid = page.getByRole('grid', { name: 'Weekly timesheet' });
+    await expect(grid.getByText('Foundation pour')).toBeVisible();
+    await expect(grid.getByText('Roofing')).toHaveCount(0);
+
+    await page.getByRole('button', { name: /Copy last week.s rows/ }).click();
+
+    await expect(page.getByTestId('timesheet-copy-note')).toHaveText(/Added 1 row from last week/);
+    await expect(grid.getByText('Roofing')).toBeVisible();
+    // Hours were not copied: the week total is still the seeded 11:00 and nothing was written.
+    await expect(page.getByLabel('Week total 11:00')).toBeVisible();
+    expect(writes).toEqual([]);
+    await expect(page.getByRole('button', { name: 'Submit week' })).toBeEnabled();
+  });
+
+  test('fill across copies the first weekday to the empty past weekdays of one row (#1950)', async ({ page }) => {
+    await setupTimesheet(page, { assigned: [] });
+    await page.goto('/me/timesheet');
+    // Framing has only Mon 4h; Tue/Wed/Thu are past and empty, Fri is today.
+    await page.getByRole('button', { name: /Fill across the week for RIV-2 Framing/ }).click();
+    // 11h seeded + 4h on each of Tue, Wed, Thu, Fri(today) = 27h.
+    await expect(page.getByLabel('Week total 27:00')).toBeVisible();
+  });
+
+  test('copy last week with no rows last week says so and adds nothing (#1950)', async ({ page }) => {
+    await setupTimesheet(page, { seedEntries: false, assigned: [], lastWeek: 'none' });
+    await page.goto('/me/timesheet');
+    await expect(page.getByTestId('empty-state')).toBeVisible();
+
+    await page.getByRole('button', { name: /Copy last week.s rows/ }).click();
+
+    await expect(page.getByTestId('timesheet-copy-note')).toHaveText('No rows last week to copy.');
+    await expect(page.getByRole('grid', { name: 'Weekly timesheet' })).toHaveCount(0);
   });
 });

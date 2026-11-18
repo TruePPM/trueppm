@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  rowsToCopy,
+  fillAcrossWrites,
   addDaysIso,
   buildRows,
   buildWeekRows,
@@ -214,5 +216,39 @@ describe('formatWeekRange', () => {
   });
   it('formats a cross-month range', () => {
     expect(formatWeekRange('2026-06-29')).toBe('Jun 29 – Jul 5, 2026');
+  });
+});
+
+describe('rowsToCopy / fillAcrossWrites (#1950)', () => {
+  const MON = '2026-06-15';
+  const mk = (task: string, date: string, minutes: number) => ({
+    id: `${task}-${date}`, task, task_short_id: task.toUpperCase(), task_name: `Task ${task}`,
+    project: 'p', project_code: 'P', project_name: 'Proj', minutes, entry_date: date,
+    note: '', source: 'manual', server_version: 1, created_at: '',
+  }) as never;
+
+  it('returns labels only for tasks not already present, never minutes', () => {
+    const out = rowsToCopy([mk('a', MON, 300), mk('a', '2026-06-16', 60), mk('b', MON, 30)], new Set(['b']));
+    expect(out.map((r) => r.taskId)).toEqual(['a']);
+    expect(out[0]).not.toHaveProperty('cells');
+  });
+
+  it('returns nothing for an empty previous week', () => {
+    expect(rowsToCopy([], new Set())).toEqual([]);
+  });
+
+  it('fills empty editable past weekdays from the first weekday with hours', () => {
+    const row = buildRows([mk('a', '2026-06-16', 120)])[0];
+    // today = Thu 18th: Mon/Tue/Wed/Thu fillable, Fri future, weekend excluded.
+    const writes = fillAcrossWrites(row, weekDays(MON, '2026-06-18'));
+    expect(writes).toEqual([
+      { date: '2026-06-15', minutes: 120 },
+      { date: '2026-06-17', minutes: 120 },
+      { date: '2026-06-18', minutes: 120 },
+    ]);
+  });
+
+  it('does nothing with no source hours or when a source is only on a weekend', () => {
+    expect(fillAcrossWrites(buildRows([mk('a', '2026-06-20', 60)])[0], weekDays(MON, '2026-06-21'))).toEqual([]);
   });
 });

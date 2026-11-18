@@ -13,6 +13,7 @@ import { AddTaskRow } from './AddTaskRow';
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import {
   cellAt,
+  fillAcrossWrites,
   isOverDaily,
   rowTotalMinutes,
   type DayColumn,
@@ -37,6 +38,8 @@ interface TimesheetGridProps {
   cellErrors: Record<string, string>;
   onCellSave: (row: TimesheetRow, date: string, minutes: number) => void;
   onAddTask: (meta: CellTaskMeta) => void;
+  /** Fill a row's empty past weekdays with its first weekday's hours (#1950). */
+  onFillAcross: (row: TimesheetRow) => void;
 }
 
 function dayOfMonth(iso: string): number {
@@ -53,6 +56,7 @@ export function TimesheetGrid({
   cellErrors,
   onCellSave,
   onAddTask,
+  onFillAcross,
 }: TimesheetGridProps) {
   return (
     <div className="overflow-x-auto rounded-card border border-neutral-border bg-neutral-surface">
@@ -102,6 +106,16 @@ export function TimesheetGrid({
                 <div className="truncate text-xs text-neutral-text-secondary" title={row.projectName}>
                   {row.projectName}
                 </div>
+                {!submitted && fillAcrossWrites(row, days).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onFillAcross(row)}
+                    aria-label={`Fill across the week for ${row.taskShortId} ${row.taskName}`}
+                    className="mt-0.5 text-xs text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                  >
+                    Fill across
+                  </button>
+                )}
               </div>
               {days.map((d, i) => {
                 const cell = cellAt(row, d.date);
