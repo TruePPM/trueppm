@@ -886,11 +886,13 @@ release it is scheduled for:
   will run its forward pass over chunks of runs, and above 32M cells (runs × tasks)
   will replay the float64 sampled-duration matrix a row block at a time instead of
   holding it, with seeded results byte-identical. Measured at 50,000 tasks × 1,000
-  runs: about 590 MB peak RSS (about 890 MB with the matrix held, 2.1 GB unchunked),
+  runs: about 475 MB peak RSS (about 785 MB with the matrix held, 2.1 GB unchunked),
   at the price of a slower run, about 6 s to about 9 s, because each sampled column is
-  drawn three times. The floor that remains is one forward chunk (8M cells, about
-  230 MB) plus the project's own graph; the under-250 MB target and `MC_TASK_CAP` are
-  tracked in [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953).
+  drawn three times. A milestone's or zero-duration task's per-run instant will be
+  held for those columns only, not for every task. The floor that remains is one
+  forward chunk (8M cells, about 130 MB of start and finish offsets) plus the
+  project's own graph; the under-250 MB target and `MC_TASK_CAP` are tracked in
+  [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953).
 - **API contract / errors** — the derivation vocabulary
   (`DerivationContribution.kind`, `Derivation.quantity`/`pass_`) is still an
   open string, not a published enum

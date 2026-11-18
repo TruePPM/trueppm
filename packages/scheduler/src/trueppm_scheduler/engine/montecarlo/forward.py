@@ -54,6 +54,9 @@ from trueppm_scheduler.engine.montecarlo.index import (
     _raise_mc_index_overrun,
     _start_day_index,
 )
+from trueppm_scheduler.engine.montecarlo.instants import (
+    _InstantColumns,
+)
 from trueppm_scheduler.engine.montecarlo.sampling import (
     _OffsetLookup,
     _WorkingDayIndex,
@@ -764,8 +767,9 @@ def _mc_forward_pass(
     shown on, which is what the project finish reads. ``milestone_floors``
     (:func:`_mc_milestone_floors`) gives each milestone's floors in date space, the
     project start apart from the rest: the column's ES/EF are the *shown* instant
-    and ``instant_mat`` the *link* instant its successors measure from, which the
-    project-start floor does not raise (#4225, :func:`_place_milestone`).
+    and its :class:`_InstantColumns` entry the *link* instant its successors
+    measure from, which the project-start floor does not raise (#4225,
+    :func:`_place_milestone`).
 
     Per-task calendars (#1385) are deliberately invisible here. A task's own column
     is expressed in its own calendar's working-day space, and each edge's delta
@@ -803,13 +807,11 @@ def _mc_forward_pass(
     used = None if velocity is None else np.zeros_like(velocity.draws)
     es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
     ef_mat = np.zeros((runs, n_tasks), dtype=np.float64)
-    # Milestone instants: date ordinal and start-of-day display, per run.
-    # int32: these are date ordinals (at most ~3.7M for year 9999), far inside range, and
-    # the matrix is runs x tasks, so halving it matters (#4710).
-    instant_mat = np.zeros((runs, n_tasks), dtype=np.int32)
-    start_display_mat = np.zeros((runs, n_tasks), dtype=bool)
-    # How far each link instant's true point lies before its midnight (#4697).
-    deficit_mat = np.zeros((runs, n_tasks), dtype=np.float64)
+    # Milestone and zero-base link instants, for those columns only (#3824).
+    instants = _InstantColumns(
+        runs,
+        (col for col, tid in enumerate(topo_order) if tid in milestone_ids or tid in zero_base_ids),
+    )
     verbatim_actuals = verbatim_actuals or {}
     milestone_floors = milestone_floors or {}
     finish_floor: date | None = None
@@ -836,7 +838,7 @@ def _mc_forward_pass(
                     col,
                     g,
                     task_idx,
-                    (es_mat, ef_mat, instant_mat, start_display_mat, deficit_mat),
+                    (es_mat, ef_mat, instants),
                     milestone_floors.get(tid, (None, None)),
                     completed_edge,
                     milestone_ids,
@@ -846,9 +848,7 @@ def _mc_forward_pass(
                     instant_runs,
                 )
             )
-            instant_mat[:, col] = link
-            start_display_mat[:, col] = link_display
-            deficit_mat[:, col] = link_def
+            instants.store(col, link, link_display, link_def)
             # The instant's working-time position: its midnight's offset, less the
             # working time its true point lies before it (#4697).
             position = index.next_wd_offset(col, instant) - shown_def
@@ -878,7 +878,7 @@ def _mc_forward_pass(
             es_floor if actual is None else {tid: actual[2]},
             completed_edge,
             runs,
-            (milestone_ids, instant_mat, index, col, deficit_mat),
+            (milestone_ids, instants, index, col),
             span_elapsed,
             instant_runs,
         )
@@ -912,7 +912,7 @@ def _mc_forward_pass(
                     col,
                     g,
                     task_idx,
-                    (es_mat, ef_mat, instant_mat, start_display_mat, deficit_mat),
+                    (es_mat, ef_mat, instants),
                     milestone_floors.get(tid, (None, None)),
                     completed_edge,
                     milestone_ids,
@@ -922,9 +922,7 @@ def _mc_forward_pass(
                     instant_runs,
                 )
             )
-            instant_mat[:, col] = link
-            start_display_mat[:, col] = link_display
-            deficit_mat[:, col] = link_def
+            instants.store(col, link, link_display, link_def)
             es, ef, instant_runs[tid], actual_day = _mc_zero_base_column(
                 es,
                 eff_dur,
@@ -1063,10 +1061,8 @@ def _mc_span_link(
 def _mc_instant_proposal(
     dep: Dependency,
     p: int,
-    instant_mat: np.ndarray,
-    start_display_mat: np.ndarray,
+    instants: _InstantColumns,
     index: _McIndex,
-    deficit_mat: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray | bool, np.ndarray]:
     """Per-run ``(raw midnight, start_display, deficit)`` a link out of an instant proposes.
 
@@ -1076,17 +1072,20 @@ def _mc_instant_proposal(
     start of the next day and the deficit is dropped where the winner is read.
     """
     lag = dep.lag.days
-    deficit = deficit_mat[:, p]
+    deficit = instants.deficit_of(p)
+    instant = instants.ordinal_of(p)
     carried = deficit > 0.0
     if dep.dep_type in _START_ANCHORED:
         # Mirrors engine._place_milestone (#4079 fuzz regression): the
         # predecessor's own reading only carries over at zero lag, the
         # same midnight it occupies; a nonzero lag proposes a different
         # midnight and reads fresh, like an ordinary FS/SS predecessor.
-        base_display = start_display_mat[:, p] if lag == 0 else dep.dep_type == DependencyType.SS
-        return instant_mat[:, p] + lag, np.where(carried, False, base_display), deficit
+        base_display = (
+            instants.start_display_of(p) if lag == 0 else dep.dep_type == DependencyType.SS
+        )
+        return instant + lag, np.where(carried, False, base_display), deficit
     # A positive SF lag counts from the day the instant closes (#4333).
-    anchor = instant_mat[:, p] - 1 if lag > 0 else index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
+    anchor = instant - 1 if lag > 0 else index.prev_wd_ordinal(p, instant - 1)
     # SF proposes the raw midnight closing its anchor day, plus the lag (#4272).
     return anchor + 1 + lag, False, deficit
 
@@ -1146,7 +1145,7 @@ def _mc_milestone_bounds(
     col: int,
     g: nx.DiGraph[str],
     task_idx: dict[str, int],
-    mats: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    mats: tuple[np.ndarray, np.ndarray, _InstantColumns],
     floors: _MilestoneFloors,
     completed_edge: dict[tuple[str, str], _FixedEdge],
     milestone_ids: frozenset[str],
@@ -1161,8 +1160,8 @@ def _mc_milestone_bounds(
     a raw midnight and the latest wins, a start-of-day reading winning a tie. The
     ``key = 2 * ordinal + start_display`` encoding makes that one ``maximum``, and
     :func:`_start_reading` is applied to the winner.
-    ``mats`` is ``(es, ef, instant, start_display, deficit)`` for the columns filled
-    so far; its instant columns hold each earlier milestone's *link* instant.
+    ``mats`` is ``(es, ef, instants)`` for the columns filled so far; ``instants``
+    holds each earlier milestone's *link* instant.
 
     The **deficit** (#4697) is how far, in working time, the true instant lies
     before the midnight it is shown at. A milestone after work that ends 0.3 into a
@@ -1186,7 +1185,7 @@ def _mc_milestone_bounds(
     lands a weekend later. An SS or SF link from started work measures from its
     verbatim actual too, and arrives as a constant in ``completed_edge`` (#4523).
     """
-    es_mat, ef_mat, instant_mat, start_display_mat, deficit_mat = mats
+    es_mat, ef_mat, instants = mats
     hard, start = floors
     # The links alone first, from -1, below any key a proposal can produce: a floor
     # holding them links from the latest of them and its earliest working-time
@@ -1216,7 +1215,7 @@ def _mc_milestone_bounds(
             continue
         p = task_idx[pred_id]
         if pred_id in milestone_ids:
-            offer(*_mc_instant_proposal(dep, p, instant_mat, start_display_mat, index, deficit_mat))
+            offer(*_mc_instant_proposal(dep, p, instants, index))
             continue
         proposal, display, deficit = _mc_work_proposal(
             dep, p, col, es_mat, ef_mat, index, (span_elapsed or {}).get(pred_id, 0)
@@ -1224,9 +1223,7 @@ def _mc_milestone_bounds(
         # A zero-base predecessor is an instant in some runs (#4698).
         pred_runs = (instant_runs or {}).get(pred_id)
         if pred_runs is not None:
-            at_instant, at_display, at_deficit = _mc_instant_proposal(
-                dep, p, instant_mat, start_display_mat, index, deficit_mat
-            )
+            at_instant, at_display, at_deficit = _mc_instant_proposal(dep, p, instants, index)
             proposal = np.where(pred_runs, at_instant, proposal)
             display = np.where(pred_runs, at_display, display)
             deficit = np.where(pred_runs, at_deficit, deficit)
@@ -1285,9 +1282,8 @@ def _mc_instant_edge_bound(
     dep: Dependency,
     p: int,
     col: int,
-    instant_mat: np.ndarray,
+    instants: _InstantColumns,
     index: _McIndex,
-    deficit_mat: np.ndarray,
 ) -> np.ndarray:
     """Per-run bound a link out of an instant puts on work: ES for FS/SS, exclusive EF else.
 
@@ -1298,15 +1294,16 @@ def _mc_instant_edge_bound(
     otherwise the successor waits for the next working day to open. An FF/SF bound
     is a finish, and the deficit only moves it within its snapped day.
     """
-    deficit = deficit_mat[:, p]
+    deficit = instants.deficit_of(p)
+    instant = instants.ordinal_of(p)
     if dep.dep_type in _START_ANCHORED:
-        anchor_ord = instant_mat[:, p]
+        anchor_ord = instant
     elif dep.lag > timedelta(0):
         # A positive FF or SF lag counts from the day the instant closes
         # (#4273, #4333); a lead counts back from the zero-lag anchor below.
-        anchor_ord = instant_mat[:, p] - 1
+        anchor_ord = instant - 1
     else:
-        anchor_ord = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
+        anchor_ord = index.prev_wd_ordinal(p, instant - 1)
     landing = anchor_ord + dep.lag.days
     bound = index.next_wd_offset(col, landing).astype(np.float64)
     if dep.dep_type not in _START_ANCHORED:
@@ -1330,7 +1327,7 @@ def _mc_edge_constraints(
     es_floor: dict[str, float],
     completed_edge: dict[tuple[str, str], _FixedEdge],
     runs: int,
-    milestones: tuple[frozenset[str], np.ndarray, _McIndex | None, int, np.ndarray] | None = None,
+    milestones: tuple[frozenset[str], _InstantColumns, _McIndex | None, int] | None = None,
     span_elapsed: dict[str, int] | None = None,
     instant_runs: dict[str, _InstantRuns] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
@@ -1343,7 +1340,7 @@ def _mc_edge_constraints(
     actual and lands a day off.
 
     A live milestone predecessor (#4079) is read from its per-run instant —
-    ``milestones`` is ``(milestone_ids, instant_mat, index, this_col, deficit_mat)``: FS/SS
+    ``milestones`` is ``(milestone_ids, instants, index, this_col)``: FS/SS
     measure from the instant, an FF or SF with a positive lag from the day it closes
     (#4273, #4333), and an FF or SF with no lag or a lead from the last working day
     before it (:func:`_edge_anchor`), then ``next_wd(anchor + lag)`` on this task's
@@ -1366,12 +1363,11 @@ def _mc_edge_constraints(
     es_constraints = np.full(runs, es_floor.get(tid, 0.0))
     ef_constraints = np.zeros(runs)
     has_ef_constraint = False
-    milestone_ids, instant_mat, index, col, deficit_mat = milestones or (
+    milestone_ids, instants, index, col = milestones or (
         frozenset(),
-        es_mat,
+        _InstantColumns(runs, ()),
         None,
         0,
-        np.zeros_like(es_mat),
     )
 
     for pred_id in g.predecessors(tid):
@@ -1390,7 +1386,7 @@ def _mc_edge_constraints(
 
         if pred_id in milestone_ids:
             assert index is not None
-            bound = _mc_instant_edge_bound(dep, p, col, instant_mat, index, deficit_mat)
+            bound = _mc_instant_edge_bound(dep, p, col, instants, index)
             if dep.dep_type in _START_ANCHORED:
                 np.maximum(es_constraints, bound, out=es_constraints)
             else:
@@ -1438,7 +1434,7 @@ def _mc_edge_constraints(
         pred_runs = (instant_runs or {}).get(pred_id)
         if pred_runs is not None:
             assert index is not None
-            at_instant = _mc_instant_edge_bound(dep, p, col, instant_mat, index, deficit_mat)
+            at_instant = _mc_instant_edge_bound(dep, p, col, instants, index)
             constraint = np.where(pred_runs, at_instant, constraint)
         if dep.dep_type in (DependencyType.FS, DependencyType.SS):
             np.maximum(es_constraints, constraint, out=es_constraints)

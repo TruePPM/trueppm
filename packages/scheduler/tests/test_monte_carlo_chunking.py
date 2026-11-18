@@ -32,6 +32,7 @@ from trueppm_scheduler import (
     monte_carlo,
 )
 from trueppm_scheduler.engine.montecarlo import run as mc_run
+from trueppm_scheduler.engine.montecarlo.instants import _InstantColumns
 from trueppm_scheduler.engine.montecarlo.sampling import (
     _sample_duration_matrix,
     _SampledDurations,
@@ -305,3 +306,83 @@ def test_replay_write_back_straddles_the_kept_rows(monkeypatch: pytest.MonkeyPat
     assert replayed == whole
     ranked = {entry["task_id"] for entry in whole["sensitivity"]}
     assert ranked & {"s0", "s1", "s2"}, "velocity tasks dropped out of the tornado"
+
+
+def _instant_dense_project() -> Project:
+    """Work, milestones and zero-base tasks interleaved, linked by every type and lag sign."""
+    tasks: list[Task] = []
+    for i in range(48):
+        if i % 4 == 1:  # a milestone
+            tasks.append(Task(id=f"t{i:02d}", name=f"m{i}", duration=timedelta(0)))
+        elif i % 4 == 3:  # zero-base: a 0-day task whose estimate can draw work (#4698)
+            tasks.append(
+                Task(
+                    id=f"t{i:02d}",
+                    name=f"z{i}",
+                    duration=timedelta(0),
+                    optimistic_duration=timedelta(0),
+                    most_likely_duration=timedelta(days=1),
+                    pessimistic_duration=timedelta(days=3),
+                )
+            )
+        else:
+            tasks.append(
+                Task(
+                    id=f"t{i:02d}",
+                    name=f"w{i}",
+                    duration=timedelta(days=2 + i % 3),
+                    optimistic_duration=timedelta(days=1 + i % 3),
+                    most_likely_duration=timedelta(days=2 + i % 3),
+                    pessimistic_duration=timedelta(days=6 + i % 5),
+                )
+            )
+    kinds = list(DependencyType)
+    deps = [
+        Dependency(
+            predecessor_id=f"t{i - 1 - (i % 2):02d}",
+            successor_id=f"t{i:02d}",
+            dep_type=kinds[i % 4],
+            lag=timedelta(days=i % 5 - 2),
+        )
+        for i in range(2, 48)
+    ]
+    return Project(
+        id="instants",
+        name="instants",
+        start_date=date(2026, 1, 5),
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(),
+    )
+
+
+# Seeded P50/P80/P95 of _instant_dense_project() at runs=300, seed=3824, as the
+# full-width instant matrices produced them before _InstantColumns.
+PINNED_INSTANT_PERCENTILES = ("2026-01-14", "2026-01-15", "2026-01-16")
+
+
+def test_instant_columns_are_exact_under_chunking(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Milestone and zero-base link instants are held per instant column only (#3824).
+
+    Every link type out of an instant reads :class:`_InstantColumns`, under one-run
+    chunks and a single chunk alike. The pinned percentiles are the ones the
+    full-width instant matrices produced, so the narrower storage moved no result.
+    """
+    project = _instant_dense_project()
+    chunked, whole = _both_ways(monkeypatch, project, runs=300, seed=3824)
+    assert chunked == whole
+    assert isinstance(whole, dict)
+    assert (whole["p50"], whole["p80"], whole["p95"]) == PINNED_INSTANT_PERCENTILES
+
+
+def test_instant_columns_store_only_instant_columns() -> None:
+    instants = _InstantColumns(4, [7, 2, 7])
+    assert instants.ordinal.shape == instants.deficit.shape == (4, 2)
+    assert instants.ordinal.dtype == np.int32
+    instants.store(7, np.arange(4), np.array([True, False, True, False]), np.full(4, 0.25))
+    assert instants.ordinal_of(7).tolist() == [0, 1, 2, 3]
+    assert instants.start_display_of(7).tolist() == [True, False, True, False]
+    assert instants.deficit_of(2).tolist() == [0.0] * 4
+    # A work column has no instant: reading one is a bug, not a zero.
+    with pytest.raises(KeyError):
+        instants.ordinal_of(3)

@@ -96,7 +96,7 @@ from trueppm_scheduler.models import (
 # Cells per row block when gathering a calendar's columns onto the reference ruler.
 _MC_REFERENCE_BLOCK_CELLS = 65_536
 
-# Cells (runs x tasks) per forward-pass chunk (#3824). The forward pass keeps five
+# Cells (runs x tasks) per forward-pass chunk (#3824). The forward pass kept five
 # runs x tasks matrices live (ES, EF and the instant deficit in float64, the instant
 # ordinal in int32, its display flag in bool: 29 bytes a cell) plus a working-time
 # copy, so running it over every run at once peaked at ~2.1 GB (2,088 MB) for 50k tasks x
@@ -111,7 +111,10 @@ _MC_REFERENCE_BLOCK_CELLS = 65_536
 # size) recovers about 0.6 s for ~130 MB; going further buys memory back faster than
 # it buys time. 10,000 tasks x 1,000 runs was never slower (2 chunks). A project of up
 # to 800 tasks still runs 10,000 runs in one chunk, so the common case pays no
-# per-chunk loop overhead at all.
+# per-chunk loop overhead at all. Those figures predate :class:`_InstantColumns`: the
+# instant ordinal, display flag and deficit are now held for milestone and zero-base
+# columns only, so a cell is 16 bytes plus 13 per instant column, and the same 8M-cell
+# chunk holds ~128 MB of ES/EF (50,000 x 1,000 replayed: ~590 MB -> ~475 MB RSS).
 _MC_FORWARD_CHUNK_CELLS = 8_000_000
 
 # Cells (runs x tasks) above which the sampled-duration matrix is replayed a row block
