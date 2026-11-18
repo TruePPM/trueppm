@@ -457,3 +457,97 @@ def _log_key_rewrites(rewritten: list[RewrittenKey]) -> None:
             row.old_code,
             row.new_code,
         )
+
+
+# ---------------------------------------------------------------------------
+# Frozen copies of live service code used by data migrations (#4603)
+#
+# A migration that imports ``projects.services`` changes behavior on a fresh
+# install whenever that function is refactored, and a future squash can never
+# delete the originals that load it. These are point-in-time copies: do NOT
+# "keep them in sync" with ``services`` — that coupling is what they remove.
+# ``api:migration-imports`` rejects a migration importing ``apps.*.services``.
+# ---------------------------------------------------------------------------
+
+_FROZEN_WATERFALL_KPIS = [
+    "schedule_health",
+    "baseline_variance",
+    "critical_tasks",
+    "milestone_health",
+    "budget_utilization",
+    "cost_variance",
+]
+_FROZEN_AGILE_KPIS = [
+    "milestone_health",
+    "p80_completion",
+    "at_risk_tasks",
+    "risk_score",
+]
+
+
+def frozen_rollup_config_defaults(methodology: str) -> tuple[list[str], str]:
+    """Frozen copy of ``services.rollup_config_defaults`` as of projects.0042.
+
+    Returns ``(enabled_kpis, aggregation_policy)`` with the KPI identifiers and
+    methodology values inlined as literals, so the migration needs no live model
+    enums. HYBRID (and any unexpected value) is the de-duplicated union.
+    """
+    if methodology == "WATERFALL":
+        return (list(_FROZEN_WATERFALL_KPIS), "worst")
+    if methodology == "AGILE":
+        return (list(_FROZEN_AGILE_KPIS), "worst")
+    union: list[str] = []
+    for kpi in _FROZEN_WATERFALL_KPIS + _FROZEN_AGILE_KPIS:
+        if kpi not in union:
+            union.append(kpi)
+    return (union, "worst")
+
+
+_FROZEN_CPM_OUTPUT_FIELDS: tuple[str, ...] = (
+    "early_start",
+    "early_finish",
+    "late_start",
+    "late_finish",
+    "scheduled_start",
+    "total_float",
+    "free_float",
+    "is_critical",
+)
+_FROZEN_PROJECT_CHUNK = 500
+
+
+def frozen_clear_all_uncommitted_cpm_output(task_model: Any, project_model: Any) -> int:
+    """Frozen copy of ``services.clear_all_uncommitted_cpm_output`` as of projects.0150.
+
+    Nulls the eight CPM output columns on every task outside the committed set
+    (BACKLOG, EPIC, recurring, soft-deleted), ADR-1152. Chunked by project so each
+    UPDATE is served by the ``project`` index instead of sequentially scanning
+    ``projects_task`` during a container-start migration. Idempotent. Status and
+    type values are inlined literals rather than the live enums.
+    """
+    from django.db.models import Q
+
+    project_ids = list(project_model.objects.values_list("pk", flat=True))
+    outside_committed = (
+        Q(status="BACKLOG") | Q(type="epic") | Q(is_recurring=True) | Q(is_deleted=True)
+    )
+    carries_output = Q()
+    for field in _FROZEN_CPM_OUTPUT_FIELDS:
+        carries_output |= Q(**{f"{field}__isnull": False})
+    cleared: dict[str, Any] = dict.fromkeys(_FROZEN_CPM_OUTPUT_FIELDS, None)
+    if any(f.name == "milestone_at_day_end" for f in task_model._meta.get_fields()):
+        carries_output |= Q(milestone_at_day_end=True)
+        cleared["milestone_at_day_end"] = False
+
+    total = 0
+    for start in range(0, len(project_ids), _FROZEN_PROJECT_CHUNK):
+        chunk = project_ids[start : start + _FROZEN_PROJECT_CHUNK]
+        qs = (
+            task_model.objects.filter(outside_committed)
+            .filter(carries_output)
+            .filter(project_id__in=chunk)
+        )
+        total += int(qs.update(**cleared))
+    if total:
+        logger.info("cleared CPM output on %d task(s) outside the committed set", total)
+    return total

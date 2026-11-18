@@ -4,7 +4,7 @@ from typing import Any
 
 from django.db import migrations, models
 
-from trueppm_api.apps.projects.services import clear_all_uncommitted_cpm_output
+from trueppm_api.apps.projects.backfill import frozen_clear_all_uncommitted_cpm_output
 
 
 def _clear_uncommitted_cpm_output(apps: Any, schema_editor: Any) -> None:
@@ -17,11 +17,12 @@ def _clear_uncommitted_cpm_output(apps: Any, schema_editor: Any) -> None:
     an archived or finished project never will. Its overview would keep serving
     phantom late counts indefinitely (#3578).
 
-    A thin wrapper on purpose: the predicate lives in ``projects.services`` so a test
-    can reach it without importing this module by name, which a squash would delete
-    (CLAUDE.md migration rule 3).
+    A thin wrapper on purpose: the predicate lives in ``projects.backfill`` (a frozen
+    copy of the live ``services`` function, #4603) so this migration's behavior cannot
+    drift with a service refactor and a test can reach it without importing this
+    module by name, which a squash would delete (CLAUDE.md migration rule 3).
 
-    It routes through ``clear_all_uncommitted_cpm_output``, which chunks by project
+    It routes through ``frozen_clear_all_uncommitted_cpm_output``, which chunks by project
     so each statement is index-served rather than sequentially scanning the whole
     ``projects_task`` table — migrations run on container start, and that scan would
     be unbounded upgrade latency for a residue expected to be small. That function's
@@ -34,7 +35,7 @@ def _clear_uncommitted_cpm_output(apps: Any, schema_editor: Any) -> None:
     or trigger a recompute — it is the same derived-output write the CPM task
     already performs (ADR-0091).
     """
-    clear_all_uncommitted_cpm_output(
+    frozen_clear_all_uncommitted_cpm_output(
         apps.get_model("projects", "Task"),
         apps.get_model("projects", "Project"),
     )

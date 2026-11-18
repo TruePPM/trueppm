@@ -27,7 +27,10 @@ from typing import Any
 
 from django.db import models
 
-from trueppm_api.apps.sync.sequence import BOARD_EVENT_SEQ_UPGRADE_OFFSET
+# Frozen copy of ``sync.sequence.BOARD_EVENT_SEQ_UPGRADE_OFFSET`` as of sync.0006
+# (ADR-1285). Migration 0006 seeds counters with it, so it must not move if the live
+# constant is retuned (#4603).
+BOARD_EVENT_SEQ_UPGRADE_OFFSET = 2**32
 
 # The two join shapes every indirect source uses to reach its project row, and
 # the predicates that bind the target table to the end of that join. Named

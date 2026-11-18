@@ -146,6 +146,13 @@ migrations-constraint-safety: ## Detect an AddConstraint on a table that may alr
 	@python3 scripts/check-migration-constraint-safety.py --self-test
 	@python3 scripts/check-migration-constraint-safety.py
 
+migration-imports-check: ## Fail a migration that imports live app services / bundled_templates (#4603, no DB)
+	@# A migration calling live service code changes behavior on a fresh install when
+	@# that function is refactored, and pins retained originals past a squash. Copy the
+	@# callee into the app's backfill module instead. Pure ast walk, no Django.
+	@python3 scripts/check-migration-imports.py --self-test
+	@python3 scripts/check-migration-imports.py
+
 bulk-create-server-version-check: ## Detect a VersionedModel bulk_create that leaves server_version = 0 (no DB)
 	@# bulk_create skips save(), the only place the INSERT path sets server_version = 1;
 	@# a row left at 0 publishes a lock token no client can echo back. Pure static analysis.
@@ -841,6 +848,7 @@ pre-push-checks: curl-hardening-check
 pre-push-checks: request-body-guards-check
 pre-push-checks: summary-duration-units-check
 pre-push-checks: extension-signals-check
+pre-push-checks: migration-imports-check
 pre-push-checks: pypi-id-tokens-check
 pre-push-checks: artifact-assertions-check
 pre-push-checks: build-system-pins-check

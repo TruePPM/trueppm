@@ -19,7 +19,7 @@ from django.db import migrations
 
 def seed(apps: Any, schema_editor: Any) -> None:
     ProjectTemplate = apps.get_model("projects", "ProjectTemplate")
-    from trueppm_api.apps.projects.bundled_templates import BUNDLED_TEMPLATES
+    from trueppm_api.apps.projects.backfill_bundled_templates import BUNDLED_TEMPLATES
 
     for name, description, build in BUNDLED_TEMPLATES:
         structure = build()
@@ -44,7 +44,7 @@ def seed(apps: Any, schema_editor: Any) -> None:
 
 def unseed(apps: Any, schema_editor: Any) -> None:
     ProjectTemplate = apps.get_model("projects", "ProjectTemplate")
-    from trueppm_api.apps.projects.bundled_templates import BUNDLED_TEMPLATE_NAMES
+    from trueppm_api.apps.projects.backfill_bundled_templates import BUNDLED_TEMPLATE_NAMES
 
     # Only starters nobody has adopted from. Deleting a template that seeded a
     # running project would strip the adoption record's only remaining pointer.
