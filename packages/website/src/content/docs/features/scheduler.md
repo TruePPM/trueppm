@@ -688,7 +688,9 @@ except InvalidScheduleInput as e:
 
 :::note
 Every `MAX_*` cap is exported from the top-level `trueppm_scheduler` package — the
-surface the API stability policy covers — so an application embedding the engine
+surface the API stability policy covers, except the two provisional Monte Carlo cell
+ceilings, `MAX_LAG_DELTA_CELLS` and `MAX_INDEX_CELLS` (and the `max_lag_delta_cells` /
+`max_index_cells` parameters), which may be renamed or replaced before 1.0 — so an application embedding the engine
 (such as the TruePPM API) can enforce the same bounds at its own edge instead of
 letting them drift:
 

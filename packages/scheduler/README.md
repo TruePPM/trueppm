@@ -748,7 +748,8 @@ without notice.
 request-scoped embedder needs them, but they are counted in the units of today's
 implementation rather than in anything a caller observes: `monte_carlo(max_lag_delta_cells=…)`
 with `MAX_LAG_DELTA_CELLS`, and `monte_carlo(max_index_cells=…)` with
-`MAX_INDEX_CELLS`. They are **provisional**: exempt from the 1.x signature freeze,
+`MAX_INDEX_CELLS`. They are **provisional**: exempt from the stability of the rest of the public API (which, as the
+next paragraph says, may still change before 1.0),
 they may be renamed or replaced by an implementation-neutral budget in any release,
 and any such change is listed in the changelog. Neither changes a computed value:
 a ceiling only decides which inputs are refused.

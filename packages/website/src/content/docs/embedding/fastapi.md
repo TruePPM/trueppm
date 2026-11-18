@@ -181,7 +181,9 @@ ceiling of 100,000,000 runs, far above what a request should allow). Pass
 `max_tasks` and `max_runs` whenever the caller is untrusted. If clients can supply
 their own calendars, also pass a smaller `max_index_cells` (and
 `max_lag_delta_cells`); the defaults are sized for a batch job, not a request
-handler.
+handler. Both knobs are provisional: they are counted in the units of today's
+implementation and may be renamed or replaced by an implementation-neutral budget
+before 1.0, so pin an exact `trueppm-scheduler` version if you pass them.
 
 ```python
 from trueppm_scheduler import monte_carlo, MonteCarloResult
