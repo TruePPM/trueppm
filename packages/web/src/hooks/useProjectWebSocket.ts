@@ -901,6 +901,11 @@ function registerSprintHandlers(on: OnFn, deps: WsHandlerDeps): void {
     ],
     () => {
       void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+      // useSprintBurndown is cached (5 min); an activate/close/cancel changes
+      // the series, and the payload shape is not guaranteed to name the sprint.
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
+      });
       // Sprint state changes drive milestone rollup recompute (ADR-0074);
       // refresh task data so the Gantt milestone reflects the new value
       // even if the milestone_rollup_updated event lands first.

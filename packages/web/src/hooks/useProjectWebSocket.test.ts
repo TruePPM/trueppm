@@ -461,6 +461,22 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  it('invalidates every mounted sprint burndown on sprint_activated', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('sprint_activated');
+    const predicateCall = invalidateSpy.mock.calls.find(
+      ([f]) => typeof (f as { predicate?: unknown })?.predicate === 'function',
+    );
+    expect(predicateCall).toBeDefined();
+    const pred = (predicateCall![0] as unknown as {
+      predicate: (q: { queryKey: unknown[] }) => boolean;
+    }).predicate;
+    expect(pred({ queryKey: ['sprint', 'sp-1', 'burndown'] })).toBe(true);
+    expect(pred({ queryKey: ['sprint', 'sp-1', 'retro'] })).toBe(false);
+  });
+
   // #2992 — a terminal close failure is pushed, not polled for -------------
 
   it('invalidates sprints and the close-request read on sprint_close_failed', () => {

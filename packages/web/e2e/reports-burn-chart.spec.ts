@@ -351,6 +351,42 @@ test.describe('Reports tab — sprint-scoped burndown (#1983)', () => {
   });
 });
 
+test.describe('Reports tab — sprint read cache (#3568)', () => {
+  test('a tab switch back (visibilitychange) re-requests neither the sprint list nor the burndown', async ({
+    page,
+  }) => {
+    let sprintListHits = 0;
+    let burndownHits = 0;
+    await setup(page);
+    // Registered after setup() so these last-wins routes count the requests.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (r) => {
+      sprintListHits += 1;
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 1, next: null, previous: null, results: [SPRINT] }) });
+    });
+    await page.route(/\/api\/v1\/sprints\/.*\/burndown\//, (r) => {
+      burndownHits += 1;
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sprint: SPRINT, snapshots: [] }),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    await expect(page.getByLabel(/to chart/i)).toHaveValue(SPRINT.id, { timeout: 10_000 });
+    await expect.poll(() => burndownHits).toBeGreaterThan(0);
+    const sprintBefore = sprintListHits;
+    const burndownBefore = burndownHits;
+
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    await page.waitForTimeout(500);
+    expect(sprintListHits).toBe(sprintBefore);
+    expect(burndownHits).toBe(burndownBefore);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Error state
 // ---------------------------------------------------------------------------

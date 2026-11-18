@@ -376,6 +376,57 @@ describe('useSprintMutations', () => {
 // Simple GET reads: URL, unwrap, and null-id disable gate
 // ---------------------------------------------------------------------------
 
+describe('sprint read cache window', () => {
+  it('useSprints and useSprintBurndown do not refetch on remount within the stale window', async () => {
+    const qc = newQc();
+    getMock.mockReset();
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.includes('burndown')
+          ? { sprint: sprint({}), snapshots: [] }
+          : { count: 0, next: null, previous: null, results: [] },
+      }),
+    );
+    const first = renderHook(
+      () => ({ s: useSprints('proj-1'), b: useSprintBurndown('sp-1') }),
+      { wrapper: makeWrapper(qc) },
+    );
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(first.result.current.s.isLoading).toBe(false));
+    first.unmount();
+
+    renderHook(() => ({ s: useSprints('proj-1'), b: useSprintBurndown('sp-1') }), {
+      wrapper: makeWrapper(qc),
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(getMock).toHaveBeenCalledTimes(2);
+    expect(qc.getQueryState(['sprints', 'proj-1'])?.isInvalidated).toBe(false);
+  });
+
+  it('activateSprint and closeSprint invalidate the sprint list and every burndown', async () => {
+    const qc = newQc();
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: {} });
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useSprintMutations('proj-1'), { wrapper: makeWrapper(qc) });
+    result.current.activateSprint.mutate('sp-1');
+    await waitFor(() => expect(result.current.activateSprint.isSuccess).toBe(true));
+    result.current.closeSprint.mutate({ sprintId: 'sp-1', payload: {} as never });
+    await waitFor(() => expect(result.current.closeSprint.isSuccess).toBe(true));
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sprints', 'proj-1'] });
+    const predicateCalls = invalidate.mock.calls.filter(
+      ([f]) => typeof (f as { predicate?: unknown })?.predicate === 'function',
+    );
+    expect(predicateCalls).toHaveLength(2);
+    const pred = (predicateCalls[0][0] as unknown as {
+      predicate: (q: { queryKey: unknown[] }) => boolean;
+    }).predicate;
+    expect(pred({ queryKey: ['sprint', 'sp-1', 'burndown'] })).toBe(true);
+    expect(pred({ queryKey: ['sprint', 'sp-1', 'capacity'] })).toBe(false);
+  });
+});
+
 describe('sprint GET reads', () => {
   let qc: QueryClient;
   beforeEach(() => {
