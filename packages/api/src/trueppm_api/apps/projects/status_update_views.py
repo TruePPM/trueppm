@@ -8,6 +8,7 @@ The public, snapshot-only read rides the share-link envelope in ``share_views``.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from django.shortcuts import get_object_or_404
@@ -56,10 +57,21 @@ class StatusUpdateProjectPostThrottle(SimpleRateThrottle):
     scope = "status_update_post_project"
 
     def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        """Key on the canonical UUID, not the URL text.
+
+        The route takes ``project_pk`` as a string and the lookup accepts every
+        spelling ``uuid.UUID`` parses (upper case, bare hex, braces), so keying on
+        the raw text would give each spelling of one project its own bucket. An
+        unparsable value is not throttled here; the view 404s it.
+        """
         project_pk = getattr(view, "kwargs", {}).get("project_pk")
         if project_pk is None:
             return None
-        return self.cache_format % {"scope": self.scope, "ident": str(project_pk)}
+        try:
+            ident = str(uuid.UUID(str(project_pk)))
+        except ValueError:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 #: The 403 an API token gets on a post. ``IsNotTokenAuthenticated``'s own message

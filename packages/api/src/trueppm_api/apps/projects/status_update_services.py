@@ -82,6 +82,7 @@ def record_sha256(
     seq: int,
     rag: str,
     narrative: str,
+    author_id: Any,
     posted_at: datetime,
     computed_health: str,
     snapshot: dict[str, Any],
@@ -91,10 +92,16 @@ def record_sha256(
     Stored in ``StatusUpdate.snapshot_sha256``. Covering the snapshot alone would let
     a row rewritten outside the ORM (``UPDATE ... SET narrative = ...``) keep a valid
     digest while the share served the rewritten narrative, so the PM's call, the
-    number, the time and the stored health band are inside the digest too.
+    number, the time, the stored health band and the author are inside the digest too.
     ``posted_at`` is normalized to UTC so a session time zone cannot change it.
-    ``author`` is deliberately outside: it is ``SET_NULL`` when the account is
-    deleted, which is a legitimate change, and it is never served on its own.
+
+    ``author_id`` is covered because it is served: the in-app read returns it and a
+    share link with assignees on names the author, so swapping it would credit the
+    PM's signed call to someone else. ``author`` is ``SET_NULL`` when the account is
+    deleted, which is a legitimate change; ``reseal_for_deleted_author`` re-digests
+    those rows with ``author_id=None`` as the account goes, so an orphaned row still
+    verifies, while a raw ``UPDATE ... SET author_id = NULL`` that skips the re-seal
+    is reported like any other rewrite.
     """
     return canonical_sha256(
         {
@@ -102,6 +109,7 @@ def record_sha256(
             "seq": seq,
             "rag": rag,
             "narrative": narrative,
+            "author": str(author_id) if author_id is not None else None,
             "posted_at": posted_at.astimezone(UTC).isoformat(),
             "computed_health": computed_health,
             "snapshot": snapshot,
@@ -109,20 +117,45 @@ def record_sha256(
     )
 
 
+def _digest_of(update: StatusUpdate, *, author_id: Any) -> str:
+    return record_sha256(
+        project_id=update.project_id,
+        seq=update.seq,
+        rag=update.rag,
+        narrative=update.narrative,
+        author_id=author_id,
+        posted_at=update.posted_at,
+        computed_health=update.computed_health,
+        snapshot=update.snapshot,
+    )
+
+
 def snapshot_verified(update: StatusUpdate) -> bool:
     """Whether the stored row still hashes to the digest recorded at post time."""
-    return (
-        record_sha256(
-            project_id=update.project_id,
-            seq=update.seq,
-            rag=update.rag,
-            narrative=update.narrative,
-            posted_at=update.posted_at,
-            computed_health=update.computed_health,
-            snapshot=update.snapshot,
+    return _digest_of(update, author_id=update.author_id) == update.snapshot_sha256
+
+
+def reseal_for_deleted_author(user_id: Any) -> int:
+    """Re-digest the author's updates with no author, just before the account is deleted.
+
+    Runs from ``pre_delete`` on the user model, inside the deletion's transaction, so
+    the ``SET_NULL`` Django applies next leaves rows that still verify. Only a row
+    that verifies now is re-sealed: re-digesting a row already altered outside the
+    ORM would launder the alteration into a valid digest. Returns the rows re-sealed.
+
+    The write goes through ``_base_manager`` (a plain manager) because
+    ``StatusUpdateQuerySet`` refuses ``update()`` on purpose; this is the single
+    sanctioned rewrite, and it changes only the digest, never a served field.
+    """
+    resealed = 0
+    for update in StatusUpdate.objects.filter(author_id=user_id):
+        if not snapshot_verified(update):
+            continue
+        StatusUpdate._base_manager.filter(pk=update.pk).update(
+            snapshot_sha256=_digest_of(update, author_id=None)
         )
-        == update.snapshot_sha256
-    )
+        resealed += 1
+    return resealed
 
 
 def derived_health(project: Project) -> str:
@@ -424,12 +457,13 @@ def post_status_update(project: Project, user: Any, *, rag: str, narrative: str)
         posted_at = timezone.now()
         snapshot = build_snapshot(project, posted_at=posted_at, previous=previous)
         computed_health = derived_health(project)
+        author = user if getattr(user, "is_authenticated", False) else None
         update = StatusUpdate.objects.create(
             project=project,
             seq=next_seq,
             rag=rag,
             narrative=narrative,
-            author=user if getattr(user, "is_authenticated", False) else None,
+            author=author,
             posted_at=posted_at,
             computed_health=computed_health,
             snapshot=snapshot,
@@ -438,6 +472,7 @@ def post_status_update(project: Project, user: Any, *, rag: str, narrative: str)
                 seq=next_seq,
                 rag=rag,
                 narrative=narrative,
+                author_id=author.pk if author is not None else None,
                 posted_at=posted_at,
                 computed_health=computed_health,
                 snapshot=snapshot,

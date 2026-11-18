@@ -6010,10 +6010,13 @@ class StatusUpdate(models.Model):
     queryset refuses bulk writes. The snapshot is a JSON document built by
     ``status_update_services.build_snapshot`` at ``posted_at`` and never recomputed on
     read; ``snapshot_sha256`` is the SHA-256 of the canonical JSON of every served
-    field (project, seq, rag, narrative, posted_at, computed_health and the snapshot;
-    ``status_update_services.record_sha256``), checked on every read so a row altered
-    outside the ORM is reported rather than served. The column keeps its name; what
-    it digests is the whole row a reader sees, not the snapshot alone.
+    field (project, seq, rag, narrative, author, posted_at, computed_health and the
+    snapshot; ``status_update_services.record_sha256``), checked on every read so a
+    row altered outside the ORM is reported rather than served. The column keeps its
+    name; what it digests is the whole row a reader sees, not the snapshot alone. The
+    one sanctioned rewrite is the digest itself, re-sealed with no author just before
+    the author's account is deleted (``reseal_for_deleted_author``), so the
+    ``SET_NULL`` that follows leaves a row that still verifies.
 
     Plain ``models.Model`` (not ``VersionedModel``): a posted update never changes,
     so there is no version to bump and nothing for the offline delta to reconcile.

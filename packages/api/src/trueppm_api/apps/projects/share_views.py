@@ -252,8 +252,10 @@ def _serve_public_share(
             status=status.HTTP_404_NOT_FOUND,
         )
     if uniform_unavailable and "Cache-Control" not in resp:
-        # Every response on this route is private, the 404 included, so a shared
-        # cache never holds one and the unavailable outcomes stay byte-identical.
+        # Every response the envelope builds is private, the 404 included, so a
+        # shared cache never holds one and the unavailable outcomes stay
+        # byte-identical. The 429 and 405 DRF raises before ``get()`` runs get the
+        # same headers from ``PublicStatusUpdateShareView.finalize_response``.
         resp["Cache-Control"] = "private, no-store"
     # A capability URL's page must never be indexed, whatever the outcome.
     resp["X-Robots-Tag"] = "noindex, nofollow"
@@ -473,6 +475,25 @@ class PublicStatusUpdateShareView(APIView):
     authentication_classes: list[Any] = []  # noqa: RUF012
     throttle_classes = [ShareLinkAccessThrottle]  # noqa: RUF012
     http_method_names = ["get"]  # noqa: RUF012
+
+    def finalize_response(
+        self, request: Request, response: Response, *args: Any, **kwargs: Any
+    ) -> Response:
+        """Give every response on the route the capability-URL headers.
+
+        ``_serve_public_share`` sets them on what ``get()`` returns, but a throttle
+        ``429`` and a ``405`` are raised before ``get()`` runs and reach the client
+        through DRF's exception handling, which ends here. Each header is set only
+        when absent, so the envelope's own values stand.
+        """
+        response = super().finalize_response(request, response, *args, **kwargs)
+        if "Cache-Control" not in response:
+            response["Cache-Control"] = "private, no-store"
+        if "X-Robots-Tag" not in response:
+            response["X-Robots-Tag"] = "noindex, nofollow"
+        if "Referrer-Policy" not in response:
+            response["Referrer-Policy"] = "no-referrer"
+        return response
 
     @extend_schema(
         summary="Public read-only status update snapshot for a share token",

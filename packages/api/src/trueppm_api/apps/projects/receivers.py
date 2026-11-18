@@ -12,7 +12,8 @@ import logging
 from typing import Any
 
 from celery.exceptions import SoftTimeLimitExceeded
-from django.db.models.signals import post_save
+from django.conf import settings
+from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
 
 from trueppm_api.apps.projects.signals import task_status_changed
@@ -241,3 +242,16 @@ def _register_backlog_pull_rollback_receiver() -> None:
                 "backlog rollback: failed to reset BacklogItem for deleted task=%s",
                 instance.pk,
             )
+
+
+@receiver(pre_delete, sender=settings.AUTH_USER_MODEL)
+def _reseal_status_updates_before_author_delete(sender: Any, instance: Any, **kwargs: Any) -> None:
+    """Keep a deleted author's status updates verifiable after ``SET_NULL`` runs.
+
+    The record digest covers the author, so the ``SET_NULL`` the deletion applies
+    would otherwise report every update that account posted as altered. ``pre_delete``
+    fires inside the deletion's transaction, before the collector nulls the column.
+    """
+    from trueppm_api.apps.projects.status_update_services import reseal_for_deleted_author
+
+    reseal_for_deleted_author(instance.pk)

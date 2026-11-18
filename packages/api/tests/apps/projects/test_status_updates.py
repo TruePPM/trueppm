@@ -307,6 +307,7 @@ def test_snapshot_carries_provenance_and_reasons(project: Project, pm_client: AP
         seq=stored.seq,
         rag=stored.rag,
         narrative=stored.narrative,
+        author_id=stored.author_id,
         posted_at=stored.posted_at,
         computed_health=stored.computed_health,
         snapshot=snap,
@@ -370,16 +371,10 @@ def test_tampered_snapshot_is_reported(project: Project, pm_client: APIClient) -
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "change",
-    [
-        {"narrative": "Rewritten after the fact."},
-        {"rag": "green"},
-        {"computed_health": "critical"},
-        {"seq": 99},
-    ],
+    "field", ["narrative", "rag", "computed_health", "seq", "posted_at", "project", "author"]
 )
 def test_a_served_field_changed_alone_is_reported_and_not_shared(
-    project: Project, pm: Any, pm_client: APIClient, change: dict[str, Any]
+    project: Project, pm: Any, pm_client: APIClient, field: str
 ) -> None:
     """The digest covers every served field, not the snapshot alone.
 
@@ -394,11 +389,90 @@ def test_a_served_field_changed_alone_is_reported_and_not_shared(
     )
     assert _share(raw).status_code == 200
     cache.clear()
+    change: dict[str, Any] = {
+        "narrative": {"narrative": "Rewritten after the fact."},
+        "rag": {"rag": "green"},
+        "computed_health": {"computed_health": "critical"},
+        "seq": {"seq": 99},
+        "posted_at": {"posted_at": update.posted_at - timedelta(days=3)},
+        "project": {
+            "project": Project.objects.create(name="Elsewhere", start_date=date(2026, 1, 5))
+        },
+        "author": {"author": _member(project, "someone-else", Role.MEMBER)},
+    }[field]
     StatusUpdate._base_manager.filter(pk=update.pk).update(**change)
 
+    if field == "project":
+        # The row moved out from under this project's route; the read is a 404 there.
+        assert pm_client.get(f"{_url(project)}{update.pk}/").status_code == 404
+    else:
+        body = pm_client.get(f"{_url(project)}{update.pk}/").json()
+        assert body["snapshot_verified"] is False
+    assert StatusUpdate.objects.get(pk=update.pk).snapshot_sha256 == update.snapshot_sha256
+    assert status_update_services.snapshot_verified(StatusUpdate.objects.get(pk=update.pk)) is False
+    assert _share(raw).status_code == 404
+
+
+@pytest.mark.django_db
+def test_deleting_the_author_keeps_the_update_verified(
+    project: Project, pm: Any, pm_client: APIClient
+) -> None:
+    """``SET_NULL`` on account deletion is legitimate: the row is re-sealed first."""
+    author = _member(project, "leaver", Role.ADMIN)
+    update = status_update_services.post_status_update(
+        project, author, rag="amber", narrative="Handing over."
+    )
+    _link, raw = share_services.mint_share_link(
+        project,
+        pm,
+        content_kind=ShareContentKind.STATUS_UPDATE,
+        status_update=update,
+        show_assignees=True,
+    )
+    assert _share(raw).json()["author"] == "leaver"
+    cache.clear()
+    author.delete()
+
+    stored = StatusUpdate.objects.get(pk=update.pk)
+    assert stored.author_id is None
+    assert stored.narrative == "Handing over."
+    body = pm_client.get(f"{_url(project)}{update.pk}/").json()
+    assert body["snapshot_verified"] is True
+    assert body["author"] is None
+    shared = _share(raw)
+    assert shared.status_code == 200
+    assert shared.json()["author"] is None
+
+
+@pytest.mark.django_db
+def test_author_nulled_outside_the_app_is_reported(
+    project: Project, pm: Any, pm_client: APIClient
+) -> None:
+    """A raw ``SET author_id = NULL`` that skips the re-seal cannot dodge the digest."""
+    update = status_update_services.post_status_update(project, pm, rag="red", narrative="")
+    with connection.cursor() as cur:
+        cur.execute(
+            "UPDATE projects_statusupdate SET author_id = NULL WHERE id = %s", [str(update.pk)]
+        )
     body = pm_client.get(f"{_url(project)}{update.pk}/").json()
     assert body["snapshot_verified"] is False
-    assert _share(raw).status_code == 404
+
+
+@pytest.mark.django_db
+def test_deleting_the_author_does_not_launder_an_altered_row(
+    project: Project, pm_client: APIClient
+) -> None:
+    """The re-seal skips a row that no longer verifies, so it stays reported."""
+    author = _member(project, "leaver", Role.ADMIN)
+    update = status_update_services.post_status_update(
+        project, author, rag="red", narrative="Original."
+    )
+    StatusUpdate._base_manager.filter(pk=update.pk).update(narrative="Rewritten.")
+    author.delete()
+
+    assert StatusUpdate.objects.get(pk=update.pk).snapshot_sha256 == update.snapshot_sha256
+    body = pm_client.get(f"{_url(project)}{update.pk}/").json()
+    assert body["snapshot_verified"] is False
 
 
 # ── share token ──────────────────────────────────────────────────────────────
@@ -626,6 +700,55 @@ def test_post_rate_limit_is_per_project_across_posters(project: Project, pm: Any
         assert _post(first, project).status_code == 429
         assert _post(second, other).status_code == 201
     assert StatusUpdate.objects.filter(project=project).count() == 2
+
+
+@pytest.mark.django_db
+def test_post_rate_limit_counts_every_spelling_of_the_project_id(project: Project, pm: Any) -> None:
+    """Upper-case, bare-hex and braced spellings of one UUID share one bucket."""
+    from trueppm_api.apps.projects.status_update_views import StatusUpdateProjectPostThrottle
+
+    pm2 = _member(project, "pm2", Role.ADMIN)
+    pm3 = _member(project, "pm3", Role.ADMIN)
+    canonical = str(project.pk)
+    payload = {"rag": "amber", "narrative": ""}
+    with patch.object(StatusUpdateProjectPostThrottle, "rate", "1/min", create=True):
+        assert _post(_client(pm), project).status_code == 201
+        for user, spelling in (
+            (pm2, canonical.upper()),
+            (pm3, project.pk.hex),
+            (pm2, "{" + canonical + "}"),
+        ):
+            resp = _client(user).post(
+                f"/api/v1/projects/{spelling}/status-updates/", payload, format="json"
+            )
+            assert resp.status_code == 429, spelling
+    assert StatusUpdate.objects.filter(project=project).count() == 1
+
+
+@pytest.mark.django_db
+def test_share_route_responses_raised_before_get_carry_the_private_headers(
+    project: Project, pm: Any
+) -> None:
+    """A 405 and a throttle 429 never reach ``get()`` but are still private."""
+    from trueppm_api.apps.projects.share_views import ShareLinkAccessThrottle
+
+    update = status_update_services.post_status_update(project, pm, rag="red", narrative="")
+    _link, raw = share_services.mint_share_link(
+        project, pm, content_kind=ShareContentKind.STATUS_UPDATE, status_update=update
+    )
+    url = f"/api/v1/share/status-update/{raw}/"
+    # The throttle runs before the method check, so the 405 is taken first and the
+    # bucket emptied before the rate is lowered.
+    not_allowed = APIClient().post(url, {}, format="json")
+    cache.clear()
+    with patch.object(ShareLinkAccessThrottle, "rate", "1/min", create=True):
+        assert APIClient().get(url).status_code == 200
+        throttled = APIClient().get(url)
+    for resp, code in ((not_allowed, 405), (throttled, 429)):
+        assert resp.status_code == code
+        assert resp["Cache-Control"] == "private, no-store"
+        assert resp["Referrer-Policy"] == "no-referrer"
+        assert "noindex" in resp["X-Robots-Tag"]
 
 
 @pytest.mark.django_db(transaction=True)

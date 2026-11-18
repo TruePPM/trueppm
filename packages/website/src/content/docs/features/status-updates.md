@@ -67,9 +67,12 @@ The snapshot holds no cost figures.
 Every update is numbered within its project (`seq`), and two posts made at the
 same moment take consecutive numbers. The server records a SHA-256 digest at post
 time over everything a reader is served (the number, the RAG call, the narrative,
-the posting time, the computed health and the snapshot) and checks it on every
-read; `snapshot_verified` is false if any of them was changed outside TruePPM, and
-a share link for such an update stops resolving.
+the author, the posting time, the computed health and the snapshot) and checks it
+on every read; `snapshot_verified` is false if any of them was changed outside
+TruePPM, and a share link for such an update stops resolving. Deleting the
+author's account is not a change of that kind: TruePPM re-records the digest
+without the author as the account is removed, so the update still verifies and
+shows no author.
 
 ## What has moved since
 
