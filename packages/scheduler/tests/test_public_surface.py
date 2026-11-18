@@ -768,10 +768,13 @@ def test_implementation_unit_ceilings_are_declared_provisional(param: str, const
     import inspect
 
     assert inspect.signature(monte_carlo).parameters[param].default == getattr(ts, constant)
+    # Indentation-agnostic: Python 3.13+ strips a docstring's common indent at compile
+    # time, so the built wheel's __doc__ is not indented like the source.
     doc = monte_carlo.__doc__ or ""
-    entry = doc[doc.index(f"        {param}:") + 1 :]
-    next_entry = re.search(r"\n {8}\w+:", entry)
-    entry = entry[: next_entry.start()] if next_entry else entry
+    start = re.search(rf"^( +){param}:", doc, re.MULTILINE)
+    assert start, f"monte_carlo's docstring has no {param} entry"
+    next_entry = re.compile(rf"^{start.group(1)}\w+:", re.MULTILINE).search(doc, start.end())
+    entry = doc[start.start() : next_entry.start() if next_entry else len(doc)]
     assert "Provisional" in entry, f"monte_carlo's {param} entry does not say it is provisional"
 
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
