@@ -823,7 +823,8 @@ class _SeedImporter:
 
         target = candidates[0]
         self.replaced_program_id = str(target.pk)
-        # The program shell is unrecoverable on both paths, so its keys move to the
+        # The rebuild is the program to its owner (a restored shell gets a fresh
+        # key, #2587, and samples hard-delete), so its keys move to the
         # rebuild — the same program to its owner, with its slug and old links
         # intact (ADR-1237). Released before the teardown locks and saves the row.
         self.released_program_keys = release_keys_for_replace(target)

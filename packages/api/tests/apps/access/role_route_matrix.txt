@@ -129,6 +129,7 @@
 -----++  GET api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/deliveries/$::deliveries
 -++++++  GET api/v1/^programs/samples/$::samples
 -++++++  GET api/v1/^programs/samples/(?P<key>[^/.]+)/download/$::download_sample
+-++++++  GET api/v1/^programs/trash/$::trash
 -++++++  GET api/v1/^project-resources/$::list
 -++++++  GET api/v1/^project-resources/(?P<pk>[^/.]+)/$::retrieve
 -++++++  GET api/v1/^project-templates/$::list
@@ -442,6 +443,7 @@
 -++++++  POST api/v1/^programs/import/$::import_seed
 -++++++  POST api/v1/^programs/import/validate/$::validate_import
 -++++++  POST api/v1/^programs/load-sample/$::load_sample
+-++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/restore/$::restore
 -++++++  POST api/v1/^project-resources/$::create
 -++++++  POST api/v1/^project-templates/(?P<pk>[^/.]+)/apply/$::apply
 -++++++  POST api/v1/^project-templates/publish/$::publish

@@ -421,6 +421,9 @@ wrong.
   recoverable, and they return as **standalone** projects, not regrouped under the old
   program. The 409 copy, the user docs, and the changelog must say this in those words.
   The program-Trash gap is filed as follow-up #2587.
+  *Superseded 2026-11-17 (#2587):* the shell is now recoverable through the API —
+  `GET /programs/trash/` and `POST /programs/{id}/restore/`, which re-attaches the
+  recorded projects and re-keys the shell. See the ADR-0689 amendment.
 - *`delete_program_cascade` already loses the program tombstone* by soft-deleting the
   memberships the sync accessible-set depends on. This ADR's path avoids it by keeping
   memberships live; the pre-existing defect on `DELETE /programs/{id}/` is filed as

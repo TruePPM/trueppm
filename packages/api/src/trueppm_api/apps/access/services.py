@@ -242,7 +242,7 @@ def create_program(
 
 
 @transaction.atomic
-def delete_program_cascade(program_id: uuid.UUID | str) -> None:
+def delete_program_cascade(program_id: uuid.UUID | str, *, actor: Any = None) -> None:
     """Detach all projects and soft-delete the program, leaving memberships live.
 
     Three things must hold atomically:
@@ -265,10 +265,13 @@ def delete_program_cascade(program_id: uuid.UUID | str) -> None:
        ``program=NULL`` here matches the dialog's promise that projects become
        standalone after deletion.
     3. **The program itself is soft-deleted.** This bumps ``server_version`` so
-       sync consumers can drop the row from their caches.
+       sync consumers can drop the row from their caches. The detached project ids
+       and the deleting ``actor`` are recorded on the tombstone so the program can
+       be restored from Trash with its projects re-attached (#2587).
 
     Args:
         program_id: The program to delete.
+        actor: The user deleting it, shown as "Deleted by" in program Trash.
 
     Raises:
         Program.DoesNotExist: if the program is missing or already soft-deleted.
@@ -286,10 +289,17 @@ def delete_program_cascade(program_id: uuid.UUID | str) -> None:
     # hard delete. soft_delete() on the program would otherwise leave dangling
     # references. We must go through ``Project.save()`` (not ``update()``) so
     # ``server_version`` increments and mobile sync clients pick up the change.
+    detached: list[uuid.UUID] = []
     for project in Project.objects.select_for_update().filter(program=program):
         project.program = None
         project.save(update_fields=["program"])
+        # Live and already-trashed children alike: restore re-attaches whichever
+        # are still unparented then, so a project trashed before the program comes
+        # back under it too once both are restored.
+        detached.append(project.pk)
 
+    program.detached_project_ids = detached
+    program.deleted_by = actor if actor is not None and actor.is_authenticated else None
     program.soft_delete()
 
 

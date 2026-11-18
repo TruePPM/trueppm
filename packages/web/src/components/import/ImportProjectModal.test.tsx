@@ -431,7 +431,7 @@ describe('ImportProjectModal — seed replace confirmation', () => {
     expect(dialog).toHaveTextContent(
       'Its projects move to Trash and can be restored individually as standalone projects.',
     );
-    expect(dialog).toHaveTextContent('The program itself is not recoverable.');
+    expect(dialog).toHaveTextContent('The program itself goes to program Trash without its code, and can be restored through the API only.');
   });
 
   it('re-submits the same file with replace + the compare-and-swap token on confirm', async () => {

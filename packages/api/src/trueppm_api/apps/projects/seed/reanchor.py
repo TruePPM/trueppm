@@ -381,6 +381,7 @@ _DELIBERATELY_UNSHIFTED: dict[str, str] = {
     "projects.TaskRelation.deleted_at": _TOMBSTONE_REASON,
     "timetracking.TimeEntry.deleted_at": _TOMBSTONE_REASON,
     "projects.Program.closed_at": "Lifecycle fact, not plan.",
+    "projects.Program.deleted_at": _TOMBSTONE_REASON,
     "projects.Program.created_at": (
         "When the program row was minted. Moving it would claim the demo was "
         "loaded on a day it was not, and nothing renders it."

@@ -1,7 +1,12 @@
 ---
 title: Program Settings
 description: Configure a program's identity, delivery model, rollup KPIs, cadence, risk policy, and lifecycle — and how each setting inherits from the workspace or is overridden per program.
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+Program Trash and program restore (the last paragraph of "Deleting a program" / the **Delete program** action) ship in 0.5. In the current release a deleted program cannot be recovered.
+:::
 
 :::note[Added in 0.2 (alpha)]
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; 0.4 shipped as the first beta.
@@ -358,8 +363,9 @@ lifecycle actions (#530). Every action here is logged and reviewable in the
   step down to **Program Manager**, and can optionally reassign the **program lead**
   in the same step. The new Program Admin must already be a program member.
 - **Split into sub-programs** — divide the program's projects into new programs.
-- **Delete program** — permanently remove the program. This is a destructive,
-  confirmation-gated action; before deleting, consider exporting first — see
+- **Delete program** — remove the program for everyone. From 0.5 it goes to program
+  Trash, where a Program Admin can restore it through the API; in the current release
+  deletion cannot be undone. This is a destructive, confirmation-gated action; before deleting, consider exporting first — see
   [Data export](/administration/data-export/).
 
 ## See also
