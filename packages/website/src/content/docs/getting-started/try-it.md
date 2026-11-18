@@ -24,6 +24,17 @@ There is no login and no write path — you are looking at a live instance, not 
 screenshot tour, but nothing you do can change it. The demo is `noindex`, resource
 -capped, and reachable only at the share URL.
 
+### Previewing the admin screens
+
+The interactive demo signs you in as a **Member**, so the invite, role and
+workspace-settings screens are not available to you. Choose **Admin screens** in
+the demo bar to open a static preview of them instead: sample members and
+pending invites, workspace defaults, and the real roles-and-permissions matrix.
+The people shown are fictional, the controls are inactive, and the page makes no
+changes. There is deliberately no elevated demo account, because a public
+instance must not publish an admin credential. The preview appears only on the
+read-only demo; on your own install the real screens live under **Settings**.
+
 ## One command: run the demo locally
 
 One command brings up the whole stack on your own machine with zero

@@ -222,4 +222,13 @@ describe('DemoModeBar — landing hint', () => {
     // somebody completed.
     expect(window.localStorage.getItem(DEMO_TIPS_KEY)).toBe('done');
   });
+
+  it('links to the static admin-screens preview, only in demo mode', () => {
+    asDemo();
+    render(<DemoModeBar />);
+    expect(screen.getByRole('link', { name: 'Admin screens' })).toHaveAttribute(
+      'href',
+      '/demo/admin-preview',
+    );
+  });
 });

@@ -245,6 +245,11 @@ const DemoDataPage = lazy(() =>
     default: m.DemoDataPage,
   })),
 );
+const DemoAdminPreviewPage = lazy(() =>
+  import('@/features/settings/workspace/DemoAdminPreviewPage').then((m) => ({
+    default: m.DemoAdminPreviewPage,
+  })),
+);
 const WorkspaceObservabilityPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceObservabilityPage').then((m) => ({
     default: m.WorkspaceObservabilityPage,
@@ -1352,6 +1357,17 @@ export const routes: RouteObject[] = [
                   </Suspense>
                 ),
                 handle: { title: 'Demo data' } satisfies RouteHandle,
+              },
+              // Read-only demo: static preview of the admin screens (#3973). No API
+              // reads; the page withdraws itself unless the deployment is the demo.
+              {
+                path: 'demo/admin-preview',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <DemoAdminPreviewPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Admin screens preview' } satisfies RouteHandle,
               },
               // Observability — dedicated OTLP telemetry-export setup page (#2250),
               // promoted out of the System Health readout so it's discoverable in
