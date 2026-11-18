@@ -17,19 +17,19 @@ from django.db import migrations
 def _backfill(apps: Any, schema_editor: Any) -> None:
     from django.db import transaction
 
-    from trueppm_api.apps.sync.sequence import (
-        backfill_tombstone_floors,
-        bump_cached_forecast_plan_versions,
+    from trueppm_api.apps.sync.backfill import (
+        frozen_backfill_tombstone_floors,
+        frozen_bump_cached_forecast_plan_versions,
     )
 
     project = apps.get_model("projects", "Project")
-    backfill_tombstone_floors(
+    frozen_backfill_tombstone_floors(
         project,
         apps.get_model("sync", "ProgramSyncSequence"),
         apps.get_model("scheduling", "MonteCarloRun"),
     )
     # The cache is not transactional: touch it only once the bump has committed.
-    transaction.on_commit(lambda: bump_cached_forecast_plan_versions(project))
+    transaction.on_commit(lambda: frozen_bump_cached_forecast_plan_versions(project))
 
 
 class Migration(migrations.Migration):

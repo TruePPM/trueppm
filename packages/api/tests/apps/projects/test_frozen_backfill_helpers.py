@@ -80,3 +80,47 @@ def test_frozen_clear_nulls_output_outside_committed_set_in_chunks(
     live.refresh_from_db()
     assert live.early_finish == date(2026, 4, 2)
     assert backfill.frozen_clear_all_uncommitted_cpm_output(Task, Project) == 0
+
+
+def test_frozen_mc_latest_cache_key_matches_live_today() -> None:
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+    assert sync_backfill._frozen_mc_latest_cache_key("abc") == mc_latest_cache_key("abc")
+
+
+@pytest.mark.django_db
+def test_frozen_tombstone_floor_backfill_matches_live_today() -> None:
+    """The sync.0008 copies raise floors and bump cached forecasts like the live ones."""
+    from django.core.cache import cache
+
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+    from trueppm_api.apps.sync.models import ProgramSyncSequence
+    from trueppm_api.apps.sync.sequence import (
+        backfill_tombstone_floors,
+        bump_cached_forecast_plan_versions,
+    )
+
+    cal = Calendar.objects.create(name="FrozenFloor")
+    results = []
+    for fn, bump in (
+        (backfill_tombstone_floors, bump_cached_forecast_plan_versions),
+        (
+            sync_backfill.frozen_backfill_tombstone_floors,
+            sync_backfill.frozen_bump_cached_forecast_plan_versions,
+        ),
+    ):
+        project = Project.objects.create(name="F", start_date=date(2026, 1, 5), calendar=cal)
+        Project.objects.filter(pk=project.pk).update(last_sync_version=5, tombstone_floor=0)
+        key = sync_backfill._frozen_mc_latest_cache_key(project.pk)
+        cache.set(key, {"plan_version": 5}, 60)
+        try:
+            fn(Project, ProgramSyncSequence, MonteCarloRun)
+            moved = bump(Project)
+            project.refresh_from_db()
+            results.append(
+                (project.last_sync_version, project.tombstone_floor, moved, cache.get(key))
+            )
+        finally:
+            cache.delete(key)
+    assert results[0] == results[1] == (6, 6, results[0][2], {"plan_version": 6})
+    assert results[0][2] >= 1

@@ -257,7 +257,7 @@ short enough to be signal. Eight rules:
    which a squash deletes (this broke five test files in #1286). Assert the *outcome*
    on the model/serializer instead; if a data backfill needs a unit test, test the
    underlying function it calls, not the migration wrapper.
-   A migration also never imports live `apps.*.services` or `bundled_templates`: copy the callee into the app's `backfill` module (a frozen snapshot, deliberately not kept in sync). `make migration-imports-check` / `api:migration-imports` enforces it.
+   A migration also never imports live `apps.<app>.services`, `apps.<app>.bundled_templates` or `apps.<app>.sequence` (the sync allocator): copy the callee into the app's `backfill` module (a frozen snapshot, deliberately not kept in sync). `make migration-imports-check` / `api:migration-imports` enforces exactly those three module names; a callee living elsewhere (e.g. `scheduling.views`) is not caught, so freeze it too.
 4. **Keep the `api:migration-check` CI gate (`makemigrations --check --dry-run`).**
    It proves the committed migrations fully describe the models — catching a
    hand-edited migration that diverged, a forgotten regenerate after a model change,

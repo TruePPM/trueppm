@@ -13,8 +13,9 @@ originals can never be deleted. ``projects.0150``, ``projects.0042`` and
 The rule
 --------
 No migration under ``packages/api/src/trueppm_api/apps/*/migrations/`` may import
-``trueppm_api.apps.<app>.services`` (or a submodule), or a module named
-``bundled_templates``. Put a frozen copy in the app's ``backfill`` module (the pattern
+``trueppm_api.apps.<app>.services`` (or a submodule), a module named
+``bundled_templates``, or ``sync.sequence`` (the live sequence allocator whose
+``backfill_tombstone_floors`` sync.0008 once called). Put a frozen copy in the app's ``backfill`` module (the pattern
 ``projects.0019``/``0075`` and ``sync.0005`` already use) and import that instead. The
 frozen copy is deliberately never "kept in sync" with the live function.
 
@@ -39,7 +40,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _MIGRATIONS_GLOB = "*/migrations/*.py"
-_FORBIDDEN_LEAVES = {"services", "bundled_templates"}
+_FORBIDDEN_LEAVES = {"services", "bundled_templates", "sequence"}
 _PREFIX = "trueppm_api.apps."
 _OPT_OUT = re.compile(r"#\s*migration-import-ok:\s*\S")
 
@@ -93,7 +94,12 @@ def _self_test() -> int:
         ("from trueppm_api.apps.projects.services.sub import x\n", True),
         ("from trueppm_api.apps.projects.backfill import x\n", False),
         ("from trueppm_api.apps.projects.backfill_bundled_templates import T\n", False),
-        ("from trueppm_api.apps.sync.sequence import x\n", False),
+        ("from trueppm_api.apps.sync.sequence import x\n", True),
+        ("from trueppm_api.apps.sync import sequence\n", True),
+        (
+            "from trueppm_api.apps.sync.backfill import frozen_backfill_tombstone_floors\n",
+            False,
+        ),
         ("from . import services\n", False),
         (
             "from trueppm_api.apps.projects.services import x  # migration-import-ok: pure const\n",
