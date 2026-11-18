@@ -293,6 +293,8 @@
 --+++++  GET api/v1/projects/<project_pk>/signal-privacy/ceiling-proposals/::get
 --+++++  GET api/v1/projects/<project_pk>/sprints/::list
 --+++++  GET api/v1/projects/<project_pk>/standup/::get
+--+++++  GET api/v1/projects/<project_pk>/status-updates/::get
+--+++++  GET api/v1/projects/<project_pk>/status-updates/<update_id>/::get
 --+++++  GET api/v1/projects/<project_pk>/task-runs/::list
 --+++++  GET api/v1/projects/<project_pk>/task-runs/<pk>/::retrieve
 --+++++  GET api/v1/projects/<project_pk>/tasks/<task_pk>/attachments/::list
@@ -323,6 +325,7 @@
 -++++++  GET api/v1/resolve/::get
 +++++++  GET api/v1/share/board/<token>/::get
 +++++++  GET api/v1/share/schedule/<token>/::get
++++++++  GET api/v1/share/status-update/<token>/::get
 -++++++  GET api/v1/sprints/<pk>/::retrieve
 -++++++  GET api/v1/sprints/<pk>/blocked/::blocked
 -++++++  GET api/v1/sprints/<pk>/burndown/::burndown
@@ -549,6 +552,7 @@
 --+++++  POST api/v1/projects/<project_pk>/signal-privacy/ratchet-down/::post
 ---++++  POST api/v1/projects/<project_pk>/sprints/::create
 ---++++  POST api/v1/projects/<project_pk>/sprints/generate/::generate
+-----++  POST api/v1/projects/<project_pk>/status-updates/::post
 -----++  POST api/v1/projects/<project_pk>/task-runs/<pk>/cancel/::cancel
 ---++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/attachments/::create
 ---++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/comments/::create

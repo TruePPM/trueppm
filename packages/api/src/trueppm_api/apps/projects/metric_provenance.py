@@ -95,6 +95,23 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "Per day, the remaining (burndown) or completed (burnup) task count or story "
         "points, replayed from task history."
     ),
+    # ── projects/{id}/status-updates (#4803), frozen at posted_at ─────────
+    "status_update.cpm_finish": (
+        "The project's deterministic CPM finish at post time: the latest early finish "
+        "of any committed task, from the last recalculation."
+    ),
+    "status_update.baseline_finish_variance_days": (
+        "The CPM finish at post time minus the active baseline's finish, in calendar "
+        "days measured in working time; positive means late."
+    ),
+    "status_update.completed_since_previous": (
+        "Leaf tasks complete at post time whose actual finish falls on or after the "
+        "day the previous status update was posted."
+    ),
+    "status_update.slipped_since_previous": (
+        "Milestones present in both this status update and the previous one whose CPM "
+        "finish moved later in working time between the two."
+    ),
     # ── task rows (slip) ──────────────────────────────────────────────────
     "baseline_finish_variance_days": (
         "A task's slip: its forecast finish minus its active-baseline finish, in "

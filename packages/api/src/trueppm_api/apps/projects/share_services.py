@@ -74,6 +74,9 @@ def mint_share_link(
     content_kind: str = ShareContentKind.BOARD,
     expires_at: Any = None,
     raw_token: str | None = None,
+    status_update: Any = None,
+    show_risks: bool = False,
+    show_decisions: bool = False,
 ) -> tuple[ShareLink, str]:
     """Create a share link and return ``(link, raw_token)``.
 
@@ -107,6 +110,9 @@ def mint_share_link(
         show_assignees=show_assignees,
         show_milestone_dates=show_milestone_dates,
         expires_at=expires_at,
+        status_update=status_update,
+        show_risks=show_risks,
+        show_decisions=show_decisions,
         created_by=user if getattr(user, "is_authenticated", False) else None,
     )
     logger.info(
@@ -146,7 +152,7 @@ def resolve_share_link(token: str, content_kind: str) -> ShareLink | None:
         return None
     return (
         ShareLink.objects.filter(token_hash=sha256_hex(token), content_kind=content_kind)
-        .select_related("project", "created_by")
+        .select_related("project", "created_by", "status_update__author")
         .first()
     )
 

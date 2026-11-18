@@ -14,8 +14,8 @@ from collections.abc import Callable
 from typing import Any
 
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -148,7 +148,7 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
                 {"detail": "Public sharing is turned off for this project."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        write = ShareLinkCreateSerializer(data=request.data)
+        write = ShareLinkCreateSerializer(data=request.data, context={"project": project})
         write.is_valid(raise_exception=True)
         try:
             link, raw = share_services.mint_share_link(
@@ -159,6 +159,9 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
                 show_milestone_dates=write.validated_data["show_milestone_dates"],
                 content_kind=write.validated_data["content_kind"],
                 expires_at=write.validated_data["expires_at"],
+                status_update=write.validated_data["status_update"],
+                show_risks=write.validated_data["show_risks"],
+                show_decisions=write.validated_data["show_decisions"],
             )
         except share_services.PublicSharingDisabledError:
             # Policy flipped off between the pre-check above and the mint; the
@@ -173,7 +176,7 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
         # mirrors content_kind (/share/board/… or /share/schedule/…), but the token's
         # authority is bound to the (hash, content_kind) tuple, not the route.
         data["token"] = raw
-        data["share_path"] = f"/share/{link.content_kind}/{raw}"
+        data["share_path"] = f"/share/{link.content_kind.replace('_', '-')}/{raw}"
         return Response(data, status=status.HTTP_201_CREATED)
 
 
@@ -222,6 +225,9 @@ def _serve_public_share(
     token: str,
     content_kind: str,
     serialize: Callable[[ShareLink], dict[str, Any]],
+    *,
+    uniform_unavailable: bool = False,
+    servable: Callable[[ShareLink], bool] | None = None,
 ) -> Response:
     """Shared serve path for a public read-only share token (#283, #1486).
 
@@ -232,7 +238,34 @@ def _serve_public_share(
     ``ETag`` + ``private, max-age=30`` so embeds re-poll cheaply. The wrong-kind
     firewall is the ``content_kind`` filter inside ``resolve_share_link``: a board
     token resolved here as ``SCHEDULE`` (or vice-versa) returns ``None`` → ``404``.
+
+    ``uniform_unavailable`` (status-update links, #4803) folds every "gone" branch
+    into the same 404 body as an unknown token, so the response cannot tell a holder
+    of a revoked link from a guesser. ``servable`` is a last kind-specific check
+    (the bound update exists and its snapshot still hashes to its digest); False is
+    that same 404.
     """
+    resp = _serve_public_share_inner(request, token, content_kind, serialize, servable)
+    if uniform_unavailable and resp.status_code == status.HTTP_410_GONE:
+        resp = Response(
+            {"detail": _LINK_UNAVAILABLE_DETAIL},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    # A capability URL's page must never be indexed, whatever the outcome.
+    resp["X-Robots-Tag"] = "noindex, nofollow"
+    if "Referrer-Policy" not in resp:
+        resp["Referrer-Policy"] = "no-referrer"
+    return resp
+
+
+def _serve_public_share_inner(
+    request: Request,
+    token: str,
+    content_kind: str,
+    serialize: Callable[[ShareLink], dict[str, Any]],
+    servable: Callable[[ShareLink], bool] | None,
+) -> Response:
+    """The envelope's branches; see :func:`_serve_public_share`."""
     # Kill switch → uniform 404 (do not reveal the feature exists, and
     # retroactively disable every existing link while off).
     if not _sharing_enabled():
@@ -316,6 +349,12 @@ def _serve_public_share(
         return Response(
             {"detail": "Public sharing has been turned off for this project."},
             status=status.HTTP_410_GONE,
+        )
+
+    if servable is not None and not servable(link):
+        return Response(
+            {"detail": _LINK_UNAVAILABLE_DETAIL},
+            status=status.HTTP_404_NOT_FOUND,
         )
 
     payload = share_services.get_cached_public_payload(link, serialize)
@@ -405,4 +444,84 @@ class PublicScheduleShareView(APIView):
     def get(self, request: Request, token: str) -> Response:
         return _serve_public_share(
             request, token, ShareContentKind.SCHEDULE, share_services.serialize_public_schedule
+        )
+
+
+def _status_update_servable(link: ShareLink) -> bool:
+    """The link is bound to an update and that update's snapshot is intact."""
+    from trueppm_api.apps.projects.status_update_services import snapshot_verified
+
+    update = link.status_update
+    return update is not None and snapshot_verified(update)
+
+
+class PublicStatusUpdateShareView(APIView):
+    """GET ``/api/v1/share/status-update/{token}/`` — public, unauthenticated, read-only.
+
+    Sibling of :class:`PublicBoardShareView` for one posted status update's frozen
+    snapshot (#4803). Same envelope, with two differences: every unavailable outcome
+    (unknown, wrong-kind, revoked, expired, Trashed, policy off) is the same ``404``,
+    and the payload is the projection of the bound update's snapshot alone, never
+    the live plan, so it cannot carry data newer than that update.
+    """
+
+    permission_classes = [AllowAny]  # noqa: RUF012
+    authentication_classes: list[Any] = []  # noqa: RUF012
+    throttle_classes = [ShareLinkAccessThrottle]  # noqa: RUF012
+    http_method_names = ["get"]  # noqa: RUF012
+
+    @extend_schema(
+        summary="Public read-only status update snapshot for a share token",
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer(
+                    name="PublicStatusUpdateShare",
+                    fields={
+                        "content_kind": serializers.CharField(),
+                        "project": serializers.DictField(),
+                        "seq": serializers.IntegerField(),
+                        "rag": serializers.ChoiceField(choices=["green", "amber", "red"]),
+                        "narrative": serializers.CharField(),
+                        "posted_at": serializers.DateTimeField(),
+                        "author": serializers.CharField(allow_null=True),
+                        "computed_health": serializers.CharField(),
+                        "as_of": serializers.CharField(),
+                        "forecast": serializers.DictField(),
+                        "counts": serializers.DictField(),
+                        "milestones": serializers.ListField(
+                            child=serializers.DictField(), allow_null=True
+                        ),
+                        "risks": serializers.ListField(
+                            child=serializers.DictField(), allow_null=True
+                        ),
+                        "decisions": serializers.ListField(
+                            child=serializers.DictField(), allow_null=True
+                        ),
+                        "show_assignees": serializers.BooleanField(),
+                        "show_milestone_dates": serializers.BooleanField(),
+                        "show_risks": serializers.BooleanField(),
+                        "show_decisions": serializers.BooleanField(),
+                    },
+                ),
+                description="One status update's frozen snapshot, projected by the "
+                "link's reveal controls. No live values, no ids.",
+            ),
+            404: OpenApiResponse(
+                description="Unknown, revoked or expired token, or sharing disabled. "
+                "Every unavailable outcome is this same response."
+            ),
+        },
+    )
+    def get(self, request: Request, token: str) -> Response:
+        from trueppm_api.apps.projects.status_update_services import (
+            serialize_public_status_update,
+        )
+
+        return _serve_public_share(
+            request,
+            token,
+            ShareContentKind.STATUS_UPDATE,
+            serialize_public_status_update,
+            uniform_unavailable=True,
+            servable=_status_update_servable,
         )

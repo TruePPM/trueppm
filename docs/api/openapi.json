@@ -36273,6 +36273,267 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/status-updates/": {
+            "get": {
+                "operationId": "v1_projects_status_updates_retrieve",
+                "description": "GET (project members) / POST (Project Manager and above) a project's status updates.\n\nPOST allocates the next ``seq`` and freezes the snapshot in one transaction\n(``status_update_services.post_status_update``). It is refused to an agent\ncredential of any kind and on an archived project. GET lists the history newest first; the\nlive diff is computed against one current reading built once per request.",
+                "summary": "List a project's status updates, newest first",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedStatusUpdateList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_status_updates_create",
+                "description": "GET (project members) / POST (Project Manager and above) a project's status updates.\n\nPOST allocates the next ``seq`` and freezes the snapshot in one transaction\n(``status_update_services.post_status_update``). It is refused to an agent\ncredential of any kind and on an archived project. GET lists the history newest first; the\nlive diff is computed against one current reading built once per request.",
+                "summary": "Post a project status update (immutable; a correction is a new post)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StatusUpdateCreateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StatusUpdateCreateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StatusUpdateCreateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StatusUpdate"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Below Project Manager, an agent, or archived."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/status-updates/{update_id}/": {
+            "get": {
+                "operationId": "v1_projects_status_updates_retrieve_2",
+                "description": "GET one posted status update (project members). Read-only by design.",
+                "summary": "Retrieve one status update with its frozen snapshot and live diff",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "update_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StatusUpdate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/task-runs/": {
             "get": {
                 "operationId": "v1_projects_task_runs_list",
@@ -44403,6 +44664,60 @@
                     },
                     "410": {
                         "description": "This share link has been revoked or has expired, or the project was moved to Trash."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/share/status-update/{token}/": {
+            "get": {
+                "operationId": "v1_share_status_update_retrieve",
+                "description": "GET ``/api/v1/share/status-update/{token}/`` — public, unauthenticated, read-only.\n\nSibling of :class:`PublicBoardShareView` for one posted status update's frozen\nsnapshot (#4803). Same envelope, with two differences: every unavailable outcome\n(unknown, wrong-kind, revoked, expired, Trashed, policy off) is the same ``404``,\nand the payload is the projection of the bound update's snapshot alone, never\nthe live plan, so it cannot carry data newer than that update.",
+                "summary": "Public read-only status update snapshot for a share token",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "share"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PublicStatusUpdateShare"
+                                }
+                            }
+                        },
+                        "description": "One status update's frozen snapshot, projected by the link's reveal controls. No live values, no ids."
+                    },
+                    "404": {
+                        "description": "Unknown, revoked or expired token, or sharing disabled. Every unavailable outcome is this same response."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -62070,10 +62385,11 @@
             "ContentKindEnum": {
                 "enum": [
                     "board",
-                    "schedule"
+                    "schedule",
+                    "status_update"
                 ],
                 "type": "string",
-                "description": "* `board` - Board\n* `schedule` - Schedule",
+                "description": "* `board` - Board\n* `schedule` - Schedule\n* `status_update` - Status update",
                 "x-trueppm-enum": "open"
             },
             "CostFigureProvenance": {
@@ -69407,6 +69723,36 @@
                         }
                     }
                 }
+            },
+            "PaginatedStatusUpdateList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StatusUpdate"
+                        }
+                    }
+                },
+                "required": [
+                    "count",
+                    "next",
+                    "previous",
+                    "results"
+                ]
             },
             "PaginatedStructuralOperationList": {
                 "type": "object",
@@ -79726,6 +80072,115 @@
                     }
                 }
             },
+            "PublicStatusUpdateShare": {
+                "type": "object",
+                "properties": {
+                    "content_kind": {
+                        "type": "string"
+                    },
+                    "project": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "seq": {
+                        "type": "integer"
+                    },
+                    "rag": {
+                        "$ref": "#/components/schemas/PublicStatusUpdateShareRagEnum"
+                    },
+                    "narrative": {
+                        "type": "string"
+                    },
+                    "posted_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "author": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "computed_health": {
+                        "type": "string"
+                    },
+                    "as_of": {
+                        "type": "string"
+                    },
+                    "forecast": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "counts": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "milestones": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "nullable": true
+                    },
+                    "risks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "nullable": true
+                    },
+                    "decisions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "nullable": true
+                    },
+                    "show_assignees": {
+                        "type": "boolean"
+                    },
+                    "show_milestone_dates": {
+                        "type": "boolean"
+                    },
+                    "show_risks": {
+                        "type": "boolean"
+                    },
+                    "show_decisions": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "author",
+                    "computed_health",
+                    "content_kind",
+                    "counts",
+                    "decisions",
+                    "forecast",
+                    "milestones",
+                    "narrative",
+                    "posted_at",
+                    "project",
+                    "rag",
+                    "risks",
+                    "seq",
+                    "show_assignees",
+                    "show_decisions",
+                    "show_milestone_dates",
+                    "show_risks"
+                ]
+            },
+            "PublicStatusUpdateShareRagEnum": {
+                "enum": [
+                    "green",
+                    "amber",
+                    "red"
+                ],
+                "type": "string",
+                "description": "* `green` - green\n* `amber` - amber\n* `red` - red",
+                "x-trueppm-enum": "open"
+            },
             "PullActionItemToSprintBodyRequest": {
                 "type": "object",
                 "description": "Body of ``POST /sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/``.\n\nDocuments what the handler reads; the handler still does its own lookup so the\n404 (unknown target sprint) stays distinct from the 400 (field absent).",
@@ -82193,7 +82648,7 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "What the link exposes — 'board' (#283) or 'schedule' (#1486).\n\n* `board` - Board\n* `schedule` - Schedule"
+                        "description": "What the link exposes — 'board' (#283) or 'schedule' (#1486).\n\n* `board` - Board\n* `schedule` - Schedule\n* `status_update` - Status update"
                     },
                     "token_prefix": {
                         "type": "string",
@@ -82214,6 +82669,22 @@
                         "type": "boolean",
                         "readOnly": true,
                         "description": "Schedule links only. When false, milestone rows (and their dated diamonds) are omitted from the public schedule. Defaults true — milestones are the headline an external audience wants."
+                    },
+                    "status_update": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "show_risks": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Status-update links only. When false (default), the snapshot's top risks are withheld; risk titles are internal."
+                    },
+                    "show_decisions": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Status-update links only. When false (default), the snapshot's open decisions are withheld; decision titles are internal."
                     },
                     "created_by": {
                         "type": "integer",
@@ -82279,7 +82750,10 @@
                     "last_accessed_at",
                     "revoked_at",
                     "show_assignees",
+                    "show_decisions",
                     "show_milestone_dates",
+                    "show_risks",
+                    "status_update",
                     "token_prefix"
                 ]
             },
@@ -82299,6 +82773,19 @@
                     "show_milestone_dates": {
                         "type": "boolean",
                         "default": true
+                    },
+                    "status_update": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "show_risks": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "show_decisions": {
+                        "type": "boolean",
+                        "default": false
                     },
                     "content_kind": {
                         "allOf": [
@@ -82331,7 +82818,7 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "What the link exposes — 'board' (#283) or 'schedule' (#1486).\n\n* `board` - Board\n* `schedule` - Schedule"
+                        "description": "What the link exposes — 'board' (#283) or 'schedule' (#1486).\n\n* `board` - Board\n* `schedule` - Schedule\n* `status_update` - Status update"
                     },
                     "token_prefix": {
                         "type": "string",
@@ -82352,6 +82839,22 @@
                         "type": "boolean",
                         "readOnly": true,
                         "description": "Schedule links only. When false, milestone rows (and their dated diamonds) are omitted from the public schedule. Defaults true — milestones are the headline an external audience wants."
+                    },
+                    "status_update": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "show_risks": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Status-update links only. When false (default), the snapshot's top risks are withheld; risk titles are internal."
+                    },
+                    "show_decisions": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Status-update links only. When false (default), the snapshot's open decisions are withheld; decision titles are internal."
                     },
                     "created_by": {
                         "type": "integer",
@@ -82426,7 +82929,10 @@
                     "revoked_at",
                     "share_path",
                     "show_assignees",
+                    "show_decisions",
                     "show_milestone_dates",
+                    "show_risks",
+                    "status_update",
                     "token",
                     "token_prefix"
                 ]
@@ -84985,6 +85491,117 @@
                 ],
                 "type": "string",
                 "description": "* `active` - Active\n* `undone` - Undone",
+                "x-trueppm-enum": "open"
+            },
+            "StatusUpdate": {
+                "type": "object",
+                "description": "Read serializer for one posted update, with its frozen snapshot and live diff.\n\n``snapshot`` is returned exactly as stored at ``posted_at``. ``live_diff`` maps\na dotted snapshot key to the current value, present only where the plan has\nmoved since; the client prints it beside the frozen value and computes nothing.\n``snapshot_verified`` is False when the stored snapshot no longer hashes to the\ndigest recorded at post time (a row altered outside the application).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "seq": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "1-based sequence number within the project, allocated under a lock."
+                    },
+                    "rag": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusUpdateRagEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "narrative": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "author": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "author_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "posted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "computed_health": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Derived health band at post time: on_track, at_risk or critical."
+                    },
+                    "snapshot": {
+                        "readOnly": true
+                    },
+                    "snapshot_sha256": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "snapshot_verified": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "live_diff": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "author",
+                    "author_name",
+                    "computed_health",
+                    "id",
+                    "live_diff",
+                    "narrative",
+                    "posted_at",
+                    "project",
+                    "rag",
+                    "seq",
+                    "snapshot",
+                    "snapshot_sha256",
+                    "snapshot_verified"
+                ]
+            },
+            "StatusUpdateCreateRequest": {
+                "type": "object",
+                "description": "Write serializer: the PM's call. Everything else is server-computed.",
+                "properties": {
+                    "rag": {
+                        "$ref": "#/components/schemas/StatusUpdateRagEnum"
+                    },
+                    "narrative": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 600
+                    }
+                },
+                "required": [
+                    "rag"
+                ]
+            },
+            "StatusUpdateRagEnum": {
+                "enum": [
+                    "green",
+                    "amber",
+                    "red"
+                ],
+                "type": "string",
+                "description": "* `green` - Green\n* `amber` - Amber\n* `red` - Red",
                 "x-trueppm-enum": "open"
             },
             "StructuralOperation": {

@@ -5811,6 +5811,9 @@ class ShareContentKind(models.TextChoices):
 
     BOARD = "board", "Board"
     SCHEDULE = "schedule", "Schedule"
+    # #4803: one posted StatusUpdate's frozen snapshot. The link is bound to that
+    # update (``ShareLink.status_update``), never to "the latest".
+    STATUS_UPDATE = "status_update", "Status update"
 
 
 class ShareLink(models.Model):
@@ -5922,6 +5925,26 @@ class ShareLink(models.Model):
         help_text="Successful public views; incremented atomically per hit.",
     )
     last_accessed_at = models.DateTimeField(null=True, blank=True)
+    # Status-update links only (#4803). The link is bound to ONE posted update, so it
+    # can never return data newer than that update's frozen snapshot. Null on every
+    # board and schedule link.
+    status_update = models.ForeignKey(
+        "projects.StatusUpdate",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="share_links",
+    )
+    show_risks = models.BooleanField(
+        default=False,
+        help_text="Status-update links only. When false (default), the snapshot's top "
+        "risks are withheld; risk titles are internal.",
+    )
+    show_decisions = models.BooleanField(
+        default=False,
+        help_text="Status-update links only. When false (default), the snapshot's open "
+        "decisions are withheld; decision titles are internal.",
+    )
 
     class Meta:
         db_table = "projects_sharelink"
@@ -5946,6 +5969,105 @@ class ShareLink(models.Model):
         it is not revoked, exactly as before.
         """
         return self.revoked_at is None and not self.is_expired
+
+
+# ---------------------------------------------------------------------------
+# Project status update (#4803)
+# ---------------------------------------------------------------------------
+
+
+class StatusUpdateRag(models.TextChoices):
+    """The project manager's own call on the update. Distinct from computed health."""
+
+    GREEN = "green", "Green"
+    AMBER = "amber", "Amber"
+    RED = "red", "Red"
+
+
+class StatusUpdateImmutableError(Exception):
+    """Raised on any attempt to change or delete a posted :class:`StatusUpdate`."""
+
+
+class StatusUpdateQuerySet(models.QuerySet["StatusUpdate"]):
+    """Refuses bulk ``update()`` and ``delete()`` so no service path can rewrite history.
+
+    A project's hard delete still removes its updates: the deletion collector issues
+    its own SQL and never calls ``QuerySet.delete()`` on this manager.
+    """
+
+    def update(self, **kwargs: Any) -> int:
+        raise StatusUpdateImmutableError("Status updates are immutable; post a new one.")
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        raise StatusUpdateImmutableError("Status updates are immutable; post a new one.")
+
+
+class StatusUpdate(models.Model):
+    """One posted project status update: the PM's call plus a server-frozen snapshot.
+
+    Immutable by construction. A correction is a new update with the next ``seq``;
+    there is no PATCH or DELETE route, ``save()`` refuses an existing row, and the
+    queryset refuses bulk writes. The snapshot is a JSON document built by
+    ``status_update_services.build_snapshot`` at ``posted_at`` and never recomputed on
+    read; ``snapshot_sha256`` is the SHA-256 of its canonical JSON, checked on every
+    read so a row altered outside the ORM is reported rather than served.
+
+    Plain ``models.Model`` (not ``VersionedModel``): a posted update never changes,
+    so there is no version to bump and nothing for the offline delta to reconcile.
+    The row itself is the audit record of the post (author, time, call, hash).
+
+    ``computed_health`` is the derived health band at post time (counts only, the
+    PM's ``Project.health`` override deliberately ignored), stored beside ``rag`` so
+    a reader can see where the PM's call and the plan disagreed.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="status_updates",
+    )
+    seq = models.PositiveIntegerField(
+        help_text="1-based sequence number within the project, allocated under a lock."
+    )
+    rag = models.CharField(max_length=8, choices=StatusUpdateRag.choices)
+    narrative = models.CharField(max_length=600, blank=True, default="")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    posted_at = models.DateTimeField(default=timezone.now)
+    computed_health = models.CharField(
+        max_length=16,
+        help_text="Derived health band at post time: on_track, at_risk or critical.",
+    )
+    snapshot = models.JSONField(default=dict)
+    snapshot_sha256 = models.CharField(max_length=64)
+
+    objects = StatusUpdateQuerySet.as_manager()
+
+    class Meta:
+        db_table = "projects_statusupdate"
+        ordering = ["-seq"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "seq"], name="projects_statusupdate_project_seq_uniq"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"StatusUpdate({self.project_id}, #{self.seq}, {self.rag})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self._state.adding:
+            raise StatusUpdateImmutableError("Status updates are immutable; post a new one.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        raise StatusUpdateImmutableError("Status updates are immutable; post a new one.")
 
 
 # ---------------------------------------------------------------------------

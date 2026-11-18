@@ -44,6 +44,7 @@ from trueppm_api.apps.projects.share_views import (
     ProjectShareLinkRevokeView,
     PublicBoardShareView,
     PublicScheduleShareView,
+    PublicStatusUpdateShareView,
 )
 from trueppm_api.apps.projects.signal_privacy_views import (
     SignalCeilingProposalListView,
@@ -54,6 +55,10 @@ from trueppm_api.apps.projects.signal_privacy_views import (
     SignalPrivacyRatchetDownView,
 )
 from trueppm_api.apps.projects.standup_views import StandupView
+from trueppm_api.apps.projects.status_update_views import (
+    ProjectStatusUpdateDetailView,
+    ProjectStatusUpdateListCreateView,
+)
 from trueppm_api.apps.projects.structural_operation_views import StructuralOperationViewSet
 from trueppm_api.apps.projects.template_views import (
     ProjectTemplateViewSet,
@@ -841,6 +846,22 @@ urlpatterns = [
         "share/schedule/<token>/",
         PublicScheduleShareView.as_view(),
         name="public-schedule-share",
+    ),
+    # Project status updates (#4803): immutable, so list/create and retrieve only.
+    path(
+        "projects/<project_pk>/status-updates/",
+        ProjectStatusUpdateListCreateView.as_view(),
+        name="project-status-updates",
+    ),
+    path(
+        "projects/<project_pk>/status-updates/<update_id>/",
+        ProjectStatusUpdateDetailView.as_view(),
+        name="project-status-update-detail",
+    ),
+    path(
+        "share/status-update/<token>/",
+        PublicStatusUpdateShareView.as_view(),
+        name="public-status-update-share",
     ),
     # Program-scoped API tokens (ADR-0076 program extension, #600)
     path(
