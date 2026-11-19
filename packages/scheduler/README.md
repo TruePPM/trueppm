@@ -981,9 +981,7 @@ they will ship with 0.5 or that release will slip:
   independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings the engine itself into scope
-  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the supported
-  envelope will be raised toward 50,000 tasks
-  ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
+  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
