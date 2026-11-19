@@ -441,6 +441,7 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
         status: 202,
         contentType: 'application/json',
         body: JSON.stringify({
+          queued: true,
           task_run_id: MC_TASK_RUN_ID,
           status: 'pending',
           n_simulations: null,

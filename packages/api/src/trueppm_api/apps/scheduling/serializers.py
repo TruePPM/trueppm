@@ -80,6 +80,9 @@ class MonteCarloRunQueuedSerializer(serializers.Serializer[dict[str, Any]]):
     ``GET /projects/{id}/task-runs/{task_run_id}/`` with.
     """
 
+    queued = serializers.BooleanField(
+        help_text="Always true: the api/stability.md 202 contract every async body follows."
+    )
     task_run_id = serializers.UUIDField(help_text="The queued TaskRun to poll.")
     status = serializers.ChoiceField(
         choices=["pending"], help_text="Always `pending`: the run has not started yet."

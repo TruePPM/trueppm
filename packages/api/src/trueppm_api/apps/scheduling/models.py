@@ -304,7 +304,7 @@ class VelocitySuggestion(models.Model):
 class MonteCarloRun(models.Model):
     """One persisted project-level Monte Carlo simulation run (ADR-0175, #961).
 
-    Written synchronously per ``POST /projects/<pk>/monte-carlo/`` run so the PM
+    Written by the worker that runs each ``POST /projects/<pk>/monte-carlo/`` (#2273), so the PM
     can read finish-date forecast *drift* over time ("my P80 was Aug 14 two weeks
     ago, now Aug 28"). Distinct from ``projects.ForecastSnapshot`` (ADR-0106 §5),
     which is milestone-scoped, latest-per-milestone, and carries the velocity

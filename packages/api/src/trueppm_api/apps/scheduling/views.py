@@ -596,12 +596,14 @@ def _mc_lag_delta_kwargs() -> dict[str, int]:
 
 
 class MonteCarloRunThrottle(ScopedRateThrottle):
-    """Caps synchronous Monte Carlo runs per member (#1552) to bound DoS.
+    """Caps Monte Carlo runs per member (#1552) to bound DoS.
 
-    ``run_monte_carlo`` executes an expensive simulation inline in the request
-    cycle, gated only by project membership. Scoped per-user via ``monte_carlo``
-    (10/min) so no single account can loop the endpoint to exhaust CPU, while a
-    human tuning estimates and re-running the forecast stays well under the cap.
+    ``run_monte_carlo`` queues an expensive simulation on a Celery worker (#2273),
+    gated only by project membership. The request itself is cheap now, but every
+    accepted ``POST`` is one simulation a worker will run, so the per-user
+    ``monte_carlo`` scope (10/min) is what stops one account from flooding the
+    shared queue, while a human tuning estimates and re-running the forecast stays
+    well under the cap.
 
     ``ScopedRateThrottle`` normally reads its scope from ``view.throttle_scope``,
     but ``run_monte_carlo`` is a function-based ``@api_view`` that cannot carry
@@ -804,6 +806,22 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             {"detail": "n_simulations must be a positive integer."},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    # The static run cap is one comparison, so it is answered here rather than
+    # through a task run that is certain to fail. Same 402 body and message the
+    # engine's SimulationCapExceeded produced when the check ran in the request.
+    if n_explicit and cap is not None and n_simulations > cap:
+        return Response(
+            {
+                "error": "simulation_cap_exceeded",
+                "tier": "team",
+                "message": (
+                    f"Requested runs ({n_simulations}) exceeds the configured maximum "
+                    f"(max_runs={cap}); raise max_runs (or pass None to disable the "
+                    "cap) to allow more iterations."
+                ),
+            },
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
     # Refused before anything is queued, so the caller learns about an oversized
     # project synchronously rather than through a task run that cannot succeed.
     size_refusal = _mc_size_refusal(project)
@@ -827,6 +845,8 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     )
     return Response(
         {
+            # The api/stability.md 202 contract (#4661): every async body says so.
+            "queued": True,
             "task_run_id": str(task_run.pk),
             "status": TaskRunStatus.PENDING,
             # The REQUESTED count when explicit; null when omitted, because the
@@ -898,6 +918,44 @@ def _may_record_mc_run(request: Request, project: Project) -> bool:
     # per-request role cache the object-permission check already warmed.
     role = _membership_role(request, project.pk)
     return role is not None and role >= Role.SCHEDULER
+
+
+def mc_worker_authorization(project_id: str, user_id: Any, persist: bool) -> Response | bool:
+    """Re-check, on the worker, the gates the request checked before queueing.
+
+    A run can wait in the queue long enough for the project to be archived or the
+    requester to lose their membership, and the worker is the one that writes the
+    ``mc_latest`` cache and the attributed history row. Returns the 403 refusal the
+    request would now give, or the ``persist`` decision to use: the request's
+    decision, downgraded to ``False`` when the requester has since been demoted
+    below Scheduler (#1502) — never upgraded, since the request did not ask for it.
+    """
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.access.permissions import IsProjectMember
+
+    try:
+        assert_project_not_archived(project_id)
+    except PermissionDenied as exc:
+        return Response({"detail": str(exc.detail)}, status=status.HTTP_403_FORBIDDEN)
+    # Mirrors _membership_role: live membership on a live project, active user.
+    role = (
+        ProjectMembership.objects.filter(
+            project_id=project_id,
+            user_id=user_id,
+            user__is_active=True,
+            is_deleted=False,
+            project__is_deleted=False,
+        )
+        .values_list("role", flat=True)
+        .first()
+        if user_id is not None
+        else None
+    )
+    if role is None:
+        return Response({"detail": IsProjectMember.message}, status=status.HTTP_403_FORBIDDEN)
+    return persist and role >= Role.SCHEDULER
 
 
 def _mc_size_refusal(project: Project) -> Response | None:

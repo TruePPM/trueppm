@@ -467,11 +467,40 @@ and is unchanged.
 
 | Element | Replacement | Removal |
 |---------|-------------|---------|
-| `runs` on the Monte Carlo forecast (`POST` and `GET .../monte-carlo/`, `.../latest/`), the what-if response, and the percentile derivation | `n_simulations` | no date set; announced as "a later minor" |
+| `runs` on the Monte Carlo forecast (`GET .../monte-carlo/latest/`, and the `POST .../monte-carlo/` response through 0.4), the what-if response, and the percentile derivation | `n_simulations` | no date set; announced as "a later minor" |
 | `mc_iterations` on forecast snapshots (`GET .../forecast-snapshots/`) | `n_simulations` | no date set; announced as "a later minor" |
 
 `POST .../monte-carlo/` now declares its request body (`n_simulations`, optional) instead
 of a free-form object. That is documentation of what the endpoint already accepted.
+
+### Monte Carlo run answers 202 instead of the forecast (#2273)
+
+From 0.5, `POST /api/v1/projects/{id}/monte-carlo/` will no longer answer `200` with the
+forecast. It will queue the simulation on a Celery worker and answer `202` with
+`{queued: true, task_run_id, status: "pending", n_simulations}`
+([ADR-1430](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/1430-monte-carlo-runs-on-a-celery-worker.md)).
+Removing a documented status code is **Breaking** by the table above, and it ships with
+no deprecation window as a pre-1.0 policy exception, recorded as one rather than as
+routine. The reasoning: the defect the change exists to remove is the synchronous
+response itself — every in-flight run held a web worker and an open database
+transaction for its whole duration, so a handful of concurrent runs could pin the
+connection pool. Keeping the `200` for a window, or behind an opt-out, would have kept
+that defect on by default for every client that did not change. A per-project size
+threshold choosing between the two contracts was rejected for the same reason: every
+client would still need the polling path, behind a cutoff it cannot see.
+
+The break does not fail silently. A client that reads the forecast from the `POST`
+body receives a `202` whose body has no percentiles, so the missing fields surface at
+the first read rather than as a stale value. The refusals the request can still decide
+(an invalid or too-large `n_simulations`, too many committed tasks or dependencies, no
+membership, an archived project, the throttle) keep their status codes and bodies; the
+rest arrive on the failed task run with the same body plus `status_code`. The MCP
+server only reads `latest/` and is unaffected.
+
+| | |
+|---|---|
+| Announced | 0.5 (changed with no window; pre-1.0 policy exception, see above) |
+| Migration | poll `GET /api/v1/projects/{id}/task-runs/{task_run_id}/` until `status` is `success` or `failed`, then read the forecast from `GET /api/v1/projects/{id}/monte-carlo/latest/`; on `failed`, `result_summary` is the refusal body plus `status_code` |
 
 ### Timer and timesheet-submit paths published with a trailing slash (#3792)
 

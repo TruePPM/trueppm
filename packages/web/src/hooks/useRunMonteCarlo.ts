@@ -8,6 +8,7 @@ interface RunOptions {
 
 /** `202` body of `POST /projects/{pk}/monte-carlo/` (#2273). */
 interface MonteCarloRunQueued {
+  queued: true;
   task_run_id: string;
   status: 'pending';
   n_simulations: number | null;

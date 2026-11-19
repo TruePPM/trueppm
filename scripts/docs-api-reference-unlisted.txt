@@ -221,7 +221,6 @@ POST /api/v1/projects/{project_pk}/signal-privacy/raise-ceiling/
 POST /api/v1/projects/{project_pk}/signal-privacy/ratchet-down/
 GET /api/v1/projects/{project_pk}/standup/
 GET /api/v1/projects/{project_pk}/task-runs/
-GET /api/v1/projects/{project_pk}/task-runs/{id}/
 POST /api/v1/projects/{project_pk}/task-runs/{id}/cancel/
 GET /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/
 POST /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/

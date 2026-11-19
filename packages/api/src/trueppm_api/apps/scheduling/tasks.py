@@ -422,15 +422,22 @@ def execute_monte_carlo_task_run(
     from django.contrib.auth import get_user_model
     from rest_framework.response import Response
 
-    from trueppm_api.apps.scheduling.views import MC_TASK_NAME, simulate_and_record_monte_carlo
+    from trueppm_api.apps.scheduling.views import (
+        MC_TASK_NAME,
+        mc_worker_authorization,
+        simulate_and_record_monte_carlo,
+    )
     from trueppm_api.apps.taskruns.tracker import (
         ProjectGoneGuard,
+        TaskRunAlreadySettled,
         TaskRunRefused,
         TaskRunTracker,
     )
 
     user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
     guard = ProjectGoneGuard(MC_TASK_NAME, project_id)
+    # Stays None when the tracker suppresses a TaskCancelled raised in the body.
+    summary: dict[str, Any] | None = None
     try:
         with (
             guard,
@@ -442,12 +449,22 @@ def execute_monte_carlo_task_run(
                 task_run_id=task_run_id,
             ) as tracker,
         ):
+            # Honors a cancel requested while the run was still PENDING: the engine
+            # is one uninterruptible call, so this is the only point it is checked.
+            tracker.update(0, "Starting simulation")
+            # The archived freeze and membership were checked when the run was
+            # queued; re-check them now, because the worker is what writes.
+            authorization = mc_worker_authorization(project_id, user_id, persist)
+            if isinstance(authorization, Response):
+                raise TaskRunRefused(
+                    {**(authorization.data or {}), "status_code": authorization.status_code}
+                )
             result = simulate_and_record_monte_carlo(
                 project_id,
                 n_simulations=n_simulations,
                 n_explicit=n_explicit,
                 user=user,
-                persist=persist and user is not None,
+                persist=authorization and user is not None,
             )
             if isinstance(result, Response):
                 raise TaskRunRefused({**(result.data or {}), "status_code": result.status_code})
@@ -460,6 +477,11 @@ def execute_monte_carlo_task_run(
     except TaskRunRefused:
         # Already recorded on the run by the tracker; a refusal is an answer, not
         # a worker fault, so it must not reach Celery's failure handling.
+        return None
+    except TaskRunAlreadySettled:
+        # A redelivery of a run that already finished (or was cancelled while
+        # queued): the row is terminal and must stay as it is.
+        logger.info("monte carlo: task run %s already settled; skipping", task_run_id)
         return None
     if guard.triggered:
         return None

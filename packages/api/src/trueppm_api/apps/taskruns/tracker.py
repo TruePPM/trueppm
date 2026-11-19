@@ -62,6 +62,20 @@ class TaskRunRefused(Exception):
         self.public_result = public_result
 
 
+class TaskRunAlreadySettled(Exception):
+    """Raised by ``TaskRunTracker.__enter__`` when the TaskRun to adopt already finished.
+
+    ``acks_late`` redelivers a message whose worker died after the run settled (or
+    a cancel landed while it was still queued). Adopting it again would flip a
+    terminal ``SUCCESS``/``FAILED``/``CANCELLED`` row back to ``RUNNING`` and redo
+    the work, so the caller treats this as a no-op.
+    """
+
+    def __init__(self, task_run_id: str) -> None:
+        super().__init__(f"Task run {task_run_id} already settled")
+        self.task_run_id = task_run_id
+
+
 class TaskRunProjectGone(Exception):
     """Raised by ``TaskRunTracker.__enter__`` when the task's project no longer exists.
 
@@ -162,14 +176,22 @@ class TaskRunTracker:
             raise TaskRunProjectGone(self._project_id)
 
         if self._adopt_task_run_id is not None:
-            adopted = TaskRun.objects.filter(pk=self._adopt_task_run_id).update(
+            # Only a run that has not settled may be adopted. RUNNING stays
+            # adoptable on purpose: that is the redelivery of a worker that died
+            # mid-run, which acks_late exists to retry.
+            adopted = TaskRun.objects.filter(
+                pk=self._adopt_task_run_id,
+                status__in=[TaskRunStatus.PENDING, TaskRunStatus.RUNNING],
+            ).update(
                 status=TaskRunStatus.RUNNING,
                 started_at=timezone.now(),
                 celery_task_id=self._celery_task.request.id or "",
             )
-            # The row CASCADEs with its project, so a missing row is the same stale
-            # message as a missing project.
             if not adopted:
+                if TaskRun.objects.filter(pk=self._adopt_task_run_id).exists():
+                    raise TaskRunAlreadySettled(str(self._adopt_task_run_id))
+                # The row CASCADEs with its project, so a missing row is the same
+                # stale message as a missing project.
                 raise TaskRunProjectGone(self._project_id)
             self._task_run_id = str(self._adopt_task_run_id)
             self._redis = self._get_redis()
@@ -233,7 +255,10 @@ class TaskRunTracker:
             task_run.completed_at = now
             task_run.save(update_fields=["status", "completed_at"])
             self._cleanup_redis()
-            self._broadcast("task_run_cancelled", {"task_run_id": self._task_run_id})
+            self._broadcast(
+                "task_run_cancelled",
+                {"task_run_id": self._task_run_id, "task_name": self._task_name},
+            )
             return True  # suppress exception
 
         if exc_val is not None:
@@ -250,6 +275,7 @@ class TaskRunTracker:
                 "task_run_failed",
                 {
                     "task_run_id": self._task_run_id,
+                    "task_name": self._task_name,
                     # Generic on purpose (#1726): this fans out to every project
                     # member including Viewers, and the raw exception text can
                     # carry paths, SQL or worker internals. The full text stays
@@ -276,6 +302,11 @@ class TaskRunTracker:
             "task_run_completed",
             {
                 "task_run_id": self._task_run_id,
+                # Named on every terminal event, not only task_run_started, so a
+                # subscriber that never saw the start (the program schedule page's
+                # per-project sockets, a client that connected mid-run) can tell a
+                # forecast run from a schedule-changing one.
+                "task_name": self._task_name,
                 "result_summary": self._result,
             },
         )

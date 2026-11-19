@@ -1,10 +1,11 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { act } from 'react';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import axios from 'axios';
-import { useRunMonteCarlo } from './useRunMonteCarlo';
+import { MC_POLL_TIMEOUT_MS, useRunMonteCarlo } from './useRunMonteCarlo';
 
 const postMock = vi.hoisted(() => vi.fn());
 const getMock = vi.hoisted(() => vi.fn());
@@ -12,7 +13,9 @@ const getMock = vi.hoisted(() => vi.fn());
 vi.mock('@/api/client', () => ({ apiClient: { post: postMock, get: getMock } }));
 
 // The POST queues the run (#2273); the hook then polls the task run.
-const QUEUED = { data: { task_run_id: 'run-1', status: 'pending', n_simulations: null } };
+const QUEUED = {
+  data: { queued: true, task_run_id: 'run-1', status: 'pending', n_simulations: null },
+};
 const runIs = (status: string, result_summary: Record<string, unknown> | null = null) => ({
   data: { status, result_summary },
 });
@@ -34,6 +37,10 @@ describe('useRunMonteCarlo', () => {
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('POSTs to /projects/{id}/monte-carlo/ on mutate', async () => {
@@ -173,5 +180,33 @@ describe('useRunMonteCarlo', () => {
     await waitFor(() => expect(result.current.isError).toBe(true), SETTLE);
     const err = result.current.error;
     expect(axios.isAxiosError(err) && err.response?.status).toBe(500);
+  });
+
+  it('gives up polling after MC_POLL_TIMEOUT_MS with a retryable message', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    postMock.mockResolvedValueOnce(QUEUED);
+    // A run that never settles (a worker killed by its hard time limit leaves it RUNNING).
+    getMock.mockResolvedValue(runIs('running'));
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    act(() => {
+      result.current.mutate({});
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MC_POLL_TIMEOUT_MS - 1_000);
+    });
+    expect(result.current.isPending).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(result.current.isError).toBe(true);
+    expect(result.current.error?.message).toMatch(/taking longer than expected/);
+    expect(axios.isAxiosError(result.current.error)).toBe(false);
+    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });

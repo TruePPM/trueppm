@@ -67886,6 +67886,10 @@
                 "type": "object",
                 "description": "``202`` body of ``POST /projects/{id}/monte-carlo/`` (schema only, #2273).\n\nThe simulation runs on a Celery worker; this is the handle a client polls\n``GET /projects/{id}/task-runs/{task_run_id}/`` with.",
                 "properties": {
+                    "queued": {
+                        "type": "boolean",
+                        "description": "Always true: the api/stability.md 202 contract every async body follows."
+                    },
                     "task_run_id": {
                         "type": "string",
                         "format": "uuid",
@@ -67907,6 +67911,7 @@
                 },
                 "required": [
                     "n_simulations",
+                    "queued",
                     "status",
                     "task_run_id"
                 ]

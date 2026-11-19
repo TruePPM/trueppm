@@ -40,20 +40,24 @@ Planned record; where this page and the roadmap disagree, the roadmap wins.
 
 These are the edges of the scheduling engine.
 
-### Monte Carlo runs on the request thread — planned for 0.5
+### Monte Carlo what-if runs on the request thread
 
-A Monte Carlo simulation executes inline in the HTTP request cycle, gated only by a
-per-user rate-limit scope. On a large project at a high run count this occupies a
-web worker for the duration of the simulation.
+Through 0.4 every Monte Carlo simulation executes inline in the HTTP request cycle,
+gated only by a per-user rate-limit scope. On a large project at a high run count this
+occupies a web worker for the duration of the simulation. Once 0.5 ships, only the what-if
+(`GET /projects/{id}/monte-carlo/whatif/`, two simulations per call) will still run
+this way.
 
 - **Impact:** a slow simulation can crowd out other requests on a small deployment.
 - **Workaround:** lower the run count; the P50/P80/P95 converge well before the
   default 1 000 runs on most networks.
-- **Fix lands in 0.5** — [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) moves
-  the simulation onto a Celery worker: the endpoint will answer `202` with a task-run id
-  for the client to poll, and the web app will do that polling for you. API clients that
-  read the forecast from the `POST` response will need to read
-  `GET /projects/{id}/monte-carlo/latest/` once the run succeeds.
+- **Partly fixed in 0.5** — [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) <!-- known-issues-ack:closed -->
+  moves the forecast run (`POST /projects/{id}/monte-carlo/`) onto a Celery worker: the
+  endpoint will answer `202` with a task-run id for the client to poll, and the web app
+  will do that polling for you. API clients that read the forecast from the `POST`
+  response will need to read `GET /projects/{id}/monte-carlo/latest/` once the run
+  succeeds. The what-if keeps its tighter `monte_carlo_whatif` throttle and is not
+  moved.
 
 ### Program-scoped Monte Carlo is not exposed — stretch goal for 0.5
 
