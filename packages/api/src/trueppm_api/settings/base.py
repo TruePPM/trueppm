@@ -688,6 +688,12 @@ CELERY_BEAT_SCHEDULE = {
     # Nightly cleanup: trims project Monte Carlo run history to the newest
     # MC_HISTORY_CAP rows per project (ADR-0175, #961). No-ops when the cap is
     # None (Enterprise unlimited).
+    # Fails PENDING/RUNNING task runs whose worker was killed or lost, once older
+    # than the task's time_limit plus TASK_RUN_REAP_MARGIN_SECONDS (#5068).
+    "reap-stale-task-runs": {
+        "task": "taskruns.reap_stale_task_runs",
+        "schedule": crontab(minute="*/5"),
+    },
     "purge-monte-carlo-runs-nightly": {
         "task": "scheduling.purge_old_monte_carlo_runs",
         # 02:20 UTC — right after the schedule-requests purge.
@@ -2210,6 +2216,10 @@ SIGNAL_CEILING_PROPOSAL_TTL_HOURS: int = env.int("SIGNAL_CEILING_PROPOSAL_TTL_HO
 TASK_RUN_RETENTION_DAYS: int | None = env_with_legacy(
     env, "TRUEPPM_TASK_RUN_RETENTION_DAYS", "TASK_RUN_RETENTION_DAYS", 30, int
 )
+
+# Seconds added to a task's own Celery ``time_limit`` before the stale-run sweep
+# (taskruns.reap_stale_task_runs) fails a PENDING/RUNNING TaskRun whose worker is gone.
+TASK_RUN_REAP_MARGIN_SECONDS: int = env.int("TRUEPPM_TASK_RUN_REAP_MARGIN_SECONDS", default=120)
 
 # ---------------------------------------------------------------------------
 # Time tracking (trueppm_api.apps.timetracking, ADR-0185)

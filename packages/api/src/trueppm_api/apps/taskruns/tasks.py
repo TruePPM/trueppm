@@ -7,6 +7,9 @@ from datetime import timedelta
 from typing import Any
 
 from celery import shared_task
+from django.conf import settings
+from django.db import transaction
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -58,3 +61,108 @@ def purge_old_task_runs() -> dict[str, Any]:
     if resolve_retention("TASK_RUN_RETENTION_DAYS") is None:
         return {"deleted": 0, "skipped": "retention disabled"}
     return {"deleted": _do_taskrun_purge()}
+
+
+# TaskRun.task_name (what the tracker records) -> (Celery task name that owns the
+# run, error code written on the reaped row). The reap threshold is read from the
+# Celery task's own ``time_limit`` so it can never drift from the limit the worker
+# is actually killed at. A task_name absent here is never reaped: without a known
+# limit there is no honest "this can no longer be running" answer.
+_REAPABLE: dict[str, tuple[str, str]] = {
+    "scheduling.monte_carlo": ("scheduling.run_monte_carlo_simulation", "simulation_abandoned"),
+    "scheduling.recalculate": (
+        "trueppm_api.apps.scheduling.tasks.recalculate_schedule",
+        "task_abandoned",
+    ),
+    "import.msproject": ("msproject.import_file", "task_abandoned"),
+    "import.jira": ("jira.import_file", "task_abandoned"),
+    "import.csv": ("csv.import_file", "task_abandoned"),
+}
+
+_DEFAULT_REAP_MARGIN_SECONDS = 120
+
+
+def _reap_message(error: str) -> str:
+    if error == "simulation_abandoned":
+        return (
+            "The Monte Carlo simulation was abandoned: its worker stopped before "
+            "finishing. Run it again."
+        )
+    return "The task was abandoned: its worker stopped before finishing. Run it again."
+
+
+def _do_reap_stale_task_runs() -> int:
+    """Mark PENDING/RUNNING runs older than their task's time limit plus a margin FAILED.
+
+    A worker killed by the hard ``time_limit`` (or lost without redelivery) never
+    reaches ``TaskRunTracker.__exit__``, so its row would stay active forever, show in
+    ``/task-runs/active/`` and keep the indicator count up. Age is measured from
+    ``started_at`` (the last adoption) and falls back to ``created_at`` for a run no
+    worker ever adopted. The write is a conditional UPDATE keyed on the row still being
+    active, so a worker that finishes between the select and the update wins and the
+    sweep leaves its terminal state alone; running the sweep twice is a no-op.
+    Returns the number of rows reaped.
+    """
+    from celery import current_app
+
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
+    from trueppm_api.apps.taskruns.tracker import WS_FAILURE_MESSAGE
+
+    margin = int(getattr(settings, "TASK_RUN_REAP_MARGIN_SECONDS", _DEFAULT_REAP_MARGIN_SECONDS))
+    now = timezone.now()
+    active = [TaskRunStatus.PENDING, TaskRunStatus.RUNNING]
+    reaped = 0
+    for task_name, (celery_name, error) in _REAPABLE.items():
+        task = current_app.tasks.get(celery_name)
+        limit = getattr(task, "time_limit", None)
+        if not limit:
+            continue
+        cutoff = now - timedelta(seconds=int(limit) + margin)
+        # Indexed on status; only a handful of rows are ever active.
+        stale = (
+            TaskRun.objects.filter(task_name=task_name, status__in=active)
+            .annotate(_since=Coalesce("started_at", "created_at"))
+            .filter(_since__lt=cutoff)
+            .values_list("pk", "project_id")
+        )
+        for pk, project_id in list(stale):
+            summary = {
+                "error": error,
+                "message": _reap_message(error),
+                "status_code": 503,
+            }
+            updated = TaskRun.objects.filter(pk=pk, status__in=active).update(
+                status=TaskRunStatus.FAILED,
+                completed_at=now,
+                error_detail=f"{error}: no worker finished this run within {int(limit)}s "
+                f"plus a {margin}s margin.",
+                result_summary=summary,
+            )
+            if not updated:
+                continue
+            reaped += 1
+            if project_id is not None:
+                payload = {
+                    "task_run_id": str(pk),
+                    "task_name": task_name,
+                    "error_detail": WS_FAILURE_MESSAGE,
+                }
+                transaction.on_commit(
+                    lambda pid=str(project_id), pl=payload: broadcast_board_event(
+                        project_id=pid, event_type="task_run_failed", payload=pl
+                    )
+                )
+    if reaped:
+        logger.warning("reap_stale_task_runs: marked %d stranded run(s) failed", reaped)
+    return reaped
+
+
+@shared_task(  # type: ignore[untyped-decorator]
+    name="taskruns.reap_stale_task_runs",
+    soft_time_limit=25,
+    time_limit=30,
+)
+def reap_stale_task_runs() -> dict[str, int]:
+    """Beat sweep: fail task runs stranded by a lost or hard-killed worker (#5068)."""
+    return {"reaped": _do_reap_stale_task_runs()}

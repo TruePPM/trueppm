@@ -134,6 +134,14 @@ plus `status_code`. The web app polls for you. In 0.4 the `POST` runs the simula
 synchronously, returns the forecast in its `200` body, and answers HTTP 503 with a
 `Retry-After` header when the server is already running its limit of simultaneous
 simulations.
+
+From 0.5 a running simulation cannot be canceled: `POST .../task-runs/{id}/cancel/`
+answers `409` for a `running` forecast run, because the engine is one uninterruptible
+call. A run that is still `pending` can be canceled. If a worker is killed or lost
+mid-run, a sweep that runs every five minutes marks the run `failed` with
+`{error: simulation_abandoned, status_code: 503}` once it is older than the task's
+time limit plus `TRUEPPM_TASK_RUN_REAP_MARGIN_SECONDS` (default 120), so it stops
+counting as active.
 :::
 
 The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5,000 on OSS): a project
