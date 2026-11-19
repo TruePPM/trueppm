@@ -349,6 +349,123 @@ def purge_old_monte_carlo_runs(self: object) -> None:
     _do_monte_carlo_run_purge()
 
 
+@idempotent_task(
+    # Keyed on the TaskRun id (the first arg): acks_late redelivers a message whose
+    # worker died, and the same run must not be simulated twice at once. Distinct
+    # runs of one project are NOT serialized — the per-user throttle bounds them.
+    lock_key_template="monte_carlo_run:{0}",
+    lock_ttl=330,
+    on_contention="skip",
+    # Above MC_WALL_CLOCK_BUDGET_SECONDS, which stops the engine cooperatively and
+    # surfaces as a clean simulation_time_exceeded refusal; these limits only catch
+    # a worker the budget could not reach.
+    soft_time_limit=300,
+    time_limit=330,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="scheduling.run_monte_carlo_simulation",
+)
+def run_monte_carlo_simulation(
+    self: object,
+    task_run_id: str,
+    project_id: str,
+    *,
+    n_simulations: int,
+    n_explicit: bool,
+    user_id: Any,
+    persist: bool,
+) -> dict[str, Any] | None:
+    """Run a queued Monte Carlo simulation for ``POST /projects/{id}/monte-carlo/``.
+
+    Moved off the request thread by #2273 (ADR-1430). Adopts the ``PENDING`` TaskRun
+    the request created, so the id the client is polling is the one that finishes.
+    A refusal the endpoint used to return synchronously (cycle, cell cap, busy slot,
+    wall-clock budget) becomes a FAILED run whose ``result_summary`` is that body plus
+    ``status_code`` — readable by every member, unlike ``error_detail``. No retry: a
+    forecast is a re-runnable read, and the user's next click is the recovery.
+
+    Args:
+        task_run_id: The request-created TaskRun to adopt.
+        project_id: UUID string of the project to simulate.
+        n_simulations: Requested run count (the default when ``n_explicit`` is false).
+        n_explicit: Whether the caller sent ``n_simulations``.
+        user_id: The requesting user's PK, for the attributed history row.
+        persist: Whether to append an attributed ``MonteCarloRun`` (Scheduler+).
+    """
+    return execute_monte_carlo_task_run(
+        self,
+        task_run_id,
+        project_id,
+        n_simulations=n_simulations,
+        n_explicit=n_explicit,
+        user_id=user_id,
+        persist=persist,
+    )
+
+
+def execute_monte_carlo_task_run(
+    celery_task: Any,
+    task_run_id: str,
+    project_id: str,
+    *,
+    n_simulations: int,
+    n_explicit: bool,
+    user_id: Any,
+    persist: bool,
+) -> dict[str, Any] | None:
+    """Business logic for run_monte_carlo_simulation — extracted for testability.
+
+    Separate from the task so a test can run a queued simulation in place without
+    the ``@idempotent_task`` Valkey lock; ``celery_task`` only needs ``request.id``
+    and ``name`` for the tracker.
+    """
+    from django.contrib.auth import get_user_model
+    from rest_framework.response import Response
+
+    from trueppm_api.apps.scheduling.views import MC_TASK_NAME, simulate_and_record_monte_carlo
+    from trueppm_api.apps.taskruns.tracker import (
+        ProjectGoneGuard,
+        TaskRunRefused,
+        TaskRunTracker,
+    )
+
+    user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
+    guard = ProjectGoneGuard(MC_TASK_NAME, project_id)
+    try:
+        with (
+            guard,
+            TaskRunTracker(
+                celery_task,
+                project_id=project_id,
+                task_name=MC_TASK_NAME,
+                initiated_by_id=user_id,
+                task_run_id=task_run_id,
+            ) as tracker,
+        ):
+            result = simulate_and_record_monte_carlo(
+                project_id,
+                n_simulations=n_simulations,
+                n_explicit=n_explicit,
+                user=user,
+                persist=persist and user is not None,
+            )
+            if isinstance(result, Response):
+                raise TaskRunRefused({**(result.data or {}), "status_code": result.status_code})
+            summary = {
+                "run_id": result.get("run_id"),
+                "n_simulations": result.get("n_simulations"),
+                "last_run_at": result.get("last_run_at"),
+            }
+            tracker.set_result(summary)
+    except TaskRunRefused:
+        # Already recorded on the run by the tracker; a refusal is an answer, not
+        # a worker fault, so it must not reach Celery's failure handling.
+        return None
+    if guard.triggered:
+        return None
+    return summary
+
+
 def _do_monte_carlo_run_purge() -> None:
     """Business logic for purge_old_monte_carlo_runs — extracted for testability.
 

@@ -49,8 +49,11 @@ web worker for the duration of the simulation.
 - **Impact:** a slow simulation can crowd out other requests on a small deployment.
 - **Workaround:** lower the run count; the P50/P80/P95 converge well before the
   default 1 000 runs on most networks.
-- **Fix planned for 0.5** — [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) moves
-  it into Celery.
+- **Fix lands in 0.5** — [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) moves
+  the simulation onto a Celery worker: the endpoint will answer `202` with a task-run id
+  for the client to poll, and the web app will do that polling for you. API clients that
+  read the forecast from the `POST` response will need to read
+  `GET /projects/{id}/monte-carlo/latest/` once the run succeeds.
 
 ### Program-scoped Monte Carlo is not exposed — stretch goal for 0.5
 

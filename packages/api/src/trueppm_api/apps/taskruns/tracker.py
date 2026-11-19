@@ -45,6 +45,23 @@ class TaskCancelled(Exception):
     """Raised inside a task when a cancellation signal is detected."""
 
 
+class TaskRunRefused(Exception):
+    """A task refused its input, with a reason every project member may read.
+
+    ``error_detail`` is Admin-only because it holds raw exception text. A refusal is
+    different: the reason ("this project has a dependency cycle", "too many
+    simulation runs for this project's size") is the answer the caller is waiting
+    for, so it is stored on ``result_summary`` — which every member can read — as
+    ``public_result``. Its shape is the HTTP error body the work would have
+    returned had it run in the request, plus ``status_code``, so a client renders
+    an asynchronous refusal exactly as it would a synchronous one.
+    """
+
+    def __init__(self, public_result: dict[str, Any]) -> None:
+        super().__init__(str(public_result.get("detail") or public_result.get("error") or ""))
+        self.public_result = public_result
+
+
 class TaskRunProjectGone(Exception):
     """Raised by ``TaskRunTracker.__enter__`` when the task's project no longer exists.
 
@@ -104,6 +121,10 @@ class TaskRunTracker:
         project_id: UUID string of the associated Project, or None for global tasks.
         task_name: Human-readable identifier (e.g. ``"scheduling.recalculate"``).
         initiated_by_id: PK of the user who triggered the task, or None.
+        task_run_id: PK of a ``PENDING`` TaskRun the request already created, to
+            adopt instead of inserting a new row. A request that answers ``202``
+            with a run id needs the row to exist before the worker starts, or the
+            client's first poll would 404.
     """
 
     def __init__(
@@ -113,8 +134,10 @@ class TaskRunTracker:
         project_id: str | None = None,
         task_name: str = "",
         initiated_by_id: Any = None,
+        task_run_id: str | None = None,
     ) -> None:
         self._celery_task = celery_task
+        self._adopt_task_run_id = task_run_id
         self._project_id = project_id
         self._task_name = task_name or celery_task.name
         self._initiated_by_id = initiated_by_id
@@ -137,6 +160,28 @@ class TaskRunTracker:
         # transaction.
         if self._project_id is not None and not self._project_exists():
             raise TaskRunProjectGone(self._project_id)
+
+        if self._adopt_task_run_id is not None:
+            adopted = TaskRun.objects.filter(pk=self._adopt_task_run_id).update(
+                status=TaskRunStatus.RUNNING,
+                started_at=timezone.now(),
+                celery_task_id=self._celery_task.request.id or "",
+            )
+            # The row CASCADEs with its project, so a missing row is the same stale
+            # message as a missing project.
+            if not adopted:
+                raise TaskRunProjectGone(self._project_id)
+            self._task_run_id = str(self._adopt_task_run_id)
+            self._redis = self._get_redis()
+            self._broadcast(
+                "task_run_started",
+                {
+                    "task_run_id": self._task_run_id,
+                    "task_name": self._task_name,
+                    "project_id": self._project_id,
+                },
+            )
+            return self
 
         try:
             with transaction.atomic():
@@ -195,7 +240,11 @@ class TaskRunTracker:
             task_run.status = TaskRunStatus.FAILED
             task_run.error_detail = str(exc_val)
             task_run.completed_at = now
-            task_run.save(update_fields=["status", "error_detail", "completed_at"])
+            update_fields = ["status", "error_detail", "completed_at"]
+            if isinstance(exc_val, TaskRunRefused):
+                task_run.result_summary = exc_val.public_result
+                update_fields.append("result_summary")
+            task_run.save(update_fields=update_fields)
             self._cleanup_redis()
             self._broadcast(
                 "task_run_failed",

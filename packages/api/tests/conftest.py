@@ -156,6 +156,78 @@ def _no_broker_for_email_drain_nudges() -> Iterator[None]:
 
 
 @pytest.fixture
+def mc_async() -> None:
+    """Opt a test out of ``_monte_carlo_runs_to_completion``.
+
+    Request it in a test that asserts the asynchronous contract itself — the 202
+    handle, the PENDING run, the on_commit dispatch — rather than the forecast.
+    """
+
+
+@pytest.fixture(autouse=True)
+def _monte_carlo_runs_to_completion(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Run a queued Monte Carlo simulation in place and answer as a polling client sees it.
+
+    ``POST /projects/{id}/monte-carlo/`` answers 202 and simulates on a Celery worker
+    (#2273). Roughly a hundred tests across twenty modules assert on what a run
+    computes — percentiles, diagnostics, persistence, refusals — not on how it was
+    delivered. Emulating the client that polls the run to completion keeps them
+    about the forecast: the worker's business logic runs in place, then the 202 is
+    replaced by what the client ends with — ``GET .../monte-carlo/latest/`` plus the
+    run's ``run_id`` on success, or the refusal body and ``status_code`` from the
+    failed run's ``result_summary``. The asynchronous contract itself is pinned in
+    ``tests/apps/scheduling/test_monte_carlo_async.py``, which opts out via the
+    ``mc_async`` fixture.
+    """
+    if "mc_async" in request.fixturenames:
+        yield
+        return
+
+    import json
+    import re
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from rest_framework.test import APIClient
+
+    from trueppm_api.apps.scheduling import views as scheduling_views
+    from trueppm_api.apps.scheduling.tasks import execute_monte_carlo_task_run
+    from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
+
+    run_path = re.compile(r"^/api/v1/projects/[^/]+/monte-carlo/$")
+    original_post = APIClient.post
+
+    def _inline_enqueue(*, task_run_id: str, project_id: str, **kwargs: Any) -> None:
+        celery_task = SimpleNamespace(request=SimpleNamespace(id="inline"), name="inline")
+        execute_monte_carlo_task_run(celery_task, task_run_id, project_id, **kwargs)
+
+    def _post(self: APIClient, path: str, *args: Any, **kwargs: Any) -> Any:
+        resp = original_post(self, path, *args, **kwargs)
+        if not run_path.match(path.split("?", 1)[0]) or resp.status_code != 202:
+            return resp
+        run = TaskRun.objects.get(pk=resp.data["task_run_id"])
+        summary = run.result_summary or {}
+        if run.status == TaskRunStatus.SUCCESS:
+            latest = self.get(f"{path}latest/")
+            # The synchronous endpoint carried run_id only when a row was persisted.
+            if summary.get("run_id") is not None:
+                latest.data = {**latest.data, "run_id": summary["run_id"]}
+            latest.content = json.dumps(latest.data, default=str).encode()
+            return latest
+        body = {k: v for k, v in summary.items() if k != "status_code"}
+        resp.status_code = summary.get("status_code", 500)
+        resp.data = body
+        resp.content = json.dumps(body).encode()
+        return resp
+
+    with (
+        patch.object(scheduling_views, "_enqueue_monte_carlo_on_commit", _inline_enqueue),
+        patch.object(APIClient, "post", _post),
+    ):
+        yield
+
+
+@pytest.fixture
 def django_capture_on_commit_callbacks() -> Callable[..., Any]:
     """Override pytest-django's fixture with the savepoint-safe capture (#2945).
 
