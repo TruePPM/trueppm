@@ -32,6 +32,15 @@ from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
 logger = logging.getLogger(__name__)
 
+
+def broadcast_task_run_failed(project_id: str, payload: dict[str, str]) -> None:
+    """Best-effort ``task_run_failed`` fan-out for a run failed outside the tracker."""
+    try:
+        broadcast_board_event(project_id=project_id, event_type="task_run_failed", payload=payload)
+    except Exception as exc:
+        logger.warning("TaskRunTracker: broadcast failed: %s", exc)
+
+
 WS_FAILURE_MESSAGE = "Task failed. An administrator can see the details on the run."
 
 # Redis key patterns (both expire automatically).

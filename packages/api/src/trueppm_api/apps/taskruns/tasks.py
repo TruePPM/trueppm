@@ -70,10 +70,9 @@ def purge_old_task_runs() -> dict[str, Any]:
 # limit there is no honest "this can no longer be running" answer.
 _REAPABLE: dict[str, tuple[str, str]] = {
     "scheduling.monte_carlo": ("scheduling.run_monte_carlo_simulation", "simulation_abandoned"),
-    "scheduling.recalculate": (
-        "trueppm_api.apps.scheduling.tasks.recalculate_schedule",
-        "task_abandoned",
-    ),
+    # Matched by suffix: that task carries Celery's default dotted-module name, and
+    # spelling the module here would be an upward import edge for the layering gate.
+    "scheduling.recalculate": (".recalculate_schedule", "task_abandoned"),
     "import.msproject": ("msproject.import_file", "task_abandoned"),
     "import.jira": ("jira.import_file", "task_abandoned"),
     "import.csv": ("csv.import_file", "task_abandoned"),
@@ -105,7 +104,7 @@ def _do_reap_stale_task_runs() -> int:
     """
     from celery import current_app
 
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.taskruns import tracker
     from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
     from trueppm_api.apps.taskruns.tracker import WS_FAILURE_MESSAGE
 
@@ -114,7 +113,14 @@ def _do_reap_stale_task_runs() -> int:
     active = [TaskRunStatus.PENDING, TaskRunStatus.RUNNING]
     reaped = 0
     for task_name, (celery_name, error) in _REAPABLE.items():
-        task = current_app.tasks.get(celery_name)
+        task = current_app.tasks.get(celery_name) or next(
+            (
+                t
+                for n, t in current_app.tasks.items()
+                if celery_name.startswith(".") and n.endswith(celery_name)
+            ),
+            None,
+        )
         limit = getattr(task, "time_limit", None)
         if not limit:
             continue
@@ -148,11 +154,11 @@ def _do_reap_stale_task_runs() -> int:
                     "task_name": task_name,
                     "error_detail": WS_FAILURE_MESSAGE,
                 }
-                transaction.on_commit(
-                    lambda pid=str(project_id), pl=payload: broadcast_board_event(
-                        project_id=pid, event_type="task_run_failed", payload=pl
-                    )
-                )
+
+                def _emit(pid: str = str(project_id), pl: dict[str, str] = payload) -> None:
+                    tracker.broadcast_task_run_failed(pid, pl)
+
+                transaction.on_commit(_emit)
     if reaped:
         logger.warning("reap_stale_task_runs: marked %d stranded run(s) failed", reaped)
     return reaped

@@ -88,3 +88,16 @@ def test_run_finished_by_worker_is_not_overwritten(project: Project) -> None:
     assert _do_reap_stale_task_runs() == 0
     run.refresh_from_db()
     assert run.status == TaskRunStatus.SUCCESS
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reap_broadcasts_task_run_failed_without_detail(project: Project) -> None:
+    from unittest.mock import patch
+
+    run = _run(project, TaskRunStatus.RUNNING, OLD)
+    with patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event") as bc:
+        assert _do_reap_stale_task_runs() == 1
+    kwargs = bc.call_args.kwargs
+    assert kwargs["event_type"] == "task_run_failed"
+    assert kwargs["payload"]["task_run_id"] == str(run.pk)
+    assert "abandoned" not in kwargs["payload"]["error_detail"]
