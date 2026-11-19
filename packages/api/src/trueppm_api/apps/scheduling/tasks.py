@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from functools import partial
-from typing import Any
+from typing import Any, NamedTuple
 
 import redis as redis_lib
 from celery.exceptions import SoftTimeLimitExceeded
@@ -759,7 +759,8 @@ CPM_DELTA_BROADCAST_CAP = 500
 
 Above this the WS frame grows large enough that a client-side full re-fetch is cheaper
 than splicing, so we emit a ``truncated`` signal instead and let the client invalidate.
-A delta row serializes to ≈264 bytes, so a 500-row payload is ≈130 KB.
+A full delta row serializes to ≈325 bytes (≈264 before ``scheduled_start`` and
+``milestone_at_day_end`` joined it), so a 500-row payload is ≈160 KB.
 
 The cap counts the *moved* set, not the write-back set (#2573). A recalc always
 re-assigns every engine-returned row, so counting the write-back set put every
@@ -767,13 +768,26 @@ project above ~500 tasks permanently into the truncated branch and made ADR-0091
 splice path unreachable at the documented envelope.
 
 Sized against the moved subset the truncated branch is reachable only when the recalc
-genuinely moved that many rows. Note that the backward pass seeds every task's late
-dates from the project finish, so **any edit that shifts the project finish moves the
-whole network's late dates and floats** — a critical-path edit therefore still
-truncates on a large project even though few bars actually move. Narrowing that case
-(splitting early dates from late/float churn, or re-sizing the cap) is tracked in
-#2598; the other wide cases are a first-ever pass, a calendar change, and a
-project-start shift.
+genuinely moved that many rows. The backward pass seeds every task's late dates from
+the project finish, so **any edit that shifts the project finish moves the whole
+network's late dates and floats** even though few bars move. Above this cap the delta
+is therefore split (ADR-0091 amendment, #2598): this cap then counts only the
+*bar-moving* rows (:data:`_CPM_BAR_FIELDS`), which ship in full, and the rows whose
+only change is late dates / float ride the compact ``float_tasks`` array under
+:data:`CPM_FLOAT_DELTA_BROADCAST_CAP`. ``truncated`` is reached only when more than
+this many *bars* moved — a first-ever pass, a calendar change, a project-start shift.
+"""
+
+CPM_FLOAT_DELTA_BROADCAST_CAP = 5000
+"""Max float-only rows to ship in a split delta's compact ``float_tasks`` array (#2598).
+
+A float-only row is ``[id, late_start, late_finish, total_float, free_float]`` —
+≈77 bytes against a full row's ≈325 — so 5,000 rows is ≈385 KB, the documented
+5,000-task envelope. A full re-fetch of that project is ten 500-row pages of full task
+rows (several MB per client), so even at the cap the compact array is the cheaper wire.
+Above it the split delta sets ``float_truncated`` instead: the bar rows still splice
+(and still carry the previous value the reforecast panel needs, #3158), and the client
+re-fetches only to refresh float.
 """
 
 
@@ -1056,13 +1070,9 @@ def _build_schedule_shift_events(
     return events
 
 
-_CPM_DELTA_FIELDS: tuple[str, ...] = (
+_CPM_BAR_FIELDS: tuple[str, ...] = (
     "early_start",
     "early_finish",
-    "late_start",
-    "late_finish",
-    "total_float",
-    "free_float",
     "is_critical",
     "duration",
     # scheduled_start (ADR-0752): the task's span start, distinct from
@@ -1073,7 +1083,32 @@ _CPM_DELTA_FIELDS: tuple[str, ...] = (
     # the diamond without moving any date, so it must count as a move.
     "milestone_at_day_end",
 )
+"""CPM fields whose change moves or restyles a Gantt bar (#2598).
+
+A row where one of these changed is *bar-moving* and always ships as a full delta row.
+``is_critical`` is here, not with float: a criticality flip recolors the bar and changes
+the critical-path set the client renders.
+"""
+
+_CPM_FLOAT_FIELDS: tuple[str, ...] = (
+    "late_start",
+    "late_finish",
+    "total_float",
+    "free_float",
+)
+"""CPM fields that re-anchor on every project-finish shift and move no bar (#2598).
+
+The backward pass seeds every task's late finish from the project finish, so one
+critical-path edit changes these on the whole network. A row whose only change is here
+is *float-only* and, in a split delta, rides the compact ``float_tasks`` array.
+"""
+
+_CPM_DELTA_FIELDS: tuple[str, ...] = _CPM_BAR_FIELDS + _CPM_FLOAT_FIELDS
 """Every CPM-owned field a ``task_dates_updated`` delta can carry (ADR-0091, #2573).
+
+Bar fields first: :func:`_apply_cpm_results` classifies a moved row as float-only by
+comparing the first ``len(_CPM_BAR_FIELDS)`` items of the snapshot, so the order is
+load-bearing.
 
 Deliberately the same set the write-back persists, so "this row changed" and "this
 row needs to ship in the delta" are the same question. ``planned_start`` also rides
@@ -1081,6 +1116,8 @@ in the payload but is a user-owned field the CPM write-back never touches, so it
 cannot make a row moved.
 """
 
+
+_N_BAR_FIELDS = len(_CPM_BAR_FIELDS)
 
 _cpm_delta_snapshot = operator.attrgetter(*_CPM_DELTA_FIELDS)
 """Snapshot the broadcast-relevant CPM fields of a Task for a moved/unmoved diff.
@@ -1217,10 +1254,15 @@ def _apply_cpm_results(
     db_tasks: Iterable[Any],
     result_map: dict[str, Any],
     summary_durations: Mapping[str, int],
-) -> tuple[list[Any], dict[str, tuple[Any, Any, Any, Any]], list[Any], dict[str, bool]]:
+) -> tuple[list[Any], dict[str, tuple[Any, Any, Any, Any]], list[Any], dict[str, bool], set[str]]:
     """Write engine CPM results onto Task rows in memory.
 
-    Returns ``(tasks_to_update, old_cpm_dates, moved_tasks, old_day_end)``.
+    Returns ``(tasks_to_update, old_cpm_dates, moved_tasks, old_day_end, float_only_ids)``.
+
+    ``float_only_ids`` is the subset of ``moved_tasks`` (by ``str(id)``) whose change is
+    confined to :data:`_CPM_FLOAT_FIELDS` — late dates and float that re-anchored on a
+    project-finish shift without moving the bar. :func:`_plan_cpm_delta` uses it to keep
+    a critical-path edit's delta bounded by the bars it moved (#2598).
 
     ``old_day_end`` is each task's ``milestone_at_day_end`` before the overwrite,
     which the shift-events helper needs to read the *prior* project finish in
@@ -1253,6 +1295,7 @@ def _apply_cpm_results(
     old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
     old_day_end: dict[str, bool] = {}
     moved_tasks: list[Any] = []
+    float_only_ids: set[str] = set()
     for db_task in db_tasks:
         # One `str(UUID)` for the row, reused by all three lookups below. Same
         # rationale as the `attrgetter` snapshot above: this loop runs once per task
@@ -1317,9 +1360,13 @@ def _apply_cpm_results(
         if new_duration is not None:
             db_task.duration = new_duration
         tasks_to_update.append(db_task)
-        if _cpm_delta_snapshot(db_task) != before:
+        after = _cpm_delta_snapshot(db_task)
+        if after != before:
             moved_tasks.append(db_task)
-    return tasks_to_update, old_cpm_dates, moved_tasks, old_day_end
+            # Slice only on the moved path, so the unmoved majority pays nothing.
+            if after[:_N_BAR_FIELDS] == before[:_N_BAR_FIELDS]:
+                float_only_ids.add(task_key)
+    return tasks_to_update, old_cpm_dates, moved_tasks, old_day_end, float_only_ids
 
 
 _CPM_WRITE_FIELDS: tuple[str, ...] = (
@@ -1410,6 +1457,7 @@ def _bulk_write_cpm_results(
     tasks_to_update: list[Any],
     summary_durations: Mapping[str, int],
     moved_tasks: list[Any],
+    float_only_ids: set[str] | None = None,
 ) -> None:
     """Persist ``_apply_cpm_results``' in-memory mutations, without clobbering user input.
 
@@ -1431,8 +1479,9 @@ def _bulk_write_cpm_results(
        ``moved_tasks`` so the WebSocket delta carries the committed value rather than
        the load-time snapshot. Both are user-owned inputs the recalc never writes; a
        client splices the delta straight into its cache, so a stale value there would
-       flicker a just-saved edit back until the next refetch. Skipped for a project
-       above ``CPM_DELTA_BROADCAST_CAP``, whose delta ships no rows.
+       flicker a just-saved edit back until the next refetch. Only the rows that ship
+       as *full* delta rows are re-read (:func:`_plan_cpm_delta`): a truncated project
+       ships none, and a split delta's float-only rows carry no user-owned field.
     """
     task_model.objects.bulk_update(
         tasks_to_update, list(_CPM_WRITE_FIELDS), batch_size=_WRITEBACK_BATCH_SIZE
@@ -1449,15 +1498,14 @@ def _bulk_write_cpm_results(
             )
 
     # The delta is built per project (the program pass ships one per member), so the
-    # cap is applied per project: a project over it ships `truncated` and no rows.
+    # plan is made per project — by the same helper the payload builder uses, so the
+    # rows re-read here are exactly the full rows that ship.
     moved_by_project: dict[object, list[Any]] = {}
     for t in moved_tasks:
         moved_by_project.setdefault(t.project_id, []).append(t)
+    float_only = float_only_ids or set()
     shipped = [
-        t
-        for rows in moved_by_project.values()
-        if len(rows) <= CPM_DELTA_BROADCAST_CAP
-        for t in rows
+        t for rows in moved_by_project.values() for t in _plan_cpm_delta(rows, float_only).full_rows
     ]
     current: dict[str, dict[str, Any]] = {}
     for i in range(0, len(shipped), _WRITEBACK_BATCH_SIZE):
@@ -1804,7 +1852,7 @@ def _run_schedule(
     # each task's dates before the overwrite so the shift-events helper can tell
     # which tasks actually moved (ADR-0207); moved_tasks is that same moved subset
     # as a list, and is what the ADR-0091 delta broadcast ships (#2573).
-    tasks_to_update, old_cpm_dates, moved_tasks, old_day_end = _apply_cpm_results(
+    tasks_to_update, old_cpm_dates, moved_tasks, old_day_end, float_only_ids = _apply_cpm_results(
         db_tasks, result_map, summary_durations
     )
 
@@ -1891,8 +1939,10 @@ def _run_schedule(
 
     with transaction.atomic():
         # Leaf `duration` is excluded on purpose (#4371): see _CPM_WRITE_FIELDS.
-        _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
-        delta_payload = _member_cpm_delta(moved_tasks)
+        _bulk_write_cpm_results(
+            Task, tasks_to_update, summary_durations, moved_tasks, float_only_ids
+        )
+        delta_payload = _member_cpm_delta(moved_tasks, float_only_ids)
 
         # #3531: materialize phase status beside the date rollup, same transaction.
         _, backlog_flips, status_changed = rollup_phase_statuses_detailed([project_id])
@@ -2204,19 +2254,59 @@ def recalculate_program_schedule(self: object, program_id: str) -> None:
     _run_program_schedule(program_id, task=self)
 
 
-def _member_cpm_delta(moved_tasks: list[Any]) -> dict[str, object]:
+class _CpmDeltaPlan(NamedTuple):
+    """Which moved rows a ``task_dates_updated`` delta ships, and in which form."""
+
+    full_rows: list[Any]
+    float_rows: list[Any]
+    truncated: bool
+    float_truncated: bool
+
+
+def _plan_cpm_delta(moved_tasks: list[Any], float_only_ids: set[str]) -> _CpmDeltaPlan:
+    """Decide one project's delta shape (ADR-0091, amended by #2598).
+
+    * At or under :data:`CPM_DELTA_BROADCAST_CAP` moved rows: every row ships in full,
+      exactly as before the split existed — the common case, unchanged on the wire.
+    * Over it, but at most that many *bar-moving* rows: split. The bar-moving rows
+      ship in full (a bounded set — the edited task's downstream chain); float-only
+      rows ship compact, or not at all above :data:`CPM_FLOAT_DELTA_BROADCAST_CAP`.
+      This is the critical-path edit: few bars move, the whole network re-anchors.
+    * More bars moved than the cap: ``truncated``, the client re-fetches.
+
+    WHY the split never applies under the cap: a consumer that predates it reads
+    only ``tasks``, so keeping every case that already spliced byte-identical means
+    such a consumer loses nothing it had. Above the cap it used to re-fetch; it now
+    splices the bars and keeps stale float until its next read.
+    """
+    if len(moved_tasks) <= CPM_DELTA_BROADCAST_CAP:
+        return _CpmDeltaPlan(moved_tasks, [], truncated=False, float_truncated=False)
+    bars = [t for t in moved_tasks if str(t.id) not in float_only_ids]
+    if len(bars) > CPM_DELTA_BROADCAST_CAP:
+        return _CpmDeltaPlan([], [], truncated=True, float_truncated=False)
+    floats = [t for t in moved_tasks if str(t.id) in float_only_ids]
+    if len(floats) > CPM_FLOAT_DELTA_BROADCAST_CAP:
+        return _CpmDeltaPlan(bars, [], truncated=False, float_truncated=True)
+    return _CpmDeltaPlan(bars, floats, truncated=False, float_truncated=False)
+
+
+def _member_cpm_delta(
+    moved_tasks: list[Any], float_only_ids: set[str] | None = None
+) -> dict[str, object]:
     """Build one project's ``task_dates_updated`` delta payload (ADR-0091 shape).
 
     ``moved_tasks`` must be the *changed set* — only the rows whose CPM fields
     actually moved this pass — not the full write-back set. ``count`` is therefore
-    the moved-task count in both branches, as ADR-0091 specifies. Mirrors the
+    the moved-task count in every branch, as ADR-0091 specifies. Mirrors the
     single-project delta exactly so a web client can splice program-pass results
-    into its task cache the same way; above ``CPM_DELTA_BROADCAST_CAP`` it emits a
-    ``truncated`` signal and lets the client re-fetch.
+    into its task cache the same way. The shape is chosen by :func:`_plan_cpm_delta`:
+    whole, split (``tasks`` + compact ``float_tasks``, or ``float_truncated``), or
+    ``truncated``.
     """
-    if len(moved_tasks) > CPM_DELTA_BROADCAST_CAP:
+    plan = _plan_cpm_delta(moved_tasks, float_only_ids or set())
+    if plan.truncated:
         return {"count": len(moved_tasks), "truncated": True}
-    return {
+    payload: dict[str, object] = {
         "count": len(moved_tasks),
         "tasks": [
             {
@@ -2236,9 +2326,25 @@ def _member_cpm_delta(moved_tasks: list[Any]) -> dict[str, object]:
                 "scheduled_start": t.scheduled_start.isoformat() if t.scheduled_start else None,
                 "milestone_at_day_end": t.milestone_at_day_end,
             }
-            for t in moved_tasks
+            for t in plan.full_rows
         ],
     }
+    if plan.float_rows:
+        # Positional, fixed order, append-only (ADR-0091 #2598 amendment): a keyed
+        # object would repeat five key names per row and cost more than the values.
+        payload["float_tasks"] = [
+            [
+                str(t.id),
+                t.late_start.isoformat() if t.late_start else None,
+                t.late_finish.isoformat() if t.late_finish else None,
+                t.total_float,
+                t.free_float,
+            ]
+            for t in plan.float_rows
+        ]
+    if plan.float_truncated:
+        payload["float_truncated"] = True
+    return payload
 
 
 def _register_program_broadcasts(
@@ -2247,6 +2353,7 @@ def _register_program_broadcasts(
     moved_by_project: dict[object, list[Any]],
     crit_order: list[str],
     status_changed_projects: set[Any] | None = None,
+    float_only_ids: set[str] | None = None,
 ) -> None:
     """Register each member project's post-commit broadcasts for a program pass.
 
@@ -2285,7 +2392,7 @@ def _register_program_broadcasts(
             (t.early_finish for t in project_tasks if t.early_finish is not None),
             default=None,
         )
-        delta_payload = _member_cpm_delta(moved_by_project.get(p.id, []))
+        delta_payload = _member_cpm_delta(moved_by_project.get(p.id, []), float_only_ids)
 
         def _dates(pid: str = pid, pay: dict[str, object] = delta_payload) -> None:
             broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
@@ -2490,6 +2597,8 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     # The subset of tasks_to_update whose CPM fields actually moved — what the
     # ADR-0091 delta broadcast ships (#2573).
     moved_tasks: list[Task] = []
+    # Of those, the ones whose only change is late dates / float (#2598).
+    float_only_ids: set[str] = set()
     # Driving-link flags across every member project (#2095), persisted alongside
     # the task write-back below. Empty when the program has no schedulable result.
     program_db_deps: list[Dependency] = []
@@ -2514,8 +2623,8 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
         # incremental subgraph writes are a later optimization). Shared helper with
         # _run_schedule, so field assignment — milestone single-point normalisation
         # and summary working-day duration included — can never drift.
-        tasks_to_update, old_cpm_dates, moved_tasks, old_day_end = _apply_cpm_results(
-            graph.db_task_by_id.values(), result_map, summary_durations
+        tasks_to_update, old_cpm_dates, moved_tasks, old_day_end, float_only_ids = (
+            _apply_cpm_results(graph.db_task_by_id.values(), result_map, summary_durations)
         )
 
         # Driving-link flags across the program (#2095), same shared helper as the
@@ -2563,7 +2672,9 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
             # Same split as the single-project pass: leaf `duration` is never
             # written back, so a concurrent edit anywhere in the program survives
             # (#4371). See _CPM_WRITE_FIELDS.
-            _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
+            _bulk_write_cpm_results(
+                Task, tasks_to_update, summary_durations, moved_tasks, float_only_ids
+            )
 
         # #3531: phase status rollup for every member project, same transaction.
         _, backlog_flips, status_changed_projects = rollup_phase_statuses_detailed(member_ids)
@@ -2610,7 +2721,12 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
         # clients only ever see dates that persisted. Registered from inside this
         # atomic block so the on_commit callbacks are tied to this transaction.
         _register_program_broadcasts(
-            graph, by_project, moved_by_project, crit_order, status_changed_projects
+            graph,
+            by_project,
+            moved_by_project,
+            crit_order,
+            status_changed_projects,
+            float_only_ids=float_only_ids,
         )
 
     logger.info(

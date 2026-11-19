@@ -230,6 +230,7 @@ Two measurements above were also corrected while verifying this:
   10 of them early dates). Splitting bar-moving fields from late/float re-anchoring is
   tracked in #2598; it is a narrowing of this ADR's cost model, not a change to the
   payload contract.
+  *(Resolved by the #2598 amendment below: the delta splits instead of truncating.)*
 
 ### Consequence of the narrowing: frames no longer self-repair
 
@@ -260,3 +261,91 @@ still fires unconditionally. No client depends on the empty frame:
 `ProgramScheduleLiveSync` only refetches on the event type. The change removes the
 empty frame and its ADR-0236 replay rows; the refetch is unchanged because
 `cpm_complete` still triggers it.
+
+## Amendment (2026-11-19, #2598) — split the delta: bars in full, float compact
+
+**Problem.** The #2573 amendment above left one residual truncation case. The
+backward pass seeds every task's late finish from the project finish
+(`trueppm_scheduler` `engine.py`, `lf_constraints = [_prev_working_day(project_finish,
+…)]`), so any edit that moves the project finish changes `late_start`, `late_finish`,
+`total_float` and `free_float` on the whole network. Those fields are in the moved-set
+diff, so a critical-path edit counted every task as moved and tripped
+`CPM_DELTA_BROADCAST_CAP` while moving almost no bars. Measured on a 2,000-task engine
+run (200 chains of 10, 400 critical): a critical +2d edit moved 2,000 rows, of which 10
+moved a bar. Pinned at 1,000 tasks by `test_critical_path_edit_ships_bounded_bars_and_compact_floats`
+(`packages/api/tests/apps/scheduling/test_cascade_chain.py`): 4 bar rows, 995
+float-only rows.
+
+That truncation had a second cost beyond the re-fetch. The reforecast panel ("What
+moved and why", ADR-0784, #3041) can explain a row only from an observation that
+carries the row's previous value, and only the splice path supplies one. A truncated
+frame re-fetches through the full-snapshot path, so the panel could not list a
+single row of a critical-path edit, only a count (#3158).
+
+**Options weighed** (from #2598):
+
+1. *Split the delta.* Bar-moving rows always ship in full; rows whose only change is
+   late dates / float ship separately. **Chosen.**
+2. *Re-size the cap.* Rejected. It moves the threshold, not the problem: a
+   critical-path edit on a project above the new cap still truncates and is still
+   unexplained. Raising the full-row cap to 5,000 also means ≈1.6 MB frames.
+3. *Ship a scalar for pure re-anchoring* (every late date shifted by the same
+   amount). Rejected. On a working-day calendar a shift of N working days is a
+   different number of calendar days for each task, depending on where its dates
+   fall against weekends and holidays, so the shift is uniform only in working time.
+   A client would need each task's calendar to apply it, which is engine math on
+   the client (CLAUDE.md principle 5, ADR-0599). A shift that is not uniform, such as
+   a partial re-anchor behind a constraint, would still truncate.
+
+**Decision.** Partition the moved set by *which* fields moved:
+
+- *Bar fields* (`_CPM_BAR_FIELDS`): `early_start`, `early_finish`, `is_critical`,
+  `duration`, `scheduled_start`, `milestone_at_day_end`. A change here moves,
+  resizes or recolors a bar, or changes the critical-path set. `is_critical` is a bar
+  field even though float drives it: a criticality flip recolors the bar.
+- *Float fields* (`_CPM_FLOAT_FIELDS`): `late_start`, `late_finish`, `total_float`,
+  `free_float`. A row whose only change is here is *float-only*.
+
+`_apply_cpm_results` classifies each moved row from the snapshot it already takes,
+so the split adds no query. `_plan_cpm_delta` then picks one of four shapes per
+project. The single-project and program passes share it, and so does the re-read in
+`_bulk_write_cpm_results`, so the rows it re-reads are exactly the rows that ship in
+full:
+
+| Moved rows | Bar rows | Float-only rows | Payload |
+|---|---|---|---|
+| ≤ 500 | — | — | `{count, tasks}`, every moved row in full. Same bytes as before this amendment |
+| > 500 | ≤ 500 | ≤ 5,000 | `{count, tasks: <bar rows>, float_tasks: <compact rows>}` |
+| > 500 | ≤ 500 | > 5,000 | `{count, tasks: <bar rows>, float_truncated: true}` |
+| > 500 | > 500 | — | `{count, truncated: true}`, unchanged |
+
+`float_tasks` rows are positional: `[id, late_start, late_finish, total_float,
+free_float]`. The order is fixed and append-only. Keyed objects would repeat five
+key names per row and cost more than the values. A row is ≈77 bytes against ≈325
+for a full row, so 5,000 float rows are ≈385 KB, while a full re-fetch of that
+project is ten 500-row pages of full task rows. `count` is still the total moved
+count, and a row appears in only one of the two arrays.
+A maximal split frame (≈385 KB) is also well inside the ADR-0236 replay byte budget
+(`_REPLAY_MAX_BYTES`, 4 MB, #4467). A client behind by many such frames resyncs
+rather than streams them, the same fallback as before.
+
+**Compatibility.** The change is additive. The event type, `count`, `tasks`,
+`truncated` and the full-row shape are unchanged, and every case that already
+spliced (moved set ≤ 500) is unchanged on the wire. That is why the split applies
+only above the cap. A consumer that predates the split and meets a split frame
+splices the bar rows correctly and ignores `float_tasks`. Its float and late dates
+stay stale until its next read. Before the split, that consumer received
+`truncated` and re-fetched. Pre-GA this costs little: the web client ships in the
+same release as the API, and an older bundle in the ADR-1249 skew window recovers on
+its next re-fetch. The mobile scaffold does not consume the event.
+
+**Web client.** `useProjectWebSocket` splices `tasks` exactly as before and also
+splices each `float_tasks` row through `applyTaskFloatDelta` (`totalFloat`,
+`freeFloat`, `lateFinish`; the web `Task` does not surface `late_start`). Float-only
+rows open no reconcile observation, because they move no bar. On `float_truncated`
+the client splices the bar rows, then invalidates `tasks` to re-read float. The bar
+rows have already reached reconciliation with their previous values by then. On every
+path except a genuinely wide bar move (a first-ever pass, a calendar change, a
+project-start shift), the reforecast panel can now itemize a critical-path edit.
+#3158 should be verified against this rather than closed by assumption.
+

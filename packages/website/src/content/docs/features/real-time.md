@@ -1,6 +1,7 @@
 ---
 title: "Real-Time Collaboration"
 description: "WebSocket broadcasts for all project mutations via Django Channels."
+documentedFor: "0.5"
 ---
 
 **This page is for developers** connecting to TruePPM's live-update channel — end users don't configure anything here; changes just appear on screen as teammates make them. Under the hood, TruePPM pushes project changes to every connected client over a WebSocket connection the moment they happen, so a schedule move or a card drag shows up for everyone else without a page refresh.
@@ -40,7 +41,13 @@ A schedule recompute broadcasts two events when the CPM run commits:
 | Event | Payload |
 |-------|---------|
 | `cpm_complete` | `{"project_finish": "...", "critical_path": [...]}` |
-| `task_dates_updated` | `{"count": N, "tasks": [{"id", "early_start", "early_finish", "late_start", "late_finish", "total_float", "free_float", "is_critical", "planned_start", "duration", "scheduled_start", "milestone_at_day_end"}, ...]}` — per-task CPM date deltas so Gantt bars slide without a full re-fetch. `scheduled_start` is the start of the task's bar (its span), which can precede `early_start` once work is underway; `milestone_at_day_end` is `true` when a milestone sits at the end of its `early_start` day because it follows work, and `false` for every other task. `count` and `tasks` cover only the tasks whose CPM fields actually changed in that recalculation, not every task in the project — a single-field edit typically ships a handful of rows regardless of project size. When the changed set is genuinely too large to ship economically (a first-ever pass, a calendar change, a project-start shift), the payload is `{"count": N, "truncated": true}` and clients should re-fetch. No frame is sent when a pass moves no tasks; `cpm_complete` always fires. |
+| `task_dates_updated` | `{"count": N, "tasks": [{"id", "early_start", "early_finish", "late_start", "late_finish", "total_float", "free_float", "is_critical", "planned_start", "duration", "scheduled_start", "milestone_at_day_end"}, ...]}` — per-task CPM date deltas so Gantt bars slide without a full re-fetch. `scheduled_start` is the start of the task's bar (its span), which can precede `early_start` once work is underway; `milestone_at_day_end` is `true` when a milestone sits at the end of its `early_start` day because it follows work, and `false` for every other task. `count` and `tasks` cover only the tasks whose CPM fields actually changed in that recalculation, not every task in the project — a single-field edit typically ships a handful of rows regardless of project size. When more than 500 tasks changed and more than 500 of them moved a bar (a first-ever pass, a calendar change, a project-start shift), the payload is `{"count": N, "truncated": true}` and clients should re-fetch. When few bars moved, the payload is split instead (see below). No frame is sent when a pass moves no tasks; `cpm_complete` always fires. |
+
+When more than 500 tasks changed but no more than 500 of them moved a bar, the payload is split instead of truncated. This is the usual shape of a critical-path edit: the project finish moves, so every task's late dates and float re-anchor, but only the edited chain's bars move. `tasks` carries the bar-moving rows in full. `float_tasks` carries every other changed row as a compact array, `[id, late_start, late_finish, total_float, free_float]`, in a fixed order that only ever gains columns at the end. If more than 5,000 rows changed only their float, the payload sends `"float_truncated": true` in place of `float_tasks`: splice `tasks`, then re-fetch to refresh float. `count` is always the total number of changed tasks, and a task appears in at most one of the two arrays. A client that ignores `float_tasks` still draws every bar correctly but shows stale float until its next re-fetch.
+
+:::note[Ships in 0.5]
+The split payload (`float_tasks` and `float_truncated`) ships in 0.5. In the current release, a recalculation that changes more than 500 tasks always sends `{"count": N, "truncated": true}`, including a critical-path edit that moves only a few bars.
+:::
 
 ### Tasks
 

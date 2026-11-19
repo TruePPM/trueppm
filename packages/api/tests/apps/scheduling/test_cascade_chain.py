@@ -544,3 +544,136 @@ def test_delta_is_one_broadcast_and_costs_zero_client_refetches(
 
     assert _pages_refetched(payload) == 0, "a single-field edit must not cost a client any re-fetch"
     assert _delta_count(payload) < 1000 // 10, "delta must be O(subgraph), not O(project)"
+
+
+# ---------------------------------------------------------------------------
+# A critical-path edit splits the delta instead of truncating it (#2598).
+#
+# The backward pass seeds every task's late finish from the project finish, so an
+# edit that moves the finish re-anchors late dates and float on the whole network
+# while moving only the edited chain's bars. Counted as one set, that tripped the
+# cap; split, the bar-moving rows stay a bounded full-row `tasks` array (which is
+# also what lets the reforecast panel explain them, #3158) and the float-only rows
+# ride the compact `float_tasks` array.
+# ---------------------------------------------------------------------------
+
+
+def _edit_critical_chain(project: Project, chains: list[list[Task]], capture: object) -> object:
+    """Warm the project, then lengthen a critical-chain task by two days."""
+    _run_and_capture(project.pk, capture)
+    target = Task.objects.get(pk=chains[0][1].pk)
+    target.duration = 12
+    target.save()
+    return _run_and_capture(project.pk, capture)
+
+
+@pytest.mark.django_db
+def test_critical_path_edit_ships_bounded_bars_and_compact_floats(
+    wide_project: tuple[Project, list[list[Task]]],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """The issue's table, on 1,000 tasks: the finish moves, 4 bars move, 995 rows
+    change only late dates / float. Pre-fix: ``truncated`` and a full re-fetch."""
+    project, chains = wide_project
+    payload = _edit_critical_chain(project, chains, django_capture_on_commit_callbacks)
+    assert isinstance(payload, dict)
+
+    assert "truncated" not in payload, "a critical-path edit must not force a full re-fetch"
+    assert "float_truncated" not in payload
+    assert _pages_refetched(payload) == 0
+
+    # Bar-moving rows: the edited task and its downstream critical chain — nothing else.
+    bar_ids = _delta_ids(payload)
+    critical_chain = {str(t.pk) for t in chains[0]}
+    assert bar_ids <= critical_chain
+    assert str(chains[0][1].pk) in bar_ids
+    assert len(bar_ids) == _WIDE_CHAIN_LEN - 1  # chain head's dates and float are unchanged
+
+    # Float-only rows: every task on the 199 other chains, compact and correct.
+    float_rows = payload["float_tasks"]
+    assert isinstance(float_rows, list)
+    float_ids = {row[0] for row in float_rows}
+    assert not float_ids & bar_ids, "a row ships in one array, never both"
+    assert len(float_ids) == (_WIDE_CHAINS - 1) * _WIDE_CHAIN_LEN
+    assert payload["count"] == len(bar_ids) + len(float_ids)
+
+    by_id = {
+        str(t.pk): t
+        for t in Task.objects.filter(pk__in=list(float_ids)).only(
+            "late_start", "late_finish", "total_float", "free_float"
+        )
+    }
+    for tid, late_start, late_finish, total_float, free_float in float_rows:
+        row = by_id[tid]
+        assert row.late_start is not None and row.late_finish is not None
+        assert late_start == row.late_start.isoformat()
+        assert late_finish == row.late_finish.isoformat()
+        assert total_float == row.total_float
+        assert free_float == row.free_float
+
+    # The whole point of the split, in bytes: the frame is a fraction of the
+    # full-row equivalent the old cap was sized against.
+    import json
+
+    full_row_bytes = len(json.dumps(payload["tasks"])) / len(bar_ids)
+    float_row_bytes = len(json.dumps(float_rows)) / len(float_rows)
+    assert float_row_bytes < full_row_bytes / 2
+
+
+@pytest.mark.django_db
+def test_critical_path_edit_above_float_cap_still_splices_bars(
+    wide_project: tuple[Project, list[list[Task]]],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """Above the float cap the bars still ship in full (with the values the
+    reforecast panel needs); only float degrades to a client re-fetch."""
+    project, chains = wide_project
+    with patch("trueppm_api.apps.scheduling.tasks.CPM_FLOAT_DELTA_BROADCAST_CAP", 10):
+        payload = _edit_critical_chain(project, chains, django_capture_on_commit_callbacks)
+    assert isinstance(payload, dict)
+
+    assert "truncated" not in payload
+    assert payload["float_truncated"] is True
+    assert "float_tasks" not in payload
+    assert _delta_ids(payload) <= {str(t.pk) for t in chains[0]}
+
+
+@pytest.mark.django_db
+def test_under_the_cap_the_payload_is_unchanged(
+    project: Project,
+    chain: tuple[Task, Task, Task, Task],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """Under the cap every moved row — float-only ones included — still ships as a
+    full ``tasks`` row, so a consumer that predates the split loses nothing."""
+    payload = _run_and_capture(project.pk, django_capture_on_commit_callbacks)
+    assert "float_tasks" not in payload
+    assert "float_truncated" not in payload
+    assert len(_delta_ids(payload)) == payload["count"]
+
+
+def test_plan_cpm_delta_branches() -> None:
+    """The four shapes, decided without a database (shared by the program pass)."""
+    from types import SimpleNamespace
+
+    from trueppm_api.apps.scheduling.tasks import _plan_cpm_delta
+
+    rows = [SimpleNamespace(id=f"t{i}") for i in range(6)]
+    float_ids = {"t2", "t3", "t4", "t5"}
+    tasks_mod = "trueppm_api.apps.scheduling.tasks"
+
+    with patch(f"{tasks_mod}.CPM_DELTA_BROADCAST_CAP", 6):
+        plan = _plan_cpm_delta(rows, float_ids)
+        assert plan.full_rows == rows and plan.float_rows == [] and not plan.truncated
+
+    with patch(f"{tasks_mod}.CPM_DELTA_BROADCAST_CAP", 2):
+        plan = _plan_cpm_delta(rows, float_ids)
+        assert [r.id for r in plan.full_rows] == ["t0", "t1"]
+        assert [r.id for r in plan.float_rows] == ["t2", "t3", "t4", "t5"]
+        with patch(f"{tasks_mod}.CPM_FLOAT_DELTA_BROADCAST_CAP", 3):
+            plan = _plan_cpm_delta(rows, float_ids)
+            assert plan.float_rows == [] and plan.float_truncated
+            assert [r.id for r in plan.full_rows] == ["t0", "t1"]
+
+    with patch(f"{tasks_mod}.CPM_DELTA_BROADCAST_CAP", 1):
+        assert _plan_cpm_delta(rows, float_ids).truncated
