@@ -20,6 +20,7 @@ from datetime import date, timedelta
 import pytest
 
 from trueppm_scheduler import (
+    MAX_DEPENDENCIES,
     Calendar,
     Dependency,
     DependencyType,
@@ -152,6 +153,31 @@ def test_schedule_large_mixed_topology_performance() -> None:
     assert elapsed < 5.0, (
         f"schedule() on a 5,000-task / ~10,000-dep mixed graph took {elapsed:.3f}s — "
         "budget is 5.0s. This indicates a super-linear regression; profile with cProfile."
+    )
+
+
+@pytest.mark.parametrize(("task_count", "budget_s"), [(10_000, 10.0), (50_000, 30.0)])
+def test_schedule_large_mixed_topology_scales_linearly(task_count: int, budget_s: float) -> None:
+    """schedule() at 10,000 and 50,000 tasks (~2 edges per task) stays near-linear (#3825).
+
+    Measured on an Apple-silicon laptop: 10,000 tasks / ~20k edges about 0.13 s and
+    50,000 tasks / ~100k edges about 1.2 s (181 MB peak RSS). The budgets are ~10-25x
+    that so a loaded CI runner passes while a super-linear regression (O(n^2) at 50,000
+    tasks is 2.5 billion steps) fails loudly. The 50,000-task case also pins that the
+    network clears MAX_DEPENDENCIES, which bound it exactly at the old 100,000 cap.
+    """
+    project = _make_mixed_topology(task_count)
+    assert len(project.dependencies) >= 2 * task_count - 5
+    assert len(project.dependencies) <= MAX_DEPENDENCIES
+
+    t0 = time.perf_counter()
+    result = schedule(project)
+    elapsed = time.perf_counter() - t0
+
+    assert len(result.tasks) == task_count
+    assert elapsed < budget_s, (
+        f"schedule() on a {task_count:,}-task / ~{len(project.dependencies):,}-dep mixed "
+        f"graph took {elapsed:.3f}s — budget is {budget_s}s. Super-linear regression; profile."
     )
 
 

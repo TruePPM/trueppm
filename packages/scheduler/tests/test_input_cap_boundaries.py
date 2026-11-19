@@ -168,9 +168,9 @@ def _exceptions_on_registry_calendar(n: int) -> Project:
 def _expansion_inputs(
     extra_edge: bool,
 ) -> tuple[list[Task], list[Dependency], dict[str, list[str]]]:
-    """A 250-leaf -> 400-leaf summary edge: exactly ``MAX_EXPANDED_EDGES`` leaf pairs."""
-    left = [f"p{i}" for i in range(250)]
-    right = [f"s{i}" for i in range(400)]
+    """A 500-leaf -> 500-leaf summary edge: exactly ``MAX_EXPANDED_EDGES`` leaf pairs."""
+    left = [f"p{i}" for i in range(500)]
+    right = [f"s{i}" for i in range(500)]
     tasks = [_task(tid, 1) for tid in [*left, *right]]
     deps = [Dependency("P", "S", DependencyType.FS)]
     if extra_edge:  # one more leaf pair tips the summed estimate past the cap
@@ -180,7 +180,7 @@ def _expansion_inputs(
 
 
 def _expansion_at_cap() -> None:
-    assert limits.MAX_EXPANDED_EDGES == 250 * 400
+    assert limits.MAX_EXPANDED_EDGES == 500 * 500
     tasks, deps, children = _expansion_inputs(extra_edge=False)
     edges = [(d.predecessor_id, d.successor_id) for d in deps]
     assert find_cycle(edges, children_map=children).cycle is None
