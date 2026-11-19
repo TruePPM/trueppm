@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api';
 import type { PaginatedResponse } from '@/api/types';
@@ -62,6 +63,42 @@ export function useBaselineDetail(
     },
     enabled: !!projectId && !!baselineId,
   });
+}
+
+/**
+ * Join the ACTIVE baseline's snapshot to a `task_id → {start, finish}` map for
+ * the canvas ghost bars (#3821).
+ *
+ * Built once per baseline-detail change (react-query returns a stable `data`
+ * reference), never per paint or per zoom: the engine converts these ISO dates
+ * through its memoized date→x map, so a zoom re-derives x without re-parsing.
+ * `dates` is null when there is no active baseline, or its detail has not
+ * loaded — in both cases nothing is drawn. Rows with an empty start/finish
+ * (a task unscheduled at capture) are skipped rather than drawn at the epoch.
+ * One list read + one detail read per project, shared with the baseline
+ * manager's cache keys, so there is no per-task fetch.
+ */
+export function useActiveBaselineDates(projectId: string | null | undefined): {
+  hasActiveBaseline: boolean;
+  dates: ReadonlyMap<string, { start: string; finish: string }> | null;
+} {
+  const { data: baselines } = useBaselines(projectId);
+  const activeId = baselines?.find((b) => b.is_active)?.id ?? null;
+  const { data: detail } = useBaselineDetail(projectId, activeId);
+  const dates = useMemo(() => buildBaselineDateMap(detail?.tasks), [detail]);
+  return { hasActiveBaseline: activeId !== null, dates };
+}
+
+/** Pure join used by {@link useActiveBaselineDates}; exported for unit tests. */
+export function buildBaselineDateMap(
+  tasks: readonly ApiBaselineTask[] | undefined,
+): ReadonlyMap<string, { start: string; finish: string }> | null {
+  if (!tasks) return null;
+  const map = new Map<string, { start: string; finish: string }>();
+  for (const t of tasks) {
+    if (t.start && t.finish) map.set(t.task_id, { start: t.start, finish: t.finish });
+  }
+  return map;
 }
 
 /**

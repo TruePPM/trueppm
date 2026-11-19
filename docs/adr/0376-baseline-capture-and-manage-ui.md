@@ -108,7 +108,7 @@ capture/activate/delete controls are gated.
 - **Migration required:** no.
 - **API changes:** no — consumes existing `/projects/{id}/baselines/` endpoints.
 - **OSS or Enterprise:** OSS (`trueppm-suite`). No cross-program/portfolio surface.
-- **Out of scope (0.5):** baseline ghost bars on the canvas Gantt; baseline-vs-current
+- **Out of scope (0.5):** ~~baseline ghost bars on the canvas Gantt~~ (shipped in 0.5, #3821); baseline-vs-current
   `story_points` / task-count scope-drift delta on the manager (VoC/Jordan nicety —
   needs the compare data plumbed into the list; note as a follow-up, not a blocker).
 

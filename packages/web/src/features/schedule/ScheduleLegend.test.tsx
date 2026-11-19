@@ -34,9 +34,8 @@ describe('ScheduleLegend', () => {
   });
 
   it('does not name a "Planned baseline" mark the canvas never draws (ADR-0376)', () => {
-    // ADR-0376 keeps the baseline ghost-bar overlay out of 0.4; the comparison
-    // table is the variance surface. A legend entry for an undrawn mark tells the
-    // reader the overlay exists. Reinstate this row when the overlay lands in 0.5.
+    // The stray swatch was removed in #2696; the baseline row now exists only as
+    // "Baseline (planned)" and only while the canvas draws it (#3821).
     render(<ScheduleLegend taskListWidth={240} canLink />);
     expect(screen.queryByText('Planned baseline')).not.toBeInTheDocument();
   });
@@ -124,5 +123,14 @@ describe('ScheduleLegend', () => {
     expect(group('Gestures')).toHaveTextContent('Hold Space + drag');
     expect(group('Gestures')).toHaveTextContent('Double-click a task');
     expect(group('Gestures')).toHaveTextContent('handle at a bar’s right edge');
+  });
+});
+
+describe('ScheduleLegend baseline row (#3821)', () => {
+  it('names the baseline mark only while the canvas draws it', () => {
+    const { rerender } = render(<ScheduleLegend taskListWidth={0} canLink={false} />);
+    expect(screen.queryByText('Baseline (planned)')).not.toBeInTheDocument();
+    rerender(<ScheduleLegend taskListWidth={0} canLink={false} baselineShown />);
+    expect(screen.getByText('Baseline (planned)')).toBeInTheDocument();
   });
 });

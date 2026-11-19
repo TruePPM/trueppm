@@ -19,6 +19,7 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
     // `hidden` once it started rendering the outline that carries the names.
     const { result } = renderHook(() => useScheduleChartPrefs());
     expect(result.current.prefs).toEqual({
+      baselineBarsVisible: true,
       dependencyLinesVisible: true,
       taskNamePlacementByView: { grid: 'hidden', timeline: 'hidden' },
       progressPillsVisible: true,
@@ -189,7 +190,15 @@ describe('hiddenChartCountForView (#2107)', () => {
     taskNamePlacementByView: { grid: 'hidden', timeline: 'next' },
     progressPillsVisible: true,
     sprintBandsVisible: true,
+    baselineBarsVisible: true,
   };
+
+  it('counts hidden baseline ghost bars only when a baseline is active (#3821)', () => {
+    const off = { ...base, baselineBarsVisible: false };
+    expect(hiddenChartCountForView(off, false, true)).toBe(1);
+    expect(hiddenChartCountForView(off, false, false)).toBe(0);
+    expect(hiddenChartCountForView(base, false, true)).toBe(0);
+  });
 
   it('counts hidden sprint windows on the Display badge (#2738)', () => {
     expect(hiddenChartCountForView(base, true)).toBe(0);

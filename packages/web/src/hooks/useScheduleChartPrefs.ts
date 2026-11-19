@@ -51,6 +51,13 @@ export interface ScheduleChartPrefs {
    * toggle costs it nothing whether it is on or off.
    */
   sprintBandsVisible: boolean;
+  /**
+   * Show/hide the active baseline's ghost bars (#3821). Default ON: the
+   * baseline is only drawn when the project HAS an active baseline, so the
+   * default costs a project without one nothing, and one with one gets the
+   * comparison the capture was done for.
+   */
+  baselineBarsVisible: boolean;
 }
 
 // Defaults (#2107, revised #2422, revised again #2960): both views hide the
@@ -68,6 +75,7 @@ const DEFAULT_PREFS: ScheduleChartPrefs = {
   taskNamePlacementByView: { ...DEFAULT_PLACEMENT_BY_VIEW },
   progressPillsVisible: true,
   sprintBandsVisible: true,
+  baselineBarsVisible: true,
 };
 
 function defaults(): ScheduleChartPrefs {
@@ -132,6 +140,10 @@ function loadPrefs(): ScheduleChartPrefs {
         typeof parsed.sprintBandsVisible === 'boolean'
           ? parsed.sprintBandsVisible
           : DEFAULT_PREFS.sprintBandsVisible,
+      baselineBarsVisible:
+        typeof parsed.baselineBarsVisible === 'boolean'
+          ? parsed.baselineBarsVisible
+          : DEFAULT_PREFS.baselineBarsVisible,
     };
   } catch {
     return defaults();
@@ -142,7 +154,8 @@ function loadPrefs(): ScheduleChartPrefs {
  * How many chart elements are hidden for a given view — feeds the Display badge.
  *
  * `hasSprintBands` is whether the project has any sprint window to draw at all;
- * see the sprint-band note in the body.
+ * see the sprint-band note in the body. `hasActiveBaseline` is the same gate for
+ * the baseline ghost bars (#3821).
  *
  * A hidden on-bar task name is deliberately NOT counted on EITHER view. Before
  * #2960 it was counted on the Timeline, where the canvas was the sole carrier of
@@ -159,13 +172,18 @@ function loadPrefs(): ScheduleChartPrefs {
 export function hiddenChartCountForView(
   prefs: ScheduleChartPrefs,
   hasSprintBands = false,
+  hasActiveBaseline = false,
 ): number {
   // A hidden sprint window only counts when there IS one to hide (#2738). On a
   // pure waterfall project the badge would otherwise point at the absence of a
   // mark that would never have drawn — the same "don't leave the user wondering
   // where it went" intent, applied in reverse.
   const bandsHidden = hasSprintBands && !prefs.sprintBandsVisible;
+  // Same reasoning for the baseline: hiding ghost bars that would not exist
+  // (no active baseline) is not a hidden element (#3821).
+  const baselineHidden = hasActiveBaseline && !prefs.baselineBarsVisible;
   return (
+    (baselineHidden ? 1 : 0) +
     (prefs.dependencyLinesVisible ? 0 : 1) +
     (prefs.progressPillsVisible ? 0 : 1) +
     (bandsHidden ? 1 : 0)
@@ -179,6 +197,7 @@ export interface UseScheduleChartPrefs {
   setTaskNamePlacement: (view: ScheduleViewMode, v: TaskNamePlacement) => void;
   setProgressPillsVisible: (v: boolean) => void;
   setSprintBandsVisible: (v: boolean) => void;
+  setBaselineBarsVisible: (v: boolean) => void;
 }
 
 /**
@@ -227,8 +246,14 @@ export function useScheduleChartPrefs(): UseScheduleChartPrefs {
     [persist],
   );
 
+  const setBaselineBarsVisible = useCallback(
+    (v: boolean) => setPrefs((prev) => persist({ ...prev, baselineBarsVisible: v })),
+    [persist],
+  );
+
   return {
     prefs,
+    setBaselineBarsVisible,
     setDependencyLinesVisible,
     setTaskNamePlacement,
     setProgressPillsVisible,

@@ -7,6 +7,9 @@ import { CloseIcon, RadioDotIcon } from '@/components/Icons';
 import { gutterBackground } from './deliveryModePresentation';
 
 interface ScheduleLegendProps {
+  /** The canvas is drawing the active baseline's ghost bars (#3821). Gates the
+   *  "Baseline" row so the legend only names marks that are on screen. */
+  baselineShown?: boolean;
   /**
    * Width of the task list panel in pixels. Used to offset the legend horizontally
    * so it floats over the bottom-left of the *canvas* viewport rather than the
@@ -56,7 +59,12 @@ interface ScheduleLegendProps {
  * it, so any future canvas export pipeline starts from "explicitly include"
  * rather than "explicitly exclude".
  */
-export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: ScheduleLegendProps) {
+export function ScheduleLegend({
+  taskListWidth,
+  canLink,
+  closeFocusRef,
+  baselineShown = false,
+}: ScheduleLegendProps) {
   const { collapsed, setCollapsed } = useScheduleLegendCollapsed();
   // This IS the "seen" signal (#3614) — see the hook's own doc comment for
   // why the toolbar toggle must not also drive it.
@@ -117,6 +125,14 @@ export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: Schedu
           <LegendRow label="Critical path">
             <CriticalSwatch />
           </LegendRow>
+          {/* Only while the canvas draws it (#3821): a legend names marks that are
+              on screen, which is why the stray "Planned baseline" swatch was
+              removed in #2696 and why this one is gated on the toggle. */}
+          {baselineShown && (
+            <LegendRow label="Baseline (planned)">
+              <BaselineSwatch />
+            </LegendRow>
+          )}
           <LegendRow label="Milestone">
             <MilestoneSwatch />
           </LegendRow>
@@ -145,10 +161,6 @@ export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: Schedu
             <SprintBandSwatch />
           </LegendRow>
         </LegendGroup>
-        {/* No "Planned baseline" entry: ADR-0376 defers the baseline ghost-bar
-            overlay to 0.5, so the canvas draws nothing from baseline dates. A
-            legend names marks that are drawn — reinstate this row with the
-            overlay, not before. */}
         <LegendGroup title="Lines">
           <LegendRow label="Today">
             <TodaySwatch />
@@ -275,6 +287,20 @@ function CriticalSwatch() {
   // non-hue cue that separates it from the solid selection ring (WCAG 1.4.1, #4397).
   return (
     <span className="block w-full h-2 border-2 border-dashed border-semantic-critical bg-neutral-surface rounded-[2px]" />
+  );
+}
+
+function BaselineSwatch() {
+  // Mirrors drawBaselineGhostBar in GanttRenderer.ts: a hollow outline using the
+  // ghost-border token, with the live bar sitting inside it.
+  return (
+    <span
+      className="relative block w-full h-3 border rounded-[3px]"
+      style={{
+        borderColor: 'rgb(var(--ghost-border) / 0.85)',
+        backgroundColor: 'rgb(var(--ghost-fill) / 0.14)',
+      }}
+    />
   );
 }
 

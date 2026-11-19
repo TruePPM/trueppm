@@ -89,7 +89,7 @@ import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { claimHelpShortcut, isUndoShortcutClaimed } from '@/hooks/useGlobalShortcut';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
+import { useActiveBaselineDates, useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import {
   ROLE_ADMIN,
@@ -1141,7 +1141,11 @@ export function ScheduleView() {
     setTaskNamePlacement,
     setProgressPillsVisible,
     setSprintBandsVisible,
+    setBaselineBarsVisible,
   } = useScheduleChartPrefs();
+
+  // Ghost bars only exist when the project has an ACTIVE baseline (#3821).
+  const { hasActiveBaseline } = useActiveBaselineDates(projectId);
 
   // Filter links to critical-path only when showCpOnly is active, and drop them
   // entirely when the Chart menu hides dependency lines (#2097) — passing [] also
@@ -1466,7 +1470,11 @@ export function ScheduleView() {
   // Display menu. (`effectiveViewMode`, not the stored `viewMode`, so mobile's
   // forced-Timeline layout paints and edits Timeline's placement.)
   const activeNamePlacement = chartPrefs.taskNamePlacementByView[effectiveViewMode];
-  const hiddenChartCount = hiddenChartCountForView(chartPrefs, sprintBands.length > 0);
+  const hiddenChartCount = hiddenChartCountForView(
+    chartPrefs,
+    sprintBands.length > 0,
+    hasActiveBaseline,
+  );
 
   // Engine chart options (name placement + progress pills). Dependency-line
   // visibility is handled by the `links` filter above, not here. The canvas no
@@ -1477,8 +1485,15 @@ export function ScheduleView() {
       taskNamePlacement: activeNamePlacement,
       showProgressPills: chartPrefs.progressPillsVisible,
       showSprintBands: chartPrefs.sprintBandsVisible,
+      showBaselineBars: chartPrefs.baselineBarsVisible && hasActiveBaseline,
     }),
-    [activeNamePlacement, chartPrefs.progressPillsVisible, chartPrefs.sprintBandsVisible],
+    [
+      activeNamePlacement,
+      chartPrefs.progressPillsVisible,
+      chartPrefs.sprintBandsVisible,
+      chartPrefs.baselineBarsVisible,
+      hasActiveBaseline,
+    ],
   );
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
@@ -4668,6 +4683,7 @@ export function ScheduleView() {
         // Offered only when the project actually has a window to draw — an
         // inert checkbox on a pure waterfall plan is a control that lies (#2738).
         setSprintBandsVisible={sprintBands.length > 0 ? setSprintBandsVisible : undefined}
+        setBaselineBarsVisible={hasActiveBaseline ? setBaselineBarsVisible : undefined}
         hiddenChartCount={hiddenChartCount}
         breakpoint={breakpoint}
         handleScrollToToday={handleScrollToToday}
@@ -6049,6 +6065,8 @@ interface ScheduleToolbarProps {
   setProgressPillsVisible: ChartPrefsHook['setProgressPillsVisible'];
   /** Undefined when the project has no sprint window to draw (#2738). */
   setSprintBandsVisible: ChartPrefsHook['setSprintBandsVisible'] | undefined;
+  /** Undefined when the project has no active baseline (#3821). */
+  setBaselineBarsVisible: ChartPrefsHook['setBaselineBarsVisible'] | undefined;
   hiddenChartCount: number;
   breakpoint: ReturnType<typeof useBreakpoint>;
   handleScrollToToday: () => void;
@@ -6118,6 +6136,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     setTaskNamePlacement,
     setProgressPillsVisible,
     setSprintBandsVisible,
+    setBaselineBarsVisible,
     hiddenChartCount,
     breakpoint,
     handleScrollToToday,
@@ -6424,6 +6443,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           setProgressPillsVisible,
           sprintBandsVisible: chartPrefs.sprintBandsVisible,
           setSprintBandsVisible,
+          baselineBarsVisible: chartPrefs.baselineBarsVisible,
+          setBaselineBarsVisible,
         }}
         hiddenChartCount={hiddenChartCount}
         iconOnly={breakpoint !== 'lg'}
@@ -7295,6 +7316,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
           taskListWidth={overlayAnchorWidth}
           canLink={props.canLinkDependencies}
           closeFocusRef={props.legendTriggerRef}
+          baselineShown={props.chartOptions?.showBaselineBars === true}
         />
       </div>
 

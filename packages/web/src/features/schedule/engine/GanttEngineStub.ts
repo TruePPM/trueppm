@@ -24,7 +24,7 @@ import type {
   HoverChain,
 } from './GanttEngine';
 import type { FiscalConfig, GanttScaleData, WorkingTimeConfig, ZoomLevel } from './GanttScaleData';
-import type { ChartRenderOptions } from './GanttRenderer';
+import type { BaselineDates, ChartRenderOptions } from './GanttRenderer';
 
 export class GanttEngineStub implements GanttEngine {
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -78,6 +78,7 @@ export class GanttEngineStub implements GanttEngine {
   // ── Sprint-window bands (#2738) ───────────────────────────────────────────
 
   setSprintBands(_bands: SprintBand[]): void {}
+  setBaselineDates(_dates: ReadonlyMap<string, BaselineDates> | null): void {}
   setCadenceSegments(_segments: CadenceSegment[]): void {}
   setRowModes(_modes: ReadonlyMap<string, RowMode>): void {}
 

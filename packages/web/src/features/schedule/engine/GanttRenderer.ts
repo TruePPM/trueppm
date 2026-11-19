@@ -451,6 +451,10 @@ export interface ChartRenderOptions {
    *  A presentation toggle, NOT a view switch: turning it off hides the band and
    *  changes nothing else — the same bars, the same links, the same one plan. */
   showSprintBands: boolean;
+  /** Draw the active baseline's ghost bar behind each task bar (#3821). The host
+   *  resolves this to `pref && an active baseline exists`, so the engine never
+   *  has to know why it is off. */
+  showBaselineBars?: boolean;
 }
 
 // Active chart options — swapped by GanttEngineImpl before each paint pass,
@@ -459,6 +463,7 @@ let _chartOptions: ChartRenderOptions = {
   taskNamePlacement: 'next',
   showProgressPills: true,
   showSprintBands: true,
+  showBaselineBars: false,
 };
 
 /** Set the chart presentation toggles for subsequent draw calls (#2097). */
@@ -2283,6 +2288,69 @@ function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
     else hi = mid - 1;
   }
   return lo > 0 ? text.slice(0, lo) + ellipsis : ellipsis;
+}
+
+/** Ghost bleeds this many px above and below the live bar (see baselineGhostRect). */
+export const BASELINE_GHOST_BLEED = 2;
+
+/** One task's baseline dates, ISO `YYYY-MM-DD`, as captured in the snapshot. */
+export interface BaselineDates {
+  start: string;
+  finish: string;
+}
+
+/**
+ * Geometry of a baseline ghost bar, pre-scroll (add `-scrollLeft` to `left`).
+ *
+ * The ghost is a hollow outline that bleeds BASELINE_GHOST_BLEED px above and
+ * below the live bar and is painted BEHIND it. At the 28px fine-pointer row
+ * height there are only ~4px under the bar, and the actual-date overlay already
+ * owns that strip, so "a second bar underneath" (P6) has no room; a halo behind
+ * the bar reads the same way — where the bar has slipped away from the plan, the
+ * outline is left showing — and never competes with the actual-date bar.
+ * Uses the memoized date to x maps (#1539), so no date is parsed per frame.
+ */
+export function baselineGhostRect(
+  baseline: BaselineDates,
+  rowIndex: number,
+  scales: GanttScaleData,
+): { left: number; width: number; top: number; height: number } {
+  const left = dateToLeft(baseline.start, scales);
+  // Finish is inclusive — span through the end of that day (#950).
+  const right = dateToRight(baseline.finish, scales);
+  const barTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
+  return {
+    left,
+    width: Math.max(2, right - left),
+    top: barTop - BASELINE_GHOST_BLEED,
+    height: BAR_HEIGHT + 2 * BASELINE_GHOST_BLEED,
+  };
+}
+
+/**
+ * Draw the active baseline's ghost bar for a task. Call BEFORE the live bar so
+ * the bar sits on top. Uses the same ghostFill/ghostBorder tokens as the drag
+ * shadow (contrast-fixed in #2207, mapped to Canvas/GrayText in forced colors).
+ * Callers must translate(0, -scrollTop) before invoking.
+ */
+export function drawBaselineGhostBar(
+  ctx: CanvasRenderingContext2D,
+  baseline: BaselineDates,
+  rowIndex: number,
+  scales: GanttScaleData,
+  scrollLeft: number,
+): void {
+  const r = baselineGhostRect(baseline, rowIndex, scales);
+  ctx.save();
+  ctx.fillStyle = _palette.ghostFill;
+  ctx.strokeStyle = _palette.ghostBorder;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  // +0.5 keeps the 1px stroke on the pixel grid.
+  ctx.roundRect(r.left - scrollLeft + 0.5, r.top + 0.5, r.width - 1, r.height - 1, 3);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
 }
 
 /**

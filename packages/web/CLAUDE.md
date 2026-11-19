@@ -308,6 +308,7 @@ These rules are enforced at review time. Violations block merge.
 455. **A setting that feeds a server computation is shown on the consuming surface as the payload's value, never re-read from settings.** → [rule](../../docs/design/invariants/455-a-setting-feeding-a-server-computation-shows-the-payload-value.md)
 458. **A term of art on a read surface gets a `FieldHelp` beside the label, never inside a sort button or tooltip wrapper.** → [rule](../../docs/design/invariants/458-a-term-of-art-on-a-read-surface-gets-a-fieldhelp-beside-the-label.md)
 459. **A canvas Gantt label that would overdraw an arrowhead, a through-passing arrow segment, or another label is suppressed — never truncated or moved; labels are the lowest paint priority.** → [rule](../../docs/design/invariants/459-gantt-labels-yield-to-arrows.md)
+460. **A canvas baseline mark is a halo behind the live bar, and the legend names it only while it is drawn.** → [rule](../../docs/design/invariants/460-a-canvas-baseline-mark-is-a-halo-behind-the-bar-and-the-legend-names-it-only-while-drawn.md)
 
 ---
 
