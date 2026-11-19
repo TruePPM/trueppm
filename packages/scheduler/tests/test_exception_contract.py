@@ -211,6 +211,10 @@ _SWEEP_EXEMPT: dict[str, str] = {
     "nth_working_day": "calendar helper with its own contract; not a Project entry point",
     "working_day_count": "calendar helper; total over any date pair, raises nothing",
     "roll_up_summary": "leaf-row helper; total over any leaf list, raises nothing",
+    "duration_percentiles": "forecast helper over plain numbers; raises nothing",
+    "velocity_band_dates": "forecast helper over plain numbers; raises nothing",
+    "forecast_velocity_delivery": "forecast helper over plain numbers; raises nothing",
+    "forecast_throughput_delivery": "forecast helper over plain numbers; raises nothing",
 }
 
 

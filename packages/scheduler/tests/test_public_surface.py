@@ -173,6 +173,14 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
     ],
     "CycleCheck": ["cycle"],
     "DateRange": ["start", "end"],
+    "DeliveryForecast": [
+        "p50_periods",
+        "p80_periods",
+        "p50_date",
+        "p80_date",
+        "p95_date",
+        "horizon_saturated",
+    ],
     "Dependency": ["predecessor_id", "successor_id", "dep_type", "lag"],
     "Derivation": [
         "task_id",
