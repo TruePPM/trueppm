@@ -96,6 +96,10 @@ def recalculate_schedule(
         from trueppm_api.apps.projects.models import Project
 
         Project.objects.filter(pk=project_id).update(recalculated_at=timezone.now())
+
+        from trueppm_api.apps.scheduling.forecast_recompute import notify_if_forecast_stale
+
+        notify_if_forecast_stale(project_id)
     except TaskRunProjectGone:
         # The project was deleted while this message was queued (or held in the
         # lock-retry loop). Return normally: raising would dead-letter a task

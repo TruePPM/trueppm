@@ -946,6 +946,17 @@ evidence that a date moved.
 it means TruePPM does not know, and it will not present that as reassurance. It
 resolves itself the next time the forecast is run.
 
+The added-time card's own `risk_premium_state: "stale"` is a separate, narrower
+question — whether the *added-time number* is still worth reporting — and stays
+age-based (a week). Use `forecast_staleness` to ask whether the forecast matches
+your plan.
+
+For integrators: when a schedule recalculation finishes and the project's latest
+forecast is `project_changed` or `aged`, TruePPM fires the
+`forecast_recompute_requested` extension signal once for that run. The community
+edition only emits it and never re-runs a simulation by itself; a receiver (for
+example an Enterprise scheduled-recompute job) decides whether to rerun.
+
 Because the judgment lives on the server rather than in your browser session, it
 survives a page reload and reflects a collaborator's edits as readily as your
 own — the answer is about the data, not about how long the page has been open.
