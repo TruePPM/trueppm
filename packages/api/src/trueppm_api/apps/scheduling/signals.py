@@ -54,3 +54,17 @@ celery_task_retried = django.dispatch.Signal()
 # scheduling/receivers.py and only logs. Fired via send_robust so no receiver
 # can break the dead-letter recording path.
 celery_task_permanently_failed = django.dispatch.Signal()
+
+# Sent when a project's latest Monte Carlo forecast is found to no longer describe the
+# plan it is read beside (#2798) — see ``scheduling/forecast_recompute.py`` for exactly
+# when. Supply-only extension point: OSS ships the signal and no scheduler; Enterprise
+# registers its scheduled recompute + drift digest against it (trueppm-enterprise#192).
+#
+# sender: MonteCarloRun. kwargs: project_id (UUID), run_id (the run now stale),
+# staleness (a ``ForecastStaleness`` value other than "current"/"unknown"),
+# plan_version (the run's), plan_version_current (the project's now).
+#
+# Receivers must not simulate inline — a Monte Carlo run is the strictest-throttled
+# operation in the product (ADR-0175); enqueue and return. Dispatched with
+# ``dispatch_extension_signal()`` so a raising receiver cannot fail the recalc task.
+forecast_recompute_requested = django.dispatch.Signal()
