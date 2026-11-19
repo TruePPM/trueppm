@@ -58988,7 +58988,7 @@
                         }
                     },
                     "403": {
-                        "description": "Caller is not an Admin, or the member's role is not lower."
+                        "description": "Caller is not an Admin, the member's role is not lower, or the member is an operator (staff/superuser) account with no password."
                     },
                     "404": {
                         "description": "No such member."

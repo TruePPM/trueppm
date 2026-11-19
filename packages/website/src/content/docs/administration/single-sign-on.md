@@ -368,8 +368,11 @@ flow that removes the manual step is tracked in #4634. Until it ships, a privile
 account, such as the bootstrap superuser or a workspace Owner, can instead sign in
 with its password, if it has one. An Owner or Admin who is not a staff user cannot open
 Django admin, so an operator adds the link on their behalf. An Owner or Admin that SSO
-auto-created has no password, so for that account the operator-added link, or the
-`changepassword <username>` management command, is the only route.
+auto-created has no password. For an SSO-created **Owner**, the operator-added link or
+the `changepassword <username>` management command is the only route. An SSO-created
+**Admin** has one more: from 0.5, a workspace Owner will be able to send them a
+set-password link (see
+[Restoring access for a member with no password](#restoring-access-for-a-member-with-no-password)).
 
 ## Removing a provider
 
@@ -390,8 +393,10 @@ configure another provider that allows their email domain) — they re-link by t
 verified email on the next sign-in. **Owner and Admin accounts are the exception:**
 they are never re-linked by email (see above), so an SSO-created Owner or Admin whose
 binding is removed stays locked out until an operator adds a **Social account** in
-Django admin or sets a password with `changepassword <username>`. Other members can
-also be sent a set-password link afterward. See
+Django admin or sets a password with `changepassword <username>`. From 0.5, an Owner
+will also be able to send an SSO-created Admin a set-password link, and an Owner or
+Admin will be able to send one to any member whose role is lower than theirs; an
+SSO-created Owner still needs the operator. See
 [Restoring access for a member with no password](#restoring-access-for-a-member-with-no-password).
 To avoid the gap entirely, invite affected members and have them set a password
 before you remove the provider.
@@ -409,7 +414,8 @@ A workspace Owner or Admin can email a member a **set-password link**, so a memb
 who only ever signed in through SSO can sign in with a password instead. It is the
 way back for members stranded by a removed provider, and also for one member who
 needs local access, for example because they left the identity provider or the
-tenant was migrated. It is an API action with no button in the web app yet:
+tenant was migrated. It is an API action with no button in the web app yet (tracked in
+#5066):
 
 ```bash
 curl -X POST https://ppm.example.com/api/v1/workspace/members/<user-id>/send-set-password-link/ \
@@ -434,8 +440,9 @@ What happens:
   git-automation webhook secret they set is revoked, as on any password reset. Any
   SSO link they still have keeps working, so they can use either method afterward.
 - A `member_set_password_link_sent` row is written to the
-  [audit log](/administration/audit-log/) for every attempt, including one whose
-  email could not be sent (`delivered: false`).
+  [audit log](/administration/audit-log/) for every send attempt, including one
+  whose email could not be sent (`delivered: false`). A request refused with `403`
+  or `409` sends nothing and writes no row.
 - Each administrator can send **10 links per hour**
   (`TRUEPPM_THROTTLE_SET_PASSWORD_LINK_RATE`).
 
@@ -443,7 +450,7 @@ The request is refused when it does not apply:
 
 | Response | Why |
 |---|---|
-| `403` | You are not an Owner or Admin, or the member's workspace role is not lower than yours. An Admin cannot send a link to another Admin or to an Owner. You cannot send one to yourself. Staff and superuser accounts are refused. |
+| `403` | You are not an Owner or Admin, or the member's workspace role is not lower than yours. An Admin cannot send a link to another Admin or to an Owner. You cannot send one to yourself. A staff or superuser account with no password is refused (one that has a password gets `409 member_has_password`, like anyone else). |
 | `409 member_has_password` | The member already has a password. They can use **Forgot password** on the sign-in page themselves. |
 | `409 member_inactive` | The member is deactivated. Reactivate them first. |
 | `409 member_has_no_email` | There is no email address on the account to send the link to. |
@@ -454,9 +461,10 @@ Only an Owner can restore an SSO-created Admin, and no one can do it for an Owne
 An SSO-created Owner, or a staff or superuser account, still needs an operator to
 run `python manage.py changepassword <username>` on the server.
 
-Anyone who controls the workspace's outgoing mail server can read these emails. That
-includes an Admin who can change the mail settings. The same is true of ordinary
-password-reset emails.
+Anyone who controls the workspace's outgoing mail server can read these emails: the
+operator of the mail relay, and anyone who can change the workspace mail settings,
+which requires a superuser account. The same is true of ordinary password-reset
+emails.
 
 :::caution[Re-pointing a provider to a new issuer]
 Each OIDC sign-in is durably bound to the identity provider's **issuer**. If you

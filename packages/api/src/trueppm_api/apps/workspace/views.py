@@ -865,15 +865,15 @@ class WorkspaceMemberSetPasswordLinkView(SessionOnlyWritesMixin, IdempotencyMixi
       mail credential links on anyone's behalf.
     - **Strictly-lower role only, never self, never an operator account.** The same
       peer/higher-role rule as PATCH/DELETE on the member: an Admin cannot target
-      another Admin or an Owner. ``is_staff``/``is_superuser`` accounts are refused
-      outright — they reach Django admin, and are recovered with
-      ``manage.py changepassword``.
+      another Admin or an Owner. ``is_staff``/``is_superuser`` accounts are refused —
+      they reach Django admin, and are recovered with ``manage.py changepassword`` —
+      but only after the password check, so the refusal does not single them out.
     - **Only for an account with no local password.** A member who has one can use
       the self-service reset themselves; refusing keeps this action a recovery path
       rather than a way for an administrator to send credential mail to anyone.
-    - **Audited and throttled.** Every issuance writes an ``AuditEvent`` (including a
-      failed delivery) and the per-admin ``set_password_link`` scope caps it at
-      10/hour.
+    - **Audited and throttled.** Every send attempt writes one ``AuditEvent``
+      (including a failed delivery; a 403/409 refusal sends nothing and writes
+      none) and the per-admin ``set_password_link`` scope caps it at 10/hour.
 
     Single-workspace OSS: every account is a member of the one workspace, so the
     member id needs no cross-workspace scoping; a deactivated account is refused.
@@ -900,7 +900,10 @@ class WorkspaceMemberSetPasswordLinkView(SessionOnlyWritesMixin, IdempotencyMixi
                 description="Link emailed to the member.",
             ),
             403: OpenApiResponse(
-                description="Caller is not an Admin, or the member's role is not lower."
+                description=(
+                    "Caller is not an Admin, the member's role is not lower, or the "
+                    "member is an operator (staff/superuser) account with no password."
+                )
             ),
             404: OpenApiResponse(description="No such member."),
             409: OpenApiResponse(
@@ -933,25 +936,28 @@ class WorkspaceMemberSetPasswordLinkView(SessionOnlyWritesMixin, IdempotencyMixi
         target_role = workspace_role_for_user(target)
         if not target.is_active or target_role is None:
             return _conflict("member_inactive", "This member is deactivated.")
-        # One message for an operator account and a peer/higher role on purpose: a
-        # distinct "this is a staff account" refusal would let an Admin enumerate which
-        # members reach Django admin, which is exactly the list worth targeting.
-        if (
-            target.is_staff
-            or target.is_superuser
-            or actor_role is None
-            or target_role >= actor_role
-        ):
+        if actor_role is None or target_role >= actor_role:
             raise PermissionDenied(
-                "You can only send a set-password link to members with a role lower than "
-                "your own. Operator accounts are recovered on the server with "
-                "`manage.py changepassword`."
+                "You can only send a set-password link to members with a role lower than your own."
             )
+        # The password check runs BEFORE the operator-account refusal so a staff or
+        # superuser account that has a password answers the same 409 as any other
+        # member. ``GET /workspace/members/`` exposes ``role_value``, so a refusal
+        # that fired on the flag alone would let an Admin list which lower-role
+        # members reach Django admin by probing each one. What stays observable: a
+        # lower-role operator account with NO local password answers 403 where an
+        # ordinary one would be sent a link — that is unavoidable without sending
+        # credential mail to an operator account, and probing it costs the prober a
+        # real, audited link to every non-operator member they try.
         if _has_local_password(target):
             return _conflict(
                 "member_has_password",
                 "This member already has a password. They can reset it themselves from "
                 "the sign-in page.",
+            )
+        if target.is_staff or target.is_superuser:
+            raise PermissionDenied(
+                "This account is recovered on the server with `manage.py changepassword`."
             )
         if not (target.email or "").strip():
             return _conflict(
@@ -964,22 +970,24 @@ class WorkspaceMemberSetPasswordLinkView(SessionOnlyWritesMixin, IdempotencyMixi
                 "FRONTEND_BASE_URL is not configured, so the email cannot carry a link.",
             )
 
-        # The row is written BEFORE the send, so no credential link can leave the
-        # server without its audit row having been written first; ``delivered`` is
-        # filled in after. Recorded whether or not the send succeeds — the attempt is
-        # the evidence (who tried to issue a credential link for whom) — and a failed
-        # send returns a Response rather than raising, so ATOMIC_REQUESTS keeps the row.
-        event = services.record_audit_event(
+        delivered = send_password_reset_email(target, issued_by=request.user)
+        # One append-only row, written after the send so it carries the real outcome
+        # (``AuditEvent`` is never edited in place; Enterprise layers immutability on
+        # the ``audit_event_created`` receiver). It is recorded in the same transaction
+        # as the send under ATOMIC_REQUESTS, and a failed send returns a Response
+        # rather than raising, so a failed delivery is still recorded with
+        # ``delivered: false`` — the attempt is the evidence (who tried to issue a
+        # credential link for whom). The email itself is not transactional: if the
+        # row write (or anything after it) raised, the request would 500 and roll the
+        # row back while the message stayed sent. Nothing after the send does any work
+        # but this one INSERT and building the response.
+        services.record_audit_event(
             event_type=AuditEventType.MEMBER_SET_PASSWORD_LINK_SENT,
             actor=request.user,
             target_type="member",
             target_label=services._actor_label(target),
-            metadata={"user_id": target.pk, "delivered": False},
+            metadata={"user_id": target.pk, "delivered": delivered},
         )
-        delivered = send_password_reset_email(target, issued_by=request.user)
-        if delivered:
-            event.metadata["delivered"] = True
-            event.save(update_fields=["metadata"])
         if not delivered:
             return Response(
                 {

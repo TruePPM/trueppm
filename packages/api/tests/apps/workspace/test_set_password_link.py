@@ -19,6 +19,8 @@ from django.core import mail
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken
@@ -109,6 +111,9 @@ def test_admin_emails_the_member_and_the_link_sets_a_password_once(
     assert "Set a password" in message.subject
     # The member is told who issued it, so an unexpected issuance can be challenged.
     assert admin.email in message.body
+    # A live session the member already had through SSO, before the link is used.
+    RefreshToken.for_user(sso_member)
+    assert OutstandingToken.objects.filter(user=sso_member).count() == 1
     match = _LINK_RE.search(message.body)
     assert match is not None and message.body.count(_BASE + "/reset-password/confirm#") == 1
     uid, token = match.groups()
@@ -119,6 +124,10 @@ def test_admin_emails_the_member_and_the_link_sets_a_password_once(
     assert ok.status_code == 200, ok.content
     sso_member.refresh_from_db()
     assert sso_member.check_password(_NEW_PASSWORD)
+
+    # Redeeming the admin-issued link takes the same path as a self-service reset,
+    # so it revokes every refresh token the member held before.
+    assert BlacklistedToken.objects.filter(token__user=sso_member).count() == 1
 
     # Single use: the token is keyed on the password hash, which just changed.
     again = APIClient().post(
@@ -223,6 +232,22 @@ def test_operator_accounts_are_refused(owner: Any, flag: str) -> None:
     target = _user(f"op_{flag}", WorkspaceRole.MEMBER, **{flag: True})
     assert _client(owner).post(_url(target)).status_code == 403
     assert mail.outbox == []
+    assert not AuditEvent.objects.filter(
+        event_type=AuditEventType.MEMBER_SET_PASSWORD_LINK_SENT
+    ).exists()
+
+
+@pytest.mark.parametrize("flag", ["is_staff", "is_superuser"])
+def test_operator_account_with_a_password_answers_like_any_member(owner: Any, flag: str) -> None:
+    """The flag must not be readable from the refusal: a staff account that has a
+    password gets the same 409 as an ordinary member who has one, so probing the
+    lower-role members (whose roles ``GET /workspace/members/`` already lists) does
+    not reveal which of them reach Django admin."""
+    target = _user(f"oppw_{flag}", WorkspaceRole.MEMBER, sso_only=False, **{flag: True})
+    resp = _client(owner).post(_url(target))
+    assert resp.status_code == 409
+    assert resp.data["code"] == "member_has_password"
+    assert mail.outbox == []
 
 
 def test_api_token_is_refused_even_for_an_owner(owner: Any, sso_member: Any) -> None:
@@ -258,6 +283,17 @@ def test_member_with_a_usable_password_is_refused(admin: Any) -> None:
 def test_deactivated_member_is_refused(admin: Any, sso_member: Any) -> None:
     WorkspaceMembership.objects.filter(user=sso_member).update(status=MemberStatus.DEACTIVATED)
     resp = _client(admin).post(_url(sso_member))
+    assert resp.status_code == 409
+    assert resp.data["code"] == "member_inactive"
+    assert mail.outbox == []
+
+
+def test_user_level_deactivated_account_is_refused(admin: Any) -> None:
+    """``User.is_active=False`` with an ACTIVE membership row — the off-boarding path
+    that never touched the workspace row — is refused just like a deactivated row."""
+    target = _user("inactiveuser", WorkspaceRole.MEMBER, is_active=False)
+    assert WorkspaceMembership.objects.get(user=target).status == MemberStatus.ACTIVE
+    resp = _client(admin).post(_url(target))
     assert resp.status_code == 409
     assert resp.data["code"] == "member_inactive"
     assert mail.outbox == []

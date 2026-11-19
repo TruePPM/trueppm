@@ -183,13 +183,17 @@ probing for registered addresses).
   below.
 - **SSO accounts.** A user who signs in through single sign-on has no local password
   to reset; the request screen shows a hint that SSO sign-in is unaffected. Their
-  password is managed by their identity provider.
+  password is managed by their identity provider. If such a user needs a local
+  password, for example because their provider was removed, a workspace Owner or Admin
+  will be able to email them a set-password link from 0.5 (see
+  [Restoring access for a member with no password](/administration/single-sign-on/#restoring-access-for-a-member-with-no-password)).
 
 ### Administrator fallback
 
 When email is not configured, or a user cannot complete the flow, an administrator
 resets a password directly with the same `changepassword` command used for the admin
-account:
+account. It is also the only route for an SSO-created workspace Owner, or a staff or
+superuser account, with no password, which the 0.5 set-password link will not reach:
 
 ```bash
 docker compose exec api python manage.py changepassword <username>
