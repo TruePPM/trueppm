@@ -49,7 +49,7 @@ def program(db: object) -> Program:
     return Program.objects.create(
         name="Apollo",
         methodology=Methodology.WATERFALL,  # off the HYBRID default
-        visibility=Visibility.PRIVATE,  # off the WORKSPACE default
+        visibility=Visibility.WORKSPACE,  # off the PRIVATE default (ADR-1434)
     )
 
 
@@ -86,7 +86,7 @@ def test_flag_seeds_program_defaults(program: Program, program_admin: Any) -> No
         assert getattr(new, field) == getattr(program, field), field
     # Concretely: the program's non-default values were copied.
     assert new.methodology == Methodology.WATERFALL
-    assert new.visibility == Visibility.PRIVATE
+    assert new.visibility == Visibility.WORKSPACE
     assert new.program_id == program.pk
 
 
@@ -107,7 +107,7 @@ def test_explicit_value_wins_over_program_default(program: Program, program_admi
     )
     new = _created_project(resp)
     assert new.methodology == Methodology.AGILE  # explicit wins
-    assert new.visibility == Visibility.PRIVATE  # still copied (not sent explicitly)
+    assert new.visibility == Visibility.WORKSPACE  # still copied (not sent explicitly)
 
 
 @pytest.mark.django_db
@@ -126,7 +126,7 @@ def test_without_flag_only_methodology_resolves(program: Program, program_admin:
     new = _created_project(resp)
     # Methodology follows the program (#3453); visibility is NOT copied.
     assert new.methodology == Methodology.WATERFALL
-    assert new.visibility == Visibility.WORKSPACE
+    assert new.visibility == Visibility.PRIVATE
 
 
 @pytest.mark.django_db

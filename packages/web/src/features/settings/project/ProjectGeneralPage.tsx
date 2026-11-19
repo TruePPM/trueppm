@@ -81,12 +81,12 @@ const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: st
   {
     id: 'WORKSPACE',
     label: 'Workspace',
-    hint: 'Anyone in the workspace can view; editing follows role.',
+    hint: 'Anyone in the workspace can find this project and read its summary. Its tasks, board, and schedule stay members-only.',
   },
   {
     id: 'PRIVATE',
     label: 'Private',
-    hint: 'Only invited members and groups can see this project.',
+    hint: "Only project members can find it. Members of its program still see it in the program's project list.",
   },
 ];
 
@@ -142,7 +142,7 @@ export function ProjectGeneralPage() {
   const [description, setDescription] = useState('');
   const [code, setCode] = useState('');
   const [health, setHealth] = useState<ProjectHealth>('AUTO');
-  const [visibility, setVisibility] = useState<ProjectVisibility>('WORKSPACE');
+  const [visibility, setVisibility] = useState<ProjectVisibility>('PRIVATE');
   const [timezone, setTimezone] = useState('');
   const [defaultView, setDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
   // Schedule anchor (#2018). Required; empty is never persisted (guarded in handleSave).
@@ -191,7 +191,7 @@ export function ProjectGeneralPage() {
   // row's status line (ADR-1237 UX §2); cleared as soon as the key is edited.
   const [codeError, setCodeError] = useState<string | null>(null);
   const [initialHealth, setInitialHealth] = useState<ProjectHealth>('AUTO');
-  const [initialVisibility, setInitialVisibility] = useState<ProjectVisibility>('WORKSPACE');
+  const [initialVisibility, setInitialVisibility] = useState<ProjectVisibility>('PRIVATE');
   const [initialTimezone, setInitialTimezone] = useState('');
   const [initialDefaultView, setInitialDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
   const [initialStartDate, setInitialStartDate] = useState('');
@@ -697,29 +697,22 @@ export function ProjectGeneralPage() {
             </div>
           </FieldRow>
 
-          {/* Visibility is stored and rendered but authorization never reads it —
-              access is membership-scoped for every project regardless of this
-              value (#2011). Rather than present a control that gives false
-              assurance (PRIVATE promises a distinction that isn't implemented),
-              the whole control is disabled with a "not yet enforced" note until
-              real queryset/permission enforcement ships. Re-enable both radios
-              and drop the note then. TODO(#2066): enforce WORKSPACE vs PRIVATE. */}
+          {/* Visibility is enforced on the project record (ADR-1434): WORKSPACE lets any
+              active workspace member find and read this project's summary; PRIVATE keeps
+              it members-only. Child data stays members-only either way, so the option
+              hints say so. The enclosing ReadOnlyFieldset disables the radios below Admin. */}
           <FieldRow
             label="Visibility"
-            hint="Workspace = anyone signed in can see this project. Private = invited only."
+            hint="Who can find this project. Editing always follows project role."
           >
             <div className="flex flex-col gap-3">
               {VISIBILITY_OPTIONS.map((opt) => (
-                <label
-                  key={opt.id}
-                  className="flex items-center gap-3 cursor-not-allowed"
-                  aria-disabled="true"
-                >
+                <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
                   <span
                     className={[
                       'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
                       visibility === opt.id
-                        ? 'border-neutral-text-disabled bg-neutral-text-disabled'
+                        ? 'border-brand-primary bg-brand-primary'
                         : 'border-neutral-border',
                     ].join(' ')}
                     aria-hidden="true"
@@ -733,24 +726,15 @@ export function ProjectGeneralPage() {
                     name="project-visibility"
                     value={opt.id}
                     checked={visibility === opt.id}
-                    disabled
-                    readOnly
-                    aria-describedby="project-visibility-not-enforced"
+                    onChange={() => setVisibility(opt.id)}
                     className="sr-only"
                   />
-                  <span className="text-[13px] font-medium text-neutral-text-disabled">
+                  <span className="text-[13px] font-medium text-neutral-text-primary">
                     {opt.label}
                   </span>
-                  <span className="text-[12px] text-neutral-text-disabled">· {opt.hint}</span>
+                  <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
                 </label>
               ))}
-              <p
-                id="project-visibility-not-enforced"
-                className="text-[12px] text-neutral-text-secondary"
-              >
-                Coming soon — access is currently membership-scoped for all projects, so this
-                setting is not enforced yet.
-              </p>
             </div>
           </FieldRow>
 

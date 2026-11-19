@@ -10017,7 +10017,7 @@
         "/api/v1/programs/": {
             "get": {
                 "operationId": "v1_programs_list",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member\n              of, plus WORKSPACE-visible programs for an active workspace member\n              (ADR-1434)\n  retrieve  — IsProgramMemberOrWorkspaceVisible (Viewer+, or a read-only\n              WORKSPACE program, ADR-1434)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -10105,7 +10105,7 @@
             },
             "post": {
                 "operationId": "v1_programs_create",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member\n              of, plus WORKSPACE-visible programs for an active workspace member\n              (ADR-1434)\n  retrieve  — IsProgramMemberOrWorkspaceVisible (Viewer+, or a read-only\n              WORKSPACE program, ADR-1434)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "tags": [
                     "programs"
                 ],
@@ -10231,7 +10231,7 @@
         "/api/v1/programs/{id}/": {
             "get": {
                 "operationId": "v1_programs_retrieve",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member\n              of, plus WORKSPACE-visible programs for an active workspace member\n              (ADR-1434)\n  retrieve  — IsProgramMemberOrWorkspaceVisible (Viewer+, or a read-only\n              WORKSPACE program, ADR-1434)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "in": "path",
@@ -10293,7 +10293,7 @@
             },
             "put": {
                 "operationId": "v1_programs_update",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member\n              of, plus WORKSPACE-visible programs for an active workspace member\n              (ADR-1434)\n  retrieve  — IsProgramMemberOrWorkspaceVisible (Viewer+, or a read-only\n              WORKSPACE program, ADR-1434)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "in": "path",
@@ -10427,7 +10427,7 @@
             },
             "patch": {
                 "operationId": "v1_programs_partial_update",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member\n              of, plus WORKSPACE-visible programs for an active workspace member\n              (ADR-1434)\n  retrieve  — IsProgramMemberOrWorkspaceVisible (Viewer+, or a read-only\n              WORKSPACE program, ADR-1434)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "in": "path",
@@ -10560,7 +10560,7 @@
             },
             "delete": {
                 "operationId": "v1_programs_destroy",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member\n              of, plus WORKSPACE-visible programs for an active workspace member\n              (ADR-1434)\n  retrieve  — IsProgramMemberOrWorkspaceVisible (Viewer+, or a read-only\n              WORKSPACE program, ADR-1434)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "in": "path",
@@ -20356,7 +20356,7 @@
         "/api/v1/projects/": {
             "get": {
                 "operationId": "v1_projects_list",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve               — any member, plus any active workspace member\n                                 for a WORKSPACE-visible project, read-only\n                                 (IsProjectMemberOrWorkspaceVisible, ADR-1434)\n  create                      — any authenticated user (creator becomes Owner)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -20452,7 +20452,7 @@
             },
             "post": {
                 "operationId": "v1_projects_create",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve               — any member, plus any active workspace member\n                                 for a WORKSPACE-visible project, read-only\n                                 (IsProjectMemberOrWorkspaceVisible, ADR-1434)\n  create                      — any authenticated user (creator becomes Owner)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "tags": [
                     "projects"
                 ],
@@ -20578,7 +20578,7 @@
         "/api/v1/projects/{id}/": {
             "get": {
                 "operationId": "v1_projects_retrieve",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve               — any member, plus any active workspace member\n                                 for a WORKSPACE-visible project, read-only\n                                 (IsProjectMemberOrWorkspaceVisible, ADR-1434)\n  create                      — any authenticated user (creator becomes Owner)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "in": "path",
@@ -20640,7 +20640,7 @@
             },
             "put": {
                 "operationId": "v1_projects_update",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve               — any member, plus any active workspace member\n                                 for a WORKSPACE-visible project, read-only\n                                 (IsProjectMemberOrWorkspaceVisible, ADR-1434)\n  create                      — any authenticated user (creator becomes Owner)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "in": "path",
@@ -20774,7 +20774,7 @@
             },
             "patch": {
                 "operationId": "v1_projects_partial_update",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve               — any member, plus any active workspace member\n                                 for a WORKSPACE-visible project, read-only\n                                 (IsProjectMemberOrWorkspaceVisible, ADR-1434)\n  create                      — any authenticated user (creator becomes Owner)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "in": "path",
@@ -20907,7 +20907,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_destroy",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve               — any member, plus any active workspace member\n                                 for a WORKSPACE-visible project, read-only\n                                 (IsProjectMemberOrWorkspaceVisible, ADR-1434)\n  create                      — any authenticated user (creator becomes Owner)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "in": "query",

@@ -1,6 +1,7 @@
 ---
 title: Project Settings
 description: Configure a project's identity, membership, board workflow, notifications, and lifecycle from the project settings pages.
+documentedFor: "0.5"
 ---
 
 Every project has a **Settings** area (under `/projects/:id/settings`) where Admins
@@ -51,7 +52,7 @@ The **General** page edits the project's identity:
 ![Project settings, General: project name, code, description, lead, program, health override, visibility and guest access](../../../assets/screenshots/project-settings.webp)
 
 - **Name**, **description**, and **key** — see [Project key](#project-key) below
-- **Health** indicator and **visibility**
+- **Health** indicator and **visibility** — see [Visibility](#visibility) below
 - **Time zone** — the clock this project's
   [quiet hours](/features/settings/project-notifications/#quiet-hours) are read in, and
   the only thing it does. It does not change how dates are displayed to you: task dates are calendar
@@ -112,6 +113,29 @@ the workspace, and capitalization doesn't matter.
 Keys appear in URLs, browser history and server logs, so don't put confidential
 words in one. A key created before 0.4 may contain hyphens (`GA-SEC`). It keeps
 working, but a new key can't use hyphens.
+
+
+### Visibility
+
+:::note[Ships in 0.5]
+In the current release the Visibility control is disabled and every project is
+membership-scoped whatever it says. The behavior below arrives in 0.5.
+:::
+
+Visibility decides who can **find** the project, not who can work in it:
+
+- **Private** (the default) — only project members see the project. Members of its
+  program still see it as a row in the program's project list.
+- **Workspace** — any active workspace member can find the project in the project list
+  and open its summary record, read-only, without being a member. Its tasks, board,
+  schedule, and every other part of the project stay members-only, and nothing about
+  editing changes: editing always follows the member's project role. Guests and
+  deactivated accounts never see a project through this setting, and a draft project
+  stays members-only.
+
+Upgrading to 0.5 sets every existing project and program to **Private**, which is the
+access they already had, so nothing becomes visible until an Admin chooses Workspace.
+Program settings carry the same control with the same meaning for the program record.
 
 ## Access
 

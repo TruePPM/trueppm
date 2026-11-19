@@ -105,6 +105,20 @@ here affect every project in the program.
 | Run attribution visible to | Who can see which member ran a forecast. See [Retention](/administration/retention/). |
 | Duration change → percent complete | Whether editing a task's duration re-derives its percent complete, and the override policy (ADR-0151). Inherits the workspace value. |
 
+
+### Visibility
+
+:::note[Ships in 0.5]
+In the current release the Visibility control is disabled and every program is
+membership-scoped.
+:::
+
+**Private** (the default) keeps the program members-only. **Workspace** lets any active
+workspace member find the program and open its summary record, read-only; its projects,
+rollups, and every other program view stay members-only, and editing always follows
+program role. Guests and deactivated accounts never see a program through this setting.
+Upgrading to 0.5 sets every existing program to Private.
+
 ## Projects
 
 The **Projects** section is a bulk matrix of the projects assigned to this

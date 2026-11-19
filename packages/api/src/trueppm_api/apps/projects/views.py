@@ -75,6 +75,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectAdmin,
     IsProjectBacklogManager,
     IsProjectMember,
+    IsProjectMemberOrWorkspaceVisible,
     IsProjectMemberWrite,
     IsProjectMemberWriteOrOwn,
     IsProjectNotArchived,
@@ -1723,7 +1724,10 @@ class ProjectViewSet(
     automatically assigned the Owner role via perform_create().
 
     Permission matrix (issue #11; update tightened in #769):
-      list/retrieve/create        — any member (IsProjectMember)
+      list/retrieve               — any member, plus any active workspace member
+                                     for a WORKSPACE-visible project, read-only
+                                     (IsProjectMemberOrWorkspaceVisible, ADR-1434)
+      create                      — any authenticated user (creator becomes Owner)
       update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);
                                      general settings (name/dates/calendar/…) are
                                      further restricted to Admin+ in the serializer,
@@ -1736,6 +1740,9 @@ class ProjectViewSet(
     # health_summary — the one cross-project list action — reads through
     # self.get_queryset(), so it inherits the same filter rather than needing its own.
     mcp_scope = McpScope.QUERYSET
+
+    # ADR-1434: only the project record itself widens to WORKSPACE visibility.
+    workspace_visible_actions = frozenset({"list", "retrieve"})
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
@@ -1777,7 +1784,18 @@ class ProjectViewSet(
         refused: list[BasePermission] = (
             [IsNotTokenAuthenticated()] if self.action in self.token_refused_actions else []
         )
-        return [*self._rbac_permissions(), *refused, *self.mcp_token_guards()]
+        # The project RECORD honors visibility (ADR-1434): a WORKSPACE project is
+        # listable and retrievable, read-only, by any active workspace member. The
+        # queryset admits it only for these two actions (``workspace_visible_actions``)
+        # and the object gate admits it only on a safe method, so a non-member gets
+        # Viewer-equivalent read of the row and nothing else — every child route and
+        # every other detail action keeps the plain membership gate.
+        rbac: list[BasePermission] = (
+            [IsAuthenticated(), IsProjectMemberOrWorkspaceVisible(), IsProjectNotArchived()]
+            if self.action_reads_workspace_visible()
+            else self._rbac_permissions()
+        )
+        return [*rbac, *refused, *self.mcp_token_guards()]
 
     def _rbac_permissions(self) -> list[BasePermission]:
         # Lifecycle actions (archive/unarchive/destroy/transfer) bypass the
