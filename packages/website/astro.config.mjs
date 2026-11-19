@@ -433,6 +433,7 @@ export default defineConfig({
                 { slug: "features/board" },
                 { slug: "features/labels" },
                 { slug: "features/board-sharing" },
+                { slug: "features/status-updates" },
                 { slug: "features/board-sprint-panel" },
                 { slug: "features/flow-analytics" },
                 { slug: "features/daily-standup" },

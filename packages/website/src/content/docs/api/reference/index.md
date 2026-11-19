@@ -209,6 +209,8 @@ return `429` with the same `Retry-After` envelope shown above.
 | `mcp_read_compute` | 12/min (`TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE`) | Stacks on `mcp_read` for the compute-heavy MCP reads (what-if, latest Monte Carlo, forecasts, schedule derivation, program schedule) |
 | `share_mint` | 20/min (`TRUEPPM_THROTTLE_SHARE_MINT_RATE`) | Minting a public board/schedule share link |
 | `share_access` | 60/min (`TRUEPPM_THROTTLE_SHARE_ACCESS_RATE`) | Resolving a public share link |
+| `status_update_post` | 20/min (`TRUEPPM_THROTTLE_STATUS_UPDATE_POST_RATE`) | Posting a project status update, per account |
+| `status_update_post_project` | 20/min (`TRUEPPM_THROTTLE_STATUS_UPDATE_POST_PROJECT_RATE`) | Posting a project status update, per project (every poster shares the bucket) |
 | `telemetry_test` | 6/min | Telemetry test-export probe |
 | `git_webhook_ip` | 600/min (`TRUEPPM_THROTTLE_GIT_WEBHOOK_IP_RATE`) | Inbound Git webhook receiver, per client IP — stacks with `GitWebhookThrottle` below |
 

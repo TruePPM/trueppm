@@ -286,6 +286,22 @@ is what keeps it OSS rather than a portfolio-governance surface. `?mine=true`
 hard-scopes to the caller's own assigned tasks; there is no `?user=` escape
 hatch. See [Assets](/features/assets/).
 
+## Project status updates
+
+These endpoints ship in 0.5. See [Project status updates](/features/status-updates/).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/projects/{id}/status-updates/` | The history, newest first, page-number paginated (project members) |
+| POST | `/api/v1/projects/{id}/status-updates/` | Post `{rag, narrative}`; the server freezes the snapshot (Project Manager+, signed in; API tokens are refused) |
+| GET | `/api/v1/projects/{id}/status-updates/{update_id}/` | One update with its frozen `snapshot` and `live_diff` (project members) |
+
+There is no `PUT`, `PATCH` or `DELETE`: a posted update is immutable, and a
+correction is a new post. A status-update share link is minted on
+`/share-links/` with `content_kind: "status_update"` and the `status_update` id;
+its public endpoint returns the same `404` for every unavailable link, revoked
+and expired included.
+
 ## Public share links
 
 | Method | Path | Description |
@@ -294,11 +310,15 @@ hatch. See [Assets](/features/assets/).
 | POST | `/api/v1/projects/{id}/share-links/{link_id}/revoke/` | Revoke a link (Project Manager+, idempotent) |
 | GET | `/api/v1/share/board/{token}/` | Public, unauthenticated board snapshot |
 | GET | `/api/v1/share/schedule/{token}/` | Public, unauthenticated schedule/Gantt snapshot |
+| GET | `/api/v1/share/status-update/{token}/` | Public, unauthenticated snapshot of one posted status update (ships in 0.5) |
 
-The two public endpoints return `410` for a revoked link and a uniform `404`
-for an unknown token or a disabled instance-wide sharing kill switch (so a
-caller cannot distinguish "never existed" from "feature disabled"), and
-support `ETag`/`If-None-Match` (`304` on an unchanged snapshot). See
+The board and schedule endpoints return `410` for a revoked link and a uniform
+`404` for an unknown token or a disabled instance-wide sharing kill switch (so a
+caller cannot distinguish "never existed" from "feature disabled"). The
+status-update endpoint returns the same `404` for every unavailable link: unknown,
+revoked, expired, for a project in Trash, blocked by the sharing policy, minted by
+a deactivated account, or the kill switch. All three support
+`ETag`/`If-None-Match` (`304` on an unchanged snapshot). See
 [Board sharing](/features/board-sharing/).
 
 ## Agent actions

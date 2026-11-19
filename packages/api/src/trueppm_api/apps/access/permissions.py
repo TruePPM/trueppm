@@ -2479,6 +2479,14 @@ class IsNotTokenAuthenticated(BasePermission):
     own once the socket was open, unlike every other grant on this list, which a
     later revocation sweep can still reach.
 
+    Since #4803, it also covers the POST branch of
+    ``ProjectStatusUpdateListCreateView`` (``/projects/{id}/status-updates/``), with
+    an instance ``message`` naming that route's reason (the class message below would
+    misdiagnose a post as credential management). A posted status update is
+    immutable, shareable history signed as the Project Manager's own call, so no
+    token may post one, an agent's included, even one acting for the PM. The history
+    reads stay ``mcp:read``-reachable.
+
     Since #3847, it also covers the membership family, because a grant minted by a
     leaked token outlives the token: workspace invites (create, delete, resend), member
     role change and removal, group membership and group→project grants,

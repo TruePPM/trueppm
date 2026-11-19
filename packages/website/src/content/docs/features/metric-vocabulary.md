@@ -54,6 +54,20 @@ Each owning endpoint returns two extra things beside its figures:
 | Sprint projected finish | `projected_finish_date` | `GET /sprints/{id}/burndown/` | `as_of` | Today plus the remaining points divided by the points burned per elapsed sprint day so far; null when nothing has burned yet or nothing remains. |
 | My Work ship date | `signals.forecast.p80_finish` | `GET /projects/{id}/monte-carlo/latest/`, echoed by `GET /me/work/` | the driving project's `last_run_at`, as `signals.forecast.as_of` | The latest P80 finish among your member projects that are not drafts, each read from that project's latest Monte Carlo result: the same date its forecast endpoint serves. |
 
+## Status updates
+
+A posted status update (`GET /projects/{id}/status-updates/`) freezes its
+figures when the project manager posts it, and never recomputes them. Each
+figure carries `value`, `as_of` and `definition`. P50 and P80 are the forecast
+owner's figures as they stood at post time, with the sentences above.
+
+| Metric | Field | Owner | As of | Definition |
+|---|---|---|---|---|
+| CPM finish | `snapshot.forecast.cpm_finish` | `POST /projects/{id}/status-updates/` | the project's last recalculation | The project's deterministic CPM finish at post time: the latest early finish of any committed task, from the last recalculation. |
+| Baseline variance | `snapshot.forecast.baseline_finish_variance_days` | `POST /projects/{id}/status-updates/` | the project's last recalculation | The CPM finish at post time minus the active baseline's finish, in calendar days measured in working time; positive means late. |
+| Completed since previous | `snapshot.counts.completed_since_previous` | `POST /projects/{id}/status-updates/` | `posted_at` | Leaf tasks complete at post time whose actual finish falls on or after the day the previous status update was posted. |
+| Slipped since previous | `snapshot.counts.slipped_since_previous` | `POST /projects/{id}/status-updates/` | `posted_at` | Milestones present in both this status update and the previous one whose CPM finish moved later in working time between the two. |
+
 ## Program rollup
 
 One program's figures are owned by `GET /programs/{id}/rollup/`. It reads the

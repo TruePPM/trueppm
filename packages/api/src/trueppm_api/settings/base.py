@@ -1974,6 +1974,16 @@ REST_FRAMEWORK = {
         # an unthrottled load source on a self-hosted box, per Omar's VoC concern).
         "share_mint": env("TRUEPPM_THROTTLE_SHARE_MINT_RATE", default=_MODERATE_RATE),
         "share_access": env("TRUEPPM_THROTTLE_SHARE_ACCESS_RATE", default=_STANDARD_RATE),
+        # Posting a project status update (#4803): a post freezes a snapshot and is
+        # immutable, so a client stuck in a retry loop must not mint a run of them.
+        "status_update_post": env(
+            "TRUEPPM_THROTTLE_STATUS_UPDATE_POST_RATE", default=_MODERATE_RATE
+        ),
+        # The same cap per project, whoever posts: several Project Managers on one
+        # project share this bucket, so the project's history is the unit protected.
+        "status_update_post_project": env(
+            "TRUEPPM_THROTTLE_STATUS_UPDATE_POST_PROJECT_RATE", default=_MODERATE_RATE
+        ),
         # Telemetry test-export probe (#2110). An admin-only button that opens one
         # outbound canary/reachability probe to the configured OTLP collector;
         # scoped-throttled so it can't be used to hammer the collector.
@@ -2593,6 +2603,9 @@ SPECTACULAR_SETTINGS = {
         # when an unrelated field's choices change would break exactly that.
         # `code` appears on three buckets of one response and must resolve to ONE
         # component, not three postfixed variants.
+        # #4803: the PM's call on a status update, shared by the write, read and
+        # public share schemas.
+        "StatusUpdateRagEnum": "trueppm_api.apps.projects.models.StatusUpdateRag",
         "TaskBulkRefusalCodeEnum": "trueppm_api.apps.projects.refusal_codes.BulkRefusalCode",
         "StructuralUndoBlockedReasonEnum": (
             "trueppm_api.apps.projects.refusal_codes.StructuralUndoBlockedReason"

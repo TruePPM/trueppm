@@ -15,7 +15,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from trueppm_api.apps.projects.models import ShareContentKind, ShareLink
+from trueppm_api.apps.projects.models import ShareContentKind, ShareLink, StatusUpdate
 from trueppm_api.apps.projects.sharing_settings import (
     default_share_link_expiry_days,
 )
@@ -48,6 +48,9 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
             "label",
             "show_assignees",
             "show_milestone_dates",
+            "status_update",
+            "show_risks",
+            "show_decisions",
             "created_by",
             "created_by_name",
             "created_at",
@@ -80,6 +83,12 @@ class ShareLinkCreateSerializer(serializers.Serializer[Any]):
     # Schedule links only (#2532). Defaults TRUE — omitting it must mint exactly the
     # link a pre-#2532 client minted, so this is an opt-out, not an opt-in.
     show_milestone_dates = serializers.BooleanField(required=False, default=True)
+    # Status-update links only (#4803): the ONE posted update the link is bound to,
+    # and the two opt-in reveals for its internal titles. Normalized away on every
+    # other kind in ``validate()``.
+    status_update = serializers.UUIDField(required=False, allow_null=True, default=None)
+    show_risks = serializers.BooleanField(required=False, default=False)
+    show_decisions = serializers.BooleanField(required=False, default=False)
     # Which view the link exposes; defaults to board for backward compatibility
     # with pre-#1486 clients that never sent the field.
     content_kind = serializers.ChoiceField(
@@ -112,8 +121,31 @@ class ShareLinkCreateSerializer(serializers.Serializer[Any]):
         inapplicable, normalize it, so the stored row can never claim a guarantee the
         server is not keeping.
         """
-        if attrs.get("content_kind") != ShareContentKind.SCHEDULE:
+        kind = attrs.get("content_kind")
+        if kind not in (ShareContentKind.SCHEDULE, ShareContentKind.STATUS_UPDATE):
             attrs["show_milestone_dates"] = True
+
+        # A status-update link is bound to one update of THIS project (#4803); the
+        # project comes from the view's context, so an id from another project reads
+        # exactly like an unknown one. Other kinds never carry the binding or the two
+        # reveals, so the stored row cannot claim a projection nothing applies.
+        if kind == ShareContentKind.STATUS_UPDATE:
+            update_id = attrs.get("status_update")
+            project = self.context.get("project")
+            update = (
+                StatusUpdate.objects.filter(pk=update_id, project=project).first()
+                if update_id is not None and project is not None
+                else None
+            )
+            if update is None:
+                raise serializers.ValidationError(
+                    {"status_update": "A status-update link needs a status update of this project."}
+                )
+            attrs["status_update"] = update
+        else:
+            attrs["status_update"] = None
+            attrs["show_risks"] = False
+            attrs["show_decisions"] = False
 
         # Absent (not null) → the instance default window (#3177). The web dialog always
         # sends a value, so this is the path taken by every non-dialog caller: agent

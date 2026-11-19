@@ -4303,22 +4303,14 @@ class ProjectViewSet(
         # every row (phases included): it is a raw inventory total, not a value
         # a phase's children also contribute to, so there is nothing to
         # double-count there.
+        at_risk_filter, critical_filter = health_count_filters()
         counts = live_tasks.annotate(_is_phase=task_is_phase_expr()).aggregate(
             task_count=Count("id"),
             # Folded into the existing aggregate rather than a second query: this
             # endpoint is hit on every dashboard mount.
             last_saved=Max("edited_at"),
-            at_risk_count=Count(
-                "id",
-                filter=~Q(status=TaskStatus.COMPLETE)
-                & Q(total_float__isnull=False)
-                & Q(total_float__lte=5)
-                & Q(_is_phase=False),
-            ),
-            critical_count=Count(
-                "id",
-                filter=~Q(status=TaskStatus.COMPLETE) & Q(is_critical=True) & Q(_is_phase=False),
-            ),
+            at_risk_count=Count("id", filter=at_risk_filter),
+            critical_count=Count("id", filter=critical_filter),
             # The blocked list's own rule (`blocker_services._blocked_queryset`: a
             # non-empty blocked_reason on a live row), counted in full in the same
             # aggregate. `/blocked/`'s `count` is the length of a capped list, so it
@@ -13799,6 +13791,24 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 # Project overview endpoints (ADR-0030)
 # ---------------------------------------------------------------------------
+
+
+def health_count_filters() -> tuple[db_models.Q, db_models.Q]:
+    """The at-risk and critical task filters the derived health band counts.
+
+    Returns ``(at_risk, critical)`` for a ``Count("id", filter=...)`` over a task
+    queryset annotated with ``_is_phase=task_is_phase_expr()``: incomplete leaf tasks
+    with 5 or fewer working days of total float, and incomplete leaf tasks on the
+    critical path. A phase is excluded because its float and criticality are rollups
+    of its children (#4250). One definition, so status-summary's band and the band a
+    status update freezes (``status_update_services.derived_health``) cannot drift.
+    """
+    from django.db.models import Q
+
+    incomplete_leaf = ~Q(status=TaskStatus.COMPLETE) & Q(_is_phase=False)
+    at_risk = incomplete_leaf & Q(total_float__isnull=False) & Q(total_float__lte=5)
+    critical = incomplete_leaf & Q(is_critical=True)
+    return at_risk, critical
 
 
 #: The manual ``Project.health`` override mapped onto the health-band vocabulary.
