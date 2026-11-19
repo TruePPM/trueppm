@@ -299,7 +299,7 @@ async function gotoScheduleWithMC(
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'u1', email: 'pm@example.com'}),
+      body: JSON.stringify({ id: 'u1', email: 'pm@example.com' }),
     }),
   );
   // Current-user role comes from GET /projects/{id}/members/?self=true — a LIST
@@ -320,6 +320,8 @@ async function gotoScheduleWithMC(
 
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
 }
+
+const MC_TASK_RUN_ID = '00000000-0000-4000-8000-00000000c0de';
 
 // Catch-all 401-guard, registered in a top-level beforeEach so it is the EARLIEST
 // route — every specific route added later (per-test handlers and gotoScheduleWithMC)
@@ -432,16 +434,45 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
       runCallCount++;
       // Delay the response so the pending state is observable.
       await new Promise((r) => setTimeout(r, 200));
-      // useRunMonteCarlo discards the response body (it just invalidates the
-      // `latest`/`history` queries on success), but the schema guard still
-      // validates whatever the mock sends — a placeholder `{ ok: true }` isn't
-      // a shape the server ever emits (#3680), so echo the real run shape.
+      // The POST queues the run on a worker and answers 202 with a task-run
+      // handle (#2273); useRunMonteCarlo then polls the run below until it
+      // succeeds, and only then invalidates `latest`/`history`.
       await route.fulfill({
-        status: 200,
+        status: 202,
         contentType: 'application/json',
-        body: JSON.stringify(FIXTURE_MC_RESULT),
+        body: JSON.stringify({
+          queued: true,
+          task_run_id: MC_TASK_RUN_ID,
+          status: 'pending',
+          n_simulations: null,
+        }),
       });
     });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/task-runs/${MC_TASK_RUN_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: MC_TASK_RUN_ID,
+          task_name: 'scheduling.monte_carlo',
+          celery_task_id: 'celery-1',
+          project: PROJECT_ID,
+          initiated_by_username: 'alice',
+          status: 'success',
+          progress_pct: 100,
+          progress_msg: '',
+          result_summary: {
+            run_id: null,
+            n_simulations: 1000,
+            last_run_at: '2026-03-01T00:00:00Z',
+          },
+          error_detail: '',
+          created_at: '2026-03-01T00:00:00Z',
+          started_at: '2026-03-01T00:00:00Z',
+          completed_at: '2026-03-01T00:00:01Z',
+        }),
+      }),
+    );
 
     await gotoScheduleWithMC(page);
 
@@ -502,7 +533,6 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(status).toHaveText('Recomputing…');
     expect(runCallCount).toBe(1);
   });
-
 
   test('Rerun SURVIVES a reload — the predicate is a server fact, not session state (#3140)', async ({
     page,
@@ -598,15 +628,14 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
 
     await toggle.click();
 
-    await expect(
-      bar.getByRole('button', { name: /Minimize forecast detail/i }),
-    ).toHaveAttribute('aria-expanded', 'true');
+    await expect(bar.getByRole('button', { name: /Minimize forecast detail/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
     await expect(bar.getByText('Finish-date forecast')).toBeVisible();
     await expect(bar.getByText(/What.s holding the date/i)).toBeVisible();
     // The sensitivity bar is joined to the driving task's name.
-    await expect(
-      bar.getByRole('img', { name: /Backend API: 88% sensitivity/i }),
-    ).toBeVisible();
+    await expect(bar.getByRole('img', { name: /Backend API: 88% sensitivity/i })).toBeVisible();
   });
 
   test('a flat forecast explains the real reason, not a blanket PERT prompt (#1340)', async ({
@@ -641,9 +670,7 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
 
     // The reason-aware guidance appears (histogram prose + tornado empty-state
     // both render it, so allow more than one match).
-    await expect(
-      bar.getByText(/2 task estimates are awaiting approval/i).first(),
-    ).toBeVisible();
+    await expect(bar.getByText(/2 task estimates are awaiting approval/i).first()).toBeVisible();
     // The misleading blanket prompt must NOT appear — the #1340 regression.
     await expect(bar.getByText(/Add PERT estimates/i)).toHaveCount(0);
   });
@@ -707,9 +734,7 @@ test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {
     const health = page.getByRole('dialog', { name: 'Project health' });
     await expect(health).toBeVisible();
     await health.locator('[aria-label^="Monte Carlo forecast"]').click({ timeout: 10_000 });
-    await expect(
-      page.getByRole('dialog', { name: /Monte Carlo confidence/i }),
-    ).toBeVisible();
+    await expect(page.getByRole('dialog', { name: /Monte Carlo confidence/i })).toBeVisible();
   }
 
   test('golden path: history section shows runs with a P80 drift delta', async ({ page }) => {
@@ -739,9 +764,7 @@ test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {
     const health = page.getByRole('dialog', { name: 'Project health' });
     await expect(health).toBeVisible();
     await health.locator('[aria-label^="Monte Carlo forecast"]').click({ timeout: 10_000 });
-    await expect(
-      page.getByRole('dialog', { name: /Monte Carlo confidence/i }),
-    ).toBeVisible();
+    await expect(page.getByRole('dialog', { name: /Monte Carlo confidence/i })).toBeVisible();
     // The drawer opens, but the history region must not render with no runs.
     await expect(page.getByRole('region', { name: /Forecast history/i })).toHaveCount(0);
   });
@@ -817,9 +840,6 @@ test.describe('added time from Schedule (#2531)', () => {
     await gotoScheduleWithMC(page);
 
     const chip = page.getByTestId('health-cluster');
-    await expect(chip).toHaveAttribute(
-      'aria-label',
-      /10 days added versus the computed finish/,
-    );
+    await expect(chip).toHaveAttribute('aria-label', /10 days added versus the computed finish/);
   });
 });

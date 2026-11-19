@@ -1,16 +1,19 @@
-"""Request-path admission control for synchronous Monte Carlo runs (#2839).
+"""Admission control for Monte Carlo runs (#2839).
 
-Two request-path endpoints run ``trueppm_scheduler.monte_carlo()`` inline:
-``run_monte_carlo`` (one simulation) and ``MonteCarloWhatIfView`` (two, back to
-back). The engine caps ``runs`` (``MC_SIMULATION_CAP``) and ``n_tasks``
+Two paths run ``trueppm_scheduler.monte_carlo()``: the Celery task behind
+``run_monte_carlo`` (one simulation, off the request thread since #2273) and
+``MonteCarloWhatIfView`` (two, back to back, still inline in the request). The
+engine caps ``runs`` (``MC_SIMULATION_CAP``) and ``n_tasks``
 (``MC_TASK_CAP``) separately, but the simulation's working set is three live
 ``(runs, n_tasks)`` float64 matrices plus temporaries, so what it costs — in
 memory *and*, since the hot path is vectorized and linear in it, in wall time — is
 the **product** ``runs x n_tasks``. Capping each dimension leaves the product at
 5,000 x 1,000 = 5M cells, measured at ~234 MB traced / ~336 MB RSS per call, on a
-single default API worker that also serves every WebSocket. This module caps the
-product (``MC_CELL_CAP``) and the number of simulations one process runs at once
-(``MC_MAX_CONCURRENT``).
+single process. This module caps the product (``MC_CELL_CAP``) and the number of
+simulations one process runs at once (``MC_MAX_CONCURRENT``). The slot is a
+per-process semaphore, so it only binds where one process runs several at once —
+the threaded API serving what-ifs. A prefork Celery child runs one task at a time
+and never contends for it; there, worker concurrency is the bound.
 
 Both are memory-safety bounds, not edition gates: refusals here are 400 / 503,
 never the 402 the per-dimension OSS caps return.

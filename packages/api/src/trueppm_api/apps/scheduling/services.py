@@ -287,7 +287,8 @@ def record_monte_carlo_run(
 ) -> MonteCarloRun | None:
     """Persist one project-level Monte Carlo run for the forecast history (ADR-0175).
 
-    Called synchronously from ``run_monte_carlo`` after the simulation returns.
+    Called from the Monte Carlo worker task (``simulate_and_record_monte_carlo``,
+    #2273) after the simulation returns.
     Persistence is **best-effort**: the simulation result is the primary
     deliverable, so a write failure is logged and swallowed (the caller still
     returns the computed result; the history simply misses that row). Returns the

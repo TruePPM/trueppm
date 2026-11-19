@@ -214,7 +214,7 @@ Acknowledgment is an audit act — "seen, handling it" — not a schedule change
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/projects/{id}/monte-carlo/` | Run a probabilistic schedule simulation synchronously and return P50/P80/P95 (no state written) |
+| POST | `/api/v1/projects/{id}/monte-carlo/` | Queue a probabilistic schedule simulation on a worker. Answers `202` with `{task_run_id, status, n_simulations}`; poll `GET /api/v1/projects/{id}/task-runs/{task_run_id}/` until `status` is `success` (then read `monte-carlo/latest/`) or `failed` (`result_summary` holds the refusal body plus `status_code`). In 0.4 this ran synchronously and returned the forecast in a `200` |
 | GET | `/api/v1/projects/{id}/monte-carlo/latest/` | Retrieve the most recently recorded simulation run for the project |
 | GET | `/api/v1/projects/{id}/monte-carlo/history/` | List recorded simulation runs for the project |
 

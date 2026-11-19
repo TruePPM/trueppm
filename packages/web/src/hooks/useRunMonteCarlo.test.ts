@@ -1,13 +1,26 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { act } from 'react';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
-import { useRunMonteCarlo } from './useRunMonteCarlo';
+import axios from 'axios';
+import { MC_POLL_TIMEOUT_MS, useRunMonteCarlo } from './useRunMonteCarlo';
 
 const postMock = vi.hoisted(() => vi.fn());
+const getMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/api/client', () => ({ apiClient: { post: postMock } }));
+vi.mock('@/api/client', () => ({ apiClient: { post: postMock, get: getMock } }));
+
+// The POST queues the run (#2273); the hook then polls the task run.
+const QUEUED = {
+  data: { queued: true, task_run_id: 'run-1', status: 'pending', n_simulations: null },
+};
+const runIs = (status: string, result_summary: Record<string, unknown> | null = null) => ({
+  data: { status, result_summary },
+});
+// Real timers: the hook sleeps MC_POLL_INTERVAL_MS (500 ms) before each poll.
+const SETTLE = { timeout: 4000 };
 
 function makeWrapper(qc: QueryClient) {
   function Wrapper({ children }: { children: ReactNode }) {
@@ -20,12 +33,19 @@ describe('useRunMonteCarlo', () => {
   let qc: QueryClient;
 
   beforeEach(() => {
-    qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('POSTs to /projects/{id}/monte-carlo/ on mutate', async () => {
-    postMock.mockResolvedValueOnce({ data: { project_id: 'proj-1' } });
+    postMock.mockResolvedValueOnce(QUEUED);
+    getMock.mockResolvedValueOnce(runIs('success', { run_id: null }));
 
     const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
       wrapper: makeWrapper(qc),
@@ -33,12 +53,13 @@ describe('useRunMonteCarlo', () => {
 
     result.current.mutate({});
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true), SETTLE);
     expect(postMock).toHaveBeenCalledWith('/projects/proj-1/monte-carlo/', {});
   });
 
   it('forwards n_simulations through to the request body', async () => {
-    postMock.mockResolvedValueOnce({ data: {} });
+    postMock.mockResolvedValueOnce(QUEUED);
+    getMock.mockResolvedValueOnce(runIs('success'));
 
     const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
       wrapper: makeWrapper(qc),
@@ -46,7 +67,7 @@ describe('useRunMonteCarlo', () => {
 
     result.current.mutate({ n_simulations: 250 });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true), SETTLE);
     expect(postMock).toHaveBeenCalledWith('/projects/proj-1/monte-carlo/', { n_simulations: 250 });
   });
 
@@ -56,7 +77,8 @@ describe('useRunMonteCarlo', () => {
     // strip + TopBar). The Overview now consumes the shared
     // `useMonteCarloResult` hook, so a single invalidation propagates to
     // every surface.
-    postMock.mockResolvedValueOnce({ data: {} });
+    postMock.mockResolvedValueOnce(QUEUED);
+    getMock.mockResolvedValueOnce(runIs('success'));
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
     const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
@@ -65,7 +87,7 @@ describe('useRunMonteCarlo', () => {
 
     result.current.mutate({});
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true), SETTLE);
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
     // The legacy `mc-latest` key must NOT be invalidated — it no longer
@@ -97,5 +119,94 @@ describe('useRunMonteCarlo', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.message).toBe('500 boom');
+  });
+
+  it('stays pending until the run finishes, polling the task run', async () => {
+    postMock.mockResolvedValueOnce(QUEUED);
+    getMock
+      .mockResolvedValueOnce(runIs('pending'))
+      .mockResolvedValueOnce(runIs('running'))
+      .mockResolvedValueOnce(runIs('success', { run_id: 'mc-1' }));
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({});
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true), { timeout: 5000 });
+    expect(getMock).toHaveBeenCalledTimes(3);
+    expect(getMock).toHaveBeenCalledWith('/projects/proj-1/task-runs/run-1/');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
+  });
+
+  it("rejects with the worker's refusal as an axios error carrying its status and body", async () => {
+    postMock.mockResolvedValueOnce(QUEUED);
+    getMock.mockResolvedValueOnce(
+      runIs('failed', {
+        detail: 'Cyclic dependency detected.',
+        status_code: 400,
+      }),
+    );
+
+    const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({});
+
+    await waitFor(() => expect(result.current.isError).toBe(true), SETTLE);
+    const err = result.current.error;
+    expect(axios.isAxiosError(err)).toBe(true);
+    if (!axios.isAxiosError(err)) return;
+    expect(err.response?.status).toBe(400);
+    // The status_code is transport, not body: describeWriteRefusal reads `detail`.
+    expect(err.response?.data).toEqual({ detail: 'Cyclic dependency detected.' });
+  });
+
+  it('a failed run with no recorded refusal still rejects as a 500', async () => {
+    postMock.mockResolvedValueOnce(QUEUED);
+    getMock.mockResolvedValueOnce(runIs('failed', null));
+
+    const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({});
+
+    await waitFor(() => expect(result.current.isError).toBe(true), SETTLE);
+    const err = result.current.error;
+    expect(axios.isAxiosError(err) && err.response?.status).toBe(500);
+  });
+
+  it('gives up polling after MC_POLL_TIMEOUT_MS with a retryable message', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    postMock.mockResolvedValueOnce(QUEUED);
+    // A run that never settles (a worker killed by its hard time limit leaves it RUNNING).
+    getMock.mockResolvedValue(runIs('running'));
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    act(() => {
+      result.current.mutate({});
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MC_POLL_TIMEOUT_MS - 1_000);
+    });
+    expect(result.current.isPending).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(result.current.isError).toBe(true);
+    expect(result.current.error?.message).toMatch(/taking longer than expected/);
+    expect(axios.isAxiosError(result.current.error)).toBe(false);
+    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });

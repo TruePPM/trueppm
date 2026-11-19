@@ -428,8 +428,9 @@ def test_scan_sees_the_known_inline_engine_handlers() -> None:
         for name, src in sources.items()
     }
     seen = {f.handler for f in scan(stripped)}
+    # ``run_monte_carlo`` left this set with #2273: it queues the simulation on a
+    # Celery worker, so the request handler no longer reaches ``monte_carlo()``.
     expected = {
-        "scheduling.views:run_monte_carlo",
         "scheduling.views:MonteCarloWhatIfView.get",
         "scheduling.views:ScheduleDerivationView.get",
         "projects.program_views:ProgramViewSet.schedule",

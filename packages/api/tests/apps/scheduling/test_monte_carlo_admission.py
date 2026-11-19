@@ -166,7 +166,12 @@ class TestRunEndpointAdmission:
         settings: object,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Every slot held elsewhere -> 503 + Retry-After, without simulating."""
+        """Every slot held elsewhere -> a 503 simulation_busy refusal, without simulating.
+
+        Since #2273 the refusal arrives on the failed task run (the conftest shim
+        surfaces its ``result_summary``), which carries no HTTP headers — so there is
+        no Retry-After to assert; the client retries on the user's next run.
+        """
         settings.MC_MAX_CONCURRENT = 1  # type: ignore[attr-defined]
         monkeypatch.setattr(mc_admission, "MC_SLOT_WAIT_SECONDS", 0.01)
         sem = mc_admission._semaphore()
@@ -178,7 +183,6 @@ class TestRunEndpointAdmission:
             sem.release()
         assert r.status_code == 503
         assert r.data["error"] == "simulation_busy"
-        assert r.headers["Retry-After"] == str(mc_admission.MC_BUSY_RETRY_AFTER_SECONDS)
         # The slot is free again: the next run is admitted.
         r2 = client.post(_run_url(project), {"n_simulations": 10}, format="json")
         assert r2.status_code == 200

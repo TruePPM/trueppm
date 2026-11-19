@@ -196,7 +196,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `sso_provider_write` | 20/min | SSO provider create/update/delete (reads exempt) |
 | `credential_rotate` | 10/min | Personal integration credentials + Git webhook secret rotation |
 | `external_sync` | 20/min | Manual external-connection pull trigger |
-| `monte_carlo` | 10/min | Synchronous Monte Carlo run |
+| `monte_carlo` | 10/min | Monte Carlo run (`POST .../monte-carlo/`; synchronous through 0.4, queued on a worker from 0.5) |
 | `monte_carlo_whatif` | 6/min | Monte Carlo what-if (two CPM + two MC passes per call) |
 | `cpm_on_read` | 60/min (`TRUEPPM_THROTTLE_CPM_ON_READ_RATE`) | Schedule derivation read (a full CPM pass per call) |
 | `program_schedule` | 60/min (`TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE`) | Merged program schedule read (one CPM pass over every member project per call) |

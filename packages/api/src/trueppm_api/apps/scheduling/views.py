@@ -73,7 +73,6 @@ from trueppm_api.apps.scheduling.finish_reading import (
     task_finish_at_day_start,
 )
 from trueppm_api.apps.scheduling.forecast_staleness import (
-    forecast_staleness_facts,
     forecast_staleness_for_payload,
     forecast_staleness_from_run,
 )
@@ -97,7 +96,6 @@ from trueppm_api.apps.scheduling.risk_premium import (
     build_risk_premium,
     delta_vs_cpm_days,
     risk_premium_for_forecast_payload,
-    risk_premium_from_values,
 )
 from trueppm_api.apps.scheduling.serializers import (
     FailedTaskBulkActionResultSerializer,
@@ -106,6 +104,7 @@ from trueppm_api.apps.scheduling.serializers import (
     FailedTaskRequeueSerializer,
     FailedTaskSerializer,
     MonteCarloForecastSerializer,
+    MonteCarloRunQueuedSerializer,
     MonteCarloRunSerializer,
     MonteCarloSimulateSerializer,
     MonteCarloWhatIfRequestSerializer,
@@ -514,9 +513,10 @@ def _mc_histogram(dist: list[_date]) -> list[dict[str, object]]:
 
 
 def _persist_mc_run_if_authorized(
-    request: Request,
     project: Project,
     *,
+    user: Any,
+    persist: bool,
     mc_result: Any,
     n_simulations: int,
     cpm_finish: _date | None,
@@ -540,14 +540,9 @@ def _persist_mc_run_if_authorized(
     ``record_monte_carlo_run``; ``result_dict`` gains ``run_id`` only when persistence
     succeeded. Mutates ``result_dict`` in place.
     """
-    from trueppm_api.apps.access.models import Role
-    from trueppm_api.apps.access.permissions import _membership_role
-
-    # Pass project.pk (canonical UUID), not the raw URL string, so this reuses the
-    # per-request role cache the earlier object-permission check already warmed under
-    # the same key — no second membership query.
-    role = _membership_role(request, project.pk)
-    if role is None or role < Role.SCHEDULER:
+    # ``persist`` is the role decision the request made (``_may_record_mc_run``);
+    # the worker that calls this has no request to resolve a role from.
+    if not persist:
         return
 
     # Persist the same distribution slice the cache holds, but bounded to
@@ -563,7 +558,7 @@ def _persist_mc_run_if_authorized(
         n_simulations=n_simulations,
         cpm_finish=cpm_finish,
         task_count=task_count,
-        user=request.user,
+        user=user,
         distribution=distribution,
         # Store the reason the run is (or is not) flat alongside it, so a later
         # read from history can still tell "no estimates anywhere" apart from
@@ -601,12 +596,14 @@ def _mc_lag_delta_kwargs() -> dict[str, int]:
 
 
 class MonteCarloRunThrottle(ScopedRateThrottle):
-    """Caps synchronous Monte Carlo runs per member (#1552) to bound DoS.
+    """Caps Monte Carlo runs per member (#1552) to bound DoS.
 
-    ``run_monte_carlo`` executes an expensive simulation inline in the request
-    cycle, gated only by project membership. Scoped per-user via ``monte_carlo``
-    (10/min) so no single account can loop the endpoint to exhaust CPU, while a
-    human tuning estimates and re-running the forecast stays well under the cap.
+    ``run_monte_carlo`` queues an expensive simulation on a Celery worker (#2273),
+    gated only by project membership. The request itself is cheap now, but every
+    accepted ``POST`` is one simulation a worker will run, so the per-user
+    ``monte_carlo`` scope (10/min) is what stops one account from flooding the
+    shared queue, while a human tuning estimates and re-running the forecast stays
+    well under the cap.
 
     ``ScopedRateThrottle`` normally reads its scope from ``view.throttle_scope``,
     but ``run_monte_carlo`` is a function-based ``@api_view`` that cannot carry
@@ -632,53 +629,30 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
 @extend_schema(
     request=MonteCarloSimulateSerializer,
     responses={
-        200: OpenApiResponse(
-            response=MonteCarloForecastSerializer,
+        202: OpenApiResponse(
+            response=MonteCarloRunQueuedSerializer,
             description=(
-                "Monte Carlo simulation result. Includes the engine result fields "
-                "(P50/P80/P95 finish dates, mean, std dev, etc.) plus "
-                "cpm_finish (deterministic CPM project finish, ISO 8601 or null), "
-                "p50_at_day_start/p80_at_day_start/p95_at_day_start and "
-                "cpm_finish_at_day_start (which edge of its shown day each finish is — true = "
-                "the start of the day, a start-of-day milestone finish; #4204), "
-                "delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM, measured "
-                "in working time: the start of a Monday vs the end of the Friday before it "
-                "is 0), "
-                "confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), "
-                "histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] "
-                "duration tornado — tasks that move the finish most, index 0..1, "
-                "ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, "
-                "tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity, "
-                "tasks_estimates_below_plan} "
-                "— explains a flat forecast; reason is null when a real band exists), "
-                "last_run_at (ISO 8601), status_date (the data date this run was "
-                "actually computed against — project.status_date or today when unset, "
-                "ADR-0132/#2638), and the risk_premium_* family (ADR-0698): "
-                "risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — "
-                "the discriminant every client renders from, never null), "
-                "risk_premium_days, risk_premium_ratio, risk_premium_band (always null "
-                "until #2299), risk_premium_as_of, risk_premium_reason, "
-                "risk_premium_cpm_finish, risk_premium_p80. Derived at response time, "
-                "never cached, so the ratio never describes a remaining duration that "
-                "has since elapsed. Plus the forecast-staleness family (#3140): "
-                "forecast_staleness (current|project_changed|aged|unknown — the "
-                "discriminant every client renders from, never null; only `current` "
-                "means the forecast still describes the plan, and clients keep the "
-                "recompute action reachable on the other three), plan_version (the "
-                "project's sync version this run was computed against; null for runs "
-                "recorded before #3140, which classify as `unknown`, never `current`), "
-                "and plan_version_current (that version as of this response). "
-                "`project_changed` is deliberately not named `plan_changed`: the "
-                "underlying counter advances on ANY write in the project, so a "
-                "description or label edit raises it without moving a date. It is a "
-                "sound trigger for offering a recompute and NOT evidence that a "
-                "schedule value changed — do not narrate it as one."
+                "The simulation was queued on a Celery worker (#2273). Body "
+                "{task_run_id, status, n_simulations}: poll GET "
+                "/projects/{pk}/task-runs/{task_run_id}/ until status is success or "
+                "failed. On success the result is the project's latest forecast — read "
+                "it from GET /projects/{pk}/monte-carlo/latest/ (the same payload this "
+                "endpoint returned synchronously before #2273), and result_summary "
+                "carries {run_id, n_simulations, last_run_at}; run_id is null when the "
+                "caller is below Scheduler, which refreshes the forecast but records no "
+                "attributed history row (#1502). On failed, result_summary carries the "
+                "refusal body below plus status_code (400, 402 or 503), exactly as this "
+                "endpoint returned it before the move: a cyclic graph, MC_CELL_CAP, "
+                "the engine caps, a busy worker slot or the wall-clock budget."
             ),
         ),
         400: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
             description=(
-                "Cyclic dependency, invalid input, or out-of-range project span; or "
+                "Invalid n_simulations or too many dependencies (synchronous). The "
+                "following arrive asynchronously, as a failed task run whose "
+                "result_summary carries this body plus status_code: cyclic dependency, "
+                "invalid input, or out-of-range project span; or "
                 "an explicit n_simulations whose runs x tasks product exceeds "
                 "MC_CELL_CAP (#2839) — body {error: simulation_cell_cap_exceeded, "
                 "message, max_runs, task_count}, where max_runs is the largest count "
@@ -703,8 +677,8 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
         402: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
             description=(
-                "OSS simulation cap exceeded (n_simulations above MC_SIMULATION_CAP "
-                "or too many tasks)."
+                "OSS simulation cap exceeded (too many committed tasks, synchronous; or "
+                "n_simulations above MC_SIMULATION_CAP, asynchronous via the task run)."
             ),
             examples=[
                 OpenApiExample(
@@ -732,11 +706,11 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
         503: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
             description=(
-                "This API process is already running MC_MAX_CONCURRENT simulations "
+                "Asynchronous only, via the failed task run's result_summary (#2273): the "
+                "worker process is already running MC_MAX_CONCURRENT simulations "
                 "and none finished within the wait window (#2839). Body {error: "
-                "simulation_busy, message}; retry after the Retry-After header. "
-                "Also returned as {error: simulation_time_exceeded, message}, with "
-                "no Retry-After, when the simulation ran past "
+                "simulation_busy, message}; retry later. "
+                "Also {error: simulation_time_exceeded, message} when the simulation ran past "
                 "MC_WALL_CLOCK_BUDGET_SECONDS and was stopped (#4496); retry with "
                 "a smaller n_simulations."
             ),
@@ -752,79 +726,41 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
 @permission_classes([IsAuthenticated, IsProjectMember, IsProjectNotArchived])
 @throttle_classes([MonteCarloRunThrottle])
 def run_monte_carlo(request: Request, pk: str) -> Response:
-    """Run a Monte Carlo probabilistic schedule simulation synchronously.
+    """Queue a Monte Carlo probabilistic schedule simulation on a Celery worker.
 
-    Monte Carlo is fast (< 100 ms vectorised) so this runs in the request/
-    response cycle rather than via Celery; the result is returned directly. The
-    per-project ``mc_latest`` read cache is refreshed for every caller, but a
-    persisted, author-attributed drift-history row (MonteCarloRun) is written
-    only for Scheduler+ — the forecast read is Member-level, its record is not
-    (#1502). Requests are rate-limited per user via the ``monte_carlo`` scope.
+    Validates in the request what is cheap and caller-specific — membership, the
+    archived freeze, ``n_simulations``, and the two COUNT-based size caps — then
+    creates a ``PENDING`` ``TaskRun`` and answers ``202`` with its id. The simulation,
+    the ``mc_latest`` cache refresh and the attributed ``MonteCarloRun`` row all
+    happen in :func:`~.tasks.run_monte_carlo_simulation` (#2273).
 
-    Synchronous-by-design decision (#1203): keeping this inline is only safe
-    because *every* multiplicative cost factor the run depends on is now bounded
-    by the engine — tasks (MC_TASK_CAP), simulation runs (MC_SIMULATION_CAP),
-    raw dependency edges (MAX_DEPENDENCIES), expanded edges (MAX_EXPANDED_EDGES),
-    the distinct-lag delta arrays (MC_LAG_DELTA_CELL_CAP, 5M int32 cells = ~20 MB —
-    the library's 50M-cell MAX_LAG_DELTA_CELLS is a batch-caller default), and the
-    velocity horizon (MAX_VELOCITY_SPRINTS) — and #1201 vectorised the previously O(edges x span)
-    per-edge lag precompute. With the input space bounded and the hot path
-    vectorised, the worst-case wall time stays within the request budget, so
-    moving to a Celery job (extra latency, result polling, a new failure surface)
-    would add cost without removing a real risk. The argument is about memory as
-    well as wall time (#4129): the lag-delta table scales with distinct lags x
-    span, not with runs, and was the one factor no request cap bounded (a project
-    inside every other cap peaked near 630 MB), so it is now capped at
-    MC_LAG_DELTA_CELL_CAP and the table stays at ~20 MB per simulation.
-    Concurrent-request admission is bounded per process by MC_MAX_CONCURRENT
-    (#2839, below). A project that breaches the edge
-    cap is rejected as InvalidScheduleInput (a ValueError) and surfaces below as a
-    clean 400 rather than a stalled worker.
+    Why off the request thread, reversing #1203's synchronous-by-design call: the
+    caps bound one simulation's cost, but with ``ATOMIC_REQUESTS`` every in-flight
+    run also held a web worker and an open transaction for its whole duration, so a
+    handful of concurrent runs could pin the connection pool. A worker bounds that
+    by its own concurrency instead. ADR-1430 records the contract change.
 
-    That argument depends on cap *order*, which #3527 had to preserve deliberately.
-    Summary expansion moved onto this path, and it walks the edge list — so it now
-    runs behind ``build_sched_graph``'s own O(1) ``MAX_DEPENDENCIES`` length check
-    rather than waiting for ``_validate_project``, which the engine does not reach
-    until ``monte_carlo()`` is already called. Without that, the expensive per-edge
-    step would run ahead of the cheap guard that is supposed to bound it.
-
-    The per-dimension caps still let ``runs x tasks`` reach 5M cells (~234 MB traced
-    per simulation), so admission also caps that product (MC_CELL_CAP) and the
-    simulations one process runs at once (MC_MAX_CONCURRENT) — see
-    ``mc_admission`` (#2839).
+    The attributed history row is decided HERE, from the caller's role, and passed
+    to the worker: the forecast read is Member-level but the record is Scheduler+
+    (#1502), and the worker has no request to resolve a role from.
 
     Request body (all optional):
         n_simulations (int): Number of simulation runs. Defaults to the largest
             count this project's size admits — settings.MC_SIMULATION_CAP, or
-            fewer under MC_CELL_CAP on a large project; the response's ``runs``
-            reports the count simulated. An explicit value is honored exactly or
-            refused; it must not exceed either cap.
+            fewer under MC_CELL_CAP on a large project; the task run's
+            ``result_summary.n_simulations`` reports the count simulated. An
+            explicit value is honored exactly or refused; it must not exceed
+            either cap.
 
-    Returns 200 on success, 402 if the OSS simulation cap is exceeded,
-    400 if the schedule input is invalid (e.g. the dependency-edge cap is
-    breached) or an explicit n_simulations breaches MC_CELL_CAP, 503 if the
-    process has no free simulation slot or the run passed its wall-clock budget,
-    404 if the project does not exist, 403 if the caller lacks read access.
+    Returns 202 when queued; 400 for an invalid ``n_simulations`` or too many
+    dependencies; 402 for too many committed tasks; 404 if the project does not
+    exist; 403 if the caller lacks access or the project is archived. Every other
+    refusal arrives on the failed task run (see the 202 description).
     """
-    from trueppm_scheduler import MAX_DEPENDENCIES
-    from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
-    from trueppm_scheduler.models import Project as SchedProject
+    from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 
     try:
-        project = (
-            Project.objects.select_related("calendar", "program__calendar")
-            # calendar__exceptions + calendar_layers__calendar__exceptions:
-            # compose_project_calendar reads the base calendar's exceptions (#1491)
-            # AND every applied overlay's (#906); prefetch both to avoid an N+1.
-            .prefetch_related(
-                "calendar__exceptions",
-                "calendar_layers__calendar__exceptions",
-                # ADR-0441: the resolver reads the program calendar's exceptions when a
-                # project inherits its base calendar from the program.
-                "program__calendar__exceptions",
-            )
-            .get(pk=pk, is_deleted=False)
-        )
+        project = Project.objects.get(pk=pk, is_deleted=False)
     except Project.DoesNotExist:
         return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
 
@@ -870,6 +806,229 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             {"detail": "n_simulations must be a positive integer."},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    # The static run cap is one comparison, so it is answered here rather than
+    # through a task run that is certain to fail. Same 402 body and message the
+    # engine's SimulationCapExceeded produced when the check ran in the request.
+    if n_explicit and cap is not None and n_simulations > cap:
+        return Response(
+            {
+                "error": "simulation_cap_exceeded",
+                "tier": "team",
+                "message": (
+                    f"Requested runs ({n_simulations}) exceeds the configured maximum "
+                    f"(max_runs={cap}); raise max_runs (or pass None to disable the "
+                    "cap) to allow more iterations."
+                ),
+            },
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+    # Refused before anything is queued, so the caller learns about an oversized
+    # project synchronously rather than through a task run that cannot succeed.
+    size_refusal = _mc_size_refusal(project)
+    if size_refusal is not None:
+        return size_refusal
+
+    task_run = TaskRun.objects.create(
+        task_name=MC_TASK_NAME,
+        project=project,
+        initiated_by_id=request.user.pk,
+        status=TaskRunStatus.PENDING,
+    )
+    persist = _may_record_mc_run(request, project)
+    _enqueue_monte_carlo_on_commit(
+        task_run_id=str(task_run.pk),
+        project_id=str(project.pk),
+        n_simulations=n_simulations,
+        n_explicit=n_explicit,
+        user_id=request.user.pk,
+        persist=persist,
+    )
+    return Response(
+        {
+            # The api/stability.md 202 contract (#4661): every async body says so.
+            "queued": True,
+            "task_run_id": str(task_run.pk),
+            "status": TaskRunStatus.PENDING,
+            # The REQUESTED count when explicit; null when omitted, because the
+            # admissible default depends on the leaf network size only the worker
+            # computes.
+            "n_simulations": n_simulations if n_explicit else None,
+        },
+        status=status.HTTP_202_ACCEPTED,
+    )
+
+
+MC_TASK_NAME = "scheduling.monte_carlo"
+
+
+def _enqueue_monte_carlo_on_commit(
+    *,
+    task_run_id: str,
+    project_id: str,
+    n_simulations: int,
+    n_explicit: bool,
+    user_id: Any,
+    persist: bool,
+) -> None:
+    """Dispatch the worker task once the request's transaction commits.
+
+    Deferred so the worker can never look up a ``TaskRun`` row its request has not
+    committed yet. A broker that refuses the publish fails the run immediately with a
+    ``simulation_queue_unavailable`` refusal rather than leaving it ``PENDING`` with
+    nothing to advance it — unlike CPM recompute there is no outbox drain behind this
+    task, deliberately (ADR-1430): a forecast is a re-runnable read, so the right
+    recovery is the user's next click, not a durable retry.
+    """
+
+    def _dispatch() -> None:
+        from trueppm_api.apps.scheduling.tasks import run_monte_carlo_simulation
+        from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
+
+        try:
+            run_monte_carlo_simulation.apply_async(
+                args=[task_run_id, project_id],
+                kwargs={
+                    "n_simulations": n_simulations,
+                    "n_explicit": n_explicit,
+                    "user_id": user_id,
+                    "persist": persist,
+                },
+            )
+        except Exception:  # broker down or misconfigured — any publish failure
+            logger.exception("monte carlo: could not queue task run %s", task_run_id)
+            TaskRun.objects.filter(pk=task_run_id, status=TaskRunStatus.PENDING).update(
+                status=TaskRunStatus.FAILED,
+                completed_at=timezone.now(),
+                result_summary={
+                    "error": "simulation_queue_unavailable",
+                    "detail": "The simulation could not be queued. Try again shortly.",
+                    "status_code": 503,
+                },
+            )
+
+    transaction.on_commit(_dispatch)
+
+
+def _may_record_mc_run(request: Request, project: Project) -> bool:
+    """Whether this caller's run appends an attributed ``MonteCarloRun`` row (#1502)."""
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.permissions import _membership_role
+
+    # project.pk (canonical UUID), not the raw URL string, so this reuses the
+    # per-request role cache the object-permission check already warmed.
+    role = _membership_role(request, project.pk)
+    return role is not None and role >= Role.SCHEDULER
+
+
+def mc_worker_authorization(project_id: str, user_id: Any, persist: bool) -> Response | bool:
+    """Re-check, on the worker, the gates the request checked before queueing.
+
+    A run can wait in the queue long enough for the project to be archived or the
+    requester to lose their membership, and the worker is the one that writes the
+    ``mc_latest`` cache and the attributed history row. Returns the 403 refusal the
+    request would now give, or the ``persist`` decision to use: the request's
+    decision, downgraded to ``False`` when the requester has since been demoted
+    below Scheduler (#1502) — never upgraded, since the request did not ask for it.
+    """
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.access.permissions import IsProjectMember
+
+    try:
+        assert_project_not_archived(project_id)
+    except PermissionDenied as exc:
+        return Response({"detail": str(exc.detail)}, status=status.HTTP_403_FORBIDDEN)
+    # Mirrors _membership_role: live membership on a live project, active user.
+    role = (
+        ProjectMembership.objects.filter(
+            project_id=project_id,
+            user_id=user_id,
+            user__is_active=True,
+            is_deleted=False,
+            project__is_deleted=False,
+        )
+        .values_list("role", flat=True)
+        .first()
+        if user_id is not None
+        else None
+    )
+    if role is None:
+        return Response({"detail": IsProjectMember.message}, status=status.HTTP_403_FORBIDDEN)
+    return persist and role >= Role.SCHEDULER
+
+
+def _mc_size_refusal(project: Project) -> Response | None:
+    """The 402/400 a project too large to simulate gets, from two cheap COUNTs.
+
+    Bounds the row materialization BEFORE it happens (#1563). The engine enforces
+    MC_TASK_CAP / MAX_DEPENDENCIES, but only after both lists have been loaded and
+    converted — a linear read cost bounded by nothing but persisted DB size. Run in
+    the request (so the caller hears it synchronously) and again in the worker
+    (the project may have grown while the run waited in the queue).
+    """
+    from trueppm_scheduler import MAX_DEPENDENCIES
+
+    pk = project.pk
+    task_cap = settings.MC_TASK_CAP
+    if task_cap is not None and Task.committed.filter(project=project).count() > task_cap:
+        # Same 402 body the engine's SimulationCapExceeded produces below, so the
+        # contract is unchanged -- only the cost of reaching it is.
+        return Response(
+            {
+                "error": "simulation_cap_exceeded",
+                "tier": "team",
+                "message": f"Project has more than {task_cap} committed tasks.",
+            },
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+    if Dependency.live.filter(predecessor__project_id=pk).count() > MAX_DEPENDENCIES:
+        return Response(
+            {"detail": f"Project has more than {MAX_DEPENDENCIES} dependencies; cannot simulate."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return None
+
+
+def simulate_and_record_monte_carlo(
+    project_id: str,
+    *,
+    n_simulations: int,
+    n_explicit: bool,
+    user: Any,
+    persist: bool,
+) -> dict[str, Any] | Response:
+    """Run one Monte Carlo simulation, refresh ``mc_latest`` and record the run.
+
+    The body the synchronous endpoint ran before #2273, now called from the Celery
+    worker. Returns the cached result dict on success, or the refusal ``Response``
+    the endpoint used to return (the worker turns it into a failed task run whose
+    ``result_summary`` is that body plus ``status_code``), so the refusal contract
+    is unchanged — only where it is delivered moved.
+    """
+    from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
+    from trueppm_scheduler.models import Project as SchedProject
+
+    try:
+        project = (
+            Project.objects.select_related("calendar", "program__calendar")
+            # calendar__exceptions + calendar_layers__calendar__exceptions:
+            # compose_project_calendar reads the base calendar's exceptions (#1491)
+            # AND every applied overlay's (#906); prefetch both to avoid an N+1.
+            .prefetch_related(
+                "calendar__exceptions",
+                "calendar_layers__calendar__exceptions",
+                # ADR-0441: the resolver reads the program calendar's exceptions when a
+                # project inherits its base calendar from the program.
+                "program__calendar__exceptions",
+            )
+            .get(pk=project_id, is_deleted=False)
+        )
+    except Project.DoesNotExist:
+        return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
+    pk = str(project.pk)
+    cap: int | None = settings.MC_SIMULATION_CAP
 
     # The plan version this run is about to be computed against (#3140) — the
     # project's ADR-0686 sync sequence, already on the instance loaded above, so
@@ -894,23 +1053,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # MC_TASK_CAP / MAX_DEPENDENCIES, but only after both lists below have been loaded
     # and converted -- a linear read cost bounded by nothing but persisted DB size.
     # Two cheap COUNTs turn that into the same clean 400 the engine would have raised.
-    task_cap = settings.MC_TASK_CAP
-    if task_cap is not None and Task.committed.filter(project=project).count() > task_cap:
-        # Same 402 body the engine's SimulationCapExceeded produces below, so the
-        # contract is unchanged -- only the cost of reaching it is.
-        return Response(
-            {
-                "error": "simulation_cap_exceeded",
-                "tier": "team",
-                "message": f"Project has more than {task_cap} committed tasks.",
-            },
-            status=status.HTTP_402_PAYMENT_REQUIRED,
-        )
-    if Dependency.live.filter(predecessor__project_id=pk).count() > MAX_DEPENDENCIES:
-        return Response(
-            {"detail": f"Project has more than {MAX_DEPENDENCIES} dependencies; cannot simulate."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    size_refusal = _mc_size_refusal(project)
+    if size_refusal is not None:
+        return size_refusal
 
     db_tasks = list(Task.committed.filter(project=project).select_related("sprint"))
 
@@ -984,8 +1129,8 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     )
 
     try:
-        # Manual Monte Carlo span (#709): times the simulation inline in the request
-        # cycle and records the run count; a no-op span unless OTel is configured.
+        # Manual Monte Carlo span (#709): times the simulation in the worker
+        # and records the run count; a no-op span unless OTel is configured.
         # The slot bounds how many simulations this process runs at once (#2839).
         with simulation_slot() as admitted:
             if not admitted:
@@ -1089,8 +1234,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # Persist a forecast-drift history row (ADR-0175, #961) only for Scheduler+
     # callers; the read is Member-level but the attributed write is not (#1502).
     _persist_mc_run_if_authorized(
-        request,
         project,
+        user=user,
+        persist=persist,
         mc_result=mc_result,
         n_simulations=n_simulations,
         cpm_finish=cpm_finish,
@@ -1103,50 +1249,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         plan_version=plan_version,
         cpm_finish_at_day_start=cpm_finish_at_day_start,
     )
-    # Added time (#2531, ADR-0698) rides the response but NOT the cache entry above.
-    # Two of its terms depend on when the response is built rather than when the run
-    # happened: `ratio` divides by the duration remaining as of today, which collapses
-    # to null once the CPM finish passes, and `state` flips to `stale` with age. A
-    # premium frozen at cache-write would keep reporting a share of a remainder that
-    # has since elapsed, so it is derived per response instead.
-    current_plan_version, current_recalculated_at = _current_plan_state(pk)
-    return Response(
-        {
-            **result_dict,
-            **risk_premium_from_values(
-                p80=mc_result.p80,
-                cpm_finish=cpm_finish,
-                taken_at=run_at,
-                diagnostic=result_dict["forecast_diagnostic"],
-                today=timezone.localdate(),
-                p80_at_day_start=mc_result.p80_at_day_start,
-                cpm_finish_at_day_start=cpm_finish_at_day_start,
-                calendar_for=lambda: sched_calendar,
-            ),
-            # Staleness is re-read rather than assumed `current` (#3140). The project's
-            # version is fetched again here because a synced write can land *during* the
-            # simulation, and that run genuinely does not cover it — telling the user so
-            # immediately is the whole point of the discriminant. One indexed pk read on
-            # an endpoint that just ran a Monte Carlo simulation is not a cost worth
-            # trading a false `current` for.
-            **forecast_staleness_facts(
-                plan_version=plan_version,
-                plan_version_current=current_plan_version,
-                taken_at=run_at,
-                recalculated_at=current_recalculated_at,
-                today=timezone.localdate(),
-            ),
-            # Commitment + delta + definitions (ADR-1314). Per response, not cached:
-            # the commitment can move (a baseline activated, a program date edited)
-            # without the forecast changing.
-            **forecast_commitment_facts(
-                project,
-                p80=mc_result.p80,
-                p80_at_day_start=mc_result.p80_at_day_start,
-                calendar_for=lambda: sched_calendar,
-            ),
-        }
-    )
+    return result_dict
 
 
 class MonteCarloLatestView(McpReadableViewMixin, APIView):

@@ -69,6 +69,29 @@ const SCHEDULE_AFFECTING_EVENTS: ReadonlySet<string> = new Set([
   'project_deleted',
 ]);
 
+/**
+ * Task runs whose completion cannot move the merged schedule. A Monte Carlo run
+ * (#2273) only refreshes the project's forecast cache, and every member project's
+ * forecast would otherwise trigger a merged-CPM refetch here. Keyed on the
+ * `task_name` the server names on every terminal `task_run_*` event; an event
+ * without one (an older API pod mid-rollout) still refetches, the safe direction.
+ */
+const NON_SCHEDULE_TASK_RUNS: ReadonlySet<string> = new Set(['scheduling.monte_carlo']);
+
+/** Whether one socket frame can change the merged program schedule. */
+function isScheduleAffectingFrame(envelope: {
+  event_type?: string;
+  payload?: { task_name?: unknown } | null;
+}): boolean {
+  const { event_type: eventType } = envelope;
+  if (!eventType || !SCHEDULE_AFFECTING_EVENTS.has(eventType)) return false;
+  if (eventType === 'task_run_completed') {
+    const taskName = envelope.payload?.task_name;
+    if (typeof taskName === 'string' && NON_SCHEDULE_TASK_RUNS.has(taskName)) return false;
+  }
+  return true;
+}
+
 interface MemberProjectScheduleChannelProps {
   projectId: string;
   /** True once this project's socket refused the caller (4003) on this page. */
@@ -106,8 +129,8 @@ function MemberProjectScheduleChannel({
     const handleMessage = (event: MessageEvent<string>) => {
       if (stopped) return;
       try {
-        const envelope = JSON.parse(event.data) as { event_type?: string };
-        if (envelope.event_type && SCHEDULE_AFFECTING_EVENTS.has(envelope.event_type)) {
+        const envelope = JSON.parse(event.data) as Parameters<typeof isScheduleAffectingFrame>[0];
+        if (isScheduleAffectingFrame(envelope)) {
           onScheduleAffecting();
         }
       } catch {

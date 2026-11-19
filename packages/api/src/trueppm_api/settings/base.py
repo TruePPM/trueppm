@@ -1426,9 +1426,11 @@ MC_CELL_CAP: int | None = 2_500_000
 # each, this bounds how many stack. 2 x ~117 MB keeps a full-size burst far inside
 # the 2 GiB default worker limit. A request waits up to 10 s for a slot, then gets
 # 503 + Retry-After. Per process, so N workers admit N x this. None = unbounded.
+# Since #2273 this binds the threaded API's what-if path; a prefork Celery child
+# runs one POST /monte-carlo/ simulation at a time, so worker concurrency bounds those.
 MC_MAX_CONCURRENT: int | None = 2
 
-# Wall-clock budget for one synchronous simulation request, in seconds (#4496). The
+# Wall-clock budget for one simulation, in seconds (#4496) — a worker run or a what-if. The
 # caps above bound cost through cell count, which tracks wall time on a healthy host
 # but not on a slow one or a pathological calendar. Past the budget the engine stops
 # at its next phase boundary and the request gets 503 simulation_time_exceeded,
@@ -1861,11 +1863,11 @@ REST_FRAMEWORK = {
         # above the cooldown's ~1/min steady state with headroom for multiple
         # connected sources.
         "external_sync": _MODERATE_RATE,
-        # Synchronous Monte Carlo simulation (#1552). run_monte_carlo executes an
-        # expensive (up to MC_SIMULATION_CAP iterations, caller-controlled
-        # n_simulations) simulation inline in the request/response cycle, gated only
-        # by project membership. Without a rate cap any single member can loop the
-        # endpoint to exhaust CPU. 10/min leaves ample headroom for a human tuning
+        # Monte Carlo simulation (#1552). run_monte_carlo queues an expensive (up
+        # to MC_SIMULATION_CAP iterations, caller-controlled n_simulations)
+        # simulation on a Celery worker (#2273), gated only by project membership.
+        # Without a rate cap any single member can loop the endpoint to flood the
+        # shared worker queue. 10/min leaves ample headroom for a human tuning
         # estimates and re-running the forecast a handful of times, while blunting a
         # scripted resource-exhaustion flood.
         "monte_carlo": _STRICT_RATE,

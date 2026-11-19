@@ -73,6 +73,30 @@ class MonteCarloSimulateSerializer(serializers.Serializer[dict[str, Any]]):
     )
 
 
+class MonteCarloRunQueuedSerializer(serializers.Serializer[dict[str, Any]]):
+    """``202`` body of ``POST /projects/{id}/monte-carlo/`` (schema only, #2273).
+
+    The simulation runs on a Celery worker; this is the handle a client polls
+    ``GET /projects/{id}/task-runs/{task_run_id}/`` with.
+    """
+
+    queued = serializers.BooleanField(
+        help_text="Always true: the api/stability.md 202 contract every async body follows."
+    )
+    task_run_id = serializers.UUIDField(help_text="The queued TaskRun to poll.")
+    status = serializers.ChoiceField(
+        choices=["pending"], help_text="Always `pending`: the run has not started yet."
+    )
+    n_simulations = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The requested count when n_simulations was sent; null when omitted, because "
+            "the admissible default depends on the network size the worker resolves. The "
+            "count actually simulated is the task run's result_summary.n_simulations."
+        ),
+    )
+
+
 class MonteCarloWhatIfRequestSerializer(serializers.Serializer[dict[str, Any]]):
     """Validate the non-mutating Monte Carlo what-if query (#993).
 

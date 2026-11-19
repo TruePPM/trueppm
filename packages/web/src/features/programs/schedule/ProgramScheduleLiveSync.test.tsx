@@ -119,6 +119,38 @@ describe('ProgramScheduleLiveSync — per-project close codes (#4375)', () => {
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
+  it('a Monte Carlo run completing does not refetch the merged schedule (#2273)', () => {
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    mount(['proj-a'], qc);
+    const completed = (payload: Record<string, unknown>) => ({
+      data: JSON.stringify({ event_type: 'task_run_completed', payload }),
+    });
+    act(() => {
+      socketsFor('proj-a')[0].dispatch(
+        'message',
+        completed({ task_run_id: 'mc-1', task_name: 'scheduling.monte_carlo' }),
+      );
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(invalidateSpy).not.toHaveBeenCalled();
+
+    // A CPM recalc completing still refetches, and so does one naming no task.
+    act(() => {
+      socketsFor('proj-a')[0].dispatch(
+        'message',
+        completed({ task_run_id: 'cpm-1', task_name: 'scheduling.recalculate' }),
+      );
+      vi.advanceTimersByTime(300);
+    });
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+    act(() => {
+      socketsFor('proj-a')[0].dispatch('message', completed({ task_run_id: 'old-pod' }));
+      vi.advanceTimersByTime(300);
+    });
+    expect(invalidateSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('a 4003 on one member project is terminal for that project only', () => {
     mount(['viewer-proj', 'member-proj']);
     expect(socketsFor('viewer-proj')).toHaveLength(1);

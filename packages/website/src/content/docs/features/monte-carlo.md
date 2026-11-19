@@ -114,11 +114,26 @@ reports how many runs were simulated (`runs` carries the same value and is
 deprecated; the scheduler library's own `monte_carlo(runs=...)` argument keeps its
 name, and the API maps it to `n_simulations`). An explicit `n_simulations` that is too large for the
 project returns HTTP 400 with the largest count allowed (`max_runs`); it is never
-reduced without telling you. If the server is already running its limit of
-simultaneous simulations, it returns HTTP 503 with a `Retry-After` header. See
-[Monte Carlo simulation caps](/administration/configuration/limits/#monte-carlo-simulation-caps). The
-endpoint is synchronous and fast — about 60–100 ms of engine time for a 200-task
+reduced without telling you. See
+[Monte Carlo simulation caps](/administration/configuration/limits/#monte-carlo-simulation-caps).
+The simulation itself is fast — about 60–100 ms of engine time for a 200-task
 project at 10,000 runs on a current laptop CPU, more on slower server hardware.
+
+:::note[Ships in 0.5]
+From 0.5 the run will execute on a Celery worker instead of in the request
+([ADR-1430](/architecture/decisions/)). `POST .../monte-carlo/` will answer `202` with
+`{queued, task_run_id, status, n_simulations}`; poll
+`GET /projects/{id}/task-runs/{task_run_id}/` until `status` is `success`, then read
+the forecast from `GET /projects/{id}/monte-carlo/latest/`. An invalid or too-large
+`n_simulations` and an oversized project are still refused in the `POST` itself. A
+refusal the simulation reaches later (a dependency cycle, the cell cap, the
+wall-clock budget, the project archived or your membership removed while the run
+waited) arrives as a `failed` run whose `result_summary` carries the same error body
+plus `status_code`. The web app polls for you. In 0.4 the `POST` runs the simulation
+synchronously, returns the forecast in its `200` body, and answers HTTP 503 with a
+`Retry-After` header when the server is already running its limit of simultaneous
+simulations.
+:::
 
 The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5,000 on OSS): a project
 with more tasks than the cap returns HTTP 402 rather than running an unbounded
