@@ -543,6 +543,20 @@ where each can be restored individually as a standalone project — the program
 shell itself is **not** recoverable, and a restored project does not return to
 it. See [Programs](/api/reference/programs/#programs).
 
+#### Set-password link refusals
+
+`POST /api/v1/workspace/members/{user_id}/send-set-password-link/` ships in 0.5. It
+answers with a `code` when it does not apply to the member, and with `503` when the
+email could not be sent. A `503` still writes the audit row, and retrying is safe.
+
+| Code | Status | Meaning |
+|---|---|---|
+| `member_has_password` | `409` | The member already has a password and can use the self-service reset |
+| `member_inactive` | `409` | The member is deactivated |
+| `member_has_no_email` | `409` | The account has no email address to send the link to |
+| `set_password_link_unavailable` | `409` | `TRUEPPM_FRONTEND_BASE_URL` is not set, so the email cannot carry a link |
+| `email_delivery_failed` | `503` | The mail transport refused the message; the body also carries `"sent": false` |
+
 ### 413 — request body too large
 
 | Code | Meaning | Extra fields |

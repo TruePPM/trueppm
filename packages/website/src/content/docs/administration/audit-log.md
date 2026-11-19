@@ -28,8 +28,8 @@ recorded:
 :::note[Ships in 0.5]
 Rows marked *(0.5)* below are not in the 0.4 release. In 0.4, renaming a shared
 calendar, or editing one that no project uses, writes no `calendar_changed` row;
-those edits are recorded from 0.5. `resource_rate_changed` and
-`sso_provider_test_connection` also ship in 0.5.
+those edits are recorded from 0.5. `resource_rate_changed`,
+`member_set_password_link_sent` and `sso_provider_test_connection` also ship in 0.5.
 :::
 
 | Event type | When it fires | Target | Metadata |
@@ -56,6 +56,7 @@ those edits are recorded from 0.5. `resource_rate_changed` and
 | `sso_secret_rotated` *(0.4)* | An Admin supplies a new client secret for a provider | The provider | `actor_kind` |
 | `sso_provider_test_connection` *(0.5)* | An Admin runs **Test connection** on a provider, whether the probe passes or fails | The provider | `result` (`ok`/`failed`), `client_auth` (`verified`/`rejected`/`unverified`/`unreachable`), `error` and `reason` (failure codes only), `actor_kind` |
 | `sso_account_linked` *(0.4)* | A single sign-on identity binds to an **existing** local account | The user | `via`, `provider`, `issuer`, `subject`, `role` |
+| `member_set_password_link_sent` *(0.5)* | An Owner/Admin emails a member with no password a one-time set-password link, whether or not the email is delivered | The member | `user_id`, `delivered` |
 | `resource_rate_changed` *(0.5)* | A resource's hourly cost rate is changed, which re-costs that resource's past time entries | The resource | `cost_rate_before`, `cost_rate_after`, `projects_recosted` |
 
 :::note[Why `invite_accepted` exists alongside `member_added`]

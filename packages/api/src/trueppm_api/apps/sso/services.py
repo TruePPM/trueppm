@@ -1301,9 +1301,10 @@ def removal_impact(slugs: list[str]) -> dict[str, RemovalImpact]:
     ``has_usable_password()`` — so an SSO-only account receives the
     anti-enumeration 200 and no email. Until the provider (or another configured
     provider that admits their email domain) is set up again they cannot sign in by
-    any route, and no admin set-password endpoint exists. That is a real,
-    unrecoverable-by-self-service state, so the admin has to be given the number
-    before they confirm it.
+    any route of their own; the way back is an administrator emailing each of them a
+    set-password link (``POST /workspace/members/{id}/send-set-password-link/``,
+    #2927), one member at a time. That is a real, unrecoverable-by-self-service
+    state, so the admin has to be given the number before they confirm it.
 
     "No other sign-in method" means: no usable local password, **and** no surviving
     binding to any *other* still-configured provider. Deactivated accounts are

@@ -61,6 +61,7 @@ from trueppm_api.apps.workspace.permissions import (
     IsWorkspaceOwner,
     _workspace_membership_role,
     request_is_workspace_owner,
+    workspace_role_for_user,
 )
 from trueppm_api.apps.workspace.serializers import (
     AuditEventSerializer,
@@ -801,6 +802,198 @@ class WorkspaceMemberDetailView(SessionOnlyWritesMixin, IdempotencyMixin, APIVie
                 metadata={"role": WorkspaceRole(membership.role).label},
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SetPasswordLinkThrottle(ScopedRateThrottle):
+    """Per-administrator cap on admin-issued set-password links (#2927).
+
+    ``ScopedRateThrottle`` re-reads the scope off the view on every request, so the
+    view also declares ``throttle_scope`` — a scope set here alone is overwritten to
+    ``None`` and the throttle silently passes everything (#3598).
+    """
+
+    scope = "set_password_link"
+
+
+def _has_local_password(user: Any) -> bool:
+    """True when ``user`` can already sign in with a password of their own.
+
+    An empty column is treated as no credential, matching the self-service request
+    path (which excludes ``password=""``) and ``sso.services.removal_impact`` — Django's
+    ``has_usable_password()`` alone reports ``""`` as usable.
+    """
+    return bool(user.password) and user.has_usable_password()
+
+
+class SetPasswordLinkSentSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """200 body of the set-password-link action: delivery confirmed, nothing else."""
+
+    sent = serializers.BooleanField()
+
+
+class SetPasswordLinkRefusalSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """409/503 body: a machine-readable ``code`` the client branches on, plus copy."""
+
+    code = serializers.CharField()
+    detail = serializers.CharField()
+    sent = serializers.BooleanField(required=False)
+
+
+class WorkspaceMemberSetPasswordLinkView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
+    """POST /api/v1/workspace/members/{user_id}/send-set-password-link/ (#2927).
+
+    The recovery path for a member with **no local credential** — in practice an
+    account auto-created on a first SSO sign-in (``resolve_user`` calls
+    ``set_unusable_password()``) whose only provider has been removed. The
+    self-service reset request deliberately sends such an account nothing (making
+    email a second way into an account that has no local credential would be a
+    regression, !1988), so before this the only way back was ``manage.py
+    changepassword`` from a container shell.
+
+    Trust-boundary decisions, each load-bearing:
+
+    - **The administrator never sees or sets the credential.** The response carries
+      no uid/token; the link goes only to the member's own address on record, which
+      an administrator cannot edit through any API. Redemption is the existing
+      ``/auth/password/reset/confirm/`` view, so the token is the same stateless,
+      single-use (it stops validating once the password hash changes), 30-minute
+      ``default_token_generator`` token, and on redemption every session, refresh
+      token, PAT and durable grant the member holds is revoked.
+    - **Stored ADMIN, session only.** ``IsWorkspaceAdminStrict`` (a stored workspace
+      role, not the self-grantable project-derived ``IsOrgAdmin``) plus
+      ``SessionOnlyWritesMixin`` — a leaked PAT or agent token must not be able to
+      mail credential links on anyone's behalf.
+    - **Strictly-lower role only, never self, never an operator account.** The same
+      peer/higher-role rule as PATCH/DELETE on the member: an Admin cannot target
+      another Admin or an Owner. ``is_staff``/``is_superuser`` accounts are refused
+      outright — they reach Django admin, and are recovered with
+      ``manage.py changepassword``.
+    - **Only for an account with no local password.** A member who has one can use
+      the self-service reset themselves; refusing keeps this action a recovery path
+      rather than a way for an administrator to send credential mail to anyone.
+    - **Audited and throttled.** Every issuance writes an ``AuditEvent`` (including a
+      failed delivery) and the per-admin ``set_password_link`` scope caps it at
+      10/hour.
+
+    Single-workspace OSS: every account is a member of the one workspace, so the
+    member id needs no cross-workspace scoping; a deactivated account is refused.
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceAdminStrict]
+    throttle_classes = [SetPasswordLinkThrottle]
+    throttle_scope = "set_password_link"
+
+    @extend_schema(
+        summary="Email a member a set-password link",
+        description=(
+            "Emails a single-use, 30-minute set-password link to the member's own "
+            "address. Only for a member with no local password (for example an account "
+            "created by single sign-on whose provider was removed). The link is never "
+            "returned to the caller. Workspace Admin or Owner, session or JWT only (API "
+            "tokens are refused), and only for a member whose workspace role is lower "
+            "than the caller's. Rate limited per administrator."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=SetPasswordLinkSentSerializer,
+                description="Link emailed to the member.",
+            ),
+            403: OpenApiResponse(
+                description="Caller is not an Admin, or the member's role is not lower."
+            ),
+            404: OpenApiResponse(description="No such member."),
+            409: OpenApiResponse(
+                response=SetPasswordLinkRefusalSerializer,
+                description=(
+                    "Not applicable to this member: `member_has_password`, "
+                    "`member_inactive`, `member_has_no_email`, or "
+                    "`set_password_link_unavailable` (FRONTEND_BASE_URL is unset)."
+                ),
+            ),
+            503: OpenApiResponse(
+                response=SetPasswordLinkRefusalSerializer,
+                description="`email_delivery_failed` — the attempt is still audited.",
+            ),
+        },
+        tags=["workspace"],
+    )
+    def post(self, request: Request, user_id: str) -> Response:
+        from trueppm_api.core.password_reset import (
+            password_reset_links_available,
+            send_password_reset_email,
+        )
+
+        target = get_object_or_404(User, pk=user_id)
+        if target.pk == request.user.pk:
+            raise PermissionDenied(
+                "Use the sign-in page's password reset to set your own password."
+            )
+        actor_role = _workspace_membership_role(request)
+        target_role = workspace_role_for_user(target)
+        if not target.is_active or target_role is None:
+            return _conflict("member_inactive", "This member is deactivated.")
+        # One message for an operator account and a peer/higher role on purpose: a
+        # distinct "this is a staff account" refusal would let an Admin enumerate which
+        # members reach Django admin, which is exactly the list worth targeting.
+        if (
+            target.is_staff
+            or target.is_superuser
+            or actor_role is None
+            or target_role >= actor_role
+        ):
+            raise PermissionDenied(
+                "You can only send a set-password link to members with a role lower than "
+                "your own. Operator accounts are recovered on the server with "
+                "`manage.py changepassword`."
+            )
+        if _has_local_password(target):
+            return _conflict(
+                "member_has_password",
+                "This member already has a password. They can reset it themselves from "
+                "the sign-in page.",
+            )
+        if not (target.email or "").strip():
+            return _conflict(
+                "member_has_no_email",
+                "This member has no email address on record, so a link cannot be sent.",
+            )
+        if not password_reset_links_available():
+            return _conflict(
+                "set_password_link_unavailable",
+                "FRONTEND_BASE_URL is not configured, so the email cannot carry a link.",
+            )
+
+        # The row is written BEFORE the send, so no credential link can leave the
+        # server without its audit row having been written first; ``delivered`` is
+        # filled in after. Recorded whether or not the send succeeds — the attempt is
+        # the evidence (who tried to issue a credential link for whom) — and a failed
+        # send returns a Response rather than raising, so ATOMIC_REQUESTS keeps the row.
+        event = services.record_audit_event(
+            event_type=AuditEventType.MEMBER_SET_PASSWORD_LINK_SENT,
+            actor=request.user,
+            target_type="member",
+            target_label=services._actor_label(target),
+            metadata={"user_id": target.pk, "delivered": False},
+        )
+        delivered = send_password_reset_email(target, issued_by=request.user)
+        if delivered:
+            event.metadata["delivered"] = True
+            event.save(update_fields=["metadata"])
+        if not delivered:
+            return Response(
+                {
+                    "code": "email_delivery_failed",
+                    "detail": "The email could not be sent. Check the workspace mail settings.",
+                    "sent": False,
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"sent": True}, status=status.HTTP_200_OK)
+
+
+def _conflict(code: str, detail: str) -> Response:
+    return Response({"code": code, "detail": detail}, status=status.HTTP_409_CONFLICT)
 
 
 class WorkspaceInviteListView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):

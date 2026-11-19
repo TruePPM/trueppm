@@ -390,9 +390,73 @@ configure another provider that allows their email domain) — they re-link by t
 verified email on the next sign-in. **Owner and Admin accounts are the exception:**
 they are never re-linked by email (see above), so an SSO-created Owner or Admin whose
 binding is removed stays locked out until an operator adds a **Social account** in
-Django admin or sets a password with `changepassword <username>`. To avoid the gap entirely, invite affected
-members and have them set a password before you remove the provider.
+Django admin or sets a password with `changepassword <username>`. Other members can
+also be sent a set-password link afterward. See
+[Restoring access for a member with no password](#restoring-access-for-a-member-with-no-password).
+To avoid the gap entirely, invite affected members and have them set a password
+before you remove the provider.
 :::
+
+### Restoring access for a member with no password
+
+:::note[Ships in 0.5]
+The set-password link below ships in 0.5. In 0.4 there is no admin action for this:
+an operator sets a password from a container shell with
+`python manage.py changepassword <username>`, or re-adds the provider.
+:::
+
+A workspace Owner or Admin can email a member a **set-password link**, so a member
+who only ever signed in through SSO can sign in with a password instead. It is the
+way back for members stranded by a removed provider, and also for one member who
+needs local access, for example because they left the identity provider or the
+tenant was migrated. It is an API action with no button in the web app yet:
+
+```bash
+curl -X POST https://ppm.example.com/api/v1/workspace/members/<user-id>/send-set-password-link/ \
+  -H "Authorization: Bearer <your session access token>"
+```
+
+`<user-id>` is the member's `id` from `GET /api/v1/workspace/members/`. The request
+needs a signed-in session (a browser session or the JWT access token from signing
+in). **Personal access tokens and agent tokens are refused**, because a leaked token
+must not be able to send password links. Each call sends one link to one member.
+
+What happens:
+
+- The link goes **only to the member's own email address**. You never see the
+  link or the password. The email names you as the sender, so a member who did
+  not expect it can ask about it.
+- The link is the same one-time link a password reset uses. It is valid for
+  **30 minutes** (`TRUEPPM_PASSWORD_RESET_TIMEOUT`) and works **once**. After the
+  member sets a password, the link stops working.
+- Setting the password **signs the member out everywhere**. Every session and
+  refresh token, personal access token, public share link they created and
+  git-automation webhook secret they set is revoked, as on any password reset. Any
+  SSO link they still have keeps working, so they can use either method afterward.
+- A `member_set_password_link_sent` row is written to the
+  [audit log](/administration/audit-log/) for every attempt, including one whose
+  email could not be sent (`delivered: false`).
+- Each administrator can send **10 links per hour**
+  (`TRUEPPM_THROTTLE_SET_PASSWORD_LINK_RATE`).
+
+The request is refused when it does not apply:
+
+| Response | Why |
+|---|---|
+| `403` | You are not an Owner or Admin, or the member's workspace role is not lower than yours. An Admin cannot send a link to another Admin or to an Owner. You cannot send one to yourself. Staff and superuser accounts are refused. |
+| `409 member_has_password` | The member already has a password. They can use **Forgot password** on the sign-in page themselves. |
+| `409 member_inactive` | The member is deactivated. Reactivate them first. |
+| `409 member_has_no_email` | There is no email address on the account to send the link to. |
+| `409 set_password_link_unavailable` | `TRUEPPM_FRONTEND_BASE_URL` is not set, so the email cannot contain a link. |
+| `503 email_delivery_failed` | The mail server rejected the message. Check the workspace mail settings and try again. |
+
+Only an Owner can restore an SSO-created Admin, and no one can do it for an Owner.
+An SSO-created Owner, or a staff or superuser account, still needs an operator to
+run `python manage.py changepassword <username>` on the server.
+
+Anyone who controls the workspace's outgoing mail server can read these emails. That
+includes an Admin who can change the mail settings. The same is true of ordinary
+password-reset emails.
 
 :::caution[Re-pointing a provider to a new issuer]
 Each OIDC sign-in is durably bound to the identity provider's **issuer**. If you

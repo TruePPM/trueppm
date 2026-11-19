@@ -350,6 +350,7 @@ can never be allowed.
 | GET | `/api/v1/workspace/members/` | Admin+ (non-admin sees own row only) | List workspace members. |
 | PATCH | `/api/v1/workspace/members/{user_id}/` | Admin+ | Change a member's role or status. |
 | DELETE | `/api/v1/workspace/members/{user_id}/` | Admin+ | Deactivate a member. |
+| POST | `/api/v1/workspace/members/{user_id}/send-set-password-link/` | Admin+, session or JWT only (API tokens refused); member's role must be lower than the caller's | Email a member who has no password a one-time, 30-minute set-password link. The link is never returned. `200 {"sent": true}`; `409` with `code` `member_has_password`, `member_inactive`, `member_has_no_email` or `set_password_link_unavailable`; `503 email_delivery_failed`. 10/hour per caller. Ships in 0.5; see [Restoring access for a member with no password](/administration/single-sign-on/#restoring-access-for-a-member-with-no-password). |
 
 ## Workspace invites
 

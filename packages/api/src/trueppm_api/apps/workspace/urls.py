@@ -22,6 +22,7 @@ from trueppm_api.apps.workspace.views import (
     WorkspaceLogoView,
     WorkspaceMemberDetailView,
     WorkspaceMemberListView,
+    WorkspaceMemberSetPasswordLinkView,
     WorkspaceSettingsView,
 )
 
@@ -59,6 +60,12 @@ urlpatterns = [
         "workspace/members/<int:user_id>/",
         WorkspaceMemberDetailView.as_view(),
         name="workspace-member-detail",
+    ),
+    # #2927 — admin-issued set-password link (recovery for SSO-only members)
+    path(
+        "workspace/members/<int:user_id>/send-set-password-link/",
+        WorkspaceMemberSetPasswordLinkView.as_view(),
+        name="workspace-member-send-set-password-link",
     ),
     # #518 — Invites
     path("workspace/invites/", WorkspaceInviteListView.as_view(), name="workspace-invites"),

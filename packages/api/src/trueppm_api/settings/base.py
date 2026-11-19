@@ -1813,6 +1813,12 @@ REST_FRAMEWORK = {
         # "Resend all" is one request → one bucket hit, so it cannot be looped past
         # the cap.
         "invite_resend": _STRICTEST_RATE,
+        # Admin-issued set-password link (#2927). Per administrator, and hourly rather
+        # than per-minute: each request emails a credential-bearing link to a member
+        # who did not ask for it, so the cap bounds how hard one admin account (or a
+        # hijacked admin session) can mail-bomb members. Recovering a handful of
+        # stranded SSO-only members after a provider removal fits well inside it.
+        "set_password_link": env("TRUEPPM_THROTTLE_SET_PASSWORD_LINK_RATE", default="10/hour"),
         # Workspace SMTP config (#712, ADR-0213). Writes re-open a candidate SMTP
         # connection (validate-before-persist); "probe" covers the two outbound
         # amplifiers — send-test (opens a real SMTP socket) and the deliverability
