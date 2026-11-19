@@ -150,6 +150,7 @@ addopts = "--strict-markers --tb=short -q"
 markers = [
     "fuzz: property-based contract-fuzzing tests (#1456); run deep via HYPOTHESIS_PROFILE=deep",
     "perf_suite: pytest-benchmark timing suite (#4230); opt-in, files are bench_*.py so default collection skips them",
+    "slow: at-the-cap benchmarks (#3825); also need TRUEPPM_SLOW_BENCH=1 to run",
 ]
 
 # Mutation testing (#2282). Coverage proves a line ran under test; mutation

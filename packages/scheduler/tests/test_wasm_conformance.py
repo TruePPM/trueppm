@@ -377,3 +377,19 @@ def test_provenance_values_are_allowed() -> None:
     assert not bad, (
         f"invalid {PROVENANCE_FILE.name} entries (allowed: {sorted(PROVENANCE_VALUES)}): {bad}"
     )
+
+
+def test_wasm_validator_caps_match_python_limits() -> None:
+    """validate.rs's MAX_DEPENDENCIES mirrors limits.MAX_DEPENDENCIES (#3825).
+
+    The two engines enforce the cap independently; a retune of one that misses the
+    other makes the browser refuse (or accept) a project the server does not.
+    """
+    import re
+
+    from trueppm_scheduler.engine import limits
+
+    rs = Path(__file__).resolve().parents[2] / "wasm-scheduler" / "src" / "validate.rs"
+    match = re.search(r"pub const MAX_DEPENDENCIES: usize = ([\d_]+);", rs.read_text())
+    assert match, "MAX_DEPENDENCIES not found in validate.rs"
+    assert int(match.group(1).replace("_", "")) == limits.MAX_DEPENDENCIES

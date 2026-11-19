@@ -664,8 +664,8 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_LAG_DAYS` | `36525` | A single dependency's lag, either direction |
 | `MAX_PROJECT_SPAN_DAYS` | `366000` | Cumulative span in 0.4: every task's worst-case duration plus every lag. From 0.5, longest dependency chain — worst-case task durations plus lags along it plus the furthest pin, data date or actual (~1000 years; see Project span above) |
 | `MAX_PROJECT_WORK_DAYS` | `3660000` | From 0.5 (not in 0.4): total work — the sum of every task's worst-case duration plus every lag's magnitude, parallel or not (10x the span cap; see Project work above) |
-| `MAX_DEPENDENCIES` | `250000` | Raw dependency-edge count, before summary expansion (100,000 in 0.4, raised in 0.5); from 0.5 also the node and the edge count `GraphExport.from_dict` / `from_json` accept |
-| `MAX_EXPANDED_EDGES` | `250000` | Leaf-level edges after expanding a summary↔summary dependency (100,000 in 0.4, raised in 0.5) |
+| `MAX_DEPENDENCIES` | `250000` | Raw dependency-edge count, before summary expansion (`100000` in 0.4; `250000` from 0.5); from 0.5 also the node and the edge count `GraphExport.from_dict` / `from_json` accept |
+| `MAX_EXPANDED_EDGES` | `250000` | Leaf-level edges after expanding a summary↔summary dependency (`100000` in 0.4; `250000` from 0.5) |
 | `MAX_CALENDAR_EXCEPTIONS` | `100000` | Exception ranges on one `Calendar` |
 | `MAX_CALENDAR_SCAN_DAYS` | `36600` | Longest run of consecutive non-working days before a calendar is declared degenerate |
 | `MAX_LAG_DELTA_CELLS` | `50000000` | Monte Carlo's `(distinct dep-type/lag combos) x (index span)` precompute. Provisional (see [API stability](#api-stability-and-versioning)) |

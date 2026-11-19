@@ -13,6 +13,7 @@ the per-commit regression signal.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from datetime import date, timedelta
@@ -608,3 +609,97 @@ def test_input_validation_stays_a_small_share_of_schedule() -> None:
         f"validating a valid 10,000-task project ran the longest-chain walk {chain_walks} "
         "time(s); the serial bound already passes, so it must be skipped (#4711)."
     )
+
+
+# --- At the MAX_DEPENDENCIES cap (#3825) --------------------------------------------
+# The default benchmarks above reach ~100,000 edges, 40% of the cap. These two run the
+# project at the cap itself. They are slow (tens of seconds, hundreds of MB), so they
+# are opt-in: set TRUEPPM_SLOW_BENCH=1 (the ``slow`` marker is for selection with -m).
+
+_slow_bench = pytest.mark.skipif(
+    os.environ.get("TRUEPPM_SLOW_BENCH") != "1",
+    reason="at-the-cap benchmark; set TRUEPPM_SLOW_BENCH=1 to run",
+)
+
+
+def _make_cap_topology(edges: int = MAX_DEPENDENCIES, tasks: int = 100_000) -> Project:
+    """A ``tasks``-task mixed-type network with exactly ``edges`` dependencies.
+
+    Starts from the ~2-per-task mixed topology and adds FS links from three tasks back
+    until the edge count is reached, so every edge still points low index to high
+    index and the graph stays acyclic.
+    """
+    project = _make_mixed_topology(tasks)
+    deps = list(project.dependencies)
+    i = 3
+    while len(deps) < edges:
+        deps.append(
+            Dependency(
+                predecessor_id=f"t{i - 3}",
+                successor_id=f"t{i}",
+                dep_type=DependencyType.FS,
+                lag=timedelta(0),
+            )
+        )
+        i += 1
+    return Project(
+        id="bench-cap",
+        name="Bench Cap",
+        start_date=project.start_date,
+        tasks=project.tasks,
+        dependencies=deps[:edges],
+        calendar=project.calendar,
+    )
+
+
+@pytest.mark.slow
+@_slow_bench
+def test_schedule_at_max_dependencies_cap() -> None:
+    """schedule() on 100,000 tasks at exactly MAX_DEPENDENCIES edges is accepted and bounded.
+
+    One-off runs with the cap lifted on an Apple-silicon laptop measured 3.5 s at
+    ~300k edges; the 120 s budget is a loose tripwire for a super-linear regression.
+    """
+    project = _make_cap_topology()
+    assert len(project.dependencies) == MAX_DEPENDENCIES
+
+    t0 = time.perf_counter()
+    result = schedule(project)
+    elapsed = time.perf_counter() - t0
+
+    assert len(result.tasks) == 100_000
+    assert elapsed < 120.0, f"schedule() at the edge cap took {elapsed:.1f}s (budget 120s)"
+
+
+@pytest.mark.slow
+@_slow_bench
+def test_monte_carlo_at_max_dependencies_cap_stays_bounded() -> None:
+    """monte_carlo() with few runs on a project at the edge cap finishes within a budget.
+
+    The cap adds no product term beyond the lag-delta table, which is bounded by
+    distinct lags x index span (see the test below), so Monte Carlo cost at the cap is
+    runs x edges and ``runs=5`` keeps it to a smoke check of that claim.
+    """
+    project = _make_cap_topology()
+
+    t0 = time.perf_counter()
+    result = monte_carlo(project, runs=5, seed=3825)
+    elapsed = time.perf_counter() - t0
+
+    assert result.p50 <= result.p80 <= result.p95
+    assert elapsed < 300.0, f"monte_carlo(runs=5) at the edge cap took {elapsed:.1f}s (budget 300s)"
+
+
+def test_many_distinct_lags_still_trip_max_lag_delta_cells() -> None:
+    """Raising MAX_DEPENDENCIES does not lift MAX_LAG_DELTA_CELLS.
+
+    The delta table is distinct (type, lag) keys x index span and does not depend on
+    the edge count, so a project with many distinct lags is still refused by the
+    default cap before any table is allocated.
+    """
+    from trueppm_scheduler import InvalidScheduleInput
+
+    project = _make_distinct_lag_project(600, 600, 8)
+
+    with pytest.raises(InvalidScheduleInput, match="lag-delta table would exceed"):
+        monte_carlo(project, runs=2, seed=1)
