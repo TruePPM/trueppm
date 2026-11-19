@@ -493,7 +493,10 @@ The break does not fail silently. A client that reads the forecast from the `POS
 body receives a `202` whose body has no percentiles, so the missing fields surface at
 the first read rather than as a stale value. The refusals the request can still decide
 (an invalid or too-large `n_simulations`, too many committed tasks or dependencies, no
-membership, an archived project, the throttle) keep their status codes and bodies; the
+membership, an archived project, the throttle) keep their bodies and, with one exception,
+their status codes: the static run cap is now checked first, so an explicit `n_simulations`
+above `MC_SIMULATION_CAP` answers `402` even where the project is also over the task or
+dependency cap, or where runs × tasks exceeds `MC_CELL_CAP` (previously `400`). The
 rest arrive on the failed task run with the same body plus `status_code`. The MCP
 server only reads `latest/` and is unaffected.
 

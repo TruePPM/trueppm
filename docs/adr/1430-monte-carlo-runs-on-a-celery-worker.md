@@ -44,6 +44,9 @@ connections the waiting requests hold.
    stays Admin-only raw exception text. The web hook rebuilds the refusal as the axios
    error it used to receive, so `describeWriteRefusal` renders it unchanged. The busy
    refusal loses its `Retry-After` header — a task run has no headers.
+   The static run cap is now checked first, in the request: an explicit `n_simulations`
+   above `MC_SIMULATION_CAP` answers 402 even where the project is also over the task or
+   dependency cap, or where runs x tasks exceeds `MC_CELL_CAP` (formerly 400).
 5. **The result is read from `latest/`,** which already derives the per-response facts
    (risk premium, staleness, commitment). The task run's `result_summary` carries only
    `{run_id, n_simulations, last_run_at}`, so the forecast has one read path.

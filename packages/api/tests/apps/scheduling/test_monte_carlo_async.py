@@ -202,6 +202,26 @@ class TestQueueing:
             at_cap = client.post(_url(project), {"n_simulations": 10}, format="json")
         assert at_cap.status_code == 202
 
+    def test_static_run_cap_is_checked_before_the_size_and_cell_caps(
+        self, mc_async: None, project: Project, settings: Any
+    ) -> None:
+        # Pins the order: an explicit count over MC_SIMULATION_CAP is a 402 even
+        # when the project is also over the task cap, or when n x tasks exceeds
+        # the cell cap (which would otherwise answer 400).
+        settings.MC_SIMULATION_CAP = 10
+        settings.MC_TASK_CAP = 0
+        client, _ = _client(project, "mc_member", Role.MEMBER)
+        resp = client.post(_url(project), {"n_simulations": 11}, format="json")
+        assert resp.status_code == 402
+        assert resp.data["error"] == "simulation_cap_exceeded"
+        assert "max_runs=10" in resp.data["message"]
+        settings.MC_TASK_CAP = 10_000
+        settings.MC_CELL_CAP = 5
+        resp = client.post(_url(project), {"n_simulations": 11}, format="json")
+        assert resp.status_code == 402
+        assert resp.data["error"] == "simulation_cap_exceeded"
+        assert not TaskRun.objects.filter(project=project).exists()
+
     def test_throttle_still_applies_to_the_enqueue(
         self, mc_async: None, project: Project, django_capture_on_commit_callbacks: Any
     ) -> None:

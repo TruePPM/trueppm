@@ -280,6 +280,48 @@ def test_tracker_broadcasts_failed(project: Project) -> None:
     assert "task_run_failed" in event_types
 
 
+def _terminal_payload(project: Project, event: str, body: object) -> dict:
+    """Run a tracker around ``body`` and return the payload of the ``event`` broadcast."""
+    from trueppm_api.apps.taskruns.tracker import TaskRunTracker
+
+    calls: list[dict] = []
+    with patch.object(
+        TaskRunTracker,
+        "_broadcast",
+        lambda self, et, payload: calls.append({"e": et, "p": payload}),
+    ):
+        body(_make_celery_task(), str(project.pk))  # type: ignore[operator]
+    return next(c["p"] for c in calls if c["e"] == event)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_terminal_events_carry_task_name(project: Project) -> None:
+    """completed, failed (TaskRunRefused) and cancelled all name the task (#2273)."""
+    from trueppm_api.apps.taskruns.tracker import TaskCancelled, TaskRunRefused, TaskRunTracker
+
+    def completed(task: object, pid: str) -> None:
+        with TaskRunTracker(task, project_id=pid, task_name="test.named"):
+            pass
+
+    def failed(task: object, pid: str) -> None:
+        with (
+            pytest.raises(TaskRunRefused),
+            TaskRunTracker(task, project_id=pid, task_name="test.named"),
+        ):
+            raise TaskRunRefused({"error": "nope", "status_code": 402})
+
+    def cancelled(task: object, pid: str) -> None:
+        with TaskRunTracker(task, project_id=pid, task_name="test.named"):
+            raise TaskCancelled()
+
+    for event, body in (
+        ("task_run_completed", completed),
+        ("task_run_failed", failed),
+        ("task_run_cancelled", cancelled),
+    ):
+        assert _terminal_payload(project, event, body)["task_name"] == "test.named"
+
+
 @pytest.mark.django_db
 def test_tracker_debounce_skips_rapid_updates(project: Project) -> None:
     """tracker.update() is skipped when called more than once within 1 second."""
