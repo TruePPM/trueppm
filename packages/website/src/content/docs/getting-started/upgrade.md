@@ -50,6 +50,10 @@ Within a minor, the same caution applies: the web-asset notes under
 [Upgrading to 0.4](#upgrading-to-04) cover an upgrade from the immediately
 previous published release, not one that skips a release.
 
+Scheduled dates can change between releases only for a documented reason; the
+changelog's `changed` and `fixed` entries list them. A frozen corpus of schedules
+and Monte Carlo results enforces this on every merge request.
+
 :::note[Where images come from]
 Release images publish to the **GitLab Container Registry**
 (`registry.gitlab.com/trueppm/trueppm/{api,web}`, tagged `v<version>`) and, since
