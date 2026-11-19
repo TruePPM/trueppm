@@ -58931,6 +58931,110 @@
                 "summary": "Delete member"
             }
         },
+        "/api/v1/workspace/members/{user_id}/send-set-password-link/": {
+            "post": {
+                "operationId": "v1_workspace_members_send_set_password_link_create",
+                "description": "Emails a single-use, 30-minute set-password link to the member's own address. Only for a member with no local password (for example an account created by single sign-on whose provider was removed). The link is never returned to the caller. Workspace Admin or Owner, session or JWT only (API tokens are refused), and only for a member whose workspace role is lower than the caller's. Rate limited per administrator.",
+                "summary": "Email a member a set-password link",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SetPasswordLinkSent"
+                                }
+                            }
+                        },
+                        "description": "Link emailed to the member.",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Caller is not an Admin, the member's role is not lower, or the member is an operator (staff/superuser) account with no password."
+                    },
+                    "404": {
+                        "description": "No such member."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SetPasswordLinkRefusal"
+                                }
+                            }
+                        },
+                        "description": "Not applicable to this member: `member_has_password`, `member_inactive`, `member_has_no_email`, or `set_password_link_unavailable` (FRONTEND_BASE_URL is unset)."
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SetPasswordLinkRefusal"
+                                }
+                            }
+                        },
+                        "description": "`email_delivery_failed` — the attempt is still audited."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
         "/api/v1/workspace/sso/providers/": {
             "get": {
                 "operationId": "v1_workspace_sso_providers_list",
@@ -82668,6 +82772,37 @@
                     "schema_version",
                     "task_count",
                     "valid"
+                ]
+            },
+            "SetPasswordLinkRefusal": {
+                "type": "object",
+                "description": "409/503 body: a machine-readable ``code`` the client branches on, plus copy.",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "sent": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail"
+                ]
+            },
+            "SetPasswordLinkSent": {
+                "type": "object",
+                "description": "200 body of the set-password-link action: delivery confirmed, nothing else.",
+                "properties": {
+                    "sent": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "sent"
                 ]
             },
             "SeverityEnum": {

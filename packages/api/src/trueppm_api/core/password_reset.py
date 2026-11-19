@@ -178,6 +178,66 @@ def _reset_link(uid: str, token: str) -> str:
     return f"{base}/reset-password/confirm#uid={uid}&token={token}"
 
 
+def password_reset_links_available() -> bool:
+    """True when ``FRONTEND_BASE_URL`` is set, so a reset email can carry a link.
+
+    The self-service request path degrades to a "contact your administrator" email
+    when it is unset. The admin-issued set-password path (#2927) cannot degrade that
+    way — the administrator *is* the person the member would be told to contact — so
+    it checks this first and refuses instead of sending a link-less email.
+    """
+    return bool((getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/"))
+
+
+def _render_admin_issued_email(user: Any, reset_url: str, issued_by: Any) -> tuple[str, str, str]:
+    """Render (subject, text, html) for an administrator-issued set-password link (#2927).
+
+    Different copy from the self-service reset on purpose. The member did not ask
+    for this, so "if you did not request a reset, ignore this" would be false; and
+    the email names the administrator who sent it, because that name is the
+    member's only way to notice an issuance they did not expect and challenge it.
+    Only called when a link exists (the view refuses otherwise).
+    """
+    subject = "Set a password for your TruePPM account"
+    greeting_name = user.get_short_name() or user.get_username()
+    admin_name = (
+        (issued_by.get_full_name() or "").strip()
+        or getattr(issued_by, "email", "")
+        or issued_by.get_username()
+    )
+    text_body = "\n".join(
+        [
+            f"Hi {greeting_name},",
+            "",
+            f"{admin_name}, a TruePPM workspace administrator, sent you a link to set a "
+            "password for your account, so you can sign in without single sign-on.",
+            "",
+            reset_url,
+            "",
+            "This link is valid for 30 minutes and works once. Setting a password "
+            "signs you out of every device where you are currently signed in.",
+            "",
+            "If you did not expect this, do not use the link and contact your "
+            "workspace administrator — nothing changes until a password is set.",
+        ]
+    )
+    html_body = "".join(
+        [
+            f"<p>Hi {escape(greeting_name)},</p>",
+            f"<p>{escape(admin_name)}, a TruePPM workspace administrator, sent you a link "
+            "to set a password for your account, so you can sign in without single "
+            "sign-on.</p>",
+            f'<p><a href="{escape(reset_url)}">Set your password</a></p>',
+            "<p>This link is valid for <strong>30 minutes</strong> and works once. "
+            "Setting a password signs you out of every device where you are currently "
+            "signed in.</p>",
+            "<p>If you did not expect this, do not use the link and contact your "
+            "workspace administrator — nothing changes until a password is set.</p>",
+        ]
+    )
+    return subject, text_body, html_body
+
+
 def _render_password_reset_email(user: Any, reset_url: str) -> tuple[str, str, str]:
     """Render (subject, plain-text body, html body) for the reset email.
 
@@ -234,8 +294,14 @@ def _render_password_reset_email(user: Any, reset_url: str) -> tuple[str, str, s
     return subject, text_body, html_body
 
 
-def send_password_reset_email(user: Any) -> bool:
+def send_password_reset_email(user: Any, *, issued_by: Any = None) -> bool:
     """Generate a reset token for ``user`` and email the link. Best-effort.
+
+    ``issued_by`` is the workspace administrator when the link was issued from the
+    admin set-password action (#2927) rather than requested by the member; it only
+    changes the email copy. The token is the same stateless, single-use, 30-minute
+    ``default_token_generator`` token either way, so the existing confirm view
+    redeems both and nothing about redemption differs.
 
     Synchronous by design (ADR-0209 §Durable Execution): the reset token is
     stateless and fully re-requestable, so there is no persisted state to reconcile
@@ -252,7 +318,10 @@ def send_password_reset_email(user: Any) -> bool:
     if not recipient:
         return False
 
-    subject, text_body, html_body = _render_password_reset_email(user, reset_url)
+    if issued_by is not None and reset_url:
+        subject, text_body, html_body = _render_admin_issued_email(user, reset_url, issued_by)
+    else:
+        subject, text_body, html_body = _render_password_reset_email(user, reset_url)
     # Route through the workspace SMTP transport (#712, ADR-0213) so BYO-SMTP
     # installs deliver reset mail on the same transport as everything else; a
     # no-op fall back to the global backend when the workspace is unconfigured.

@@ -842,6 +842,15 @@ class AuditEventType(models.TextChoices):
     # what; its metadata carries the before/after rate, which is why it lives in this
     # Admin-only log rather than in a team-readable feed.
     RESOURCE_RATE_CHANGED = "resource_rate_changed", "Resource rate changed"
+    # #2927. An administrator emailed a member a single-use set-password link — the
+    # recovery path for an account that has no local credential (an SSO-only member
+    # whose provider was removed). It is a credential-issuing action taken on someone
+    # else's account, so "who sent it to whom, and did it go out" is recorded even
+    # when delivery failed: the row records the attempt, not only its success.
+    MEMBER_SET_PASSWORD_LINK_SENT = (
+        "member_set_password_link_sent",
+        "Member set-password link sent",
+    )
 
 
 class AuditEvent(models.Model):

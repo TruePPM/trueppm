@@ -875,12 +875,13 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
         if policy is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        # Informed-confirmation gate (#2874). Removing a provider is unrecoverable for
-        # a member whose only credential is its binding: every JIT-created user has
-        # ``set_unusable_password()``, and the password-reset request path gates on
-        # ``has_usable_password()``, so they get the anti-enumeration 200 and no email.
-        # There is no admin set-password endpoint, so nothing short of re-adding the
-        # provider (or a shell) brings them back. The admin may still do it — an
+        # Informed-confirmation gate (#2874). Removing a provider is unrecoverable by
+        # self-service for a member whose only credential is its binding: every
+        # JIT-created user has ``set_unusable_password()``, and the password-reset
+        # request path gates on ``has_usable_password()``, so they get the
+        # anti-enumeration 200 and no email. The way back is re-adding the provider,
+        # or an admin emailing each member a set-password link (#2927) — one at a
+        # time, so the count still matters. The admin may still do it — an
         # operator has to be able to tear down an IdP — but not without being told the
         # number first, which is what the 409 carries.
         impact = services.removal_impact([slug])[slug]
@@ -894,7 +895,9 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
                         "provider and have no password, so removing it leaves them unable "
                         "to sign in at all — they cannot use the password-reset flow either. "
                         "They can sign in again if you add this provider back with the same "
-                        f"issuer. Re-send with ?{_CONFIRM_LOCKOUT_PARAM}=true to confirm."
+                        "issuer, or if you send each of them a set-password link (see the "
+                        "single sign-on administration docs). "
+                        f"Re-send with ?{_CONFIRM_LOCKOUT_PARAM}=true to confirm."
                     ),
                     "linked_account_count": impact.linked_accounts,
                     "locked_out_account_count": impact.locked_out_accounts,

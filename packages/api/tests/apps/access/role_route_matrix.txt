@@ -612,6 +612,7 @@
 +++++++  POST api/v1/workspace/invites/accept/::post
 -------  POST api/v1/workspace/invites/resend-all/::post
 -------  POST api/v1/workspace/logo/::post
+-------  POST api/v1/workspace/members/<int:user_id>/send-set-password-link/::post
 -------  POST api/v1/workspace/sso/providers/::post
 -------  POST api/v1/workspace/sso/providers/<slug:slug>/test-connection/::post
 -------  POST api/v1/workspace/transfer-ownership/::post
