@@ -951,11 +951,21 @@ question — whether the *added-time number* is still worth reporting — and st
 age-based (a week). Use `forecast_staleness` to ask whether the forecast matches
 your plan.
 
-For integrators: when a schedule recalculation finishes and the project's latest
-forecast is `project_changed` or `aged`, TruePPM fires the
+For integrators: when a schedule recalculation finishes successfully and the
+project's latest forecast is `project_changed` or `aged`, TruePPM fires the
 `forecast_recompute_requested` extension signal once for that run. The community
 edition only emits it and never re-runs a simulation by itself; a receiver (for
 example an Enterprise scheduled-recompute job) decides whether to rerun.
+
+The signal carries `project_id`, `run_id` (the run that is now stale), `staleness`
+(`project_changed` or `aged`), `plan_version` (the run's) and `plan_version_current`
+(the project's now). Receivers must be idempotent, because a cache outage can repeat
+a signal, and must not simulate inline: enqueue the work and return.
+
+The limit, stated plainly: the signal fires at the end of a successful recalculation.
+A run that merely ages past seven days, or an edit that is never followed by a
+recalculation, does not signal until a recalculation happens. It does not change
+`risk_premium_state` either.
 
 Because the judgment lives on the server rather than in your browser session, it
 survives a page reload and reflects a collaborator's edits as readily as your

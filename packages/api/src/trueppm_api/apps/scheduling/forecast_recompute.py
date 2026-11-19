@@ -76,7 +76,14 @@ def notify_if_forecast_stale(project_id: Any) -> bool:
         )
         if facts["forecast_staleness"] not in _SIGNALED:
             return False
-        if not cache.add(_guard_key(run.pk), 1, _GUARD_TTL_SECONDS):
+        try:
+            first_time = cache.add(_guard_key(run.pk), 1, _GUARD_TTL_SECONDS)
+        except Exception:
+            # Fail open (see module docstring): a repeat is harmless, a swallowed
+            # announcement is not.
+            logger.warning("forecast_recompute guard unavailable; signaling anyway", exc_info=True)
+            first_time = True
+        if not first_time:
             return False
         dispatch_extension_signal(
             forecast_recompute_requested,

@@ -243,6 +243,9 @@ stronger claim §5 forbids.
   This ADR supplies the first two. **The signal does not exist in the OSS tree**, so EE#192
   registers against a hook nobody built; that gap belongs on #2798, not here — a
   speculative extension signal with no dispatcher is dead surface.
+  *Implemented 2026-11-19 (refs #2798):* `forecast_recompute_requested` now exists and is
+  dispatched at the end of a successful schedule recalculation (`scheduling/forecast_recompute.py`);
+  the original text above is kept as the record of the decision at the time.
 * `apps/scheduling/forecast_staleness.py` is kept pure and value-shaped (not request- or
   response-bound) specifically so an Enterprise digest can import the OSS fact rather than
   re-derive its own beside it.
