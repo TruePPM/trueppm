@@ -960,7 +960,7 @@ example an Enterprise scheduled-recompute job) decides whether to rerun.
 The signal carries `project_id`, `run_id` (the run that is now stale), `staleness`
 (`project_changed` or `aged`), `plan_version` (the run's) and `plan_version_current`
 (the project's now). Receivers must be idempotent, because a cache outage can repeat
-a signal, and must not simulate inline: enqueue the work and return.
+a signal, and must not simulate inline: enqueue the work and return. A receiver that fails is not retried for that run, because the once-per-run guard is claimed before dispatch.
 
 The limit, stated plainly: the signal fires at the end of a successful recalculation.
 A run that merely ages past seven days, or an edit that is never followed by a
