@@ -15,7 +15,7 @@ import type { Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { RowMode } from '../deliveryModePresentation';
 import type { FiscalConfig, GanttScaleData, WorkingTimeConfig, ZoomLevel } from './GanttScaleData';
-import type { ChartRenderOptions } from './GanttRenderer';
+import type { BaselineDates, ChartRenderOptions } from './GanttRenderer';
 
 /**
  * Hover chain payload pushed from React via `engine.setHoverChain` (#475).
@@ -320,6 +320,14 @@ export interface GanttEngine {
    * Passing an empty array clears them.
    */
   setSprintBands(bands: SprintBand[]): void;
+
+  /**
+   * Baseline ghost-bar data (#3821): the ACTIVE baseline's start/finish by task
+   * id, or null for none. One-way like {@link setSprintBands} — the host joins
+   * and memoizes; the engine only paints, and only when
+   * `ChartRenderOptions.showBaselineBars` is also on.
+   */
+  setBaselineDates(dates: ReadonlyMap<string, BaselineDates> | null): void;
 
   // ── Sprint cadence rail (#3012) ───────────────────────────────────────────
 

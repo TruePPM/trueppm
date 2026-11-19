@@ -1,6 +1,7 @@
 ---
 title: Baselines
 description: Capture an immutable snapshot of your schedule and compare planned dates against where the project actually stands.
+documentedFor: "0.5"
 ---
 
 A **baseline** is a frozen snapshot of your project's schedule at a point in time. Capture
@@ -165,6 +166,25 @@ curl -X DELETE -H "Authorization: Bearer $JWT" \
 | `GET /api/v1/projects/{id}/baselines/{baselineId}/` | Retrieve (with task count) | Project member |
 | `POST /api/v1/projects/{id}/baselines/{baselineId}/activate/` | Make active, deactivate others | Project Manager (`ADMIN`) |
 | `DELETE /api/v1/projects/{id}/baselines/{baselineId}/` | Delete a baseline | Project Admin (`OWNER`) |
+
+## Baseline bars on the Gantt
+
+:::note[Ships in 0.5]
+Baseline bars on the Gantt ship in 0.5. In 0.4 the comparison is the per-task table
+described in [Comparing against the plan](#comparing-against-the-plan).
+:::
+
+While a baseline is **active**, the Schedule draws it behind your tasks: a hollow outline
+spanning each task's baseline start and finish, sitting just behind the live bar. Where a
+task has slipped or been pulled in, the outline is left showing on the side where the bar
+moved away from the plan, so you can see which work moved across the whole schedule at once.
+
+- Turn it on or off from **Display → Chart → Baseline bars**. The row appears only when the
+  project has an active baseline, and the choice is remembered in your browser.
+- The legend names it as **Baseline (planned)** while it is drawn.
+- Only the active baseline is drawn. Phases (summary rows) and milestones do not get an
+  outline yet; use the task detail's comparison table for those.
+- A task added after the baseline was captured has no outline.
 
 ## Comparing against the plan
 

@@ -9,6 +9,7 @@ import {
   useCreateBaseline,
   useActivateBaseline,
   useDeleteBaseline,
+  useActiveBaselineDates,
 } from './useBaselines';
 import type { ApiBaseline, ApiBaselineDetail } from './useBaselines';
 
@@ -312,5 +313,37 @@ describe('useDeleteBaseline', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['baselines', 'proj-1'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+});
+
+describe('useActiveBaselineDates — loading gate (#3821)', () => {
+  it('reports an active baseline but null dates until the detail loads', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveDetail: (v: unknown) => void = () => {};
+    getMock.mockImplementation((url: string) => {
+      if (url.endsWith('/baselines/')) {
+        return Promise.resolve({ data: { results: [{ ...BASELINE, is_active: true }] } });
+      }
+      return new Promise((resolve) => {
+        resolveDetail = resolve;
+      });
+    });
+
+    const { result } = renderHook(() => useActiveBaselineDates('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.hasActiveBaseline).toBe(true));
+    expect(result.current.dates).toBeNull();
+
+    resolveDetail({
+      data: {
+        ...BASELINE,
+        is_active: true,
+        tasks: [{ task_id: 't1', start: '2026-05-01', finish: '2026-05-05' }],
+      },
+    });
+    await waitFor(() => expect(result.current.dates).not.toBeNull());
+    expect(result.current.dates?.get('t1')).toEqual({ start: '2026-05-01', finish: '2026-05-05' });
   });
 });

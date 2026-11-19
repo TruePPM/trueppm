@@ -76,6 +76,10 @@ export interface ChartMenuConfig {
   /** Sprint-window bands (#2738). Present only when the host has sprint context. */
   sprintBandsVisible?: boolean;
   setSprintBandsVisible?: (v: boolean) => void;
+  /** Baseline ghost bars (#3821). The setter is passed only when the project has
+   *  an active baseline, so an inert checkbox never renders. */
+  baselineBarsVisible?: boolean;
+  setBaselineBarsVisible?: (v: boolean) => void;
 }
 
 // `left` (the canvas-drawn aligned-left name gutter, #2096) was retired in
@@ -222,6 +226,17 @@ function buildChartSection(chart: ChartMenuConfig): RenderSection {
         checked: chart.progressPillsVisible,
         activate: () => chart.setProgressPillsVisible(!chart.progressPillsVisible),
       },
+      ...(chart.setBaselineBarsVisible
+        ? [
+            {
+              kind: 'checkbox' as const,
+              id: 'baseline-bars',
+              label: 'Baseline bars',
+              checked: chart.baselineBarsVisible !== false,
+              activate: () => chart.setBaselineBarsVisible?.(chart.baselineBarsVisible === false),
+            },
+          ]
+        : []),
       // Sprint windows (#2738) sit in Chart, beside the other things the canvas
       // paints — NOT in "View filters". A filter changes which work you are
       // looking at; this changes only whether the window behind it is drawn.

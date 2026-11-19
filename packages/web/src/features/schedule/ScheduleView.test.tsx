@@ -322,12 +322,20 @@ vi.mock('@/hooks/useBreakpoint', () => ({
 }));
 // `undefined` models an unsettled read — the Read → Author gate must ask then (#3748).
 let mockBaselines: Array<{ id: string; name: string; is_active: boolean }> | undefined = [];
+let mockBaselineDatesLoaded = true;
 vi.mock('@/hooks/useBaselines', () => ({
   useCreateBaseline: () => ({ mutate: createBaselineMutate, isPending: false }),
   // ScheduleView reads the baseline list to pass activeBaselineName into the
   // capture confirm dialog (#2215), and to gate Read → Author (#3748). Default
   // to no baselines.
   useBaselines: () => ({ data: mockBaselines, isLoading: false, isError: false }),
+  // Ghost-bar gating (#3821): the menu item follows the active flag, the
+  // canvas/legend follow a LOADED date map. `mockBaselineDatesLoaded` models the
+  // detail read still being in flight.
+  useActiveBaselineDates: () => ({
+    hasActiveBaseline: !!mockBaselines?.some((b) => b.is_active),
+    dates: mockBaselines?.some((b) => b.is_active) && mockBaselineDatesLoaded ? new Map() : null,
+  }),
 }));
 vi.mock('@/hooks/useMsProjectImportExport', () => ({
   useExportMsProject: () => ({
@@ -466,16 +474,21 @@ vi.mock('./CanvasScheduleTimeline', () => ({
     tasks,
     links,
     onEngineReady,
+    chartOptions,
   }: {
     tasks: Task[];
     links: TaskLink[];
     onEngineReady?: (e: unknown) => void;
+    chartOptions?: { showBaselineBars?: boolean };
   }) => {
     useEffect(() => {
       onEngineReady?.(fakeEngine);
     }, [onEngineReady]);
     return (
-      <div data-testid="canvas-timeline">
+      <div
+        data-testid="canvas-timeline"
+        data-baseline-bars={chartOptions?.showBaselineBars === true ? 'on' : 'off'}
+      >
         canvas:{tasks.length}:{links.length}
       </div>
     );
@@ -665,8 +678,10 @@ vi.mock('./ScheduleDisplayMenu', () => ({
     setFocusModeEnabled: (v: boolean) => void;
     showMilestonesOnly: boolean;
     setShowMilestonesOnly: (v: boolean) => void;
+    chart?: { setBaselineBarsVisible?: (v: boolean) => void };
   }) => (
     <div data-testid="display-menu">
+      {p.chart?.setBaselineBarsVisible ? <span>Baseline bars</span> : null}
       <button type="button" onClick={() => p.setShowCriticalOnly(!p.showCriticalOnly)}>
         toggle-crit
       </button>
@@ -901,6 +916,7 @@ beforeEach(() => {
   // The baselined-Author acknowledgment persists the same way (#3748).
   window.localStorage.removeItem('trueppm.schedule.baselineAck.test-user-1.project-1');
   mockBaselines = [];
+  mockBaselineDatesLoaded = true;
   createBaselineMutate.mockReset();
   addDepMutate.mockReset();
   toastInfo.mockReset();
@@ -1142,6 +1158,30 @@ describe('ScheduleView — populated desktop', () => {
     expect(screen.queryByTestId('ungroup-rows-button')).not.toBeInTheDocument();
     // "+ Task" and "+ Milestone" are NOT part of the gated group.
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeInTheDocument();
+  });
+
+  describe('baseline ghost bars wiring (#3821)', () => {
+    it('offers "Baseline bars" only when the project has an active baseline', () => {
+      mockBaselines = [];
+      const { unmount } = renderSchedule();
+      expect(screen.queryByText('Baseline bars')).not.toBeInTheDocument();
+      expect(screen.getByTestId('canvas-timeline')).toHaveAttribute('data-baseline-bars', 'off');
+      unmount();
+
+      mockBaselines = [{ id: 'bl-1', name: 'Baseline v1', is_active: true }];
+      renderSchedule();
+      expect(screen.getByText('Baseline bars')).toBeInTheDocument();
+      expect(screen.getByTestId('canvas-timeline')).toHaveAttribute('data-baseline-bars', 'on');
+    });
+
+    it('keeps the menu item but draws nothing while the baseline detail is still loading', () => {
+      mockBaselines = [{ id: 'bl-1', name: 'Baseline v1', is_active: true }];
+      mockBaselineDatesLoaded = false;
+      renderSchedule();
+      expect(screen.getByText('Baseline bars')).toBeInTheDocument();
+      // The canvas flag also feeds the legend row: off means no "Baseline (planned)".
+      expect(screen.getByTestId('canvas-timeline')).toHaveAttribute('data-baseline-bars', 'off');
+    });
   });
 
   it('scrolls the engine to today when the Today button is clicked', async () => {

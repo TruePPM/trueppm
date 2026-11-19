@@ -29,6 +29,7 @@ import {
   drawActualDateBar,
   drawSprintBands,
   drawCadenceRail,
+  drawBaselineGhostBar,
   prepareDependencyLayout,
   SPRINT_BAND_FADE_MS,
 } from './GanttRenderer';
@@ -60,6 +61,8 @@ vi.mock('./GanttRenderer', async (importOriginal) => {
     // hands the renderer and at what alpha, without needing pixels.
     drawSprintBands: vi.fn(actual.drawSprintBands),
     drawCadenceRail: vi.fn(actual.drawCadenceRail),
+    // #3821 — which rows the engine ghosts, asserted without pixels.
+    drawBaselineGhostBar: vi.fn(actual.drawBaselineGhostBar),
   };
 });
 
@@ -2602,5 +2605,51 @@ describe('GanttEngineImpl — sprint-window bands (#2738)', () => {
     h.engine.setChartOptions({ ...CHART, showSprintBands: true });
     h.flushFrame();
     expect(lastBandAlpha()).toBe(0);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// #3821 — baseline ghost bars: which rows the paint pass ghosts
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — baseline ghost bars (#3821)', () => {
+  const BASE = new Map([
+    ['t', { start: '2026-04-02', finish: '2026-04-08' }],
+    ['s', { start: '2026-04-01', finish: '2026-04-30' }],
+    ['m', { start: '2026-04-05', finish: '2026-04-05' }],
+  ]);
+  const OPTS = {
+    taskNamePlacement: 'next' as const,
+    showProgressPills: true,
+    showSprintBands: true,
+  };
+
+  function paint(opts: { show: boolean; dates: typeof BASE | null }): string[] {
+    const { engine, flushFrame } = setup();
+    const spy = vi.mocked(drawBaselineGhostBar);
+    spy.mockClear();
+    engine.setChartOptions({ ...OPTS, showBaselineBars: opts.show });
+    engine.setBaselineDates(opts.dates);
+    engine.setTasks([
+      makeTask('t', '2026-04-01', '2026-04-10'),
+      { ...makeTask('s', '2026-04-01', '2026-04-30'), isSummary: true },
+      { ...makeTask('m', '2026-04-05', '2026-04-05'), isMilestone: true },
+    ]);
+    flushFrame();
+    // Row index (arg 2) identifies the ghosted row: 0 = t, 1 = s, 2 = m.
+    return spy.mock.calls.map((c) => String(c[2]));
+  }
+
+  it('ghosts a normal task with a baseline entry, never a summary or milestone row', () => {
+    expect(new Set(paint({ show: true, dates: BASE }))).toEqual(new Set(['0']));
+  });
+
+  it('draws nothing when the toggle is off', () => {
+    expect(paint({ show: false, dates: BASE })).toEqual([]);
+  });
+
+  it('draws nothing when there is no date map (no baseline / still loading)', () => {
+    expect(paint({ show: true, dates: null })).toEqual([]);
   });
 });

@@ -177,12 +177,12 @@ product currently says so.
 
 ## Baselines
 
-### Baseline comparison is a table, not a Gantt overlay — planned for 0.5
+### Baseline comparison is a table, not a Gantt overlay — ships in 0.5
 
 0.4 brings baseline capture, management, and comparison into the app, but the
 comparison is a text table in the task drawer. The planned-vs-current **ghost-bar
-overlay on the Gantt is deliberately not in this release** —
-[ADR-0376](/architecture/decisions/) defers it to 0.5 in its own Consequences section.
+overlay on the Gantt is not in this release**; it ships in 0.5 as **Display → Chart →
+Baseline bars**.
 
 - **Impact:** you can see that a task slipped and by how much, but you cannot see the
   slip drawn against the plan on the timeline, which is the reading most people expect
@@ -190,10 +190,10 @@ overlay on the Gantt is deliberately not in this release** —
 - **Workaround:** none — use the drawer's comparison table.
 - **What to do:** capture baselines as usual; the data is all there. Read slippage from
   the drawer table until the overlay lands.
-- **Fix planned for 0.5**, per ADR-0376's own Consequences section (above). The
-  legend previously carried a stray "Planned baseline" swatch with no matching draw
+- **Fix ships in 0.5.** The legend previously carried a stray "Planned baseline" swatch with no matching draw
   call behind it — that was [#2696](https://gitlab.com/trueppm/trueppm/-/issues/2696) <!-- known-issues-ack:closed -->
-  (closed, fixed): the legend no longer renders it.
+  (closed, fixed): the legend no longer renders it, and the new "Baseline (planned)" row
+  appears only while the bars are drawn.
 
 ## MCP and agents
 

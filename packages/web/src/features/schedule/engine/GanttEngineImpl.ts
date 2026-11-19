@@ -63,9 +63,10 @@ import {
   drawResizeIndicator,
   drawLinkPreview,
   drawActualDateBar,
+  drawBaselineGhostBar,
   drawScheduleVarianceBadge,
 } from './GanttRenderer';
-import type { ChartRenderOptions, DependencyLayout } from './GanttRenderer';
+import type { BaselineDates, ChartRenderOptions, DependencyLayout } from './GanttRenderer';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { RowMode } from '../deliveryModePresentation';
 import { CHART_HEADER_HEIGHT } from '../scheduleConstants';
@@ -291,6 +292,8 @@ export class GanttEngineImpl implements GanttEngine {
   // Sprint-window bands (#2738, ADR-0803). Row-indexed against _tasks; the host
   // recomputes and re-pushes them whenever that array changes.
   private _sprintBands: SprintBand[] = [];
+  /** Active baseline's dates by task id (#3821); null when none is drawn. */
+  private _baselineDates: ReadonlyMap<string, BaselineDates> | null = null;
   /** Rolled-up delivery mode per task id (#3040) — pushed by the host, painted
    *  by `drawDeliveryModeMark`. Empty until a host with a rollup pushes one. */
   private _rowModes: ReadonlyMap<string, RowMode> = new Map();
@@ -350,6 +353,7 @@ export class GanttEngineImpl implements GanttEngine {
     taskNamePlacement: 'next',
     showProgressPills: true,
     showSprintBands: true,
+    showBaselineBars: false,
   };
 
   // Quarter/year header tier config (#755) — calendar quarters until the host
@@ -866,6 +870,14 @@ export class GanttEngineImpl implements GanttEngine {
   // ---------------------------------------------------------------------------
   // GanttEngine — Chart presentation toggles (#2097)
   // ---------------------------------------------------------------------------
+
+  setBaselineDates(dates: ReadonlyMap<string, BaselineDates> | null): void {
+    // Reference comparison — the host memoizes the map on the baseline detail.
+    if (this._baselineDates === dates) return;
+    this._baselineDates = dates;
+    this._fullRepaintPending = true;
+    this._requestRepaint();
+  }
 
   setChartOptions(options: ChartRenderOptions): void {
     const wasDrawn = this._sprintBandsDrawn();
@@ -1578,6 +1590,21 @@ export class GanttEngineImpl implements GanttEngine {
     ctx.translate(0, -this._scrollTop);
     if (!isInChain) ctx.globalAlpha = 0.25;
     if (filterDimmed) ctx.globalAlpha *= FILTER_DIM_ALPHA;
+
+    // Baseline ghost (#3821): behind the live bar. Summaries and milestones are
+    // not ghosted yet — a rollup's baseline span and a diamond's slip need their
+    // own marks, not a task-bar rectangle.
+    if (
+      this._chartOptions.showBaselineBars &&
+      this._baselineDates &&
+      !task.isSummary &&
+      !task.isMilestone
+    ) {
+      const baseline = this._baselineDates.get(task.id);
+      if (baseline) {
+        drawBaselineGhostBar(ctx, baseline, rowIndex, this._scales, this._scrollLeft);
+      }
+    }
 
     if (task.isMilestone) {
       drawMilestone(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);

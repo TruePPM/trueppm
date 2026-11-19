@@ -24,6 +24,8 @@ import type { RowMode } from './deliveryModePresentation';
 import type { BuildModeApi } from './buildMode/BuildModeContext';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
+import { useProjectId } from '@/hooks/useProjectId';
+import { useActiveBaselineDates } from '@/hooks/useBaselines';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
 import { useScheduleWorkingTime } from './useScheduleWorkingTime';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -86,6 +88,7 @@ const DEFAULT_CHART_OPTIONS: ChartRenderOptions = {
   taskNamePlacement: 'next',
   showProgressPills: true,
   showSprintBands: true,
+  showBaselineBars: false,
 };
 
 /** Stable identity for the "no bands" case — a fresh `[]` default would re-push
@@ -191,6 +194,16 @@ export function CanvasScheduleTimeline({
     if (!engine) return;
     engine.setRowModes(rowModes);
   }, [engine, rowModes]);
+
+  // Active baseline's ghost-bar dates (#3821). Fetched here rather than drilled
+  // through ScheduleView's prop chain; react-query dedupes it with the host's
+  // own read. No project route (program view) -> disabled -> nothing drawn.
+  const baselineProjectId = useProjectId();
+  const { dates: baselineDates } = useActiveBaselineDates(baselineProjectId);
+  useEffect(() => {
+    if (!engine) return;
+    engine.setBaselineDates(baselineDates);
+  }, [engine, baselineDates]);
 
   // Push Chart menu toggles (name placement / progress pills) to the engine (#2097).
   useEffect(() => {
