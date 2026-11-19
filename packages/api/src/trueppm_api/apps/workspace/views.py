@@ -934,12 +934,20 @@ class WorkspaceMemberSetPasswordLinkView(SessionOnlyWritesMixin, IdempotencyMixi
             )
         actor_role = _workspace_membership_role(request)
         target_role = workspace_role_for_user(target)
-        if not target.is_active or target_role is None:
+        # Order matters for what a refusal reveals. A deactivated membership row
+        # (``target_role is None``) is already shown by ``GET /workspace/members/``, so
+        # it may answer before the role check. ``User.is_active=False`` is NOT shown
+        # there, so it answers only AFTER the role check: an Admin probing an Owner or
+        # peer Admin gets the same 403 whether or not that account was deactivated at
+        # the user level, and only a member the caller could act on learns its state.
+        if target_role is None:
             return _conflict("member_inactive", "This member is deactivated.")
         if actor_role is None or target_role >= actor_role:
             raise PermissionDenied(
                 "You can only send a set-password link to members with a role lower than your own."
             )
+        if not target.is_active:
+            return _conflict("member_inactive", "This member is deactivated.")
         # The password check runs BEFORE the operator-account refusal so a staff or
         # superuser account that has a password answers the same 409 as any other
         # member. ``GET /workspace/members/`` exposes ``role_value``, so a refusal

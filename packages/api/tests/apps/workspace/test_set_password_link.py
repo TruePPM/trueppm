@@ -299,6 +299,21 @@ def test_user_level_deactivated_account_is_refused(admin: Any) -> None:
     assert mail.outbox == []
 
 
+@pytest.mark.parametrize("target_role", [WorkspaceRole.ADMIN, WorkspaceRole.OWNER])
+def test_user_level_deactivation_of_a_peer_or_higher_role_is_not_revealed(
+    admin: Any, target_role: int
+) -> None:
+    """``GET /workspace/members/`` does not show ``User.is_active``, so an Admin probing
+    an Owner or peer Admin must get the same 403 whether or not that account was
+    deactivated at the user level — a 409 ``member_inactive`` would leak it."""
+    target = _user(f"inactivehigh{target_role}", target_role, is_active=False)
+    assert WorkspaceMembership.objects.get(user=target).status == MemberStatus.ACTIVE
+    resp = _client(admin).post(_url(target))
+    assert resp.status_code == 403
+    assert "role lower than your own" in str(resp.data["detail"])
+    assert mail.outbox == []
+
+
 def test_member_without_email_is_refused(admin: Any) -> None:
     target = _user("noemail", WorkspaceRole.MEMBER, email="")
     resp = _client(admin).post(_url(target))
