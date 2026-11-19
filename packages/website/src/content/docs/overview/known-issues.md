@@ -182,7 +182,7 @@ product currently says so.
 0.4 brings baseline capture, management, and comparison into the app, but the
 comparison is a text table in the task drawer. The planned-vs-current **ghost-bar
 overlay on the Gantt is not in this release**; it ships in 0.5 as **Display → Chart →
-Baseline bars** (tracked in [#3821](https://gitlab.com/trueppm/trueppm/-/issues/3821)).
+Baseline bars**.
 
 - **Impact:** you can see that a task slipped and by how much, but you cannot see the
   slip drawn against the plan on the timeline, which is the reading most people expect

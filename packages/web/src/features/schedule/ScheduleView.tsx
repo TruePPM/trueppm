@@ -1145,7 +1145,11 @@ export function ScheduleView() {
   } = useScheduleChartPrefs();
 
   // Ghost bars only exist when the project has an ACTIVE baseline (#3821).
-  const { hasActiveBaseline } = useActiveBaselineDates(projectId);
+  // The menu item follows `hasActiveBaseline`; the canvas flag and the legend row
+  // follow `dates !== null` too, so neither claims a mark while the baseline
+  // detail is still loading or has errored and nothing is drawn.
+  const { hasActiveBaseline, dates: activeBaselineDates } = useActiveBaselineDates(projectId);
+  const baselineDrawable = hasActiveBaseline && activeBaselineDates !== null;
 
   // Filter links to critical-path only when showCpOnly is active, and drop them
   // entirely when the Chart menu hides dependency lines (#2097) — passing [] also
@@ -1485,14 +1489,14 @@ export function ScheduleView() {
       taskNamePlacement: activeNamePlacement,
       showProgressPills: chartPrefs.progressPillsVisible,
       showSprintBands: chartPrefs.sprintBandsVisible,
-      showBaselineBars: chartPrefs.baselineBarsVisible && hasActiveBaseline,
+      showBaselineBars: chartPrefs.baselineBarsVisible && baselineDrawable,
     }),
     [
       activeNamePlacement,
       chartPrefs.progressPillsVisible,
       chartPrefs.sprintBandsVisible,
       chartPrefs.baselineBarsVisible,
-      hasActiveBaseline,
+      baselineDrawable,
     ],
   );
 
