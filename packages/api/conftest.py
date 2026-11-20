@@ -31,3 +31,25 @@ def pytest_configure(config: pytest.Config) -> None:
     # django-environ on older versions needs plain postgresql://, not +psycopg2
     url = container.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
     os.environ["DATABASE_URL"] = url
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Fail an api:test shard when .test_durations has gone stale (#5084).
+
+    ``tryfirst`` so this runs before pytest-split narrows ``items`` to one group:
+    the share must be judged against the FULL collected set, or every shard would
+    see a different denominator. Only active under ``--splits``, so plain local
+    runs, ``-k`` runs and the api:test-durations job are untouched.
+    """
+    if not config.getoption("splits", default=None):
+        return
+    from pathlib import Path
+
+    from tests._durations_coverage import check_durations_coverage
+
+    message = check_durations_coverage(
+        (item.nodeid for item in items), Path(config.getoption("durations_path"))
+    )
+    if message:
+        raise pytest.UsageError(message)

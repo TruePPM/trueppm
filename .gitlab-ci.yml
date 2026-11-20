@@ -5766,10 +5766,15 @@ api:test:
   # test DB (test_trueppm_test_gw0, _gw1, …) so isolation is preserved.
   # pytest-split reads the committed packages/api/.test_durations baseline and
   # rebalances the per-test timings into N groups at runtime, so the same
-  # baseline works for any shard count — bumping 2→4 (#1120) needs no regen,
-  # though the api:test-durations job (manual + scheduled, #687) still refreshes
-  # it. If the baseline is ever missing, pytest-split falls back to an even
-  # test-count split. Each shard emits a partial coverage data file
+  # baseline works for any shard count — bumping 2→4 (#1120) needs no regen.
+  # Refreshing it is MANUAL: play the api:test-durations job and commit its
+  # artifact (#687). Nothing commits it, so the baseline rots as tests are
+  # added, and pytest-split guesses an average for every test it has no entry
+  # for. The guard in packages/api/conftest.py is what forces the refresh: under
+  # --splits it fails the shard when more than 20% of the full collected set
+  # has no entry (#5084). If the baseline is missing, every test counts as
+  # missing, so the guard fails rather than letting pytest-split fall back to
+  # an even test-count split. Each shard emits a partial coverage data file
   # (.coverage.<index>); api:coverage combines them into coverage.xml for the
   # diff-coverage gate and the package soft floor. Mirrors the web:e2e shard →
   # web:e2e:report stitch pattern.
