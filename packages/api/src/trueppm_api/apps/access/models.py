@@ -209,6 +209,9 @@ class ProjectMembership(VersionedModel):
         blank=True,
         related_name="granted_memberships",
     )
+    # Tombstone-reap retention clock (#2342): stamped by VersionedModel.soft_delete()
+    # and the set-based cascades, cleared on restore. Never serialized.
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         db_table = "access_project_membership"

@@ -87,7 +87,7 @@ current release the value is accepted and the data is lost on the next purge.
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
 | `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `30` | days | Soft-deleted ("trashed") `Project` rows, hard-deleted with all child data (see [Trashed projects](#trashed-projects-are-hard-deleted-after-the-window) below) |
-| `TRUEPPM_TOMBSTONE_RETENTION_DAYS` | `90` | days | Per-row soft-delete tombstones (`Task`, `Dependency`, `TaskRelation`, `Risk`, `Sprint`) in live projects. This is also the window a deleted **task** stays restorable — see [What you can get back](#what-you-can-get-back) |
+| `TRUEPPM_TOMBSTONE_RETENTION_DAYS` | `90` | days | Per-row soft-delete tombstones (`Task`, `Dependency`, `TaskRelation`, `Risk`, `Sprint`; more models from 0.5, see below) in live projects. This is also the window a deleted **task** stays restorable — see [What you can get back](#what-you-can-get-back) |
 | `TRUEPPM_BOARD_EVENT_RETENTION_HOURS` | `24` | hours | WebSocket event-replay buffer (`BoardEvent`) rows (ADR-0236) — see the note below the table |
 
 **One purge coordinator, not many nightly jobs.** The outbox and history tables were
@@ -104,12 +104,16 @@ setting its frequency to `Off` — does not affect it. Tombstones inside an **ar
 project are skipped entirely and retained indefinitely.
 
 :::note[Ships in 0.5]
-In 0.5 the reap will also cover soft-deleted **labels**, **sprint retrospectives**, and
-**time entries**, which today accumulate forever. Labels and sprint retrospectives record no
-deletion timestamp, so their age is measured from the row's last update: a later edit or
-touch resets the clock, which errs toward keeping a tombstone rather than reaping one early.
-Other soft-deletable models (for example project memberships, retro action items, task links,
-and recurrence rules) are still not reaped.
+In 0.5 the reap will also cover soft-deleted **labels**, **sprint retrospectives**, **time
+entries**, **project memberships**, **retro action items**, **task links**, **suggested
+assignees**, and **recurrence rules**, which today accumulate forever. Labels and sprint
+retrospectives record no deletion timestamp, so their age is measured from the row's last
+update: a later edit or touch resets the clock, which errs toward keeping a tombstone rather
+than reaping one early. The other six record when they were deleted. Memberships, action
+items, links, suggested assignees, and recurrence rules will gain that column with the 0.5
+upgrade, which will stamp every row already deleted with the upgrade time: each will be kept
+for one full `TRUEPPM_TOMBSTONE_RETENTION_DAYS` window after the upgrade, then reaped. Calendars are not
+reaped because deleting a calendar removes it outright; it leaves no tombstone.
 :::
 
 :::note[Ships in 0.5]

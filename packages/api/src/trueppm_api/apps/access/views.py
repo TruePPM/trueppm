@@ -146,6 +146,9 @@ def _revive_revoked_membership(
     """
     membership.is_deleted = False
     membership.deleted_version = None
+    if isinstance(membership, ProjectMembership):
+        # The reap clock goes with the tombstone (#2342), as in VersionedModel.restore().
+        membership.deleted_at = None
     membership.reinstated_at = timezone.now()
     if new_role != membership.role:
         membership.role = new_role

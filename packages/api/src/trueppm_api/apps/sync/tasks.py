@@ -146,16 +146,25 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
     Deferred so the function can be called safely after Django app setup
     completes, avoiding circular imports at module load time.
     """
+    from django.apps import apps as django_apps
+
+    from trueppm_api.apps.access.models import ProjectMembership
     from trueppm_api.apps.projects.models import (
         Dependency,
         Label,
+        RetroActionItem,
         Risk,
         Sprint,
         SprintRetro,
         Task,
+        TaskRecurrenceRule,
         TaskRelation,
+        TaskSuggestedAssignee,
     )
     from trueppm_api.apps.timetracking.models import TimeEntry
+
+    # ``integrations`` is a higher layer than ``sync``; a lazy lookup adds no import edge.
+    TaskLink = django_apps.get_model("integrations", "TaskLink")
 
     return [
         # Task: deleted_at is stamped in Task.soft_delete() (mirrors Attachment) —
@@ -225,11 +234,45 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
             {"task__project__is_deleted": False, "task__project__is_archived": False},
             "deleted_at",
         ),
-        # TODO(#2342): NOT yet covered, because no column records WHEN they were deleted and a
-        # created_at/absent age would reap inside the grace window: ProjectMembership,
-        # RetroActionItem, TaskSuggestedAssignee, TaskLink, TaskRecurrenceRule (need a
-        # deleted_at column + migration). Calendar is shared across projects, so it has
-        # no single owner to floor against.
+        # The five below (#2342) carry no ``updated_at``, and ``created_at`` would reap a
+        # long-lived row the day it is deleted, so each gained a ``deleted_at`` column
+        # stamped by VersionedModel.soft_delete() and the set-based cascades. Rows
+        # tombstoned before that column existed were backfilled to the migration's
+        # time, so they get a full retention window from the upgrade, never less.
+        (
+            ProjectMembership,
+            {"project__is_deleted": False, "project__is_archived": False},
+            "deleted_at",
+        ),
+        # RetroActionItem: an item deleted on its own while the retro stays live. A
+        # reaped retro still cascades to its items, as noted above.
+        (
+            RetroActionItem,
+            {
+                "retro__sprint__project__is_deleted": False,
+                "retro__sprint__project__is_archived": False,
+            },
+            "deleted_at",
+        ),
+        (
+            TaskSuggestedAssignee,
+            {"task__project__is_deleted": False, "task__project__is_archived": False},
+            "deleted_at",
+        ),
+        (
+            TaskLink,
+            {"task__project__is_deleted": False, "task__project__is_archived": False},
+            "deleted_at",
+        ),
+        (
+            TaskRecurrenceRule,
+            {"task__project__is_deleted": False, "task__project__is_archived": False},
+            "deleted_at",
+        ),
+        # Calendar is deliberately absent: the API hard-deletes a calendar
+        # (CalendarViewSet.destroy, 409 while anything schedules against it), so no
+        # calendar tombstone exists to reap, and a calendar shared by several projects
+        # has no single owner whose floor a reap could raise.
     ]
 
 
@@ -412,8 +455,11 @@ def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int, bool]
     so every row is filtered by the same lookups whether the collector loaded it
     or queued it as a fast delete.
 
-    Soft-deleting a parent while its children stay live is a separate gap
-    (#4948): those children are not tombstones and the reap never sees them.
+    A task's synced children are tombstoned with it, so they normally arrive here
+    as tombstones. Two live-child cases remain and take the ``live`` path: time
+    entries, which deliberately outlive their task's soft delete (ADR-1324 §2), and
+    the children of a task tombstoned by the project-level cascade, which does not
+    sweep them (#4951).
     """
     from django.db.models import Count, Max, Q
     from django.db.models.deletion import Collector

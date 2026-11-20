@@ -246,6 +246,9 @@ class TaskLink(VersionedModel):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    # Tombstone-reap retention clock (#2342): stamped by VersionedModel.soft_delete()
+    # and the set-based cascades, cleared on restore. Never serialized.
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ("display_order", "id")

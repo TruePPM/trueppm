@@ -13407,6 +13407,8 @@ def _apply_retro_item_diff(
             server_version=db_models.F("server_version") + 1,
             deleted_version=db_models.F("server_version") + 1,
             sync_seq=seq,
+            # The reap's retention clock (#2342) — update() skips soft_delete().
+            deleted_at=timezone.now(),
         )
     if to_update:
         for item in to_update:

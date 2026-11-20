@@ -16,6 +16,7 @@ Key behaviours verified:
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Any
 
 import pytest
 from django.utils import timezone
@@ -430,3 +431,145 @@ def test_reap_covers_label_sprintretro_and_timeentry_with_retention(live_project
     # The floor rose, so a client whose cursor predates the reap is told to resync.
     live_project.refresh_from_db()
     assert live_project.tombstone_floor > 0
+
+
+# ---------------------------------------------------------------------------
+# ProjectMembership / RetroActionItem / task children (#2342)
+# ---------------------------------------------------------------------------
+
+
+def _deleted_at_rows(live_project: Project) -> dict[str, tuple[Any, Any]]:
+    """Two tombstones per newly reaped model, each deleted through its real path.
+
+    ``soft_delete()`` (not a raw ``update()``) so the test also proves the base
+    class stamps the ``deleted_at`` clock these registry entries rely on.
+    """
+    from django.contrib.auth import get_user_model
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.integrations.models import TaskLink
+    from trueppm_api.apps.projects.models import (
+        RetroActionItem,
+        Sprint,
+        SprintRetro,
+        SuggestionState,
+        TaskRecurrenceRule,
+        TaskSuggestedAssignee,
+    )
+
+    User = get_user_model()
+    users = [User.objects.create_user(username=f"reap{i}", password="pw") for i in range(2)]
+    sprint = Sprint.objects.create(
+        project=live_project, name="S", start_date=date(2026, 1, 1), finish_date=date(2026, 1, 14)
+    )
+    retro = SprintRetro.objects.create(sprint=sprint)
+    tasks = [_make_task(live_project) for _ in range(2)]
+    rows: dict[str, tuple[Any, Any]] = {
+        "access.projectmembership": tuple(
+            ProjectMembership.objects.create(project=live_project, user=u, role=Role.MEMBER)
+            for u in users
+        ),
+        "projects.retroactionitem": tuple(
+            RetroActionItem.objects.create(retro=retro, text=f"a{i}") for i in range(2)
+        ),
+        "projects.tasksuggestedassignee": tuple(
+            TaskSuggestedAssignee.objects.create(
+                task=t,
+                suggested_user=users[0],
+                suggested_by=users[0],
+                state=SuggestionState.PENDING,
+            )
+            for t in tasks
+        ),
+        "integrations.tasklink": tuple(
+            TaskLink.objects.create(task=t, url=f"https://x.test/{t.pk}", provider="gitlab")
+            for t in tasks
+        ),
+        "projects.taskrecurrencerule": tuple(
+            TaskRecurrenceRule.objects.create(task=t) for t in tasks
+        ),
+    }
+    for pair in rows.values():
+        for row in pair:
+            row.soft_delete()
+    return rows
+
+
+@pytest.mark.django_db
+def test_reap_covers_memberships_action_items_and_task_children_with_retention(
+    live_project: Project,
+) -> None:
+    """Each newly registered model is reaped past the window and kept inside it,
+    and the reap raises the project floor so a stale cursor is told to resync."""
+    rows = _deleted_at_rows(live_project)
+    old_ago = timezone.now() - timedelta(days=95)
+    reaped_seqs = []
+    for old, new in rows.values():
+        assert new.deleted_at is not None
+        type(old).objects.filter(pk=old.pk).update(deleted_at=old_ago)
+        reaped_seqs.append(type(old).objects.get(pk=old.pk).sync_seq)
+
+    counts = _do_reap(override_days=90)
+
+    for label, (old, new) in rows.items():
+        model = type(old)
+        assert not model.objects.filter(pk=old.pk).exists(), label
+        assert model.objects.filter(pk=new.pk).exists(), label
+        assert counts[label] == 1, (label, counts)
+    # Every reaped row's cursor sits at or below the floor, so a client whose
+    # ``since`` predates any of them is answered ``resync_required`` (#2474).
+    live_project.refresh_from_db()
+    assert min(reaped_seqs) > 0
+    assert live_project.tombstone_floor >= max(reaped_seqs)
+
+
+@pytest.mark.django_db
+def test_reap_skips_null_clock_for_new_models(live_project: Project) -> None:
+    """A tombstone with no ``deleted_at`` (an old pod's write) is kept, never reaped early."""
+    rows = _deleted_at_rows(live_project)
+    for old, _new in rows.values():
+        type(old).objects.filter(pk=old.pk).update(deleted_at=None)
+
+    counts = _do_reap(override_days=0)
+
+    for label, (old, _new) in rows.items():
+        assert type(old).objects.filter(pk=old.pk).exists(), label
+        assert counts[label] == 1, (label, counts)
+
+
+@pytest.mark.django_db
+def test_restore_and_membership_revive_clear_the_reap_clock(live_project: Project) -> None:
+    """``restore()`` and the membership revive path clear ``deleted_at`` with the tombstone,
+    so a later delete restamps a fresh clock instead of reusing a stale one."""
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.views import _revive_revoked_membership
+
+    rows = _deleted_at_rows(live_project)
+    link = rows["integrations.tasklink"][0]
+    link.restore()
+    link.refresh_from_db()
+    assert link.is_deleted is False and link.deleted_at is None
+
+    membership = rows["access.projectmembership"][0]
+    _revive_revoked_membership(membership, new_role=Role.MEMBER)
+    membership.refresh_from_db()
+    assert membership.is_deleted is False and membership.deleted_at is None
+
+
+@pytest.mark.django_db
+def test_retro_item_diff_tombstones_stamp_the_reap_clock(live_project: Project) -> None:
+    """The retro save's set-based tombstones bypass ``soft_delete()`` and stamp the clock."""
+    from trueppm_api.apps.projects.models import RetroActionItem, Sprint, SprintRetro
+    from trueppm_api.apps.projects.views import _apply_retro_item_diff
+
+    sprint = Sprint.objects.create(
+        project=live_project, name="S", start_date=date(2026, 1, 1), finish_date=date(2026, 1, 14)
+    )
+    retro = SprintRetro.objects.create(sprint=sprint)
+    item = RetroActionItem.objects.create(retro=retro, text="drop me")
+
+    _apply_retro_item_diff(retro, live_project.pk, [], [], [item])
+
+    item.refresh_from_db()
+    assert item.is_deleted is True
+    assert item.deleted_at is not None

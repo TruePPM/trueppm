@@ -267,6 +267,11 @@ class ImmutableModelError(Exception):
     """
 
 
+def _has_deleted_at(model: type[models.Model]) -> bool:
+    """Whether ``model`` declares the ``deleted_at`` tombstone-reap clock column."""
+    return any(f.attname == "deleted_at" for f in model._meta.concrete_fields)
+
+
 class VersionedModel(models.Model):
     """Abstract base for all models that participate in offline sync.
 
@@ -497,8 +502,19 @@ class VersionedModel(models.Model):
 
         The row is retained in the database so that the sync endpoint can
         return its ID in the 'deleted' tombstone list to mobile clients.
+
+        A subclass that declares a ``deleted_at`` column gets it stamped here, and
+        cleared again by :meth:`restore` (#2342). That column is the nightly
+        tombstone reap's retention clock (``apps/sync/tasks.py``), so stamping it in
+        the base class means a new synced model cannot be added to the reap registry
+        with a clock its own delete path forgets to set — a NULL clock is never
+        reaped, and a stale one (left by an earlier delete/restore round trip) would
+        reap the row inside the grace window an offline client relies on.
         """
         self.is_deleted = True
+        if _has_deleted_at(type(self)):
+            # setattr: the column is declared per subclass, not on this abstract base.
+            setattr(self, "deleted_at", timezone.now())  # noqa: B010
         # A row being soft-deleted was, by definition, loaded from the DB, so the
         # UPDATE path is known — skip the exists() probe (#1527).
         self.save(known_exists=True)
@@ -521,6 +537,8 @@ class VersionedModel(models.Model):
         """
         self.is_deleted = False
         self.deleted_version = None
+        if _has_deleted_at(type(self)):
+            setattr(self, "deleted_at", None)  # noqa: B010
         self.save(known_exists=True)
 
 
@@ -2174,11 +2192,14 @@ def _task_synced_children() -> list[tuple[Any, tuple[str, ...], bool]]:
     """
     from django.apps import apps as django_apps
 
+    # Every entry carries ``deleted_at`` since #2342: it is the nightly reap's retention
+    # clock, so a cascade that tombstoned a child without stamping it would leave the
+    # child either never reaped (NULL) or reaped on a stale clock from an earlier delete.
     return [
-        (TaskSuggestedAssignee, ("task",), False),
-        (TaskRecurrenceRule, ("task",), False),
+        (TaskSuggestedAssignee, ("task",), True),
+        (TaskRecurrenceRule, ("task",), True),
         (TaskRelation, ("source", "target"), True),
-        (django_apps.get_model("integrations", "TaskLink"), ("task",), False),
+        (django_apps.get_model("integrations", "TaskLink"), ("task",), True),
     ]
 
 
@@ -4894,6 +4915,9 @@ class TaskRecurrenceRule(VersionedModel):
     # Generation cursor — the date through which occurrences have been materialized.
     # Lets the generator resume without rescanning the whole horizon. Null = none yet.
     generated_through = models.DateField(null=True, blank=True)
+    # Tombstone-reap retention clock (#2342): stamped by VersionedModel.soft_delete()
+    # and the set-based cascades, cleared on restore. Never serialized.
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
@@ -6891,6 +6915,9 @@ class RetroActionItem(VersionedModel):
     # so the action item can be re-promoted (ADR-0071 §2 rollback).
     promoted_task_id = models.UUIDField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Tombstone-reap retention clock (#2342): stamped by VersionedModel.soft_delete()
+    # and the set-based cascades, cleared on restore. Never serialized.
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         db_table = "projects_retroactionitem"
@@ -7116,6 +7143,9 @@ class TaskSuggestedAssignee(VersionedModel):
     created_at = models.DateTimeField(auto_now_add=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
     declined_at = models.DateTimeField(null=True, blank=True)
+    # Tombstone-reap retention clock (#2342): stamped by VersionedModel.soft_delete()
+    # and the set-based cascades, cleared on restore. Never serialized.
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         db_table = "projects_tasksuggestedassignee"
