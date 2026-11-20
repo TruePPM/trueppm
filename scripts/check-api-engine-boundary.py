@@ -81,7 +81,7 @@ RULES: dict[str, re.Pattern[str]] = {
         r"|^from(?:np|numpy)(?:\.random)?import(?:random|default_rng)\b|^importnumpy\.random"
     ),
     "stdlib-random": re.compile(
-        r"^(?:importrandom|fromrandomimport)|(?<![\w.])random\.[A-Za-z_]+\("
+        r"(?:^(?:importrandom|fromrandomimport))|(?:(?<![\w.])random\.[A-Za-z_]+\()"
     ),
     "percentile": re.compile(
         r"\b(?:np|numpy)\.(?:nan)?(?:percentile|quantile)\b|\bstatistics\.(?:quantiles|median)\b"

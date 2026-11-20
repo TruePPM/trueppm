@@ -648,9 +648,15 @@ function mapDependency(d: ApiDependency): TaskLink {
  */
 const SCHEDULE_KEYSET_PAGE_SIZE = 500;
 
+/**
+ * Base for parsing a possibly-relative `next` link. Only its query string is read
+ * and nothing is ever fetched from it — `.invalid` cannot resolve (RFC 6761).
+ */
+const NEXT_LINK_PARSE_BASE = 'https://placeholder.invalid';
+
 /** Whether a keyset `next` link carries a non-empty `cursor` parameter. */
 function hasCursor(next: string): boolean {
-  return !!new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
+  return !!new URL(next, NEXT_LINK_PARSE_BASE).searchParams.get('cursor');
 }
 
 /**
@@ -663,7 +669,7 @@ function hasCursor(next: string): boolean {
  */
 export function keysetCursorFromNext(next: string | null): string | null {
   if (next === null) return null;
-  const cursor = new URL(next, 'http://placeholder.invalid').searchParams.get('cursor');
+  const cursor = new URL(next, NEXT_LINK_PARSE_BASE).searchParams.get('cursor');
   if (!cursor) {
     throw new Error('Keyset `next` link carries no cursor');
   }

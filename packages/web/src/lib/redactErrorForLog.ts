@@ -21,7 +21,7 @@ export interface LoggableError {
 /** Strip the origin, query string and fragment: query strings can carry tokens. */
 function pathOnly(url: string): string {
   try {
-    return new URL(url, 'http://placeholder.invalid').pathname;
+    return new URL(url, 'https://placeholder.invalid').pathname;
   } catch {
     return url.split(/[?#]/)[0] ?? '';
   }
