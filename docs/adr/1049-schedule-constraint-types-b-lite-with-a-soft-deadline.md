@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed (2026-09-05). Resolves #3345. Extends ADR-0014 (which chose
+Accepted — status corrected 2026-11-19 (#690 implemented the soft deadline, verified:
+`Task.deadline`, migration `projects/0181_task_deadline`); the constraint-type
+sections stay planned for 0.6 (#1441). Originally proposed 2026-09-05. Resolves #3345. Extends ADR-0014 (which chose
 `planned_start` as the single writable date and gave it start-no-earlier-than
 semantics) and ADR-0021 (MS Project import/export). Re-homes #690 and #804 (the soft
 deadline, 0.5) and narrows #1441 (0.6) from the full MS Project set to the set below.
