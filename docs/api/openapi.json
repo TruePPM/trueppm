@@ -65378,8 +65378,7 @@
                     "diff": {
                         "type": "array",
                         "items": {
-                            "type": "object",
-                            "additionalProperties": {}
+                            "$ref": "#/components/schemas/FieldDiff"
                         },
                         "readOnly": true
                     }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 
@@ -72,6 +73,7 @@ class HistoryRecordSerializer(serializers.Serializer[Any]):
             return None
         return HistoryUserSerializer(user).data
 
+    @extend_schema_field(FieldDiffSerializer(many=True))
     def get_diff(self, obj: Any) -> list[dict[str, Any]]:
         diffs: dict[int, list[dict[str, Any]]] = self.context.get("diffs", {})
         return diffs.get(obj.history_id, [])

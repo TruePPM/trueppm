@@ -48,14 +48,15 @@ Each row tells you, at a glance:
   fields, the rest collapse into *"+N more fields"*.
 - **How many times** — consecutive changes that would read identically (same
   object kind and name, same actor, same fields and values) will fold into one row
-  with a count, e.g. *"×5"*. For readers who cannot see the actor (Members and
-  Viewers), runs by different people fold too, since the actor is not part of
+  with a count, e.g. *"×5"*. For readers who cannot see the actor (readers below
+  Project Manager: Viewers, Team Members, Resource Managers), runs by different
+  people fold too, since the actor is not part of
   what they see. The row shows the newest of them and opens that
   object. A change to anything else in between breaks the run.
 - **When** — a relative time ("5m ago", "2d ago").
-- **Who** — the actor's name, shown to **project admins and owners** only. Members
-  and Viewers see the change itself but not the user, by design (the same rule as
-  Change History).
+- **Who** — the actor's name, shown to **project admins and owners** only. Readers
+  below Project Manager (Viewers, Team Members, Resource Managers) see the change
+  itself but not the user, by design (the same rule as Change History).
 
 Click any row to **jump straight to the affected object** — a task opens its
 detail, a risk opens the Risk register, a sprint opens the sprint list, and a
@@ -110,7 +111,12 @@ entry's kind is `milestone`, `epic`, `story`, `bug`, `spike`, `tech_debt`,
 `mitigation` (linked to a risk), or `task`, and every other source repeats its
 `object_type`. The kind is read from the history row, so an entry reports what the
 object was at that change; the risk link has no history, so `mitigation` reflects
-the link as it stands now. Folding repeats is a display choice of the Activity
+the link as it stands now. A change to a choice field (a status, a type) will also
+carry `old_display` and `new_display`, the current label for each side, e.g.
+`"Not started"` for `NOT_STARTED`. Either key is absent for a non-choice field, a
+null side, or a code that is no longer a choice; the labels come from the current
+code's choices, not from the history row. The per-object history endpoints carry
+the same keys in each `diff` entry. Folding repeats is a display choice of the Activity
 tab: the endpoint returns every row. The cursor is a stable
 keyset (safe to persist, no duplicates or gaps across pages even when writes land
 mid-scroll), which makes the endpoint a reliable substrate for a polling
