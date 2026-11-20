@@ -786,11 +786,16 @@ def capture_project_surface(project: Project, *, workspace: Any = None) -> Proje
     is the whole guarantee, applied once here rather than restated in the diff
     and again in the copy.
     """
+    from .methodology import resolve_effective_methodology
     from .surface_visibility import resolve_effective_visibility
 
     resolved = resolve_effective_visibility(project, workspace=workspace)
     return ProjectSurfaceSnapshot(
-        methodology=str(project.methodology or ""),
+        # EFFECTIVE, not the stored column: a workspace INHERIT flip moves what the
+        # project resolves to without touching its own row (ADR-0107), so a snapshot
+        # of the column would read "unchanged" and the notice would name the wrong
+        # "from" preset. Under SUGGEST the two are identical.
+        methodology=str(resolve_effective_methodology(project, workspace=workspace) or ""),
         visibility={k: v for k, v in resolved.items() if k in ENFORCED_SURFACE_KEYS},
         unenforced={k: v for k, v in resolved.items() if k not in ENFORCED_SURFACE_KEYS},
     )
@@ -971,6 +976,57 @@ def notify_surface_changes(changes: list[SurfaceChange], *, actor: Any) -> None:
         },
         actor=actor,
     )
+
+
+#: Changes per outbox row for a workspace-wide fan-out. A workspace flip can touch
+#: every project in the install, and one row's JSON payload must stay bounded.
+WORKSPACE_FANOUT_CHUNK = 200
+
+
+def capture_workspace_surfaces(workspace: Any) -> dict[Any, ProjectSurfaceSnapshot]:
+    """Snapshot every live project's surface, resolved against ``workspace`` as it is NOW.
+
+    Call before the workspace write: the serializer mutates the instance in place.
+    One streamed query for the projects (no per-row query: the stored methodology is
+    never blank, so resolution never loads the program).
+    """
+    from .models import Project
+
+    return {
+        row.pk: capture_project_surface(row, workspace=workspace)
+        for row in Project.objects.filter(is_deleted=False, is_archived=False).iterator(
+            chunk_size=500
+        )
+    }
+
+
+def notify_workspace_surface_changes(
+    workspace: Any, *, before: dict[Any, ProjectSurfaceSnapshot], actor: Any
+) -> list[str]:
+    """Queue notices for projects whose effective surface moved under a workspace write.
+
+    Goes through the same outbox-then-worker path as every other config notice
+    (#3009): rows are written in the caller's transaction and dispatched on commit,
+    never emitted inside the request. Projects whose effective methodology and
+    visibility did not move produce nothing. Returns the ids that moved so the
+    caller can broadcast ``project_updated``.
+
+    Program-scope methodology edits deliberately have no counterpart: under SUGGEST a
+    project's own NOT-NULL value wins, so a program change moves nothing on any
+    existing project and there is nothing to announce.
+    """
+    from .models import Project
+
+    changes: list[SurfaceChange] = []
+    for row in Project.objects.filter(pk__in=list(before), is_deleted=False).iterator(
+        chunk_size=500
+    ):
+        change = collect_project_surface_change(row, before=before[row.pk], workspace=workspace)
+        if change is not None:
+            changes.append(change)
+    for start in range(0, len(changes), WORKSPACE_FANOUT_CHUNK):
+        notify_surface_changes(changes[start : start + WORKSPACE_FANOUT_CHUNK], actor=actor)
+    return [change.project_id for change in changes]
 
 
 # ---------------------------------------------------------------------------
