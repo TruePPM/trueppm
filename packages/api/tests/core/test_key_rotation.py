@@ -109,8 +109,13 @@ def test_key_in_neither_slot_and_tampered_token_rejected(jwt_key) -> None:
     good = str(AccessToken())
     jwt_key(NEW, [OLD])
     header, payload, sig = good.split(".")
+    # Replace the FIRST signature character: it carries six full bits, so any
+    # different character changes the decoded bytes. Overwriting the tail with a
+    # fixed "AA" was a no-op whenever the signature already ended that way, and the
+    # last character's low bits are padding a lenient decoder ignores.
+    tampered = ("B" if sig[0] == "A" else "A") + sig[1:]
     with pytest.raises(TokenError):
-        AccessToken(f"{header}.{payload}.{sig[:-2]}AA")
+        AccessToken(f"{header}.{payload}.{tampered}")
 
 
 def test_expired_token_under_fallback_stays_expired(jwt_key) -> None:
