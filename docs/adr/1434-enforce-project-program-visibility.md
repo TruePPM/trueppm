@@ -76,6 +76,13 @@ Two facts shape it:
 - A non-member who opens a WORKSPACE project from the list reaches a project whose child
   reads refuse them. The web app has no dedicated "you can see this project but are not a
   member" state yet; that UX is follow-up work.
+- An MCP `mcp:read` token reads as its user, so a workspace member's token also lists
+  and retrieves WORKSPACE project records; the per-project MCP denial filter
+  (`McpReadableViewMixin`) still applies on top.
+- The record a non-member reads is the same `ProjectSerializer` / `ProjectDetailSerializer`
+  / `ProgramSerializer` payload a Viewer reads. Any field later added to those serializers
+  is visible to every workspace member on a WORKSPACE row, so a field that must stay
+  member-only has to be gated on `my_role`, not on the route.
 - The backfill is a bulk `.update()` and does not bump `server_version`, so an offline
   client may show a stale WORKSPACE label until the row next changes. The label is
   display-only on the client; the server decides access.

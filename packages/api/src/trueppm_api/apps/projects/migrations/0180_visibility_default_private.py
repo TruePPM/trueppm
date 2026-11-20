@@ -13,10 +13,12 @@ offline client may show the old WORKSPACE label until the row next changes. The
 label is display-only on the client; the server is the authority on access.
 """
 
+from typing import Any
+
 from django.db import migrations, models
 
 
-def pin_existing_rows_private(apps, schema_editor):
+def pin_existing_rows_private(apps: Any, schema_editor: Any) -> None:
     """Set every existing project and program to PRIVATE (preserves pre-#2066 access)."""
     for model_name in ("Project", "Program"):
         model = apps.get_model("projects", model_name)
