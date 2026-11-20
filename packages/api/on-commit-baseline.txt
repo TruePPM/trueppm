@@ -1,4 +1,4 @@
-# Baseline for scripts/check-on-commit-durability.py (#2473) — a ceiling that can only shrink.
+# Baseline for scripts/check-on-commit-durability.py (#2473) — ratcheted against the merge base; a raise needs a new `# raise-ok: <reason>`.
 # Format:  path (relative to packages/api/src/trueppm_api) | class | max-count | issue | reason
 # class is 'hole' (dispatches Celery with no registered outbox helper) or 'unclassified'.
 # These are the callsites the gate's first run could not classify mechanically. Each is either

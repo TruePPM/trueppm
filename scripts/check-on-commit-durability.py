@@ -32,7 +32,7 @@ fails when that table drifts (``--write-docs`` regenerates it).
 Ratchet. ``hole`` and ``unclassified`` callsites must be covered by an entry in
 ``packages/api/on-commit-baseline.txt``: ``path | class | max-count | issue | reason``.
 A count above the entry fails (a new callsite), a count below it fails too (lower it:
-the list only shrinks), an entry matching nothing fails. Separately, the baseline file is
+the baseline is ratcheted against the merge base; a raise needs a new `# raise-ok: <reason>`), an entry matching nothing fails. Separately, the baseline file is
 compared with its merge-base copy (``git show origin/main:...``, or
 ``CI_MERGE_REQUEST_DIFF_BASE_SHA`` in CI): a raised count or a new entry fails unless the
 entry carries ``# raise-ok: <reason>`` on the line directly above it, honored only while
@@ -309,6 +309,10 @@ def parse_baseline(
             )
         if not re.fullmatch(r"#\d+", issue):
             problems.append(f"{path.name}:{n}: issue must be '#NNNN', got {issue!r}")
+        if (file, cls) in entries:
+            problems.append(
+                f"{path.name}:{n}: duplicate entry for {file} '{cls}' (merge it into one line)"
+            )
         entries[(file, cls)] = (int(count), issue)
     return entries, problems
 
@@ -347,8 +351,9 @@ def baseline_raised(now_text: str, base_text: str | None) -> list[str]:
         if count > was and (key not in marks or key in base_marks):
             errors.append(
                 f"baseline raised: {key[0]} '{key[1]}' {was} -> {count} versus the merge base. "
-                f"The baseline only shrinks; fix the callsite, or put '{RAISE_OK} <reason>' on "
-                "the line above the entry (reviewed in the diff)."
+                "The baseline is ratcheted against the merge base; a raise needs a new "
+                f"'{RAISE_OK} <reason>' on the line above the entry (reviewed in the diff); "
+                "otherwise fix the callsite."
             )
     return errors
 
@@ -428,7 +433,8 @@ def evaluate(
         elif got < allowed:
             errors.append(
                 f"{file}: '{cls}' now has {got} callsite(s) but the baseline says {allowed} — "
-                "lower the count (or delete the entry); the list only shrinks"
+                "lower the count (or delete the entry); the baseline is ratcheted against the "
+                "merge base, and a raise needs a new `# raise-ok: <reason>`"
             )
     return errors
 
@@ -598,6 +604,10 @@ def self_test() -> int:
     spent = "# raise-ok: audited\na.py | hole | 3 | #1 | r\n"
     if not baseline_raised("# raise-ok: audited\na.py | hole | 4 | #1 | r\n", spent):
         failures.append("a raise-ok already at the base was honored again")
+    if not parse_baseline("a.py | hole | 1 | #1 | r\na.py | hole | 2 | #1 | r\n", "b")[
+        1
+    ]:
+        failures.append("a duplicate baseline key was not reported")
     if baseline_raised("a.py | hole | 9 | #1 | r\n", None):
         failures.append("a missing base copy did not skip the check")
 

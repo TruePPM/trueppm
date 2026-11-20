@@ -4198,6 +4198,10 @@ lint:on-commit-durability:
   # and a baseline in packages/api/on-commit-*.txt, ratcheted against its merge-base copy
   # (needs full git history: a raise fails unless the entry carries '# raise-ok: <reason>'). Pure static analysis, ~1s.
   extends: [.api-no-db, .fast-job]
+  variables:
+    # Full history so the merge-base ratchet can read the base copy of
+    # on-commit-baseline.txt (CI_MERGE_REQUEST_DIFF_BASE_SHA); fails closed if unreachable.
+    GIT_DEPTH: "0"
   stage: analyze
   needs:
     - job: ci:build-api-image

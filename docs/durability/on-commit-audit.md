@@ -85,7 +85,7 @@ push and CI run. Current totals are the gate's own output
 (`python3 scripts/check-on-commit-durability.py`), not prose.
 
 Callsites the gate cannot classify mechanically (`hole`, `unclassified`) are listed with
-a reason in `packages/api/on-commit-baseline.txt`, a ceiling that can only shrink.
+a reason in `packages/api/on-commit-baseline.txt`, ratcheted against the merge base; a raise needs a new `# raise-ok: <reason>`.
 **A baselined entry is not an audited-safe entry**: several entries are read and
 row-backed, the rest are simply not yet audited into the registry. Read each entry's
 reason before citing the gate as proof of durability.
