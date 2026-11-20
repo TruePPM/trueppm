@@ -44,7 +44,7 @@ _SLACK_EVENT_META: dict[str, tuple[str, str]] = {
     "task.assigned": ("Task assigned", _SLACK_COLOR),
     "task.assignee_changed": ("Task reassigned", _SLACK_COLOR_NEUTRAL),
     "task.mentioned": ("You were mentioned", _SLACK_COLOR),
-    "task.due_date_changed": ("Task date changed", _SLACK_COLOR_NEUTRAL),
+    "task.due_date_changed": ("Task deadline changed", _SLACK_COLOR_NEUTRAL),
     "dependency.created": ("Dependency added", _SLACK_COLOR_NEUTRAL),
     "dependency.deleted": ("Dependency removed", _SLACK_COLOR_NEUTRAL),
     "schedule.recalculated": ("Schedule recalculated", _SLACK_COLOR_NEUTRAL),

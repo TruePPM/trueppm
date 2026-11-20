@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any
 
 from trueppm_api.apps.msproject.dataclasses import (
@@ -655,6 +656,8 @@ def _build_task_object(
         planned_start=_resolve_planned_start(td),
         actual_start=actual_start,
         actual_finish=actual_finish,
+        # Soft deadline (#690): annotation only, so it carries across verbatim.
+        deadline=date.fromisoformat(td.deadline) if td.deadline else None,
         optimistic_duration=opt,
         most_likely_duration=ml,
         pessimistic_duration=pess,

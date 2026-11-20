@@ -98,6 +98,8 @@ export interface ApiTask {
   dwell_days?: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
+  /** Soft deadline (#690) — annotation only; never moves CPM dates. */
+  deadline?: string | null;
   // CPM late finish (issue #1493) — surfaced so the drag-preview worker can
   // compute the CP-flip badge against real float instead of a baseline/finish
   // proxy. Null until the first CPM run.
@@ -424,6 +426,7 @@ export function mapTask(t: ApiTask): Task {
     dwellDays: t.dwell_days ?? null,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
+    deadline: t.deadline ?? null,
     lateFinish: t.late_finish ?? undefined,
     latestNoteAt: t.latest_note_at ?? null,
     assignees: (t.assignments ?? []).map(

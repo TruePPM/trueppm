@@ -73,6 +73,9 @@ class TaskData:
     # constraint family they are carried across exactly.
     actual_start: str | None = None
     actual_finish: str | None = None
+    # <Deadline> as an ISO date string (#690) — MS Project's soft deadline, which
+    # maps one-to-one onto the annotation-only Task.deadline (ADR-1049 §4).
+    deadline: str | None = None
     predecessor_links: list[PredecessorLinkData] = field(default_factory=list)
     resource_assignments: list[AssignmentData] = field(default_factory=list)
     # Label *names* (not slugs or ids) this task carries, in first-seen order

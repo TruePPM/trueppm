@@ -41,7 +41,7 @@ export const WEBHOOK_EVENT_CATALOG: WebhookEventGroup[] = [
       { id: 'task.assigned', label: 'Task assigned' },
       { id: 'task.assignee_changed', label: 'Task reassigned' },
       { id: 'task.mentioned', label: 'Mentioned in a comment' },
-      { id: 'task.due_date_changed', label: 'Planned date changed' },
+      { id: 'task.due_date_changed', label: 'Deadline changed' },
     ],
   },
   {

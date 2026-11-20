@@ -106,6 +106,27 @@ def test_planned_start_change_notifies_assignee_with_old_new_and_deeplink(
 
 
 @pytest.mark.django_db
+def test_deadline_change_notifies_assignee(
+    client: APIClient,
+    project: Project,
+    bob: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#690: the in-app notice fires on a deadline edit as well as a start move."""
+    task = Task.objects.create(
+        project=project, name="Login API", duration=1, assignee=bob, deadline=date(2026, 6, 20)
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.patch(_task_url(task), {"deadline": "2026-06-27"}, format="json")
+    assert resp.status_code == 200, resp.data
+    notes = _notes(bob, "task.due_date_changed")
+    assert len(notes) == 1
+    assert notes[0].subject == "Deadline changed on Login API"
+    assert "2026-06-20" in notes[0].body
+    assert "2026-06-27" in notes[0].body
+
+
+@pytest.mark.django_db
 def test_no_self_notification_when_assignee_is_actor(
     client: APIClient,
     project: Project,

@@ -123,7 +123,7 @@ OSS fires **19 event types** (a deliberate hard cap):
 | `task.assigned` | A task's assignee transitions from nobody to a user |
 | `task.assignee_changed` | A task is reassigned from one user to another |
 | `task.mentioned` | A new comment mentions a user |
-| `task.due_date_changed` | A task's planned date changes (see note) |
+| `task.due_date_changed` | A task's `deadline` changes (see note) |
 | `dependency.created` | A task link (FS/SS/FF/SF) is created |
 | `dependency.deleted` | A task link is deleted |
 | `schedule.recalculated` | The CPM scheduler completes a recalculation |
@@ -149,8 +149,12 @@ The five `risk.*`, `baseline.*`, and `comment.created` events shipped in **0.4**
 The `sprint.closed` payload carries the completion snapshot (`completed_points`, `completed_task_count`, `goal_outcome`) — this is team velocity. A webhook consumer is external to the team, so these fields are sent only when the team has explicitly shared the `velocity` signal outward (the team raises the `velocity` signal's audience to `program_shared` in the project's signal-privacy settings). Otherwise the three fields are `null` and a `velocity_suppressed: true` marker is added so consumers keep a stable payload shape. The committed plan (`committed_points`, `committed_task_count`) is the team's published plan, not a performance metric, so it is never gated.
 :::
 
-:::caution[`task.due_date_changed` currently tracks `planned_start`]
-`Task` has no dedicated deadline field yet, so this event fires when a task's **planned start** (the PM-committed date) changes. A future release adds a `planned_finish` deadline field and re-binds the event to it; the event name and payload shape stay stable.
+:::caution[Ships in 0.5: `task.due_date_changed` moves from `planned_start` to `deadline`]
+In 0.4 and earlier this event fires when a task's **planned start** changes, and its payload carries `previous_planned_start`.
+
+From 0.5, `Task` has a soft `deadline` field (a committed date that the scheduler does not move or enforce), and the event fires **only** when `deadline` changes: set, moved, or cleared. A `planned_start`-only edit, such as a Gantt drag, no longer fires it. It still fires `task.updated`. The payload carries `deadline` and `previous_deadline` in place of `previous_planned_start`. The event name is unchanged. If you relied on it to hear about start-date moves, subscribe to `task.updated` and compare `planned_start`.
+
+The in-app and email notification of the same name is unaffected for start moves: it fires when `planned_start` **or** `deadline` changes.
 :::
 
 ## Payload shape
@@ -166,6 +170,7 @@ A `generic`-format delivery sends the flat event payload — for task events, th
   "duration": 5,
   "assignee": "7a1f...",
   "planned_start": "2026-05-11",
+  "deadline": null,
   "actual_start": null,
   "actual_finish": null,
   "source": "schedule",

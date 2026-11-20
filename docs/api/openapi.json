@@ -72242,6 +72242,12 @@
                         "writeOnly": true,
                         "nullable": true
                     },
+                    "deadline": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Soft deadline (committed finish date). Annotation only: the scheduler does not read it, so it never moves dates or float. Null means no deadline."
+                    },
                     "actual_start": {
                         "type": "string",
                         "format": "date",
@@ -86438,6 +86444,12 @@
                         "nullable": true,
                         "description": "Start no earlier than (SNET). CPM floor applied during forward pass."
                     },
+                    "deadline": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Soft deadline (committed finish date). Annotation only: the scheduler does not read it, so it never moves dates or float. Null means no deadline."
+                    },
                     "actual_start": {
                         "type": "string",
                         "format": "date",
@@ -88027,6 +88039,12 @@
                         "writeOnly": true,
                         "nullable": true
                     },
+                    "deadline": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Soft deadline (committed finish date). Annotation only: the scheduler does not read it, so it never moves dates or float. Null means no deadline."
+                    },
                     "actual_start": {
                         "type": "string",
                         "format": "date",
@@ -89317,6 +89335,12 @@
                         "writeOnly": true,
                         "nullable": true
                     },
+                    "deadline": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Soft deadline (committed finish date). Annotation only: the scheduler does not read it, so it never moves dates or float. Null means no deadline."
+                    },
                     "actual_start": {
                         "type": "string",
                         "format": "date",
@@ -90081,6 +90105,12 @@
                         "format": "date",
                         "nullable": true,
                         "description": "Start no earlier than (SNET). CPM floor applied during forward pass."
+                    },
+                    "deadline": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Soft deadline (committed finish date). Annotation only: the scheduler does not read it, so it never moves dates or float. Null means no deadline."
                     },
                     "actual_start": {
                         "type": "string",

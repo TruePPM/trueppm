@@ -4519,6 +4519,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "notes",
             "planned_start",
             "planned_finish",
+            # Soft deadline (#690) — a persisted annotation, unlike the write-only
+            # ``planned_finish`` resize input above. Never read by the scheduler.
+            "deadline",
             "actual_start",
             "actual_finish",
             "early_start",

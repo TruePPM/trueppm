@@ -224,6 +224,9 @@ def _add_task_dates(task_el: ET.Element, task: Any, day_end_time: str = "00:00:0
         _sub_text(task_el, "ActualStart", _format_date(task.actual_start, time_of_day))
     if task.actual_finish:
         _sub_text(task_el, "ActualFinish", _format_date(task.actual_finish, time_of_day))
+    # Soft deadline (#690) — MS Project's <Deadline> is the same annotation.
+    if task.deadline:
+        _sub_text(task_el, "Deadline", _format_date(task.deadline))
 
 
 def _add_task_element(

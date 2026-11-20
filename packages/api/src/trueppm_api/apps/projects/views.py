@@ -469,7 +469,9 @@ _VALID_SOURCE = re.compile(r"[a-z_]{1,64}")
 # construction: it is the board's presentation axis over ``status`` and nothing in
 # the engine, the rollup or any export reads it — a card dragged from Review into
 # QA must not cost the project a full reschedule.
-_NON_SCHEDULE_TASK_FIELDS = frozenset({"notes", "name", "board_lane"})
+# ``deadline`` is an annotation the engines never read (#690, ADR-1049 §2), so an
+# edit to it alone must not enqueue a full-project CPM recalc.
+_NON_SCHEDULE_TASK_FIELDS = frozenset({"notes", "name", "board_lane", "deadline"})
 
 # Root-task discriminator — wbs_path matches a single integer with no dot. The
 # Workflow settings (phases) surface edits these and nothing else.
@@ -6216,6 +6218,7 @@ class _TaskUpdateSnapshot:
 
     assignee_id: str | None
     planned_start: str | None
+    deadline: str | None
     sprint_id: str | None
     is_blocked: bool
 
@@ -6224,6 +6227,7 @@ def _snapshot_task_before_update(instance: Task | None) -> _TaskUpdateSnapshot:
     return _TaskUpdateSnapshot(
         assignee_id=str(instance.assignee_id) if instance and instance.assignee_id else None,
         planned_start=str(instance.planned_start) if instance and instance.planned_start else None,
+        deadline=str(instance.deadline) if instance and instance.deadline else None,
         # ADR-0102 §4: the prior sprint link is what lets a *direct* task→sprint link
         # be detected after save and routed through the scope-injection approve-gate
         # when the new sprint is ACTIVE (post-activation injection).
@@ -6435,21 +6439,44 @@ def _emit_due_date_change_events(
 ) -> None:
     """``task.due_date_changed`` webhook plus its targeted and sprint-wide notices.
 
-    The event binds to ``planned_start`` (the PM-committed date) — Task has no
-    dedicated deadline field; #690 rebinds this to ``planned_finish``.
+    The two halves bind to different fields on purpose (#690):
+
+    - The outbound WEBHOOK fires only when ``deadline`` changes. The event name
+      promises a due date, and ``deadline`` is the field that expresses one; until
+      #690 it fired on ``planned_start``, which is a start-no-earlier-than floor.
+    - The in-app/email NOTICES fire when ``planned_start`` OR ``deadline`` changes.
+      A Gantt-drag reschedule moves ``planned_start``, and the assignee must still
+      hear about a deliberate move of their committed work (#497); a deadline edit
+      is the same kind of change.
     """
     new_planned_start = payload["planned_start"]
-    if new_planned_start == before.planned_start:
-        return
+    new_deadline = payload["deadline"]
+    start_moved = new_planned_start != before.planned_start
+    deadline_moved = new_deadline != before.deadline
 
-    date_payload = {**payload, "previous_planned_start": before.planned_start}
-    transaction.on_commit(
-        lambda: _dispatch_webhooks(project_id, "task.due_date_changed", date_payload)
-    )
+    if deadline_moved:
+        date_payload = {**payload, "previous_deadline": before.deadline}
+        transaction.on_commit(
+            lambda: _dispatch_webhooks(project_id, "task.due_date_changed", date_payload)
+        )
+
+    if not (start_moved or deadline_moved):
+        return
 
     task_name = payload["name"]
     new_assignee_id = payload["assignee"]
-    old_label = before.planned_start or "unscheduled"
+    # One sentence per moved field, so a PATCH that moves both says both.
+    changes: list[str] = []
+    if start_moved:
+        changes.append(
+            f"moved from {before.planned_start or 'unscheduled'} to "
+            f"{new_planned_start or 'unscheduled'}"
+        )
+    if deadline_moved:
+        changes.append(
+            f"deadline changed from {before.deadline or 'none'} to {new_deadline or 'none'}"
+        )
+    change_text = " and ".join(changes)
 
     # Notify the task's current assignee (the owner of the work), if any. #497:
     # carry both old and new dates and deep-link to the task — a Confirmed
@@ -6457,8 +6484,12 @@ def _emit_due_date_change_events(
     # someone else's committed work, and they must learn of it as a targeted
     # signal, not a generic feed entry.
     if new_assignee_id is not None and new_assignee_id != actor_id:
-        d_subj = f"Planned start changed on {task_name}"
-        d_body = f'"{task_name}" moved from {old_label} to {new_planned_start}.'
+        d_subj = (
+            f"Planned start changed on {task_name}"
+            if start_moved
+            else f"Deadline changed on {task_name}"
+        )
+        d_body = f'"{task_name}" {change_text}.'
         d_rcpt = new_assignee_id
         transaction.on_commit(
             lambda: _notify_event(
@@ -6481,7 +6512,7 @@ def _emit_due_date_change_events(
 
     s_name = sprint.name
     s_subj = f"{task_name} rescheduled in {s_name}"
-    s_body = f'"{task_name}" in sprint {s_name} moved from {old_label} to {new_planned_start}.'
+    s_body = f'"{task_name}" in sprint {s_name} {change_text}.'
     transaction.on_commit(
         lambda: _notify_event(
             "sprint.task_rescheduled", team_ids, s_subj, s_body, project_id, task_id=task_id
@@ -12889,6 +12920,7 @@ def _task_webhook_payload(task: Task, source: str = "unknown") -> dict:  # type:
         "duration": task.duration,
         "assignee": str(task.assignee_id) if task.assignee_id else None,
         "planned_start": str(task.planned_start) if task.planned_start else None,
+        "deadline": str(task.deadline) if task.deadline else None,
         "actual_start": str(task.actual_start) if task.actual_start else None,
         "actual_finish": str(task.actual_finish) if task.actual_finish else None,
         "source": source,

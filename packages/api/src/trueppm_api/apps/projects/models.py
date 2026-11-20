@@ -3960,6 +3960,22 @@ class Task(VersionedModel):
         help_text="Start no earlier than (SNET). CPM floor applied during forward pass.",
     )
 
+    # Soft deadline (#690, ADR-1049 §2) — the date the PM committed to, distinct from
+    # the CPM-computed ``early_finish``. Deliberately an ANNOTATION: neither engine
+    # reads it, so it never moves a date or changes float. It drives the "past
+    # deadline" reading in the task drawer and the outbound ``task.due_date_changed``
+    # webhook. Feeding it into the backward pass as a reporting ceiling (negative
+    # float) is #804. Not named ``planned_finish``: that key is already the write-only
+    # Gantt-resize input on the task serializer (#951), which derives ``duration``.
+    deadline = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Soft deadline (committed finish date). Annotation only: the scheduler does "
+            "not read it, so it never moves dates or float. Null means no deadline."
+        ),
+    )
+
     # CPM output fields — populated by the scheduling Celery task.
     #
     # ADR-1152 (#3578) makes their contract TOTAL: each is non-null if and only if

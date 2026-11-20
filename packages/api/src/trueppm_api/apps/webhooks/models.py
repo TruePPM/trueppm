@@ -23,9 +23,8 @@ class WebhookEventType(models.TextChoices):
     DEPENDENCY_DELETED = "dependency.deleted", "Dependency Deleted"
     SCHEDULE_RECALCULATED = "schedule.recalculated", "Schedule Recalculated"
     PROJECT_CREATED = "project.created", "Project Created"
-    # Four new task events added in #638 (ADR-0083). task.due_date_changed
-    # currently fires on planned_start changes — #690 rebinds it to a dedicated
-    # planned_finish deadline field.
+    # Four new task events added in #638 (ADR-0083). task.due_date_changed fires
+    # on Task.deadline changes; before 0.5 (#690) it fired on planned_start.
     TASK_ASSIGNED = "task.assigned", "Task Assigned"
     TASK_ASSIGNEE_CHANGED = "task.assignee_changed", "Task Assignee Changed"
     TASK_MENTIONED = "task.mentioned", "Task Mentioned"

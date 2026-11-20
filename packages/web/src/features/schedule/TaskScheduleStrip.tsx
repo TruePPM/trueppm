@@ -25,6 +25,7 @@ import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt
 import { useCommitStartOrTodo } from './useCommitStartOrTodo';
 import { startCommitAnnouncement, startCommitClause } from './startCommitDisclosure';
 import { isMissingCommittedStart, isStartComputed } from './missingCommittedStart';
+import { deadlineSlipDays } from '@/lib/deadlineVariance';
 
 /**
  * Format an ISO date (YYYY-MM-DD) as "Mon D", omitting the year when it is the
@@ -511,6 +512,59 @@ function RemainingDurationChip({ remaining }: { remaining: number }) {
 }
 
 /**
+ * The soft-deadline row (#690, ADR-1049 §2) under the 4-up grid — a variance
+ * row, not a fifth cell: the four-up strip has no width left for one (see the
+ * free-float note in the Float cell). The deadline is the date the PM committed
+ * to, so it sits beside the CPM finish rather than replacing it, and when the
+ * forecast finish is later the row says by how much in plain words — the
+ * sentence a PM is asked for, without having to read float.
+ *
+ * Read-only viewers see the row only when a deadline is set; an editor always
+ * sees it, because the empty date input IS the affordance for adding one. The
+ * native date input commits on change (a deadline is an annotation, so the
+ * write triggers no recompute and there is nothing to stage).
+ */
+function DeadlineRow({ task, onCommit }: { task: Task; onCommit?: (iso: string | null) => void }) {
+  const deadline = task.deadline ?? null;
+  if (!deadline && !onCommit) return null;
+  const slip = deadlineSlipDays(task);
+  return (
+    <div
+      role="group"
+      aria-label="Deadline"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3.5 py-2 border-t border-neutral-border"
+    >
+      <span className="text-xs tracking-wider uppercase text-neutral-text-secondary">Deadline</span>
+      {onCommit ? (
+        <input
+          type="date"
+          aria-label="Deadline"
+          value={deadline ?? ''}
+          onChange={(e) => {
+            const next = e.target.value || null;
+            if (next !== deadline) onCommit(next);
+          }}
+          className="tppm-mono text-sm min-h-11 md:min-h-0 px-1.5 py-0.5 rounded-sm bg-neutral-surface
+            text-neutral-text-primary border border-neutral-border
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+            focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
+        />
+      ) : (
+        <span className="tppm-mono text-sm font-semibold text-neutral-text-primary">
+          {formatDate(deadline as string)}
+        </span>
+      )}
+      {slip !== null && (
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-semantic-critical">
+          <WarningIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {slip} {slip === 1 ? 'day' : 'days'} past deadline
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * Pure render of the bordered vitals frame — Start · Finish · {duration slot} ·
  * Float, plus an optional below-grid slot (inline error / recalc prompt) and the
  * critical-path banner. Calls no data hooks, so the read-only strip stays
@@ -521,10 +575,13 @@ function StripFrame({
   durationCell,
   belowGrid,
   startComputed = false,
+  onDeadlineCommit,
 }: {
   task: Task;
   durationCell: ReactNode | null;
   belowGrid?: ReactNode;
+  /** Present only on the editable strip: turns the deadline into a date input. */
+  onDeadlineCommit?: (iso: string | null) => void;
   /**
    * The Start value is CPM-computed, not a committed date (#2314) — render it
    * with the computed cue so this cell stops silently contradicting the
@@ -662,6 +719,8 @@ function StripFrame({
           )}
         </Cell>
       </div>
+
+      <DeadlineRow task={task} onCommit={onDeadlineCommit} />
 
       {belowGrid}
 
@@ -954,6 +1013,18 @@ function EditableStrip({
     );
   };
 
+  const commitDeadline = (iso: string | null) => {
+    setError(null);
+    updateTask.mutate(
+      { id: task.id, projectId, deadline: iso },
+      {
+        onSuccess: () =>
+          setLive(iso ? `Deadline set to ${fmtUtcShort(iso)}.` : 'Deadline cleared.'),
+        onError: () => setError('Could not update the deadline.'),
+      },
+    );
+  };
+
   const belowGrid = (
     <>
       {isMissingCommittedStart(task) ? (
@@ -1010,6 +1081,7 @@ function EditableStrip({
           />
         }
         belowGrid={belowGrid}
+        onDeadlineCommit={commitDeadline}
       />
       <div role="status" aria-live="polite" className="sr-only">
         {live}
