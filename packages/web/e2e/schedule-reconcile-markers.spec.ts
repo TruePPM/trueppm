@@ -303,4 +303,63 @@ test.describe('Schedule reconciliation — refusals (#2725)', () => {
     sendTruncated(ws);
     await expect(panel).toBeVisible();
   });
+
+  // #2598: a critical-path edit re-anchors late dates and float on the whole
+  // network but moves few bars. The server now ships those bars in full and the
+  // float-only rows compact (`float_tasks`) instead of truncating, so the panel
+  // can LIST the moved bar — the case #3158 left as a bare count.
+  test('a split CPM delta itemizes the moved bar in the reforecast panel', async ({ page }) => {
+    let socket: WebSocketRoute | undefined;
+    await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+      socket = ws;
+    });
+
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Spec freeze')).toBeVisible();
+    await expect.poll(() => socket !== undefined, { timeout: 10_000 }).toBe(true);
+    if (!socket) throw new Error('expected the project WebSocket to have connected');
+
+    socket.send(
+      JSON.stringify({
+        protocol_version: 1,
+        event_type: 'task_dates_updated',
+        payload: {
+          count: 1288,
+          tasks: [
+            {
+              id: 'ms1',
+              early_start: SERVER,
+              early_finish: SERVER,
+              late_start: SERVER,
+              late_finish: SERVER,
+              total_float: 0,
+              free_float: 0,
+              is_critical: true,
+              planned_start: SERVER,
+              duration: 0,
+            },
+          ],
+          float_tasks: [['ph1', '2026-09-04', AUTHORED, 3, 0]],
+        },
+        seq: null,
+      }),
+    );
+
+    const panel = page.getByRole('region', { name: 'What moved and why' });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole('listitem').filter({ hasText: 'Spec freeze' })).toBeVisible();
+    // Itemized, not the unitemized count the truncated branch falls back to.
+    await expect(page.getByTestId('reforecast-unitemized')).toHaveCount(0);
+    // The float-only phase moved no bar, so it is not listed as moved.
+    await expect(panel.getByRole('listitem').filter({ hasText: 'Discovery' })).toHaveCount(0);
+    // Discriminating assertion: the compact float row was SPLICED into the
+    // cache. A client that ignores `float_tasks` (or truncates) leaves the
+    // phase's float at its pre-CPM em dash.
+    await expect(
+      page
+        .getByRole('row')
+        .filter({ hasText: 'Discovery' })
+        .getByRole('gridcell', { name: 'Total float: 3 working days' }),
+    ).toHaveText('3d');
+  });
 });

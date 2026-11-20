@@ -299,3 +299,50 @@ class TestProgramWriteBack:
         row = _delta_row(broadcasts, b_leaf.pk)
         assert row is not None, "fixture premise: the leaf moved and was broadcast"
         assert row["duration"] == 9
+
+    def test_program_split_delta_carries_floats_and_committed_bar_values(
+        self,
+        calendar: Calendar,
+        during_recalc: Callable[[Callable[[], Any]], list[Any]],
+        broadcasts: list[tuple[str, str, dict[str, Any]]],
+    ) -> None:
+        """The program pass splits a critical-path delta like the single-project pass (#2598).
+
+        ``_run_program_schedule`` hands ``float_only_ids`` to both
+        ``_bulk_write_cpm_results`` and ``_register_program_broadcasts``; the parameter
+        defaults to an empty set, so dropping either argument would silently revert
+        program passes to ``truncated``. A side task with float makes the edit move
+        late dates / float without moving a bar; the cap is patched below the moved
+        count so the split engages on a small fixture.
+        """
+        program, _phase_a, a_leaf, _b_leaf = self._program(calendar)
+        proj_a = Project.objects.get(pk=a_leaf.project_id)
+        side = Task.objects.create(project=proj_a, name="Side", duration=2, wbs_path="2")
+        sched_tasks._run_program_schedule(str(program.pk))  # warm: every row has CPM output
+
+        a_leaf.refresh_from_db()
+        a_leaf.duration = 15  # critical-path edit: the program finish moves
+        a_leaf.save()
+        broadcasts.clear()
+        committed_start = date(2026, 1, 7)
+
+        def _commit_planned_start() -> None:
+            row = Task.objects.get(pk=a_leaf.pk)
+            row.planned_start = committed_start
+            row.save()
+
+        during_recalc(_commit_planned_start)
+        with mock.patch.object(sched_tasks, "CPM_DELTA_BROADCAST_CAP", 2):
+            sched_tasks._run_program_schedule(str(program.pk))
+
+        payload = next(
+            p
+            for pid, event, p in broadcasts
+            if event == "task_dates_updated" and pid == str(proj_a.pk)
+        )
+        assert "truncated" not in payload, "the program pass must split, not truncate"
+        float_ids = {row[0] for row in payload["float_tasks"]}
+        assert str(side.pk) in float_ids
+        row = _delta_row(broadcasts, a_leaf.pk)
+        assert row is not None, "fixture premise: the edited leaf's bar moved"
+        assert row["planned_start"] == committed_start.isoformat()

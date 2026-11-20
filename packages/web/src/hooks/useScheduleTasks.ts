@@ -623,6 +623,55 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
   };
 }
 
+/**
+ * One float-only row of a split `task_dates_updated` delta (ADR-0091, #2598):
+ * `[id, late_start, late_finish, total_float, free_float]`, positional and
+ * append-only. The server ships a row here only when its bar did not move —
+ * the backward pass re-anchored its late dates and float on a project-finish
+ * shift — so splicing it touches nothing a bar is drawn from.
+ */
+export type TaskFloatDeltaRow = [
+  id: string,
+  lateStart: string | null,
+  lateFinish: string | null,
+  totalFloat: number | null,
+  freeFloat: number | null,
+];
+
+/**
+ * Narrow a split delta's `float_tasks` array to well-formed rows, dropping any
+ * row whose id is not a string. Unknown trailing columns are ignored, so a
+ * server that appends a column does not break an older client.
+ */
+export function parseTaskFloatDeltaRows(raw: unknown): TaskFloatDeltaRow[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: TaskFloatDeltaRow[] = [];
+  for (const r of raw as unknown[]) {
+    if (!Array.isArray(r) || typeof r[0] !== 'string') continue;
+    const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+    const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+    rows.push([r[0], str(r[1]), str(r[2]), num(r[3]), num(r[4])]);
+  }
+  return rows;
+}
+
+/**
+ * Splice a float-only delta row into a cached {@link Task}: total float, free
+ * float and late finish — the fields {@link applyTaskDatesDelta} sets from a
+ * full row's late/float columns — and nothing else. Bar geometry, criticality
+ * and the baseline variance are untouched because the server only sends a row
+ * here when none of them moved.
+ */
+export function applyTaskFloatDelta(existing: Task, row: TaskFloatDeltaRow): Task {
+  const [, , lateFinish, totalFloat, freeFloat] = row;
+  return {
+    ...existing,
+    totalFloat,
+    freeFloat,
+    lateFinish: lateFinish ?? undefined,
+  };
+}
+
 function mapDependency(d: ApiDependency): TaskLink {
   return {
     id: d.id,

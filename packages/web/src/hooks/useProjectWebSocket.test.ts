@@ -470,9 +470,11 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
       ([f]) => typeof (f as { predicate?: unknown })?.predicate === 'function',
     );
     expect(predicateCall).toBeDefined();
-    const pred = (predicateCall![0] as unknown as {
-      predicate: (q: { queryKey: unknown[] }) => boolean;
-    }).predicate;
+    const pred = (
+      predicateCall![0] as unknown as {
+        predicate: (q: { queryKey: unknown[] }) => boolean;
+      }
+    ).predicate;
     expect(pred({ queryKey: ['sprint', 'sp-1', 'burndown'] })).toBe(true);
     expect(pred({ queryKey: ['sprint', 'sp-1', 'retro'] })).toBe(false);
   });
@@ -1367,6 +1369,104 @@ describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
     });
     // t2 was not in the delta, so nothing was observed for it and nothing marked.
     expect(entries['t2:start']).toBeUndefined();
+  });
+
+  // #2598 — a critical-path edit's split delta: the bar row ships in full
+  // (`tasks`), the rows whose only change is re-anchored late dates / float ship
+  // compact (`float_tasks`). Both must land without a re-fetch, and the bar row
+  // must still reach reconciliation with its previous value (#3158).
+  it('splices a split delta: full bar rows plus compact float-only rows', () => {
+    seedTasks();
+    useReconcileStore.setState({ projectId: 'proj-1', entries: {} });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({
+      count: 2,
+      tasks: [
+        {
+          id: 't1',
+          early_start: '2026-10-05',
+          early_finish: '2026-10-19',
+          late_start: '2026-10-05',
+          late_finish: '2026-10-19',
+          total_float: 0,
+          free_float: 0,
+          is_critical: true,
+          planned_start: null,
+          duration: 12,
+        },
+      ],
+      float_tasks: [['t2', '2026-10-20', '2026-10-24', 4, 3]],
+    });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+
+    const cached = qc.getQueryData(['tasks', 'proj-1']) as Array<Record<string, unknown>>;
+    const t1 = cached.find((t) => t.id === 't1')!;
+    expect(t1.finish).toBe('2026-10-19');
+    const t2 = cached.find((t) => t.id === 't2')!;
+    expect(t2.totalFloat).toBe(4);
+    expect(t2.freeFloat).toBe(3);
+    expect(t2.lateFinish).toBe('2026-10-24');
+    // The float-only row's bar is untouched.
+    expect(t2.start).toBe('2026-10-16');
+    expect(t2.finish).toBe('2026-10-20');
+
+    const entries = useReconcileStore.getState().entries;
+    expect(entries['t1:finish']).toMatchObject({ status: 'cascade', actual: '2026-10-19' });
+    // A float-only row moved no bar, so it opens no reconcile entry.
+    expect(entries['t2:start']).toBeUndefined();
+    expect(entries['t2:finish']).toBeUndefined();
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('splices the bar rows and re-fetches for float when float_truncated is set', () => {
+    seedTasks();
+    useReconcileStore.setState({ projectId: 'proj-1', entries: {} });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({
+      count: 9000,
+      tasks: [
+        {
+          id: 't1',
+          early_start: '2026-10-05',
+          early_finish: '2026-10-19',
+          late_start: '2026-10-05',
+          late_finish: '2026-10-19',
+          total_float: 0,
+          free_float: 0,
+          is_critical: true,
+          planned_start: null,
+          duration: 12,
+        },
+      ],
+      float_truncated: true,
+    });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+
+    const cached = qc.getQueryData(['tasks', 'proj-1']) as Array<Record<string, unknown>>;
+    expect(cached.find((t) => t.id === 't1')!.finish).toBe('2026-10-19');
+    // The bar row still explains itself — unlike the fully truncated branch.
+    expect(useReconcileStore.getState().entries['t1:finish']).toMatchObject({
+      status: 'cascade',
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('ignores malformed float_tasks rows instead of throwing', () => {
+    seedTasks();
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ count: 1, tasks: [], float_tasks: [null, [42, 'x'], 'junk'] });
+
+    const cached = qc.getQueryData(['tasks', 'proj-1']) as Array<Record<string, unknown>>;
+    expect(cached.find((t) => t.id === 't2')!.totalFloat).toBe(2);
   });
 
   // #4203: the delta carries no working-time baseline variance, so a splice that

@@ -9,7 +9,7 @@
  *   task_run_cancelled → taskRunStore.cancelRun()
  *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated,
  *                       except `dates_changed: true` on the data-date arming run, which invalidates tasks)
- *   task_dates_updated → splice per-task CPM date deltas into the tasks cache; truncated payload → invalidate (ADR-0091)
+ *   task_dates_updated → splice per-task CPM date deltas (and a split delta's compact float_tasks) into the tasks cache; truncated payload → invalidate (ADR-0091)
  *                        and record the moved count for the reforecast panel (#3158)
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
  *   project_calendar_changed → invalidate project (scheduling_calendar) + calendars
@@ -97,7 +97,12 @@ import {
   WS_CLOSE_FORBIDDEN,
   WS_CLOSE_UNAUTHENTICATED,
 } from '@/stores/wsConnectionStore';
-import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
+import {
+  applyTaskDatesDelta,
+  applyTaskFloatDelta,
+  parseTaskFloatDeltaRows,
+  type TaskDatesDelta,
+} from '@/hooks/useScheduleTasks';
 import { needsBaselineVarianceRefetch } from '@/lib/baselineFinishVariance';
 import { fetchWsTicket } from '@/api/wsTicket';
 import {
@@ -457,13 +462,22 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
       useReconcileStore.getState().recordUnitemizedRun(unitemizedRunCount(payload.count));
     } else if (Array.isArray(payload.tasks)) {
       const deltas = payload.tasks as unknown as TaskDatesDelta[];
-      if (deltas.length > 0) {
+      // Split delta (#2598): rows whose only change is late dates / float — a
+      // critical-path edit re-anchors them network-wide without moving a bar —
+      // arrive compact in `float_tasks`. They move no bar, so they open no
+      // reconcile observation; the bar rows in `tasks` still do, which is what
+      // keeps the reforecast panel able to explain a critical-path edit.
+      const floatRows = new Map(parseTaskFloatDeltaRows(payload.float_tasks).map((r) => [r[0], r]));
+      if (deltas.length > 0 || floatRows.size > 0) {
         const byId = new Map(deltas.map((d) => [d.id, d]));
         const observations: ReconcileObservation[] = [];
         queryClient.setQueryData<Task[]>(['tasks', projectIdRef.current], (old) =>
           old?.map((t) => {
             const delta = byId.get(t.id);
-            if (!delta) return t;
+            if (!delta) {
+              const floatRow = floatRows.get(t.id);
+              return floatRow ? applyTaskFloatDelta(t, floatRow) : t;
+            }
             const next = applyTaskDatesDelta(t, delta);
             // ADR-0784 §D3: this is the LIVE reconciliation path — the moment a
             // CPM result overwrites a local preview. Observe the spliced values
@@ -506,7 +520,11 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
       // only the delta rows: the dragged row's delta may equal its optimistic
       // finish and not be the row that changed here.
       const rows = queryClient.getQueryData<Task[]>(['tasks', projectIdRef.current]);
-      if (rows?.some(needsBaselineVarianceRefetch)) scheduleInvalidate('tasks');
+      // `float_truncated`: the bars above were spliced, but too many rows' float
+      // re-anchored to ship even compactly, so re-read for float alone (#2598).
+      if (payload.float_truncated === true || rows?.some(needsBaselineVarianceRefetch)) {
+        scheduleInvalidate('tasks');
+      }
     }
   });
 }

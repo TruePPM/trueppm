@@ -148,10 +148,12 @@ export function announcement(
  *
  * Never "N tasks moved". The frame's `count` is the server's moved set, which
  * counts a row whose late dates or float changed as well as one whose bar moved
- * (`_CPM_DELTA_FIELDS`). On the common trigger — a critical-path edit — that
- * marks every row while a handful of bars move (#2598 measured 2,000 of 2,000
- * against 10), so "moved" would overstate by orders of magnitude. The copy says
- * "dates or float" so the number is claimed only for what it measures.
+ * (`_CPM_DELTA_FIELDS`). A critical-path edit marks every row while a handful of
+ * bars move (#2598 measured 2,000 of 2,000 against 10), so "moved" would
+ * overstate by orders of magnitude. The server now splits that case (more than
+ * 500 moved BARS is what truncates), but the count can still include float-only
+ * rows, so the copy says "dates or float" to claim the number only for what it
+ * measures.
  */
 export function unitemizedRunSentence(count: number | null): string {
   if (count === null) return 'A recalculation changed more tasks than can be listed here.';

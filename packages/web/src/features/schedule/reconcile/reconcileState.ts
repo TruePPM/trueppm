@@ -126,7 +126,8 @@ export const CASCADE_MAX_ENTRIES = 200;
  * A `task_dates_updated` frame with `truncated: true` carries the server's
  * moved-set COUNT and nothing else — no ids, no old values. That set includes
  * rows whose late dates or float alone changed, so it is NOT a count of moved
- * bars (#2598). The client re-fetches, and the re-fetch goes through the
+ * bars (#2598). The server truncates only when more than 500 BARS moved (a
+ * critical-path edit alone now splits instead). The client re-fetches, and the re-fetch goes through the
  * full-snapshot path, which must not open cascade entries (see
  * {@link ReconcileObservation.previous}). So the only true statement available
  * is "the schedule of N tasks changed and this run cannot be listed". This record is that
