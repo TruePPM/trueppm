@@ -30,8 +30,9 @@ scripts/update-semgrep-rules.sh
 git add .semgrep && git commit -m "chore(ci): refresh vendored Semgrep rule packs"
 ```
 
-Refresh on a documented cadence — e.g. once per dot-release, alongside the
-dependency and image-digest refresh — to pick up upstream rule improvements. The
+A scheduled CI job (`semgrep:refresh-mr`, weekly cadence on the nightly
+schedule) runs the script and opens an MR with the new packs; see
+`docs/harness/flaky-ledger.md`. You can also refresh by hand at any time. The
 pack list in the script and the `--config` flags in `.gitlab-ci.yml`
 (`security:semgrep`) must stay in lockstep.
 
