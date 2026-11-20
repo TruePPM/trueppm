@@ -14,10 +14,10 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 
-# Share of collected tests allowed to lack a recorded duration. Right after
-# the #5084 regeneration 3.4% (528 of 15,641) were already missing, so 20%
-# leaves ample slack before the guard asks for a refresh while still tripping
-# long before the 86%-missing state that prompted #5084.
+# Share of collected tests allowed to lack a recorded duration. Right after the
+# #5084 regeneration under 0.1% were missing (15 of ~16,700, all tests added by
+# that branch), so 20% leaves ample slack before the guard asks for a refresh
+# while still tripping long before the 86%-missing state that prompted #5084.
 MAX_MISSING_SHARE = 0.20
 
 

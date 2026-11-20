@@ -6021,15 +6021,15 @@ api:test-durations:
   # artifact. allow_failure keeps a slow or flaky full-suite run from ever
   # blocking an MR.
   #
-  # DO NOT refresh the committed baseline to fix an imbalanced shard (#3389,
-  # !2308). Measured 2026-09-04 on the same runner: the shard that gates the
+  # History: #3389 / !2308 measured the opposite of what a fresh baseline is
+  # supposed to do. On 2026-09-04, on the same runner, the shard that gates the
   # test stage went 798s -> 968s after a freshly generated baseline was
-  # committed. Two structural reasons, neither fixed by regenerating more often:
+  # committed. Two reasons were given, neither fixed by regenerating more often:
   #
   #   - This job measures a SERIAL run WITHOUT coverage (see above); api:test
   #     runs sharded, -n 4, with --cov. Balancing the second on the first
   #     misallocates, and a MORE accurate baseline misallocates more
-  #     confidently. The stale 17%-coverage file was accidentally protective:
+  #     confidently. The old 17%-coverage file was accidentally protective:
   #     pytest-split gave the other 83% a fallback average, which made the
   #     split approximately count-based.
   #   - The dominant cost is teardown, and it is not stable run to run. On one
@@ -6039,10 +6039,19 @@ api:test-durations:
   #     pytest-split does record setup+teardown, not just call — but no static
   #     file captured from a single run can encode a value that moves 10x.
   #
+  # #5084 re-tests that conclusion: the baseline is regenerated and api:test
+  # now fails when over 20% of tests have no entry (packages/api/conftest.py).
+  # api:test has since gained --reuse-db, which may remove the teardown
+  # misattribution above; that is unproven. Before the change, over the 8
+  # main pipelines up to cc36f78c3, the slowest api:test shard had a median of
+  # 520s and the slowest-minus-fastest spread a median of 390s. REVERT
+  # CRITERION: revert the baseline commit, and the guard with it, if after
+  # merge the median slowest api:test shard over 5+ main pipelines is worse
+  # than 520s.
+  #
   # Read --durations=25 on the slow shard's own log first (added to api:test in
   # !2309); it names the tail directly instead of requiring the split to be
-  # reconstructed offline. Regenerate this baseline for a genuine change in the
-  # suite's shape, not as a remedy for one slow shard.
+  # reconstructed offline.
   #
   # If you do recommit the artifact, FLATTEN THE FIRST-TEST OUTLIER. Whichever
   # test runs first under django_db absorbs the session test-database clone, so
@@ -6052,6 +6061,22 @@ api:test-durations:
   # spends. Replace the entry with the median of the other tests in the same
   # file. Sanity check: a genuine slow test is a query-count or N+1 guard at
   # 5-8s, never 60.
+  #
+  # The serial run that produced the committed baseline took 2767s (46 min,
+  # job 18220572428) and grows with the suite; pytest-split writes the file only
+  # at sessionfinish, so a run killed by the 60 min project default yields no
+  # artifact — and the api:test guard tells people to play this job. Give it
+  # real headroom, and do not retry a timeout: default.retry would rerun
+  # stuck_or_timeout_failure twice (3 x the ceiling) with the guard red meanwhile.
+  timeout: 120m
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - api_failure
+      - scheduler_failure
+      - stale_schedule
+      - data_integrity_failure
   extends: .api
   stage: test
   needs:

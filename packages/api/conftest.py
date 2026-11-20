@@ -69,6 +69,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     raise pytest.UsageError(message)
 
 
+@pytest.hookimpl(optionalhook=True)
 def pytest_testnodedown(node: object, error: object) -> None:
     """Controller side: remember the guard message a worker handed back."""
     message = getattr(node, "workeroutput", {}).get(_GUARD_KEY)

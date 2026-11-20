@@ -285,11 +285,12 @@ testpaths = ["tests"]
 # --timeout=180: a per-test wall-clock ceiling so a wedged test fails with its
 # own name and stack instead of stalling the run until the CI job timeout, which
 # names nothing (#3390). The ceiling is deliberately far outside normal
-# variance. Two measurements bound it: the slowest genuine test is 8.14s in a
-# freshly generated duration baseline (the 10.43s max in the older committed
-# baseline is the same session-setup artifact described on the
-# api:test-durations job, not a slow test), and the longest deliberate sleep in
-# the suite is 3s. The timer wraps setup+call+teardown, so a session fixture is
+# variance. Two measurements bound it: the slowest genuine test in the
+# duration baseline regenerated in #5084 is tests/apps/access/
+# test_route_table_invariants.py at 108.2s (66.9s and four near 30s beside it;
+# serial, no coverage, no django_db), so under --cov and xdist contention that
+# test has far less headroom against 180s than the original 8.14s figure
+# implied; and the longest deliberate sleep in the suite is 3s. The timer wraps setup+call+teardown, so a session fixture is
 # charged to the first test — measured worst case is a cold --create-db
 # replaying all 315 migrations at 19.9s, still 9x under the ceiling. The
 # testcontainers Postgres boot happens in pytest_configure, outside the timer

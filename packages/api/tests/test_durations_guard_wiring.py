@@ -88,10 +88,24 @@ def test_complete_file_passes_under_xdist(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
-def test_inactive_without_splits(tmp_path: Path) -> None:
+@pytest.mark.parametrize("extra", [["-n", "2"], ["-p", "no:xdist"]])
+def test_inactive_without_splits(tmp_path: Path, extra: list[str]) -> None:
     root = _scratch(tmp_path)
-    proc = _run(root, "-n", "2", "--durations-path", str(tmp_path / "nope"))
+    proc = _run(root, *extra, "--durations-path", str(tmp_path / "nope"))
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_serial_without_xdist_installed_fails_cleanly(tmp_path: Path) -> None:
+    """The conftest must not register xdist-only hooks unconditionally (#5084)."""
+    root = _scratch(tmp_path)
+    proc = _run(
+        root, "-p", "no:xdist", "--splits", "2", "--group", "1",
+        "--durations-path", str(tmp_path / "nope"),
+    )  # fmt: skip
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 4, out
+    assert "PluginValidationError" not in out
+    assert len(re.findall("api:test-durations", out)) == 1
 
 
 def test_collect_only_reports_message(tmp_path: Path) -> None:
@@ -105,12 +119,14 @@ def test_collect_only_reports_message(tmp_path: Path) -> None:
 
 
 def test_share_is_measured_on_full_set_not_the_group(tmp_path: Path) -> None:
-    """2 of 10 missing is under the limit; make them all land in group 1."""
+    """2 of 10 missing passes in every group, so the full set is what is measured.
+
+    It does not pin hook ordering against pytest-split.
+    """
     root = _scratch(tmp_path)
     ids = _all_ids()
-    # pytest-split puts unknown tests first in its algorithm's order; whichever
-    # group they land in, the group-level share is far over 20% while the full
-    # set's is exactly 20%.
+    # The full set is exactly 20% missing, at the limit. The check must see all
+    # 10 tests in every group, not only that group's share of them.
     durations = _durations(tmp_path, ids[:8])
     for group in ("1", "2"):
         proc = _run(
