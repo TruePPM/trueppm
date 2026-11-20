@@ -866,9 +866,7 @@ release it is scheduled for:
   its lagged successors
   ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), and which calendar anchors and snaps an FF/SF link across
   different calendars is still undecided
-  ([#4639](https://gitlab.com/trueppm/trueppm/-/issues/4639)); the Python engine and the reference oracle disagree on
-  `free_float` for an FF-1 link into a four-day-calendar task with actuals
-  ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790), [#4789](https://gitlab.com/trueppm/trueppm/-/issues/4789)); and several
+  ([#4639](https://gitlab.com/trueppm/trueppm/-/issues/4639)); and several
   MS-Project-parity cases — SF out of a milestone, mixed SF+FS/SS/FF at the
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
@@ -934,8 +932,7 @@ they will ship with 0.5 or that release will slip:
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a
   milestone: closing a milestone ahead of an open
-  predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)) and the `free_float` oracle disagreement
-  ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)).
+  predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)).
 - **Scheduling semantics** — the calendar-day-vs-working-day lag question will be
   decided ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535));
   deadline-driven negative float will surface "behind committed date" in CPM
