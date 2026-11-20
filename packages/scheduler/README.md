@@ -870,7 +870,22 @@ release it is scheduled for:
   MS-Project-parity cases — SF out of a milestone, mixed SF+FS/SS/FF at the
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
-  [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)).
+  [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)). Progress and
+  actuals: a 100%-complete task with an `actual_start` but no `actual_finish` is
+  still laid out over its full span, so it can finish after the data date
+  ([#5043](https://gitlab.com/trueppm/trueppm/-/issues/5043)); a started task
+  with zero remaining work has no explicit input, so an SS/SF link out of it
+  loses the recorded start
+  ([#5070](https://gitlab.com/trueppm/trueppm/-/issues/5070)); a closed
+  predecessor whose `actual_finish` lands on a signed-off milestone's day pushes
+  successors a day later than any other date does, and raising a lag into a
+  completed milestone flips `milestone_at_day_end` with no date change
+  ([#5017](https://gitlab.com/trueppm/trueppm/-/issues/5017)). Moving the
+  project start later can still move a floored milestone's successors earlier
+  ([#5055](https://gitlab.com/trueppm/trueppm/-/issues/5055)), and an FF/SF link
+  into a parent breaks recalculation when a backlog, epic or recurring child
+  becomes committed
+  ([#5046](https://gitlab.com/trueppm/trueppm/-/issues/5046)).
 - **Monte Carlo** — sprint-horizon
   clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
   as a lower bound rather than a full forecast. From 0.5 the result will report
@@ -885,7 +900,13 @@ release it is scheduled for:
   ([#4910](https://gitlab.com/trueppm/trueppm/-/issues/4910)); a what-if pull-in can
   move a band later when a velocity task's points reach 0 and it falls to its PERT
   estimate
-  ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)).
+  ([#4909](https://gitlab.com/trueppm/trueppm/-/issues/4909)); Monte Carlo can
+  finish before the CPM date when an FF/SF link pulls a scrum story's start
+  earlier and an SS successor inherits it
+  ([#5042](https://gitlab.com/trueppm/trueppm/-/issues/5042)); and one shared
+  random stream couples unrelated tasks, so adding an estimate to one task
+  changes another task's draws under the same seed
+  ([#5020](https://gitlab.com/trueppm/trueppm/-/issues/5020)).
 - **Scale / performance** — from 0.5 the engine will bound the longest dependency chain, not
   the task count, so a 100,000-task project of ordinary parallel work will schedule;
   only the total work ceiling (`MAX_PROJECT_WORK_DAYS`, see Project work above)
