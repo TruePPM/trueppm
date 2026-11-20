@@ -290,8 +290,8 @@ testpaths = ["tests"]
 # test_route_table_invariants.py at 108.2s (66.9s and four near 30s beside it;
 # serial, no coverage, no django_db), so under --cov and xdist contention that
 # test has far less headroom against 180s than the original 8.14s figure
-# implied; and the longest deliberate sleep in the suite is 3s. The timer wraps setup+call+teardown, so a session fixture is
-# charged to the first test — measured worst case is a cold --create-db
+# implied; and the longest deliberate sleep in the suite is 3s. The timer wraps
+# setup+call+teardown, so a session fixture is charged to the first test — measured worst case is a cold --create-db
 # replaying all 315 migrations at 19.9s, still 9x under the ceiling. The
 # testcontainers Postgres boot happens in pytest_configure, outside the timer
 # entirely.
