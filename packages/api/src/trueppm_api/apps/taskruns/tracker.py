@@ -41,6 +41,10 @@ def broadcast_task_run_failed(project_id: str, payload: dict[str, str]) -> None:
         logger.warning("TaskRunTracker: broadcast failed: %s", exc)
 
 
+# ``result_summary["error"]`` codes the stale-run sweep writes on a run it failed. A
+# worker that outlives the sweep must not flip such a row back to SUCCESS.
+REAPER_ERROR_CODES = frozenset({"simulation_abandoned", "task_abandoned"})
+
 WS_FAILURE_MESSAGE = "Task failed. An administrator can see the details on the run."
 
 # Redis key patterns (both expire automatically).
@@ -258,6 +262,19 @@ class TaskRunTracker:
             return False
 
         now = timezone.now()
+
+        summary = task_run.result_summary
+        if (
+            task_run.status == TaskRunStatus.FAILED
+            and isinstance(summary, dict)
+            and summary.get("error") in REAPER_ERROR_CODES
+        ):
+            # The sweep already declared this run abandoned and told clients so. A
+            # late worker saving SUCCESS would leave the abandoned error text beside
+            # status=success, so the sweep's verdict stands. A cancel signal is still
+            # swallowed; any other exception keeps propagating to Celery.
+            self._cleanup_redis()
+            return exc_type is TaskCancelled
 
         if exc_type is TaskCancelled:
             task_run.status = TaskRunStatus.CANCELLED

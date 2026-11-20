@@ -101,3 +101,52 @@ def test_reap_broadcasts_task_run_failed_without_detail(project: Project) -> Non
     assert kwargs["event_type"] == "task_run_failed"
     assert kwargs["payload"]["task_run_id"] == str(run.pk)
     assert "abandoned" not in kwargs["payload"]["error_detail"]
+
+
+@pytest.mark.django_db
+def test_update_does_not_fail_a_run_adopted_after_selection(project: Project) -> None:
+    from trueppm_api.apps.taskruns.tasks import _fail_if_still_stale
+
+    run = _run(project, TaskRunStatus.PENDING, OLD)
+    cutoff = timezone.now() - timedelta(seconds=450)
+    # A worker adopts the run between the sweep's select and its update.
+    TaskRun.objects.filter(pk=run.pk).update(
+        status=TaskRunStatus.RUNNING, started_at=timezone.now()
+    )
+    n = _fail_if_still_stale(run.pk, cutoff, timezone.now(), "simulation_abandoned", "d", {})
+    assert n == 0
+    run.refresh_from_db()
+    assert run.status == TaskRunStatus.RUNNING
+
+
+@pytest.mark.django_db
+def test_late_worker_exit_does_not_overwrite_a_reaped_run(project: Project) -> None:
+    from unittest.mock import MagicMock
+
+    from trueppm_api.apps.taskruns.tracker import TaskRunTracker
+
+    run = _run(project, TaskRunStatus.RUNNING, OLD)
+    tracker = TaskRunTracker(MagicMock(), project_id=str(project.pk), task_name="x")
+    tracker._task_run_id = str(run.pk)
+    assert _do_reap_stale_task_runs() == 1
+    tracker.set_result({"ok": True})
+    assert tracker.__exit__(None, None, None) is False
+    run.refresh_from_db()
+    assert run.status == TaskRunStatus.FAILED
+    assert run.result_summary["error"] == "simulation_abandoned"
+
+
+@pytest.mark.django_db
+def test_unresolvable_reapable_task_logs_a_warning(
+    project: Project, caplog: pytest.LogCaptureFixture
+) -> None:
+    from unittest.mock import patch
+
+    from trueppm_api.apps.taskruns import tasks
+
+    with (
+        patch.dict(tasks._REAPABLE, {"scheduling.monte_carlo": ("no.such.task", "task_abandoned")}),
+        caplog.at_level("WARNING"),
+    ):
+        _do_reap_stale_task_runs()
+    assert "no registered Celery task 'no.such.task'" in caplog.text

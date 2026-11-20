@@ -688,16 +688,16 @@ CELERY_BEAT_SCHEDULE = {
     # Nightly cleanup: trims project Monte Carlo run history to the newest
     # MC_HISTORY_CAP rows per project (ADR-0175, #961). No-ops when the cap is
     # None (Enterprise unlimited).
+    "purge-monte-carlo-runs-nightly": {
+        "task": "scheduling.purge_old_monte_carlo_runs",
+        # 02:20 UTC — right after the schedule-requests purge.
+        "schedule": crontab(hour=2, minute=20),
+    },
     # Fails PENDING/RUNNING task runs whose worker was killed or lost, once older
     # than the task's time_limit plus TASK_RUN_REAP_MARGIN_SECONDS (#5068).
     "reap-stale-task-runs": {
         "task": "taskruns.reap_stale_task_runs",
         "schedule": crontab(minute="*/5"),
-    },
-    "purge-monte-carlo-runs-nightly": {
-        "task": "scheduling.purge_old_monte_carlo_runs",
-        # 02:20 UTC — right after the schedule-requests purge.
-        "schedule": crontab(hour=2, minute=20),
     },
     # Daily forecast-snapshot floor: guarantees ≥1 ProjectForecastSnapshot per
     # active project per day and backfills any recompute capture missed by a broker

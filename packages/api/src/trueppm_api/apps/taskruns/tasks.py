@@ -90,6 +90,30 @@ def _reap_message(error: str) -> str:
     return "The task was abandoned: its worker stopped before finishing. Run it again."
 
 
+def _fail_if_still_stale(
+    pk: Any, cutoff: Any, now: Any, error: str, detail: str, summary: dict[str, Any]
+) -> int:
+    """Fail one run only if it is still active AND still older than ``cutoff``.
+
+    Repeating the age filter in the UPDATE closes the select-to-update window: a
+    PENDING run a worker adopted in between has a fresh ``started_at`` and must not
+    be failed under it. Returns the rows updated (0 or 1).
+    """
+    from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
+
+    return (
+        TaskRun.objects.filter(pk=pk, status__in=[TaskRunStatus.PENDING, TaskRunStatus.RUNNING])
+        .alias(_since=Coalesce("started_at", "created_at"))
+        .filter(_since__lt=cutoff)
+        .update(
+            status=TaskRunStatus.FAILED,
+            completed_at=now,
+            error_detail=detail,
+            result_summary=summary,
+        )
+    )
+
+
 def _do_reap_stale_task_runs() -> int:
     """Mark PENDING/RUNNING runs older than their task's time limit plus a margin FAILED.
 
@@ -99,7 +123,10 @@ def _do_reap_stale_task_runs() -> int:
     ``started_at`` (the last adoption) and falls back to ``created_at`` for a run no
     worker ever adopted. The write is a conditional UPDATE keyed on the row still being
     active, so a worker that finishes between the select and the update wins and the
-    sweep leaves its terminal state alone; running the sweep twice is a no-op.
+    sweep leaves its terminal state alone, and the UPDATE repeats the age filter so a
+    PENDING run adopted in that window is not failed; running the sweep twice is a no-op.
+    A PENDING run queued longer than the limit plus margin is reaped too. A worker that
+    outlives the sweep cannot overwrite the reaped row (``TaskRunTracker.__exit__``).
     Returns the number of rows reaped.
     """
     from celery import current_app
@@ -121,6 +148,14 @@ def _do_reap_stale_task_runs() -> int:
             ),
             None,
         )
+        if task is None:
+            logger.warning(
+                "reap_stale_task_runs: no registered Celery task %r for %r; its runs "
+                "will never be reaped",
+                celery_name,
+                task_name,
+            )
+            continue
         limit = getattr(task, "time_limit", None)
         if not limit:
             continue
@@ -138,12 +173,14 @@ def _do_reap_stale_task_runs() -> int:
                 "message": _reap_message(error),
                 "status_code": 503,
             }
-            updated = TaskRun.objects.filter(pk=pk, status__in=active).update(
-                status=TaskRunStatus.FAILED,
-                completed_at=now,
-                error_detail=f"{error}: no worker finished this run within {int(limit)}s "
+            updated = _fail_if_still_stale(
+                pk,
+                cutoff,
+                now,
+                error,
+                f"{error}: no worker finished this run within {int(limit)}s "
                 f"plus a {margin}s margin.",
-                result_summary=summary,
+                summary,
             )
             if not updated:
                 continue
