@@ -29,6 +29,14 @@ class FieldDiffSerializer(serializers.Serializer[Any]):
     field = serializers.CharField()
     old = serializers.JSONField(allow_null=True)
     new = serializers.JSONField(allow_null=True)
+    old_display = serializers.CharField(
+        required=False,
+        help_text="Human label of ``old`` for a choice field; absent for other fields.",
+    )
+    new_display = serializers.CharField(
+        required=False,
+        help_text="Human label of ``new`` for a choice field; absent for other fields.",
+    )
 
 
 class HistoryRecordSerializer(serializers.Serializer[Any]):

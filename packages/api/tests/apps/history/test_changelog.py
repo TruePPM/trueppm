@@ -682,6 +682,31 @@ class TestSharedDiffPolicy:
             "the value is still the id — labels are the client's"
         )
 
+    def test_choice_field_changes_carry_human_labels(
+        self,
+        owner_client: APIClient,
+        owner: Any,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """A choice field reads "Open" -> "Mitigating", not the raw enum code (#3612).
+
+        The raw values stay in ``old``/``new``; a non-choice field gets no label.
+        """
+        risk = Risk.objects.create(
+            project=project, title="R", probability=3, impact=4, created_by=owner
+        )
+        risk.status = "MITIGATING"
+        risk.title = "R2"
+        risk.save()
+
+        resp = owner_client.get(_url(project), {"object_type": "risk", "change_type": "updated"})
+        changes = {c["field"]: c for c in resp.json()["results"][0]["changes"]}
+        assert changes["status"]["old_display"] == "Open"
+        assert changes["status"]["new_display"] == "Mitigating"
+        assert changes["status"]["new"] == "MITIGATING"
+        assert "new_display" not in changes["title"]
+
     def test_noise_only_update_leaves_no_row(
         self,
         owner_client: APIClient,

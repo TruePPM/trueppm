@@ -88,6 +88,24 @@ def _compared_fields(model: Any, *, object_scoped: bool) -> tuple[Any, ...]:
     return tuple(f for f in model._meta.fields if is_compared(f.name, object_scoped=object_scoped))
 
 
+def _change_entry(f: Any, old: Any, new: Any) -> dict[str, Any]:
+    """One diff entry; a choice field also carries the human labels of both sides.
+
+    The raw value stays in ``old``/``new`` (the stable, machine-readable fact); the
+    labels come from ``flatchoices`` so every client reads "Mitigating" rather than
+    ``MITIGATING`` without keeping its own copy of each enum. ``None`` and values
+    outside the choices (a retired code) get no label and render raw.
+    """
+    entry: dict[str, Any] = {"field": f.name, "old": old, "new": new}
+    if f.choices:
+        labels = {k: str(v) for k, v in f.flatchoices}
+        if old in labels:
+            entry["old_display"] = labels[old]
+        if new in labels:
+            entry["new_display"] = labels[new]
+    return entry
+
+
 def _compute_diffs(
     records: list[Any],
     all_records: list[Any] | None = None,
@@ -127,18 +145,14 @@ def _compute_diffs(
             # Creation — list non-null fields as old=None → new=value. Promotion is
             # a rule about updates, so promotable noise is dropped here outright.
             changes: list[dict[str, Any]] = [
-                {"field": f.name, "old": None, "new": getattr(record, f.attname)}
+                _change_entry(f, None, getattr(record, f.attname))
                 for f in fields
                 if f.name not in HISTORY_DIFF_NOISE and getattr(record, f.attname) is not None
             ]
         else:
             changes = visible_changes(
                 (
-                    {
-                        "field": f.name,
-                        "old": getattr(prev, f.attname),
-                        "new": getattr(record, f.attname),
-                    }
+                    _change_entry(f, getattr(prev, f.attname), getattr(record, f.attname))
                     for f in fields
                     if getattr(record, f.attname) != getattr(prev, f.attname)
                 ),

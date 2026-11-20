@@ -64801,6 +64801,14 @@
                     },
                     "new": {
                         "nullable": true
+                    },
+                    "old_display": {
+                        "type": "string",
+                        "description": "Human label of ``old`` for a choice field; absent for other fields."
+                    },
+                    "new_display": {
+                        "type": "string",
+                        "description": "Human label of ``new`` for a choice field; absent for other fields."
                     }
                 },
                 "required": [
