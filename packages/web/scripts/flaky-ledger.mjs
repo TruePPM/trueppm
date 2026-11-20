@@ -157,5 +157,13 @@ async function main(argv) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main(process.argv.slice(2)).then((c) => process.exit(c));
+  // main() already turns every failure into a non-fatal warning; this rejection
+  // handler only covers a throw from outside its try (it must still exit 0).
+  main(process.argv.slice(2)).then(
+    (c) => process.exit(c),
+    (err) => {
+      console.warn(`flaky-ledger: ${err?.message ?? err} — ledger not updated (non-fatal).`);
+      process.exit(0);
+    },
+  );
 }
