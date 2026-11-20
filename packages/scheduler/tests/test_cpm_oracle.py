@@ -1411,7 +1411,29 @@ SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH = RefProject(
     links=(RefLink("T1", "T2", "SF", 5),),
     progress={"T0": RefProgress(actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 6))},
 )
-#: #4433 — closing a milestone reached on the data date (``actual_finish``) pushed
+#: #4790 — ``T0 -FF-1d-> T1`` on a Monday-to-Thursday week, ``T0`` closed on Sunday
+#: 01-11 and ``T1`` started (99%, one day left). Sunday is the close of Thursday
+#: 01-08 in working time, so the lead lets ``T1`` finish on Wednesday 01-07 with a
+#: day of float. The engine read the Sunday verbatim, put ``T1`` on Monday 01-12,
+#: and reported ``free_float 0 != reference 1``; the oracle was right, and reading
+#: a non-working actual in working time on every link type (#4631, #4702) fixed it.
+SUNDAY_FINISH_INTO_AN_FF_LEAD_ON_A_FOUR_DAY_WEEK = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T0": 3, "T1": 3},
+    links=(RefLink("T0", "T1", "FF", -1),),
+    calendar=RefCalendar(working_mask=_SEVEN_DAY),
+    progress={
+        "T0": RefProgress(
+            percent_complete=100.0,
+            actual_start=date(2026, 1, 6),
+            actual_finish=date(2026, 1, 11),
+        ),
+        "T1": RefProgress(percent_complete=99.0, actual_start=date(2026, 1, 4)),
+    },
+    calendars={"four": RefCalendar(working_mask=_FOUR_DAY)},
+    task_calendar={"T0": "four", "T1": "four"},
+)
+#: #4433 —closing a milestone reached on the data date (``actual_finish``) pushed
 #: its FS successors a working day later than the same milestone live. Floats stay
 #: consistent either way, so the slip oracle cannot see it; it is pinned by
 #: :func:`test_closing_a_milestone_on_the_data_date_moves_nothing` instead.
@@ -2717,6 +2739,7 @@ PROGRESS_EXAMPLES = (
     SUNDAY_FINISH_BEHIND_A_MILESTONE,
     SATURDAY_STARTED_SUCCESSOR_OF_A_MILESTONE,
     SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH,
+    SUNDAY_FINISH_INTO_AN_FF_LEAD_ON_A_FOUR_DAY_WEEK,
     SUB_START_FLOORS_ON_A_FREE_MILESTONE,
     MILESTONE_STARTED_ON_ITS_SHOWN_DAY_BELOW_THE_START,
     MILESTONE_STARTED_ON_ITS_SHOWN_MONDAY,
@@ -2724,6 +2747,21 @@ PROGRESS_EXAMPLES = (
     # Not SF_INTO_A_FOUR_DAY_MILESTONE: an SF link across two calendars, which the
     # reference refuses (``_check_modeled``).
 )
+
+
+def test_a_sunday_close_is_the_thursday_close_on_a_four_day_week() -> None:
+    """#4790, on the reference alone: a lead off a weekend finish counts from Thursday.
+
+    Hand-computed: ``T0`` closed on Sunday 01-11, which on a Monday-to-Thursday week
+    is the close of Thursday 01-08. One day of lead puts ``T1``'s finish on Wednesday
+    01-07; its last day can start there (``actual_start`` on Sunday 01-04 floors it
+    at Monday 01-05), and it may slip one working day before ``T0``'s Thursday close
+    stops satisfying the lead.
+    """
+    t1 = reference_schedule(SUNDAY_FINISH_INTO_AN_FF_LEAD_ON_A_FOUR_DAY_WEEK).tasks["T1"]
+    assert (t1.start_at, t1.finish_at) == (date(2026, 1, 7), date(2026, 1, 8))
+    assert t1.total_float == 1
+    assert t1.free_float == 1
 
 
 def test_the_reference_states_the_adr_0132_and_0136_rules() -> None:
