@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 
@@ -29,6 +30,14 @@ class FieldDiffSerializer(serializers.Serializer[Any]):
     field = serializers.CharField()
     old = serializers.JSONField(allow_null=True)
     new = serializers.JSONField(allow_null=True)
+    old_display = serializers.CharField(
+        required=False,
+        help_text="Human label of ``old`` for a choice field; absent for other fields.",
+    )
+    new_display = serializers.CharField(
+        required=False,
+        help_text="Human label of ``new`` for a choice field; absent for other fields.",
+    )
 
 
 class HistoryRecordSerializer(serializers.Serializer[Any]):
@@ -64,6 +73,7 @@ class HistoryRecordSerializer(serializers.Serializer[Any]):
             return None
         return HistoryUserSerializer(user).data
 
+    @extend_schema_field(FieldDiffSerializer(many=True))
     def get_diff(self, obj: Any) -> list[dict[str, Any]]:
         diffs: dict[int, list[dict[str, Any]]] = self.context.get("diffs", {})
         return diffs.get(obj.history_id, [])
@@ -81,6 +91,16 @@ class ChangelogEntrySerializer(serializers.Serializer[Any]):
 
     id = serializers.CharField()
     object_type = serializers.CharField()
+    object_kind = serializers.CharField(
+        help_text=(
+            "What the object is to a reader, finer than object_type. A task row is "
+            "milestone, mitigation (linked to a risk), epic, story, bug, spike, "
+            "tech_debt, or task; every other source repeats its object_type."
+        )
+    )
+    object_kind_label = serializers.CharField(
+        help_text="Display label for object_kind, e.g. Milestone, Mitigation, Story."
+    )
     object_id = serializers.CharField()
     object_label = serializers.CharField()
     change_type = serializers.ChoiceField(choices=["created", "updated", "deleted"])

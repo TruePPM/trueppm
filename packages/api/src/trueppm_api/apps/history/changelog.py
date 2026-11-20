@@ -201,6 +201,62 @@ def _label_for(source: ChangelogSource, row: Any) -> str:
     return source.label_fallback
 
 
+def _task_kind(row: Any, mitigation_ids: frozenset[Any]) -> tuple[str, str]:
+    """The reader-facing kind of a task-backed row (#3612).
+
+    Every work item, milestone and risk mitigation is a ``Task`` row, so the source
+    alone labels all of them "Task" and the reader cannot tell what moved. The kind
+    is read in precedence order: a milestone is a milestone whatever its ``type``; a
+    non-default work-item ``type`` (Story, Bug, Epic, Spike, Tech Debt) names itself;
+    a plain task linked to a risk is that risk's mitigation; anything else is a Task.
+
+    ``is_milestone`` and ``type`` are read from the historical row, so a row reports
+    the kind the object had at that change. The risk link has no history
+    (``RiskTask`` carries no ``HistoricalRecords``), so mitigation reflects the link
+    as it stands now: a task unlinked since reads as a plain Task on every row.
+    """
+    from trueppm_api.apps.projects.models import TaskType
+
+    if getattr(row, "is_milestone", False):
+        return "milestone", "Milestone"
+    task_type = getattr(row, "type", None) or TaskType.TASK
+    if task_type != TaskType.TASK:
+        try:
+            return str(task_type), str(TaskType(task_type).label)
+        except ValueError:
+            return str(task_type), str(task_type).replace("_", " ").capitalize()
+    if row.id in mitigation_ids:
+        return "mitigation", "Mitigation"
+    return "task", "Task"
+
+
+def _kind_for(source: ChangelogSource, row: Any, mitigation_ids: frozenset[Any]) -> tuple[str, str]:
+    """``(object_kind, object_kind_label)`` for one row.
+
+    Non-task sources hold one kind each, so their kind is the source key and their
+    label the source's own fallback label.
+    """
+    if source.object_type == "task":
+        return _task_kind(row, mitigation_ids)
+    return source.object_type, source.label_fallback
+
+
+def _mitigation_task_ids(source: ChangelogSource, rows: list[Any]) -> frozenset[Any]:
+    """The ids among a task batch that are linked to a risk, in one query per page.
+
+    Only the task source carries mitigations, so every other source returns an
+    empty set without touching the database.
+    """
+    if source.object_type != "task" or not rows:
+        return frozenset()
+    from trueppm_api.apps.projects.models import RiskTask
+
+    ids = {row.id for row in rows}
+    return frozenset(
+        RiskTask.objects.filter(task_id__in=ids).values_list("task_id", flat=True).distinct()
+    )
+
+
 def _object_id_for(source: ChangelogSource, row: Any) -> str:
     """The id used for click-through. Policies point at their project (settings);
     every other source points at the object's own row."""
@@ -293,9 +349,10 @@ def _source_entries(
     loop below iterates ``rows``, so a seed can never become an entry.
     """
     diffs = diff_fn(rows, all_records=[*rows, *(seeds or [])])
+    mitigation_ids = _mitigation_task_ids(source, rows)
     collected: list[tuple[tuple[datetime, int, int], dict[str, Any]]] = []
     for row in rows:
-        entry = _row_to_entry(source, row, diffs)
+        entry = _row_to_entry(source, row, diffs, mitigation_ids)
         if entry is not None:
             collected.append(((row.history_date, source.rank, row.history_id), entry))
     return collected
@@ -373,6 +430,7 @@ def _row_to_entry(
     source: ChangelogSource,
     row: Any,
     diffs: dict[int, list[dict[str, Any]]],
+    mitigation_ids: frozenset[Any] = frozenset(),
 ) -> dict[str, Any] | None:
     """Turn one historical row into a changelog entry, or ``None`` to drop it.
 
@@ -389,9 +447,12 @@ def _row_to_entry(
         if not changes:
             return None
 
+    object_kind, object_kind_label = _kind_for(source, row, mitigation_ids)
     return {
         "id": f"{source.object_type}:{row.history_id}",
         "object_type": source.object_type,
+        "object_kind": object_kind,
+        "object_kind_label": object_kind_label,
         "object_id": _object_id_for(source, row),
         "object_label": _label_for(source, row),
         "change_type": change_type,

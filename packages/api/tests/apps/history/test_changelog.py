@@ -682,6 +682,31 @@ class TestSharedDiffPolicy:
             "the value is still the id — labels are the client's"
         )
 
+    def test_choice_field_changes_carry_human_labels(
+        self,
+        owner_client: APIClient,
+        owner: Any,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """A choice field reads "Open" -> "Mitigating", not the raw enum code (#3612).
+
+        The raw values stay in ``old``/``new``; a non-choice field gets no label.
+        """
+        risk = Risk.objects.create(
+            project=project, title="R", probability=3, impact=4, created_by=owner
+        )
+        risk.status = "MITIGATING"
+        risk.title = "R2"
+        risk.save()
+
+        resp = owner_client.get(_url(project), {"object_type": "risk", "change_type": "updated"})
+        changes = {c["field"]: c for c in resp.json()["results"][0]["changes"]}
+        assert changes["status"]["old_display"] == "Open"
+        assert changes["status"]["new_display"] == "Mitigating"
+        assert changes["status"]["new"] == "MITIGATING"
+        assert "new_display" not in changes["title"]
+
     def test_noise_only_update_leaves_no_row(
         self,
         owner_client: APIClient,
@@ -846,3 +871,85 @@ class TestUpdateDiffSeed:
         # Sprint and risk saves also bump ``updated_at``; a creation-style diff
         # would list a dozen or more fields.
         assert all(len(r["changes"]) <= 2 for r in results)
+
+
+# ---------------------------------------------------------------------------
+# Object kind (#3612): a task-backed row says what it is, not "Task"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestObjectKind:
+    def _kinds(self, client: APIClient, project: Project) -> dict[str, tuple[str, str]]:
+        resp = client.get(_url(project))
+        assert resp.status_code == 200
+        return {
+            r["object_label"]: (r["object_kind"], r["object_kind_label"])
+            for r in resp.json()["results"]
+        }
+
+    def test_task_rows_are_labelled_by_kind(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        owner: Any,
+        project: Project,
+    ) -> None:
+        from trueppm_api.apps.projects.models import RiskTask, TaskType
+
+        Task.objects.create(project=project, name="Plain", duration=1)
+        Task.objects.create(project=project, name="Gate", duration=0, is_milestone=True)
+        Task.objects.create(project=project, name="Login story", duration=1, type=TaskType.STORY)
+        Task.objects.create(project=project, name="Crash", duration=1, type=TaskType.BUG)
+        mitigation = Task.objects.create(project=project, name="Mitigate: Cutover", duration=1)
+        risk = Risk.objects.create(
+            project=project, title="Cutover", probability=3, impact=4, created_by=owner
+        )
+        RiskTask.objects.create(risk=risk, task=mitigation)
+
+        kinds = self._kinds(owner_client, project)
+        assert kinds["Plain"] == ("task", "Task")
+        assert kinds["Gate"] == ("milestone", "Milestone")
+        assert kinds["Login story"] == ("story", "Story")
+        assert kinds["Crash"] == ("bug", "Bug")
+        assert kinds["Mitigate: Cutover"] == ("mitigation", "Mitigation")
+        # Non-task sources keep one kind each: the source key and its label.
+        assert kinds["Cutover"] == ("risk", "Risk")
+        assert kinds["Proj"] == ("project", "Project")
+
+    def test_kind_is_read_from_the_historical_row(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """A row reports the kind the object had at that change, not today's."""
+        from trueppm_api.apps.projects.models import TaskType
+
+        task = Task.objects.create(project=project, name="Was a task", duration=1)
+        task.type = TaskType.STORY
+        task.save()
+        rows = owner_client.get(_url(project), {"object_type": "task"}).json()["results"]
+        by_change = {r["change_type"]: r["object_kind"] for r in rows}
+        assert by_change == {"created": "task", "updated": "story"}
+
+    def test_kind_costs_one_query_per_page_not_per_row(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+        django_assert_num_queries: Any,
+    ) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        Task.objects.create(project=project, name="One", duration=1)
+        params = {"object_type": "task"}
+        with CaptureQueriesContext(connection) as before:
+            owner_client.get(_url(project), params)
+        risk_task_queries = [q for q in before.captured_queries if "projects_risk_task" in q["sql"]]
+        assert len(risk_task_queries) == 1
+        for i in range(4):
+            Task.objects.create(project=project, name=f"More {i}", duration=1)
+        with django_assert_num_queries(len(before.captured_queries)):
+            owner_client.get(_url(project), params)
