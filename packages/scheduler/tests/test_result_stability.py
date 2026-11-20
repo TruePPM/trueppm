@@ -218,6 +218,18 @@ def _git(*args: str, cwd: Path = PKG_DIR) -> str | None:
     return r.stdout if r.returncode == 0 else None
 
 
+def _repo_root() -> Path:
+    """The git toplevel, which is where ``git diff --name-status`` paths are relative to.
+
+    Not ``PKG_DIR.parent.parent``: mutmut runs the suite from a copied
+    ``packages/scheduler/mutants/`` sandbox, where that is ``packages/`` and every
+    fragment read raised OSError, so a legitimate re-stamp with a fragment failed the
+    stats pass and the job measured nothing (#5087).
+    """
+    top = _git("rev-parse", "--show-toplevel")
+    return Path(top.strip()) if top else PKG_DIR.parent.parent
+
+
 def _branch_changes() -> tuple[list[str], list[str]] | None:
     """(changed paths, added paths) of this branch vs its merge base with origin/main."""
     base = _git("merge-base", "origin/main", "HEAD")
@@ -293,15 +305,27 @@ def missing_merge_base_policy(in_ci: bool) -> str:
     return "fail" if in_ci else "skip"
 
 
+NO_MERGE_BASE = "no origin/main merge base available (shallow clone, sdist, or no origin/main ref)"
+# The refspec the scheduler CI jobs fetch with. Naming the destination is the point:
+# without it, a checkout that has no remote.origin.fetch gets only FETCH_HEAD.
+MAIN_REFSPEC = "+refs/heads/main:refs/remotes/origin/main"
+# A GIT_DEPTH-only hint sent #5087's diagnosis to a job that already set GIT_DEPTH=0;
+# the hint names every precondition the CI job has to meet.
+NO_MERGE_BASE_CI_FIX = (
+    f"{NO_MERGE_BASE}; the CI job needs GIT_DEPTH=0, `git fetch origin {MAIN_REFSPEC}` "
+    "(a bare `git fetch origin main` can write only FETCH_HEAD), and the checkout "
+    "marked safe.directory (#4686, #5087)"
+)
+
+
 def test_restamp_carries_a_changelog_fragment() -> None:
     """A changed stamp must ship with a fragment saying why dates moved."""
     changes = _branch_changes()
     if changes is None:
-        msg = "no origin/main merge base available (shallow clone or sdist)"
         if missing_merge_base_policy(bool(os.environ.get("CI"))) == "fail":
-            pytest.fail(f"{msg}; set GIT_DEPTH=0 on the CI job so this rule can run (#4686)")
-        pytest.skip(msg)
-    root = PKG_DIR.parent.parent
+            pytest.fail(NO_MERGE_BASE_CI_FIX)
+        pytest.skip(NO_MERGE_BASE)
+    root = _repo_root()
     msg = check_restamp_has_fragment(*changes, read=lambda p: (root / p).read_text())
     assert msg is None, msg
 
@@ -324,10 +348,9 @@ def test_current_stamp_tracks_the_package_version() -> None:
     """Bumping CURRENT_STAMP is only legitimate as a release step."""
     changes = _branch_changes()
     if changes is None:
-        msg = "no origin/main merge base available (shallow clone or sdist)"
         if missing_merge_base_policy(bool(os.environ.get("CI"))) == "fail":
-            pytest.fail(f"{msg}; set GIT_DEPTH=0 on the CI job so this rule can run (#4686)")
-        pytest.skip(msg)
+            pytest.fail(NO_MERGE_BASE_CI_FIX)
+        pytest.skip(NO_MERGE_BASE)
     if "packages/scheduler/" + THIS_FILE_REL in changes[1]:
         return  # the file's first appearance declares the initial stamp; nothing to bump
     version = tomllib.loads((PKG_DIR / "pyproject.toml").read_text())["project"]["version"]
@@ -337,6 +360,14 @@ def test_current_stamp_tracks_the_package_version() -> None:
 
 class TestFragmentRule:
     """The rule itself, on synthetic change sets (the live check above is git-dependent)."""
+
+    def test_fragment_root_is_the_git_toplevel_not_a_fixed_depth(self, tmp_path: Path) -> None:
+        # mutmut's sandbox sits one directory deeper than PKG_DIR does in the repo.
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+        deep = tmp_path / "packages" / "scheduler" / "mutants"
+        deep.mkdir(parents=True)
+        top = _git("rev-parse", "--show-toplevel", cwd=deep)
+        assert top is not None and Path(top.strip()).resolve() == tmp_path.resolve()
 
     STAMP = "packages/scheduler/tests/fixtures/stability/0.4.0/corpus.json"
     FRAG = "changelog.d/1.changed.md"
@@ -410,3 +441,36 @@ class TestFragmentRule:
         assert stamp_bump_failure(pkg, THIS_FILE_REL, "0.4.0", "main") is not None
         # The old bare-file-name pathspec matches nothing and misses the bump.
         assert stamp_bump_failure(pkg, f.name, "0.4.0", "main") is None
+
+    def test_main_refspec_creates_the_ref_a_bare_fetch_can_miss(self, tmp_path: Path) -> None:
+        """The CI fetch must create origin/main even when the remote has no fetch refspec."""
+        up, clone = tmp_path / "up", tmp_path / "clone"
+
+        def git(cwd: Path, *a: str) -> None:
+            subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
+
+        up.mkdir()
+        git(up, "init", "-q", "-b", "main")
+        git(
+            up,
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        )
+        git(up, "branch", "feature")
+        clone.mkdir()
+        git(clone, "init", "-q")
+        git(clone, "remote", "add", "origin", str(up))
+        git(clone, "config", "--unset-all", "remote.origin.fetch")  # the runner's shape
+        git(clone, "fetch", "-q", "origin", "+refs/heads/feature:refs/remotes/origin/feature")
+        git(clone, "checkout", "-q", "--detach", "origin/feature")
+        git(clone, "fetch", "-q", "origin", "main")
+        assert _git("merge-base", "origin/main", "HEAD", cwd=clone) is None
+        git(clone, "fetch", "-q", "origin", MAIN_REFSPEC)
+        assert _git("merge-base", "origin/main", "HEAD", cwd=clone) is not None
