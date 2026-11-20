@@ -42,6 +42,9 @@ export interface ChangelogChange {
   field: string;
   old: unknown;
   new: unknown;
+  /** Human label of `old` / `new` for a choice field ("Mitigating"); absent otherwise. */
+  old_display?: string;
+  new_display?: string;
 }
 
 export interface ChangelogUser {

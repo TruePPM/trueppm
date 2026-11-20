@@ -99,14 +99,26 @@ const REFERENCE_FIELDS = new Set([
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Integer user FKs (`accepted_by`, `archived_by`, ...) are references too, by name. */
+function isReferenceField(field: string): boolean {
+  return REFERENCE_FIELDS.has(field) || field.endsWith('_by');
+}
+
 function isReference(field: string, value: unknown): boolean {
-  return REFERENCE_FIELDS.has(field) || (typeof value === 'string' && UUID_RE.test(value));
+  return isReferenceField(field) || (typeof value === 'string' && UUID_RE.test(value));
 }
 
 /** How one changed field renders on an Activity row. */
 export type ChangeDisplay =
   | { kind: 'label'; label: string; text: string }
   | { kind: 'value'; label: string; old: string | null; new: string };
+
+/** Longest value shown on a row, so a long `notes` edit cannot flood the accessible name. */
+const MAX_VALUE_CHARS = 80;
+
+function clip(text: string): string {
+  return text.length > MAX_VALUE_CHARS ? `${text.slice(0, MAX_VALUE_CHARS - 1)}…` : text;
+}
 
 /**
  * Display form of one change. A soft-delete flag reads as the event it is
@@ -124,7 +136,10 @@ export function changeDisplay(change: ChangelogChange): ChangeDisplay {
   return {
     kind: 'value',
     label,
-    old: change.old == null ? null : formatDiffValue(change.field, change.old),
-    new: formatDiffValue(change.field, change.new),
+    old:
+      change.old == null
+        ? null
+        : clip(change.old_display ?? formatDiffValue(change.field, change.old)),
+    new: clip(change.new_display ?? formatDiffValue(change.field, change.new)),
   };
 }

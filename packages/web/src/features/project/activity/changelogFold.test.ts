@@ -133,4 +133,29 @@ describe('changeDisplay', () => {
       }),
     ).toMatchObject({ kind: 'label', text: 'Some new fk changed' });
   });
+
+  it('prefers the server-supplied choice labels over the raw code', () => {
+    expect(
+      changeDisplay({
+        field: 'status',
+        old: 'OPEN',
+        new: 'MITIGATING',
+        old_display: 'Open',
+        new_display: 'Mitigating',
+      }),
+    ).toEqual({ kind: 'value', label: 'Status', old: 'Open', new: 'Mitigating' });
+  });
+
+  it('treats integer user FKs named *_by as references', () => {
+    expect(changeDisplay({ field: 'accepted_by', old: null, new: 42 })).toMatchObject({
+      kind: 'label',
+      text: 'Accepted by changed',
+    });
+  });
+
+  it('caps a long value so it cannot flood the accessible name', () => {
+    const d = changeDisplay({ field: 'notes', old: null, new: 'x'.repeat(500) });
+    expect(d.kind === 'value' && d.new.length).toBe(80);
+    expect(d.kind === 'value' && d.new.endsWith('…')).toBe(true);
+  });
 });
