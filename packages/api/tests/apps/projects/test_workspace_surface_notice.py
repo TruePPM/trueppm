@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -54,12 +54,14 @@ def make(calendar: Calendar, name: str, methodology: str, **kw: Any) -> Project:
     )
 
 
-def patch_workspace(admin: Any, capture: Any, body: dict[str, Any]) -> None:
+def patch_workspace(admin: Any, capture: Any, body: dict[str, Any], broadcast: Any = None) -> None:
     with (
         patch.object(
             tasks.emit_config_notice, "delay", return_value=SimpleNamespace(id="celery-ws")
         ),
-        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch(
+            "trueppm_api.apps.sync.broadcast.broadcast_board_event", new=broadcast or MagicMock()
+        ),
         capture(execute=True),
     ):
         resp = client_for(admin).patch("/api/v1/workspace/", data=body, format="json")
@@ -84,12 +86,16 @@ def test_policy_flip_to_inherit_notifies_only_projects_whose_effective_preset_mo
     a = with_work(moved, "alice")
     b = with_work(stays, "bob")
 
+    broadcast = MagicMock()
     patch_workspace(
         admin,
         django_capture_on_commit_callbacks,
         {"methodology_override_policy": TermOverridePolicy.INHERIT},
+        broadcast,
     )
 
+    # Only the moved project is pushed; the unmoved one hears nothing.
+    broadcast.assert_called_once_with(str(moved.pk), "project_updated", {"id": str(moved.pk)})
     row = ConfigNoticeRequest.objects.get()
     assert row.kind == config_notice.KIND_SURFACE
     assert [c["project_id"] for c in row.payload["changes"]] == [str(moved.pk)]
@@ -139,8 +145,10 @@ def test_unrelated_workspace_patch_queues_nothing(
     calendar: Calendar, admin: Any, django_capture_on_commit_callbacks: Any
 ) -> None:
     make(calendar, "P", Methodology.AGILE)
-    patch_workspace(admin, django_capture_on_commit_callbacks, {"name": "Renamed"})
+    broadcast = MagicMock()
+    patch_workspace(admin, django_capture_on_commit_callbacks, {"name": "Renamed"}, broadcast)
     assert not ConfigNoticeRequest.objects.exists()
+    broadcast.assert_not_called()
 
 
 @pytest.mark.django_db
