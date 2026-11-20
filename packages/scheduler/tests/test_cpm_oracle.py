@@ -1433,7 +1433,7 @@ SUNDAY_FINISH_INTO_AN_FF_LEAD_ON_A_FOUR_DAY_WEEK = RefProject(
     calendars={"four": RefCalendar(working_mask=_FOUR_DAY)},
     task_calendar={"T0": "four", "T1": "four"},
 )
-#: #4433 —closing a milestone reached on the data date (``actual_finish``) pushed
+#: #4433 — closing a milestone reached on the data date (``actual_finish``) pushed
 #: its FS successors a working day later than the same milestone live. Floats stay
 #: consistent either way, so the slip oracle cannot see it; it is pinned by
 #: :func:`test_closing_a_milestone_on_the_data_date_moves_nothing` instead.
