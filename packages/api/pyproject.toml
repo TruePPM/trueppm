@@ -108,6 +108,18 @@ dependencies = [
     # opentelemetry); declared because settings normalizes the package version
     # with it, which the published OpenAPI schema depends on.
     "packaging>=24.0",
+    # BSD-3-Clause. Already resolved transitively (trueppm-scheduler declares
+    # the same range); declared because our own code imports it directly --
+    # projects/services.py samples sprint forecasts and velocity with it (#4107).
+    "numpy>=1.26,<3",
+    # BSD-3-Clause. Resolved transitively (django, channels); declared because
+    # sync/broadcast.py imports async_to_sync directly. Found by the import-scan
+    # test added with #4107.
+    "asgiref>=3.8,<4",
+    # BSD-3-Clause. Resolved transitively (celery); declared because the webhook
+    # dispatcher imports kombu exceptions directly. Floor/ceiling track celery's
+    # own supported line (see the redis note above); found by the #4107 scan.
+    "kombu>=5.6,<5.7",
     # MIT (sole transitive dep et-xmlfile is also MIT, zero deps, pure Python).
     # Reads .xlsx uploads for spreadsheet import (#743, ADR-0632). Its two
     # historical XXE CVEs were fixed in 2.4.2 (2017); since then it auto-enables
