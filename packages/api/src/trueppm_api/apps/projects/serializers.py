@@ -1330,9 +1330,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             role_can_author_plan,
         )
 
-        annotated_role = getattr(obj, "_my_role", None)
-        if annotated_role is not None:
-            return role_can_author_plan(annotated_role)
+        # ``hasattr``, not ``is None``: on an annotated list a NULL ``_my_role`` is a
+        # final "no membership" (a WORKSPACE non-member row), not "annotation absent";
+        # falling through would cost one membership query per such row.
+        if hasattr(obj, "_my_role"):
+            annotated_role = obj._my_role
+            return annotated_role is not None and role_can_author_plan(annotated_role)
 
         request = self.context.get("request")
         if request is None:
@@ -1417,9 +1420,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             role_can_undo_batch_operation,
         )
 
-        annotated_role = getattr(obj, "_my_role", None)
-        if annotated_role is not None:
-            return role_can_undo_batch_operation(annotated_role)
+        # ``hasattr``, not ``is None``: on an annotated list a NULL ``_my_role`` is a
+        # final "no membership" (a WORKSPACE non-member row), not "annotation absent";
+        # falling through would cost one membership query per such row.
+        if hasattr(obj, "_my_role"):
+            annotated_role = obj._my_role
+            return annotated_role is not None and role_can_undo_batch_operation(annotated_role)
 
         request = self.context.get("request")
         if request is None:
@@ -1453,9 +1459,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             role_can_subscribe_live,
         )
 
-        annotated_role = getattr(obj, "_my_role", None)
-        if annotated_role is not None:
-            return role_can_subscribe_live(annotated_role)
+        # ``hasattr``, not ``is None``: on an annotated list a NULL ``_my_role`` is a
+        # final "no membership" (a WORKSPACE non-member row), not "annotation absent";
+        # falling through would cost one membership query per such row.
+        if hasattr(obj, "_my_role"):
+            annotated_role = obj._my_role
+            return annotated_role is not None and role_can_subscribe_live(annotated_role)
 
         request = self.context.get("request")
         if request is None:

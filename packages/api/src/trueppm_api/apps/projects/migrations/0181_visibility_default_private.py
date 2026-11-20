@@ -27,7 +27,7 @@ def pin_existing_rows_private(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0179_status_update"),
+        ("projects", "0180_tombstone_deleted_at"),
     ]
 
     operations = [

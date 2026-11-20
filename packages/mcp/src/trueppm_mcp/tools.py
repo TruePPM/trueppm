@@ -433,7 +433,7 @@ async def _list_projects(client: TruePPMClient) -> dict[str, Any]:
     """Every project record the token owner can read, each with ``caller_role``.
 
     That is the owner's own projects plus any workspace-visible ones they are not a
-    member of (ADR-1434), which carry ``caller_role`` null.
+    member of (ADR-1434), which have no ``caller_role`` key at all (absent, not null).
     """
     rows, total, truncated = await client.get_paginated("projects/")
     return _list_result(rows, total, truncated, compact=_project_result)
@@ -865,7 +865,8 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
     async def list_projects() -> dict[str, Any]:
         """List the projects you belong to, plus workspace-visible ones, with ``caller_role``.
 
-        A workspace-visible project you are not a member of has ``caller_role`` null:
+        A workspace-visible project you are not a member of has no ``caller_role`` key
+        (absent, not null; treat a missing one as "not a member"):
         its record is readable but its tasks, overview and health are not.
 
         Returns an ``{items, total_count}`` envelope; ``truncated: true`` is added

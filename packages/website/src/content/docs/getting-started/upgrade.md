@@ -255,7 +255,7 @@ that was already legal, and nothing else, and it will be safe to run more than o
 Read those lines after the upgrade if a plan shows a dependency missing from a phase.
 A link whose backlog child is later committed (#5046) is not covered by the migration.
 
-### Project and program visibility defaults to Private (`projects.0180`)
+### Project and program visibility defaults to Private (`projects.0181`)
 
 From 0.5, the Visibility setting on projects and programs is enforced, and its default
 changes from **Workspace** to **Private**. The upgrade migration sets **every** existing

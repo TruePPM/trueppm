@@ -1734,6 +1734,13 @@ class ProjectViewSet(
                                      so a Scheduler may change only methodology and
                                      estimation_mode (ADR-0041, estimation governance)
       destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)
+
+    Reduced shape for non-members: a caller who is not a member of a WORKSPACE-visible
+    project receives a summary record from list and retrieve that omits the member-only
+    fields ``agile_features``, ``effective_calendar``, ``lead_detail``, ``member_count``
+    and ``open_task_count`` (and, on the detail record, ``unresolved_assignee_count``).
+    The schema lists those fields as required for the full record, so clients must treat
+    them as optional.
     """
 
     # ADR-0678 (#2482): Project rows filtered by pk in the mixin's get_queryset.

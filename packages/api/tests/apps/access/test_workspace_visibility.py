@@ -129,6 +129,7 @@ def test_non_member_cannot_write_either_visibility(
     c = _client(colleague)
     url = f"/api/v1/projects/{projects[key].pk}/"
     assert c.patch(url, {"name": "hijack"}, format="json").status_code in (403, 404)
+    assert c.put(url, {"name": "hijack"}, format="json").status_code in (403, 404)
     assert c.delete(url).status_code in (403, 404)
     projects[key].refresh_from_db()
     assert projects[key].name == f"P-{key}"
@@ -190,6 +191,32 @@ def test_list_query_count_does_not_grow_with_workspace_visible_rows(
     assert len(_ids(resp)) == 6
 
 
+def test_non_member_list_query_count_is_flat_in_row_count(colleague: Any, owner: Any) -> None:
+    """``can_author`` / ``can_undo_batch_operations`` / ``can_subscribe_live`` must treat an
+    annotated NULL ``_my_role`` as final: no per-row membership fallback query."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    cal = Calendar.objects.create(name="Std")
+
+    def _add(n: int, tag: str) -> None:
+        for i in range(n):
+            p = Project.objects.create(
+                name=f"{tag}{i}", start_date=date(2026, 1, 5), calendar=cal, visibility="WORKSPACE"
+            )
+            ProjectMembership.objects.create(project=p, user=owner, role=Role.OWNER)
+
+    c = _client(colleague)
+    _add(2, "a")
+    c.get("/api/v1/projects/")  # warm per-process caches
+    with CaptureQueriesContext(connection) as few:
+        assert len(_ids(c.get("/api/v1/projects/"))) == 2
+    _add(6, "b")
+    with CaptureQueriesContext(connection) as many:
+        assert len(_ids(c.get("/api/v1/projects/"))) == 8
+    assert len(many) == len(few)
+
+
 # --- Program record -------------------------------------------------------------------
 
 
@@ -218,9 +245,11 @@ def test_non_member_cannot_write_either_program(
     c = _client(colleague)
     url = f"/api/v1/programs/{programs[key].pk}/"
     assert c.patch(url, {"name": "hijack"}, format="json").status_code in (403, 404)
+    assert c.put(url, {"name": "hijack"}, format="json").status_code in (403, 404)
     assert c.delete(url).status_code in (403, 404)
     programs[key].refresh_from_db()
     assert programs[key].name == f"G-{key}"
+    assert Program.objects.filter(pk=programs[key].pk).exists()
 
 
 @pytest.mark.parametrize("suffix", ["projects/", "rollup/"])

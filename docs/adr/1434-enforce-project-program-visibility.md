@@ -37,7 +37,7 @@ Two facts shape it:
 
 ## Decision
 
-1. **Default and backfill: PRIVATE.** Migration `projects.0180` changes the column default
+1. **Default and backfill: PRIVATE.** Migration `projects.0181` changes the column default
    to `PRIVATE` and sets every existing project and program to `PRIVATE`. That is exactly
    the access every install had before this change, so the upgrade widens nothing. A
    project or program becomes workspace-visible only when an Admin chooses WORKSPACE.

@@ -796,6 +796,12 @@ class ProgramViewSet(
       update    — IsProgramAdmin
       destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in
                   one transaction (memberships are left in place)
+
+    Reduced shape for non-members: a caller who is not a member of a WORKSPACE-visible
+    program receives a summary record from list and retrieve that omits the member-only
+    fields ``created_by``, ``effective_calendar``, ``lead_detail``, ``member_count`` and
+    ``project_count``. The schema lists those fields as required for the full record, so
+    clients must treat them as optional.
     """
 
     # ADR-0678 (#2482): Program rows are filtered on the program's own denial, but
