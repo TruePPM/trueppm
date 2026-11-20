@@ -9,6 +9,9 @@ const FIELD_OPTIONS: { value: PasteField | ''; label: string }[] = [
   { value: 'duration', label: 'Duration' },
   { value: 'owner', label: 'Owner' },
   { value: 'units', label: 'Allocation' },
+  { value: 'optimistic', label: 'Optimistic estimate' },
+  { value: 'most_likely', label: 'Most likely estimate' },
+  { value: 'pessimistic', label: 'Pessimistic estimate' },
 ];
 
 interface PasteColumnMappingDialogProps {

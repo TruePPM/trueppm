@@ -17,6 +17,8 @@ function summary(over: Partial<PasteSummary> = {}): PasteSummary {
     needsDurationCount: 0,
     unmatchedOwnerCount: 0,
     ambiguousOwnerCount: 0,
+    droppedEstimateCount: 0,
+    estimatesRestricted: false,
     ...over,
   };
 }
@@ -176,5 +178,26 @@ describe('PasteReceiptStrip — the Undo control is the server verdict (#3353)',
     render_({ canUndo: false });
     expect(screen.getByRole('button', { name: 'Keep' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Map columns…' })).toBeInTheDocument();
+  });
+});
+
+describe('buildPasteReceiptMessage three-point estimates', () => {
+  it('says nothing when no estimate was dropped', () => {
+    expect(buildPasteReceiptMessage(summary({}))).not.toMatch(/three-point/);
+  });
+
+  it('names the rows created without an estimate and the rule', () => {
+    const message = buildPasteReceiptMessage(summary({ droppedEstimateCount: 2 }));
+    expect(message).toMatch(/2 rows had an incomplete or out-of-order three-point estimate/);
+    expect(message).toMatch(/optimistic \u2264 most likely \u2264 pessimistic/);
+  });
+
+  it('says why when the project restricts estimates to the Project Manager', () => {
+    const message = buildPasteReceiptMessage(
+      summary({ droppedEstimateCount: 1, estimatesRestricted: true }),
+    );
+    expect(message).toMatch(/1 row had a three-point estimate/);
+    expect(message).toMatch(/restricts estimates to the Project Manager/);
+    expect(message).not.toMatch(/out-of-order/);
   });
 });

@@ -145,3 +145,49 @@ describe('inferColumns', () => {
     expect(inferColumns(data, true)[1].field).toBe('owner');
   });
 });
+
+describe('inferColumns three-point estimate headers', () => {
+  it('maps O/M/P headers ahead of the duration keyword they also contain', () => {
+    const data = rows([
+      ['Task', 'Optimistic Duration', 'Most Likely Estimate', 'Worst Case', 'Duration'],
+      ['Survey', '2', '4', '8', '5'],
+    ]);
+    expect(inferColumns(data, true).map((c) => c.field)).toEqual([
+      'name',
+      'optimistic',
+      'most_likely',
+      'pessimistic',
+      'duration',
+    ]);
+  });
+
+  it.each([
+    ['Duration', 'duration'],
+    ['Estimate', 'duration'],
+    ['Days', 'duration'],
+    ['Likely Duration', 'duration'],
+    ['Duration (Most Likely)', 'duration'],
+    // No header keyword: reads as duration only through the numeric-shape fallback, as before.
+    ['Likelihood', 'duration'],
+  ])('keeps the header %j mapping to %j', (header, field) => {
+    const data = rows([
+      ['Task', header],
+      ['Survey', '5'],
+    ]);
+    expect(inferColumns(data, true)[1].field).toBe(field);
+  });
+
+  it.each([
+    ['Most Likely', 'most_likely'],
+    ['Most_Likely', 'most_likely'],
+    ['MostLikely', 'most_likely'],
+    ['Likely Case', 'most_likely'],
+    ['Most Likely Duration', 'most_likely'],
+  ])('maps the header %j to %j', (header, field) => {
+    const data = rows([
+      ['Task', header],
+      ['Survey', '5'],
+    ]);
+    expect(inferColumns(data, true)[1].field).toBe(field);
+  });
+});

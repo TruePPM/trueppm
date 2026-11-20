@@ -7,6 +7,7 @@ import {
   resolveRosterMember,
   type RosterMatch,
 } from '../ownerToken';
+import { classifyPertTriple } from '@/lib/pertTriple';
 import type { PasteColumnMapping, PasteField } from './inferColumns';
 import type { ParsedPasteRow } from './parsePastedText';
 
@@ -31,6 +32,13 @@ export interface PasteSummary {
   /** Rows whose Owner cell named more than one roster member, e.g. `Ana` against
    *  both "Ana Rivera" and "Ana Silva". */
   ambiguousOwnerCount: number;
+  /** Rows that carried a three-point cell but not a usable all-or-none, ordered triple
+   *  — created without any estimate rather than with a partial one the server rejects. */
+  droppedEstimateCount: number;
+  /** True when `droppedEstimateCount` counts rows dropped because the caller may not write
+   *  estimates on this project (`PM_ONLY` below Project Manager), not because the triple
+   *  was malformed — the receipt names a different repair for each. */
+  estimatesRestricted: boolean;
 }
 
 export interface BuiltPasteBatch {
@@ -65,6 +73,8 @@ interface PasteColumnIndices {
   durationIndex: number | null;
   ownerIndex: number | null;
   unitsIndex: number | null;
+  /** Optimistic / most likely / pessimistic columns; all null when none is mapped. */
+  pertIndices: [number | null, number | null, number | null];
 }
 
 function columnIndices(columns: PasteColumnMapping[]): PasteColumnIndices {
@@ -73,6 +83,11 @@ function columnIndices(columns: PasteColumnMapping[]): PasteColumnIndices {
     durationIndex: columns.find((c) => c.field === 'duration')?.index ?? null,
     ownerIndex: columns.find((c) => c.field === 'owner')?.index ?? null,
     unitsIndex: columns.find((c) => c.field === 'units')?.index ?? null,
+    pertIndices: [
+      columns.find((c) => c.field === 'optimistic')?.index ?? null,
+      columns.find((c) => c.field === 'most_likely')?.index ?? null,
+      columns.find((c) => c.field === 'pessimistic')?.index ?? null,
+    ],
   };
 }
 
@@ -86,6 +101,13 @@ function resolveRowDuration(row: ParsedPasteRow, durationIndex: number | null): 
   return raw.trim() ? parseDurationInput(raw) : null;
 }
 
+/** One estimate cell: blank -> null, unparseable -> NaN (present but unusable). */
+function resolvePertCell(row: ParsedPasteRow, index: number | null): number | null {
+  const raw = cellAt(row, index);
+  if (!raw.trim()) return null;
+  return parseDurationInput(raw) ?? Number.NaN;
+}
+
 function resolveRowOwner(ownerRaw: string, pool: ProjectResource[]): RosterMatch | null {
   return ownerRaw.trim() ? resolveRosterMember(ownerRaw, pool) : null;
 }
@@ -96,10 +118,16 @@ function buildRowData(
   duration: number | null,
   owner: RosterMatch | null,
   unitsPercent: number | null,
+  pert: { o: number; m: number; p: number } | null,
 ): Record<string, unknown> {
   const data: Record<string, unknown> = { name };
   if (parentId) data.parent_id = parentId;
   if (duration !== null) data.duration = duration;
+  if (pert) {
+    data.optimistic_duration = pert.o;
+    data.most_likely_duration = pert.m;
+    data.pessimistic_duration = pert.p;
+  }
   if (owner?.member) {
     // Percent in, fraction out, through the one converter that owns that step
     // (`ownerTokensToApiPayload` — see its docstring). Writing `units` inline here is
@@ -135,8 +163,13 @@ export function buildPasteOperations(
   targetParentId: string | null,
   hasHeaderRow: boolean,
   mintId: () => string = () => crypto.randomUUID(),
+  // Whether this caller may write three-point estimates. The server refuses PERT fields on
+  // create under `PM_ONLY` below ADMIN (`_validate_estimate_write_permitted`), and
+  // `tasks/bulk` rejects that whole row — so a task would be lost, not just its estimate.
+  canWriteEstimates = true,
 ): BuiltPasteBatch {
-  const { nameIndex, durationIndex, ownerIndex, unitsIndex } = columnIndices(columns);
+  const { nameIndex, durationIndex, ownerIndex, unitsIndex, pertIndices } =
+    columnIndices(columns);
   // The header row named the columns, it did not describe a task — it must never
   // reach the batch as a row of its own (`inferColumns` already excluded it from
   // its own shape-sampling; this is the corresponding exclusion for row building).
@@ -151,6 +184,7 @@ export function buildPasteOperations(
   const parentIds = new Set<string>();
   const droppedOwners: DroppedOwner[] = [];
   const depthsUsed = new Set<number>();
+  let droppedEstimateCount = 0;
 
   for (const row of dataRows) {
     const name = (row.cells[nameIndex] ?? '').trim();
@@ -183,10 +217,30 @@ export function buildPasteOperations(
     // column's other orphans rather than inventing an assignment.
     const unitsPercent = parseAllocationPercent(cellAt(row, unitsIndex));
 
+    // All-or-none, ordered (the server's rule): a partial or unordered triple is dropped
+    // whole and counted, never sent half — the row still lands, without an estimate.
+    const triple = classifyPertTriple(
+      resolvePertCell(row, pertIndices[0]),
+      resolvePertCell(row, pertIndices[1]),
+      resolvePertCell(row, pertIndices[2]),
+    );
+    if (!canWriteEstimates) {
+      if (triple.kind !== 'none') droppedEstimateCount++;
+    } else if (triple.kind === 'incomplete' || triple.kind === 'out_of_order') {
+      droppedEstimateCount++;
+    }
+
     operations.push({
       op: 'create',
       id,
-      data: buildRowData(name, parentId, duration, owner, unitsPercent),
+      data: buildRowData(
+        name,
+        parentId,
+        duration,
+        owner,
+        unitsPercent,
+        canWriteEstimates && triple.kind === 'ok' ? triple : null,
+      ),
     });
     createdIds.push(id);
   }
@@ -207,6 +261,8 @@ export function buildPasteOperations(
       needsDurationCount: needsDurationIds.size,
       unmatchedOwnerCount: droppedOwners.filter((o) => o.reason === 'unmatched').length,
       ambiguousOwnerCount: droppedOwners.filter((o) => o.reason === 'ambiguous').length,
+      droppedEstimateCount,
+      estimatesRestricted: !canWriteEstimates,
     },
     createdIds,
     needsDurationIds,

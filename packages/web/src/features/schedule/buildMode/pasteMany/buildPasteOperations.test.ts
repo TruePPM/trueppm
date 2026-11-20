@@ -256,3 +256,85 @@ describe('buildPasteOperations', () => {
     });
   });
 });
+
+describe('buildPasteOperations three-point estimates', () => {
+  const HEADER = 'Task\tOptimistic\tMost Likely\tPessimistic';
+
+  function build(body: string) {
+    const rows = parsePastedText(`${HEADER}\n${body}`);
+    return buildPasteOperations(rows, inferColumns(rows, true), POOL, null, true, sequentialIds());
+  }
+
+  it('sends a complete ordered triple on the create op', () => {
+    const result = build('Survey\t2\t4\t8');
+    expect(result.operations[0].data).toEqual({
+      name: 'Survey',
+      optimistic_duration: 2,
+      most_likely_duration: 4,
+      pessimistic_duration: 8,
+    });
+    expect(result.summary.droppedEstimateCount).toBe(0);
+    expect(result.summary.matchedFields).toEqual(
+      expect.arrayContaining(['optimistic', 'most_likely', 'pessimistic']),
+    );
+  });
+
+  it('drops a partial triple whole and counts it, still creating the row', () => {
+    const result = build('Survey\t2\t\t8');
+    expect(result.operations).toHaveLength(1);
+    expect(result.operations[0].data).toEqual({ name: 'Survey' });
+    expect(result.summary.droppedEstimateCount).toBe(1);
+  });
+
+  it('drops an out-of-order or unparseable triple and counts it', () => {
+    const result = build('A\t9\t4\t8\nB\t2\tsoon\t8');
+    expect(result.operations.map((o) => o.data)).toEqual([{ name: 'A' }, { name: 'B' }]);
+    expect(result.summary.droppedEstimateCount).toBe(2);
+  });
+
+  it('counts a blank triple as no estimate, not a dropped one', () => {
+    const result = build('Survey\t\t\t');
+    expect(result.operations[0].data).toEqual({ name: 'Survey' });
+    expect(result.summary.droppedEstimateCount).toBe(0);
+  });
+
+  it('creates the row with no duration and no triple behavior change when only O/M/P are mapped', () => {
+    const result = build('Survey\t2\t4\t8');
+    // No duration column: the row still lands, flagged for the F8 "needs duration" walk,
+    // and the triple rides along (the server derives the duration from it).
+    expect(result.operations).toHaveLength(1);
+    expect(result.operations[0].data).not.toHaveProperty('duration');
+    expect(result.operations[0].data).toMatchObject({ optimistic_duration: 2 });
+    expect(result.summary.needsDurationCount).toBe(1);
+    expect(result.summary.droppedEstimateCount).toBe(0);
+  });
+
+  describe('when the caller may not write estimates (PM_ONLY below Project Manager)', () => {
+    function buildRestricted(body: string) {
+      const rows = parsePastedText(`${HEADER}\n${body}`);
+      return buildPasteOperations(
+        rows,
+        inferColumns(rows, true),
+        POOL,
+        null,
+        true,
+        sequentialIds(),
+        false,
+      );
+    }
+
+    it('strips a complete triple, still creates the row, and counts it as restricted', () => {
+      const result = buildRestricted('Survey\t2\t4\t8\nDesign\t\t\t');
+      expect(result.operations).toHaveLength(2);
+      expect(result.operations[0].data).toEqual({ name: 'Survey' });
+      expect(result.summary.droppedEstimateCount).toBe(1);
+      expect(result.summary.estimatesRestricted).toBe(true);
+    });
+
+    it('counts a malformed triple once, as restricted', () => {
+      const result = buildRestricted('Survey\t2\t\t8');
+      expect(result.operations[0].data).toEqual({ name: 'Survey' });
+      expect(result.summary.droppedEstimateCount).toBe(1);
+    });
+  });
+});

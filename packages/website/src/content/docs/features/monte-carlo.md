@@ -56,8 +56,9 @@ three values (working days):
 :::note[Ships in 0.5]
 The **New task** dialog will accept the same three values when you create a task
 (collapsed by default; all three or none, ordered optimistic ≤ most likely ≤
-pessimistic). It is not shown on agile projects. The current release sets estimates
-only from the task detail drawer, after the task exists.
+pessimistic). It is not shown on agile projects. A [spreadsheet paste](/features/schedule-build-mode/#paste-rows-from-a-spreadsheet)
+will also accept Optimistic, Most Likely, and Pessimistic columns. The current release
+sets estimates only from the task detail drawer, after the task exists.
 :::
 
 All three fields must be set for a waterfall task to be sampled from its
