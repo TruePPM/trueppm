@@ -13,8 +13,9 @@
 # or on a scheduled pipeline (weekly safety net for transitive drift).
 #
 # Tagged `:$CI_SCHEDULER_TAG` — `py3.11-<digest>`, where the digest covers this
-# Dockerfile plus packages/scheduler/pyproject.toml (the only Python version we
-# ship to is 3.11; bump the prefix when we move requires-python). A fixed
+# Dockerfile plus packages/scheduler/pyproject.toml (this is the 3.11 floor and
+# coverage image; 3.12-3.14 run on stock python images in scheduler:test:compat and
+# scheduler:test:py314; bump the prefix when we move requires-python). A fixed
 # `:py3.11` was a name that never changed when its contents did, and runners
 # pull `if-not-present`, so two runners ran one commit against different
 # pytest versions (#4787, #4791). scripts/check-ci-api-tag.sh --image scheduler

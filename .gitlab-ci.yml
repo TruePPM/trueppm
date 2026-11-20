@@ -101,7 +101,7 @@ variables:
   # dell-03 and nuc-03 run one SHA against different cached pytest versions
   # (#4787). Bump with `bash scripts/check-ci-api-tag.sh --image scheduler
   # --print-expected`; enforced by api:ci-api-tag. See contributing/ci-images.
-  CI_SCHEDULER_TAG: "py3.11-20293263854b"
+  CI_SCHEDULER_TAG: "py3.11-0a72797b3d3d"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -4767,11 +4767,11 @@ scheduler:test-lowest:
     - cd packages/scheduler
     - /tmp/lowest-venv/bin/python -m pytest
 
-# Forward-looking 3.14 leg (#4542). Nightly only, so it never gates an MR, and
-# allow_failure because 3.14 is deliberately NOT in the classifiers: a red here
-# is a finding to triage, not a regression. Drop allow_failure and add the
-# `Programming Language :: Python :: 3.14` classifier together once a release
-# of every dependency is green on it.
+# Forward-looking 3.14 leg (#4542, #3787). Nightly only, so it never gates an MR,
+# and allow_failure so a dependency wheel gap on a new CPython is a finding to
+# triage, not a red pipeline. The 3.14 classifier was added (#3787) after the
+# suite ran green on 3.14 locally; this leg is what keeps that claim honest, so
+# a red here means either fixing 3.14 support or dropping the classifier.
 scheduler:test:py314:
   stage: test
   image: python:3.14-slim@sha256:cd89c30eda26ee911a4611b18680086e0ea42e6f5f8cbe653d07fa7958c9cec8
