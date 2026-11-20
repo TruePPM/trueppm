@@ -2851,6 +2851,7 @@ name = "trueppm-api"
 version = "0.4.0"
 source = { editable = "." }
 dependencies = [
+    { name = "asgiref" },
     { name = "boto3" },
     { name = "celery" },
     { name = "channels" },
@@ -2867,7 +2868,9 @@ dependencies = [
     { name = "dnspython" },
     { name = "drf-spectacular", extra = ["sidecar"] },
     { name = "jsonschema" },
+    { name = "kombu" },
     { name = "msgpack" },
+    { name = "numpy" },
     { name = "openpyxl" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-instrumentation-asgi" },
@@ -2916,6 +2919,7 @@ fuzz = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asgiref", specifier = ">=3.8,<4" },
     { name = "boto3", specifier = ">=1.35,<2.0" },
     { name = "celery", specifier = ">=5.6,<6.0" },
     { name = "channels", specifier = ">=4.0,<5.0" },
@@ -2935,9 +2939,11 @@ requires-dist = [
     { name = "dnspython", specifier = ">=2.9.0,<3.0" },
     { name = "drf-spectacular", extras = ["sidecar"], specifier = "==0.30.0" },
     { name = "jsonschema", specifier = ">=4.21,<5.0" },
+    { name = "kombu", specifier = ">=5.6,<5.7" },
     { name = "msgpack", specifier = ">=1.2.3,<2.0" },
     { name = "mutmut", marker = "extra == 'dev'", specifier = "==3.8.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==1.20.2" },
+    { name = "numpy", specifier = ">=1.26,<3" },
     { name = "openpyxl", specifier = ">=3.1,<4.0" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.45.1,<2" },
     { name = "opentelemetry-instrumentation-asgi", specifier = ">=0.66b1,<1" },

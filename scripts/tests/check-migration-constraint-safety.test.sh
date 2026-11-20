@@ -281,11 +281,11 @@ python3 "$GATE" >"$TMP/real" 2>&1 \
   || { cat "$TMP/real"; check "the committed tree passes the gate" 1; }
 # The count is pinned on purpose: a site the scanner silently stops seeing would
 # otherwise still read as "clean". It moves with the migration tree — a release
-# squash adds its own AddConstraint copies (#4303 took it 75 -> 83, #4386 to 84, #4583 role-in-band checks and #4772 decision log to 88, and a later site to 89; #4109 widened the scan to AlterField(unique=True) and AlterUniqueTogether, 96) — and
+# squash adds its own AddConstraint copies (#4303 took it 75 -> 83, #4386 to 84, #4583 role-in-band checks and #4772 decision log to 88, and a later site to 89; #4109 widened the scan to AlterField(unique=True) and AlterUniqueTogether, 96; a later site, 97) — and
 # scripts:test runs on schedule only, so bump it in the same MR that adds sites.
-grep -q "96 checked" "$TMP/real" \
-  && check "all 96 unique-constraint sites are accounted for" 0 \
-  || check "all 96 unique-constraint sites are accounted for" 1
+grep -q "97 checked" "$TMP/real" \
+  && check "all 97 unique-constraint sites are accounted for" 0 \
+  || check "all 97 unique-constraint sites are accounted for" 1
 
 echo
 if [[ "$fail" -gt 0 ]]; then

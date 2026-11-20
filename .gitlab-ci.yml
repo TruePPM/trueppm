@@ -94,14 +94,14 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-ec4a37708d1e"
+  CI_API_TAG: "py3.11-4c38aa7b39e1"
 
   # Same mechanism for the ci-scheduler image (#4791): `py3.11-<digest>` over
   # scheduler.Dockerfile plus packages/scheduler/pyproject.toml. A fixed tag let
   # dell-03 and nuc-03 run one SHA against different cached pytest versions
   # (#4787). Bump with `bash scripts/check-ci-api-tag.sh --image scheduler
   # --print-expected`; enforced by api:ci-api-tag. See contributing/ci-images.
-  CI_SCHEDULER_TAG: "py3.11-20293263854b"
+  CI_SCHEDULER_TAG: "py3.11-0a72797b3d3d"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -4767,11 +4767,11 @@ scheduler:test-lowest:
     - cd packages/scheduler
     - /tmp/lowest-venv/bin/python -m pytest
 
-# Forward-looking 3.14 leg (#4542). Nightly only, so it never gates an MR, and
-# allow_failure because 3.14 is deliberately NOT in the classifiers: a red here
-# is a finding to triage, not a regression. Drop allow_failure and add the
-# `Programming Language :: Python :: 3.14` classifier together once a release
-# of every dependency is green on it.
+# Forward-looking 3.14 leg (#4542, #3787). Nightly only, so it never gates an MR,
+# and allow_failure so a dependency wheel gap on a new CPython is a finding to
+# triage, not a red pipeline. The 3.14 classifier was added (#3787) after the
+# suite ran green on 3.14 locally; this leg is what keeps that claim honest, so
+# a red here means either fixing 3.14 support or dropping the classifier.
 scheduler:test:py314:
   stage: test
   image: python:3.14-slim@sha256:cd89c30eda26ee911a4611b18680086e0ea42e6f5f8cbe653d07fa7958c9cec8
@@ -5094,7 +5094,19 @@ scheduler:mutation:
   timeout: 1h 30m
   variables:
     MUTATION_MIN: "0.92"
+    # mutmut's stats pass runs the whole suite with `-x`, including
+    # test_result_stability's merge-base rule, which FAILS (not skips) in CI when
+    # origin/main is unreachable. A shallow clone therefore killed the stats pass
+    # and the job measured nothing (#4686, #3216).
+    GIT_DEPTH: "0"
   script:
+    # GIT_DEPTH 0 gives the history but not the ref: an MR pipeline fetches only
+    # refs/merge-requests/N/head, so origin/main still does not exist and the
+    # merge-base rule fails anyway. Fetch it explicitly, as api:test does. The
+    # image runs as a different uid than the checkout's owner, so git refuses the
+    # repo ("dubious ownership") until it is marked safe, as the other git jobs do.
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - 'git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"'
     - cd packages/scheduler
     # `|| true` on both: a non-zero exit from `mutmut run` just means survivors
     # exist. It ALSO swallows a stats-collection crash, which is how this job
