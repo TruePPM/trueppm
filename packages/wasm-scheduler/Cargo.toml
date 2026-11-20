@@ -29,6 +29,11 @@ wasm-bindgen = "0.2"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+# Property-based CPM invariants (tests/cpm_invariants.rs, #4270). Dev-only, so it never
+# enters the cdylib/WASM bundle. `default-features = false` + `std` drops `fork`
+# (rusty-fork, tempfile), `timeout` and `bit-set`: the suite needs only the generator and
+# shrinker, and a smaller tree is a smaller cargo-deny surface.
+proptest = { version = "1", default-features = false, features = ["std"] }
 
 [profile.release]
 opt-level = "s"
