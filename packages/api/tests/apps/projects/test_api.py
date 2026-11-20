@@ -234,10 +234,10 @@ class TestProjectGeneralFields:
     ) -> None:
         r = client.get(f"/api/v1/projects/{project.pk}/")
         assert r.status_code == 200
-        # Defaults from migration 0041: code empty, AUTO/WORKSPACE/SCHEDULE.
+        # Defaults: code empty, AUTO health, PRIVATE visibility (ADR-1434), SCHEDULE.
         assert r.data["code"] == ""
         assert r.data["health"] == "AUTO"
-        assert r.data["visibility"] == "WORKSPACE"
+        assert r.data["visibility"] == "PRIVATE"
         assert r.data["timezone"] == ""
         assert r.data["default_view"] == "SCHEDULE"
 

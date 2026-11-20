@@ -1424,6 +1424,83 @@ def _get_program_id_from_obj(obj: Any) -> Any | None:
     return None
 
 
+WORKSPACE_VISIBILITY_CACHE_ATTR = "_workspace_visibility_eligible"
+
+
+def workspace_visibility_eligible(request: Request) -> bool:
+    """Whether ``WORKSPACE``-visible projects and programs are readable by this caller.
+
+    ADR-1434: ``visibility=WORKSPACE`` opens the project/program *record* (list +
+    retrieve) to every workspace member, read-only. "Workspace member" means an
+    authenticated user whose workspace membership is ``ACTIVE`` — a user with no
+    membership row is an implicit active MEMBER (``workspace_role_for_user``).
+
+    A **guest** is excluded on purpose: the workspace model defines a guest as an
+    external collaborator limited to what they are invited to, so letting a guest
+    browse every WORKSPACE project would turn "invited to one project" into "can
+    enumerate the workspace". A deactivated row is excluded for the obvious reason.
+
+    Cached on the request so a list resolves it once, not once per row.
+    """
+    user = getattr(request, "user", None)
+    if not (user and user.is_authenticated):
+        return False
+    host = _cache_host(request)
+    cached = getattr(host, WORKSPACE_VISIBILITY_CACHE_ATTR, None)
+    if cached is not None:
+        return bool(cached)
+    from trueppm_api.apps.workspace.models import MemberStatus, WorkspaceMembership
+
+    status = (
+        WorkspaceMembership.objects.filter(user=user, is_deleted=False)
+        .values_list("status", flat=True)
+        .first()
+    )
+    eligible = status is None or status == MemberStatus.ACTIVE
+    setattr(host, WORKSPACE_VISIBILITY_CACHE_ATTR, eligible)
+    return eligible
+
+
+def _workspace_visible_read(request: Request, obj: Any) -> bool:
+    """A safe-method read of a ``WORKSPACE`` record by an eligible workspace member.
+
+    Grants nothing on an unsafe method, so a non-member can never write a
+    WORKSPACE project or program through a gate that uses this (ADR-1434).
+    """
+    from trueppm_api.apps.projects.models import Visibility
+
+    if request.method not in SAFE_METHODS:
+        return False
+    if getattr(obj, "visibility", None) != Visibility.WORKSPACE:
+        return False
+    return workspace_visibility_eligible(request)
+
+
+class IsProjectMemberOrWorkspaceVisible(IsProjectMember):
+    """``IsProjectMember``, widened to a read of a ``WORKSPACE`` project (ADR-1434).
+
+    Used only on ``ProjectViewSet`` ``list`` / ``retrieve`` — the project record.
+    Every child route (tasks, board, schedule, the board WebSocket) keeps the plain
+    membership gate, so a non-member reads the record and nothing under it.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        # Identical to IsProjectMember on purpose: on a project-nested route
+        # (``_resolve_project_scope`` finds a project) membership is still required —
+        # visibility widens only the top-level record read, decided per object below.
+        if not (request.user and request.user.is_authenticated):
+            return False
+        project_pk, scope = _resolve_project_scope(view)
+        if project_pk is not None:
+            return _membership_role(request, project_pk) is not None
+        return _unresolved_scope_allows(request, view, scope)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        if super().has_object_permission(request, view, obj):
+            return True
+        return _workspace_visible_read(request, obj)
+
+
 class IsProgramMember(BasePermission):
     """Allow any program member (Viewer+) to read; enforce membership on objects.
 
@@ -1447,6 +1524,29 @@ class IsProgramMember(BasePermission):
         if program_id is None:
             return False
         return _program_membership_role(request, program_id) is not None
+
+
+class IsProgramMemberOrWorkspaceVisible(IsProgramMember):
+    """``IsProgramMember``, widened to a read of a ``WORKSPACE`` program (ADR-1434).
+
+    Used only on ``ProgramViewSet`` ``retrieve``. The program's detail actions that
+    read child-project data (schedule, rollup, projects, …) keep ``IsProgramMember``.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        # Identical to IsProgramMember on purpose: a program-nested route still
+        # requires membership; visibility widens only the record read, per object.
+        if not (request.user and request.user.is_authenticated):
+            return False
+        program_pk, scope = _resolve_program_scope(view)
+        if program_pk is not None:
+            return _program_membership_role(request, program_pk) is not None
+        return _unresolved_scope_allows(request, view, scope)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        if super().has_object_permission(request, view, obj):
+            return True
+        return _workspace_visible_read(request, obj)
 
 
 class IsProgramScheduler(BasePermission):
@@ -3437,6 +3537,32 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
     #: the base fails closed rather than open.
     unscoped_queryset: bool = False
 
+    #: Actions whose Project queryset also admits ``WORKSPACE``-visible projects for an
+    #: eligible workspace member (ADR-1434). Empty by default — fail closed; only
+    #: ``ProjectViewSet`` opts ``list`` / ``retrieve`` in. Has no effect on a child
+    #: model's queryset, which always stays membership-scoped.
+    workspace_visible_actions: ClassVar[frozenset[str]] = frozenset()
+
+    def action_reads_workspace_visible(self) -> bool:
+        return getattr(self, "action", None) in self.workspace_visible_actions
+
+    @staticmethod
+    def _workspace_visible_project_q(member_project_ids: QuerySet[Any]) -> Any:
+        """Membership OR a non-draft ``WORKSPACE`` project, as one ``Q``.
+
+        Both arms are predicates on the Project row itself (a ``pk IN (subquery)``
+        and two column tests), not a join, so the OR cannot fan rows out and the
+        list needs no ``.distinct()`` — which ``Meta.ordering`` would defeat anyway.
+        A draft stays member-only: it is uncommitted, and browsing it is not what
+        WORKSPACE promises.
+        """
+        from django.db.models import Q
+
+        from trueppm_api.apps.projects.lifecycle import not_draft_q
+        from trueppm_api.apps.projects.models import Visibility
+
+        return Q(pk__in=member_project_ids) | (Q(visibility=Visibility.WORKSPACE) & not_draft_q())
+
     def get_queryset(self) -> QuerySet[Any]:
         qs = super().get_queryset()
         user = getattr(self.request, "user", None)
@@ -3471,6 +3597,12 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
         # old URL — the same defect the explicit is_deleted=False guard prevents
         # on every other project lookup (#1111).
         if model.__name__ == "Project":
+            if self.action_reads_workspace_visible() and workspace_visibility_eligible(
+                self.request
+            ):
+                return qs.filter(
+                    self._workspace_visible_project_q(member_project_ids), is_deleted=False
+                )
             return qs.filter(pk__in=member_project_ids, is_deleted=False)
         # No recognizable project path. Fail closed unless the viewset explicitly
         # declared the model non-project-scoped (Calendars are org-level shared

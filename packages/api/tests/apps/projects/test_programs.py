@@ -1170,7 +1170,7 @@ def test_retrieve_includes_new_general_fields_with_safe_defaults(owner: object) 
     # A create that omits ``code`` gets one derived from the name (ADR-1237 §1).
     assert resp.data["code"] == "phase-2"
     assert resp.data["health"] == "AUTO"
-    assert resp.data["visibility"] == "WORKSPACE"
+    assert resp.data["visibility"] == "PRIVATE"  # ADR-1434 default
     assert resp.data["lead"] is None
     assert resp.data["lead_detail"] is None
 

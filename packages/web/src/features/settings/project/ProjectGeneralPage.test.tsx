@@ -309,7 +309,9 @@ describe('ProjectGeneralPage', () => {
     const row = within(calendarRow());
     expect(row.getByText('Workspace default')).toBeInTheDocument();
     expect(row.getByText('Inherited')).toBeInTheDocument();
-    expect(row.getByText(/Inherited from the workspace default \(Workspace default\)/i)).toBeInTheDocument();
+    expect(
+      row.getByText(/Inherited from the workspace default \(Workspace default\)/i),
+    ).toBeInTheDocument();
   });
 
   it('wires the project-lead picker — an enabled trigger opens the member listbox (#966)', () => {
@@ -327,8 +329,16 @@ describe('ProjectGeneralPage', () => {
     // Switch health AT_RISK → ON_TRACK.
     fireEvent.click(screen.getByRole('button', { name: /on track/i }));
 
-    // Visibility is intentionally NOT edited here — the control is disabled until
-    // enforcement ships (#2011, TODO(#2066)), so the save carries the seed value.
+    // Switch visibility WORKSPACE → PRIVATE (enforced since ADR-1434).
+    fireEvent.click(
+      screen
+        .getAllByRole('radio')
+        .find(
+          (el) =>
+            (el as HTMLInputElement).name === 'project-visibility' &&
+            (el as HTMLInputElement).value === 'PRIVATE',
+        ) as HTMLElement,
+    );
 
     // Pick a different default view.
     fireEvent.change(screen.getByRole('combobox', { name: /default view/i }), {
@@ -347,7 +357,7 @@ describe('ProjectGeneralPage', () => {
         name: 'Atlas Migration',
         code: 'ATLAS',
         health: 'ON_TRACK',
-        visibility: 'WORKSPACE',
+        visibility: 'PRIVATE',
         timezone: 'Europe/London',
         default_view: 'TABLE',
       }),
@@ -465,21 +475,25 @@ describe('ProjectGeneralPage', () => {
     );
   });
 
-  it('renders the visibility control disabled with a "not yet enforced" note (#2011)', () => {
+  it('renders an editable visibility control with honest scope copy (ADR-1434)', () => {
     renderPage();
 
-    // Both visibility radios are disabled — the setting is stored but access is
-    // membership-scoped for every project, so an editable control would give
-    // false assurance until enforcement ships (TODO(#2066)).
     const radios = screen
       .getAllByRole('radio')
       .filter((el) => (el as HTMLInputElement).name === 'project-visibility');
     expect(radios).toHaveLength(2);
-    radios.forEach((radio) => expect(radio).toBeDisabled());
+    radios.forEach((radio) => expect(radio).toBeEnabled());
+    const byValue = (v: string) => radios.find((el) => (el as HTMLInputElement).value === v);
+    expect(byValue('WORKSPACE')).toBeChecked();
 
-    expect(
-      screen.getByText(/access is currently membership-scoped for all projects/i),
-    ).toBeInTheDocument();
+    fireEvent.click(byValue('PRIVATE') as HTMLElement);
+    expect(byValue('PRIVATE')).toBeChecked();
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    // The "not yet enforced" note from #2011 is gone, and WORKSPACE says what it
+    // does NOT open: child data stays members-only.
+    expect(screen.queryByText(/membership-scoped for all projects/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/tasks, board, and schedule stay members-only/i)).toBeInTheDocument();
   });
 
   it('resets the save store between renders so the next page mounts clean', () => {

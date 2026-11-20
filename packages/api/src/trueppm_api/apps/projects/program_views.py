@@ -46,6 +46,7 @@ from trueppm_api.apps.access.permissions import (
     IsNotTokenAuthenticated,
     IsProgramAdmin,
     IsProgramMember,
+    IsProgramMemberOrWorkspaceVisible,
     IsProgramNotClosed,
     IsProgramOwner,
     IsProgramScheduler,
@@ -53,6 +54,7 @@ from trueppm_api.apps.access.permissions import (
     McpProgramExportConsent,
     McpReadableViewMixin,
     McpScope,
+    workspace_visibility_eligible,
 )
 from trueppm_api.apps.access.services import (
     PROGRAM_LEAD_NOT_MEMBER_DETAIL,
@@ -89,6 +91,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
     TaskType,
+    Visibility,
     format_short_id_display,
 )
 from trueppm_api.apps.projects.program_rollup import drift_counts_by_project
@@ -784,12 +787,21 @@ class ProgramViewSet(
     URL: ``/api/v1/programs/``
 
     Permission matrix (ADR-0070 §RBAC):
-      list      — IsAuthenticated; queryset filtered to programs the caller is a member of
-      retrieve  — IsProgramMember (Viewer+)
+      list      — IsAuthenticated; queryset filtered to programs the caller is a member
+                  of, plus WORKSPACE-visible programs for an active workspace member
+                  (ADR-1434)
+      retrieve  — IsProgramMemberOrWorkspaceVisible (Viewer+, or a read-only
+                  WORKSPACE program, ADR-1434)
       create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``
       update    — IsProgramAdmin
       destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in
                   one transaction (memberships are left in place)
+
+    Reduced shape for non-members: a caller who is not a member of a WORKSPACE-visible
+    program receives a summary record from list and retrieve that omits the member-only
+    fields ``created_by``, ``effective_calendar``, ``lead_detail``, ``member_count`` and
+    ``project_count``. The schema lists those fields as required for the full record, so
+    clients must treat them as optional.
     """
 
     # ADR-0678 (#2482): Program rows are filtered on the program's own denial, but
@@ -805,6 +817,11 @@ class ProgramViewSet(
 
     serializer_class = ProgramSerializer
     pagination_class = DirectoryPagination
+
+    # ADR-1434: the actions whose queryset admits a WORKSPACE program for a
+    # non-member. ``ProgramSerializer`` reads it too, to return only the summary
+    # record to that caller (§6).
+    workspace_visible_actions: frozenset[str] = frozenset({"list", "retrieve"})
     # Parity with ProjectViewSet: name/code substring search so the program
     # switchers and command palette stay findable past the default page (ADR-0401).
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -977,7 +994,12 @@ class ProgramViewSet(
             # (web-rule 94, matching the per-project resource-allocation gate);
             # a Viewer or Member must not see who is staffed where.
             return [IsAuthenticated(), IsProgramScheduler()]
-        if self.action in ("retrieve", "projects", "integrations_summary", "task_search"):
+        if self.action == "retrieve":
+            # The program RECORD honors visibility (ADR-1434): a WORKSPACE program is
+            # retrievable, read-only, by any active workspace member. The detail
+            # actions below read child-project data and stay member-only.
+            return [IsAuthenticated(), IsProgramMemberOrWorkspaceVisible(), IsProgramNotClosed()]
+        if self.action in ("projects", "integrations_summary", "task_search"):
             # ``task_search`` backs the cross-project dependency picker (ADR-0120
             # D5): a create-assist read, gated exactly like ``projects`` — any
             # program member. ``IsProgramNotClosed`` is a no-op for the GET (it
@@ -1047,17 +1069,27 @@ class ProgramViewSet(
             .values("c")
         )
 
+        # ADR-1434: list and retrieve also admit a WORKSPACE program for an active
+        # workspace member. ``Exists | Q`` keeps both arms row predicates (no join),
+        # so the OR cannot duplicate rows or disturb the aggregates below. Every
+        # other action — including the detail actions that read child projects —
+        # stays membership-only.
+        member_scope = Exists(
+            ProgramMembership.objects.filter(
+                program=OuterRef("pk"),
+                user=user,
+                is_deleted=False,
+            )
+        )
+        scope: Exists | Q = member_scope
+        if getattr(self, "action", None) in self.workspace_visible_actions and (
+            workspace_visibility_eligible(self.request)
+        ):
+            scope = member_scope | Q(visibility=Visibility.WORKSPACE)
+
         qs = (
             Program.objects.filter(is_deleted=False)
-            .filter(
-                Exists(
-                    ProgramMembership.objects.filter(
-                        program=OuterRef("pk"),
-                        user=user,
-                        is_deleted=False,
-                    )
-                )
-            )
+            .filter(scope)
             # select_related on ``lead`` so ProgramSerializer.lead_detail does not
             # incur one extra User query per program on list responses (#523).
             # select_related ``calendar`` + prefetch its exceptions so
@@ -2909,12 +2941,12 @@ class ProgramViewSet(
         # it does NOT arrive here; wire it explicitly, and decide whether it belongs
         # on ProgramProjectRowSerializer at all.
         #
-        # OPEN QUESTION, deliberately left open: `Project.visibility` is stored but not
-        # yet enforced (TODO(#2066) on the model). When it is, this route has to answer
-        # whether a PRIVATE project's row — its existence, name, code, start date, health
-        # and risk counts — still reaches every program Viewer. The paragraph above is a
-        # statement about the defect #3439 fixed, NOT a ruling on #2066; do not cite it
-        # as settling that. `visible_projects()` drops drafts and nothing else today.
+        # Visibility (ADR-1434 §4): a PRIVATE project's row — its existence, name,
+        # code, start date, health and risk counts — still reaches every program
+        # member here. PRIVATE narrows the *workspace-wide* audience of the record; the
+        # program roster is the coordination audience for the program's own project
+        # list, and its child data stays membership-scoped regardless. Narrowing this
+        # route would be a separate, deliberate decision that supersedes ADR-1434 §4.
         # ---------------------------------------------------------------------
         qs = (
             visible_projects(Project.objects.filter(program=program, is_deleted=False))

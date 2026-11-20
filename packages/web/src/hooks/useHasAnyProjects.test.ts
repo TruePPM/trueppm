@@ -1,10 +1,12 @@
 import { renderHook } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const projects = vi.hoisted<{ current: { id: string }[] | undefined }>(() => ({ current: [] }));
-const programs = vi.hoisted<{ current: { id: string; project_count?: number }[] | undefined }>(
+const projects = vi.hoisted<{ current: { id: string; myRole?: number | null }[] | undefined }>(
   () => ({ current: [] }),
 );
+const programs = vi.hoisted<{
+  current: { id: string; project_count?: number; my_role?: number | null }[] | undefined;
+}>(() => ({ current: [] }));
 vi.mock('./useProjects', () => ({ useProjects: () => ({ data: projects.current }) }));
 vi.mock('./usePrograms', () => ({ usePrograms: () => ({ data: programs.current }) }));
 
@@ -43,6 +45,24 @@ describe('useHasAnyProjects (#3469)', () => {
     programs.current = [{ id: 'prog-1' }];
     const { result } = renderHook(() => useHasAnyProjects());
     expect(result.current).toBe(false);
+  });
+
+  it('is false when the only listed projects are WORKSPACE-visible non-member rows (ADR-1434)', () => {
+    // `GET /projects/` now also lists other teams' WORKSPACE projects with
+    // `my_role: null`; a brand-new user must still get the onboarding state.
+    projects.current = [{ id: 'p-other', myRole: null }];
+    programs.current = [{ id: 'prog-other', my_role: null, project_count: 3 }];
+    const { result } = renderHook(() => useHasAnyProjects());
+    expect(result.current).toBe(false);
+  });
+
+  it('is true when a member row sits among non-member rows', () => {
+    projects.current = [
+      { id: 'p-other', myRole: null },
+      { id: 'p-mine', myRole: 100 },
+    ];
+    const { result } = renderHook(() => useHasAnyProjects());
+    expect(result.current).toBe(true);
   });
 
   it('is false while both queries are still loading', () => {

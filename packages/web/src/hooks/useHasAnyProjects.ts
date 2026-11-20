@@ -1,3 +1,5 @@
+import { isMemberProject } from '@/lib/projectMembership';
+
 import { usePrograms } from './usePrograms';
 import { useProjects } from './useProjects';
 
@@ -5,7 +7,12 @@ import { useProjects } from './useProjects';
  * Whether this user has any project in view at all — one they hold a
  * `ProjectMembership` on, **or** one inside a program they belong to.
  *
- * `GET /projects/` is membership-scoped while `GET /programs/{id}/projects/` is
+ * Both lists also carry WORKSPACE-visible rows the user is not a member of
+ * (ADR-1434, `my_role: null`); those are filtered out, because a workspace full of
+ * other teams' visible projects is still "nowhere to be" for a brand-new user, who
+ * must keep seeing the onboarding empty state.
+ *
+ * `GET /projects/`'s member rows are membership-scoped while `GET /programs/{id}/projects/` is
  * program-scoped, so a program Owner with no project memberships reads as a
  * brand-new zero-project user to anything that counts only the first list: the
  * rail's pinned tier and My Work both told the owner of a four-project program
@@ -26,6 +33,7 @@ export function useHasAnyProjects(): boolean {
   const { data: projects } = useProjects();
   const { data: programs } = usePrograms();
   return (
-    (projects ?? []).length > 0 || (programs ?? []).some((p) => (p.project_count ?? 0) > 0)
+    (projects ?? []).some(isMemberProject) ||
+    (programs ?? []).some((p) => p.my_role !== null && (p.project_count ?? 0) > 0)
   );
 }

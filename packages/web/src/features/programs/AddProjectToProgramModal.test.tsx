@@ -91,3 +91,18 @@ describe('AddProjectToProgramModal methodology chips + filter (#564)', () => {
     expect(within(standalone.parentElement as HTMLElement).getByText('Waterfall One')).toBeTruthy();
   });
 });
+
+describe('AddProjectToProgramModal candidate membership (ADR-1434)', () => {
+  it('does not offer a WORKSPACE-visible project the caller is not a member of', () => {
+    useProjects.mockReturnValue({
+      data: [
+        { ...project('Mine', 'AGILE', null), myRole: 300 },
+        { ...project('Other Team', 'AGILE', null), myRole: null },
+      ],
+      isLoading: false,
+    });
+    renderModal();
+    expect(screen.getByText('Mine')).toBeInTheDocument();
+    expect(screen.queryByText('Other Team')).not.toBeInTheDocument();
+  });
+});

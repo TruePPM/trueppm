@@ -42,6 +42,7 @@ import { localTodayIso } from '@/lib/localDate';
 import { countBlocked, selectVisibleTasks } from './myWorkBlocked';
 import { useHasAnyProjects } from '@/hooks/useHasAnyProjects';
 import { useProjects } from '@/hooks/useProjects';
+import { isMemberProject } from '@/lib/projectMembership';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { MyWorkTaskRow } from './MyWorkTaskRow';
 import { ExternalWorkItemRow } from './ExternalWorkItemRow';
@@ -53,12 +54,7 @@ import { MyWorkSideColumn } from './MyWorkSideColumn';
 import { MyProjectsHealthSummary } from './MyProjectsHealthSummary';
 import { LandingPrimaryUsePrompt } from './LandingPrimaryUsePrompt';
 import { LandingContextHint } from './LandingContextHint';
-import {
-  buildMyWorkFocusCards,
-  greeting,
-  greetingSubline,
-  dateChip,
-} from './myWorkFocus';
+import { buildMyWorkFocusCards, greeting, greetingSubline, dateChip } from './myWorkFocus';
 
 interface WorkGroup {
   group: MyWorkGroup;
@@ -130,16 +126,23 @@ export function MyWorkPage() {
   const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } =
     useMyWork();
   // Used to differentiate empty-state flavor A (no projects) vs B (no assignments).
-  // Counts program projects as well as membership projects (#3469): `GET /projects/`
-  // is membership-scoped, so a program Owner holding no ProjectMembership read as a
+  // Counts program projects as well as membership projects (#3469): the member rows
+  // of `GET /projects/` are membership-scoped (it also lists WORKSPACE-visible
+  // projects the user is not on — ADR-1434 — which the hook drops), so a program
+  // Owner holding no ProjectMembership read as a
   // brand-new user and was shown the "let's get you started" onboarding for a
   // program they already run. Both queries are already in cache from the Sidebar —
   // cheap reuse, no request of its own.
   const hasAnyProjects = useHasAnyProjects();
   // The membership-scoped half on its own, so the empty state can tell "has
   // projects" from "has projects only because they are in a program" (#3469).
-  // Cached alongside the hook above; no extra request.
-  const { data: memberProjects } = useProjects();
+  // Filtered to member rows: a WORKSPACE-visible project the user is not on
+  // (ADR-1434) is not one they "have". Cached; no extra request.
+  const { data: listedProjects } = useProjects();
+  const memberProjects = useMemo(
+    () => (listedProjects ?? []).filter(isMemberProject),
+    [listedProjects],
+  );
   // Name for the time-aware greeting. Already cached from the shell.
   const { user } = useCurrentUser();
 
@@ -178,10 +181,7 @@ export function MyWorkPage() {
   // suggestions (ADR-0071 §4c) or only external work (#1422).
   const totalCount = allTasks.length + retroItemCount + externalVisibleCount;
   const dueTodayCount = firstPage?.due_today_count ?? 0;
-  const criticalCount = useMemo(
-    () => allTasks.filter((t) => t.is_critical).length,
-    [allTasks],
-  );
+  const criticalCount = useMemo(() => allTasks.filter((t) => t.is_critical).length, [allTasks]);
 
   // Blocked quick-filter: a top-of-page "N blocked" chip the contributor
   // taps to narrow the list to flagged-blocked tasks. Reads `is_blocked` already
@@ -220,10 +220,7 @@ export function MyWorkPage() {
   const hasWork = totalCount > 0;
 
   return (
-    <section
-      aria-label="My Work"
-      className="flex flex-col h-full overflow-y-auto bg-app-canvas"
-    >
+    <section aria-label="My Work" className="flex flex-col h-full overflow-y-auto bg-app-canvas">
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-5 md:px-6">
         <div className="flex min-w-0 flex-col gap-1">
           {/* Time-aware greeting (v2 My Work spec). This IS the page <h1>. */}
@@ -316,7 +313,7 @@ export function MyWorkPage() {
       ) : totalCount === 0 ? (
         <MyWorkEmptyState
           hasProjects={hasAnyProjects}
-          reachableOnlyViaProgram={hasAnyProjects && (memberProjects ?? []).length === 0}
+          reachableOnlyViaProgram={hasAnyProjects && memberProjects.length === 0}
           hasConnectedExternalSource={externalSources.some((s) => s.status !== 'not_connected')}
         />
       ) : (

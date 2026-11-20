@@ -708,12 +708,14 @@ export interface Project {
    * 400, see `@/lib/roles`), or `null` when they hold no membership. Never 0 —
    * absence is always `null` (ADR-0072 Amendment 1).
    *
-   * Optional because only the program-projects roster annotates it (#3357).
-   * That roster is program-scoped, not membership-scoped, so it is the one list
-   * shape that can contain rows the viewer cannot open: `GET /projects/{id}/` is
-   * queryset-scoped to `ProjectMembership`, so `myRole === null` means the
-   * project's own route will 404 (#3469). Treat `undefined` as "unknown", never
-   * as "no access" — the other list shapes simply do not carry it.
+   * Carried by the program-projects roster (#3357) and by `GET /projects/`
+   * (ADR-1434). Both can contain rows the viewer is not a member of: the roster is
+   * program-scoped, and `GET /projects/` also lists WORKSPACE-visible projects. On
+   * either, `myRole === null` means the project's child routes (tasks, board,
+   * overview) refuse the viewer (#3469); on the roster its own route 404s too.
+   * Treat `undefined` as "unknown", never as "no access" — shapes that do not
+   * carry it predate the field. `isMemberProject` (`@/lib/projectMembership`) is the
+   * one predicate for "a project I belong to".
    */
   myRole?: number | null;
   /**

@@ -246,6 +246,31 @@ test.describe('Project Settings → General', () => {
     });
   });
 
+  // ADR-1434 (#2066): visibility is enforced, so the control is live again — the #2011
+  // "Coming soon" / "not enforced yet" note is gone and choosing Private PATCHes it.
+  test('visibility control is editable and PATCHes the chosen value', async ({ page }) => {
+    const captures: Captures = {};
+    await setup(page, captures); // default selfRole = 300 (Admin)
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
+    const workspaceRadio = section.locator('input[name="project-visibility"][value="WORKSPACE"]');
+    const privateRadio = section.locator('input[name="project-visibility"][value="PRIVATE"]');
+    await expect(workspaceRadio).toBeChecked(); // seeded from FIXTURE_PROJECT
+    await expect(privateRadio).toBeEnabled();
+    await expect(section.getByText(/coming soon/i)).toHaveCount(0);
+    await expect(section.getByText(/not enforced yet/i)).toHaveCount(0);
+    await expect(section.getByText(/schedule stay members-only/i)).toBeVisible();
+
+    await section.getByText('Private', { exact: true }).click();
+    await expect(privateRadio).toBeChecked();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => captures.patch).toBeDefined();
+    expect(captures.patch).toMatchObject({ visibility: 'PRIVATE' });
+  });
+
   test('refuses a hyphenated new key client-side, before any request (ADR-1237 §2)', async ({
     page,
   }) => {

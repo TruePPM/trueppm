@@ -87,8 +87,12 @@ const METHODOLOGY_OPTIONS: Array<{ id: ProgramMethodology; label: string }> = [
 ];
 
 const VISIBILITY_OPTIONS: Array<{ id: ProgramVisibility; label: string; hint: string }> = [
-  { id: 'WORKSPACE', label: 'Workspace', hint: 'Anyone in the workspace can see this program.' },
-  { id: 'PRIVATE', label: 'Private', hint: 'Only invited members can see this program.' },
+  {
+    id: 'WORKSPACE',
+    label: 'Workspace',
+    hint: 'Anyone in the workspace can find this program and read its summary. Its projects and rollups stay members-only.',
+  },
+  { id: 'PRIVATE', label: 'Private', hint: 'Only program members can find this program.' },
 ];
 
 /**
@@ -227,7 +231,7 @@ export function ProgramGeneralPage() {
   const [sprintPickerReadyOnlyDefault, setSprintPickerReadyOnlyDefault] = useState<boolean | null>(
     null,
   );
-  const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
+  const [visibility, setVisibility] = useState<ProgramVisibility>('PRIVATE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
   // null = Unassigned. User id of the program lead (#966) — the display field,
@@ -282,7 +286,7 @@ export function ProgramGeneralPage() {
   const [initialSprintPickerReadyOnlyDefault, setInitialSprintPickerReadyOnlyDefault] = useState<
     boolean | null
   >(null);
-  const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
+  const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('PRIVATE');
   const [initialColor, setInitialColor] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
 
@@ -1147,26 +1151,22 @@ export function ProgramGeneralPage() {
             />
           </FieldRow>
 
-          {/* Visibility is stored and rendered but authorization never reads it —
-              access is membership-scoped for every program regardless of this
-              value (#2011). Rather than present a control that gives false
-              assurance (PRIVATE promises a distinction that isn't implemented),
-              the whole control is disabled with a "not yet enforced" note until
-              real queryset/permission enforcement ships. Re-enable both radios
-              and drop the note then. TODO(#2066): enforce WORKSPACE vs PRIVATE. */}
-          <FieldRow label="Visibility" hint="Who can see this program and its rollup KPIs.">
+          {/* Visibility is enforced on the program record (ADR-1434): WORKSPACE lets any
+              active workspace member find and read this program's summary; PRIVATE keeps
+              it members-only. Child data stays members-only either way, so the option
+              hints say so. The enclosing ReadOnlyFieldset disables the radios below Admin. */}
+          <FieldRow
+            label="Visibility"
+            hint="Who can find this program. Editing always follows program role."
+          >
             <div className="flex flex-col gap-3">
               {VISIBILITY_OPTIONS.map((opt) => (
-                <label
-                  key={opt.id}
-                  className="flex items-center gap-3 cursor-not-allowed"
-                  aria-disabled="true"
-                >
+                <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
                   <span
                     className={[
                       'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
                       visibility === opt.id
-                        ? 'border-neutral-text-disabled bg-neutral-text-disabled'
+                        ? 'border-brand-primary bg-brand-primary'
                         : 'border-neutral-border',
                     ].join(' ')}
                     aria-hidden="true"
@@ -1180,24 +1180,15 @@ export function ProgramGeneralPage() {
                     name="program-visibility"
                     value={opt.id}
                     checked={visibility === opt.id}
-                    disabled
-                    readOnly
-                    aria-describedby="program-visibility-not-enforced"
+                    onChange={() => setVisibility(opt.id)}
                     className="sr-only"
                   />
-                  <span className="text-[13px] font-medium text-neutral-text-disabled">
+                  <span className="text-[13px] font-medium text-neutral-text-primary">
                     {opt.label}
                   </span>
-                  <span className="text-[12px] text-neutral-text-disabled">· {opt.hint}</span>
+                  <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
                 </label>
               ))}
-              <p
-                id="program-visibility-not-enforced"
-                className="text-[12px] text-neutral-text-secondary"
-              >
-                Coming soon — access is currently membership-scoped for all programs, so this
-                setting is not enforced yet.
-              </p>
             </div>
           </FieldRow>
 

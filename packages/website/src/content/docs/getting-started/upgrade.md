@@ -1,6 +1,7 @@
 ---
 title: Upgrading
 description: How to upgrade TruePPM — Docker Compose, single-server, and Helm paths.
+documentedFor: "0.5"
 ---
 
 This page walks through moving an existing TruePPM instance to a newer version, safely, for whichever way you run it — Docker Compose, a single server, or Helm/Kubernetes. If you are standing up TruePPM for the first time rather than upgrading one, see [Installation](/getting-started/installation/) instead.
@@ -253,6 +254,24 @@ redraw it between subtasks. It will touch no other link type, no link out of a s
 that was already legal, and nothing else, and it will be safe to run more than once.
 Read those lines after the upgrade if a plan shows a dependency missing from a phase.
 A link whose backlog child is later committed (#5046) is not covered by the migration.
+
+### Project and program visibility defaults to Private (`projects.0181`)
+
+From 0.5, the Visibility setting on projects and programs is enforced, and its default
+changes from **Workspace** to **Private**. The upgrade migration sets **every** existing
+project and program to Private, including any that an Admin had explicitly set to
+Workspace. That earlier choice had no effect (every project and program was members-only
+whatever it said, and the control was disabled), and the migration cannot tell it apart
+from the old default, so nothing becomes visible to the wider workspace on upgrade.
+
+After the upgrade, an Admin who wants a project or program findable by the whole
+workspace sets it back to Workspace in its General settings. Workspace opens only the
+summary record, read-only; tasks, boards, schedules, and rollups stay members-only. See
+[Project settings → Visibility](/administration/project-settings/#visibility).
+
+The migration writes the new value without bumping each row's sync version, so an offline
+client can keep showing the old Workspace label until that project or program next
+changes. The label is display-only; the server decides access.
 
 ### New API tokens carry `api:full` (`projects.0170`)
 

@@ -155,6 +155,27 @@ test.describe('Program Settings → General', () => {
     });
   });
 
+  // ADR-1434 (#2066): visibility is enforced, so the control is live again — the #2011
+  // "not enforced yet" note is gone and choosing Private PATCHes `visibility`.
+  test('visibility control is editable and PATCHes the chosen value', async ({ page }) => {
+    const captures: { patch?: Record<string, unknown> } = {};
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
+    const privateRadio = general.locator('input[name="program-visibility"][value="PRIVATE"]');
+    await expect(privateRadio).toBeEnabled();
+    await expect(general.getByText(/not enforced yet/i)).toHaveCount(0);
+    await expect(general.getByText(/projects and rollups stay members-only/i)).toBeVisible();
+
+    await general.getByText('Private', { exact: true }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => captures.patch).toBeDefined();
+    expect(captures.patch).toMatchObject({ visibility: 'PRIVATE' });
+  });
+
   // #2266: jargon/policy/cascade fields carry a FieldHelp ⓘ (web-rule 263) that
   // opens a non-modal dialog with a "Learn more →" deep-link into the docs.
   test('opens a field-help popover with a docs deep-link', async ({ page }) => {

@@ -834,14 +834,14 @@ class Health(models.TextChoices):
 
 
 class Visibility(models.TextChoices):
-    """Workspace-vs-private visibility scope (issue #523).
+    """Workspace-vs-private visibility scope (issue #523, enforced by ADR-1434).
 
-    ``WORKSPACE`` (default) means any workspace member can list the entity
-    even without an explicit membership row. ``PRIVATE`` means listing is
-    restricted to explicit members. The queryset enforcement is a future
-    cross-cutting change — this MR stores the field and renders it in the UI
-    only; today both values resolve to "membership-required" via the
-    existing get_queryset gate.
+    ``WORKSPACE`` means any active workspace member (not a guest) can list and
+    retrieve the project/program *record*, read-only, without a membership row.
+    ``PRIVATE`` (the default) keeps the record membership-scoped. Neither value
+    reaches child data: tasks, board, schedule, rollups and the board WebSocket
+    are membership-scoped either way. A program member still sees a PRIVATE
+    project of that program as a row in the program's project list.
     """
 
     WORKSPACE = "WORKSPACE", "Workspace"
@@ -1081,17 +1081,14 @@ class Program(VersionedModel):
     # open-ended. ADMIN+ to set (gated by the viewset's IsProgramAdmin on update).
     # A target_milestone FK is a deferred follow-up — see #560.
     target_date = models.DateField(null=True, blank=True)
-    # Listing scope. WORKSPACE = listable by any workspace member; PRIVATE =
-    # explicit-members-only. NOT YET ENFORCED — authorization never reads this
-    # field today (access is membership-scoped for every program), so the value
-    # is stored and rendered but access-neutral. The General-settings control is
-    # disabled with a "not yet enforced" note (#2011) to avoid false assurance
-    # until queryset/permission enforcement ships. TODO(#2066): enforce
-    # WORKSPACE vs PRIVATE. See the Visibility docstring above.
+    # Listing scope (ADR-1434). WORKSPACE = the program record is listable and
+    # retrievable, read-only, by any active workspace member; PRIVATE = members
+    # only. Defaults to PRIVATE so no program becomes workspace-visible without an
+    # admin choosing it. Enforced in ProgramViewSet.get_queryset + its retrieve gate.
     visibility = models.CharField(
         max_length=16,
         choices=Visibility.choices,
-        default=Visibility.WORKSPACE,
+        default=Visibility.PRIVATE,
     )
     # Accent color as #RRGGBB hex, or null (#698). Drives the program-scoped
     # identity square on the list card and rollup-chart accents. Null = unset,
@@ -1550,17 +1547,15 @@ class Project(VersionedModel):
         choices=Health.choices,
         default=Health.AUTO,
     )
-    # Listing scope (issue #520). WORKSPACE = listable by any workspace member;
-    # PRIVATE = explicit-members-only. NOT YET ENFORCED — authorization never
-    # reads this field today (access is membership-scoped for every project), so
-    # it is stored and rendered but access-neutral. The General-settings control
-    # is disabled with a "not yet enforced" note (#2011) to avoid false assurance
-    # until queryset/permission enforcement ships. TODO(#2066): enforce WORKSPACE
-    # vs PRIVATE. Reuses the Visibility enum shared with Program (#523).
+    # Listing scope (ADR-1434). WORKSPACE = the project record is listable and
+    # retrievable, read-only, by any active workspace member; PRIVATE = members
+    # only. Defaults to PRIVATE so no project becomes workspace-visible without an
+    # admin choosing it. Enforced in ProjectScopedViewSet (workspace_visible_actions)
+    # + IsProjectMemberOrWorkspaceVisible. Shares the Visibility enum with Program.
     visibility = models.CharField(
         max_length=16,
         choices=Visibility.choices,
-        default=Visibility.WORKSPACE,
+        default=Visibility.PRIVATE,
     )
     # IANA timezone identifier for this project (issue #520). Empty string defers
     # to ``Workspace.timezone``, then to ``settings.TIME_ZONE`` (#3377).

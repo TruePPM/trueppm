@@ -343,22 +343,22 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(notice).toHaveTextContent(/Read-only — program closed/i);
   });
 
-  it('renders the visibility control disabled with a "not yet enforced" note (#2011)', () => {
+  it('renders an editable visibility control with honest scope copy (ADR-1434)', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
 
-    // Visibility is stored but access is membership-scoped for every program, so
-    // both radios are disabled to avoid false assurance until enforcement ships
-    // (TODO(#2066)).
     const radios = screen
       .getAllByRole('radio')
       .filter((el) => (el as HTMLInputElement).name === 'program-visibility');
     expect(radios).toHaveLength(2);
-    radios.forEach((radio) => expect(radio).toBeDisabled());
+    radios.forEach((radio) => expect(radio).toBeEnabled());
 
-    expect(
-      screen.getByText(/access is currently membership-scoped for all programs/i),
-    ).toBeInTheDocument();
+    const privateRadio = radios.find((el) => (el as HTMLInputElement).value === 'PRIVATE');
+    fireEvent.click(privateRadio as HTMLElement);
+    expect(privateRadio).toBeChecked();
+
+    expect(screen.queryByText(/membership-scoped for all programs/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/projects and rollups stay members-only/i)).toBeInTheDocument();
   });
 
   it('renders the duration-change policy control inheriting the workspace default', () => {
