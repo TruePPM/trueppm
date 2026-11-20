@@ -220,6 +220,7 @@ class TestRoundTrip:
             planned_start = date(2026, 3, 9)
             actual_start = date(2026, 3, 9)
             actual_finish = None
+            deadline = None
             optimistic_duration = None
             most_likely_duration = None
             pessimistic_duration = None
@@ -254,6 +255,7 @@ class TestRoundTrip:
             planned_start = None
             actual_start = None
             actual_finish = None
+            deadline = None
             optimistic_duration = None
             most_likely_duration = None
             pessimistic_duration = None
