@@ -381,6 +381,7 @@ def _completed_forward_contribs(
             # date; the start is that finish backed off by the duration, so the
             # start's binding must name the start the engine placed, not the cap.
             cap = _prev_working_day(status_date, cal)
+            # The None arm is unreachable: _derive_scheduled_start asserts early_start is not None.
             imposed = cap if want_finish or task.early_start is None else task.early_start
             contribs.append(
                 DerivationContribution(
