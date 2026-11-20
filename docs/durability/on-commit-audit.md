@@ -71,8 +71,8 @@ reconcile their state by pulling the sync delta on (re)connect. If the channel
 layer is down at commit time, the event is dropped and the connected client
 recovers it on its next delta fetch. Losing a broadcast therefore loses nothing
 durable. This contract is documented on the two primitives' docstrings; it is
-**not** repeated as an inline comment on each of the 60 best-effort callsites —
-that would duplicate one rationale 60 times and violate the repo's
+**not** repeated as an inline comment on each best-effort callsite (the gate classifies them; run `python3 scripts/check-on-commit-durability.py --report`) —
+that would duplicate one rationale at every callsite and violate the repo's
 comment-discipline rule (comments explain non-obvious *why*; the why here is a
 property of the broadcast mechanism, stated once at its definition).
 

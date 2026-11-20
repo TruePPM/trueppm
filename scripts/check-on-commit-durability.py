@@ -32,7 +32,14 @@ fails when that table drifts (``--write-docs`` regenerates it).
 Ratchet. ``hole`` and ``unclassified`` callsites must be covered by an entry in
 ``packages/api/on-commit-baseline.txt``: ``path | class | max-count | issue | reason``.
 A count above the entry fails (a new callsite), a count below it fails too (lower it:
-the list only shrinks), an entry matching nothing fails. A callsite opts out with
+the list only shrinks), an entry matching nothing fails. Separately, the baseline file is
+compared with its merge-base copy (``git show origin/main:...``, or
+``CI_MERGE_REQUEST_DIFF_BASE_SHA`` in CI): a raised count or a new entry fails unless the
+entry carries ``# raise-ok: <reason>`` on the line directly above it, honored only while
+that marker is new relative to the base copy. The marker is a self-grant in the file it
+guards: the reviewer reading the diff is the control. The comparison is skipped with a
+note when no merge base is available (no ``origin/main``, or on ``main``); a named but
+unreachable base ref (shallow clone) fails closed. A callsite opts out with
 ``# on-commit-ok: <reason>`` on its line or the comment line directly above (rule c,
 reason required) — a rubber stamp that removes the silence, like ``# layering-ok:``.
 
@@ -46,9 +53,10 @@ What it deliberately does NOT check — read this before citing a green run:
   before dispatching; the gate does not verify that. Same for ``best-effort`` names.
 * **"Enclosing function calls an outbox helper" is a proximity heuristic**, not a
   data-flow proof that the row is the one the callback dispatches for.
-* **Aliases and dynamic dispatch.** ``cb = on_commit; cb(...)``, ``getattr`` calls and
-  callbacks stored in containers are not found. Only ``<anything>.on_commit(...)`` and a
-  bare ``on_commit(...)`` are.
+* **Aliases and dynamic dispatch.** ``cb = on_commit; cb(...)`` and ``getattr`` calls are
+  not found. Only ``<anything>.on_commit(...)`` and a bare ``on_commit(...)`` are. A
+  callback that is an expression the gate cannot expand (subscript, call result, ...) is
+  classed ``unclassified``, not best-effort.
 * **Callsites outside ``packages/api/src/trueppm_api``** (tests, enterprise) and
   ``migrations/`` are not scanned.
 * **Name resolution is by simple name** within a file: two same-named nested defs
@@ -63,6 +71,7 @@ from __future__ import annotations
 import ast
 import os
 import re
+import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -231,6 +240,10 @@ def classify_source(source: str, rel: str, reg: Registry) -> list[Site]:
         is_helper = any(getattr(s, "name", "") in reg.outbox for s in stack)
         if opted:
             cls = "allowed"
+        elif cb is None:
+            # An expression the gate cannot expand (subscript, call result, ...) is not
+            # evidence of safety: never let it fall through to best-effort.
+            cls = "unclassified"
         elif dispatch:
             cls = (
                 "outbox"
@@ -268,11 +281,18 @@ def scan(src: Path, reg: Registry) -> list[Site]:
 def load_baseline(
     path: Path,
 ) -> tuple[dict[tuple[str, str], tuple[int, str]], list[str]]:
+    if not path.exists():
+        return {}, [f"baseline missing: {path}"]
+    return parse_baseline(path.read_text(), path.name)
+
+
+def parse_baseline(
+    text: str, name: str
+) -> tuple[dict[tuple[str, str], tuple[int, str]], list[str]]:
     entries: dict[tuple[str, str], tuple[int, str]] = {}
     problems: list[str] = []
-    if not path.exists():
-        return entries, [f"baseline missing: {path}"]
-    for n, raw in enumerate(path.read_text().splitlines(), 1):
+    path = Path(name)
+    for n, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -291,6 +311,91 @@ def load_baseline(
             problems.append(f"{path.name}:{n}: issue must be '#NNNN', got {issue!r}")
         entries[(file, cls)] = (int(count), issue)
     return entries, problems
+
+
+RAISE_OK = "# raise-ok:"
+Key = tuple[str, str]
+
+
+def raise_marks(text: str) -> set[Key]:
+    """Entries with a reasoned ``# raise-ok:`` on the line directly above them."""
+    marks: set[Key] = set()
+    prev = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        p = [x.strip() for x in line.split("|")]
+        if len(p) == 5 and prev.startswith(RAISE_OK) and prev[len(RAISE_OK) :].strip():
+            marks.add((p[0], p[1]))
+        prev = line
+    return marks
+
+
+def baseline_raised(now_text: str, base_text: str | None) -> list[str]:
+    """Errors for entries raised (count up, or new) versus the merge-base copy.
+
+    A ``# raise-ok: <reason>`` marker is honored only while new relative to the base
+    copy: one already present at the base was spent by the MR that added it.
+    """
+    if base_text is None:
+        return []
+    now, _ = parse_baseline(now_text, "baseline")
+    base, _ = parse_baseline(base_text, "base baseline")
+    marks, base_marks = raise_marks(now_text), raise_marks(base_text)
+    errors = []
+    for key, (count, _issue) in sorted(now.items()):
+        was = base.get(key, (0, ""))[0]
+        if count > was and (key not in marks or key in base_marks):
+            errors.append(
+                f"baseline raised: {key[0]} '{key[1]}' {was} -> {count} versus the merge base. "
+                f"The baseline only shrinks; fix the callsite, or put '{RAISE_OK} <reason>' on "
+                "the line above the entry (reviewed in the diff)."
+            )
+    return errors
+
+
+def _git(*args: str) -> tuple[int, str]:
+    r = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True
+    )
+    return r.returncode, r.stdout
+
+
+def base_baseline_text(baseline: Path) -> tuple[str | None, list[str]]:
+    """The baseline at the merge base, or None (with errors only when a named ref fails)."""
+    ref = os.environ.get("TRUEPPM_ON_COMMIT_BASE_REF") or os.environ.get(
+        "CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    )
+    if ref:
+        if _git("cat-file", "-e", f"{ref}^{{commit}}")[0] != 0:
+            return None, [
+                f"base ref {ref!r} is not reachable, so the baseline cannot be compared "
+                "against it (shallow clone? the job needs GIT_DEPTH: 0)"
+            ]
+    else:
+        rc, mb = _git("merge-base", "HEAD", "origin/main")
+        _, head = _git("rev-parse", "HEAD")
+        if rc != 0 or not mb.strip() or mb == head:
+            print(
+                "  note: no merge base available (no origin/main, or on main) -- "
+                "baseline-raise check skipped"
+            )
+            return None, []
+        ref = mb.strip()
+    try:
+        rel = baseline.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return None, []
+    rc, listing = _git("ls-tree", ref, "--", rel)
+    if rc != 0:
+        return None, [
+            f"git ls-tree {ref} -- {rel} failed; cannot read the base baseline"
+        ]
+    if not listing.strip():
+        return None, []  # absent at the base: this change introduces it
+    rc, text = _git("show", f"{ref}:{rel}")
+    if rc != 0:
+        return None, [f"git show {ref}:{rel} failed; cannot read the base baseline"]
+    return text, []
 
 
 RULE = (
@@ -365,7 +470,18 @@ def main() -> int:
     reg, problems = load_registry(REGISTRY)
     entries, bproblems = load_baseline(BASELINE)
     sites = scan(SRC, reg)
-    errors = problems + bproblems + evaluate(sites, entries) + docs_problems(reg, DOC)
+    base_text, base_errors = base_baseline_text(BASELINE)
+    raised = (
+        baseline_raised(BASELINE.read_text(), base_text) if BASELINE.exists() else []
+    )
+    errors = (
+        problems
+        + bproblems
+        + base_errors
+        + raised
+        + evaluate(sites, entries)
+        + docs_problems(reg, DOC)
+    )
     if errors:
         print("on-commit-durability: FAIL")
         for e in errors:
@@ -438,6 +554,10 @@ def self_test() -> int:
             "    transaction.on_commit(lambda: send_email(1))\n",
             ["allowed"],
         ),
+        "unresolvable callback expression": (
+            "def f():\n    cbs = [lambda: t.delay(2)]\n    transaction.on_commit(cbs[0])\n",
+            ["unclassified"],
+        ),
         "opt-out without reason": (
             "def f():\n    # on-commit-ok:\n    transaction.on_commit(lambda: send_email(1))\n",
             ["unclassified"],
@@ -461,6 +581,25 @@ def self_test() -> int:
         failures.append("a stale (too-high) baseline did not fail")
     if not evaluate([], {("apps/x/gone.py", "hole"): (1, "#1")}):
         failures.append("a baseline entry matching nothing did not fail")
+
+    base = "# h\na.py | hole | 2 | #1 | r\n"
+    if baseline_raised(base, base):
+        failures.append("an unchanged baseline was reported as raised")
+    if not baseline_raised("a.py | hole | 3 | #1 | r\n", base):
+        failures.append("a raised count did not fail")
+    if not baseline_raised(base + "b.py | hole | 1 | #1 | r\n", base):
+        failures.append("a new entry did not fail")
+    if baseline_raised("a.py | hole | 1 | #1 | r\n", base):
+        failures.append("a lowered count was reported as raised")
+    if baseline_raised("# raise-ok: audited\na.py | hole | 3 | #1 | r\n", base):
+        failures.append("a new reasoned raise-ok was not honored")
+    if not baseline_raised("# raise-ok:\na.py | hole | 3 | #1 | r\n", base):
+        failures.append("a reasonless raise-ok was honored")
+    spent = "# raise-ok: audited\na.py | hole | 3 | #1 | r\n"
+    if not baseline_raised("# raise-ok: audited\na.py | hole | 4 | #1 | r\n", spent):
+        failures.append("a raise-ok already at the base was honored again")
+    if baseline_raised("a.py | hole | 9 | #1 | r\n", None):
+        failures.append("a missing base copy did not skip the check")
 
     # Negative control: the doc-drift check must really trip on a changed registry.
     import tempfile

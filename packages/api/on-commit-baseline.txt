@@ -3,30 +3,32 @@
 # class is 'hole' (dispatches Celery with no registered outbox helper) or 'unclassified'.
 # These are the callsites the gate's first run could not classify mechanically. Each is either
 # a real outbox pattern whose helper still needs a registry entry, or needs a human audit.
-# Fix a callsite => lower the count (the gate fails if you do not). Never raise a count
-# without a new issue and a reviewer's eyes on the reason.
+# Fix a callsite => lower the count (the gate fails if you do not). The gate also compares this
+# file with its merge-base copy and fails a raised count or a new entry unless the entry has
+# '# raise-ok: <reason>' on the line above it (new relative to the base). That marker is a
+# self-grant: the reviewer reading the diff is the control. Audit tracker: #5082.
 
-apps/access/views.py | unclassified | 4 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/integrations/services.py | hole | 1 | #2473 | enqueue_external_sync: ExternalSyncRequest row committed first, drain_external_sync replays (read, not registered: helper name is generic)
-apps/notifications/services.py | hole | 1 | #2473 | drain nudge after Notification rows with email_pending are inserted; the periodic drain sends regardless (read)
-apps/observability/services.py | hole | 1 | #2473 | PurgeRun row created first; on broker failure the run is marked failed (no drain) (read)
-apps/projects/amend.py | unclassified | 1 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/projects/authentication.py | unclassified | 1 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/projects/config_notice.py | hole | 1 | #2473 | Celery dispatch behind a row/claim (filter+update on a PENDING row) seen in the callback; not yet audited into the registry
-apps/projects/services.py | unclassified | 3 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/projects/services.py | hole | 3 | #2473 | Celery dispatch behind a row/claim (filter+update on a PENDING row) seen in the callback; not yet audited into the registry
-apps/projects/template_services.py | hole | 1 | #2473 | Celery dispatch behind a row/claim (filter+update on a PENDING row) seen in the callback; not yet audited into the registry
-apps/projects/views.py | unclassified | 6 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/scheduling/services.py | unclassified | 1 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/scheduling/tasks.py | unclassified | 2 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/scheduling/views.py | hole | 1 | #2473 | TaskRun row created first; broker failure marks it failed, stale-run sweep reaps stranded runs (read)
-apps/sso/services.py | unclassified | 1 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/sync/broadcast.py | unclassified | 1 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/taskruns/tasks.py | unclassified | 1 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/taskruns/tracker.py | unclassified | 1 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/teams/signals.py | unclassified | 1 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-apps/webhooks/views.py | hole | 1 | #2473 | test_ping: WebhookDelivery row created first, drain_webhook_queue replays (read, unregistered: local closure)
-apps/workspace/services.py | hole | 2 | #2473 | export/invite/storage callbacks: row-backed (WorkspaceExport drain_workspace_exports; WorkspaceInvite email_pending drain nudge) or storage delete; read, not registered
-apps/workspace/services.py | unclassified | 1 | #2473 | export/invite/storage callbacks: row-backed (WorkspaceExport drain_workspace_exports; WorkspaceInvite email_pending drain nudge) or storage delete; read, not registered
-apps/workspace/views.py | unclassified | 2 | #2473 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
-workflows/backends/default.py | hole | 1 | #2473 | Celery dispatch behind a row/claim (filter+update on a PENDING row) seen in the callback; not yet audited into the registry
+apps/access/views.py | unclassified | 4 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/integrations/services.py | hole | 1 | #5082 | enqueue_external_sync: ExternalSyncRequest row committed first, drain_external_sync replays (read, not registered: helper name is generic)
+apps/notifications/services.py | hole | 1 | #5082 | drain nudge after Notification rows with email_pending are inserted; the periodic drain sends regardless (read)
+apps/observability/services.py | hole | 1 | #5082 | PurgeRun row created first; on broker failure the run is marked failed (no drain) (read)
+apps/projects/amend.py | unclassified | 1 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/projects/authentication.py | unclassified | 1 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/projects/config_notice.py | hole | 1 | #5082 | Celery dispatch behind a row/claim (filter+update on a PENDING row) seen in the callback; not yet audited into the registry
+apps/projects/services.py | unclassified | 3 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/projects/services.py | hole | 3 | #5082 | Celery dispatch behind a row/claim (filter+update on a PENDING row) seen in the callback; not yet audited into the registry
+apps/projects/template_services.py | hole | 1 | #5082 | Celery dispatch behind a row/claim (filter+update on a PENDING row) seen in the callback; not yet audited into the registry
+apps/projects/views.py | unclassified | 6 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/scheduling/services.py | unclassified | 1 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/scheduling/tasks.py | unclassified | 2 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/scheduling/views.py | hole | 1 | #5082 | TaskRun row created first; broker failure marks it failed, stale-run sweep reaps stranded runs (read)
+apps/sso/services.py | unclassified | 1 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/sync/broadcast.py | unclassified | 1 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/taskruns/tasks.py | unclassified | 1 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/taskruns/tracker.py | unclassified | 1 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/teams/signals.py | unclassified | 1 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+apps/webhooks/views.py | hole | 1 | #5082 | test_ping: WebhookDelivery row created first, drain_webhook_queue replays (read, unregistered: local closure)
+apps/workspace/services.py | hole | 2 | #5082 | export/invite/storage callbacks: row-backed (WorkspaceExport drain_workspace_exports; WorkspaceInvite email_pending drain nudge) or storage delete; read, not registered
+apps/workspace/services.py | unclassified | 1 | #5082 | export/invite/storage callbacks: row-backed (WorkspaceExport drain_workspace_exports; WorkspaceInvite email_pending drain nudge) or storage delete; read, not registered
+apps/workspace/views.py | unclassified | 2 | #5082 | callback calls helpers the registry does not know (notification fan-out, forecast snapshot, email, etc.); not yet audited into the registry
+workflows/backends/default.py | hole | 1 | #5082 | Celery dispatch behind a row/claim (filter+update on a PENDING row) seen in the callback; not yet audited into the registry

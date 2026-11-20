@@ -4195,7 +4195,8 @@ lint:api-engine-boundary:
 lint:on-commit-durability:
   # Every transaction.on_commit callback is classified; Celery dispatch needs a registered
   # outbox row behind it (#2473, rationale in docs/durability/on-commit-audit.md). Registry
-  # and a shrink-only baseline in packages/api/on-commit-*.txt. Pure static analysis, ~1s.
+  # and a baseline in packages/api/on-commit-*.txt, ratcheted against its merge-base copy
+  # (needs full git history: a raise fails unless the entry carries '# raise-ok: <reason>'). Pure static analysis, ~1s.
   extends: [.api-no-db, .fast-job]
   stage: analyze
   needs:

@@ -22,8 +22,14 @@ the gate to fail on it, and proves the docs-drift check trips on a changed regis
   best-effort primitives (with why a loss is acceptable) and benign calls. The audit doc's
   table is generated from it; the gate fails if the doc drifts (`--write-docs` fixes it).
 * `packages/api/on-commit-baseline.txt`: `path | class | max-count | issue | reason`. A
-  ceiling that can only shrink: a count above fails (new callsite), below fails until you
-  lower it, an entry matching nothing fails. `hole`/`unclassified` only.
+  ceiling: a count above fails (new callsite), below fails until you lower it, an entry
+  matching nothing fails. `hole`/`unclassified` only. The gate also compares the file with
+  its merge-base copy (`git show origin/main:...`, or `CI_MERGE_REQUEST_DIFF_BASE_SHA` in
+  CI) and fails a raised count or a new entry unless the entry has `# raise-ok: <reason>`
+  on the line above, honored only while new relative to the base. That marker is a
+  self-grant in the file it guards; the reviewer reading the diff is the control. The
+  comparison is skipped with a note when no merge base exists (no `origin/main`, or on
+  `main`); a named but unreachable base ref fails closed. Baselined sites are tracked in #5082.
 * `# on-commit-ok: <reason>` on the line or the comment line above opts one callsite out
   (reason required). A rubber stamp that removes the silence, like `# layering-ok:`.
 
@@ -34,7 +40,8 @@ the gate to fail on it, and proves the docs-drift check trips on a changed regis
 * A registered helper is trusted to write its row first; a registered best-effort name is
   trusted to be loss-tolerant. The gate does not verify either.
 * "Enclosing function calls an outbox helper" is proximity, not data flow.
-* Aliased or dynamic callsites (`cb = on_commit`, `getattr`, containers) are not found.
+* Aliased or dynamic callsites (`cb = on_commit`, `getattr`) are not found. A callback
+  that is an expression the gate cannot expand (subscript, call result) is `unclassified`.
 * Tests, enterprise code and `migrations/` are not scanned. Same-name nested defs collapse.
 * Baselined callsites are *not* proven safe: some are read and row-backed (the reason says
   so), the rest are not yet audited. `--report` lists them.
