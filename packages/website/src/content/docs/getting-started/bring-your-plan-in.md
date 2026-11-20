@@ -1,5 +1,6 @@
 ---
 title: Bring your existing plan in
+documentedFor: "0.5"
 description: A decision table routing an existing MS Project file, spreadsheet, or Jira export to the right importer, with shipped-vs-planned status and the Jira Cloud caveat up front.
 ---
 
@@ -14,7 +15,7 @@ source. Pick your source below.
 
 | Your plan lives in... | Use | Status | Watch for |
 |---|---|---|---|
-| Microsoft Project — **`.xml`** (MSPDI) | [MS Project import & export](/features/msproject-import-export/) | **Shipped** — REST endpoints since 0.1, in-app wizard since 0.2 | Constraint dates and actual start/finish dates shipped in 0.4; deadlines, baselines, priority, work and cost are never imported — the import lists what it dropped |
+| Microsoft Project — **`.xml`** (MSPDI) | [MS Project import & export](/features/msproject-import-export/) | **Shipped** — REST endpoints since 0.1, in-app wizard since 0.2 | Constraint dates and actual start/finish dates shipped in 0.4; deadlines (from 0.5), baselines, priority, work and cost are not imported — the import lists what it dropped |
 | Microsoft Project — **`.mpp`** (binary) | Save as `.xml` from MS Project instead | **Ships in 0.6** ([#128](https://gitlab.com/trueppm/trueppm/-/issues/128)) | As of the 0.4 beta, neither file picker offers `.mpp` — on `0.3.0-alpha.3` and earlier the import-into-existing dialog still accepted it and then failed in the background worker on any deployment without the optional MPXJ / Java toolchain |
 | A spreadsheet you built by hand, or exported from Asana, Trello, Basecamp, or a similar tool | [CSV / Excel import & export](/features/csv-import-export/) | **Shipped in 0.4** — upload, map columns, confirm | Column headers are auto-detected, but always check the mapping before you commit |
 | Jira **Server or Data Center** (XML issue export) | [Jira import](/features/jira-import/) | **Shipped in 0.4** | **Jira Cloud has no XML export** — Cloud has no file this importer can read. Cloud migration is a separate, out-of-scope track |
@@ -40,8 +41,14 @@ sync and **not** a full-fidelity replica:
   everything else about them stays unset. Working calendars are the exception:
   the MS Project importer does carry base calendars and their non-working
   exceptions across.
-- **No cost, effort, or deadline fields.** TruePPM schedules on duration and
-  dependencies, so `Work`, `Cost` and `Deadline` have nowhere to land.
+- **No cost or effort fields.** TruePPM schedules on duration and
+  dependencies, so `Work` and `Cost` have nowhere to land. `Deadline` lands in
+  the task's soft deadline (see the note below).
+:::note[Ships in 0.5]
+The soft deadline is not in the latest release. In 0.4 and earlier there is no deadline
+field and an imported `Deadline` is dropped.
+:::
+
 - **No cross-project dependencies.** Every import is scoped to a single
   project.
 

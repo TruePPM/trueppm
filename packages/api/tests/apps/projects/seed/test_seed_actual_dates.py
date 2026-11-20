@@ -289,3 +289,24 @@ def test_django_free_core_mirrors_the_model_constants() -> None:
 
     assert core.MAX_PROJECT_SPAN_DAYS == MAX_PROJECT_SPAN_DAYS
     assert set(core.SIGNOFF_STATUS_VALUES) == {str(s) for s in SIGNOFF_STATUSES}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("with_events", [False, True])
+def test_deadline_round_trips_through_seed_export_import(with_events: bool) -> None:
+    """#690: the soft deadline survives export -> import, unsnapped (a Saturday here)."""
+    doc = _doc("2.0" if with_events else "1.0")
+    doc["projects"][0]["tasks"][2]["deadline"] = _STARTED  # Saturday: must not snap
+    validate_seed(doc)
+    owner = User.objects.create_user("act-owner")
+    program = import_seed(doc, owner=owner, create_users=True)
+    assert _tasks(program)["3"].deadline == date(2026, 1, 10)
+    first_doc = export_program(program, with_events=with_events)
+    by_wbs = {t["wbs_path"]: t for t in first_doc["projects"][0]["tasks"]}
+    assert "deadline" not in by_wbs["1"]
+    assert "deadline" in by_wbs["3"]
+    validate_seed(first_doc)
+    first = dump_seed(first_doc)
+    again = import_seed(json.loads(first), owner=owner, create_users=True, replace=True)
+    assert _tasks(again)["3"].deadline == date(2026, 1, 10)
+    assert dump_seed(export_program(again, with_events=with_events)) == first

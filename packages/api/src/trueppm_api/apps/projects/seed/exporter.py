@@ -1130,6 +1130,9 @@ class _Exporter:
         # emitting it would make the project's own export un-importable.
         if task.actual_finish is not None and task.status in SIGNOFF_STATUSES:
             block["actual_finish"] = self._date_str(task.actual_finish)
+        # Soft deadline (#690): annotation only, carried verbatim.
+        if task.deadline is not None:
+            block["deadline"] = self._date_str(task.deadline)
         if task.percent_complete:
             block["percent_complete"] = task.percent_complete
         _put(block, "notes", task.notes)

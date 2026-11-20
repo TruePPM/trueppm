@@ -10,6 +10,7 @@ const CONFLICT_FIELD_LABELS: Record<string, string> = {
   duration: 'Duration',
   percent_complete: 'Progress',
   planned_start: 'Planned start',
+  deadline: 'Deadline',
   type: 'Type',
   governance_class: 'Governance class',
   delivery_mode: 'Delivery mode',

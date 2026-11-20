@@ -6448,6 +6448,8 @@ def _emit_due_date_change_events(
       A Gantt-drag reschedule moves ``planned_start``, and the assignee must still
       hear about a deliberate move of their committed work (#497); a deadline edit
       is the same kind of change.
+
+    TODO(#5075): the bulk-edit and sync write paths do not emit this webhook yet.
     """
     new_planned_start = payload["planned_start"]
     new_deadline = payload["deadline"]
