@@ -850,7 +850,13 @@ CI-runner numbers, and the suite asserts no time budget; `tests/test_bench.py` s
 hard circuit breaker.
 
 - **Host:** Apple M5 Pro (`arm64`), macOS, one process, nothing else deliberately running.
-- **Software:** CPython 3.12.6, numpy 2.5.5, pytest-benchmark 5.3.1.
+- **Software:** CPython 3.12.6, numpy 2.5.5, pytest-benchmark 5.3.1. The CI image runs Python 3.11, so
+  CI-runner numbers will differ from these.
+- **Engine version:** the numbers measure the engine at commit `cc5c7ceb2` (this branch's
+  base on `origin/main`), which already includes the fixes for #1531 (arithmetic duration
+  layout instead of a day-by-day walk) and #2838 (per-task-calendar float computed
+  arithmetically via the exception-mask span count). The suite doubles as before/after
+  evidence for both: run it against an earlier commit to see the difference.
 - **`schedule()`:** 1 warm-up round, then 5 timed rounds of 1 iteration each.
 - **`monte_carlo(runs=1000)`:** 1 warm-up round, then 3 timed rounds, seed 4230.
 - **Shapes:** `chain` is the worst-case single FS spine, every task with a three-point
