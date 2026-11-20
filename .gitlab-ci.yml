@@ -5100,6 +5100,10 @@ scheduler:mutation:
     # and the job measured nothing (#4686, #3216).
     GIT_DEPTH: "0"
   script:
+    # GIT_DEPTH 0 gives the history but not the ref: an MR pipeline fetches only
+    # refs/merge-requests/N/head, so origin/main still does not exist and the
+    # merge-base rule fails anyway. Fetch it explicitly, as api:test does.
+    - 'git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"'
     - cd packages/scheduler
     # `|| true` on both: a non-zero exit from `mutmut run` just means survivors
     # exist. It ALSO swallows a stats-collection crash, which is how this job
