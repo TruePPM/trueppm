@@ -131,6 +131,9 @@ export interface UpdateTaskPayload {
   duration?: number;
   percent_complete?: number;
   planned_start?: string | null;
+  /** Soft deadline (#690), `YYYY-MM-DD` or null to clear. Annotation only — the
+   *  server does not recompute the schedule for a deadline-only write. */
+  deadline?: string | null;
   status?: string;
   actual_start?: string | null;
   actual_finish?: string | null;
@@ -232,6 +235,7 @@ function optimisticCorePatch(vars: UpdateTaskPayload): Partial<Task> {
   if (vars.percent_complete !== undefined) patch.progress = vars.percent_complete;
   if (vars.status !== undefined) patch.status = vars.status as Task['status'];
   if (vars.duration !== undefined) patch.duration = vars.duration;
+  if (vars.deadline !== undefined) patch.deadline = vars.deadline;
   if (vars.planned_start !== undefined) {
     patch.plannedStart = vars.planned_start;
     // #4079: a milestone given a new SNET is held by it — the start of its day —

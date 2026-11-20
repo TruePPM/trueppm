@@ -41,8 +41,11 @@ Two consequences worth knowing:
   project origin. That floor is engine input only — nothing is written to the
   task, and the task still reads as having no committed start.
 - Committing a start is not the same as setting a deadline. There is no
-  finish-side constraint yet — `planned_finish` is reserved and the engine does not
-  read it. The constraint set TruePPM intends to adopt is recorded in
+  finish-side constraint yet. From 0.5 a task can carry a soft **deadline**,
+  set in the task drawer under the schedule strip. It is an annotation: the
+  scheduler does not read it, so it never moves a date or changes float. When
+  the forecast finish lands after it, the drawer says how many calendar days
+  late it is ("3 days past deadline"). The constraint set TruePPM intends to adopt is recorded in
   [ADR-1049](/architecture/decisions/) (proposed); see
   [Scheduling before the project start](#scheduling-before-the-project-start)
   for the related project-boundary behavior.

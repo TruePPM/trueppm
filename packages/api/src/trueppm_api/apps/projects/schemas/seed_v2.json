@@ -578,6 +578,7 @@
         "planned_start": { "$ref": "#/$defs/seedDate" },
         "actual_start": { "$ref": "#/$defs/seedDate" },
         "actual_finish": { "$ref": "#/$defs/seedDate" },
+        "deadline": { "$ref": "#/$defs/seedDate" },
         "percent_complete": { "type": "number", "minimum": 0, "maximum": 100 },
         "notes": { "type": "string", "maxLength": 10000 },
         "estimate": { "$ref": "#/$defs/estimate" },

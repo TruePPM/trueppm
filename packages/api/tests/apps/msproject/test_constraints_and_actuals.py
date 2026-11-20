@@ -79,13 +79,19 @@ class TestDropsAreReported:
 
     @pytest.mark.parametrize(
         "fragment",
-        ["deadline dates", "baselines", "task priority", "work / effort hours", "cost figures"],
+        ["baselines", "task priority", "work / effort hours", "cost figures"],
     )
     def test_each_dropped_family_is_named_with_a_count(self, parsed: object, fragment: str) -> None:
         matching = [w for w in parsed.warnings if fragment in w]  # type: ignore[attr-defined]
         assert len(matching) == 1, parsed.warnings  # type: ignore[attr-defined]
         # "of 4 tasks" — a bare "some values were dropped" is not actionable.
         assert "of 4 tasks" in matching[0]
+
+    def test_deadline_is_carried_across_not_reported_as_dropped(self, parsed: object) -> None:
+        """#690: <Deadline> maps onto Task.deadline, so it is no longer a loss."""
+        assert not any("deadline" in w for w in parsed.warnings)  # type: ignore[attr-defined]
+        deadlines = [t.deadline for t in parsed.tasks if t.deadline]  # type: ignore[attr-defined]
+        assert "2026-03-20" in deadlines
 
     def test_an_unmappable_constraint_is_named_by_its_ms_project_name(self, parsed: object) -> None:
         assert any(
@@ -214,6 +220,7 @@ class TestRoundTrip:
             planned_start = date(2026, 3, 9)
             actual_start = date(2026, 3, 9)
             actual_finish = None
+            deadline = None
             optimistic_duration = None
             most_likely_duration = None
             pessimistic_duration = None
@@ -248,6 +255,7 @@ class TestRoundTrip:
             planned_start = None
             actual_start = None
             actual_finish = None
+            deadline = None
             optimistic_duration = None
             most_likely_duration = None
             pessimistic_duration = None

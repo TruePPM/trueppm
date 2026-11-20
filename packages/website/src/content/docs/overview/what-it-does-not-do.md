@@ -58,12 +58,20 @@ TruePPM honors `planned_start` as a **start-no-earlier-than** constraint. That i
 only constraint type the engine implements.
 
 There is no must-start-on, must-finish-on, finish-no-earlier-than,
-finish-no-later-than, as-late-as-possible, or deadline constraint. `planned_finish`
+finish-no-later-than, or as-late-as-possible constraint. A task can carry a soft
+`deadline` date as an annotation, but it does not constrain the schedule. `planned_finish`
 exists on the model but the backward pass does not yet treat it as a
 finish-no-later-than constraint — it is reserved, and honoring it is a separately
 reviewed change.
 
-MS Project ships eight constraint types plus deadlines. If your schedules are
+:::note[Ships in 0.5]
+The soft `deadline` field is not in the latest release. In 0.4 and earlier a task has
+no deadline field at all, and an MS Project `<Deadline>` is dropped on import. From 0.5
+it is stored on the task and travels through MS Project, project export and import.
+Negative float against it is not computed yet.
+:::
+
+MS Project ships eight constraint types. If your schedules are
 contractual and lean on must-finish-on dates, TruePPM cannot express them yet.
 
 The intended direction is recorded in [ADR-1049](/architecture/decisions/), **proposed

@@ -109,6 +109,7 @@ const FIELD_TO_GROUP: Record<string, Group> = {
   planned_start: 'dates',
   actual_start: 'dates',
   actual_finish: 'dates',
+  deadline: 'dates',
   percent_complete: 'progress',
   status: 'status',
   dor: 'status',
@@ -165,7 +166,7 @@ const STATUS_LABELS: Record<string, string> = {
   COMPLETE: 'Complete',
 };
 
-const DATE_FIELDS = new Set(['planned_start', 'actual_start', 'actual_finish']);
+const DATE_FIELDS = new Set(['planned_start', 'actual_start', 'actual_finish', 'deadline']);
 
 /**
  * #3306. The server sends this bit through the generic `str(value)` path, so it

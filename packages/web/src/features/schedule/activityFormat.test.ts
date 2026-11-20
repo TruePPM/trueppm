@@ -23,6 +23,7 @@ describe('activityFormat', () => {
     it('maps known keys and humanizes unknown ones instead of leaking the column', () => {
       expect(fieldLabel('percent_complete')).toBe('Progress');
       expect(fieldLabel('planned_start')).toBe('Start date');
+      expect(fieldLabel('deadline')).toBe('Deadline');
       // #3435: an unmapped key used to fall through raw. Every surface that shares
       // this map — the drawer and the project Activity page — rendered
       // `governance_class`-style identifiers for any field nobody had curated.

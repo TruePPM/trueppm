@@ -1704,6 +1704,23 @@ class TestPercentCompleteScale:
         )
         assert task.findtext(f"{ns}PercentComplete") == "40"
 
+    def test_deadline_exports_at_end_of_day_and_round_trips(self, project: Project) -> None:
+        """#690: midnight reads as start-of-day in MS Project, so a task finishing on
+        its deadline day would look missed; the element carries the day's end."""
+        Task.objects.create(project=project, name="Due", duration=2, deadline=date(2026, 3, 20))
+        xml = export_project_xml(str(project.pk))
+        ns = f"{{{_NS}}}"
+        el = next(
+            t
+            for t in ET.fromstring(xml).findall(f".//{ns}Tasks/{ns}Task")
+            if t.findtext(f"{ns}Name") == "Due"
+        )
+        # The fixture calendar's end of day, never midnight.
+        assert el.findtext(f"{ns}Deadline") == "2026-03-20T16:00:00"
+        Task.objects.filter(project=project).delete()
+        import_project(str(project.pk), parse_xml(xml))
+        assert Task.objects.get(project=project, name="Due").deadline == date(2026, 3, 20)
+
 
 # ---------------------------------------------------------------------------
 # REST API tests

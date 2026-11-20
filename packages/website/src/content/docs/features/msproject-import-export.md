@@ -235,7 +235,7 @@ curl -H "Authorization: Bearer $JWT" \
 #       "initiated_by_username": "marcus",
 #       "task_count": 28,
 #       "warnings": [
-#         "Not imported: deadline dates (TruePPM has no deadline field) — set on 6 of 28 tasks."
+#         "Not imported: baselines (capture a TruePPM baseline after the import lands instead) — set on 6 of 28 tasks."
 #       ]
 #     }
 #   ]
@@ -306,7 +306,7 @@ positions.
 | `<ConstraintDate>` | `Task.planned_start` | 🟡 Partial | Read only alongside a code TruePPM applies (2 or 4). This is the date the PM *committed to*, so it takes precedence over the computed `<Start>` — importing the computed date instead was how a migrated plan quietly lost its commitments. |
 | `<ActualStart>` | `Task.actual_start` | ✅ Mapped | Date portion only. `NA` and unparseable values import as empty rather than as a date. Validated against the pair, the project's span, and the future bound — see the last row of [Import warnings](#import-warnings). |
 | `<ActualFinish>` | `Task.actual_finish` | ✅ Mapped | Date portion only. Same validation as `<ActualStart>`, plus a task-status check: a finish is only kept on a task the file marks in review or complete. |
-| `<Deadline>` | — | ⬜ Ignored | TruePPM has no deadline field. Reported in the import warnings with a task count. |
+| `<Deadline>` | `Task.deadline` | ✅ Mapped | Ships in 0.5. Date portion only. A soft deadline in both tools: it does not constrain the schedule. Export writes it back as `<Deadline>`. In 0.4 and earlier it is ignored and reported in the import warnings. |
 | `<Baseline>` | — | ⬜ Ignored | Reported with a count. Capture a [TruePPM baseline](/features/baselines/) after the import lands instead — it will then reflect the imported dates. |
 | `<Priority>` | — | ⬜ Ignored | MS Project's 0–1000 weight is not `Task.priority_rank`, which is an ordinal position. Reported with a count when the value is not the 500 default. |
 | `<Work>` | — | ⬜ Ignored | TruePPM schedules on duration, not effort. Reported with a count when non-zero. |
@@ -432,7 +432,7 @@ than assumed:
 | Not imported | Why | Do this instead |
 |---|---|---|
 | Constraint types other than Start No Earlier Than and Must Start On | `Task.planned_start` is a start-no-earlier-than floor and is the only constraint TruePPM models | Express a finish commitment as a milestone with a predecessor, or track it outside the schedule |
-| `<Deadline>` | No deadline field | Same — a milestone is the closest equivalent |
+| `<Deadline>` | Imported as `Task.deadline` from 0.5. In 0.4 and earlier there is no deadline field | In 0.4, a milestone is the closest equivalent |
 | `<Baseline>` blocks | TruePPM baselines are captured from the live schedule, not imported | Capture a [baseline](/features/baselines/) once the import lands |
 | `<Priority>` (0–1000 weight) | `Task.priority_rank` is an ordinal position within the project, not a weight — mapping one onto the other would invent an ordering | Re-rank on the board after import |
 | `<Work>` / `<Cost>` | TruePPM schedules on duration and tracks no task cost | Keep effort and cost in the system that owns them |

@@ -1874,6 +1874,8 @@ class _SeedImporter:
             # non-working day, and snapping would drift it on re-export (#3161).
             actual_start=self._date_opt(data.get("actual_start"), project_slug, snap=False),
             actual_finish=self._date_opt(data.get("actual_finish"), project_slug, snap=False),
+            # A deadline is an annotation the user typed; never snapped (#690).
+            deadline=self._date_opt(data.get("deadline"), project_slug, snap=False),
             percent_complete=f.base_percent,
             notes=data.get("notes", ""),
             story_points=f.story_points,

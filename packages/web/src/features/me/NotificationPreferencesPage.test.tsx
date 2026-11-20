@@ -132,7 +132,7 @@ describe('NotificationPreferencesPage', () => {
     // Desktop + mobile layouts both render in jsdom — use getAllByText.
     expect(screen.getAllByText('When a task is assigned to you').length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText('When the planned date of your task changes').length,
+      screen.getAllByText('When the planned date or deadline of your task changes').length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByText('When someone comments on your task').length).toBeGreaterThan(0);
     // Stale-task nudge (ADR-0200) renders its toggle row purely from its pref rows.

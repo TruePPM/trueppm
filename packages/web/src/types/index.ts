@@ -277,6 +277,13 @@ export interface Task {
   baselineStart?: string;
   baselineFinish?: string;
   /**
+   * Soft deadline (#690, ADR-1049 §2) — the date the PM committed to, as
+   * `YYYY-MM-DD`, or null for none. An annotation: the scheduler never reads it,
+   * so it does not move `finish` or float. `undefined` when the payload predates
+   * the field.
+   */
+  deadline?: string | null;
+  /**
    * Freshness signal (ADR-0143, issue 740): ISO timestamp of the most recent
    * non-deleted note on this task, or null when the task has no notes.
    * Surfaced on the board card face and the schedule row. Annotation-backed —

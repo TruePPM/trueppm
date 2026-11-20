@@ -865,6 +865,19 @@ describe('ActivityTimeline — value formatting and detail edges', () => {
     expect(screen.getByText('Jun 8')).toBeInTheDocument();
   });
 
+  it('formats a deadline diff as a date under the Deadline label', () => {
+    const rec = field([{ field: 'deadline', old: null, new: '2026-06-08' }], {
+      id: 43,
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-02T10:00:00Z',
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('Deadline')).toBeInTheDocument();
+    expect(screen.queryByText('2026-06-08')).not.toBeInTheDocument();
+    expect(screen.getByText('Jun 8')).toBeInTheDocument();
+  });
+
   it('renders a raw percent value unchanged when it is not a finite number', () => {
     const rec = field([{ field: 'percent_complete', old: '0', new: 'n/a' }], {
       id: 41,

@@ -417,7 +417,7 @@ class ImportRequestProvenanceListView(APIView):
             "that user is deleted. `task_count` comes from the linked TaskRun "
             "summary and is null until the import completes.\n\n"
             "`warnings` lists everything the import did not carry over — MS Project "
-            "constraints, deadlines, baselines, priority, work and cost have no "
+            "constraints, baselines, priority, work and cost have no "
             "TruePPM column and are reported with per-family task counts. The strings "
             "are prose for a person, so match the leading `Not imported: ` / "
             "`Partially imported: ` marker rather than the whole line. Empty for a "
@@ -442,8 +442,8 @@ class ImportRequestProvenanceListView(APIView):
                             "initiated_by_username": "sarah",
                             "task_count": 142,
                             "warnings": [
-                                "Not imported: deadline dates (TruePPM has no "
-                                "deadline field) — set on 6 of 142 tasks."
+                                "Not imported: baselines (TruePPM has no "
+                                "baseline column on tasks) — set on 6 of 142 tasks."
                             ],
                         }
                     ],

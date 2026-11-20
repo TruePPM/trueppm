@@ -1,7 +1,14 @@
 ---
 title: Notifications
 description: The unified notification inbox — the TopBar bell, the panel and full-screen route, per-user preferences, snooze, mute, Do Not Disturb, and the weekly digests.
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The "planned date or deadline of your task changes" notification fires on a
+planned-start change in 0.4 and also on a change to the task's new `deadline`
+field from 0.5.
+:::
 
 :::note[Added in 0.2, expanded through 0.3]
 The notification inbox, the bell, and the @-mention preference matrix were
@@ -115,7 +122,7 @@ column automatically — this page needs no change to support it.
 | You're @-mentioned individually | ON | OFF |
 | A group you're in is @-mentioned | ON | OFF |
 | A task assigned to you | ON | OFF |
-| The planned date of your task changes | ON | OFF |
+| The planned date or deadline of your task changes | ON | OFF |
 | A task you own is blocked | ON | OFF |
 | Someone comments on your task | ON | OFF |
 | A team signal-visibility proposal opens | ON | OFF |

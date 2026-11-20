@@ -1,5 +1,6 @@
 ---
 title: Migrating from Microsoft Project Online
+documentedFor: "0.5"
 description: What carries over from a Project Online plan, what degrades on import and how you will know, what TruePPM does not have yet, and a five-step evaluation you can run before September 30, 2026.
 ---
 
@@ -53,15 +54,20 @@ against your inventory rather than discovering a gap in a review meeting.
 |---|---|---|
 | Must Finish On, Finish No Later Than, Must Start On (the ceiling half) | **Dropped.** TruePPM honors one constraint type today, start-no-earlier-than. | A row-level warning naming each task and the MS Project constraint name it carried |
 | As Late As Possible, Start No Later Than, Finish No Earlier Than | **Dropped**, same reason | Same warning |
-| Deadline | **Dropped.** There is no deadline field yet | Listed in the import receipt |
+| Deadline | **Carried across** as the task's soft deadline: an annotation that does not move the schedule. In 0.4 and earlier it is dropped (see the note below) | None needed |
 | Baselines | **Reported, not imported.** Capture a TruePPM [baseline](/features/baselines/) once the schedule is in | Listed in the import receipt |
 | Work, Cost, resource rates | **Dropped.** TruePPM schedules on duration and dependencies and has no cost model yet (one is planned for 0.5) | Listed in the import receipt |
 | Sub-day durations | **Rounded to whole working days** | Silently — check any task under one day |
 | Resource leveling results | **Not reproduced.** The engine computes the schedule and does not level it | The imported dates are the pre-leveling network dates |
 
+:::note[Ships in 0.5]
+The deadline row describes 0.5. In the latest release (0.4) there is no deadline field,
+so `<Deadline>` is dropped on import and listed in the import receipt.
+:::
+
 The constraint rows are the ones that matter for a contractual plan. The direction
-TruePPM intends to take — honoring `FNLT`, `MSO`, and `MFO` alongside `SNET`, with a
-separate soft deadline and negative float against it — is recorded in
+TruePPM intends to take — honoring `FNLT`, `MSO`, and `MFO` alongside `SNET`, with
+negative float against the soft deadline — is recorded in
 [ADR-1049](/architecture/decisions/), proposed and not yet accepted. Until it ships, a
 plan that leans on must-finish-on dates cannot be expressed here, and this page will
 say so until it can.

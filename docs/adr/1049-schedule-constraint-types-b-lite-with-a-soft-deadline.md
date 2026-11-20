@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed (2026-09-05). Resolves #3345. Extends ADR-0014 (which chose
+Accepted — status corrected 2026-11-19 (#690 implemented the soft deadline, verified:
+`Task.deadline`, migration `projects/0181_task_deadline`); the constraint-type
+sections stay planned for 0.6 (#1441). Originally proposed 2026-09-05. Resolves #3345. Extends ADR-0014 (which chose
 `planned_start` as the single writable date and gave it start-no-earlier-than
 semantics) and ADR-0021 (MS Project import/export). Re-homes #690 and #804 (the soft
 deadline, 0.5) and narrows #1441 (0.6) from the full MS Project set to the set below.
@@ -58,8 +60,15 @@ Two facts bound the options:
    chain, and the commit path writes `constraint_date` only when the type is `SNET`
    (the one type a drag semantically edits).
 
-2. **Soft deadline stays separate.** `planned_finish` becomes the **deadline** field
-   (#690): a non-constraining target. #804 feeds it into the backward pass as a
+2. **Soft deadline stays separate.** A new `Task.deadline` field is the **deadline**
+   (#690): a non-constraining target. *Amended 2026-11-19 (#690):* this section first
+   named the field `planned_finish`. That key is already the task serializer's
+   write-only Gantt-resize input (#951), which turns a finish date into a
+   working-day `duration`, and the CSV importer's Finish column and bulk edit write
+   it with that meaning. Reusing it would have made every resize also set a
+   deadline, so the deadline got its own name, the one MS Project uses. The
+   engines' reserved, inert `planned_finish` slot is unaffected; #804 decides
+   whether `deadline` feeds it. #804 feeds it into the backward pass as a
    *reporting* ceiling so `total_float` can go negative against it, without pinning
    dates. A PM can hold a hard `MFO` gate and a softer internal deadline on the same
    task, which is the MS Project shape and the one migrators expect.
@@ -85,7 +94,7 @@ Two facts bound the options:
    | 5 SNLT | `ASAP` | "start-no-later-than dropped; consider FNLT on this task" |
    | 6 FNET | `ASAP` | "finish-no-earlier-than dropped; consider SNET on the successor" |
    | 7 FNLT | `FNLT` | — |
-   | `<Deadline>` | `planned_finish` (deadline) | — |
+   | `<Deadline>` | `deadline` (amended from `planned_finish`, see §2) | — |
 
    CSV gains optional `constraint_type` / `constraint_date` columns with the same
    closed set and the same row-level rejection for unknown values. Export writes the

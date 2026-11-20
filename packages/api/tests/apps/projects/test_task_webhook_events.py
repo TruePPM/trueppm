@@ -170,12 +170,12 @@ def test_assigned_payload_carries_previous_assignee(
 
 
 # ---------------------------------------------------------------------------
-# task.due_date_changed (binds to planned_start; #690 rebinds to planned_finish)
+# task.due_date_changed — bound to ``deadline`` since #690 (was ``planned_start``)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-def test_planned_start_change_fires_due_date_changed(
+def test_deadline_change_fires_due_date_changed(
     client: APIClient,
     project: Project,
     task: Task,
@@ -185,15 +185,113 @@ def test_planned_start_change_fires_due_date_changed(
         patch.object(views, "_dispatch_webhooks") as mock_dispatch,
         django_capture_on_commit_callbacks(execute=True),
     ):
+        resp = client.patch(_task_url(project, task), {"deadline": "2026-09-30"}, format="json")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["deadline"] == "2026-09-30"
+    changed = [c for c in mock_dispatch.call_args_list if c.args[1] == "task.due_date_changed"]
+    assert len(changed) == 1
+    payload = changed[0].args[2]
+    assert payload["previous_deadline"] is None
+    assert payload["deadline"] == "2026-09-30"
+    # The pre-#690 key is gone: the event no longer describes planned_start.
+    assert "previous_planned_start" not in payload
+
+
+@pytest.mark.django_db
+def test_clearing_deadline_fires_due_date_changed_with_previous(
+    client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    task = Task.objects.create(project=project, name="Pour", duration=1, deadline=date(2026, 9, 30))
+    with (
+        patch.object(views, "_dispatch_webhooks") as mock_dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = client.patch(_task_url(project, task), {"deadline": None}, format="json")
+    assert resp.status_code == 200, resp.data
+    changed = next(c for c in mock_dispatch.call_args_list if c.args[1] == "task.due_date_changed")
+    assert changed.args[2]["previous_deadline"] == "2026-09-30"
+    assert changed.args[2]["deadline"] is None
+
+
+@pytest.mark.django_db
+def test_planned_start_only_change_does_not_fire_due_date_changed(
+    client: APIClient,
+    project: Project,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """The #690 rebind: a planned_start edit is no longer a due-date change."""
+    with (
+        patch.object(views, "_dispatch_webhooks") as mock_dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         resp = client.patch(
             _task_url(project, task), {"planned_start": "2026-09-01"}, format="json"
         )
     assert resp.status_code == 200, resp.data
     events = _fired_events(mock_dispatch)
-    assert "task.due_date_changed" in events
-    changed = next(c for c in mock_dispatch.call_args_list if c.args[1] == "task.due_date_changed")
-    assert changed.args[2]["previous_planned_start"] is None
-    assert changed.args[2]["planned_start"] == "2026-09-01"
+    assert "task.due_date_changed" not in events
+    assert "task.updated" in events
+
+
+@pytest.mark.django_db
+def test_unchanged_deadline_does_not_fire_due_date_changed(
+    client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    task = Task.objects.create(project=project, name="Pour", duration=1, deadline=date(2026, 9, 30))
+    with (
+        patch.object(views, "_dispatch_webhooks") as mock_dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = client.patch(_task_url(project, task), {"deadline": "2026-09-30"}, format="json")
+    assert resp.status_code == 200, resp.data
+    assert "task.due_date_changed" not in _fired_events(mock_dispatch)
+
+
+@pytest.mark.django_db
+def test_deadline_round_trips_and_defaults_to_null(client: APIClient, project: Project) -> None:
+    created = client.post(
+        "/api/v1/tasks/", {"project": str(project.pk), "name": "New", "duration": 2}, format="json"
+    )
+    assert created.status_code == 201, created.data
+    assert created.data["deadline"] is None
+    url = f"/api/v1/tasks/{created.data['id']}/"
+    assert client.patch(url, {"deadline": "2026-10-02"}, format="json").status_code == 200
+    assert client.get(url).data["deadline"] == "2026-10-02"
+    assert Task.objects.get(pk=created.data["id"]).deadline == date(2026, 10, 2)
+
+
+@pytest.mark.django_db
+def test_deadline_only_change_does_not_enqueue_recalc(
+    client: APIClient,
+    project: Project,
+    task: Task,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Annotation only (ADR-1049 §2): the engines never read ``deadline``."""
+    with (
+        patch.object(views, "_enqueue_recalculate") as mock_recalc,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = client.patch(_task_url(project, task), {"deadline": "2026-09-30"}, format="json")
+    assert resp.status_code == 200, resp.data
+    mock_recalc.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_viewer_cannot_set_deadline(project: Project, task: Task) -> None:
+    viewer = User.objects.create_user(username="ev_viewer", password="pw")
+    ProjectMembership.objects.create(project=project, user=viewer, role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(user=viewer)
+    resp = c.patch(_task_url(project, task), {"deadline": "2026-09-30"}, format="json")
+    assert resp.status_code in (403, 404)
+    task.refresh_from_db()
+    assert task.deadline is None
 
 
 @pytest.mark.django_db

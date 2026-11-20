@@ -107,6 +107,60 @@ describe('TaskScheduleStrip', () => {
     expect(document.querySelector('[role="tooltip"]')).toHaveTextContent('not a committed start');
   });
 
+  describe('soft deadline row (#690)', () => {
+    beforeEach(() => {
+      mutate.mockReset();
+    });
+
+    it('hides the row for a read-only viewer when no deadline is set', () => {
+      render(<TaskScheduleStrip task={makeTask({ deadline: null })} />);
+      expect(screen.queryByRole('group', { name: 'Deadline' })).not.toBeInTheDocument();
+    });
+
+    it('shows the deadline read-only, with no slip when the finish is earlier', () => {
+      render(<TaskScheduleStrip task={makeTask({ deadline: '2026-02-06' })} />);
+      const row = screen.getByRole('group', { name: 'Deadline' });
+      expect(within(row).getByText('Feb 6')).toBeInTheDocument();
+      expect(within(row).queryByText(/past deadline/)).not.toBeInTheDocument();
+      expect(within(row).queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    it('says how many days the forecast finish lands past the deadline', () => {
+      render(<TaskScheduleStrip task={makeTask({ deadline: '2026-01-23' })} />);
+      expect(screen.getByText('5 days past deadline')).toBeInTheDocument();
+    });
+
+    it('an editor gets a date input even with no deadline, and a change PATCHes it', () => {
+      render(<TaskScheduleStrip task={makeTask({ deadline: null })} projectId="p1" canEdit />);
+      const input = screen.getByLabelText('Deadline', { selector: 'input' });
+      expect(input).toHaveValue('');
+      fireEvent.change(input, { target: { value: '2026-02-06' } });
+      expect(mutate).toHaveBeenCalledWith(
+        { id: 't1', projectId: 'p1', deadline: '2026-02-06' },
+        expect.anything(),
+      );
+    });
+
+    it('clearing the input sends null', () => {
+      render(
+        <TaskScheduleStrip task={makeTask({ deadline: '2026-02-06' })} projectId="p1" canEdit />,
+      );
+      fireEvent.change(screen.getByLabelText('Deadline', { selector: 'input' }), {
+        target: { value: '' },
+      });
+      expect(mutate.mock.calls[0][0]).toEqual({ id: 't1', projectId: 'p1', deadline: null });
+    });
+
+    it('a failed write surfaces an inline alert', () => {
+      mutate.mockImplementation((_vars, opts) => opts?.onError?.(new Error('nope')));
+      render(<TaskScheduleStrip task={makeTask({ deadline: null })} projectId="p1" canEdit />);
+      fireEvent.change(screen.getByLabelText('Deadline', { selector: 'input' }), {
+        target: { value: '2026-02-06' },
+      });
+      expect(screen.getByRole('alert')).toHaveTextContent('Could not update the deadline.');
+    });
+  });
+
   describe('free float inside the Float cell (#3344)', () => {
     const floatCell = () => within(screen.getByRole('group', { name: 'Float' }));
 

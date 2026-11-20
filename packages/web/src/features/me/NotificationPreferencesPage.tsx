@@ -47,7 +47,7 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     example: 'You become the owner of “Foundation pour”',
   },
   'task.due_date_changed': {
-    title: 'When the planned date of your task changes',
+    title: 'When the planned date or deadline of your task changes',
     example: '“Foundation pour” moves to Aug 14',
   },
   // Blocked signal (#855) — one of the two events the Signal-only preset keeps on.

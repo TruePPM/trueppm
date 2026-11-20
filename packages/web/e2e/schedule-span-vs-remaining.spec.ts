@@ -352,3 +352,78 @@ test.describe('#2622/ADR-0752 — schedule SPAN vs. remaining-work window', () =
     await expect(durationButton.getByText(/left/)).toHaveCount(0);
   });
 });
+
+/**
+ * Soft deadline row under the schedule strip (#690, ADR-1049 §2). Same host as
+ * above. The list mock is stateful — the PATCH handler writes `deadline` into
+ * the row the GET serves — because `useUpdateTask` refetches on success, and a
+ * stateless list would erase the committed value (see CLAUDE.md, setupTaskStore).
+ */
+test.describe('#690 — the drawer shows the soft deadline and how late the finish is', () => {
+  async function serveTask(page: Page, row: Record<string, unknown>, patchStatus = 200) {
+    const patches: Record<string, unknown>[] = [];
+    await page.route(/\/api\/v1\/tasks\/\?(?!.*sprint=).*project=/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [row] }),
+      }),
+    );
+    await page.route(`**/api/v1/tasks/${TASK_ID}/`, async (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback();
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      patches.push(body);
+      if (patchStatus !== 200) {
+        return route.fulfill({
+          status: patchStatus,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Server error.' }),
+        });
+      }
+      Object.assign(row, body);
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(row),
+      });
+    });
+    return patches;
+  }
+
+  test('golden path: a late finish reads "N days past deadline", and moving the deadline clears it', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Finish is Apr 24; a deadline of Apr 22 is two calendar days short.
+    const row = { ...FULL_TASK, deadline: '2026-04-22' };
+    const patches = await serveTask(page, row);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const deadlineRow = drawer.getByRole('group', { name: 'Deadline' });
+    await expect(deadlineRow.getByText('2 days past deadline')).toBeVisible();
+
+    await deadlineRow.getByLabel('Deadline').fill('2026-04-30');
+    await expect.poll(() => patches.length).toBe(1);
+    expect(patches[0]).toEqual({ deadline: '2026-04-30' });
+    await expect(deadlineRow.getByLabel('Deadline')).toHaveValue('2026-04-30');
+    await expect(deadlineRow.getByText(/past deadline/)).toHaveCount(0);
+  });
+
+  test('a refused deadline write surfaces an inline alert', async ({ page }) => {
+    await setup(page);
+    const row = { ...FULL_TASK, deadline: null };
+    await serveTask(page, row, 500);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const deadlineRow = drawer.getByRole('group', { name: 'Deadline' });
+    await expect(deadlineRow.getByLabel('Deadline')).toHaveValue('');
+    await deadlineRow.getByLabel('Deadline').fill('2026-04-30');
+    await expect(
+      drawer.getByRole('alert').filter({ hasText: 'Could not update the deadline.' }),
+    ).toBeVisible();
+  });
+});

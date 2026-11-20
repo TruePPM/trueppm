@@ -139,7 +139,6 @@ def _is_nonzero_msp_amount(raw: str) -> bool:
 #: Order is the order the warnings appear in the summary: schedule commitments
 #: first, then the estimating fields.
 _UNMAPPED_TASK_FIELDS: tuple[tuple[str, str, Callable[[str], bool]], ...] = (
-    ("Deadline", "deadline dates (TruePPM has no deadline field)", bool),
     (
         "Baseline",
         "baselines (capture a TruePPM baseline after the import lands instead)",
@@ -793,6 +792,7 @@ def _parse_one_task(
         constraint_date=_iso_date_or_none(_child_text(task_el, ns, "ConstraintDate")),
         actual_start=_iso_date_or_none(_child_text(task_el, ns, "ActualStart")),
         actual_finish=_iso_date_or_none(_child_text(task_el, ns, "ActualFinish")),
+        deadline=_iso_date_or_none(_child_text(task_el, ns, "Deadline")),
         predecessor_links=_parse_predecessor_links(task_el, ns),
         resource_assignments=task_assignments.get(uid, []),
     )
@@ -802,7 +802,7 @@ def _warn_unmapped_task_fields(tasks_el: ET.Element, ns: str, warnings: list[str
     """Report every field family the import does **not** carry over, with counts.
 
     This is the whole of #2891's "minimum for beta": before it, an MSPDI carrying
-    constraints, deadlines, baselines, priorities, work and cost imported with
+    constraints, baselines, priorities, work and cost imported with
     ``ProjectData.warnings == []``. A PM migrating a plan got dates TruePPM had
     recomputed from scratch, believed they were the dates they had committed to,
     and found out at the next governance review.

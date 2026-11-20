@@ -4,13 +4,16 @@ description: How TruePPM sends outbound notification email, the writable Workspa
 documentedFor: "0.5"
 ---
 
+:::note[Ships in 0.5]
+Email for a deadline change ships in 0.5; in 0.4 the planned-date notification fires on a planned-start change only.
+:::
 
 :::note[Added in 0.2 (alpha)]
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; 0.4 shipped as the first beta.
 :::
 
 TruePPM sends outbound email — @mention notifications and the own-task
-notifications (a task assigned to you, the planned date of your task changing, a
+notifications (a task assigned to you, the planned date or deadline of your task changing, a
 comment on your task) — through Django's email backend. Delivery is
 **best-effort and opt-in**: a notification is emailed only when the recipient has
 turned the Email channel on for that event under **User → Settings →

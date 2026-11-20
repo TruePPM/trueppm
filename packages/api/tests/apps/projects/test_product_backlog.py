@@ -604,6 +604,7 @@ _SPLIT_DOES_NOT_CARRY = {
     "scheduled_start": _CPM_OUTPUT,
     "milestone_at_day_end": _CPM_OUTPUT,
     "planned_start": "a scheduling constraint on the parent, not a property of the work",
+    "deadline": "the parent's committed finish date; the split re-enters the backlog uncommitted",
     # Structure and kind flags that a backlog split must not inherit.
     "is_subtask": "the child is a sibling story, never a subtask of the parent",
     "auto_container": "container-ness is a structural fact of the parent's own subtree",

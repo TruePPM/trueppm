@@ -134,6 +134,7 @@ def _shift_specs() -> tuple[DateShift, ...]:
                 "planned_start",
                 "actual_start",
                 "actual_finish",
+                "deadline",
                 "blocked_since",
                 "status_changed_at",
                 "recurrence_occurrence_date",

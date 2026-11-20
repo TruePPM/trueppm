@@ -30,6 +30,7 @@ const FIELD_LABEL: Record<string, string> = {
   planned_start: 'Start date',
   actual_start: 'Actual start',
   actual_finish: 'Actual finish',
+  deadline: 'Deadline',
   assignee: 'Assignee',
   sprint: 'Sprint',
   parent_epic: 'Epic',
