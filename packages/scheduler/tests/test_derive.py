@@ -786,3 +786,32 @@ def test_free_float_through_a_milestone_into_a_saturday_actual_start() -> None:
     assert engine_p.free_float == timedelta(days=2)
     d = derive_value(p, "P", Quantity.FREE_FLOAT, result=result)
     assert timedelta(days=d.value) == engine_p.free_float
+
+
+def test_completed_no_actuals_data_date_cap_binds_at_the_value_5079() -> None:
+    """A capped completed task: start binding names the backed-off start, finish the cap."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        status_date=date(2027, 1, 1),
+        calendar=Calendar(working_days=31),
+        tasks=[
+            Task(
+                id="t1",
+                name="t",
+                duration=timedelta(days=2),
+                planned_start=date(2027, 1, 1),
+                percent_complete=100.0,
+            )
+        ],
+    )
+    result = schedule(project)
+    es = derive_value(project, "t1", Quantity.EARLY_START, result=result)
+    assert es.value == "2026-12-31"
+    assert es.binding is not None
+    assert es.binding.kind == "data_date"
+    assert es.binding.imposed_date == date(2026, 12, 31)
+    ef = derive_value(project, "t1", Quantity.EARLY_FINISH, result=result)
+    assert ef.binding is not None
+    assert ef.binding.imposed_date == date(2027, 1, 1)

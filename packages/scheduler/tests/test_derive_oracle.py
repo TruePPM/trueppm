@@ -58,7 +58,7 @@ def _completed_without_actuals(project: Project) -> bool:
     )
 
 
-# Completed-no-actuals is excluded from the generator and pinned as an xfail below.
+# Completed-no-actuals is excluded from the generator and pinned by a direct test below.
 _projects = (_plausible_projects() | _plausible_projects(per_task_calendars=True)).filter(
     lambda p: not _completed_without_actuals(p)
 )
@@ -165,18 +165,8 @@ def test_link_removal_is_monotone_on_the_forward_pass(project: Project) -> None:
                 assert new_es != baseline[t.id][0], (t.id, binding.source_task_id, binding.kind)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "For a task completed by percent (100%) with no actuals and a status_date, "
-        "derive_value(EARLY_START) reports a data_date binding whose imposed_date is "
-        "the raw data date, but the engine places ES at the data date minus the "
-        "duration. Repro: a 2-day task, status_date 2027-01-01, percent_complete 100: "
-        "the binding says 2027-01-01 while the engine's early_start is earlier."
-    ),
-)
 def test_completed_no_actuals_binding_reproduces_the_value() -> None:
-    """The generator excludes this shape (see ``_projects``); it is pinned here instead."""
+    """The generator excludes this shape (see ``_projects``); it is pinned here instead (#5079)."""
     project = Project(
         id="p",
         name="p",

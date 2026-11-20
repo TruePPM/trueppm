@@ -377,12 +377,16 @@ def _completed_forward_contribs(
             and _finish_from_start(latest, task.duration.days, cal) > status_date
         )
         if capped and status_date is not None:
+            # The cap pins the FINISH at the last working day on or before the data
+            # date; the start is that finish backed off by the duration, so the
+            # start's binding must name the start the engine placed, not the cap.
             cap = _prev_working_day(status_date, cal)
+            imposed = cap if want_finish or task.early_start is None else task.early_start
             contribs.append(
                 DerivationContribution(
                     kind="data_date",
-                    imposed_date=cap,
-                    calendar_days_added=_days_between(status_date, cap),
+                    imposed_date=imposed,
+                    calendar_days_added=_days_between(status_date, imposed),
                     is_binding=True,
                 )
             )
