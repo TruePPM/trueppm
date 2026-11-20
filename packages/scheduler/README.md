@@ -842,6 +842,44 @@ of the answer — a seeded Monte Carlo run still returns a probability
 distribution. Do not confuse it with the deterministic single-date output of
 `schedule()`, which is [a different thing entirely](#interpreting-the-output).
 
+## Performance
+
+Measured with the opt-in `pytest-benchmark` suite in `tests/benchmarks/bench_engine.py`
+(library only: no API, database, or network). These are **local-machine numbers**, not
+CI-runner numbers, and the suite asserts no time budget; `tests/test_bench.py` stays the
+hard circuit breaker.
+
+- **Host:** Apple M5 Pro (`arm64`), macOS, one process, nothing else deliberately running.
+- **Software:** CPython 3.12.6, numpy 2.5.5, pytest-benchmark 5.3.1.
+- **`schedule()`:** 1 warm-up round, then 5 timed rounds of 1 iteration each.
+- **`monte_carlo(runs=1000)`:** 1 warm-up round, then 3 timed rounds, seed 4230.
+- **Shapes:** `chain` is the worst-case single FS spine, every task with a three-point
+  estimate. `mixed` is a seeded branching network (about two predecessors per task within
+  a 30-task window, FS/SS/FF with 0-3 day lags, three-point estimates on a fifth of the
+  tasks, and tasks spread over the project calendar and two per-task calendars).
+
+Wall time in milliseconds, mean of the timed rounds (best round in parentheses). With so
+few rounds the mean carries run-to-run noise; treat differences under about 20% as noise.
+
+| Entry point | Shape | 100 | 500 | 1,000 | 2,000 | 5,000 |
+|---|---|---|---|---|---|---|
+| `schedule()` | chain | 1.7 (1.5) | 13.2 (7.4) | 18.8 (16.1) | 34.4 (33.2) | 109.2 (86.2) |
+| `schedule()` | mixed | 2.7 (2.6) | 12.5 (11.6) | 26.9 (23.9) | 52.5 (48.0) | 145.1 (128.8) |
+| `monte_carlo(runs=1000)` | chain | 13.9 (13.6) | 78.5 (71.4) | 140.6 (124.7) | 231.6 (230.8) | 578.8 (569.2) |
+| `monte_carlo(runs=1000)` | mixed | 7.5 (7.4) | 37.7 (37.6) | 75.5 (73.5) | 167.6 (160.3) | 393.3 (382.5) |
+
+Nothing above 5,000 tasks and no incremental-recompute series has been measured yet. The
+2,000-task `schedule()` target of under 1 s on the CI runner is recorded, not gated: the
+`scheduler:benchmarks` job stores the benchmark JSON as an artifact on every run.
+
+Reproduce:
+
+```bash
+pip install -e "packages/scheduler[dev]"
+cd packages/scheduler
+pytest tests/benchmarks/bench_engine.py --benchmark-only --benchmark-json=bench.json
+```
+
 ## Status and roadmap
 
 **0.4 — the current release.** The CPM pass (all four dependency types,
