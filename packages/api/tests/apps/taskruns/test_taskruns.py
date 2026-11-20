@@ -705,3 +705,37 @@ def test_failed_broadcast_omits_exception_text(
     assert len(failed) == 1
     assert failed[0]["error_detail"] == WS_FAILURE_MESSAGE
     assert "secret/path.py" not in repr(failed[0])
+
+
+@pytest.mark.django_db
+def test_cancel_running_monte_carlo_returns_409(
+    admin_client: APIClient, project: Project, user: object
+) -> None:
+    run = TaskRun.objects.create(
+        task_name="scheduling.monte_carlo",
+        celery_task_id="x",
+        project=project,
+        initiated_by=user,
+        status=TaskRunStatus.RUNNING,
+    )
+    with patch("trueppm_api.core.valkey.client") as mock_client:
+        resp = admin_client.post(f"/api/v1/projects/{project.pk}/task-runs/{run.pk}/cancel/")
+    assert resp.status_code == 409
+    assert "cannot be canceled" in resp.data["detail"]
+    mock_client.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_cancel_pending_monte_carlo_still_accepted(
+    admin_client: APIClient, project: Project, user: object
+) -> None:
+    run = TaskRun.objects.create(
+        task_name="scheduling.monte_carlo",
+        celery_task_id="x",
+        project=project,
+        initiated_by=user,
+        status=TaskRunStatus.PENDING,
+    )
+    with patch("trueppm_api.core.valkey.client"):
+        resp = admin_client.post(f"/api/v1/projects/{project.pk}/task-runs/{run.pk}/cancel/")
+    assert resp.status_code == 202

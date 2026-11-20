@@ -21,6 +21,8 @@ from trueppm_api.core.openapi import UNDECLARE_FILTER_PARAMS
 # Task name written by scheduling.tasks.recalculate_schedule via TaskRunTracker.
 # The scheduler-runs endpoint is a typed thin view over TaskRun filtered on this.
 SCHEDULER_TASK_NAME = "scheduling.recalculate"
+# Mirrors scheduling.views.MC_TASK_NAME (taskruns sits below scheduling in the layering).
+_MC_TASK_NAME = "scheduling.monte_carlo"
 
 
 class ProjectTaskRunViewSet(
@@ -67,7 +69,13 @@ class ProjectTaskRunViewSet(
         request=None,
         responses={
             202: OpenApiResponse(description="Cancellation requested. Body: {'detail': str}."),
-            409: OpenApiResponse(description="Task run is not active (not PENDING or RUNNING)."),
+            409: OpenApiResponse(
+                description=(
+                    "Task run is not cancelable: it is not active (not PENDING or RUNNING), "
+                    "or it is a RUNNING Monte Carlo simulation, whose engine call cannot "
+                    "be interrupted. Body: {'detail': str}."
+                )
+            ),
         },
     )
     @action(detail=True, methods=["post"], url_path="cancel")
@@ -78,6 +86,19 @@ class ProjectTaskRunViewSet(
         if task_run.status not in (TaskRunStatus.PENDING, TaskRunStatus.RUNNING):
             return Response(
                 {"detail": "Task run is not active."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # The engine is one uninterruptible call, so a cancel flag set now would
+        # never be read: answer honestly instead of 202-ing a no-op (#5068).
+        if task_run.status == TaskRunStatus.RUNNING and task_run.task_name == _MC_TASK_NAME:
+            return Response(
+                {
+                    "detail": (
+                        "A running Monte Carlo simulation cannot be canceled. It ends on "
+                        "its own when it finishes or reaches the server time budget."
+                    )
+                },
                 status=status.HTTP_409_CONFLICT,
             )
 
