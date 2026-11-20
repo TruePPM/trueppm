@@ -133,7 +133,6 @@ def _do_reap_stale_task_runs() -> int:
 
     from trueppm_api.apps.taskruns import tracker
     from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
-    from trueppm_api.apps.taskruns.tracker import WS_FAILURE_MESSAGE
 
     margin = int(getattr(settings, "TASK_RUN_REAP_MARGIN_SECONDS", _DEFAULT_REAP_MARGIN_SECONDS))
     now = timezone.now()
@@ -186,14 +185,11 @@ def _do_reap_stale_task_runs() -> int:
                 continue
             reaped += 1
             if project_id is not None:
-                payload = {
-                    "task_run_id": str(pk),
-                    "task_name": task_name,
-                    "error_detail": WS_FAILURE_MESSAGE,
-                }
 
-                def _emit(pid: str = str(project_id), pl: dict[str, str] = payload) -> None:
-                    tracker.broadcast_task_run_failed(pid, pl)
+                def _emit(
+                    pid: str = str(project_id), rid: str = str(pk), name: str = task_name
+                ) -> None:
+                    tracker.broadcast_task_run_failed(pid, rid, name)
 
                 transaction.on_commit(_emit)
     if reaped:
