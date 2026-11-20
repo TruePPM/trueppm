@@ -61,6 +61,9 @@ self_test() {
 # and a local bare repo as the push target, so both outcomes are exercised.
 self_test_flow() {
   local t me
+  # A git hook (pre-push) exports GIT_INDEX_FILE/GIT_DIR/...; inherited, the
+  # throwaway repo's `git add`/`commit` would rewrite the REAL index.
+  unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
   t="$(mktemp -d)"
   me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   mkdir -p "$t/bin" "$t/repo/.semgrep"
