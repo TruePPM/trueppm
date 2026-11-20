@@ -671,6 +671,14 @@ def test_reaping_a_deleted_template_keeps_its_live_occurrences(live_project: Pro
     assert Task._base_manager.filter(pk=live_occ.pk, is_deleted=False).exists()
     assert Task._base_manager.filter(pk=deleted_occ.pk, is_deleted=True).exists()
     _assert_detached_and_republished(live_project, [live_occ, deleted_occ], before)
+    # No live row was hard-deleted, so the reap must not take the live_cascade path
+    # (which forces every client to re-sync): the floor stays below the detached
+    # occurrences' fresh cursors instead of jumping to the project head.
+    live_project.refresh_from_db()
+    assert live_project.tombstone_floor < min(
+        Task._base_manager.get(pk=o.pk).sync_seq for o in (live_occ, deleted_occ)
+    )
+    assert live_project.tombstone_floor < live_project.last_sync_version
 
 
 @pytest.mark.django_db
@@ -678,17 +686,25 @@ def test_reaped_occurrence_is_not_detached(live_project: Project) -> None:
     """An occurrence reaped in the same run is deleted, not rewritten first."""
     from trueppm_api.apps.projects.models import TaskRecurrenceRule
 
-    rule, _template, _live_occ, deleted_occ = _rule_with_occurrences(live_project)
+    rule, _template, live_occ, deleted_occ = _rule_with_occurrences(live_project)
+    # Drop the live occurrence so the only row the rule owns is the one being reaped:
+    # any detach would then be the sole thing that could advance the project cursor.
+    Task._base_manager.filter(pk=live_occ.pk).delete()
     rule.soft_delete()
     TaskRecurrenceRule.objects.filter(pk=rule.pk).update(
         deleted_at=timezone.now() - timedelta(days=95)
     )
     _backdate_task_deleted_at(deleted_occ, 95)
+    live_project.refresh_from_db()
+    head_before = live_project.last_sync_version
 
     counts = _do_reap(override_days=90)
 
     assert not Task._base_manager.filter(pk=deleted_occ.pk).exists()
     assert counts["projects.task"] == 1
+    # Rewriting a row that is about to be deleted would draw a sync_seq for nothing.
+    live_project.refresh_from_db()
+    assert live_project.last_sync_version == head_before
 
 
 @pytest.mark.django_db
