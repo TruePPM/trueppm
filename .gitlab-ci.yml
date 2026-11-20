@@ -5102,7 +5102,10 @@ scheduler:mutation:
   script:
     # GIT_DEPTH 0 gives the history but not the ref: an MR pipeline fetches only
     # refs/merge-requests/N/head, so origin/main still does not exist and the
-    # merge-base rule fails anyway. Fetch it explicitly, as api:test does.
+    # merge-base rule fails anyway. Fetch it explicitly, as api:test does. The
+    # image runs as a different uid than the checkout's owner, so git refuses the
+    # repo ("dubious ownership") until it is marked safe, as the other git jobs do.
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - 'git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"'
     - cd packages/scheduler
     # `|| true` on both: a non-zero exit from `mutmut run` just means survivors
