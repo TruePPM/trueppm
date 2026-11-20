@@ -1453,9 +1453,9 @@ lint:semgrep-freshness:
   # The vendored Semgrep packs under .semgrep/ never update on their own, and a
   # frozen offline rule set reports clean forever (#3103). Warns (orange) after
   # 45 days, fails after 90; the date is .semgrep/REFRESHED, written by
-  # scripts/update-semgrep-rules.sh. Exit 77 is the warning. Refresh by hand with
-  # that script; there is no scheduled refresh MR (it needs a write token and a
-  # new schedule, see #3103).
+  # scripts/update-semgrep-rules.sh. Exit 77 is the warning. The refresh itself is
+  # semgrep:refresh-mr below; this job is the backstop that goes red if that job
+  # is itself broken (#3103).
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
@@ -1464,10 +1464,43 @@ lint:semgrep-freshness:
   allow_failure:
     exit_codes: 77
   before_script:
-    - apk add --no-cache bash coreutils
+    - apk add --no-cache bash coreutils git grep
   script:
     - bash scripts/check-semgrep-freshness.sh --self-test
     - bash scripts/check-semgrep-freshness.sh
+    # The refresh job is schedule-only; its self-test (git + stubbed curl) runs
+    # here so an MR that breaks the script is caught before the first night.
+    - bash scripts/refresh-semgrep-rules-mr.sh --self-test
+
+semgrep:refresh-mr:
+  extends: .fast-job
+  # Scheduled refresh of the vendored Semgrep packs (#3103). Rides the nightly
+  # SonarCloud schedule (SONAR_SCHEDULED == "true"), like tracker:drift-report,
+  # so no new schedule is needed; the script is a no-op until .semgrep/REFRESHED
+  # is 7 days old, then fetches the packs and opens an MR only if a pack changed
+  # (never a direct push to main). REFRESHED records the last refresh that
+  # CHANGED the packs, so while upstream is unchanged this re-fetches nightly
+  # and lint:semgrep-freshness can still warn at 45 days (and go red at 90 if
+  # upstream never changes; accepted as unlikely). A rule-set change is
+  # reviewed and the MR pipeline's
+  # security:semgrep proves the new rules against the tree. Fails loudly when it
+  # cannot work (missing token, fetch/push/API error).
+  #
+  # OPERATOR STEP: create a masked SEMGREP_REFRESH_TOKEN CI/CD variable (project
+  # access token, `api` + `write_repository`, Developer+). Until it exists the job
+  # fails on the first write it needs and says so.
+  #
+  # Not provable on an MR pipeline (schedule-only rules:). `--self-test` and
+  # `--dry-run` run locally; see docs/harness/flaky-ledger.md.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SONAR_SCHEDULED == "true"'
+  before_script:
+    - apk add --no-cache bash curl git coreutils grep
+  script:
+    - bash scripts/refresh-semgrep-rules-mr.sh --self-test
+    - bash scripts/refresh-semgrep-rules-mr.sh
 
 lint:cost-ledger:
   extends: .fast-job

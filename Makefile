@@ -694,6 +694,7 @@ web-types-drift-check: ## Run the lint:web-types-drift CI job locally (#2633)
 semgrep-freshness-check: ## Run the lint:semgrep-freshness CI job locally (#3103)
 	@# Exit 77 (a warning in CI) is not a failure of the push, so it is tolerated here.
 	@bash scripts/check-semgrep-freshness.sh --self-test
+	@bash scripts/refresh-semgrep-rules-mr.sh --self-test
 	@bash scripts/check-semgrep-freshness.sh || [ $$? -eq 77 ]
 
 e2e-schema-guard-check: ## Run the lint:e2e-schema-guard CI job locally (#3440)
