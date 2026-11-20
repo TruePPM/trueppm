@@ -38,8 +38,9 @@ pack list in the script and the `--config` flags in `.gitlab-ci.yml`
 
 ## Staleness signal
 
-`.semgrep/REFRESHED` holds the date of the last refresh (written by the update
-script). The `lint:semgrep-freshness` CI job reads it: it warns (orange,
+`.semgrep/REFRESHED` holds the date of the last refresh that changed the packs
+(written by the update script; the scheduled job restores it and opens no MR when
+upstream is unchanged, so it re-fetches nightly while the stamp is stale). The `lint:semgrep-freshness` CI job reads it: it warns (orange,
 `allow_failure`) after 45 days and fails after 90, via
 `scripts/check-semgrep-freshness.sh`. A frozen offline pack otherwise reports
 clean forever (#3103).

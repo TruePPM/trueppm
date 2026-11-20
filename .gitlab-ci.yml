@@ -1464,18 +1464,24 @@ lint:semgrep-freshness:
   allow_failure:
     exit_codes: 77
   before_script:
-    - apk add --no-cache bash coreutils
+    - apk add --no-cache bash coreutils git grep
   script:
     - bash scripts/check-semgrep-freshness.sh --self-test
     - bash scripts/check-semgrep-freshness.sh
+    # The refresh job is schedule-only; its self-test (git + stubbed curl) runs
+    # here so an MR that breaks the script is caught before the first night.
+    - bash scripts/refresh-semgrep-rules-mr.sh --self-test
 
 semgrep:refresh-mr:
   extends: .fast-job
   # Scheduled refresh of the vendored Semgrep packs (#3103). Rides the nightly
   # SonarCloud schedule (SONAR_SCHEDULED == "true"), like tracker:drift-report,
   # so no new schedule is needed; the script is a no-op until .semgrep/REFRESHED
-  # is 7 days old, then fetches the packs and opens an MR (never a direct push to
-  # main), so a rule-set change is reviewed and the MR pipeline's
+  # is 7 days old, then fetches the packs and opens an MR only if a pack changed
+  # (never a direct push to main). REFRESHED records the last refresh that
+  # CHANGED the packs, so while upstream is unchanged this re-fetches nightly
+  # and lint:semgrep-freshness can still warn at 45 days. A rule-set change is
+  # reviewed and the MR pipeline's
   # security:semgrep proves the new rules against the tree. Fails loudly when it
   # cannot work (missing token, fetch/push/API error).
   #
