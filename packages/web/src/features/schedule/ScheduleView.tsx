@@ -3265,6 +3265,10 @@ export function ScheduleView() {
     allTasks,
     focusedRowId: focus.state.rowId,
     onFocusRow: focus.focusRow,
+    // Mirrors the server's `can_user_write_estimates`: PM_ONLY needs Project Manager or above.
+    canWriteEstimates:
+      projectDetail?.estimation_mode !== 'pm_only' ||
+      (currentRole !== null && currentRole >= ROLE_ADMIN),
   });
 
   // Pulse trigger for the most recently inserted milestone (#340). Cleared

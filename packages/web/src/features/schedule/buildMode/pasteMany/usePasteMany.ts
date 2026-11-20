@@ -53,12 +53,15 @@ export function usePasteMany({
   allTasks,
   focusedRowId,
   onFocusRow,
+  canWriteEstimates = true,
 }: {
   projectId: string | null;
   resourcePool: ProjectResource[];
   allTasks: Task[];
   focusedRowId: string | null;
   onFocusRow: (id: string) => void;
+  /** False under `PM_ONLY` below Project Manager; pasted estimates are then dropped and disclosed. */
+  canWriteEstimates?: boolean;
 }) {
   const bulkCreate = useBulkCreateTasks(projectId, 'paste');
   const bulkDelete = useBulkDeleteTasks(projectId);
@@ -84,6 +87,8 @@ export function usePasteMany({
         resourcePool,
         targetParentId,
         hasHeaderRow,
+        undefined,
+        canWriteEstimates,
       );
       if (built.operations.length === 0) {
         toast.error("Nothing to paste — every row's name cell was blank.");
@@ -125,7 +130,7 @@ export function usePasteMany({
         onError: () => toast.error("Couldn't paste those rows — try again."),
       });
     },
-    [bulkCreate, resourcePool, targetParentId, onFocusRow],
+    [bulkCreate, resourcePool, targetParentId, onFocusRow, canWriteEstimates],
   );
 
   const handlePaste = useCallback(

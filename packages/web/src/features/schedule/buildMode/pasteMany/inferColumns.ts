@@ -28,7 +28,7 @@ const KEYWORDS: Record<PasteField, string[]> = {
   // matching claims the first field whose keywords hit, and "Optimistic Duration" or
   // "Most Likely Estimate" would otherwise be read as the plain duration column.
   optimistic: ['optimistic', 'best case', 'bestcase'],
-  most_likely: ['most likely', 'mostlikely', 'likely'],
+  most_likely: ['most likely', 'most_likely', 'mostlikely', 'likely case', 'likelycase'],
   pessimistic: ['pessimistic', 'worst case', 'worstcase'],
   duration: ['duration', 'days', 'estimate', 'length'],
   owner: ['owner', 'assignee', 'resource', 'who'],
@@ -38,6 +38,8 @@ const KEYWORDS: Record<PasteField, string[]> = {
   // "Map columns…" is the correction path for that case (#3102).
   units: ['allocation', 'units', 'percent', 'capacity', '%'],
 };
+
+const LEADS_WITH_DURATION = /^\s*(duration|days|estimate|length)\b/i;
 
 const ALL_KEYWORDS = Object.values(KEYWORDS).flat();
 
@@ -77,6 +79,10 @@ function applyHeaderMatches(
     if (!headerText) continue;
     for (const candidate of Object.keys(KEYWORDS) as PasteField[]) {
       if (claimed.has(candidate)) continue;
+      // "Duration (Most Likely)" names the plain duration column with a qualifier, not the
+      // PERT most-likely column, and has always read as `duration`; "Most Likely Duration"
+      // leads with the qualifier and is the PERT column.
+      if (candidate === 'most_likely' && LEADS_WITH_DURATION.test(headerText)) continue;
       const m = matchKeyword(headerText, KEYWORDS[candidate]);
       if (m !== 'none') {
         fields[index] = candidate;

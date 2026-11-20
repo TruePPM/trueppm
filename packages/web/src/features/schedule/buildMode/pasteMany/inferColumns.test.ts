@@ -160,4 +160,34 @@ describe('inferColumns three-point estimate headers', () => {
       'duration',
     ]);
   });
+
+  it.each([
+    ['Duration', 'duration'],
+    ['Estimate', 'duration'],
+    ['Days', 'duration'],
+    ['Likely Duration', 'duration'],
+    ['Duration (Most Likely)', 'duration'],
+    // No header keyword: reads as duration only through the numeric-shape fallback, as before.
+    ['Likelihood', 'duration'],
+  ])('keeps the header %j mapping to %j', (header, field) => {
+    const data = rows([
+      ['Task', header],
+      ['Survey', '5'],
+    ]);
+    expect(inferColumns(data, true)[1].field).toBe(field);
+  });
+
+  it.each([
+    ['Most Likely', 'most_likely'],
+    ['Most_Likely', 'most_likely'],
+    ['MostLikely', 'most_likely'],
+    ['Likely Case', 'most_likely'],
+    ['Most Likely Duration', 'most_likely'],
+  ])('maps the header %j to %j', (header, field) => {
+    const data = rows([
+      ['Task', header],
+      ['Survey', '5'],
+    ]);
+    expect(inferColumns(data, true)[1].field).toBe(field);
+  });
 });

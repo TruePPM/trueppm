@@ -103,10 +103,18 @@ async function setup(
   // The `can_undo` the `tasks/bulk/` 207 reports (#3353). Defaults to the
   // Admin/Owner case; `false` drives the Member who may paste and may not undo.
   canUndo = true,
+  // `pm_only` + a sub-Admin `selfRole` drives the caller the server refuses PERT fields to.
+  access: { estimationMode?: string; selfRole?: number } = {},
 ) {
   await setupAuth(page);
   await setupCatchAll(page);
-  await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
+  await setupApiMocks(page, {
+    projects: access.estimationMode
+      ? FIXTURE_PROJECTS.map((p) => ({ ...p, estimation_mode: access.estimationMode }))
+      : FIXTURE_PROJECTS,
+    projectId: PROJECT_ID,
+    ...(access.selfRole !== undefined ? { selfRole: access.selfRole } : {}),
+  });
   await page.route('**/api/v1/project-resources/**', (route) =>
     route.fulfill({
       status: 200,
@@ -268,6 +276,33 @@ test.describe('paste-many — spreadsheet rows into the outline (#2724)', () => 
     const receipt = page.getByTestId('paste-receipt-strip');
     await expect(receipt).toBeVisible();
     await expect(receipt).toContainText('1 row had an incomplete or out-of-order three-point estimate');
+    expect(batches.length).toBeGreaterThan(0);
+    expect(JSON.stringify(batches)).not.toContain('optimistic_duration');
+    await expect(page.getByRole('row').filter({ hasText: 'Design' })).toHaveCount(1);
+  });
+
+  test('under PM_ONLY a Member\'s estimate columns are dropped, the rows land, and the receipt says why (#2918)', async ({
+    page,
+  }) => {
+    await setup(page, ROSTER, true, { estimationMode: 'pm_only', selfRole: 100 });
+    const batches: unknown[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().includes('/tasks/bulk/')) {
+        batches.push(request.postDataJSON());
+      }
+    });
+    await page.goto(SCHEDULE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await pasteOntoRow(
+      page,
+      'Foundation',
+      'Task\tOptimistic\tMost Likely\tPessimistic\nDesign\t2\t4\t8',
+    );
+
+    const receipt = page.getByTestId('paste-receipt-strip');
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText('restricts estimates to the Project Manager');
     expect(batches.length).toBeGreaterThan(0);
     expect(JSON.stringify(batches)).not.toContain('optimistic_duration');
     await expect(page.getByRole('row').filter({ hasText: 'Design' })).toHaveCount(1);

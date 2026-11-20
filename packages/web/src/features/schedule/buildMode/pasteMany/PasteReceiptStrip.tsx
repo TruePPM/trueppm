@@ -73,6 +73,11 @@ export function buildPasteReceiptMessage(summary: PasteSummary): string {
   if (summary.droppedEstimateCount > 0) {
     const n = summary.droppedEstimateCount;
     sentences.push(
+      summary.estimatesRestricted
+        ? `${n} row${n === 1 ? '' : 's'} had a three-point estimate, but this project ` +
+            `restricts estimates to the Project Manager, so ${n === 1 ? 'it was' : 'they were'} ` +
+            `created without one.`
+        :
       `${n} row${n === 1 ? '' : 's'} had an incomplete or out-of-order three-point estimate, ` +
         `so ${n === 1 ? 'it was' : 'they were'} created without one — all three values are ` +
         `needed, with optimistic \u2264 most likely \u2264 pessimistic.`,

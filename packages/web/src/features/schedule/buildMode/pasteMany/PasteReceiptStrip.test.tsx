@@ -18,6 +18,7 @@ function summary(over: Partial<PasteSummary> = {}): PasteSummary {
     unmatchedOwnerCount: 0,
     ambiguousOwnerCount: 0,
     droppedEstimateCount: 0,
+    estimatesRestricted: false,
     ...over,
   };
 }
@@ -189,5 +190,14 @@ describe('buildPasteReceiptMessage three-point estimates', () => {
     const message = buildPasteReceiptMessage(summary({ droppedEstimateCount: 2 }));
     expect(message).toMatch(/2 rows had an incomplete or out-of-order three-point estimate/);
     expect(message).toMatch(/optimistic \u2264 most likely \u2264 pessimistic/);
+  });
+
+  it('says why when the project restricts estimates to the Project Manager', () => {
+    const message = buildPasteReceiptMessage(
+      summary({ droppedEstimateCount: 1, estimatesRestricted: true }),
+    );
+    expect(message).toMatch(/1 row had a three-point estimate/);
+    expect(message).toMatch(/restricts estimates to the Project Manager/);
+    expect(message).not.toMatch(/out-of-order/);
   });
 });

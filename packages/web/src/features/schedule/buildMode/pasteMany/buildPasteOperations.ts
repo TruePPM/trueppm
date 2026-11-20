@@ -35,6 +35,10 @@ export interface PasteSummary {
   /** Rows that carried a three-point cell but not a usable all-or-none, ordered triple
    *  — created without any estimate rather than with a partial one the server rejects. */
   droppedEstimateCount: number;
+  /** True when `droppedEstimateCount` counts rows dropped because the caller may not write
+   *  estimates on this project (`PM_ONLY` below Project Manager), not because the triple
+   *  was malformed — the receipt names a different repair for each. */
+  estimatesRestricted: boolean;
 }
 
 export interface BuiltPasteBatch {
@@ -159,6 +163,10 @@ export function buildPasteOperations(
   targetParentId: string | null,
   hasHeaderRow: boolean,
   mintId: () => string = () => crypto.randomUUID(),
+  // Whether this caller may write three-point estimates. The server refuses PERT fields on
+  // create under `PM_ONLY` below ADMIN (`_validate_estimate_write_permitted`), and
+  // `tasks/bulk` rejects that whole row — so a task would be lost, not just its estimate.
+  canWriteEstimates = true,
 ): BuiltPasteBatch {
   const { nameIndex, durationIndex, ownerIndex, unitsIndex, pertIndices } =
     columnIndices(columns);
@@ -216,7 +224,11 @@ export function buildPasteOperations(
       resolvePertCell(row, pertIndices[1]),
       resolvePertCell(row, pertIndices[2]),
     );
-    if (triple.kind === 'incomplete' || triple.kind === 'out_of_order') droppedEstimateCount++;
+    if (!canWriteEstimates) {
+      if (triple.kind !== 'none') droppedEstimateCount++;
+    } else if (triple.kind === 'incomplete' || triple.kind === 'out_of_order') {
+      droppedEstimateCount++;
+    }
 
     operations.push({
       op: 'create',
@@ -227,7 +239,7 @@ export function buildPasteOperations(
         duration,
         owner,
         unitsPercent,
-        triple.kind === 'ok' ? triple : null,
+        canWriteEstimates && triple.kind === 'ok' ? triple : null,
       ),
     });
     createdIds.push(id);
@@ -250,6 +262,7 @@ export function buildPasteOperations(
       unmatchedOwnerCount: droppedOwners.filter((o) => o.reason === 'unmatched').length,
       ambiguousOwnerCount: droppedOwners.filter((o) => o.reason === 'ambiguous').length,
       droppedEstimateCount,
+      estimatesRestricted: !canWriteEstimates,
     },
     createdIds,
     needsDurationIds,
