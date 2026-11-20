@@ -278,6 +278,38 @@ async def test_get_project_status_summary_missing_band_states_no_band(settings: 
     assert result["health_band_unavailable"]
 
 
+@pytest.mark.parametrize("status", [403, 404])
+async def test_get_project_non_member_workspace_record_marks_overview_unavailable(
+    settings: Settings, status: int
+) -> None:
+    """ADR-1434: a WORKSPACE record lists and retrieves, but its child reads refuse."""
+    routes: Routes = {
+        "projects/p-1/": _json({"id": "p-1", "name": "Apollo", "my_role": None}),
+        "projects/p-1/overview/": httpx.Response(status, json={"detail": "no"}),
+        "projects/p-1/status-summary/": httpx.Response(status, json={"detail": "no"}),
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_project(client, "p-1")
+    assert result["id"] == "p-1"
+    assert result["name"] == "Apollo"
+    assert "overview" not in result
+    assert result["overview_unavailable"]
+    assert result["health_band_unavailable"]
+    assert "health_band" not in result
+
+
+async def test_get_project_member_overview_refusal_still_raises(settings: Settings) -> None:
+    """A refusal for a caller who IS a member is unexpected and must reach the operator."""
+    routes: Routes = {
+        "projects/p-1/": _json({"id": "p-1", "my_role": 100}),
+        "projects/p-1/overview/": httpx.Response(403, json={"detail": "no"}),
+        "projects/p-1/status-summary/": _json({}),
+    }
+    async with _client(settings, routes) as client:
+        with pytest.raises(ApiError):
+            await _get_project(client, "p-1")
+
+
 async def test_get_project_status_summary_auth_error_propagates(settings: Settings) -> None:
     routes: Routes = {
         "projects/p-1/": _json({"id": "p-1"}),

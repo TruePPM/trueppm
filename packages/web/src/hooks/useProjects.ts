@@ -54,6 +54,8 @@ interface ApiProject {
   open_task_count?: number | null;
   /** Committed-vs-draft (#2962). Absent on pre-0.4 fixtures — treat as 'active'. */
   lifecycle?: 'draft' | 'active';
+  /** Caller's role, or null for a WORKSPACE-visible project they are not a member of (ADR-1434). */
+  my_role?: number | null;
 }
 
 // Deterministic palette cycled by index — no server-side color assignment yet.
@@ -92,6 +94,10 @@ function mapProject(p: ApiProject, index: number): Project {
     methodology: p.methodology ?? 'HYBRID',
     programId: p.program ?? null,
     isPinned: p.is_pinned ?? false,
+    // `GET /projects/` also returns WORKSPACE-visible projects the caller is not a
+    // member of (ADR-1434), with `my_role: null`. Carried so callers that mean
+    // "projects I belong to" can say so (`isMemberProject` in `@/lib/projectMembership`).
+    myRole: 'my_role' in p ? (p.my_role ?? null) : undefined,
     // Lets list-only surfaces (the ⌘K cross-project view fallback) name the
     // sprints view with the project's own term without a per-project fetch.
     effectiveIterationLabel: p.effective_iteration_label,
@@ -99,7 +105,8 @@ function mapProject(p: ApiProject, index: number): Project {
 }
 
 /**
- * GET /api/v1/projects/ — fetch the current user's project list.
+ * GET /api/v1/projects/ — the projects the user belongs to, plus WORKSPACE-visible
+ * projects in the workspace they are not a member of (ADR-1434, `myRole: null`).
  *
  * Suppresses error state during the 401→token-refresh→retry cycle to prevent
  * a "Failed to load" flash while the interceptor silently retries the request.

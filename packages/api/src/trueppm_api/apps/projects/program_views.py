@@ -811,6 +811,11 @@ class ProgramViewSet(
 
     serializer_class = ProgramSerializer
     pagination_class = DirectoryPagination
+
+    # ADR-1434: the actions whose queryset admits a WORKSPACE program for a
+    # non-member. ``ProgramSerializer`` reads it too, to return only the summary
+    # record to that caller (§6).
+    workspace_visible_actions: frozenset[str] = frozenset({"list", "retrieve"})
     # Parity with ProjectViewSet: name/code substring search so the program
     # switchers and command palette stay findable past the default page (ADR-0401).
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -1071,7 +1076,7 @@ class ProgramViewSet(
             )
         )
         scope: Exists | Q = member_scope
-        if getattr(self, "action", None) in ("list", "retrieve") and (
+        if getattr(self, "action", None) in self.workspace_visible_actions and (
             workspace_visibility_eligible(self.request)
         ):
             scope = member_scope | Q(visibility=Visibility.WORKSPACE)

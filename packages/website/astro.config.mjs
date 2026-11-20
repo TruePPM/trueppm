@@ -313,7 +313,7 @@ export default defineConfig({
             { slug: "getting-started/sample-projects" },
             { slug: "getting-started/sample-project-tour" },
             { slug: "getting-started/evaluation-guide" },
-            { slug: "getting-started/upgrade" },
+            { slug: "getting-started/upgrade", badge: { text: "0.5", variant: "caution" } },
           ],
         },
         // --- Persona guides ---

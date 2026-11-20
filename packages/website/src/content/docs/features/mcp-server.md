@@ -144,7 +144,7 @@ rather than reason over an incomplete list.
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
-| `list_projects` | — | Every project you can read, each with your `caller_role`. |
+| `list_projects` | — | The projects you belong to, plus any workspace-visible ones, each with your `caller_role` (`null` on a workspace-visible project you are not a member of). |
 | `get_project` | `project_id` | Full project metadata and a health overview, with `caller_role`. From 0.5 it will also carry `health_band` and `health_band_source`. |
 | `list_programs` | — | Every program you can read, each with your `caller_role`. |
 | `get_program_health` | `program_id` | Rollup health for one program (single-program; cross-program rollups are Enterprise). The rollup carries the cost KPIs; a caller below program Admin sees each as `{ "available": false, "reason": "cost_restricted" }` rather than a top-level flag. |

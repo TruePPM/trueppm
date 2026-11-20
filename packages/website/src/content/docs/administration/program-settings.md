@@ -116,7 +116,11 @@ membership-scoped.
 **Private** (the default) keeps the program members-only. **Workspace** lets any active
 workspace member find the program and open its summary record, read-only; its projects,
 rollups, and every other program view stay members-only, and editing always follows
-program role. Guests and deactivated accounts never see a program through this setting.
+program role. The summary record is the program's name, key, description, health,
+visibility, color, target date, and methodology and iteration labels. It leaves out the
+project and member counts, the lead and creator, the rollup and risk settings, and the
+sharing, guest, and MCP settings; through the API those fields are absent and `my_role`
+is `null`. Guests and deactivated accounts never see a program through this setting.
 Upgrading to 0.5 sets every existing program to Private.
 
 ## Projects

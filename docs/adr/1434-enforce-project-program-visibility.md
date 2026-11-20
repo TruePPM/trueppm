@@ -60,6 +60,13 @@ Two facts shape it:
    coordination unit). That stays: a PRIVATE project's *row* still appears to members of
    its program, and its child data stays members-only. PRIVATE narrows the
    workspace-wide audience; it does not hide a project from its own program.
+   The reverse direction is narrowed: a WORKSPACE project inside a PRIVATE program does
+   **not** reveal that program's name to a caller who is a member of neither —
+   `ProjectDetailSerializer.program_detail` is `null` for them. The opaque `program`
+   uuid is **kept** on the record: it is a foreign key the caller cannot dereference
+   (`GET /programs/{id}/` 404s), it reveals only that two visible projects share a
+   program, and nulling it would make the same row disagree with itself between the
+   list and the program roster.
 5. **Mechanism.** `ProjectScopedViewSet.workspace_visible_actions` (empty by default — fail
    closed) admits WORKSPACE projects into the Project queryset; only `ProjectViewSet`
    opts in, for `list` / `retrieve`, and gates those two with
@@ -67,6 +74,25 @@ Two facts shape it:
    `visibility=WORKSPACE` into its membership `Exists` for `list` / `retrieve`, and
    `retrieve` is gated by `IsProgramMemberOrWorkspaceVisible`. Both new classes keep the
    parent's `has_permission` so a nested route still requires membership.
+
+6. **A non-member gets the summary record, not the member payload.** For a caller whose
+   `my_role` is null on a list/retrieve row (so the row reached them only through
+   WORKSPACE), the serializers return an **allowlist** of fields
+   (`WORKSPACE_NON_MEMBER_PROJECT_FIELDS` / `WORKSPACE_NON_MEMBER_PROGRAM_FIELDS` in
+   `projects/serializers.py`): identity (id, name, key, description), health,
+   visibility, lifecycle, dates, methodology and iteration labels, and the caller's own
+   facts (`my_role`, `my_role_label`, `is_pinned`, the `can_*` flags). Everything else
+   is **omitted** — not nulled, matching the `budget` precedent — including the
+   aggregates over child data a non-member cannot read (`open_task_count`,
+   `member_count`, `percent_complete`, `project_count`, `unresolved_assignee_count`,
+   `retired_key_count`), people facts (`lead`, `lead_detail`, `created_by`) and the
+   sharing / guest / MCP / rollup / risk posture. An allowlist rather than a denylist so
+   a field added later stays member-only until someone decides otherwise. The check is
+   keyed on the view's `workspace_visible_actions`, so a serializer reused elsewhere
+   (the program roster, a create response with no `_my_role` annotation) is never
+   redacted by accident. The OpenAPI schema still lists these fields as present; like
+   `budget`, their absence for this caller is documented here and in the settings docs
+   rather than modeled as a second response shape.
 
 ## Consequences
 
@@ -79,10 +105,15 @@ Two facts shape it:
 - An MCP `mcp:read` token reads as its user, so a workspace member's token also lists
   and retrieves WORKSPACE project records; the per-project MCP denial filter
   (`McpReadableViewMixin`) still applies on top.
-- The record a non-member reads is the same `ProjectSerializer` / `ProjectDetailSerializer`
-  / `ProgramSerializer` payload a Viewer reads. Any field later added to those serializers
-  is visible to every workspace member on a WORKSPACE row, so a field that must stay
-  member-only has to be gated on `my_role`, not on the route.
+- The record a non-member reads is the summary allowlist of decision 6, not the Viewer
+  payload. A field added to those serializers later is member-only by default; adding it
+  to the allowlist is the deliberate act that shows it to the workspace.
+- The MCP `get_project` tool returns the record with `overview_unavailable` /
+  `health_band_unavailable` for a non-member instead of failing on the child reads'
+  refusal, so a project `list_projects` offers can always be opened.
+- The web app's `GET /projects/` consumers that meant "projects I belong to" filter on
+  `isMemberProject` (`my_role != null`). The listing surfaces (sidebar, command palette,
+  status bar) still show WORKSPACE rows; that UX is #5071.
 - The backfill is a bulk `.update()` and does not bump `server_version`, so an offline
   client may show a stale WORKSPACE label until the row next changes. The label is
   display-only on the client; the server decides access.

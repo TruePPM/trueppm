@@ -6,6 +6,7 @@ import contextlib
 import os
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
@@ -1504,6 +1505,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         the check is skipped for them at no cost.
         """
         data: dict[str, Any] = super().to_representation(instance)
+        if _is_workspace_non_member_read(self.context, instance):
+            # A non-member reading a WORKSPACE row gets the summary record only
+            # (ADR-1434 §6). Omitted, not nulled, like ``budget`` below.
+            return {k: v for k, v in data.items() if k in WORKSPACE_NON_MEMBER_PROJECT_FIELDS}
         if "budget" in data and not self._caller_sees_cost(instance):
             data.pop("budget")
         return data
@@ -2506,6 +2511,99 @@ class SeedImportRequestSerializer(serializers.Serializer[Any]):
     expected_program_id = serializers.UUIDField(required=False, allow_null=True)
 
 
+# ADR-1434 §6: the summary record a WORKSPACE row shows a caller who is NOT a member.
+# An allowlist, not a denylist, so a field added to the serializer later stays
+# member-only until someone decides otherwise — the failure mode ADR-1434 warned of.
+# Everything left out is either an aggregate over child data the non-member cannot
+# read (task and member counts, percent complete, assignee/key counts), a people
+# fact (lead, creator), or the sharing / guest / MCP / rollup posture.
+WORKSPACE_NON_MEMBER_PROJECT_FIELDS: frozenset[str] = frozenset(
+    {
+        "id",
+        "server_version",
+        "name",
+        "description",
+        "code",
+        "health",
+        "visibility",
+        "lifecycle",
+        "is_archived",
+        "start_date",
+        "status_date",
+        "methodology",
+        "effective_methodology",
+        "iteration_label",
+        "effective_iteration_label",
+        # The opaque program uuid is kept (ADR-1434 §4); its name is not — see
+        # ``ProjectDetailSerializer.get_program_detail``.
+        "program",
+        "program_detail",
+        # The caller's own facts about the row.
+        "my_role",
+        "my_role_label",
+        "is_pinned",
+        "can_author",
+        "can_undo_batch_operations",
+        "can_subscribe_live",
+        "server_date",
+    }
+)
+
+WORKSPACE_NON_MEMBER_PROGRAM_FIELDS: frozenset[str] = frozenset(
+    {
+        "id",
+        "server_version",
+        "name",
+        "description",
+        "code",
+        "health",
+        "visibility",
+        "color",
+        "target_date",
+        "created_at",
+        "updated_at",
+        "is_closed",
+        "closed_at",
+        "is_sample",
+        "methodology",
+        "effective_methodology",
+        "iteration_label",
+        "my_role",
+        "my_role_label",
+        "is_pinned",
+    }
+)
+
+
+def _is_workspace_non_member_read(context: Mapping[str, Any], instance: Any) -> bool:
+    """Whether this row reached the caller only through WORKSPACE visibility.
+
+    True only on a view action that admits WORKSPACE rows (the view's
+    ``workspace_visible_actions``) AND when the queryset's ``_my_role`` annotation is
+    present and null — i.e. the caller holds no membership. Keyed on the view so a
+    serializer reused elsewhere (the program roster's ``ProgramProjectRowSerializer``,
+    a create response with no annotation) is never redacted by accident.
+    """
+    view = context.get("view")
+    if getattr(view, "action", None) not in getattr(view, "workspace_visible_actions", ()):
+        return False
+    return hasattr(instance, "_my_role") and instance._my_role is None
+
+
+def _program_name_visible(context: Mapping[str, Any], program: Program) -> bool:
+    """Whether the caller may see ``program``'s name: it is WORKSPACE, or they belong to it."""
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.projects.models import Visibility
+
+    if program.visibility == Visibility.WORKSPACE:
+        return True
+    request = context.get("request")
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return False
+    return ProgramMembership.objects.filter(program=program, user=user, is_deleted=False).exists()
+
+
 class ProgramSerializer(serializers.ModelSerializer[Program]):
     """Read/write serializer for Program (ADR-0070).
 
@@ -3216,6 +3314,13 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         if not _HEX_COLOR_RE.fullmatch(value):
             raise serializers.ValidationError("color must be a #RRGGBB hex string or null.")
         return value
+
+    def to_representation(self, instance: Program) -> dict[str, Any]:
+        """Summary record only for a non-member reading a WORKSPACE program (ADR-1434 §6)."""
+        data: dict[str, Any] = super().to_representation(instance)
+        if _is_workspace_non_member_read(self.context, instance):
+            return {k: v for k, v in data.items() if k in WORKSPACE_NON_MEMBER_PROGRAM_FIELDS}
+        return data
 
     def get_my_role_label(self, obj: Program) -> str | None:
         """Human role label in *program* context (#1794).
@@ -12179,6 +12284,12 @@ class ProjectDetailSerializer(ProjectSerializer):
         """
         program = obj.program
         if program is None:
+            return None
+        if _is_workspace_non_member_read(self.context, obj) and not _program_name_visible(
+            self.context, program
+        ):
+            # ADR-1434 §4: a WORKSPACE project must not leak a PRIVATE program's name
+            # to a caller who is a member of neither.
             return None
         return {
             "id": str(program.pk),

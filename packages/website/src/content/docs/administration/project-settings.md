@@ -133,6 +133,14 @@ Visibility decides who can **find** the project, not who can work in it:
   deactivated accounts never see a project through this setting, and a draft project
   stays members-only.
 
+The **summary record** a non-member sees is the project's name, key, description, health,
+visibility, lifecycle, start and status dates, and methodology and iteration labels. It
+leaves out everything that describes the work or the team: task and member counts,
+percent complete, budget, the lead, and the sharing, guest, and MCP settings. If the
+project belongs to a Private program the viewer is not a member of, the program's name
+is left out too. Through the API, these fields are absent from the response, not null, and
+the response's `my_role` is `null`.
+
 Upgrading to 0.5 sets every existing project and program to **Private**, which is the
 access they already had, so nothing becomes visible until an Admin chooses Workspace.
 Program settings carry the same control with the same meaning for the program record.

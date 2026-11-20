@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useProjects } from '@/hooks/useProjects';
+import { isMemberProject } from '@/lib/projectMembership';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { Project } from '@/types';
@@ -99,8 +100,10 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
 
   const projects = allProjects ?? [];
   // Exclude projects already in this program (no-op move) — the API silently
-  // succeeds for those but it's a confusing UX to offer them.
-  const candidates = projects.filter((p) => p.programId !== programId);
+  // succeeds for those but it's a confusing UX to offer them. Also exclude
+  // WORKSPACE-visible projects the caller is not a member of (ADR-1434): attaching
+  // needs Project Admin on the project, so offering one only buys a refusal.
+  const candidates = projects.filter((p) => p.programId !== programId && isMemberProject(p));
 
   const q = search.trim().toLowerCase();
   // Both facets are client-side over the already-cached project list (issue 564) — no
@@ -124,8 +127,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
       await assignProject.mutateAsync({ projectId: selectedId, programId });
       onClose();
     } catch (err) {
-      const message =
-        err instanceof Error && err.message ? err.message : 'Failed to add project.';
+      const message = err instanceof Error && err.message ? err.message : 'Failed to add project.';
       setError(message);
     }
   }
@@ -152,8 +154,8 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
           </h2>
           <p className="mt-2 text-xs text-neutral-text-secondary">
             <span aria-hidden="true">ⓘ </span>
-            Project membership is independent. Adding a project to a program does not grant
-            program members access to that project (or vice versa).
+            Project membership is independent. Adding a project to a program does not grant program
+            members access to that project (or vice versa).
           </p>
         </header>
 
@@ -189,8 +191,8 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
 
           {!isLoading && candidates.length === 0 && (
             <p className="mt-6 text-sm text-neutral-text-secondary">
-              No other projects available to add. Create a new project from the sidebar,
-              then assign it here.
+              No other projects available to add. Create a new project from the sidebar, then assign
+              it here.
             </p>
           )}
 
@@ -221,7 +223,10 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
         </div>
 
         {error && (
-          <p role="alert" className="border-t border-neutral-border px-6 py-2 text-xs text-semantic-critical">
+          <p
+            role="alert"
+            className="border-t border-neutral-border px-6 py-2 text-xs text-semantic-critical"
+          >
             {error}
           </p>
         )}
