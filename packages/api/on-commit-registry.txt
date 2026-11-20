@@ -1,0 +1,29 @@
+# Registry for scripts/check-on-commit-durability.py (#2473). Data, not code: the gate and
+# docs/durability/on-commit-audit.md both read this file.
+#   outbox | helper | Model | drain-task   helper commits a durable PENDING row (a Beat drain replays it)
+#   best-effort | name | why              loss is acceptable (clients re-pull via the sync delta)
+#   benign | name                          builtin/pure call that does no durable work
+outbox | enqueue_recalculate | ScheduleRequest | drain_schedule_queue
+outbox | _enqueue_recalculate | ScheduleRequest | drain_schedule_queue
+outbox | dispatch_webhooks | WebhookDelivery | drain_webhook_queue
+outbox | _dispatch_webhooks | WebhookDelivery | drain_webhook_queue
+outbox | enqueue_import | ImportRequest | import drain
+outbox | enqueue_sprint_close | SprintCloseRequest | drain_sprint_close_requests
+outbox | notify_board_config_change | ConfigNoticeRequest | drain_config_notice_requests
+outbox | notify_surface_changes | ConfigNoticeRequest | drain_config_notice_requests
+outbox | enqueue_project_cascade_soft_delete | ProjectCascadeRequest | drain_project_cascade_requests
+outbox | enqueue_jira_import | JiraImportRequest | jira import drain
+outbox | enqueue_csv_import | CsvImportRequest | csv import drain
+best-effort | broadcast_board_event | WebSocket push; every event is also persisted, clients reconcile via sync delta on reconnect
+best-effort | broadcast_task_updated | thin wrapper over broadcast_board_event for task updates
+best-effort | defer_task_updated | defers broadcast_task_updated
+best-effort | evict_project_group | closes live sockets; a missed eviction is re-checked on the next request
+best-effort | evict_project_connection | closes one live socket; re-checked on the next request
+best-effort | dispatch_extension_signal | enterprise extension hook; fail-open by contract (ADR-0029), receivers own durability
+benign | str
+benign | len
+benign | int
+benign | partial
+benign | isoformat
+benign | get
+benign | getattr

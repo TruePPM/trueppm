@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+"""check-on-commit-durability.py — every transaction.on_commit callback is classified (#2473).
+
+Why this exists. ``docs/durability/on-commit-audit.md`` (#659) hand-classified 91
+``transaction.on_commit`` callsites and concluded "0 durability holes". The tree now has
+~290 and nothing enforced the rule that audit states: **never dispatch Celery work from
+``on_commit`` without a committed outbox row behind it**. This gate replaces the
+hand-maintained table with a mechanical classification.
+
+What it checks. Over ``packages/api/src/trueppm_api`` (``migrations/`` skipped) it parses
+every file with ``ast`` and finds each ``<x>.on_commit(callback)`` call. The callback
+(lambda, ``functools.partial(fn, ...)``, or a name resolving to a ``def`` in the same
+file) is expanded to the set of call names it reaches, following same-file ``def``s up to
+four levels deep. Each callsite then gets one class:
+
+* ``hole``         — the reachable code dispatches Celery (``.delay`` / ``.apply_async`` /
+                     ``.apply`` / ``send_task``) and neither the callback nor the
+                     enclosing top-level function calls a registered outbox helper.
+* ``outbox``       — dispatches, and a registered outbox helper is reachable from the
+                     callback or called in the enclosing function (rule b), or the
+                     callback is itself an outbox enqueue helper.
+* ``best-effort``  — every reachable call is a registered best-effort primitive or a
+                     registered benign call (rule a).
+* ``unclassified`` — anything else: the callback calls something the registry has not
+                     been told about.
+
+The registry (``packages/api/on-commit-registry.txt``) is data, not code in this script:
+``outbox | helper | Model | drain-task``, ``best-effort | name | why``, ``benign | name``.
+``docs/durability/on-commit-audit.md`` carries a generated table of it, and the gate
+fails when that table drifts (``--write-docs`` regenerates it).
+
+Ratchet. ``hole`` and ``unclassified`` callsites must be covered by an entry in
+``packages/api/on-commit-baseline.txt``: ``path | class | max-count | issue | reason``.
+A count above the entry fails (a new callsite), a count below it fails too (lower it:
+the baseline is ratcheted against the merge base; a raise needs a new `# raise-ok: <reason>`), an entry matching nothing fails. Separately, the baseline file is
+compared with its merge-base copy (``git show origin/main:...``, or
+``CI_MERGE_REQUEST_DIFF_BASE_SHA`` in CI): a raised count or a new entry fails unless the
+entry carries ``# raise-ok: <reason>`` on the line directly above it, honored only while
+that marker is new relative to the base copy. The marker is a self-grant in the file it
+guards: the reviewer reading the diff is the control. The comparison is skipped with a
+note when no merge base is available (no ``origin/main``, or on ``main``); a named but
+unreachable base ref (shallow clone) fails closed. A callsite opts out with
+``# on-commit-ok: <reason>`` on its line or the comment line directly above (rule c,
+reason required) — a rubber stamp that removes the silence, like ``# layering-ok:``.
+
+What it deliberately does NOT check — read this before citing a green run:
+
+* **Cross-file callees.** A callback that calls a helper imported from another module is
+  not expanded; only the call name is looked up in the registry. A ``.delay()`` hidden
+  in an imported helper is invisible, so ``best-effort``/``outbox`` here means "calls
+  only names the registry vouches for", not "was proven safe".
+* **Registry honesty.** A helper registered as ``outbox`` is trusted to write its row
+  before dispatching; the gate does not verify that. Same for ``best-effort`` names.
+* **"Enclosing function calls an outbox helper" is a proximity heuristic**, not a
+  data-flow proof that the row is the one the callback dispatches for.
+* **Aliases and dynamic dispatch.** ``cb = on_commit; cb(...)`` and ``getattr`` calls are
+  not found. Only ``<anything>.on_commit(...)`` and a bare ``on_commit(...)`` are. A
+  callback that is an expression the gate cannot expand (subscript, call result, ...) is
+  classed ``unclassified``, not best-effort.
+* **Callsites outside ``packages/api/src/trueppm_api``** (tests, enterprise) and
+  ``migrations/`` are not scanned.
+* **Name resolution is by simple name** within a file: two same-named nested defs
+  collapse to the first found.
+
+Usage:  python3 scripts/check-on-commit-durability.py [--self-test | --report | --write-docs]
+Exit:   0 clean · 1 unaccounted callsite, stale entry, malformed entry, or docs drift
+"""
+
+from __future__ import annotations
+
+import ast
+import os
+import re
+import subprocess
+import sys
+from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SRC = Path(os.environ.get("ON_COMMIT_SRC", REPO_ROOT / "packages/api/src/trueppm_api"))
+REGISTRY = Path(
+    os.environ.get(
+        "ON_COMMIT_REGISTRY", REPO_ROOT / "packages/api/on-commit-registry.txt"
+    )
+)
+BASELINE = Path(
+    os.environ.get(
+        "ON_COMMIT_BASELINE", REPO_ROOT / "packages/api/on-commit-baseline.txt"
+    )
+)
+DOC = Path(
+    os.environ.get("ON_COMMIT_DOC", REPO_ROOT / "docs/durability/on-commit-audit.md")
+)
+
+SKIP_PARTS = ("/migrations/",)
+DISPATCH_ATTRS = {"delay", "apply_async", "apply", "send_task"}
+MAX_DEPTH = 4
+OPT_OUT = re.compile(r"#\s*on-commit-ok:\s*\S")
+GATED_CLASSES = ("hole", "unclassified")
+DOC_BEGIN = "<!-- on-commit-registry:begin (generated by scripts/check-on-commit-durability.py --write-docs) -->"
+DOC_END = "<!-- on-commit-registry:end -->"
+
+
+@dataclass
+class Registry:
+    outbox: dict[str, tuple[str, str]] = field(default_factory=dict)
+    best_effort: dict[str, str] = field(default_factory=dict)
+    benign: set[str] = field(default_factory=set)
+
+
+def load_registry(path: Path) -> tuple[Registry, list[str]]:
+    reg, problems = Registry(), []
+    if not path.exists():
+        return reg, [f"registry missing: {path}"]
+    for n, raw in enumerate(path.read_text().splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        p = [x.strip() for x in line.split("|")]
+        kind = p[0]
+        if kind == "outbox" and len(p) == 4 and all(p[1:]):
+            reg.outbox[p[1]] = (p[2], p[3])
+        elif kind == "best-effort" and len(p) == 3 and all(p[1:]):
+            reg.best_effort[p[1]] = p[2]
+        elif kind == "benign" and len(p) == 2 and p[1]:
+            reg.benign.add(p[1])
+        else:
+            problems.append(
+                f"{path.name}:{n}: expected 'outbox | helper | Model | drain', "
+                "'best-effort | name | why' or 'benign | name'"
+            )
+    return reg, problems
+
+
+def _name(func: ast.expr) -> str:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return "?"
+
+
+@dataclass
+class Site:
+    path: str
+    line: int
+    func: str
+    cls: str
+    calls: tuple[str, ...]
+
+
+def _defs(tree: ast.AST) -> dict[str, ast.AST]:
+    out: dict[str, ast.AST] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.setdefault(n.name, n)
+    return out
+
+
+def _reach(
+    node: ast.AST, defs: dict[str, ast.AST], depth: int, seen: set[str]
+) -> tuple[set[str], bool]:
+    """Call names reachable from ``node`` (following same-file defs) and a dispatch flag."""
+    calls: set[str] = set()
+    dispatch = False
+    for n in ast.walk(node):
+        if not isinstance(n, ast.Call):
+            continue
+        name = _name(n.func)
+        if isinstance(n.func, ast.Attribute) and name in DISPATCH_ATTRS:
+            dispatch = True
+            continue
+        calls.add(name)
+        if name == "partial" and n.args:
+            inner = n.args[0]
+            if isinstance(inner, (ast.Name, ast.Attribute)):
+                calls.add(_name(inner))
+    for name in list(calls):
+        if name in defs and name not in seen and depth < MAX_DEPTH:
+            sub_calls, sub_dispatch = _reach(defs[name], defs, depth + 1, seen | {name})
+            calls |= sub_calls
+            dispatch |= sub_dispatch
+    return calls, dispatch
+
+
+def _callback(arg: ast.expr, defs: dict[str, ast.AST]) -> ast.AST | None:
+    if isinstance(arg, ast.Lambda):
+        return arg.body
+    if isinstance(arg, ast.Call) and _name(arg.func) == "partial" and arg.args:
+        return _callback(arg.args[0], defs) or ast.Call(
+            func=arg.args[0], args=[], keywords=[]
+        )
+    if isinstance(arg, (ast.Name, ast.Attribute)):
+        target = defs.get(_name(arg))
+        return (
+            target if target is not None else ast.Call(func=arg, args=[], keywords=[])
+        )
+    return None
+
+
+def classify_source(source: str, rel: str, reg: Registry) -> list[Site]:
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    defs = _defs(tree)
+    sites: list[Site] = []
+
+    def visit(node: ast.AST, stack: list[ast.AST]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if (
+                isinstance(child, ast.Call)
+                and _name(child.func) == "on_commit"
+                and child.args
+            ):
+                sites.append(_site(child, stack))
+            nxt = (
+                stack + [child]
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                else stack
+            )
+            visit(child, nxt)
+
+    def _site(call: ast.Call, stack: list[ast.AST]) -> Site:
+        cb = _callback(call.args[0], defs)
+        calls, dispatch = (
+            _reach(cb, defs, 0, set()) if cb is not None else (set(), False)
+        )
+        enclosing = stack[0] if stack else None
+        enc_calls = (
+            _reach(enclosing, defs, 0, set())[0] if enclosing is not None else set()
+        )
+        func = ".".join(getattr(s, "name", "?") for s in stack) or "<module>"
+        opted = bool(OPT_OUT.search(lines[call.lineno - 1])) or (
+            call.lineno > 1
+            and lines[call.lineno - 2].lstrip().startswith("#")
+            and bool(OPT_OUT.search(lines[call.lineno - 2]))
+        )
+        in_cb = calls & set(reg.outbox)
+        # A registered helper's own on_commit IS the dispatch behind the row it just wrote.
+        is_helper = any(getattr(s, "name", "") in reg.outbox for s in stack)
+        if opted:
+            cls = "allowed"
+        elif cb is None:
+            # An expression the gate cannot expand (subscript, call result, ...) is not
+            # evidence of safety: never let it fall through to best-effort.
+            cls = "unclassified"
+        elif dispatch:
+            cls = (
+                "outbox"
+                if (in_cb or is_helper or enc_calls & set(reg.outbox))
+                else "hole"
+            )
+        elif calls <= (set(reg.best_effort) | reg.benign):
+            cls = "best-effort"
+        elif in_cb:
+            cls = "outbox"
+        else:
+            cls = "unclassified"
+        return Site(rel, call.lineno, func, cls, tuple(sorted(calls)))
+
+    visit(tree, [])
+    return sites
+
+
+def scan(src: Path, reg: Registry) -> list[Site]:
+    sites: list[Site] = []
+    for path in sorted(src.rglob("*.py")):
+        posix = "/" + path.relative_to(src.parent).as_posix()
+        if any(part in posix for part in SKIP_PARTS):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "on_commit" not in text:
+            continue
+        try:
+            sites += classify_source(text, path.relative_to(src).as_posix(), reg)
+        except SyntaxError:
+            continue
+    return sites
+
+
+def load_baseline(
+    path: Path,
+) -> tuple[dict[tuple[str, str], tuple[int, str]], list[str]]:
+    if not path.exists():
+        return {}, [f"baseline missing: {path}"]
+    return parse_baseline(path.read_text(), path.name)
+
+
+def parse_baseline(
+    text: str, name: str
+) -> tuple[dict[tuple[str, str], tuple[int, str]], list[str]]:
+    entries: dict[tuple[str, str], tuple[int, str]] = {}
+    problems: list[str] = []
+    path = Path(name)
+    for n, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        p = [x.strip() for x in line.split("|")]
+        if len(p) != 5 or not p[2].isdigit() or not p[4]:
+            problems.append(
+                f"{path.name}:{n}: expected 'path | class | count | issue | reason'"
+            )
+            continue
+        file, cls, count, issue, _ = p
+        if cls not in GATED_CLASSES:
+            problems.append(
+                f"{path.name}:{n}: class must be one of {GATED_CLASSES}, got {cls!r}"
+            )
+        if not re.fullmatch(r"#\d+", issue):
+            problems.append(f"{path.name}:{n}: issue must be '#NNNN', got {issue!r}")
+        if (file, cls) in entries:
+            problems.append(
+                f"{path.name}:{n}: duplicate entry for {file} '{cls}' (merge it into one line)"
+            )
+        entries[(file, cls)] = (int(count), issue)
+    return entries, problems
+
+
+RAISE_OK = "# raise-ok:"
+Key = tuple[str, str]
+
+
+def raise_marks(text: str) -> set[Key]:
+    """Entries with a reasoned ``# raise-ok:`` on the line directly above them."""
+    marks: set[Key] = set()
+    prev = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        p = [x.strip() for x in line.split("|")]
+        if len(p) == 5 and prev.startswith(RAISE_OK) and prev[len(RAISE_OK) :].strip():
+            marks.add((p[0], p[1]))
+        prev = line
+    return marks
+
+
+def baseline_raised(now_text: str, base_text: str | None) -> list[str]:
+    """Errors for entries raised (count up, or new) versus the merge-base copy.
+
+    A ``# raise-ok: <reason>`` marker is honored only while new relative to the base
+    copy: one already present at the base was spent by the MR that added it.
+    """
+    if base_text is None:
+        return []
+    now, _ = parse_baseline(now_text, "baseline")
+    base, _ = parse_baseline(base_text, "base baseline")
+    marks, base_marks = raise_marks(now_text), raise_marks(base_text)
+    errors = []
+    for key, (count, _issue) in sorted(now.items()):
+        was = base.get(key, (0, ""))[0]
+        if count > was and (key not in marks or key in base_marks):
+            errors.append(
+                f"baseline raised: {key[0]} '{key[1]}' {was} -> {count} versus the merge base. "
+                "The baseline is ratcheted against the merge base; a raise needs a new "
+                f"'{RAISE_OK} <reason>' on the line above the entry (reviewed in the diff); "
+                "otherwise fix the callsite."
+            )
+    return errors
+
+
+def _git(*args: str) -> tuple[int, str]:
+    r = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True
+    )
+    return r.returncode, r.stdout
+
+
+def base_baseline_text(baseline: Path) -> tuple[str | None, list[str]]:
+    """The baseline at the merge base, or None (with errors only when a named ref fails)."""
+    ref = os.environ.get("TRUEPPM_ON_COMMIT_BASE_REF") or os.environ.get(
+        "CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    )
+    if ref:
+        if _git("cat-file", "-e", f"{ref}^{{commit}}")[0] != 0:
+            return None, [
+                f"base ref {ref!r} is not reachable, so the baseline cannot be compared "
+                "against it (shallow clone? the job needs GIT_DEPTH: 0)"
+            ]
+    else:
+        rc, mb = _git("merge-base", "HEAD", "origin/main")
+        _, head = _git("rev-parse", "HEAD")
+        if rc != 0 or not mb.strip() or mb == head:
+            print(
+                "  note: no merge base available (no origin/main, or on main) -- "
+                "baseline-raise check skipped"
+            )
+            return None, []
+        ref = mb.strip()
+    try:
+        rel = baseline.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return None, []
+    rc, listing = _git("ls-tree", ref, "--", rel)
+    if rc != 0:
+        return None, [
+            f"git ls-tree {ref} -- {rel} failed; cannot read the base baseline"
+        ]
+    if not listing.strip():
+        return None, []  # absent at the base: this change introduces it
+    rc, text = _git("show", f"{ref}:{rel}")
+    if rc != 0:
+        return None, [f"git show {ref}:{rel} failed; cannot read the base baseline"]
+    return text, []
+
+
+RULE = (
+    "never dispatch Celery work from transaction.on_commit without a committed outbox row "
+    "(register the helper in packages/api/on-commit-registry.txt), and a callback may only "
+    "call registered best-effort primitives"
+)
+
+
+def evaluate(
+    sites: list[Site], entries: dict[tuple[str, str], tuple[int, str]]
+) -> list[str]:
+    hits: Counter[tuple[str, str]] = Counter(
+        (s.path, s.cls) for s in sites if s.cls in GATED_CLASSES
+    )
+    errors: list[str] = []
+    for key in sorted(set(hits) | set(entries)):
+        got, allowed = hits.get(key, 0), entries.get(key, (0, ""))[0]
+        file, cls = key
+        if got > allowed:
+            where = ", ".join(
+                f"{s.func}:{s.line}[{','.join(s.calls) or '-'}]"
+                for s in sites
+                if (s.path, s.cls) == key
+            )
+            errors.append(
+                f"{file}: {got} '{cls}' on_commit callsite(s), {allowed} baselined — {where}. "
+                f"Rule: {RULE}. Or add '# on-commit-ok: <reason>', or a baseline entry naming an issue."
+            )
+        elif got < allowed:
+            errors.append(
+                f"{file}: '{cls}' now has {got} callsite(s) but the baseline says {allowed} — "
+                "lower the count (or delete the entry); the baseline is ratcheted against the "
+                "merge base, and a raise needs a new `# raise-ok: <reason>`"
+            )
+    return errors
+
+
+def registry_table(reg: Registry) -> str:
+    rows = ["| Outbox helper | Outbox model | Drain task |", "|---|---|---|"]
+    rows += [f"| `{h}` | `{m}` | `{d}` |" for h, (m, d) in sorted(reg.outbox.items())]
+    rows += ["", "| Best-effort primitive | Why a loss is acceptable |", "|---|---|"]
+    rows += [f"| `{n}` | {w} |" for n, w in sorted(reg.best_effort.items())]
+    return "\n".join(rows)
+
+
+def docs_block(reg: Registry) -> str:
+    return f"{DOC_BEGIN}\n\n{registry_table(reg)}\n\n{DOC_END}"
+
+
+def docs_problems(reg: Registry, doc: Path) -> list[str]:
+    if not doc.exists():
+        return [f"doc missing: {doc}"]
+    text = doc.read_text()
+    if DOC_BEGIN not in text or DOC_END not in text:
+        return [f"{doc.name}: generated registry block markers missing"]
+    cur = text[text.index(DOC_BEGIN) : text.index(DOC_END) + len(DOC_END)]
+    if cur != docs_block(reg):
+        return [
+            f"{doc.name}: registry table is out of date — run "
+            "python3 scripts/check-on-commit-durability.py --write-docs"
+        ]
+    return []
+
+
+def write_docs(reg: Registry, doc: Path) -> None:
+    text = doc.read_text()
+    a, b = text.index(DOC_BEGIN), text.index(DOC_END) + len(DOC_END)
+    doc.write_text(text[:a] + docs_block(reg) + text[b:])
+
+
+def main() -> int:
+    reg, problems = load_registry(REGISTRY)
+    entries, bproblems = load_baseline(BASELINE)
+    sites = scan(SRC, reg)
+    base_text, base_errors = base_baseline_text(BASELINE)
+    raised = (
+        baseline_raised(BASELINE.read_text(), base_text) if BASELINE.exists() else []
+    )
+    errors = (
+        problems
+        + bproblems
+        + base_errors
+        + raised
+        + evaluate(sites, entries)
+        + docs_problems(reg, DOC)
+    )
+    if errors:
+        print("on-commit-durability: FAIL")
+        for e in errors:
+            print(f"  {e}")
+        return 1
+    counts = Counter(s.cls for s in sites)
+    print(
+        f"on-commit-durability: ok ({len(sites)} callsites: {dict(sorted(counts.items()))})"
+    )
+    return 0
+
+
+def report() -> int:
+    reg, _ = load_registry(REGISTRY)
+    sites = scan(SRC, reg)
+    print(dict(Counter(s.cls for s in sites)))
+    for s in sites:
+        if s.cls in GATED_CLASSES:
+            print(f"{s.cls:12} {s.path}:{s.line} {s.func} {s.calls}")
+    return 0
+
+
+def self_test() -> int:
+    reg = Registry(
+        outbox={"enqueue_x": ("XRequest", "drain_x")},
+        best_effort={"broadcast_board_event": "recoverable via sync delta"},
+        benign={"str"},
+    )
+    failures: list[str] = []
+
+    def cls(code: str) -> list[str]:
+        return [s.cls for s in classify_source(code, "m.py", reg)]
+
+    cases = {
+        "best-effort lambda": (
+            "def f():\n    transaction.on_commit(lambda: broadcast_board_event(1, 'a', {}))\n",
+            ["best-effort"],
+        ),
+        "hole: bare delay": (
+            "def f():\n    transaction.on_commit(lambda: task.delay(1))\n",
+            ["hole"],
+        ),
+        "hole through same-file def": (
+            "def cb():\n    task.apply_async(args=[1])\n"
+            "def f():\n    transaction.on_commit(cb)\n",
+            ["hole"],
+        ),
+        "outbox: helper in enclosing function": (
+            "def f():\n    enqueue_x(1)\n    transaction.on_commit(lambda: task.delay(1))\n",
+            ["outbox"],
+        ),
+        "outbox: helper as callback": (
+            "def f():\n    transaction.on_commit(lambda: enqueue_x(1))\n",
+            ["outbox"],
+        ),
+        "outbox: dispatch inside a registered helper": (
+            "def enqueue_x(a):\n    transaction.on_commit(lambda: task.delay(1))\n",
+            ["outbox"],
+        ),
+        "partial unwrapped": (
+            "def f():\n    transaction.on_commit(partial(mystery, 1))\n",
+            ["unclassified"],
+        ),
+        "unregistered callee": (
+            "def f():\n    transaction.on_commit(lambda: send_email(1))\n",
+            ["unclassified"],
+        ),
+        "opt-out": (
+            "def f():\n    # on-commit-ok: idempotent cache warm\n"
+            "    transaction.on_commit(lambda: send_email(1))\n",
+            ["allowed"],
+        ),
+        "unresolvable callback expression": (
+            "def f():\n    cbs = [lambda: t.delay(2)]\n    transaction.on_commit(cbs[0])\n",
+            ["unclassified"],
+        ),
+        "opt-out without reason": (
+            "def f():\n    # on-commit-ok:\n    transaction.on_commit(lambda: send_email(1))\n",
+            ["unclassified"],
+        ),
+    }
+    for label, (code, want) in cases.items():
+        got = cls(code)
+        if got != want:
+            failures.append(f"{label}: want {want}, got {got}")
+
+    hole = classify_source(
+        "def f():\n    transaction.on_commit(lambda: task.delay(1))\n",
+        "apps/x/bad.py",
+        reg,
+    )
+    if not evaluate(hole, {}):
+        failures.append("a new hole did not fail against an empty baseline")
+    if evaluate(hole, {("apps/x/bad.py", "hole"): (1, "#1")}):
+        failures.append("an exact baseline did not pass")
+    if not evaluate(hole, {("apps/x/bad.py", "hole"): (2, "#1")}):
+        failures.append("a stale (too-high) baseline did not fail")
+    if not evaluate([], {("apps/x/gone.py", "hole"): (1, "#1")}):
+        failures.append("a baseline entry matching nothing did not fail")
+
+    base = "# h\na.py | hole | 2 | #1 | r\n"
+    if baseline_raised(base, base):
+        failures.append("an unchanged baseline was reported as raised")
+    if not baseline_raised("a.py | hole | 3 | #1 | r\n", base):
+        failures.append("a raised count did not fail")
+    if not baseline_raised(base + "b.py | hole | 1 | #1 | r\n", base):
+        failures.append("a new entry did not fail")
+    if baseline_raised("a.py | hole | 1 | #1 | r\n", base):
+        failures.append("a lowered count was reported as raised")
+    if baseline_raised("# raise-ok: audited\na.py | hole | 3 | #1 | r\n", base):
+        failures.append("a new reasoned raise-ok was not honored")
+    if not baseline_raised("# raise-ok:\na.py | hole | 3 | #1 | r\n", base):
+        failures.append("a reasonless raise-ok was honored")
+    spent = "# raise-ok: audited\na.py | hole | 3 | #1 | r\n"
+    if not baseline_raised("# raise-ok: audited\na.py | hole | 4 | #1 | r\n", spent):
+        failures.append("a raise-ok already at the base was honored again")
+    if not parse_baseline("a.py | hole | 1 | #1 | r\na.py | hole | 2 | #1 | r\n", "b")[
+        1
+    ]:
+        failures.append("a duplicate baseline key was not reported")
+    if baseline_raised("a.py | hole | 9 | #1 | r\n", None):
+        failures.append("a missing base copy did not skip the check")
+
+    # Negative control: the doc-drift check must really trip on a changed registry.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        doc = Path(tmp) / "doc.md"
+        doc.write_text(f"intro\n{docs_block(reg)}\noutro\n")
+        if docs_problems(reg, doc):
+            failures.append("a freshly generated docs block was reported as drifted")
+        reg.best_effort["new_primitive"] = "why"
+        if not docs_problems(reg, doc):
+            failures.append("docs drift after a registry change was not detected")
+        write_docs(reg, doc)
+        if docs_problems(reg, doc):
+            failures.append("--write-docs did not resolve drift")
+
+    if failures:
+        print("self-test FAILED:\n  " + "\n  ".join(failures))
+        return 1
+    print("self-test ok")
+    return 0
+
+
+if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        sys.exit(self_test())
+    if "--report" in sys.argv:
+        sys.exit(report())
+    if "--write-docs" in sys.argv:
+        _reg, _ = load_registry(REGISTRY)
+        write_docs(_reg, DOC)
+        sys.exit(0)
+    sys.exit(main())

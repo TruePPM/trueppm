@@ -4192,6 +4192,28 @@ lint:api-engine-boundary:
     - python3 scripts/check-api-engine-boundary.py --self-test
     - python3 scripts/check-api-engine-boundary.py
 
+lint:on-commit-durability:
+  # Every transaction.on_commit callback is classified; Celery dispatch needs a registered
+  # outbox row behind it (#2473, rationale in docs/durability/on-commit-audit.md). Registry
+  # and a baseline in packages/api/on-commit-*.txt, ratcheted against its merge-base copy
+  # (needs full git history: a raise fails unless the entry carries '# raise-ok: <reason>'). Pure static analysis, ~1s.
+  extends: [.api-no-db, .fast-job]
+  variables:
+    # Full history so the merge-base ratchet can read the base copy of
+    # on-commit-baseline.txt (CI_MERGE_REQUEST_DIFF_BASE_SHA); fails closed if unreachable.
+    GIT_DEPTH: "0"
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    - python3 scripts/check-on-commit-durability.py --self-test
+    - python3 scripts/check-on-commit-durability.py
+
 api:schema-breaking:
   # stability.md promises a deprecation window for every Breaking change (field
   # removal/rename, type change, status-code change, optional -> required, enum
