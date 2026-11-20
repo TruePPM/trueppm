@@ -954,9 +954,9 @@ release it is scheduled for:
 - **Scale / performance** — from 0.5 the engine will bound the longest dependency chain, not
   the task count, so a 100,000-task project of ordinary parallel work will schedule;
   only the total work ceiling (`MAX_PROJECT_WORK_DAYS`, see Project work above)
-  will apply to it. In 0.4 the span guard sums every task's duration. Scale benchmarks at
-  50,000 and 100,000 tasks are tracked with the benchmark suite
-  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); from 0.5, Monte Carlo
+  will apply to it. In 0.4 the span guard sums every task's duration. Scale benchmarks above
+  5,000 tasks are tracked with the task-envelope work
+  ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)); from 0.5, Monte Carlo
   will run its forward pass over chunks of runs, and above 32M cells (runs × tasks)
   will replay the float64 sampled-duration matrix a row block at a time instead of
   holding it, with seeded results byte-identical. Measured at 50,000 tasks × 1,000
@@ -984,9 +984,6 @@ they will ship with 0.5 or that release will slip:
   ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the supported
   envelope will be raised toward 50,000 tasks
   ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
-- **Performance** — a published `pytest-benchmark` suite at 100–5,000 tasks,
-  with measured numbers in this README
-  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
