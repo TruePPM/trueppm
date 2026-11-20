@@ -325,8 +325,9 @@ key names per row and cost more than the values. A row is ≈77 bytes against �
 for a full row, so 5,000 float rows are ≈385 KB, while a full re-fetch of that
 project is ten 500-row pages of full task rows. `count` is still the total moved
 count, and a row appears in only one of the two arrays.
-A maximal split frame (≈385 KB) is also well inside the ADR-0236 replay byte budget
-(`_REPLAY_MAX_BYTES`, 4 MB, #4467). A client behind by many such frames resyncs
+A maximal split frame is 500 full bar rows (≈160 KB) plus 5,000 float rows (≈385 KB),
+≈545 KB, which is also well inside the ADR-0236 replay byte budget
+(`_REPLAY_MAX_BYTES`, 4 MB, #4467), so a replay holds several such frames. A client behind by many such frames resyncs
 rather than streams them, the same fallback as before.
 
 **Compatibility.** The change is additive. The event type, `count`, `tasks`,

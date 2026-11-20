@@ -352,5 +352,14 @@ test.describe('Schedule reconciliation — refusals (#2725)', () => {
     await expect(page.getByTestId('reforecast-unitemized')).toHaveCount(0);
     // The float-only phase moved no bar, so it is not listed as moved.
     await expect(panel.getByRole('listitem').filter({ hasText: 'Discovery' })).toHaveCount(0);
+    // Discriminating assertion: the compact float row was SPLICED into the
+    // cache. A client that ignores `float_tasks` (or truncates) leaves the
+    // phase's float at its pre-CPM em dash.
+    await expect(
+      page
+        .getByRole('row')
+        .filter({ hasText: 'Discovery' })
+        .getByRole('gridcell', { name: 'Total float: 3 working days' }),
+    ).toHaveText('3d');
   });
 });

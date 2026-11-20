@@ -48,8 +48,8 @@ _PRESENCE_REFRESH_INTERVAL = _PRESENCE_TTL // 2
 _REPLAY_CAP = 1000
 
 # Upper bound on the summed serialized payload size of one replay (#4467). The row
-# cap alone allows ~1000 x 130 KB ``task_dates_updated`` deltas in the shared ASGI
-# process; past this many bytes the client is cheaper to resync than to stream.
+# cap alone allows ~1000 maximal (~545 KB split) ``task_dates_updated`` deltas in the
+# shared ASGI process; past this many bytes the client is cheaper to resync than to stream.
 _REPLAY_MAX_BYTES = 4 * 1024 * 1024
 
 # Close codes (#4375). Which side of the handshake a refusal happens on decides
