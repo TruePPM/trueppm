@@ -1,6 +1,7 @@
 ---
 title: Schedule Build Mode
 description: Keyboard-first surface for laying down and structuring a project plan directly in the Schedule list.
+documentedFor: "0.5"
 ---
 
 This is for a PM or scheduler laying out a project plan on a desktop and wanting to move fast without reaching for the mouse. Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is **on by default** and is a desktop-only experience — mobile continues to use the existing Add Task modal.
@@ -216,6 +217,17 @@ reading something like `Task`, `Duration`, `Owner`) is detected automatically an
 to map columns; without one, the first column is assumed to be the task name and any
 column that looks like a set of durations is mapped by shape. Anything TruePPM can't
 place is left out — never silently guessed at.
+
+:::note[Ships in 0.5]
+A paste will also accept three estimate columns, headed **Optimistic**, **Most Likely**
+and **Pessimistic** (or **Best case** / **Worst case**), and create each row with its
+[three-point estimate](/features/monte-carlo/#step-1--add-three-point-estimates-to-tasks).
+The three are all-or-none and must satisfy optimistic ≤ most likely ≤ pessimistic: a row
+with only some of them filled, or out of order, is still created, without an estimate, and
+the receipt strip says how many rows that happened to. The current release ignores those
+columns. **Map columns…** offers the three estimate fields for a header it does not
+recognize.
+:::
 
 **A receipt strip confirms what happened**, right where you pasted: how many rows
 landed, how many hierarchy levels were read from indentation, which columns matched,

@@ -145,3 +145,19 @@ describe('inferColumns', () => {
     expect(inferColumns(data, true)[1].field).toBe('owner');
   });
 });
+
+describe('inferColumns three-point estimate headers', () => {
+  it('maps O/M/P headers ahead of the duration keyword they also contain', () => {
+    const data = rows([
+      ['Task', 'Optimistic Duration', 'Most Likely Estimate', 'Worst Case', 'Duration'],
+      ['Survey', '2', '4', '8', '5'],
+    ]);
+    expect(inferColumns(data, true).map((c) => c.field)).toEqual([
+      'name',
+      'optimistic',
+      'most_likely',
+      'pessimistic',
+      'duration',
+    ]);
+  });
+});

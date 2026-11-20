@@ -2,7 +2,14 @@ import { parseDurationInput } from '../EditableCell';
 import { parseAllocationPercent } from '../ownerToken';
 import type { ParsedPasteRow } from './parsePastedText';
 
-export type PasteField = 'name' | 'duration' | 'owner' | 'units';
+export type PasteField =
+  | 'name'
+  | 'duration'
+  | 'owner'
+  | 'units'
+  | 'optimistic'
+  | 'most_likely'
+  | 'pessimistic';
 /** `override` is never produced by `inferColumns` — it marks a mapping a human
  *  corrected via "Map columns…" (`PasteColumnMappingDialog`), mirroring the CSV
  *  importer's confidence vocabulary (`packages/web/src/hooks/useCsvImport.ts`). */
@@ -17,6 +24,12 @@ export interface PasteColumnMapping {
 
 const KEYWORDS: Record<PasteField, string[]> = {
   name: ['name', 'task', 'title', 'summary', 'activity'],
+  // The three-point estimate headers are declared BEFORE `duration` on purpose: header
+  // matching claims the first field whose keywords hit, and "Optimistic Duration" or
+  // "Most Likely Estimate" would otherwise be read as the plain duration column.
+  optimistic: ['optimistic', 'best case', 'bestcase'],
+  most_likely: ['most likely', 'mostlikely', 'likely'],
+  pessimistic: ['pessimistic', 'worst case', 'worstcase'],
   duration: ['duration', 'days', 'estimate', 'length'],
   owner: ['owner', 'assignee', 'resource', 'who'],
   // `units` is last so a header matching an earlier field keeps its existing meaning:

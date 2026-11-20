@@ -47,6 +47,7 @@ import { PredecessorsEditor, type PredecessorWorkingRow } from './PredecessorsEd
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { SyncConflictBanner } from './SyncConflictBanner';
 import { isPhaseTask } from '@/lib/isPhaseTask';
+import { classifyPertTriple, parsePertInput, type PertTripleState } from '@/lib/pertTriple';
 import { StoryPointField } from '@/features/backlog/StoryPointField';
 import { formatStoryPoints } from '@/lib/storyPoints';
 import {
@@ -337,33 +338,19 @@ interface SubmitContext {
 }
 
 /** Outcome of reading the create-mode three-point inputs (#2918). */
-type PertCreateState =
-  | { kind: 'none' }
-  | { kind: 'incomplete' }
-  | { kind: 'out_of_order' }
-  | { kind: 'ok'; o: number; m: number; p: number };
+type PertCreateState = PertTripleState;
 
-/**
- * All-or-none, mirroring the server: an empty triple is simply no estimate, a partial
- * triple or an unordered one is a state the form must refuse rather than send.
- */
+/** All-or-none, mirroring the server (see `classifyPertTriple`). */
 function readPertCreate(form: {
   pertOptimistic: string;
   pertMostLikely: string;
   pertPessimistic: string;
 }): PertCreateState {
-  const parse = (s: string): number | null => {
-    const t = s.trim();
-    if (t === '') return null;
-    const n = Number(t);
-    return Number.isFinite(n) && n >= 0 ? n : Number.NaN;
-  };
-  const [o, m, p] = [form.pertOptimistic, form.pertMostLikely, form.pertPessimistic].map(parse);
-  if (o === null && m === null && p === null) return { kind: 'none' };
-  if (o === null || m === null || p === null || Number.isNaN(o + m + p)) {
-    return { kind: 'incomplete' };
-  }
-  return o <= m && m <= p ? { kind: 'ok', o, m, p } : { kind: 'out_of_order' };
+  return classifyPertTriple(
+    parsePertInput(form.pertOptimistic),
+    parsePertInput(form.pertMostLikely),
+    parsePertInput(form.pertPessimistic),
+  );
 }
 
 /**
@@ -1717,10 +1704,10 @@ const PERT_INPUT_CLASS =
   'w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60';
 
 /** Collapsed-by-default disclosure for the create-mode three-point estimate (#2918). */
-// TODO(#2918): the triple is only reachable from this modal, which the board, schedule,
-// calendar, grid and sprints views share. Not covered yet: the paste-many O/M/P column
-// mapping, the CSV/Jira importers' mapping targets, and the build-mode blank draft row and
-// lane/mobile quick-add composers (name-only; they do not open this modal).
+// TODO(#5069): the triple is reachable from this modal (shared by the board, schedule,
+// calendar, grid and sprints views) and from paste-many. Not covered yet: the CSV/Jira
+// importers' mapping targets, and the build-mode blank draft row and lane/mobile quick-add
+// composers (name-only; they do not open this modal).
 function PertCreateFields({
   form,
   disabled,

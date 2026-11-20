@@ -256,3 +256,45 @@ describe('buildPasteOperations', () => {
     });
   });
 });
+
+describe('buildPasteOperations three-point estimates', () => {
+  const HEADER = 'Task\tOptimistic\tMost Likely\tPessimistic';
+
+  function build(body: string) {
+    const rows = parsePastedText(`${HEADER}\n${body}`);
+    return buildPasteOperations(rows, inferColumns(rows, true), POOL, null, true, sequentialIds());
+  }
+
+  it('sends a complete ordered triple on the create op', () => {
+    const result = build('Survey\t2\t4\t8');
+    expect(result.operations[0].data).toEqual({
+      name: 'Survey',
+      optimistic_duration: 2,
+      most_likely_duration: 4,
+      pessimistic_duration: 8,
+    });
+    expect(result.summary.droppedEstimateCount).toBe(0);
+    expect(result.summary.matchedFields).toEqual(
+      expect.arrayContaining(['optimistic', 'most_likely', 'pessimistic']),
+    );
+  });
+
+  it('drops a partial triple whole and counts it, still creating the row', () => {
+    const result = build('Survey\t2\t\t8');
+    expect(result.operations).toHaveLength(1);
+    expect(result.operations[0].data).toEqual({ name: 'Survey' });
+    expect(result.summary.droppedEstimateCount).toBe(1);
+  });
+
+  it('drops an out-of-order or unparseable triple and counts it', () => {
+    const result = build('A\t9\t4\t8\nB\t2\tsoon\t8');
+    expect(result.operations.map((o) => o.data)).toEqual([{ name: 'A' }, { name: 'B' }]);
+    expect(result.summary.droppedEstimateCount).toBe(2);
+  });
+
+  it('counts a blank triple as no estimate, not a dropped one', () => {
+    const result = build('Survey\t\t\t');
+    expect(result.operations[0].data).toEqual({ name: 'Survey' });
+    expect(result.summary.droppedEstimateCount).toBe(0);
+  });
+});

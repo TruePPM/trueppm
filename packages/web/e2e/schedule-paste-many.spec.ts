@@ -214,6 +214,65 @@ test.describe('paste-many — spreadsheet rows into the outline (#2724)', () => 
     expect(payload).not.toContain('"units":1');
   });
 
+  // #2918 — an O/M/P column triple lands complete, so a spreadsheet that already
+  // carries estimates does not need a second pass over every task. Asserted on the
+  // wire: the triple has no column on the outline row.
+  test('an optimistic / most likely / pessimistic column triple is sent on the create (#2918)', async ({
+    page,
+  }) => {
+    await setup(page);
+    const batches: unknown[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().includes('/tasks/bulk/')) {
+        batches.push(request.postDataJSON());
+      }
+    });
+    await page.goto(SCHEDULE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await pasteOntoRow(
+      page,
+      'Foundation',
+      'Task\tOptimistic\tMost Likely\tPessimistic\nDesign\t2\t4\t8',
+    );
+
+    const receipt = page.getByTestId('paste-receipt-strip');
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText('optimistic · most likely · pessimistic matched');
+    expect(batches.length).toBeGreaterThan(0);
+    const payload = JSON.stringify(batches);
+    expect(payload).toContain('"optimistic_duration":2');
+    expect(payload).toContain('"most_likely_duration":4');
+    expect(payload).toContain('"pessimistic_duration":8');
+  });
+
+  test('an out-of-order estimate triple is dropped whole and the receipt says so (#2918)', async ({
+    page,
+  }) => {
+    await setup(page);
+    const batches: unknown[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().includes('/tasks/bulk/')) {
+        batches.push(request.postDataJSON());
+      }
+    });
+    await page.goto(SCHEDULE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await pasteOntoRow(
+      page,
+      'Foundation',
+      'Task\tOptimistic\tMost Likely\tPessimistic\nDesign\t9\t4\t8',
+    );
+
+    const receipt = page.getByTestId('paste-receipt-strip');
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText('1 row had an incomplete or out-of-order three-point estimate');
+    expect(batches.length).toBeGreaterThan(0);
+    expect(JSON.stringify(batches)).not.toContain('optimistic_duration');
+    await expect(page.getByRole('row').filter({ hasText: 'Design' })).toHaveCount(1);
+  });
+
   test('F8 walks to the row a paste flagged as needing a duration', async ({ page }) => {
     await setup(page);
     await page.goto(SCHEDULE_URL);

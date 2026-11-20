@@ -7,6 +7,9 @@ const FIELD_LABEL: Record<string, string> = {
   duration: 'duration',
   owner: 'owner',
   units: 'allocation',
+  optimistic: 'optimistic',
+  most_likely: 'most likely',
+  pessimistic: 'pessimistic',
 };
 
 /** Builds the receipt copy — "38 rows pasted. Hierarchy read from leading
@@ -65,6 +68,14 @@ export function buildPasteReceiptMessage(summary: PasteSummary): string {
     sentences.push(
       `${owners(n)} matched more than one person, so ${wasWere(n)} not applied — ` +
         `use a fuller name.`,
+    );
+  }
+  if (summary.droppedEstimateCount > 0) {
+    const n = summary.droppedEstimateCount;
+    sentences.push(
+      `${n} row${n === 1 ? '' : 's'} had an incomplete or out-of-order three-point estimate, ` +
+        `so ${n === 1 ? 'it was' : 'they were'} created without one — all three values are ` +
+        `needed, with optimistic \u2264 most likely \u2264 pessimistic.`,
     );
   }
   return sentences.join(' ');
