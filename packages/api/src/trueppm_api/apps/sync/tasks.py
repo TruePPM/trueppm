@@ -146,16 +146,25 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
     Deferred so the function can be called safely after Django app setup
     completes, avoiding circular imports at module load time.
     """
+    from django.apps import apps as django_apps
+
+    from trueppm_api.apps.access.models import ProjectMembership
     from trueppm_api.apps.projects.models import (
         Dependency,
         Label,
+        RetroActionItem,
         Risk,
         Sprint,
         SprintRetro,
         Task,
+        TaskRecurrenceRule,
         TaskRelation,
+        TaskSuggestedAssignee,
     )
     from trueppm_api.apps.timetracking.models import TimeEntry
+
+    # ``integrations`` is a higher layer than ``sync``; a lazy lookup adds no import edge.
+    TaskLink = django_apps.get_model("integrations", "TaskLink")
 
     return [
         # Task: deleted_at is stamped in Task.soft_delete() (mirrors Attachment) —
@@ -225,11 +234,45 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
             {"task__project__is_deleted": False, "task__project__is_archived": False},
             "deleted_at",
         ),
-        # TODO(#2342): NOT yet covered, because no column records WHEN they were deleted and a
-        # created_at/absent age would reap inside the grace window: ProjectMembership,
-        # RetroActionItem, TaskSuggestedAssignee, TaskLink, TaskRecurrenceRule (need a
-        # deleted_at column + migration). Calendar is shared across projects, so it has
-        # no single owner to floor against.
+        # The five below (#2342) carry no ``updated_at``, and ``created_at`` would reap a
+        # long-lived row the day it is deleted, so each gained a ``deleted_at`` column
+        # stamped by VersionedModel.soft_delete() and the set-based cascades. Rows
+        # tombstoned before that column existed were backfilled to the migration's
+        # time, so they get a full retention window from the upgrade, never less.
+        (
+            ProjectMembership,
+            {"project__is_deleted": False, "project__is_archived": False},
+            "deleted_at",
+        ),
+        # RetroActionItem: an item deleted on its own while the retro stays live. A
+        # reaped retro still cascades to its items, as noted above.
+        (
+            RetroActionItem,
+            {
+                "retro__sprint__project__is_deleted": False,
+                "retro__sprint__project__is_archived": False,
+            },
+            "deleted_at",
+        ),
+        (
+            TaskSuggestedAssignee,
+            {"task__project__is_deleted": False, "task__project__is_archived": False},
+            "deleted_at",
+        ),
+        (
+            TaskLink,
+            {"task__project__is_deleted": False, "task__project__is_archived": False},
+            "deleted_at",
+        ),
+        (
+            TaskRecurrenceRule,
+            {"task__project__is_deleted": False, "task__project__is_archived": False},
+            "deleted_at",
+        ),
+        # Calendar is deliberately absent: the API hard-deletes a calendar
+        # (CalendarViewSet.destroy, 409 while anything schedules against it), so no
+        # calendar tombstone exists to reap, and a calendar shared by several projects
+        # has no single owner whose floor a reap could raise.
     ]
 
 
@@ -412,8 +455,11 @@ def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int, bool]
     so every row is filtered by the same lookups whether the collector loaded it
     or queued it as a fast delete.
 
-    Soft-deleting a parent while its children stay live is a separate gap
-    (#4948): those children are not tombstones and the reap never sees them.
+    A task's synced children are tombstoned with it, so they normally arrive here
+    as tombstones. Two live-child cases remain and take the ``live`` path: time
+    entries, which deliberately outlive their task's soft delete (ADR-1324 §2), and
+    the children of a task tombstoned by the project-level cascade, which does not
+    sweep them (#4951).
     """
     from django.db.models import Count, Max, Q
     from django.db.models.deletion import Collector
@@ -451,6 +497,66 @@ def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int, bool]
         top, live = max(top, t), live or lv
     deleted, _ = collector.delete()
     return int(deleted), top, live
+
+
+def _detach_reaped_rule_occurrences(project_id: Any, eligible: list[tuple[Any, str, Any]]) -> int:
+    """Unlink the occurrences of every recurrence rule this reap is about to delete.
+
+    ``Task.recurrence_rule`` is ``on_delete=CASCADE``, and a rule reaches the reap
+    two ways: tombstoned on its own (``TaskRecurrenceRuleViewSet.perform_destroy``,
+    which promises the user that existing occurrences are kept), or through its
+    template task's tombstone (the rule is a one-to-one CASCADE child of it). Either
+    way the occurrences it generated are real tasks that may still be live, so the
+    hard delete would take them, and their own cascades, with it. Ninety days after
+    a user stopped a recurrence, the work they kept would vanish.
+
+    The link is cleared with an explicit cursor rather than left to the collector's
+    ``SET_NULL`` machinery, which would write no ``sync_seq``: the changed
+    ``recurrence_rule`` must reach a client that already holds the row. The
+    occurrence keeps ``is_recurring=True`` and its ``recurrence_occurrence_date``,
+    so the reap changes nothing the scheduler reads and the occurrence stays out of
+    CPM exactly as it was while the rule was a tombstone. An occurrence that is
+    itself being reaped is left alone; one still inside its own retention window is
+    detached too, so its tombstone outlives the rule instead of vanishing early.
+
+    Runs inside :func:`_reap_project`'s transaction, after the project row lock, so
+    the detach and the delete commit or roll back together. Returns the number of
+    occurrences detached.
+    """
+    from django.db.models import F
+
+    from trueppm_api.apps.projects.models import Task, TaskRecurrenceRule
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+    rule_ids: set[Any] = set()
+    reaped_tasks = None
+    for Model, owner, qs in eligible:
+        scoped = qs.filter(**{owner: project_id})
+        if Model is TaskRecurrenceRule:
+            rule_ids.update(scoped.order_by().values_list("pk", flat=True))
+        elif Model is Task:
+            reaped_tasks = scoped.order_by().values("pk")
+            rule_ids.update(
+                TaskRecurrenceRule._base_manager.filter(task__in=reaped_tasks).values_list(
+                    "pk", flat=True
+                )
+            )
+    if not rule_ids:
+        return 0
+    occurrences = Task._base_manager.filter(recurrence_rule_id__in=rule_ids)
+    if reaped_tasks is not None:
+        occurrences = occurrences.exclude(pk__in=reaped_tasks)
+    pks = list(occurrences.select_for_update().values_list("pk", flat=True))
+    if not pks:
+        return 0
+    seq = allocate_for_projects([project_id])
+    return int(
+        Task._base_manager.filter(pk__in=pks).update(
+            recurrence_rule=None,
+            server_version=F("server_version") + 1,
+            sync_seq=seq,
+        )
+    )
 
 
 def _has_sync_seq(model: Any) -> bool:
@@ -495,6 +601,7 @@ def _reap_project(
             # Archived or deleted since the candidate scan: the registry's own
             # filters would exclude it, so reap nothing.
             return
+        _detach_reaped_rule_occurrences(project_id, eligible)
         floor = 0
         live_cascade = False
         for Model, owner, qs in eligible:

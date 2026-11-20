@@ -511,6 +511,7 @@ def _reconcile_pair(
         # (project, user) means we cannot insert a second row).
         existing.is_deleted = False
         existing.deleted_version = None
+        existing.deleted_at = None
         existing.role = confer_role
         existing.source_group_id = src_group_id
         existing.role_changed_at = now

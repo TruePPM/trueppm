@@ -290,6 +290,9 @@ def test_readd_member_resurrects_soft_deleted_membership(
     assert ProjectMembership.objects.filter(
         project=project, user=teammate, is_deleted=True
     ).exists()
+    # The tombstone carries the reap clock (#2342); the revive below must clear it,
+    # or the nightly reaper would hard-delete a live membership.
+    assert ProjectMembership.objects.get(pk=original_pk).deleted_at is not None
 
     # Re-add → cascade resurrects the row in place (same pk), no duplicate insert.
     resp = _client(admin).post(
@@ -301,6 +304,7 @@ def test_readd_member_resurrects_soft_deleted_membership(
     assert pm.pk == original_pk  # resurrected, not re-created
     assert pm.role == Role.MEMBER
     assert str(pm.source_group_id) == gid
+    assert pm.deleted_at is None
     assert (
         ProjectMembership.objects.filter(project=project, user=teammate).count() == 1
     )  # exactly one row throughout — never a second insert

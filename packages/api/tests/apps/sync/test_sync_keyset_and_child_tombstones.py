@@ -135,6 +135,10 @@ def test_soft_delete_tombstones_every_synced_child_for_a_synced_client(world) ->
     changes = _pull(client, project, cursor)["changes"]
     for name, row in made.items():
         assert str(row.pk) in changes[name]["deleted"], name
+        # The cascade stamps the reap clock, so the child is reaped on its own
+        # retention window rather than never (#2342).
+        row.refresh_from_db()
+        assert row.deleted_at is not None, name
     assert str(relation.pk) in changes["task_relations"]["deleted"]
     assert str(t1.pk) in changes["tasks"]["deleted"]
 
@@ -150,6 +154,8 @@ def test_bulk_soft_delete_tombstones_every_synced_child(world) -> None:
     changes = _pull(client, project, cursor)["changes"]
     for name, row in made.items():
         assert str(row.pk) in changes[name]["deleted"], name
+        row.refresh_from_db()
+        assert row.deleted_at is not None, name
     assert str(relation.pk) in changes["task_relations"]["deleted"]
 
 
@@ -170,6 +176,7 @@ def test_restoring_the_task_returns_its_children_as_live_rows(world) -> None:
         assert str(row.pk) in [r["id"] for r in changes[name]["updated"]], name
         row.refresh_from_db()
         assert row.is_deleted is False
+        assert row.deleted_at is None, name
     relation.refresh_from_db()
     assert relation.is_deleted is False and relation.deleted_at is None
 
