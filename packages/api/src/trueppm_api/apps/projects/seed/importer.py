@@ -309,6 +309,29 @@ class _TaskFields:
     base_remaining: Any
 
 
+def _grant_seed_project_membership(project: Project, user: Any, role: Any) -> None:
+    """Grant ``role`` on ``project`` as a direct grant, reviving a tombstoned row.
+
+    A revive clears every tombstone field together: ``is_deleted``,
+    ``deleted_version`` and ``deleted_at``, the nightly reap's retention clock
+    (#2342). A live row still carrying an old ``deleted_at`` is reaped on that
+    stale clock by any later delete path that tombstones it without restamping,
+    inside the grace window an offline client relies on. ``source_group`` is
+    cleared because a seed grant is a direct grant (see the program-side path).
+    """
+    ProjectMembership.objects.update_or_create(
+        project=project,
+        user=user,
+        defaults={
+            "role": role,
+            "is_deleted": False,
+            "deleted_version": None,
+            "deleted_at": None,
+            "source_group": None,
+        },
+    )
+
+
 class _SeedImporter:
     """Holds the per-import symbol tables while materializing a seed document."""
 
@@ -1435,16 +1458,7 @@ class _SeedImporter:
             # clears it: a seed grant is a direct grant, and leaving a revoked
             # row's group provenance set would let a later workspace-group
             # reconcile revoke access the seed just conferred.
-            ProjectMembership.objects.update_or_create(
-                project=project,
-                user=user,
-                defaults={
-                    "role": role,
-                    "is_deleted": False,
-                    "deleted_version": None,
-                    "source_group": None,
-                },
-            )
+            _grant_seed_project_membership(project, user, role)
 
     # --- per-project structure (Pass A) ------------------------------------
 
@@ -1487,16 +1501,7 @@ class _SeedImporter:
                 project.lead = lead_user
                 project.save(update_fields=["lead"])
         self.projects[slug] = project
-        ProjectMembership.objects.update_or_create(
-            project=project,
-            user=self.owner,
-            defaults={
-                "role": Role.OWNER,
-                "is_deleted": False,
-                "deleted_version": None,
-                "source_group": None,
-            },
-        )
+        _grant_seed_project_membership(project, self.owner, Role.OWNER)
         self._grant_project_memberships(project, data)
         # After the grants: the default team's membership rows are mirrored from them.
         self._apply_team(project, data)

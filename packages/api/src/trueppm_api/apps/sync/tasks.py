@@ -499,6 +499,66 @@ def _delete_tracking_sync_seq(qs: Any, project_id: Any) -> tuple[int, int, bool]
     return int(deleted), top, live
 
 
+def _detach_reaped_rule_occurrences(project_id: Any, eligible: list[tuple[Any, str, Any]]) -> int:
+    """Unlink the occurrences of every recurrence rule this reap is about to delete.
+
+    ``Task.recurrence_rule`` is ``on_delete=CASCADE``, and a rule reaches the reap
+    two ways: tombstoned on its own (``TaskRecurrenceRuleViewSet.perform_destroy``,
+    which promises the user that existing occurrences are kept), or through its
+    template task's tombstone (the rule is a one-to-one CASCADE child of it). Either
+    way the occurrences it generated are real tasks that may still be live, so the
+    hard delete would take them, and their own cascades, with it. Ninety days after
+    a user stopped a recurrence, the work they kept would vanish.
+
+    The link is cleared with an explicit cursor rather than left to the collector's
+    ``SET_NULL`` machinery, which would write no ``sync_seq``: the changed
+    ``recurrence_rule`` must reach a client that already holds the row. The
+    occurrence keeps ``is_recurring=True`` and its ``recurrence_occurrence_date``,
+    so the reap changes nothing the scheduler reads and the occurrence stays out of
+    CPM exactly as it was while the rule was a tombstone. An occurrence that is
+    itself being reaped is left alone; one still inside its own retention window is
+    detached too, so its tombstone outlives the rule instead of vanishing early.
+
+    Runs inside :func:`_reap_project`'s transaction, after the project row lock, so
+    the detach and the delete commit or roll back together. Returns the number of
+    occurrences detached.
+    """
+    from django.db.models import F
+
+    from trueppm_api.apps.projects.models import Task, TaskRecurrenceRule
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+    rule_ids: set[Any] = set()
+    reaped_tasks = None
+    for Model, owner, qs in eligible:
+        scoped = qs.filter(**{owner: project_id})
+        if Model is TaskRecurrenceRule:
+            rule_ids.update(scoped.order_by().values_list("pk", flat=True))
+        elif Model is Task:
+            reaped_tasks = scoped.order_by().values("pk")
+            rule_ids.update(
+                TaskRecurrenceRule._base_manager.filter(task__in=reaped_tasks).values_list(
+                    "pk", flat=True
+                )
+            )
+    if not rule_ids:
+        return 0
+    occurrences = Task._base_manager.filter(recurrence_rule_id__in=rule_ids)
+    if reaped_tasks is not None:
+        occurrences = occurrences.exclude(pk__in=reaped_tasks)
+    pks = list(occurrences.select_for_update().values_list("pk", flat=True))
+    if not pks:
+        return 0
+    seq = allocate_for_projects([project_id])
+    return int(
+        Task._base_manager.filter(pk__in=pks).update(
+            recurrence_rule=None,
+            server_version=F("server_version") + 1,
+            sync_seq=seq,
+        )
+    )
+
+
 def _has_sync_seq(model: Any) -> bool:
     return any(f.attname == "sync_seq" for f in model._meta.concrete_fields)
 
@@ -541,6 +601,7 @@ def _reap_project(
             # Archived or deleted since the candidate scan: the registry's own
             # filters would exclude it, so reap nothing.
             return
+        _detach_reaped_rule_occurrences(project_id, eligible)
         floor = 0
         live_cascade = False
         for Model, owner, qs in eligible:

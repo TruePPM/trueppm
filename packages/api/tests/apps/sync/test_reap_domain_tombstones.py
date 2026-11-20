@@ -573,3 +573,161 @@ def test_retro_item_diff_tombstones_stamp_the_reap_clock(live_project: Project) 
     item.refresh_from_db()
     assert item.is_deleted is True
     assert item.deleted_at is not None
+
+
+def _rule_with_occurrences(live_project: Project) -> tuple[Any, Task, Task, Task]:
+    """A template, its rule, a live occurrence, and an occurrence tombstoned recently."""
+    from trueppm_api.apps.projects.models import TaskRecurrenceRule
+
+    template = _make_task(live_project)
+    rule = TaskRecurrenceRule.objects.create(task=template)
+    live_occ = Task.objects.create(
+        project=live_project,
+        name="occurrence",
+        duration=1,
+        is_recurring=True,
+        recurrence_rule=rule,
+        recurrence_occurrence_date=date(2026, 2, 2),
+    )
+    deleted_occ = Task.objects.create(
+        project=live_project,
+        name="deleted occurrence",
+        duration=1,
+        is_recurring=True,
+        recurrence_rule=rule,
+        recurrence_occurrence_date=date(2026, 2, 9),
+    )
+    deleted_occ.soft_delete()
+    return rule, template, live_occ, deleted_occ
+
+
+def _assert_detached_and_republished(
+    live_project: Project, occurrences: list[Task], before: dict[Any, tuple[int, int]]
+) -> None:
+    live_project.refresh_from_db()
+    for occ in occurrences:
+        row = Task._base_manager.get(pk=occ.pk)
+        assert row.recurrence_rule_id is None
+        # Unchanged: the occurrence stays out of CPM exactly as before the reap.
+        assert row.is_recurring is True
+        assert row.recurrence_occurrence_date == occ.recurrence_occurrence_date
+        old_version, old_seq = before[occ.pk]
+        assert row.server_version == old_version + 1
+        # A fresh cursor above everything the client already pulled, so the
+        # changed link reaches a client that holds the row.
+        assert row.sync_seq > old_seq
+        assert row.sync_seq <= live_project.last_sync_version
+
+
+@pytest.mark.django_db
+def test_reaping_a_stopped_recurrence_keeps_its_occurrences(live_project: Project) -> None:
+    """Removing a recurrence keeps its occurrences; the reap of the rule must too.
+
+    ``Task.recurrence_rule`` is CASCADE, so without the detach the reap of a rule
+    tombstone hard-deleted every occurrence it had generated, live or not.
+    """
+    from trueppm_api.apps.projects.models import TaskRecurrenceRule
+
+    rule, _template, live_occ, deleted_occ = _rule_with_occurrences(live_project)
+    rule.soft_delete()  # what TaskRecurrenceRuleViewSet.perform_destroy does
+    TaskRecurrenceRule.objects.filter(pk=rule.pk).update(
+        deleted_at=timezone.now() - timedelta(days=95)
+    )
+    before = {
+        o.pk: (o.server_version, o.sync_seq)
+        for o in Task._base_manager.filter(pk__in=[live_occ.pk, deleted_occ.pk])
+    }
+
+    counts = _do_reap(override_days=90)
+
+    assert counts["projects.taskrecurrencerule"] == 1
+    assert not TaskRecurrenceRule.objects.filter(pk=rule.pk).exists()
+    assert Task._base_manager.filter(pk=live_occ.pk, is_deleted=False).exists()
+    # The recently tombstoned occurrence keeps its tombstone for its own window.
+    assert Task._base_manager.filter(pk=deleted_occ.pk, is_deleted=True).exists()
+    assert counts["projects.task"] == 0
+    _assert_detached_and_republished(live_project, [live_occ, deleted_occ], before)
+
+
+@pytest.mark.django_db
+def test_reaping_a_deleted_template_keeps_its_live_occurrences(live_project: Project) -> None:
+    """The template's reap cascades task -> rule -> occurrences; the occurrences survive."""
+    from trueppm_api.apps.projects.models import TaskRecurrenceRule
+
+    rule, template, live_occ, deleted_occ = _rule_with_occurrences(live_project)
+    template.soft_delete()  # tombstones the rule with it (#4948)
+    rule.refresh_from_db()
+    assert rule.is_deleted is True
+    _backdate_task_deleted_at(template, 95)
+    before = {
+        o.pk: (o.server_version, o.sync_seq)
+        for o in Task._base_manager.filter(pk__in=[live_occ.pk, deleted_occ.pk])
+    }
+
+    _do_reap(override_days=90)
+
+    assert not Task._base_manager.filter(pk=template.pk).exists()
+    assert not TaskRecurrenceRule.objects.filter(pk=rule.pk).exists()
+    assert Task._base_manager.filter(pk=live_occ.pk, is_deleted=False).exists()
+    assert Task._base_manager.filter(pk=deleted_occ.pk, is_deleted=True).exists()
+    _assert_detached_and_republished(live_project, [live_occ, deleted_occ], before)
+
+
+@pytest.mark.django_db
+def test_reaped_occurrence_is_not_detached(live_project: Project) -> None:
+    """An occurrence reaped in the same run is deleted, not rewritten first."""
+    from trueppm_api.apps.projects.models import TaskRecurrenceRule
+
+    rule, _template, _live_occ, deleted_occ = _rule_with_occurrences(live_project)
+    rule.soft_delete()
+    TaskRecurrenceRule.objects.filter(pk=rule.pk).update(
+        deleted_at=timezone.now() - timedelta(days=95)
+    )
+    _backdate_task_deleted_at(deleted_occ, 95)
+
+    counts = _do_reap(override_days=90)
+
+    assert not Task._base_manager.filter(pk=deleted_occ.pk).exists()
+    assert counts["projects.task"] == 1
+
+
+@pytest.mark.django_db
+def test_seed_membership_grant_revives_a_tombstone_and_clears_the_reap_clock(
+    live_project: Project,
+) -> None:
+    """Both seed importer grant paths share one helper that clears ``deleted_at``."""
+    from django.contrib.auth import get_user_model
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.seed.importer import (
+        _grant_seed_project_membership,
+        _SeedImporter,
+    )
+
+    User = get_user_model()
+    owner = User.objects.create_user(username="seed-owner", password="pw")
+    member = User.objects.create_user(username="seed-member", password="pw")
+    rows = [
+        ProjectMembership.objects.create(project=live_project, user=u, role=Role.VIEWER)
+        for u in (owner, member)
+    ]
+    for row in rows:
+        row.soft_delete()
+        row.refresh_from_db()
+        assert row.deleted_at is not None
+
+    importer = _SeedImporter({"accounts": []}, owner=owner, create_users=False)
+    importer.users = {"m": member}
+    importer._grant_project_memberships(
+        live_project, {"members": [{"account": "m", "role": "MEMBER"}]}
+    )
+
+    # The owner grant in _create_project_structure calls the helper directly.
+    _grant_seed_project_membership(live_project, owner, Role.OWNER)
+
+    for user, role in ((member, Role.MEMBER), (owner, Role.OWNER)):
+        revived = ProjectMembership.objects.get(project=live_project, user=user)
+        assert revived.is_deleted is False
+        assert revived.deleted_version is None
+        assert revived.deleted_at is None
+        assert revived.role == role

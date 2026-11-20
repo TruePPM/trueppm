@@ -4261,7 +4261,10 @@ class Task(VersionedModel):
     # CommittedTaskManager (Monte Carlo, capacity, PDF, Schedule view).
     is_recurring = models.BooleanField(default=False, db_index=True)
     # Set on generated occurrences only; the template is reached via the rule's
-    # `task` one-to-one. CASCADE: deleting a rule removes its generated occurrences.
+    # `task` one-to-one. CASCADE: hard-deleting a rule removes its generated
+    # occurrences. The nightly tombstone reap is the one path that hard-deletes a
+    # soft-deleted rule while its occurrences may still be live, so it unlinks them
+    # first, with a fresh sync_seq (sync/tasks.py::_detach_reaped_rule_occurrences).
     recurrence_rule = models.ForeignKey(
         "TaskRecurrenceRule",
         on_delete=models.CASCADE,

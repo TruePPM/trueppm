@@ -114,6 +114,14 @@ items, links, suggested assignees, and recurrence rules will gain that column wi
 upgrade, which will stamp every row already deleted with the upgrade time: each will be kept
 for one full `TRUEPPM_TOMBSTONE_RETENTION_DAYS` window after the upgrade, then reaped. Calendars are not
 reaped because deleting a calendar removes it outright; it leaves no tombstone.
+
+Reaping a recurrence rule will not remove the tasks it generated. A rule reaches the reap
+two ways: you removed the recurrence, or you deleted its template task. Either way, from 0.5
+the reap first unlinks every occurrence from the rule and publishes that change to sync
+clients. The occurrences stay as ordinary tasks, still kept out of the critical path as they
+were before. An occurrence you deleted yourself keeps its own retention window. In the
+current release, reaping a deleted template task also hard-deletes every occurrence
+generated from it.
 :::
 
 :::note[Ships in 0.5]

@@ -379,6 +379,8 @@ _DELIBERATELY_UNSHIFTED: dict[str, str] = {
     "projects.TaskNote.deleted_at": _TOMBSTONE_REASON,
     "projects.TaskAttachment.deleted_at": _TOMBSTONE_REASON,
     "projects.TaskRelation.deleted_at": _TOMBSTONE_REASON,
+    "projects.TaskRecurrenceRule.deleted_at": _TOMBSTONE_REASON,
+    "projects.RetroActionItem.deleted_at": _TOMBSTONE_REASON,
     "timetracking.TimeEntry.deleted_at": _TOMBSTONE_REASON,
     "projects.Program.closed_at": "Lifecycle fact, not plan.",
     "projects.Program.deleted_at": _TOMBSTONE_REASON,
