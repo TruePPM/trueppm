@@ -5094,6 +5094,11 @@ scheduler:mutation:
   timeout: 1h 30m
   variables:
     MUTATION_MIN: "0.92"
+    # mutmut's stats pass runs the whole suite with `-x`, including
+    # test_result_stability's merge-base rule, which FAILS (not skips) in CI when
+    # origin/main is unreachable. A shallow clone therefore killed the stats pass
+    # and the job measured nothing (#4686, #3216).
+    GIT_DEPTH: "0"
   script:
     - cd packages/scheduler
     # `|| true` on both: a non-zero exit from `mutmut run` just means survivors
