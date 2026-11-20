@@ -1480,7 +1480,8 @@ semgrep:refresh-mr:
   # is 7 days old, then fetches the packs and opens an MR only if a pack changed
   # (never a direct push to main). REFRESHED records the last refresh that
   # CHANGED the packs, so while upstream is unchanged this re-fetches nightly
-  # and lint:semgrep-freshness can still warn at 45 days. A rule-set change is
+  # and lint:semgrep-freshness can still warn at 45 days (and go red at 90 if
+  # upstream never changes; accepted as unlikely). A rule-set change is
   # reviewed and the MR pipeline's
   # security:semgrep proves the new rules against the tree. Fails loudly when it
   # cannot work (missing token, fetch/push/API error).

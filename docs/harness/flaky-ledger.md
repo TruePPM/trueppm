@@ -52,7 +52,8 @@ pack changed (branch `chore/semgrep-rules-refresh-YYYYMMDD`, label
 `no-changelog`). When upstream is unchanged it restores the stamp and opens
 nothing, so `REFRESHED` records the last refresh that CHANGED the packs: the job
 re-fetches nightly while stale, and the 45-day warning can still fire after a
-long unchanged upstream. It skips while a refresh MR is open or was closed in
+long unchanged upstream. If upstream stays unchanged for 90 days the job goes
+RED even though the refresh job is healthy; that is accepted as unlikely. It skips while a refresh MR is open or was closed in
 the last 7 days, and fails loudly without `SEMGREP_REFRESH_TOKEN`
 (masked project access token, `api` + `write_repository`, Developer+; an
 operator creates it). The MR pipeline's `security:semgrep` runs the new packs
