@@ -1131,6 +1131,28 @@ def test_late_window_never_precedes_early_window(project: Project) -> None:
         )
 
 
+#: #5076: an *open* milestone (1% complete — the percent scale is 0..100) whose
+#: recorded ``actual_start`` is a Saturday on a Mon-Fri calendar. The engine lays it
+#: out as a point on the recorded day, as every milestone keeps its verbatim date;
+#: the property's oracle used to read it as one remaining working day.
+_OPEN_MILESTONE_ON_SATURDAY_5076 = Project(
+    id="p",
+    name="p",
+    start_date=_PLAUSIBLE_ANCHOR,
+    calendar=Calendar(working_days=0b0011111),
+    tasks=[
+        Task(
+            id="t0",
+            name="t",
+            duration=timedelta(0),
+            percent_complete=1.0,
+            actual_start=date(2027, 1, 23),  # Saturday
+        )
+    ],
+)
+
+
+@example(project=_OPEN_MILESTONE_ON_SATURDAY_5076)
 @given(project=_plausible_projects())
 def test_duration_walk_spends_only_working_days(project: Project) -> None:
     """A task's early window spans exactly its scheduled working-day duration.
@@ -1173,10 +1195,14 @@ def test_duration_walk_spends_only_working_days(project: Project) -> None:
             continue
         duration_days = t.duration.days
         pct = t.percent_complete or 0.0
-        if 0 < pct < 100:
+        if duration_days > 0 and 0 < pct < 100:
             # The exact decimal rule (#5034), not float math: the widened percent
             # draw lands on day boundaries where the two differ by a day. Within
             # 1e-9 days of a whole day it snaps to it; an open task keeps a day.
+            # A zero-duration task is skipped, as ``_elapsed_working_days`` skips
+            # it: it has no day to keep, and ``duration_days - 1`` is then -1, so
+            # the cap below *added* a working day to an open milestone and the
+            # oracle demanded a one-day window for a point (#5076).
             x = duration_days * Fraction(repr(pct)) / 100
             elapsed = round(x) if abs(x - round(x)) <= Fraction(1, 10**9) else math.floor(x)
             duration_days -= min(elapsed, duration_days - 1)
@@ -1194,6 +1220,22 @@ def test_duration_walk_spends_only_working_days(project: Project) -> None:
             f"working days but the pass laid out {duration_days} "
             f"(actual_start={t.actual_start}, percent_complete={t.percent_complete})"
         )
+
+
+def test_open_milestone_on_a_non_working_actual_start_is_a_point_5076() -> None:
+    """The #5076 input, pinned on the engine rather than only on the property.
+
+    A zero-duration task has no remaining work at any percent, so the forward pass
+    places it as a single instant on its recorded ``actual_start`` — a Saturday
+    here — and the late window and span coincide with it. Pinned so a future
+    change to the remaining-work rule cannot start giving an open milestone a
+    working day without failing a named test.
+    """
+    (t,) = schedule(_OPEN_MILESTONE_ON_SATURDAY_5076).tasks
+    saturday = date(2027, 1, 23)
+    assert (t.early_start, t.early_finish) == (saturday, saturday)
+    assert (t.late_start, t.late_finish) == (saturday, saturday)
+    assert t.scheduled_start == saturday
 
 
 @given(value=_json_values)
