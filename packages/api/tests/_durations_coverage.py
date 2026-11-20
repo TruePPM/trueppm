@@ -14,10 +14,10 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 
-# Share of collected tests allowed to lack a recorded duration. Measured
-# against a fresh regeneration, the suite grows by a few percent a month, so
-# 20% leaves several months of slack before the guard asks for a refresh while
-# still tripping long before the 86%-missing state that prompted #5084.
+# Share of collected tests allowed to lack a recorded duration. Right after
+# the #5084 regeneration 3.4% (528 of 15,641) were already missing, so 20%
+# leaves ample slack before the guard asks for a refresh while still tripping
+# long before the 86%-missing state that prompted #5084.
 MAX_MISSING_SHARE = 0.20
 
 
@@ -29,9 +29,10 @@ def missing_share(collected: Iterable[str], durations_path: Path) -> tuple[int, 
     """
     ids = list(collected)
     try:
-        known = set(json.loads(durations_path.read_text()))
-    except (OSError, ValueError, TypeError):
-        known = set()
+        loaded = json.loads(durations_path.read_text())
+    except (OSError, ValueError):
+        loaded = None
+    known = set(loaded) if isinstance(loaded, dict) else set()
     return sum(1 for nodeid in ids if nodeid not in known), len(ids)
 
 

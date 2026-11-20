@@ -6003,9 +6003,10 @@ api:coverage:
 api:test-durations:
   # Generates packages/api/.test_durations — the per-test wall-time baseline
   # pytest-split uses to balance the four api:test shards (#687, follow-up to
-  # the #680 sharding). Without this file pytest-split falls back to an even
-  # test-COUNT split, which unbalances the shards whenever a few slow tests
-  # dominate one group and erases the sharding win.
+  # the #680 sharding). pytest-split gives a test with no entry the average of
+  # the known ones, which unbalances the shards whenever a few slow tests
+  # dominate one group and erases the sharding win; api:test therefore fails
+  # (packages/api/conftest.py) when over 20% of collected tests have no entry.
   #
   # Runs serially and WITHOUT coverage so the recorded numbers are clean
   # per-test wall-times: coverage tracing and xdist contention both skew them,
@@ -6014,8 +6015,8 @@ api:test-durations:
   # committed baseline doesn't accumulate dead weight across refreshes.
   #
   # Trigger:
-  #   - scheduled pipelines refresh the baseline as the suite grows;
-  #   - manual on any MR or main to regenerate on demand.
+  #   - scheduled pipelines run it and publish the artifact; nothing commits it;
+  #   - manual on any MR or main to regenerate on demand, then commit the artifact.
   # This job does NOT commit its result — it publishes .test_durations as an
   # artifact. allow_failure keeps a slow or flaky full-suite run from ever
   # blocking an MR.

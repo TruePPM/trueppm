@@ -44,3 +44,23 @@ def test_empty_and_corrupt_file(tmp_path: Path) -> None:
 
 def test_no_collected_tests_passes(tmp_path: Path) -> None:
     assert check_durations_coverage([], tmp_path / "absent") is None
+
+
+def test_one_over_threshold_fails(tmp_path: Path) -> None:
+    ids = [f"t::{n}" for n in range(100)]
+    assert check_durations_coverage(ids, _write(tmp_path / "d", ids[:79])) is not None
+    assert check_durations_coverage(ids, _write(tmp_path / "e", ids[:80])) is None
+
+
+def test_invalid_json_text_is_unusable(tmp_path: Path) -> None:
+    bad = tmp_path / "bad"
+    bad.write_text("{not json")
+    assert missing_share(["a"], bad) == (1, 1)
+    assert check_durations_coverage(["a"], bad) is not None
+
+
+def test_non_dict_json_is_unusable(tmp_path: Path) -> None:
+    listing = tmp_path / "list"
+    listing.write_text(json.dumps(["a", "b"]))
+    assert missing_share(["a", "b"], listing) == (2, 2)
+    assert check_durations_coverage(["a", "b"], listing) is not None
