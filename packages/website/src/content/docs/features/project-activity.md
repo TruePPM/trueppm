@@ -48,7 +48,9 @@ Each row tells you, at a glance:
   fields, the rest collapse into *"+N more fields"*.
 - **How many times** — consecutive changes that would read identically (same
   object kind and name, same actor, same fields and values) will fold into one row
-  with a count, e.g. *"×5"*. The row shows the newest of them and opens that
+  with a count, e.g. *"×5"*. For readers who cannot see the actor (Members and
+  Viewers), runs by different people fold too, since the actor is not part of
+  what they see. The row shows the newest of them and opens that
   object. A change to anything else in between breaks the run.
 - **When** — a relative time ("5m ago", "2d ago").
 - **Who** — the actor's name, shown to **project admins and owners** only. Members
