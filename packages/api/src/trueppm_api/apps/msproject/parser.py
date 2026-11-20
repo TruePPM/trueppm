@@ -802,7 +802,7 @@ def _warn_unmapped_task_fields(tasks_el: ET.Element, ns: str, warnings: list[str
     """Report every field family the import does **not** carry over, with counts.
 
     This is the whole of #2891's "minimum for beta": before it, an MSPDI carrying
-    constraints, deadlines, baselines, priorities, work and cost imported with
+    constraints, baselines, priorities, work and cost imported with
     ``ProjectData.warnings == []``. A PM migrating a plan got dates TruePPM had
     recomputed from scratch, believed they were the dates they had committed to,
     and found out at the next governance review.

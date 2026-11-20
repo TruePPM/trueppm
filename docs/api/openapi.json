@@ -30858,7 +30858,7 @@
         "/api/v1/projects/{project_pk}/imports/": {
             "get": {
                 "operationId": "v1_projects_imports_retrieve",
-                "description": "Page of import-request provenance rows for the project, newest first.\n\n`status` is one of pending / dispatched / done / dead. `initiated_by_username` carries the initiator's name and is null once that user is deleted. `task_count` comes from the linked TaskRun summary and is null until the import completes.\n\n`warnings` lists everything the import did not carry over — MS Project constraints, deadlines, baselines, priority, work and cost have no TruePPM column and are reported with per-family task counts. The strings are prose for a person, so match the leading `Not imported: ` / `Partially imported: ` marker rather than the whole line. Empty for a queued or dead import.\n\nRows are purged after `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7), so this is a recent-activity view, not durable audit history.",
+                "description": "Page of import-request provenance rows for the project, newest first.\n\n`status` is one of pending / dispatched / done / dead. `initiated_by_username` carries the initiator's name and is null once that user is deleted. `task_count` comes from the linked TaskRun summary and is null until the import completes.\n\n`warnings` lists everything the import did not carry over — MS Project constraints, baselines, priority, work and cost have no TruePPM column and are reported with per-family task counts. The strings are prose for a person, so match the leading `Not imported: ` / `Partially imported: ` marker rather than the whole line. Empty for a queued or dead import.\n\nRows are purged after `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7), so this is a recent-activity view, not durable audit history.",
                 "parameters": [
                     {
                         "in": "query",
@@ -30923,7 +30923,7 @@
                                                     "initiated_by_username": "sarah",
                                                     "task_count": 142,
                                                     "warnings": [
-                                                        "Not imported: deadline dates (TruePPM has no deadline field) — set on 6 of 142 tasks."
+                                                        "Not imported: baselines (TruePPM has no baseline column on tasks) — set on 6 of 142 tasks."
                                                     ]
                                                 }
                                             ]
