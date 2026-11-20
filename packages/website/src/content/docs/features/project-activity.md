@@ -1,6 +1,7 @@
 ---
 title: Project Activity
 description: A single project-wide "what changed" feed that aggregates every change across tasks, sprints, risks, dependencies, and project settings into one newest-first, filterable, deep-linkable stream.
+documentedFor: "0.5"
 ---
 
 Every project has an **Activity** tab — one screen that answers *"what changed in
@@ -25,13 +26,30 @@ happened, and — for project admins — who made it.
 
 ![The project Activity feed filtered by entity type and action, listing created tasks and sprints with actor and time](../../../assets/screenshots/activity.webp)
 
+:::note[Ships in 0.5]
+Row kinds, value changes, and folded repeats ship in 0.5. In the current release
+every task-backed row reads *Task*, an update lists only the names of the changed
+fields, and a run of identical changes shows as one row per change.
+:::
+
 Each row tells you, at a glance:
 
-- **What changed** — a verb (`created`, `updated`, `deleted`) paired with the
-  object type and its name, e.g. *"updated Task · Design the API"*.
-- **Which fields** — for an update, the changed fields are listed beneath by the
-  same labels the task drawer's Activity tab uses (*Status*, *Assignee*, *Outline
-  position*), never as database column names.
+- **What changed** — a verb (`created`, `updated`, `deleted`) paired with what the
+  object is and its name, e.g. *"updated Story · Design the API"*. Task-backed rows
+  will name their kind: *Milestone*, *Story*, *Bug*, *Epic*, *Spike*, *Tech Debt*,
+  *Mitigation* (a task linked to a risk), or *Task*.
+- **What it changed from and to** — for an update, each changed field will be
+  listed beneath with its old and new value, e.g. *"Status: Not started → In
+  progress"*, by the same labels the task drawer's Activity tab uses (*Status*,
+  *Outline position*), never as database column names. A soft delete reads
+  *Deleted* (or *Restored*). A field that points at another record (*Assignee*,
+  *Sprint*, *Epic*) will read *"Assignee changed"*: the feed carries the record's
+  id, not its name, so it names the field rather than print an id. Past three
+  fields, the rest collapse into *"+N more fields"*.
+- **How many times** — consecutive changes that would read identically (same
+  object kind and name, same actor, same fields and values) will fold into one row
+  with a count, e.g. *"×5"*. The row shows the newest of them and opens that
+  object. A change to anything else in between breaks the run.
 - **When** — a relative time ("5m ago", "2d ago").
 - **Who** — the actor's name, shown to **project admins and owners** only. Members
   and Viewers see the change itself but not the user, by design (the same rule as
@@ -84,7 +102,14 @@ Activity is backed by a documented, read-only endpoint:
 GET /api/v1/projects/{id}/changelog/?since=&object_type=&change_type=&user=&cursor=
 ```
 
-It returns a newest-first page plus an opaque `next_cursor`. The cursor is a stable
+It returns a newest-first page plus an opaque `next_cursor`. Each entry will carry
+`object_kind` and `object_kind_label` next to `object_type` (from 0.5): a task-backed
+entry's kind is `milestone`, `epic`, `story`, `bug`, `spike`, `tech_debt`,
+`mitigation` (linked to a risk), or `task`, and every other source repeats its
+`object_type`. The kind is read from the history row, so an entry reports what the
+object was at that change; the risk link has no history, so `mitigation` reflects
+the link as it stands now. Folding repeats is a display choice of the Activity
+tab: the endpoint returns every row. The cursor is a stable
 keyset (safe to persist, no duplicates or gaps across pages even when writes land
 mid-scroll), which makes the endpoint a reliable substrate for a polling
 integration. See the [API reference](/api/reference/) for the full parameter and response

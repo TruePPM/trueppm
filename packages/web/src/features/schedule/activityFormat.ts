@@ -1,4 +1,6 @@
 import type { TaskActivityEntry } from '@/hooks/useTaskHistory';
+import { INHERIT_SOURCE, inheritedFrom } from '@/features/settings/components/provenance';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 
 /**
  * Shared per-event copy for the task activity feed (#1883, #2315 slice 3).
@@ -101,6 +103,69 @@ export function humanizeField(field: string): string {
 /** Display label for a diff field key — curated when known, humanized otherwise. */
 export function fieldLabel(field: string): string {
   return FIELD_LABEL[field] ?? humanizeField(field);
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  BACKLOG: 'Backlog',
+  NOT_STARTED: 'Not started',
+  IN_PROGRESS: 'In progress',
+  REVIEW: 'Review',
+  ON_HOLD: 'On hold',
+  COMPLETE: 'Complete',
+};
+
+const DATE_FIELDS = new Set([
+  'planned_start',
+  'planned_finish',
+  'actual_start',
+  'actual_finish',
+  'start_date',
+  'finish_date',
+  'mitigation_due_date',
+  'deadline',
+]);
+
+/**
+ * #3306. The drawer sends this bit through the generic `str(value)` path, so it
+ * arrives as Django's `"True"`/`"False"`; the project changelog sends the JSON
+ * boolean. Rendered raw it would read `Governance source  True → False`, which
+ * states the column and not the change. The two states are "this task takes its
+ * parent's governance" and "this task declares its own".
+ */
+const GOVERNANCE_SOURCE_LABELS: Record<string, string> = {
+  True: inheritedFrom(INHERIT_SOURCE.parentTask),
+  False: 'Set on this task',
+};
+
+/**
+ * Display text for one side of a field diff, shared by the task drawer and the
+ * project Activity page (#3612) so a value reads the same on both.
+ *
+ * The drawer's values arrive as strings (the server `str()`s them and resolves
+ * relations to labels); the project changelog's arrive as JSON (booleans,
+ * numbers, ISO dates), so both shapes are accepted. A missing side is an em dash.
+ */
+function scalarText(val: unknown): string {
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'bigint') return String(val);
+  return JSON.stringify(val) ?? '';
+}
+
+export function formatDiffValue(field: string, val: unknown): string {
+  if (val == null || val === '') return '—';
+  if (field === 'parent_governance_inherited') {
+    const key = typeof val === 'boolean' ? (val ? 'True' : 'False') : scalarText(val);
+    return GOVERNANCE_SOURCE_LABELS[key] ?? key;
+  }
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  const text = scalarText(val);
+  if (field === 'status') return STATUS_LABELS[text] ?? text;
+  if (field === 'percent_complete') {
+    const n = Number(text);
+    return Number.isFinite(n) ? `${Math.round(n)}%` : text;
+  }
+  if (DATE_FIELDS.has(field)) return fmtUtcShort(text);
+  return text;
 }
 
 /** A change record that conveys nothing the user can read — an empty `~` diff —

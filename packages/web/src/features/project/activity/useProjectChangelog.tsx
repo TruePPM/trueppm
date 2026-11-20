@@ -52,6 +52,16 @@ export interface ChangelogUser {
 export interface ChangelogEntry {
   id: string;
   object_type: ChangelogObjectType;
+  /**
+   * What the object is to a reader, finer than `object_type` (#3612): a task row is
+   * `milestone`, `mitigation` (linked to a risk), `epic`, `story`, `bug`, `spike`,
+   * `tech_debt` or `task`; every other source repeats its `object_type`. Optional
+   * only so a response from a server older than the field still renders (the row
+   * falls back to the `object_type` label).
+   */
+  object_kind?: string;
+  /** Display label for `object_kind` — "Milestone", "Mitigation", "Story". */
+  object_kind_label?: string;
   object_id: string;
   object_label: string;
   change_type: ChangeType;

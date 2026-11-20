@@ -95,8 +95,103 @@ describe('ProjectActivityPage', () => {
       initialEntries: ['/projects/proj-1/activity'],
     });
     const list = within(screen.getByTestId('changelog-list'));
-    expect(list.getByText('Governance, Outline position, Never curated field')).toBeInTheDocument();
+    expect(list.getByText('Governance')).toBeInTheDocument();
+    expect(list.getByText('Outline position')).toBeInTheDocument();
+    expect(list.getByText('Never curated field')).toBeInTheDocument();
     expect(list.queryByText(/governance_class|wbs_path|never_curated_field/)).toBeNull();
+  });
+
+  it('shows what each field changed from and to (#3612)', () => {
+    useProjectChangelogMock.mockReturnValue(ret({ data: pages([sample]) }));
+    renderWithProvidersAndRouter(<ProjectActivityPage />, {
+      initialEntries: ['/projects/proj-1/activity'],
+    });
+    const [change] = within(screen.getByTestId('changelog-list')).getAllByTestId(
+      'changelog-change',
+    );
+    // Visible "Status: Not started → In progress"; the arrow is aria-hidden and the
+    // accessible text says "to".
+    expect(change).toHaveTextContent('Status: Not started → to In progress');
+    expect(within(change).getByText('Not started')).toHaveClass('line-through');
+    expect(within(change).getByText('In progress')).toBeInTheDocument();
+  });
+
+  it('collapses fields past the third into a "+N more" line', () => {
+    useProjectChangelogMock.mockReturnValue(
+      ret({
+        data: pages([
+          {
+            ...sample,
+            changes: ['name', 'notes', 'duration', 'story_points', 'color'].map((field) => ({
+              field,
+              old: '1',
+              new: '2',
+            })),
+          },
+        ]),
+      }),
+    );
+    renderWithProvidersAndRouter(<ProjectActivityPage />, {
+      initialEntries: ['/projects/proj-1/activity'],
+    });
+    const list = within(screen.getByTestId('changelog-list'));
+    expect(list.getAllByTestId('changelog-change')).toHaveLength(3);
+    expect(list.getByText('+2 more fields')).toBeInTheDocument();
+  });
+
+  it("labels a row by the server's object kind, not the storage source (#3612)", () => {
+    useProjectChangelogMock.mockReturnValue(
+      ret({
+        data: pages([
+          {
+            ...sample,
+            id: 'task:8',
+            object_label: 'Mitigate: Cutover window too short',
+            object_kind: 'mitigation',
+            object_kind_label: 'Mitigation',
+          },
+          {
+            ...sample,
+            id: 'task:9',
+            object_label: 'Go-live',
+            object_kind: 'milestone',
+            object_kind_label: 'Milestone',
+          },
+          // A response without the field (an older server) still reads "Task".
+          { ...sample, id: 'task:10', object_label: 'Legacy row' },
+        ]),
+      }),
+    );
+    renderWithProvidersAndRouter(<ProjectActivityPage />, {
+      initialEntries: ['/projects/proj-1/activity'],
+    });
+    const rows = within(screen.getByTestId('changelog-list')).getAllByRole('button');
+    expect(rows[0]).toHaveTextContent(/updated\s*Mitigation\s*Mitigate: Cutover/);
+    expect(rows[1]).toHaveTextContent(/updated\s*Milestone\s*Go-live/);
+    expect(rows[2]).toHaveTextContent(/updated\s*Task\s*Legacy row/);
+  });
+
+  it('folds consecutive identical changes into one row with a count (#3612)', () => {
+    const deleted = {
+      ...sample,
+      object_label: 'Mitigate: Cutover window too short',
+      changes: [{ field: 'is_deleted', old: false, new: true }],
+    };
+    useProjectChangelogMock.mockReturnValue(
+      ret({
+        data: pages([
+          ...[1, 2, 3, 4, 5].map((n) => ({ ...deleted, id: `task:${n}`, object_id: `t${n}` })),
+          { ...sample, id: 'task:6' },
+        ]),
+      }),
+    );
+    renderWithProvidersAndRouter(<ProjectActivityPage />, {
+      initialEntries: ['/projects/proj-1/activity'],
+    });
+    const list = within(screen.getByTestId('changelog-list'));
+    expect(list.getAllByRole('button')).toHaveLength(2);
+    expect(list.getByTestId('changelog-fold-count')).toHaveTextContent('×55 times');
+    expect(list.getByText('Deleted')).toBeInTheDocument();
   });
 
   it('shows the empty state when there is no activity', () => {

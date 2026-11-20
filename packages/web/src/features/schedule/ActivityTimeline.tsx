@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { INHERIT_SOURCE, inheritedFrom } from '@/features/settings/components/provenance';
 import { Link } from 'react-router';
 import { useTaskHistory, type TaskActivityEntry } from '@/hooks/useTaskHistory';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
@@ -8,7 +7,7 @@ import { ListIcon } from '@/components/Icons';
 import { formatRelative } from '@/lib/formatRelative';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
-import { fieldLabel, summaryVerb, isEmptyChange } from './activityFormat';
+import { fieldLabel, formatDiffValue, summaryVerb, isEmptyChange } from './activityFormat';
 
 /**
  * Unified task Activity timeline (issue 869, ADR-0096 Part 2; extended #1883).
@@ -157,40 +156,8 @@ const FIELD_TO_GROUP: Record<string, Group> = {
 // Field labels + value formatting
 // ---------------------------------------------------------------------------
 
-const STATUS_LABELS: Record<string, string> = {
-  BACKLOG: 'Backlog',
-  NOT_STARTED: 'Not started',
-  IN_PROGRESS: 'In progress',
-  REVIEW: 'Review',
-  ON_HOLD: 'On hold',
-  COMPLETE: 'Complete',
-};
-
-const DATE_FIELDS = new Set(['planned_start', 'actual_start', 'actual_finish', 'deadline']);
-
-/**
- * #3306. The server sends this bit through the generic `str(value)` path, so it
- * arrives as Django's `"True"`/`"False"`. Rendered raw it would read
- * `Governance source  True → False`, which states the column and not the change.
- * The two states are "this task takes its parent's governance" and "this task
- * declares its own", and that is what a cascade breaking inheritance did.
- */
-const GOVERNANCE_SOURCE_LABELS: Record<string, string> = {
-  True: inheritedFrom(INHERIT_SOURCE.parentTask),
-  False: 'Set on this task',
-};
-
-function fmtValue(field: string, val: string | null): string {
-  if (val == null) return '—';
-  if (field === 'status') return STATUS_LABELS[val] ?? val;
-  if (field === 'parent_governance_inherited') return GOVERNANCE_SOURCE_LABELS[val] ?? val;
-  if (field === 'percent_complete') {
-    const n = Number(val);
-    return Number.isFinite(n) ? `${Math.round(n)}%` : val;
-  }
-  if (DATE_FIELDS.has(field)) return fmtUtcShort(val);
-  return val;
-}
+// Value formatting lives in `activityFormat.formatDiffValue`, shared with the
+// project Activity page (#3612) so a status reads "Not started" on both.
 
 // ---------------------------------------------------------------------------
 // Unified event model — one shape over every merged-feed event_type (#1883)
@@ -502,14 +469,16 @@ function DiffRows({ entry }: { entry: TaskActivityEntry }) {
             {d.old != null && (
               <>
                 <span className="max-w-[90px] truncate text-neutral-text-secondary line-through">
-                  {fmtValue(d.field, d.old)}
+                  {formatDiffValue(d.field, d.old)}
                 </span>
                 <span className="text-neutral-text-secondary" aria-hidden="true">
                   →
                 </span>
               </>
             )}
-            <span className="max-w-[120px] truncate font-medium">{fmtValue(d.field, d.new)}</span>
+            <span className="max-w-[120px] truncate font-medium">
+              {formatDiffValue(d.field, d.new)}
+            </span>
           </dd>
         </div>
       ))}
@@ -611,8 +580,7 @@ function ActivityRow({
             to={`/projects/${projectId}/schedule`}
             className="mt-0.5 inline-block rounded text-xs text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            View in schedule{' '}
-            <span aria-hidden="true">→</span>
+            View in schedule <span aria-hidden="true">→</span>
           </Link>
         )}
 

@@ -23,11 +23,11 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { ActivityIcon, LinkIcon } from '@/components/Icons';
 import { EmptyState } from '@/components/EmptyState';
 import { formatRelative } from '@/lib/formatRelative';
-import { fieldLabel } from '@/features/schedule/activityFormat';
 import { useElementRef } from '@/hooks/useElementRef';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
 import { FilterChip } from '@/features/programs/backlog/components/FilterChip';
+import { changeDisplay, foldChangelog, type FoldedChangelogRow } from './changelogFold';
 import { clickThroughPath, filtersToSearchParams, searchParamsToFilters } from './changelogUrl';
 import { ActivitySubViewTabs } from './ActivitySubViewTabs';
 import { ProjectAgentActivity } from './ProjectAgentActivity';
@@ -356,24 +356,33 @@ function ActivityBody({ entries, isLoading, isError, onNavigate }: ActivityBodyP
   }
   return (
     <ul className="divide-y divide-neutral-border" data-testid="changelog-list">
-      {entries.map((entry) => (
-        <ActivityRow key={entry.id} entry={entry} onNavigate={onNavigate} />
+      {foldChangelog(entries).map((row) => (
+        <ActivityRow key={row.entry.id} row={row} onNavigate={onNavigate} />
       ))}
     </ul>
   );
 }
 
+/** Changed fields shown on a row before the rest collapse into "+N more". */
+const MAX_CHANGES_SHOWN = 3;
+
 function ActivityRow({
-  entry,
+  row,
   onNavigate,
 }: {
-  entry: ChangelogEntry;
+  row: FoldedChangelogRow;
   onNavigate: (entry: ChangelogEntry) => void;
 }) {
+  const { entry, count } = row;
   const objectMeta = OBJECT_TYPE_META[entry.object_type];
   const changeMeta = CHANGE_TYPE_META[entry.change_type];
   const when = formatRelative(new Date(entry.history_date));
   const actor = entry.user?.display_name ?? 'System';
+  // The server's kind label ("Mitigation", "Milestone", "Story") over the storage
+  // source's ("Task"), so a reader can tell what moved (#3612).
+  const kindLabel = entry.object_kind_label ?? objectMeta.label;
+  const shown = entry.changes.slice(0, MAX_CHANGES_SHOWN);
+  const hidden = entry.changes.length - shown.length;
 
   return (
     <li>
@@ -391,16 +400,54 @@ function ActivityRow({
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm">
             <span className={`font-medium ${changeMeta.tint}`}>{changeMeta.verb}</span>
-            <span className="text-neutral-text-secondary">{objectMeta.label}</span>
+            <span className="text-neutral-text-secondary">{kindLabel}</span>
             <span className="truncate font-medium text-neutral-text-primary">
               {entry.object_label}
             </span>
+            {count > 1 && (
+              // A run of identical changes folded into this row (#3612). The visible
+              // "×5" is a glyph; the accessible text says what it counts.
+              <span
+                className="rounded-full bg-neutral-surface-raised px-1.5 text-xs font-medium text-neutral-text-secondary tppm-mono"
+                data-testid="changelog-fold-count"
+              >
+                <span aria-hidden="true">×{count}</span>
+                <span className="sr-only">{`${count} times`}</span>
+              </span>
+            )}
           </span>
-          {entry.changes.length > 0 && (
-            // The same label map as the task drawer (#3435) — a `governance_class`
-            // change reads "Governance" here and in the drawer, never as the column.
-            <span className="mt-0.5 block truncate text-xs text-neutral-text-secondary">
-              {entry.changes.map((c) => fieldLabel(c.field)).join(', ')}
+          {shown.map((change) => {
+            // Field labels come from the task drawer's map (#3435); values from its
+            // formatter, so "Not started" reads the same on both surfaces.
+            const display = changeDisplay(change);
+            return (
+              <span
+                key={change.field}
+                className="mt-0.5 block truncate text-xs text-neutral-text-secondary"
+                data-testid="changelog-change"
+              >
+                {display.kind === 'label' ? (
+                  display.text
+                ) : (
+                  <>
+                    <span>{display.label}</span>
+                    {': '}
+                    {display.old !== null && (
+                      <>
+                        <span className="line-through">{display.old}</span>
+                        <span aria-hidden="true"> → </span>
+                        <span className="sr-only"> to </span>
+                      </>
+                    )}
+                    <span className="font-medium text-neutral-text-primary">{display.new}</span>
+                  </>
+                )}
+              </span>
+            );
+          })}
+          {hidden > 0 && (
+            <span className="mt-0.5 block text-xs text-neutral-text-secondary">
+              {`+${hidden} more ${hidden === 1 ? 'field' : 'fields'}`}
             </span>
           )}
         </span>

@@ -100,6 +100,56 @@ test.describe('Project Activity tab', () => {
     await page.waitForURL(`**${BASE_URL}/tasks/t9`);
   });
 
+  test('folds repeats, shows old → new values, and labels rows by kind (#3612)', async ({
+    page,
+  }) => {
+    const deleted = (n: number) => ({
+      id: `task:${20 + n}`,
+      object_type: 'task',
+      object_kind: 'mitigation',
+      object_kind_label: 'Mitigation',
+      object_id: `m${n}`,
+      object_label: 'Mitigate: Cutover window too short',
+      change_type: 'updated',
+      history_date: `2026-06-23T00:0${n}:00Z`,
+      user: { id: 'u-alice', display_name: 'Alice' },
+      changes: [{ field: 'is_deleted', old: false, new: true }],
+    });
+    await setup(page, {
+      results: [
+        ...[5, 4, 3, 2, 1].map(deleted),
+        {
+          id: 'task:9',
+          object_type: 'task',
+          object_kind: 'milestone',
+          object_kind_label: 'Milestone',
+          object_id: 't9',
+          object_label: 'Go-live',
+          change_type: 'updated',
+          history_date: '2026-06-21T00:00:00Z',
+          user: { id: 'u-alice', display_name: 'Alice' },
+          changes: [{ field: 'status', old: 'NOT_STARTED', new: 'IN_PROGRESS' }],
+        },
+      ],
+      next_cursor: null,
+    });
+    await page.goto(`${BASE_URL}/activity`);
+    const list = page.getByTestId('changelog-list');
+    await expect(list).toBeVisible({ timeout: 10_000 });
+
+    // Five identical soft deletes read as one row with a count.
+    const rows = list.getByRole('listitem');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toContainText('Mitigation');
+    await expect(rows.nth(0)).toContainText('Mitigate: Cutover window too short');
+    await expect(rows.nth(0).getByTestId('changelog-fold-count')).toContainText('×5');
+    // The value change, and the object's kind rather than "Task".
+    await expect(rows.nth(1)).toContainText('Milestone');
+    await expect(rows.nth(1).getByTestId('changelog-change')).toContainText(
+      'Status: Not started → to In progress',
+    );
+  });
+
   test('shows the empty state when there is no activity', async ({ page }) => {
     await setup(page, { results: [], next_cursor: null });
     await page.goto(`${BASE_URL}/activity`);
