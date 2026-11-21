@@ -688,7 +688,7 @@ to take longer on a shared or older server; the scheduler's test suite holds it
 under a loose 2 s regression bound
 ([#3859](https://gitlab.com/trueppm/trueppm/-/issues/3859)).
 
-From 0.5, a seeded run reproduces the same percentiles for the same input **on the same
+From 0.5, the API seeds automatically from the project's inputs, so a run reproduces the same percentiles for the same input **on the same
 numpy and `trueppm-scheduler` versions**. numpy guarantees its random streams only
 within one release, so an upgrade of either can move a seeded forecast
 ([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099)).
