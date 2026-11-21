@@ -59,7 +59,7 @@ Both images are therefore tagged `py3.11-<digest>` (`CI_API_TAG`, `CI_SCHEDULER_
 | `CI_SCHEDULER_TAG` | `scheduler.Dockerfile` and the scheduler `pyproject.toml` |
 
 **When to bump.** Whenever one of those files changes. `make pre-push` and the
-`api:ci-api-tag` job run `scripts/check-ci-api-tag.sh` (add `--image scheduler` for
+`api:ci-api-tag` check (in the `lint:repo-static` job) run `scripts/check-ci-api-tag.sh` (add `--image scheduler` for
 the scheduler) and fail with the exact value to paste; `--print-expected` prints it.
 `scripts/release.sh` restamps both on a release. A tag bump changes an input file, which
 is also what triggers `ci:build-*-image` on the MR, so the new image exists before the
