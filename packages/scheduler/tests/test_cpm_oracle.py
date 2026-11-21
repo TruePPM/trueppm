@@ -60,13 +60,13 @@ the engine's own floats against what the slip actually does — by its total flo
 finishes (on non-working days and before the project start), a data date, SNETs,
 and four-, five- and seven-day per-task calendars with exceptions. Not generated
 there: summary tasks, ``live_day_end_on``, Monte Carlo. The close-or-start-at-forecast
-property (#4690) excludes two regions by name the same way, each owned by its own
-open issue, when a predecessor of a milestone already closed with actuals closes:
-if that milestone itself moves, it and its descendants, whose day edge depends on
-``live_day_end_on`` history this harness never supplies (#4574,
-``_frozen_edge_shadow``); if it stays put but it was the milestone's last open
-predecessor, what follows it, whose lags now count from a re-read link instant
-(#4740, ``_released_link_shadow``). Every other task is compared.
+property (#4690) hands ``live_day_end_on`` back on the milestone it closes, as the API
+does, and excludes one region by name the same way, owned by an open issue: when a
+predecessor that was the last open one of a milestone already closed with actuals
+closes, what follows that milestone, whose lags now count from a re-read link
+instant (#4740, ``_released_link_shadow``). Every other task is compared. A closed
+milestone's day edge reads no predecessor since #5017 (the sign-off pin, ADR-0136),
+so the #4574 frozen-edge region it once also excluded no longer moves.
 
 A slip oracle sees only float that disagrees with what slipping does. A bug that
 moves early dates while keeping floats consistent is invisible to it: #4433 (a
@@ -266,6 +266,7 @@ def _engine_task(project: RefProject, tid: str, n: int) -> Task:
         actual_start=progress.actual_start,
         actual_finish=progress.actual_finish,
         calendar_id=project.task_calendar.get(tid),
+        live_day_end_on=project.live_day_end_on.get(tid),
     )
 
 
@@ -318,6 +319,8 @@ def _task_document(project: RefProject, tid: str, n: int) -> dict[str, Any]:
             row["actual_finish"] = progress.actual_finish.isoformat()
     if tid in project.task_calendar:
         row["calendar_id"] = project.task_calendar[tid]
+    if tid in project.live_day_end_on:
+        row["live_day_end_on"] = project.live_day_end_on[tid].isoformat()
     return row
 
 
@@ -2220,24 +2223,6 @@ def _downstream(project: RefProject, heads: set[str]) -> set[str]:
     return seen
 
 
-def _frozen_edge_shadow(project: RefProject, tid: str) -> set[str]:
-    """TODO(#4574): the open design question, excluded by name until it is decided.
-
-    Closing ``tid`` closes a predecessor of a milestone that is already closed
-    with recorded actuals (:func:`_closed_heads`). That milestone's day edge is
-    read from its *completed* predecessors only, frozen while any is open by
-    ``live_day_end_on`` — the history the API hands back (ADR-0136, #4525) and
-    this harness never supplies. With none, it reads the start of its day until
-    ``tid`` closes, and then an FS+1d link out of ``tid`` puts it at the end.
-    ADR-0136 names this move as the one the freeze exists to stop, and #4574 that
-    the history-free reading depends on the path. The shadow is that milestone and
-    everything after it, and it is set aside **only when the milestone itself
-    moved**; a move behind a milestone that stayed put is #4740's shape
-    (:func:`_released_link_shadow`), not this one. Delete this when #4574 closes.
-    """
-    return _downstream(project, _closed_heads(project, tid))
-
-
 def _released_link_shadow(project: RefProject, tid: str) -> set[str]:
     """TODO(#4740): the open residual of #4690, excluded by name until it is fixed.
 
@@ -2267,26 +2252,25 @@ def _released_link_shadow(project: RefProject, tid: str) -> set[str]:
 def forecast_record_violations(
     project: RefProject,
     run: Callable[[RefProject], EngineRun],
-    exclude_4574: bool = True,
     exclude_4740: bool = True,
 ) -> list[str]:
     """Closing or starting a live milestone on the day it is shown moves nothing (#4690).
 
-    For each live milestone with no recorded start: record ``actual_start`` on its
-    shown day, and — when every predecessor is complete, since a closed milestone
-    reads only completed ones (#4525) — close it there (``actual_start`` =
-    ``actual_finish``). Each records what the forecast already said, so every
-    task's early dates, the milestone's own edge of its day, and the project
-    finish must stay put. A model-free metamorphic relation, like the slip oracle,
-    so it covers the shapes the reference refuses — a completed milestone with
-    recorded actuals among them.
+    For each live milestone with no recorded start: record ``actual_start`` on its shown
+    day, and — when every predecessor is complete — close it there (``actual_start`` =
+    ``actual_finish``), handing back ``live_day_end_on`` when the live run showed it at
+    the end of that day, as the API does: the sign-off pin, hand-back included, is all a
+    closed milestone's edge reads (#5017). Each records what the forecast already said,
+    so every task's early dates, the milestone's own edge of its day, and the project
+    finish must stay put. A model-free metamorphic relation, like the slip oracle, so it
+    covers the shapes the reference refuses — a completed milestone with recorded
+    actuals among them.
 
-    Closing one sets aside two named regions, each owned by an open issue: when a
-    closed milestone after it moved itself, that milestone and its descendants
-    (:func:`_frozen_edge_shadow`, #4574); otherwise, what follows a closed
-    milestone whose last open predecessor this was (:func:`_released_link_shadow`,
-    #4740). When either applies the project finish is not compared, since one of
-    its tasks may decide it; every task outside it still is.
+    Closing one sets aside one named region, owned by an open issue: what follows
+    a closed milestone whose last open predecessor this was
+    (:func:`_released_link_shadow`, #4740). When it applies the project finish is
+    not compared, since one of its tasks may decide it; every task outside it
+    still is.
     """
     base = run(project)
     want = {tid: _record_position(t) for tid, t in base.tasks.items()}
@@ -2302,16 +2286,24 @@ def forecast_record_violations(
         variants = {"started": RefProgress(percent_complete=pct, actual_start=shown)}
         if all(_complete(project, link.pred) for link in project.links if link.succ == tid):
             variants["closed"] = RefProgress(100.0, actual_start=shown, actual_finish=shown)
+        hand_back = (
+            {**project.live_day_end_on, tid: shown}
+            if base.tasks[tid].milestone_at_day_end
+            else project.live_day_end_on
+        )
         for name, progress in variants.items():
-            after = run(replace(project, progress={**project.progress, tid: progress}))
+            after = run(
+                replace(
+                    project,
+                    progress={**project.progress, tid: progress},
+                    live_day_end_on=hand_back if name == "closed" else project.live_day_end_on,
+                )
+            )
             got = {t_id: _record_position(t) for t_id, t in after.tasks.items()}
             changed = {k for k in want if got[k] != want[k]}
             ignored: set[str] = set()
-            if name == "closed":
-                if exclude_4574 and changed & _closed_heads(project, tid):
-                    ignored = _frozen_edge_shadow(project, tid)
-                elif exclude_4740:
-                    ignored = _released_link_shadow(project, tid)
+            if name == "closed" and exclude_4740:
+                ignored = _released_link_shadow(project, tid)
             moved = sorted(changed - ignored)
             finish_moved = not ignored and after.project_finish != base.project_finish
             if moved or finish_moved:
@@ -2376,34 +2368,34 @@ def test_recording_a_milestone_on_its_forecast_moves_nothing() -> None:
     assert forecast_record_violations(MILESTONE_AT_A_SUNDAY_INSTANT, python_run) == []
 
 
-def test_the_4574_exclusion_is_what_hides_the_frozen_edge_shape() -> None:
-    """The shadow covers #4785's repro, and only the history-free close moves it."""
-    project = CLOSING_RELEASES_A_FROZEN_EDGE
-    assert _frozen_edge_shadow(project, "T2") == {"T4"}
-    assert forecast_record_violations(project, python_run) == []
-    assert forecast_record_violations(project, python_run, exclude_4574=False) == [
-        "T2 closed on 2026-01-05: moved ['T4']"
-    ]
-    # Only T4 and what follows it are set aside: another successor of T2 is still
-    # compared when T2 closes.
+def test_the_4574_frozen_edge_shapes_no_longer_move() -> None:
+    """#4785's repros move nothing with no exclusion: the edge is the pin's (#5017).
+
+    With no ``live_day_end_on`` a closed milestone sits at the start of its
+    recorded day whichever of its predecessors have closed, so closing ``T2`` (or
+    ``T0`` beside a still-open ``T1``) leaves ``T4`` (``T5``) and everything after
+    it where it was. Before #5017 completed work decided the edge and an FS+1d
+    link out of the closing task put the milestone at the end of its day.
+    """
+    for project, closing, head in (
+        (CLOSING_RELEASES_A_FROZEN_EDGE, "T2", "T4"),
+        (CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE, "T0", "T5"),
+    ):
+        assert _closed_heads(project, closing) == {head}
+        assert forecast_record_violations(project, python_run, exclude_4740=False) == []
+        assert python_run(project).tasks[head].milestone_at_day_end is False
+    # Another successor of T2 is compared as well.
     beside = replace(
-        project,
-        durations={**project.durations, "Y": 1},
-        links=(*project.links, RefLink("T2", "Y", "FS", 1)),
+        CLOSING_RELEASES_A_FROZEN_EDGE,
+        durations={**CLOSING_RELEASES_A_FROZEN_EDGE.durations, "Y": 1},
+        links=(*CLOSING_RELEASES_A_FROZEN_EDGE.links, RefLink("T2", "Y", "FS", 1)),
     )
-    assert _frozen_edge_shadow(beside, "T2") == {"T4"}
     assert forecast_record_violations(beside, python_run) == []
-    other = CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE
-    assert _frozen_edge_shadow(other, "T0") == {"T5"}
-    assert forecast_record_violations(other, python_run) == []
-    assert forecast_record_violations(other, python_run, exclude_4574=False) == [
-        "T0 closed on 2026-01-05: moved ['T5']"
-    ]
-    # Completed with no actuals, T4 is pinned at the start of its day whatever its
-    # predecessors do (ADR-0136): the filter does not match, and nothing moves.
-    pinned = replace(project, progress={"T4": RefProgress(percent_complete=100.0)})
-    assert _frozen_edge_shadow(pinned, "T2") == set()
-    assert forecast_record_violations(pinned, python_run, exclude_4574=False) == []
+    # Completed with no actuals, T4 is pinned at the start of its day (ADR-0136).
+    pinned = replace(
+        CLOSING_RELEASES_A_FROZEN_EDGE, progress={"T4": RefProgress(percent_complete=100.0)}
+    )
+    assert forecast_record_violations(pinned, python_run) == []
 
 
 def test_closing_beside_a_frozen_edge_moves_nothing_with_its_history() -> None:
@@ -2437,24 +2429,6 @@ def test_closing_beside_a_frozen_edge_moves_nothing_with_its_history() -> None:
 
     assert run(base) == run(closed)
     assert run(closed)["X"][0] == date(2026, 1, 6)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="TODO(#4574): with no live_day_end_on, a closed milestone's edge depends on "
-    "which of its predecessors have closed; when this XPASSes, delete "
-    "_frozen_edge_shadow",
-)
-def test_closing_the_last_open_predecessor_of_a_closed_milestone() -> None:
-    problems = [
-        problem
-        for project in (
-            CLOSING_RELEASES_A_FROZEN_EDGE,
-            CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE,
-        )
-        for problem in forecast_record_violations(project, python_run, exclude_4574=False)
-    ]
-    assert not problems, "\n".join(problems)
 
 
 #: #4740's shape, reached through the close-or-start property: ``A(5d)`` done

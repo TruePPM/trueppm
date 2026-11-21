@@ -25,6 +25,13 @@ Accepted — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
 > excluded, #5055). This changes live schedules: a wider-calendar successor of a Monday-floored
 > milestone can sit on the weekend before it. See the dated bullet under Decision → Rules.
 
+> **Amended 2026-11-21 (#5017): the sign-off pin is authoritative.** A milestone closed
+> with recorded actuals sits at the end of its recorded day exactly when the caller hands
+> back `live_day_end_on` naming that day, and at the start otherwise; no predecessor is
+> read for the edge. This supersedes the completed-predecessor reading (#4525) and its
+> recorded-day cap (#4703), which were not monotone. See the dated bullet under
+> Decision → Rules.
+
 > **The conformance-fixture constraint below is superseded by shipped practice** (verified
 > 2026-07-31, #2664). Both the Constraints section ("the shared `wasm:conformance` fixtures
 > carry **no** progress fields and must stay that way — adding actuals/`status_date` to the
@@ -154,7 +161,7 @@ Rules:
   the data date or an SNET would have, so it sits at the **end** of the day
   (`milestone_at_day_end` True) only when work finishing that day placed
   it, and at the **start** when no work precedes it or a floor held it. (Amended
-  2026-11-09, #4703: this read "that day (or later)". Work recorded as finishing
+  2026-11-09, #4703, and superseded 2026-11-21 by #5017 below: this read "that day (or later)". Work recorded as finishing
   after the sign-off — out of sequence — reached past the end of the recorded day
   and read as end-of-day, so closing it slipped an already-closed milestone's
   successors a working day. A link proposal shown on a later day than the recorded
@@ -174,7 +181,8 @@ Rules:
   `COMPLETE` stamps `actual_finish`, that rule made closing a milestone slip every FS
   successor, and the project finish, a working day later than the same milestone live
   or completed without actuals.)
-- **Only completed predecessors decide that edge (amended 2026-10-18, #4525).** As first
+- **Only completed predecessors decide that edge (amended 2026-10-18, #4525; superseded
+  2026-11-21 by #5017, "the sign-off pin is authoritative", below).** As first
   shipped, the #4433 rule read every predecessor's *current* forecast, so a milestone
   signed off while a predecessor was still open had its edge re-derived on every
   reschedule: an open predecessor slipping a day flipped the edge, its successors moved a
@@ -237,6 +245,50 @@ Rules:
     defect in this rule: the guarantee that no change to open work moves a closed
     milestone still holds. Making the edge path-independent while keeping "closing
     on the forecast day moves nothing" is left to #4574.
+  - *Amended 2026-11-21 (#5017): the sign-off pin is authoritative.* Reading the
+    edge from where completed predecessors' links placed the milestone (#4525),
+    capped at the recorded day (#4703), was not monotone. `A(1d, closed) -FS-> M`
+    (signed off Wed) `-FS+1d-> B`: with `A.actual_finish` on Mon, Tue, Thu or Fri
+    the milestone sat at the start of Wednesday and `B` started Thursday; with it
+    on Wednesday alone the end of Wednesday won and `B` started Friday. Recording a
+    *later* finish (Thursday) pulled `B` a working day earlier and the project
+    finish three calendar days earlier. The same reading let a lag edit on an
+    unrelated completed link flip the edge with no date moving (the audit's
+    CPMF-3). Option 1 in the issue (end of day whenever any completed predecessor
+    finishes at or after the sign-off day) restored monotonicity but still made
+    `B` depend on `A`; option 2 (document the non-monotonicity) left a forecast
+    that improves when work is recorded later. **Rule (owner decision,
+    2026-11-21):** a milestone closed with recorded actuals sits at the **end** of
+    its recorded day exactly when `Task.live_day_end_on` names that day, and at
+    the **start** of it otherwise. No predecessor is read for the edge — not its
+    actuals, link type, lag or calendar, and not whether it is open — so every row
+    of the table gives the same `B`, and raising a lag on a completed link never
+    flips the flag. This also removes #4574's path dependence: the edge is a
+    function of the milestone's own fields, so the same facts always schedule the
+    same way; and the freeze/release machinery (`_completed_after_recorded`, the
+    open-predecessor freeze, the completed-work re-read) is gone, because the
+    hand-back is never re-read. The cost: a caller that does not hand back
+    `live_day_end_on` gets the start of the recorded day, so for such a caller,
+    closing a milestone that work finishing that day had placed at the end of it
+    moves its FS successors a working day earlier (#4433's case). The API hands it
+    back on every run, so its path keeps "closing on the forecast day moves
+    nothing". A correction to completed work no longer releases a handed-back
+    end-of-day edge; to release it, the caller stops handing it back (or the
+    milestone is re-signed on another day). **Scope of the link instant:** the
+    milestone's *link* instant at the start of its day (#4690, below) still reads
+    completed predecessors, but only to choose which midnight equivalent to the
+    pinned day's start a calendar-day lag counts from (the recorded day's start or
+    the non-working run before it). That choice is non-decreasing in every
+    proposal and a proposal after the recorded day leaves the recorded day's
+    start, so a later predecessor finish never moves a successor earlier; the
+    working-time point is the pin's. #4740 (closing ahead of open work) is that
+    reading's open residual and is unchanged. Implemented in `_live_milestone_edge`
+    (`engine/forward.py`), kept as the 0.4 import name, and `live_milestone_edge`
+    (`wasm-scheduler/src/forward.rs`); pinned by the
+    `progress_closed_milestone_edge_is_the_pin` conformance fixture, whose expected
+    dates are hand-computed in its description, and by
+    `TestClosedMilestoneEdgeIsThePin` (link type x lag x predecessor open/closed x
+    project/task calendar x hand-back).
   - *Amended 2026-10-31 (#4690): the link instant, not only the edge.* A live
     milestone shown at the start of a day can link from an earlier midnight
     (Sunday 00:00 shown on Monday, #4173, or a point below the project start,

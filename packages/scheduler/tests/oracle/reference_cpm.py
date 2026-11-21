@@ -233,6 +233,10 @@ class RefProject:
     progress: dict[str, RefProgress] = field(default_factory=dict)
     calendars: dict[str, RefCalendar] = field(default_factory=dict)  # per-task registry
     task_calendar: dict[str, str] = field(default_factory=dict)  # task id -> registry id
+    # The previous run's end-of-day hand-back (``Task.live_day_end_on``), engine input
+    # only: the reference refuses a completed milestone with actuals, the one task
+    # that reads it. The close-or-start property supplies it the way the API does.
+    live_day_end_on: dict[str, date] = field(default_factory=dict)
 
     def calendar_of(self, tid: str) -> RefCalendar:
         """The calendar ``tid`` works on: its registry entry, else the project's."""
