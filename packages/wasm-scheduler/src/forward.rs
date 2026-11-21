@@ -879,12 +879,10 @@ fn closed_milestone_link(
 /// else `actual_start`), shown on and — at the end of the day — linked from alike
 /// (at the start of the day the caller replaces `link` with the live instant,
 /// `closed_milestone_link`, #4690), on the edge of that day the
-/// milestone had live (`live_start`, `live_milestone_edge`): the start when
-/// nothing precedes it, a floor held it, or open work behind it was never
-/// recorded as placing it; the end — the next midnight, read like an FS proposal
-/// from work — when completed work finishing that day placed it, or, while a
-/// predecessor is still open, when `Task::live_day_end_on` names that day
-/// (#4433, #4525).
+/// milestone had live (`live_start`, `live_milestone_edge`), which the sign-off
+/// pin alone decides (#5017): the end — the next midnight, read like an FS
+/// proposal from work — exactly when `Task::live_day_end_on` names that day
+/// (#4525), the start otherwise; no predecessor is read for the edge.
 /// Mirrors the Python
 /// `_pinned_milestone_instant`.
 fn pinned_milestone_instant(

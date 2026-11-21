@@ -54,9 +54,9 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
     ends at the end of its finish day. That holds for a completed milestone too,
     and the flag alone decides it: the engine pins it (``_pinned_placement``) but
     keeps it an instant — with no actuals at the start of its pinned day (#4343);
-    with actuals on its recorded day, at the edge of that day it had live (#4433),
-    so the end of the day when completed work finishing that day placed it or the
-    last live run showed it at the end of that day (#4525), the start otherwise.
+    with actuals on its recorded day, at the end of it exactly when the last run
+    showed it at the end of that day (the ``live_day_end_on`` hand-back, #4525) and
+    at the start otherwise; no predecessor is read for that edge (#5017).
     (Before #4433 the engine never flagged a milestone pinned by actuals, and this
     function derived an end-of-day reading from its actuals instead.)
 

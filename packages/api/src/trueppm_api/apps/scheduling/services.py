@@ -615,9 +615,10 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
             ),
             story_points=(float(t.story_points) if t.story_points is not None else None),
             # The last run's own output, handed back (#4525): the day this milestone
-            # was shown on at the end of. When it is later closed on that day, the
-            # engine keeps that edge even if a predecessor is still open, so closing
-            # a milestone on its forecast day moves none of its successors. The
+            # was shown on at the end of. Once it is closed on that day this is the
+            # only thing that keeps it at the end of the day — no predecessor is read
+            # for a signed-off milestone's edge (ADR-0136, #5017) — so closing a
+            # milestone on its forecast day moves none of its FS successors. The
             # engine reads it only on a completed milestone with actuals.
             live_day_end_on=(
                 t.early_finish if (t.is_milestone and t.milestone_at_day_end) else None
