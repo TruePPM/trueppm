@@ -3903,9 +3903,16 @@ scheduler:fuzz-deep:
   # --durations, `other` held 14 properties at ~45 min of calls, so a green run
   # finished past the 50-min timeout (4467d45dd) and only a run that failed early
   # got under it. The file's 6 properties cost ~21 min on their own.
+  #
+  # `derive` and `monte-carlo` took the heaviest remaining files out of `other`
+  # (#5091): `other` had grown to ~46 min of listed slowest calls and hit the
+  # 50-min timeout in 4 of 12 scheduled runs. Read off --durations (2026-11-21):
+  # derive ~17 min (test_derive_oracle, test_milestone_end_of_day_cap),
+  # monte-carlo ~13 min (test_monte_carlo_chunking, _finish_reading), `other`
+  # keeps ~15 min plus its tail. No example count was lowered.
   parallel:
     matrix:
-      - FUZZ_SHARD: [contract, contract-semantic, milestone, oracle, invariants, other]
+      - FUZZ_SHARD: [contract, contract-semantic, milestone, oracle, invariants, derive, monte-carlo, other]
   timeout: 50m
   # Persist Hypothesis's example database across scheduled runs so the search
   # accumulates a shrinking corpus of interesting inputs rather than starting
@@ -3944,7 +3951,9 @@ scheduler:fuzz-deep:
         milestone)         set -- tests/test_milestone_instant.py ;;
         oracle)            set -- tests/test_cpm_oracle.py ;;
         invariants)        set -- tests/test_cpm_invariants.py ;;
-        other)             set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py --ignore=tests/test_cpm_invariants.py ;;
+        derive)            set -- tests/test_derive_oracle.py tests/test_milestone_end_of_day_cap.py ;;
+        monte-carlo)       set -- tests/test_monte_carlo_chunking.py tests/test_monte_carlo_finish_reading.py ;;
+        other)             set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py --ignore=tests/test_cpm_invariants.py --ignore=tests/test_derive_oracle.py --ignore=tests/test_milestone_end_of_day_cap.py --ignore=tests/test_monte_carlo_chunking.py --ignore=tests/test_monte_carlo_finish_reading.py ;;
         *)                 echo "unknown FUZZ_SHARD '$FUZZ_SHARD'"; exit 1 ;;
       esac
       rc=0
@@ -4369,10 +4378,15 @@ api:fuzz:
     - cd packages/api
     - python manage.py migrate --noinput
     - python manage.py seed_integration_fixtures
-    # Start the Django ASGI server in the background.
+    # Start the Django ASGI server in the background. Its output goes to a file,
+    # not the job log (#5091): a fuzz run makes ~100k requests and every 4xx logs
+    # lines, which blew GitLab's 16 MB log limit mid-run and truncated the
+    # Schemathesis summary, so a failed run could not be read. Kept as an
+    # artifact. (cwd is packages/api here.)
     - >
       PYTHONPATH=src uvicorn trueppm_api.asgi:application
-      --host 127.0.0.1 --port 8000 &
+      --host 127.0.0.1 --port 8000
+      --no-access-log > uvicorn-fuzz.log 2>&1 &
     - cd ../..
     # Wait up to 30 s for Django to accept connections.
     - >
@@ -4440,6 +4454,7 @@ api:fuzz:
       junit: packages/api/junit-fuzz.xml
     paths:
       - packages/api/junit-fuzz.xml
+      - packages/api/uvicorn-fuzz.log
     expire_in: 30 days
 
 perf:load:

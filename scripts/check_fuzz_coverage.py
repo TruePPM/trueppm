@@ -36,6 +36,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -173,7 +175,12 @@ def _self_test() -> int:
         for name, (body, expected) in cases.items():
             report_path = root / "junit.xml"
             report_path.write_text(body)
-            actual = check(report_path, schema_path)
+            # The branches under test print their diagnostics to stderr on
+            # purpose; left alone they land in the job log looking like a real
+            # fuzz finding (the synthetic `POST /api/v1/things/` that sent #5091
+            # hunting for a route that does not exist).
+            with contextlib.redirect_stderr(io.StringIO()):
+                actual = check(report_path, schema_path)
             if actual != expected:
                 print(
                     f"SELF-TEST FAIL: {name} exited {actual}, expected {expected}",
@@ -181,7 +188,8 @@ def _self_test() -> int:
                 )
                 return 1
 
-        missing = check(root / "nope.xml", schema_path)
+        with contextlib.redirect_stderr(io.StringIO()):
+            missing = check(root / "nope.xml", schema_path)
         if missing != 2:
             print(
                 f"SELF-TEST FAIL: missing report exited {missing}, expected 2",
