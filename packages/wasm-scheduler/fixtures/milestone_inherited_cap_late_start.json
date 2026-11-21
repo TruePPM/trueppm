@@ -1,0 +1,25 @@
+{
+  "id": "p-milestone-inherited-cap-late-start",
+  "name": "Start-of-day milestone whose zero-lag successor works Monday to Thursday is shown late where its float stops, Thursday, not Friday (#5092)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "t0", "name": "Completed work that sets the Friday finish", "duration": 3024000.0, "percent_complete": 100.0},
+    {"id": "t1", "name": "Start-of-day milestone held by the project start", "duration": 0.0},
+    {"id": "t2", "name": "Unlinked milestone", "duration": 0.0},
+    {"id": "join", "name": "Inheriting milestone on a Monday-to-Thursday week", "duration": 0.0, "calendar_id": "fourday"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "t0", "successor_id": "join", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "t1", "successor_id": "join", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  },
+  "calendars": {
+    "fourday": {
+      "working_days": 15,
+      "exceptions": []
+    }
+  }
+}

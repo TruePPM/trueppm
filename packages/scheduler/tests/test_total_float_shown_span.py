@@ -29,7 +29,7 @@ import itertools
 from datetime import date, timedelta
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 
 from tests.test_contract_fuzz import _plausible_projects
 from trueppm_scheduler import (
@@ -42,6 +42,7 @@ from trueppm_scheduler import (
     Task,
     schedule,
 )
+from trueppm_scheduler.derive import derive_value
 from trueppm_scheduler.engine.calendar_math import _next_working_day, _working_days_between
 
 MON = date(2027, 3, 1)
@@ -154,8 +155,105 @@ def test_total_float_is_shown_span_on_plausible_projects(project: Project) -> No
     _assert_float_is_shown_span(project, result)
 
 
+_JOIN_CALENDARS = {
+    "fourday": Calendar(working_days=0b0001111),
+    "mondays": Calendar(working_days=0b0000001),
+    "seven": Calendar(working_days=0b1111111),
+}
+
+
+def _inherited_join(
+    t0_link: DependencyType = DependencyType.SS,
+    t1_link: DependencyType = DependencyType.FS,
+    join_calendar: str | None = "fourday",
+    t0_complete: bool = True,
+    t1_pin: date | None = None,
+) -> Project:
+    """The 2026-11-21 ``scheduler:fuzz-deep`` counterexample (#5092), parametrized.
+
+    ``t1`` is a start-of-day milestone (held by the project start) whose zero-lag
+    link gives ``join`` its reading, so ``join`` inherits it (#4526). ``t0`` sets
+    the finish, Friday 2026-04-17. ``join`` works a narrower week: at the start of
+    Friday it is shown Monday and moves the finish, so ``t1``'s float stops at the
+    start of Thursday. The engine measured the float there but showed the late
+    start on Friday, from the uncapped instant.
+    """
+    t0 = Task("t0", "t", timedelta(days=35))
+    if t0_complete:
+        t0.percent_complete = 100.0
+    join = Task("join", "t", timedelta(0), calendar_id=join_calendar)
+    return Project(
+        "p",
+        "p",
+        date(2026, 3, 2),
+        [
+            t0,
+            Task("t1", "t", timedelta(0), planned_start=t1_pin),
+            Task("t2", "t", timedelta(0)),
+            join,
+        ],
+        [Dependency("t0", "join", t0_link), Dependency("t1", "join", t1_link)],
+        Calendar(),
+        calendars=dict(_JOIN_CALENDARS),
+    )
+
+
+def test_inherited_cap_late_start_is_where_the_float_stops() -> None:
+    """Known answer and slip oracle for the reported shape (#5092)."""
+    project = _inherited_join()
+    result = schedule(project)
+    t1 = _task(result, "t1")
+    assert result.project_finish == date(2026, 4, 17)
+    assert t1.early_start == date(2026, 3, 2)
+    assert t1.late_start == t1.late_finish == date(2026, 4, 16)
+    assert t1.total_float == timedelta(days=33)
+    _assert_float_is_shown_span(project, result)
+    # Held on its shown late start, t1 moves nothing; held one working day later,
+    # join (Monday-to-Thursday) is shown Monday and the finish moves.
+    assert schedule(_inherited_join(t1_pin=date(2026, 4, 16))).project_finish == date(2026, 4, 17)
+    assert schedule(_inherited_join(t1_pin=date(2026, 4, 17))).project_finish == date(2026, 4, 20)
+    # The derivation cites the bound the engine shows, not the uncapped Friday.
+    derivation = derive_value(project, "t1", "late_start", result)
+    assert derivation.value == "2026-04-16"
+    binding = next(c for c in derivation.contributions if c.is_binding)
+    assert binding.imposed_date == date(2026, 4, 16)
+
+
+@pytest.mark.parametrize("join_calendar", [None, *_JOIN_CALENDARS])
+@pytest.mark.parametrize("t1_link", list(DependencyType))
+@pytest.mark.parametrize("t0_link", list(DependencyType))
+@pytest.mark.parametrize("t0_complete", [True, False])
+def test_total_float_is_shown_span_through_an_inherited_join(
+    t0_link: DependencyType,
+    t1_link: DependencyType,
+    join_calendar: str | None,
+    t0_complete: bool,
+) -> None:
+    """The #5092 class: every link type on both sides, the join on each calendar.
+
+    Before the fix, 24 of these 128 cases failed: ``t0`` into the join by SS or SF
+    (so the join stays early and ``t1``'s float is bounded by the finish seed),
+    ``t1`` by FS, SS or FF (every zero-lag link that hands the join ``t1``'s
+    reading, FF into a milestone being FS), and the join on the narrower
+    ``fourday`` or ``mondays`` week. ``t1``'s late start was shown a working day
+    or more past its float, and holding it there moved the finish. The ``seven``
+    join's last working day is the finish itself, so it never binds. A late start
+    that can be held without moving the finish is asserted alongside the identity.
+    """
+    project = _inherited_join(t0_link, t1_link, join_calendar, t0_complete)
+    try:
+        result = schedule(project)
+    except SchedulerError:
+        return
+    _assert_float_is_shown_span(project, result)
+    t1 = _task(result, "t1")
+    held = _inherited_join(t0_link, t1_link, join_calendar, t0_complete, t1_pin=t1.late_start)
+    assert schedule(held).project_finish == result.project_finish
+
+
 @pytest.mark.fuzz
 @given(project=_plausible_projects(per_task_calendars=True))
+@example(project=_inherited_join())
 def test_total_float_is_shown_span_with_per_task_calendars(project: Project) -> None:
     try:
         result = schedule(project)
