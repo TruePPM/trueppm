@@ -70,6 +70,7 @@ from trueppm_scheduler.engine import (
     _sf_latest_start,
     _start_from_finish,
     _start_is_recorded,
+    _start_read_cap_on,
     _window_start_bound,
     _working_days_between,
     schedule,
@@ -1459,10 +1460,19 @@ def _milestone_context(
     if own is not None and task.id in late_instants:
         own_early = own
 
+        own_inherited = inherited(task.id)
+
         def day_of(instant: date) -> date:
             # The engine's display rule without its floor, so a bound below the
-            # early instant stays visibly below it (and the floor is cited).
-            return _late_display(instant, task, own_early, cal, result.project_finish)
+            # early instant stays visibly below it (and the floor is cited). The
+            # engine shows the instant its own float runs to, capped for this
+            # milestone's reading on its zero-lag inheritors too (#4526, #5092),
+            # and never below the early instant — so a bound at or above it is
+            # shown exactly as engine._apply_milestone_late_date shows it.
+            pf = result.project_finish
+            capped = _start_read_cap_on(instant, own_early[1], cal, own_inherited, pf)
+            shown = max(capped, min(instant, own_early[0]))
+            return _late_display(shown, task, own_early, cal, pf)
 
         milestone = (own[0], day_of)
         own_instants = (

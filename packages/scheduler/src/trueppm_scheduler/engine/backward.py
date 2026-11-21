@@ -30,6 +30,7 @@ from trueppm_scheduler.engine.milestones import (
     _START_ANCHORED,
     _edge_anchor,
     _finish_instant,
+    _float_late_instant,
     _free_start_ref,
     _inheriting_paths,
     _Inheritors,
@@ -144,6 +145,17 @@ def _backward_pass(
 
         early = early_instants.get(node_id)
         if early is not None:
+            # Summarized before the late date is set, which is shown from the
+            # instant the milestone's own float runs to (#5092). Only successors
+            # are read, and reverse topological order has already placed them.
+            _inheriting_paths(
+                node_id,
+                lambda n: ((s, g[n][s]["dep"]) for s in g.successors(n)),
+                late_instants.__contains__,
+                cal_for,
+                inherits,
+                project_finish,
+            )
             late_instants[node_id] = _apply_milestone_late_date(
                 node_id,
                 task,
@@ -155,14 +167,6 @@ def _backward_pass(
                 late_instants,
                 cal_for,
                 inherits,
-            )
-            _inheriting_paths(
-                node_id,
-                lambda n: ((s, g[n][s]["dep"]) for s in g.successors(n)),
-                late_instants.__contains__,
-                cal_for,
-                inherits,
-                project_finish,
             )
             continue
 
@@ -264,6 +268,17 @@ def _apply_milestone_late_date(
     ``early_pair`` is ``(shown, link)`` (:func:`_place_milestone`). The returned
     instant, which predecessors read, is floored at ``link``; the shown late date
     at ``shown`` (#4225).
+
+    The late date is shown from :func:`_float_late_instant` of the returned
+    instant — the one the milestone's own total float runs to — not from the
+    uncapped instant (#5092). :func:`_late_display` only keeps a start-of-day
+    reading by ``project_finish`` on this milestone's *own* calendar, but the cap
+    also holds on every milestone that takes its reading at zero lag (#4526,
+    ``inherited[node_id]``): ``M -FS-> J`` with ``J`` on a Monday-to-Thursday week
+    and a Friday finish can hold ``M`` at the start of Thursday, not Friday, where
+    ``J`` is shown Monday. Showing the uncapped Friday put the late start one
+    working day past the float, so ``total_float`` read one less than ``LS - ES``.
+    The caller summarizes ``inherited[node_id]`` before calling this.
     """
     early, link = early_pair
     project_finish, finish_instant = finish
@@ -280,8 +295,11 @@ def _apply_milestone_late_date(
         )
         bounds.append(_milestone_latest(dep.dep_type, dep.lag, start_ref, finish_ref, node_cal))
     late = max(min(bounds), link[0])
+    own_float_late = _float_late_instant(
+        late, early, node_cal, project_finish, (inherited or {}).get(node_id)
+    )
     task.late_start = task.late_finish = _late_display(
-        max(late, early[0]), task, early, node_cal, project_finish
+        own_float_late, task, early, node_cal, project_finish
     )
     return late
 
