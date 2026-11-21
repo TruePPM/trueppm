@@ -61,7 +61,7 @@ Earned value is the share of the budget that the work done so far is worth, if t
 Only **leaf tasks** count: the scheduled work the project is made of.
 
 - **Phases are left out.** A phase's percent complete is a rollup of its children, so counting it would count the same work twice. Only children that are scheduled work make a task a phase: a task whose only children are backlog items or epics still counts as a leaf task.
-- **Subtasks are left out** as tasks of their own. Their work is inside the duration of the task they belong to, and that task counts at the percent complete its subtasks roll up to: the figure the task shows, not a percent stored on it earlier.
+- **Subtasks are left out** as tasks of their own. Their work is inside the duration of the task they belong to, and that task counts at the percent complete its subtasks roll up to: the figure the task shows, counting only its subtasks, not backlog or epic items filed under it, and not a percent stored on it earlier. A task with a backlog item under it can therefore show a different percent from the one earned value uses.
 - **Backlog items, epics and recurring tasks are left out**, the same set the schedule leaves out.
 - **Milestones and other zero-duration tasks add nothing.** They plan no work, so they carry no share of the budget. Reaching a milestone earns nothing beyond the work that led to it.
 
@@ -174,7 +174,7 @@ When cost data is complete, the program rollup's two cost KPIs compute as progra
 
 Both are unavailable if **any** project in the program is missing a budget or a rate, because a partial total would understate the program. The tile names how many projects or people are missing.
 
-A project whose leaf tasks have no duration in total has no earned value, so it has no cost variance to add. Cost variance **leaves it out** of the total and **counts** it: the tile reads, for example, "−$1,500 · 2 projects not yet scheduled" (`projects_without_planned_duration`). Cost variance is unavailable (`no_planned_duration`) only when **every** project in the program is in that state. Such a project's spend still counts in budget utilization, which does not need earned value.
+A project whose leaf tasks have no duration in total has no earned value, so it has no cost variance to add. Cost variance **leaves it out** of the total and **counts** it: the tile shows the total, for example "-$1,500", with "over budget · 2 projects not yet scheduled" beneath it (`projects_without_planned_duration`). Cost variance is unavailable (`no_planned_duration`) only when **every** project in the program is in that state. Such a project's spend still counts in budget utilization, which does not need earned value.
 
 The **Budget-weighted** aggregation policy weights each project by its budget. If any project has no budget, the rollup uses the average instead and says why. Budget weighting is applied only for someone who may see every project's budget, under the same rule as the cost KPIs, because a weighted figure reveals how the budgets compare. Everyone else sees the plain average, with a note that budget weighting is unavailable.
 

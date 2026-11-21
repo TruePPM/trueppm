@@ -669,7 +669,8 @@ def task_has_committed_child_expr() -> RawSQL:
 
 # The leaf-descendant, delivery-mode-aware weighted percent the task API serves as a
 # summary row's ``percent_complete`` (ADR-0108 §1; see the annotation in
-# ``views.TaskViewSet``). ``{scope}`` narrows which descendants count.
+# ``views.TaskViewSet``). ``{scope}`` narrows which descendants count and ``{depth}``
+# how far below the row they may sit (an lquery quantifier).
 _PERCENT_ROLLUP_SQL = (
     "("
     "  SELECT CASE WHEN SUM(w.weight) > 0"
@@ -701,7 +702,7 @@ _PERCENT_ROLLUP_SQL = (
     "      AND c.is_deleted = false"
     "{scope}"
     "      AND projects_task.wbs_path IS NOT NULL"
-    "      AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{{1,}}')::lquery"
+    "      AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{depth}')::lquery"
     "      AND NOT EXISTS ("
     "        SELECT 1 FROM projects_task gc"
     "        WHERE gc.project_id = projects_task.project_id"
@@ -721,15 +722,27 @@ def task_percent_complete_rollup_expr(*, subtasks_only: bool = False) -> RawSQL:
     it back to the row, so any aggregate that reads a parent's progress must read
     this, not the stored column, or it reads a value no screen shows.
 
-    ``subtasks_only`` restricts the descendants to subtasks: earned value (ADR-1447)
-    takes a non-phase leaf's progress from its subtasks the way the task API does,
-    without letting an uncommitted structural child (a BACKLOG row under the leaf)
-    move it. NULL when there is no such descendant, or their weights sum to 0 — the
-    caller then falls back to the stored percent, as the serializer does.
+    ``subtasks_only`` restricts the descendants to the row's own subtasks: earned value
+    (ADR-1447) takes a non-phase leaf's progress from its subtasks the way the task API
+    does, without letting an uncommitted structural child (a BACKLOG or EPIC row under
+    the leaf) move it. That needs the *direct* children only, not just
+    ``is_subtask``: a subtask is always created as a direct child of its parent and
+    cannot have subtasks of its own (ADR-0060 depth-1), so a subtask two levels down
+    belongs to an intermediate row — and when that row is a BACKLOG child, counting
+    its subtask would let uncommitted work move the grandparent's EV. NULL when there
+    is no such descendant, or their weights sum to 0 — the caller then falls back to
+    the stored percent, as the serializer does.
+
+    The default (``subtasks_only=False``) renders the exact SQL the task API serves.
     """
-    scope = "      AND c.is_subtask = true" if subtasks_only else ""
+    if subtasks_only:
+        scope, depth = "      AND c.is_subtask = true", "{1}"
+    else:
+        scope, depth = "", "{1,}"
     # nosemgrep: avoid-raw-sql — static SQL literal, no params interpolated.
-    return RawSQL(_PERCENT_ROLLUP_SQL.format(scope=scope), [], output_field=FloatField())
+    return RawSQL(
+        _PERCENT_ROLLUP_SQL.format(scope=scope, depth=depth), [], output_field=FloatField()
+    )
 
 
 def drift_counts_by_project(

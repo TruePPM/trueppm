@@ -38,8 +38,8 @@ leaf work   = Task.committed (not deleted, not BACKLOG, not EPIC, not recurring)
               AND NOT a phase (no committed structural child;
                                task_has_committed_child_expr)
               AND duration > 0
-pct(t)      = t's subtask rollup when it has live subtasks, else t.percent_complete
-              (the value the task API shows for t; task_percent_complete_rollup_expr)
+pct(t)      = t's rollup over its live direct subtasks when it has any, else
+              t.percent_complete (task_percent_complete_rollup_expr(subtasks_only=True))
 pc_EV       = Σ(pct × duration) / Σ(duration)                  over leaf work, 0–100
 EV          = BAC × pc_EV / 100
 ```
@@ -67,7 +67,10 @@ EAC, ETC, VAC and TCPI keep their ADR-1324 formulas. They change only because EV
   subtask rollup, not the stored column. Nothing writes that rollup back to the row, so
   the stored value can be stale (a parent left at 0 % whose subtasks are all done).
   The rollup SQL is one helper shared with the task API's annotation, so the two
-  cannot drift.
+  cannot drift — except on purpose: EV reads only the parent's own (direct) subtasks,
+  while the task API's rollup also counts BACKLOG or EPIC rows filed under the parent
+  and their subtasks. For such a parent the percent the task shows and the one EV
+  weights differ, because uncommitted work earns nothing.
 - **BACKLOG, EPIC, recurring.** These are the rows `Task.committed` already leaves out
   of every committed-delivery aggregate. The CPM output columns are non-null only on
   that set (ADR-1152), so a "planned duration" exists only there. A backlog item is

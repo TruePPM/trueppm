@@ -256,12 +256,39 @@ def test_a_task_whose_only_children_are_uncommitted_is_still_leaf_work(db: objec
     Leaf 1 (10 d at 50 %) with a BACKLOG child 1.1 (10 d at 100 %): 1 is the only
     committed row, so it is leaf work → 50 %. Treating 1 as a phase would leave no
     leaf work at all (no_planned_duration); counting the backlog child would read 100 %.
+
+    The task API's rollup does count the backlog child, so the task shows 100 % while
+    EV weights it at 50 %: the documented difference ("counting only its subtasks").
     """
     from trueppm_api.apps.projects.models import TaskStatus
 
     p = h.project("Backlog child", budget="1000.00")
-    _leaf(p, "1", 10, 50)
+    leaf = _leaf(p, "1", 10, 50)
     _leaf(p, "1.1", 10, 100, status=TaskStatus.BACKLOG)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete == Decimal("50.00")
+    assert cost.earned_value == Decimal("500.00")
+
+    owner = h.user("backlog-child-owner")
+    h.member(p, owner, Role.OWNER)
+    shown = h.client(owner).get(f"/api/v1/tasks/{leaf.pk}/").json()["percent_complete"]
+    assert shown == 100.0
+
+
+def test_a_subtask_under_an_uncommitted_child_does_not_move_ev(db: object) -> None:
+    """Only the leaf's own subtasks count, not one filed under a BACKLOG child (ADR-1447).
+
+    Leaf 1 (10 d at 50 %) → BACKLOG 1.1 (10 d at 0 %) → subtask 1.1.1 (5 d at 100 %).
+    1.1.1 belongs to the backlog item, not to 1, so 1 has no subtasks of its own and EV
+    reads its stored 50 % → EV 500.00. Counting 1.1.1 because it is a subtask somewhere
+    below 1 would read 100 % → 1,000.00.
+    """
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    p = h.project("Subtask under backlog", budget="1000.00")
+    _leaf(p, "1", 10, 50)
+    _leaf(p, "1.1", 10, 0, status=TaskStatus.BACKLOG)
+    _leaf(p, "1.1.1", 5, 100, is_subtask=True)
     cost = project_cost_facts([p.pk])[p.pk]
     assert cost.percent_complete == Decimal("50.00")
     assert cost.earned_value == Decimal("500.00")

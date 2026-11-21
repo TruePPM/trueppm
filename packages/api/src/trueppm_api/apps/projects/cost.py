@@ -91,7 +91,8 @@ COST_DEFINITIONS: dict[str, str] = {
         "The percent complete earned value is computed from: each leaf work task's "
         "percent complete weighted by its current duration in working days, "
         "sum(percent x duration) / sum(duration). A task with subtasks counts at the "
-        "percent its subtasks roll up to, as the task shows it. Phases, subtasks, "
+        "percent its subtasks roll up to, as the task shows it but counting only its "
+        "own subtasks, not backlog or epic items filed under it. Phases, subtasks, "
         "backlog, epics, recurring and zero-duration tasks (milestones) are left out "
         "as rows of their own. A 100-day task "
         "counts 100 times as much as a 1-day task. This is not the project list's "
@@ -328,8 +329,11 @@ def project_percent_complete(project_ids: Collection[Any]) -> dict[Any, float]:
     EPIC rows is still leaf work, or its own work would drop out with no committed row
     standing in for it.
 
-    A leaf's percent is the one the task API shows for it: the subtask-weighted rollup
-    when it has live subtasks, else its stored ``percent_complete``. The rollup is never
+    A leaf's percent is the one the task API shows for it, counting only its own
+    subtasks: the subtask-weighted rollup when it has live direct subtasks, else its
+    stored ``percent_complete``. The task API's rollup also counts BACKLOG or EPIC rows
+    filed under the leaf (and their subtasks); EV does not, so for such a leaf the two
+    differ by design — uncommitted work earns nothing. The rollup is never
     written back to the parent row, so reading the stored column would weight a value no
     screen shows (:func:`task_percent_complete_rollup_expr`).
     A task with ``duration`` 0 adds nothing to either sum: it plans no work, so it
