@@ -288,7 +288,7 @@ python3 "$GATE" >"$TMP/real" 2>&1 \
 # was bumped 75 -> 83 -> ... -> 97 by hand. Raise the floor if you like; never
 # lower it.
 MIN_SITES=97
-sites=$(sed -n 's/.*(\([0-9][0-9]*\) checked).*/\1/p' "$TMP/real" | head -1)
+sites=$(sed -n 's/.*(\([0-9][0-9]*\) checked).*/\1/p' "$TMP/real" | sed -n 1p)
 [[ -n "$sites" && "$sites" -ge "$MIN_SITES" ]] \
   && check "the scanner still sees at least $MIN_SITES unique-constraint sites (saw ${sites:-none})" 0 \
   || check "the scanner still sees at least $MIN_SITES unique-constraint sites (saw ${sites:-none})" 1
