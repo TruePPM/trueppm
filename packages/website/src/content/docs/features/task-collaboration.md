@@ -395,7 +395,7 @@ the people whose relationship with TruePPM is "tell me when something is wrong":
 
 | Digest | What it reports |
 |---|---|
-| **Weekly program health digest** | Which of your programs are *at risk* or *critical*, and the project contributing most to each |
+| **Weekly program health digest** | Which of your programs are *at risk* or *critical*, and the project contributing most to each. See the [weekly digest schedule and contents](/features/notifications/#the-weekly-digests-and-their-schedule) |
 | **Weekly resource overallocation digest** | Which resources are booked over 100% in the week ahead, on projects where you are a Resource Manager or above |
 
 Both are **off by default on every channel** — unlike the event notifications

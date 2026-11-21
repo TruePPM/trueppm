@@ -364,10 +364,10 @@ Deactivation closes the ways a member can *reach in*. TruePPM also stops the way
 it reaches *out* to them, which are not credential-gated and would otherwise
 continue on a schedule of their own:
 
-- **Neither [weekly digest](/features/notifications/) is sent to a deactivated
+- **Neither [weekly digest](/features/notifications/#the-weekly-digests-and-their-schedule) is sent to a deactivated
   member**, even though their project and program memberships stay live — the
-  program-health digest names each at-risk program, its health band and the
-  project driving it, so a digest that outlived an off-boarding would keep
+  program-health digest names each program it lists and the project driving it
+  (see the digest page for exactly what a line carries), so a digest that outlived an off-boarding would keep
   delivering program state to a former colleague's inbox every week.
 - **Notification email already queued for them is dropped rather than delivered.**
   A mention or stale-task nudge sitting in the outbox when the account is

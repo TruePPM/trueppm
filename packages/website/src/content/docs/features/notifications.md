@@ -171,11 +171,13 @@ clock** rather than in response to an event: a program-health digest (which
 programs are at risk or critical, and what is driving it) and a
 resource-overallocation digest (who is booked over 100% next week, for the
 callers who are Resource Manager or above on the relevant projects). Neither
-computes anything of its own — each links to the same rolled-up numbers the
+computes a health value of its own — each links to the same rolled-up numbers the
 program overview and the resource heat map already show, so a digest line and
-the screen it points to agree, with one exception. For a program that uses the
+the screen it points to agree, with one exception. (The program-health digest's
+cost line is the other difference: it is computed per recipient, as described
+below.) For a program that uses the
 **Budget-weighted** aggregation policy, the program-health digest always uses the
-plain average. A digest is not computed for a particular viewer, and budget
+plain average. The health dot is not computed for a particular viewer, and budget
 weighting is applied only for a viewer allowed to see every project's budget, so
 someone who may see every budget can find the overview showing a different,
 budget-weighted band than their digest. A week with nothing to report
@@ -196,6 +198,8 @@ What it says depends on the program's settings and on your role:
 | **Cost: spending ahead of progress** | Within budget, but cost variance is negative: more has been spent than the work done is worth |
 | **Cost: within budget** | Neither of the above |
 | **Cost: unavailable, a project has no budget** / **someone has no rate** | A cost input is missing, so cost cannot be computed |
+| **Cost: no projects yet** | The program has no projects to price |
+| **Cost: unavailable** | A cost state the digest has no wording for; it never shows the raw value |
 | **Cost: restricted to managers of every project** | You are not Program Manager or above on the program, or not Project Manager or above on every project in it |
 | **Cost: not tracked in this program's rollup** | Neither cost KPI is turned on in the program's [rollup settings](/features/settings/program-rollup/) |
 

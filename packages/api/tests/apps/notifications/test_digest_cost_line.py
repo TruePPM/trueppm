@@ -241,22 +241,42 @@ def test_entitled_digest_is_identical_for_any_budget_within_a_band(
     assert _body(owner) == first
 
 
+def _viewer(prog: Program, p: Project) -> Any:
+    who = h.user("pviewer")
+    ProgramMembership.objects.create(program=prog, user=who, role=Role.VIEWER)
+    return who
+
+
+def _admin_without_project_admin(prog: Program, p: Project) -> Any:
+    """Passes the program half of the gate, fails the project half."""
+    who = h.user("program-pm-restricted")
+    ProgramMembership.objects.create(program=prog, user=who, role=Role.ADMIN)
+    h.member(p, who, Role.SCHEDULER)
+    return who
+
+
+@pytest.mark.parametrize("recipient", [_viewer, _admin_without_project_admin])
 @pytest.mark.parametrize("budget", ["100000.00", "1000.00", "500.00", None])
-def test_restricted_digest_is_identical_whatever_the_budget(budget: str | None) -> None:
+def test_restricted_digest_is_identical_whatever_the_budget(
+    budget: str | None, recipient: Any
+) -> None:
     """Within budget, over budget, far over, or no budget: one and the same body.
 
     ``no_budget`` is in the set on purpose — it is a cost reason too, and a recipient
-    below the floor must not learn whether a budget is set (ADR-1324 §3).
+    below the floor must not learn whether a budget is set (ADR-1324 §3). Both halves
+    of the gate are exercised: a program Viewer fails the program half; a program
+    Admin who is only Scheduler on the project fails the project half
+    (``_sees_cost_of_every_project``).
     """
     prog, _ = _program()
     p = _spend(prog, budget="10000.00", percent=100, minutes=1200)
     _make_late(p)
-    viewer = h.user("pviewer")
-    ProgramMembership.objects.create(program=prog, user=viewer, role=Role.VIEWER)
+    who = recipient(prog, p)
 
-    baseline = _body(viewer)
+    baseline = _body(who)
+    assert _cost_texts(baseline) == ["restricted to managers of every project"]
     _set_budget(p, budget)
-    assert _body(viewer) == baseline
+    assert _body(who) == baseline
 
 
 @pytest.mark.parametrize(
@@ -282,6 +302,18 @@ def test_cost_segment_is_always_a_vocabulary_word_and_never_a_number(
     for text in texts:
         assert text in COST_LINE_VOCABULARY
         assert not re.search(r"\d", text)
+
+
+def test_missing_rates_is_named_to_an_entitled_recipient() -> None:
+    prog, owner = _program()
+    worker = h.user("unrated-worker")
+    h.resource("Unrated", worker)  # no cost rate
+    p = h.project("Lander", budget="1000.00", program=prog)
+    h.log(h.task(p, percent=0), worker, 60)
+    _make_late(p)
+    _project_admin(prog, owner)
+
+    assert _cost_texts(_body(owner)) == ["unavailable, someone has no rate"]
 
 
 # ---------------------------------------------------------------------------
