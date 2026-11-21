@@ -903,7 +903,7 @@ release it is scheduled for:
   ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574); from 0.5 a
   signed-off milestone's edge never re-reads its predecessors, so a correction
   to completed work or a removed link keeps the handed-back edge by design,
-  [#5017](https://gitlab.com/trueppm/trueppm/-/issues/5017)); closing
+  ADR-0136); closing
   out-of-sequence work can still move a signed-off milestone's successors when
   several predecessors are late, or when a faithful hand-back is re-read from
   the completed work
