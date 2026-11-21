@@ -740,8 +740,11 @@ def task_percent_complete_rollup_expr(*, subtasks_only: bool = False) -> RawSQL:
     else:
         scope, depth = "", "{1,}"
     # nosemgrep: avoid-raw-sql — static SQL literal, no params interpolated.
+    # nosec B611 — `scope`/`depth` are picked from two fixed literals above, never user input.
     return RawSQL(
-        _PERCENT_ROLLUP_SQL.format(scope=scope, depth=depth), [], output_field=FloatField()
+        _PERCENT_ROLLUP_SQL.format(scope=scope, depth=depth),  # nosec B611
+        [],
+        output_field=FloatField(),
     )
 
 
