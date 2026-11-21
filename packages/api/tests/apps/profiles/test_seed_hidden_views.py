@@ -8,10 +8,11 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.profiles.constants import HIDEABLE_VIEW_KEYS
 from trueppm_api.apps.profiles.models import UserProfile
 from trueppm_api.apps.profiles.services import SEED_HIDDEN_VIEWS
-from trueppm_api.apps.projects.models import Calendar
+from trueppm_api.apps.projects.models import Calendar, Program, Project
 
 User = get_user_model()
 
@@ -33,7 +34,8 @@ def _create(user: object, cal: Calendar, **extra: object) -> object:
 
 
 def _hidden(user: object) -> list[str]:
-    return list(UserProfile.objects.get(user=user).hidden_views)
+    profile = UserProfile.objects.filter(user=user).first()
+    return list(profile.hidden_views) if profile else []
 
 
 @pytest.fixture
@@ -75,3 +77,28 @@ def test_existing_customization_is_never_overwritten(cal: Calendar) -> None:
     UserProfile.objects.create(user=user, hidden_views=["risk"])
     _create(user, cal, methodology="HYBRID")
     assert _hidden(user) == ["risk"]
+
+
+@pytest.mark.django_db
+def test_omitted_methodology_seeds_the_hybrid_set(cal: Calendar) -> None:
+    user = User.objects.create_user(username="omitted", password="pw")
+    _create(user, cal)
+    assert _hidden(user) == sorted(SEED_HIDDEN_VIEWS["HYBRID"])
+
+
+@pytest.mark.django_db
+def test_existing_project_membership_blocks_the_seed(cal: Calendar) -> None:
+    user = User.objects.create_user(username="member", password="pw")
+    other = Project.objects.create(name="Other", start_date=date(2026, 9, 1), calendar=cal)
+    ProjectMembership.objects.create(project=other, user=user, role=Role.MEMBER)
+    _create(user, cal, methodology="HYBRID")
+    assert _hidden(user) == []
+
+
+@pytest.mark.django_db
+def test_existing_program_membership_blocks_the_seed(cal: Calendar) -> None:
+    user = User.objects.create_user(username="progmember", password="pw")
+    program = Program.objects.create(name="Prog")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    _create(user, cal, methodology="HYBRID")
+    assert _hidden(user) == []

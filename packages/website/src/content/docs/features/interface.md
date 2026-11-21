@@ -230,7 +230,9 @@ preference is seeded from the methodology you picked, so a Hybrid project opens 
 about six views (Dashboard, Schedule, Grid, Board, Today, Settings) rather than all
 fourteen. Turn the rest on from **Customize views** at any time. The seed applies once,
 at your first project, and never overwrites a rail you have already customized or
-re-applies when you change a project's methodology. Until then, every view starts visible.
+re-applies when you change a project's methodology. A Waterfall project starts without
+Board, Today, Reports, Activity, Assets and Team; an Agile project starts without Grid,
+Risk, Reports, Activity, Assets and Team. Until then, every view starts visible.
 :::
 
 ### Collapsing the rail
