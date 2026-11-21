@@ -451,3 +451,228 @@ def test_an_imported_closed_milestone_keeps_the_files_day_edge(
     assert m.actual_finish == date(2026, 1, 7)
     assert m.milestone_at_day_end is at_day_end
     assert by_name["B"].early_start == b_start
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "keep_default_finish",
+    [
+        pytest.param(True, id="current-export"),
+        # A file exported before the exporter wrote <DefaultFinishTime>: only the
+        # calendar's shift end can say 16:00 is the end of the day.
+        pytest.param(False, id="export-without-default-finish"),
+    ],
+)
+def test_a_closed_end_of_day_milestone_survives_an_export_import_round_trip(
+    project: Project, keep_default_finish: bool
+) -> None:
+    """TruePPM -> MSPDI -> TruePPM keeps a closed milestone's end-of-day edge (#5017).
+
+    The exporter writes the closed gate at its calendar's shift end (16:00 on the
+    8-hour default), so the importer must read the day end from that calendar; a
+    17:00 fallback reads 16:00 as the start of Friday and Build moves from Monday
+    to Friday.
+    """
+    from trueppm_api.apps.msproject.exporter import export_project_xml
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    _recalculated(project)
+    Task.objects.filter(project=project, name="Design").update(
+        status=TaskStatus.COMPLETE,
+        percent_complete=100,
+        actual_start=date(2026, 1, 5),
+        actual_finish=date(2026, 1, 9),
+    )
+    Task.objects.filter(project=project, name="Design gate").update(
+        status=TaskStatus.COMPLETE, percent_complete=100, actual_finish=date(2026, 1, 9)
+    )
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+    assert Task.objects.get(project=project, name="Build").early_start == date(2026, 1, 12)
+
+    root = ET.fromstring(export_project_xml(str(project.pk)))
+    ns = {"m": _NS}
+    assert root.findtext("m:DefaultFinishTime", namespaces=ns) == "16:00:00"
+    if not keep_default_finish:
+        root.remove(root.find("m:DefaultFinishTime", ns))  # type: ignore[arg-type]
+    # Build's exported <Start> would re-import as an SNET floor and hold it on
+    # Monday whatever the gate's edge, so drop it to let the edge decide.
+    build = next(
+        t
+        for t in root.findall("m:Tasks/m:Task", ns)
+        if t.findtext("m:Name", namespaces=ns) == "Build"
+    )
+    for tag in ("Start", "Finish"):
+        el = build.find(f"m:{tag}", ns)
+        if el is not None:
+            build.remove(el)
+
+    fresh = Project.objects.create(
+        name="Round trip",
+        start_date=date(2026, 1, 5),
+        status_date=date(2026, 1, 5),
+        calendar=Calendar.objects.create(name="Standard"),
+    )
+    import_project(str(fresh.pk), parse_xml(ET.tostring(root, encoding="unicode").encode("utf-8")))
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(fresh.pk))
+    by_name = {t.name: t for t in Task.objects.filter(project=fresh)}
+    gate = by_name["Design gate"]
+    assert (gate.actual_finish, gate.milestone_at_day_end) == (date(2026, 1, 9), True)
+    assert by_name["Build"].early_start == date(2026, 1, 12)
+
+
+def _day_end_xml(
+    *,
+    actual_finish: str | None,
+    default_finish: str | None = None,
+    calendar_shifts: dict[str, tuple[str, str]] | None = None,
+    project_calendar: bool = True,
+    task_calendar: bool = False,
+    percent: str = "100",
+) -> bytes:
+    """One milestone, optionally on a calendar of ``{DayType: (from, to)}`` shifts."""
+    root = ET.Element(f"{{{_NS}}}Project")
+    ET.SubElement(root, f"{{{_NS}}}Name").text = "Day end"
+    ET.SubElement(root, f"{{{_NS}}}StartDate").text = "2026-01-05T08:00:00"
+    if calendar_shifts is not None and project_calendar:
+        ET.SubElement(root, f"{{{_NS}}}CalendarUID").text = "2"
+    if default_finish is not None:
+        ET.SubElement(root, f"{{{_NS}}}DefaultFinishTime").text = default_finish
+    if calendar_shifts is not None:
+        cal = ET.SubElement(ET.SubElement(root, f"{{{_NS}}}Calendars"), f"{{{_NS}}}Calendar")
+        ET.SubElement(cal, f"{{{_NS}}}UID").text = "2"
+        ET.SubElement(cal, f"{{{_NS}}}Name").text = "Early shift"
+        ET.SubElement(cal, f"{{{_NS}}}IsBaseCalendar").text = "1"
+        days = ET.SubElement(cal, f"{{{_NS}}}WeekDays")
+        for day_type in ("1", "2", "3", "4", "5", "6", "7"):
+            day = ET.SubElement(days, f"{{{_NS}}}WeekDay")
+            ET.SubElement(day, f"{{{_NS}}}DayType").text = day_type
+            shift = calendar_shifts.get(day_type)
+            ET.SubElement(day, f"{{{_NS}}}DayWorking").text = "1" if shift else "0"
+            if shift:
+                wt = ET.SubElement(
+                    ET.SubElement(day, f"{{{_NS}}}WorkingTimes"), f"{{{_NS}}}WorkingTime"
+                )
+                ET.SubElement(wt, f"{{{_NS}}}FromTime").text = shift[0]
+                ET.SubElement(wt, f"{{{_NS}}}ToTime").text = shift[1]
+    task = ET.SubElement(ET.SubElement(root, f"{{{_NS}}}Tasks"), f"{{{_NS}}}Task")
+    fields = [
+        ("UID", "1"),
+        ("ID", "1"),
+        ("Name", "M"),
+        ("Duration", "PT0H0M0S"),
+        ("Milestone", "1"),
+        ("Start", actual_finish or "2026-01-07T08:00:00"),
+        ("PercentComplete", percent),
+    ]
+    if task_calendar:
+        fields.append(("CalendarUID", "2"))
+    if actual_finish is not None:
+        fields.append(("ActualFinish", actual_finish))
+    for key, value in fields:
+        ET.SubElement(task, f"{{{_NS}}}{key}").text = value
+    return ET.tostring(root, encoding="unicode").encode("utf-8")
+
+
+_WEEKDAYS = ("2", "3", "4", "5", "6")
+_EARLY = {d: ("07:00:00", "15:30:00") for d in _WEEKDAYS}
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "at_day_end"),
+    [
+        # No <DefaultFinishTime> and no calendar: MS Project's Standard 17:00.
+        pytest.param({"actual_finish": "2026-01-07T17:00:00"}, True, id="no-default-17h"),
+        pytest.param({"actual_finish": "2026-01-07T16:00:00"}, False, id="no-default-16h"),
+        # A 07:00-15:30 project calendar under a 17:00 default: the shift end decides.
+        pytest.param(
+            {
+                "actual_finish": "2026-01-07T15:30:00",
+                "default_finish": "17:00:00",
+                "calendar_shifts": _EARLY,
+            },
+            True,
+            id="calendar-1530-end",
+        ),
+        pytest.param(
+            {
+                "actual_finish": "2026-01-07T15:00:00",
+                "default_finish": "17:00:00",
+                "calendar_shifts": _EARLY,
+            },
+            False,
+            id="calendar-before-1530",
+        ),
+        # The task's own calendar decides when the project names none.
+        pytest.param(
+            {
+                "actual_finish": "2026-01-07T15:30:00",
+                "default_finish": "17:00:00",
+                "calendar_shifts": _EARLY,
+                "project_calendar": False,
+                "task_calendar": True,
+            },
+            True,
+            id="task-calendar",
+        ),
+        # The milestone's weekday shift: a Friday ending at 12:00.
+        pytest.param(
+            {
+                "actual_finish": "2026-01-09T12:00:00",
+                "calendar_shifts": {**_EARLY, "6": ("07:00:00", "12:00:00")},
+            },
+            True,
+            id="weekday-specific-end",
+        ),
+        # A shift to midnight is read as 23:59, the time the exporter writes.
+        pytest.param(
+            {
+                "actual_finish": "2026-01-07T23:59:00",
+                "calendar_shifts": {d: ("00:00:00", "24:00:00") for d in _WEEKDAYS},
+            },
+            True,
+            id="midnight-shift",
+        ),
+        # A closed milestone without <ActualFinish> has no time of day to read.
+        pytest.param({"actual_finish": None}, False, id="no-actual-finish"),
+    ],
+)
+def test_parse_reads_a_closed_milestones_day_end_from_its_calendar(
+    kwargs: dict[str, object], at_day_end: bool
+) -> None:
+    """#5017: ``actual_finish_at_day_end`` compares against the calendar's shift end."""
+    (task,) = parse_xml(_day_end_xml(**kwargs)).tasks  # type: ignore[arg-type]
+    assert task.actual_finish_at_day_end is at_day_end
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("percent", "seeded"),
+    [
+        pytest.param("100", True, id="complete"),
+        pytest.param("50", False, id="not-complete"),
+    ],
+)
+def test_import_seeds_the_hand_back_only_on_a_completed_milestone(
+    percent: str, seeded: bool
+) -> None:
+    """#5017: the seed fires only on a COMPLETE milestone, and writes ``early_finish``
+    alone — a seeded ``early_start`` would read as a CPM run that has not happened."""
+    xml = _day_end_xml(actual_finish="2026-01-07T17:00:00", percent=percent)
+    parsed = parse_xml(xml)
+    assert parsed.tasks[0].actual_finish_at_day_end is True
+    fresh = Project.objects.create(
+        name="Seed guard", start_date=date(2026, 1, 5), status_date=date(2026, 1, 5)
+    )
+    import_project(str(fresh.pk), parsed)
+    m = Task.objects.get(project=fresh, name="M")
+    assert m.milestone_at_day_end is seeded
+    assert m.early_finish == (date(2026, 1, 7) if seeded else None)
+    assert m.early_start is None

@@ -645,6 +645,9 @@ def _build_task_object(
     # the day its completed work finished would recompute at the start of it and
     # pull its FS successors a working day earlier than the file. The file's own
     # finish time is that previous run: write the edge it states, on the day kept.
+    # Only ``early_finish`` is the hand-back; ``early_start`` is left to the
+    # post-import recalc, because the ``has_cpm`` checks read a non-null
+    # ``early_start`` as "a CPM run has happened" and none has yet.
     seed_day_end = bool(
         td.is_milestone
         and td.actual_finish_at_day_end
@@ -670,7 +673,6 @@ def _build_task_object(
         planned_start=_resolve_planned_start(td),
         actual_start=actual_start,
         actual_finish=actual_finish,
-        early_start=actual_finish if seed_day_end else None,
         early_finish=actual_finish if seed_day_end else None,
         milestone_at_day_end=seed_day_end,
         # Soft deadline (#690): annotation only, so it carries across verbatim.

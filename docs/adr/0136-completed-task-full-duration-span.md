@@ -305,8 +305,13 @@ Rules:
     land a working day earlier than in the source file. The MS Project importer
     seeds it (`milestone_at_day_end` with `early_finish` on the recorded day,
     which the API hands back as `live_day_end_on`) when a completed milestone's
-    `<ActualFinish>` time of day is at or after the file's `<DefaultFinishTime>`
-    (17:00 when absent). The CSV and Jira importers and the `import_seed`
+    `<ActualFinish>` time of day is at or after the end of its working day: the
+    latest `<ToTime>` of that weekday's shifts in the milestone's calendar (the
+    task's `<CalendarUID>`, else the project's), else the file's
+    `<DefaultFinishTime>`, else 17:00. The calendar comes first because TruePPM's
+    own exporter writes such a milestone at its calendar's shift end (16:00 on the
+    8-hour default), which a 17:00 `<DefaultFinishTime>` would read as the start of
+    the day; the exporter also writes `<DefaultFinishTime>` to match. The CSV and Jira importers and the `import_seed`
     command cannot: they import no actual dates at all, so no milestone arrives
     closed with actuals; there is no XER importer. Implemented in `_live_milestone_edge`
     (`engine/forward.py`), kept as the 0.4 import name, and `live_milestone_edge`
