@@ -29,8 +29,11 @@ Accepted — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
 > with recorded actuals sits at the end of its recorded day exactly when the caller hands
 > back `live_day_end_on` naming that day, and at the start otherwise; no predecessor is
 > read for the edge. This supersedes the completed-predecessor reading (#4525) and its
-> recorded-day cap (#4703), which were not monotone. See the dated bullet under
-> Decision → Rules.
+> recorded-day cap (#4703), which were not monotone. One predecessor read remains, as an
+> owner-accepted exception: a calendar-day lag out of a milestone closed at the start of
+> its day can count from an earlier equivalent midnight read from completed predecessors
+> (#4690), so successors can move later, never earlier; a pin-only link instant is #5089.
+> See the dated bullet under Decision → Rules.
 
 > **The conformance-fixture constraint below is superseded by shipped practice** (verified
 > 2026-07-31, #2664). Both the Constraints section ("the shared `wasm:conformance` fixtures
@@ -263,7 +266,8 @@ Rules:
     the **start** of it otherwise. No predecessor is read for the edge — not its
     actuals, link type, lag or calendar, and not whether it is open — so every row
     of the table gives the same `B`, and raising a lag on a completed link never
-    flips the flag. This also removes #4574's path dependence: the edge is a
+    flips the flag. (The table's `B` is a zero-lag reading of the edge; see the
+    accepted exception below for a lag out of a milestone at the start of its day.) This also removes #4574's path dependence: the edge is a
     function of the milestone's own fields, so the same facts always schedule the
     same way; and the freeze/release machinery (`_completed_after_recorded`, the
     open-predecessor freeze, the completed-work re-read) is gone, because the
@@ -282,7 +286,29 @@ Rules:
     proposal and a proposal after the recorded day leaves the recorded day's
     start, so a later predecessor finish never moves a successor earlier; the
     working-time point is the pin's. #4740 (closing ahead of open work) is that
-    reading's open residual and is unchanged. Implemented in `_live_milestone_edge`
+    reading's open residual and is unchanged. **Accepted exception (owner
+    decision, 2026-11-21):** because of this reading, the edge is the pin but a
+    lagged successor is not a function of the pin alone. `A(1d)` closed Fri
+    2026-03-06 `-FS+lag->` `M` closed Mon 2026-03-09 (no hand-back) `-FS+2d->`
+    `B(1d)`: with lag 0, `M` links from Sat 00:00 and `B` starts Mon 03-09; with
+    lag 1, from Sun 00:00 and `B` starts Tue 03-10; with `A` closed on Mon, from
+    Mon 00:00 and `B` starts Wed 03-11. So a correction to completed work or a lag
+    edit on a completed link *can* move such a successor, later and never earlier.
+    The owner kept this rather than widen #5017 into the link instant; a pin-only
+    link instant (the lag counts from the pin's own midnight, whatever the
+    predecessors) is tracked as #5089. Pinned by
+    `TestClosedMilestoneEdgeIsThePin::test_accepted_exception_*` and the
+    `progress_closed_milestone_link_instant_exception` conformance fixture.
+    **Importers:** the hand-back is the only source of the end-of-day edge, so a
+    schedule imported with a milestone already closed on the day its completed
+    work finished needs `live_day_end_on` seeded at import, or its FS successors
+    land a working day earlier than in the source file. The MS Project importer
+    seeds it (`milestone_at_day_end` with `early_finish` on the recorded day,
+    which the API hands back as `live_day_end_on`) when a completed milestone's
+    `<ActualFinish>` time of day is at or after the file's `<DefaultFinishTime>`
+    (17:00 when absent). The CSV and Jira importers and the `import_seed`
+    command cannot: they import no actual dates at all, so no milestone arrives
+    closed with actuals; there is no XER importer. Implemented in `_live_milestone_edge`
     (`engine/forward.py`), kept as the 0.4 import name, and `live_milestone_edge`
     (`wasm-scheduler/src/forward.rs`); pinned by the
     `progress_closed_milestone_edge_is_the_pin` conformance fixture, whose expected

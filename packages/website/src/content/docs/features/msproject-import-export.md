@@ -280,7 +280,7 @@ positions.
 | `<CreationDate>` | — | ⬜ Ignored |
 | `<FinishDate>` | — | ⬜ Ignored |
 | `<DefaultStartTime>` | — | ⬜ Ignored |
-| `<DefaultFinishTime>` | — | ⬜ Ignored |
+| `<DefaultFinishTime>` | — | ⬜ Ignored (0.4); from 0.5, read as the end of the working day a completed milestone's `<ActualFinish>` time is compared against, 17:00 when absent |
 | `<MinutesPerDay>` | — | ⬜ Ignored |
 | `<MinutesPerWeek>` | — | ⬜ Ignored |
 | `<DaysPerMonth>` | — | ⬜ Ignored |
@@ -305,7 +305,7 @@ positions.
 | `<ConstraintType>` | `Task.planned_start` (codes 2, 4 only) | 🟡 Partial | `4` Start No Earlier Than is exactly `planned_start`'s meaning and is carried across. `2` Must Start On becomes the same start floor **and warns**, because TruePPM cannot also stop the task starting later. `0` As Soon As Possible is TruePPM's own default. `1` ALAP, `3` Must Finish On, `5` SNLT, `6` FNET and `7` FNLT have no TruePPM equivalent and are reported in the import warnings with a task count. |
 | `<ConstraintDate>` | `Task.planned_start` | 🟡 Partial | Read only alongside a code TruePPM applies (2 or 4). This is the date the PM *committed to*, so it takes precedence over the computed `<Start>` — importing the computed date instead was how a migrated plan quietly lost its commitments. |
 | `<ActualStart>` | `Task.actual_start` | ✅ Mapped | Date portion only. `NA` and unparseable values import as empty rather than as a date. Validated against the pair, the project's span, and the future bound — see the last row of [Import warnings](#import-warnings). |
-| `<ActualFinish>` | `Task.actual_finish` | ✅ Mapped | Date portion only. Same validation as `<ActualStart>`, plus a task-status check: a finish is only kept on a task the file marks in review or complete. |
+| `<ActualFinish>` | `Task.actual_finish` | ✅ Mapped | Date portion only. Same validation as `<ActualStart>`, plus a task-status check: a finish is only kept on a task the file marks in review or complete. From 0.5, on a completed milestone the time of day is also read: at or after `<DefaultFinishTime>` the milestone keeps the end of its day, as MS Project placed it, so its finish-to-start successors start the next working day, as in the file. Otherwise it sits at the start of its day. |
 | `<Deadline>` | `Task.deadline` | ✅ Mapped | Ships in 0.5. Date portion only. A soft deadline in both tools: it does not constrain the schedule. Export writes it back as `<Deadline>`. In 0.4 and earlier it is ignored and reported in the import warnings. |
 | `<Baseline>` | — | ⬜ Ignored | Reported with a count. Capture a [TruePPM baseline](/features/baselines/) after the import lands instead — it will then reflect the imported dates. |
 | `<Priority>` | — | ⬜ Ignored | MS Project's 0–1000 weight is not `Task.priority_rank`, which is an ordinal position. Reported with a count when the value is not the 500 default. |

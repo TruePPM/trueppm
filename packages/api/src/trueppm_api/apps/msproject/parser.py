@@ -101,6 +101,10 @@ _CONSTRAINT_TYPES_NOT_A_LOSS: frozenset[int] = frozenset({0}) | CONSTRAINT_TYPES
 #: every import reports a loss that did not happen.
 _MSPDI_DEFAULT_PRIORITY = 500
 
+# MS Project's Standard calendar ends its working day at 17:00; a file with no
+# <DefaultFinishTime> is read on that default (#5017).
+_MSP_DEFAULT_FINISH_MINUTE = 17 * 60
+
 
 def _int_or_none(raw: str) -> int | None:
     """Read an integer element's text, or ``None`` when it is absent/unparseable."""
@@ -285,6 +289,22 @@ def _time_to_minutes(raw: str) -> int | None:
     if not (0 <= hours <= 24 and 0 <= minutes < 60):
         return None
     return hours * 60 + minutes
+
+
+def _is_at_day_end(raw: str, day_end_minute: int) -> bool:
+    """Whether an MSPDI datetime's time of day is at or after the working day's end.
+
+    MS Project writes a milestone that follows work at the calendar's finish time
+    (17:00 on Standard) and one held at the start of a day at its start time
+    (08:00), never at midnight, so the time of day is what says which edge of the
+    day a closed milestone sits on (#4079, #5017). A bare date carries no time and
+    reads as the start of the day.
+    """
+    candidate = raw.strip()
+    if len(candidate) < 16 or candidate[10] != "T":
+        return False
+    minute = _time_to_minutes(candidate[11:])
+    return minute is not None and minute >= day_end_minute
 
 
 def _iso_date_or_none(raw: str) -> str | None:
@@ -732,6 +752,7 @@ def _parse_one_task(
     pert_role_to_field_id: dict[str, str],
     task_assignments: dict[int, list[AssignmentData]],
     warnings: list[str],
+    day_end_minute: int = _MSP_DEFAULT_FINISH_MINUTE,
 ) -> TaskData | None:
     """Parse a single ``<Task>`` element into ``TaskData``, or ``None`` to skip it.
 
@@ -772,6 +793,7 @@ def _parse_one_task(
     # into a 0-1 fraction that the importer then wrote straight into the 0-100
     # field — a 75% task landed as 0.75%). The same value drives status inference.
     raw_percent = _finite_float(pct_str, 0.0, low=0.0, high=100.0) if pct_str else 0.0
+    actual_finish_str = _child_text(task_el, ns, "ActualFinish")
 
     return TaskData(
         uid=uid,
@@ -791,7 +813,8 @@ def _parse_one_task(
         constraint_type=_int_or_none(_child_text(task_el, ns, "ConstraintType")),
         constraint_date=_iso_date_or_none(_child_text(task_el, ns, "ConstraintDate")),
         actual_start=_iso_date_or_none(_child_text(task_el, ns, "ActualStart")),
-        actual_finish=_iso_date_or_none(_child_text(task_el, ns, "ActualFinish")),
+        actual_finish=_iso_date_or_none(actual_finish_str),
+        actual_finish_at_day_end=is_milestone and _is_at_day_end(actual_finish_str, day_end_minute),
         deadline=_iso_date_or_none(_child_text(task_el, ns, "Deadline")),
         predecessor_links=_parse_predecessor_links(task_el, ns),
         resource_assignments=task_assignments.get(uid, []),
@@ -920,6 +943,7 @@ def _parse_tasks(
     pert_role_to_field_id: dict[str, str],
     task_assignments: dict[int, list[AssignmentData]],
     warnings: list[str],
+    day_end_minute: int = _MSP_DEFAULT_FINISH_MINUTE,
 ) -> list[TaskData]:
     """Parse ``<Tasks>`` into ``TaskData`` rows (per-task skips/warnings applied)."""
     tasks: list[TaskData] = []
@@ -931,7 +955,9 @@ def _parse_tasks(
     # the summary rather than trailing the per-task notes.
     _warn_unmapped_task_fields(tasks_el, ns, warnings)
     for task_el in tasks_el.findall(f"{ns}Task"):
-        td = _parse_one_task(task_el, ns, pert_role_to_field_id, task_assignments, warnings)
+        td = _parse_one_task(
+            task_el, ns, pert_role_to_field_id, task_assignments, warnings, day_end_minute
+        )
         if td is not None:
             tasks.append(td)
     _reconcile_actuals(tasks, warnings)
@@ -1042,8 +1068,12 @@ def parse_xml(xml_content: bytes) -> ProjectData:
     # --- Parse resources, assignments, and tasks ---
     project_data.resources, resource_map = _parse_resources(root, ns)
     task_assignments = _parse_assignments(root, ns, resource_map)
+    # A 00:00 or malformed <DefaultFinishTime> is no day end; fall back to Standard's.
+    day_end_minute = (
+        _time_to_minutes(_child_text(root, ns, "DefaultFinishTime")) or _MSP_DEFAULT_FINISH_MINUTE
+    )
     project_data.tasks = _parse_tasks(
-        root, ns, pert_role_to_field_id, task_assignments, project_data.warnings
+        root, ns, pert_role_to_field_id, task_assignments, project_data.warnings, day_end_minute
     )
 
     return project_data

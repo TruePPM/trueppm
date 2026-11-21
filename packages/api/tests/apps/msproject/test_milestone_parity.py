@@ -368,3 +368,86 @@ def test_export_clamps_a_midnight_day_end_to_the_last_minute(project: Project) -
     dates, _root = _exported_dates(project)
     assert dates["Design gate"] == ("2026-01-09T23:59:00", "2026-01-09T23:59:00")
     assert dates["Release"] == ("2026-01-14T23:59:00", "2026-01-14T23:59:00")
+
+
+def _closed_plan_xml(milestone_finish: str) -> bytes:
+    """``A (done Wed 17:00) -FS-> M (closed at milestone_finish) -FS-> B`` (#5017).
+
+    A Mon-Fri Standard plan from Mon 2026-01-05: A ran Mon-Wed and M was signed off
+    on Wed, so MS Project starts B Thu 08:00.
+    """
+    root = ET.Element(f"{{{_NS}}}Project")
+    ET.SubElement(root, f"{{{_NS}}}Name").text = "Closed milestone import"
+    ET.SubElement(root, f"{{{_NS}}}StartDate").text = "2026-01-05T08:00:00"
+    ET.SubElement(root, f"{{{_NS}}}DefaultFinishTime").text = "17:00:00"
+    tasks_el = ET.SubElement(root, f"{{{_NS}}}Tasks")
+    rows = [
+        ("1", "A", "PT24H0M0S", False, "2026-01-05T08:00:00", "2026-01-07T17:00:00", "100", []),
+        ("2", "M", "PT0H0M0S", True, milestone_finish, milestone_finish, "100", ["1"]),
+        # B carries no <Start>: the importer reads one as an SNET floor, which would
+        # hold B on the file's date whatever M's edge.
+        ("3", "B", "PT8H0M0S", False, "", "", "0", ["2"]),
+    ]
+    for uid, name, duration, milestone, start, finish, pct, preds in rows:
+        task_el = ET.SubElement(tasks_el, f"{{{_NS}}}Task")
+        fields = [
+            ("UID", uid),
+            ("ID", uid),
+            ("Name", name),
+            ("Duration", duration),
+            ("Milestone", "1" if milestone else "0"),
+            ("Start", start),
+            ("Finish", finish),
+            ("PercentComplete", pct),
+        ]
+        if pct == "100":
+            fields += [("ActualStart", start), ("ActualFinish", finish)]
+        for key, value in fields:
+            if value:
+                ET.SubElement(task_el, f"{{{_NS}}}{key}").text = value
+        for pred in preds:
+            link = ET.SubElement(task_el, f"{{{_NS}}}PredecessorLink")
+            ET.SubElement(link, f"{{{_NS}}}PredecessorUID").text = pred
+            ET.SubElement(link, f"{{{_NS}}}Type").text = _FS
+            ET.SubElement(link, f"{{{_NS}}}LinkLag").text = "0"
+    return ET.tostring(root, encoding="unicode").encode("utf-8")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("milestone_finish", "at_day_end", "b_start"),
+    [
+        # Closed at the end of Wed, after A: B starts Thu, as in the file.
+        pytest.param("2026-01-07T17:00:00", True, date(2026, 1, 8), id="end-of-day"),
+        # Closed at the start of Wed (08:00, ahead of A's finish): the file says the
+        # start of the day, so no edge is seeded and the FS successor starts Wed.
+        pytest.param("2026-01-07T08:00:00", False, date(2026, 1, 7), id="start-of-day"),
+    ],
+)
+def test_an_imported_closed_milestone_keeps_the_files_day_edge(
+    milestone_finish: str, at_day_end: bool, b_start: date
+) -> None:
+    """The import seeds the hand-back the engine reads for a closed milestone (#5017).
+
+    A signed-off milestone sits at the end of its recorded day only when the
+    previous run handed that edge back (ADR-0136). An import has no previous run,
+    so without the seed M recomputed at the start of Wednesday and B moved to
+    Wednesday, a working day earlier than the file says.
+    """
+    project = Project.objects.create(
+        name="Closed milestone import",
+        start_date=date(2026, 1, 5),
+        status_date=date(2026, 1, 5),
+        calendar=Calendar.objects.create(name="Standard"),
+    )
+    import_project(str(project.pk), parse_xml(_closed_plan_xml(milestone_finish)))
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+    by_name = {t.name: t for t in Task.objects.filter(project=project)}
+    m = by_name["M"]
+    assert m.actual_finish == date(2026, 1, 7)
+    assert m.milestone_at_day_end is at_day_end
+    assert by_name["B"].early_start == b_start
