@@ -321,6 +321,11 @@
       "issue": "#5017",
       "evidence": "regenerated from the Python engine, then every M/B row checked against the dates hand-computed in the input fixture's name (Mon-Fri calendar, FS+1 calendar-day lag from Wed 00:00 or Thu 00:00)"
     },
+    "expected/progress_closed_milestone_link_instant_exception.json": {
+      "provenance": "hand-verified",
+      "issue": "#5017",
+      "evidence": "REGEN_EXPECTED from the Python engine, then every M/B row checked against the dates hand-computed in the input fixture's name (Mon-Fri calendar; M at the start of Mon 03-09 on every row; FS+2 calendar-day lag from Sat, Sun or Mon 00:00); the Rust engine reproduces the bytes. Pins the accepted #4690 link-instant exception (a pin-only link instant is #5089)"
+    },
     "expected/progress_closed_milestone_handed_back_edge_after_sign_off.json": {
       "provenance": "regenerated",
       "issue": "#5017",
@@ -1105,6 +1110,11 @@
       "provenance": "hand-verified",
       "issue": "#5017",
       "evidence": "the issue's repro table, A.actual_finish varied, with and without live_day_end_on; expected dates derived by hand in the fixture name"
+    },
+    "progress_closed_milestone_link_instant_exception.json": {
+      "provenance": "hand-verified",
+      "issue": "#5017",
+      "evidence": "the Monday sign-off case (A Fri, FS+0/+1d into M closed Mon, M FS+2d to B) plus a later-A-finish row; expected dates derived by hand in the fixture name"
     },
     "progress_closed_milestone_handed_back_edge_after_sign_off.json": {
       "provenance": "hand-verified",

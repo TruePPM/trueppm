@@ -2738,6 +2738,86 @@ class TestClosedMilestoneEdgeIsThePin:
         # Monday 00:00 + 1 calendar day: B starts Tuesday 03-10 either way.
         assert run(a2_done=False) == run(a2_done=True) == date(2026, 3, 10)
 
+    @staticmethod
+    def _monday_sign_off_run(a_finish: date, a_lag: int) -> tuple[bool, date]:
+        """``A(1d, closed on a_finish) -FS+a_lag-> M (closed Mon 03-09) -FS+2d-> B(1d)``.
+
+        No hand-back. Returns ``(M at the end of its day, B's start)``.
+        """
+        a = Task(
+            id="A",
+            name="A",
+            duration=timedelta(days=1),
+            actual_start=a_finish,
+            actual_finish=a_finish,
+            percent_complete=100.0,
+        )
+        m = Task(
+            id="M",
+            name="M",
+            duration=timedelta(0),
+            actual_finish=date(2026, 3, 9),
+            percent_complete=100.0,
+        )
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 3, 2),
+            tasks=[a, m, _task("B", 1)],
+            dependencies=[
+                _dep("A", "M", DependencyType.FS, a_lag),
+                _dep("M", "B", DependencyType.FS, 2),
+            ],
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["B"].early_start is not None
+        return by_id["M"].milestone_at_day_end, by_id["B"].early_start
+
+    @pytest.mark.parametrize(
+        ("a_lag", "b_start"),
+        [
+            # A ends Fri 03-06; +0 is Sat 00:00, the midnight equivalent to Mon 00:00
+            # that M linked from live (#4690). Sat 00:00 + 2 calendar days = Mon 03-09.
+            pytest.param(0, date(2026, 3, 9), id="lag-0"),
+            # +1 is Sun 00:00, still equivalent to Mon 00:00: + 2 days = Tue 03-10.
+            pytest.param(1, date(2026, 3, 10), id="lag-1"),
+        ],
+    )
+    def test_accepted_exception_a_lag_counts_from_an_earlier_equivalent_midnight(
+        self, a_lag: int, b_start: date
+    ) -> None:
+        """The one predecessor read left: the #4690 link instant (accepted exception).
+
+        The pin decides M's edge (the start of Mon 03-09, no hand-back) for every
+        input. Which midnight equivalent to that start a calendar-day lag out of M
+        counts from is still read from M's completed predecessors (#4690), so A's
+        finish and lag reach B through it: a lagged successor of a milestone closed
+        at the start of its day can move when completed work changes, but only
+        later, never earlier. Owner decision 2026-11-21; a pin-only link instant is
+        #5089.
+        """
+        assert self._monday_sign_off_run(date(2026, 3, 6), a_lag) == (False, b_start)
+
+    def test_accepted_exception_is_monotone(self) -> None:
+        """A later A finish or a larger A lag never moves B earlier (#5017, #5089).
+
+        Without any predecessor M links from Mon 00:00 and B starts Wed 03-11; that
+        is the latest B the exception can produce, and the earliest is Mon 03-09.
+        """
+        finishes = [date(2026, 3, d) for d in (4, 5, 6, 7, 9, 10)]
+        lags = [-1, 0, 1, 2, 3]
+        grid = {(f, lag): self._monday_sign_off_run(f, lag) for f in finishes for lag in lags}
+        assert all(not at_end for at_end, _ in grid.values()), "no hand-back: start of day"
+        for lag in lags:
+            starts = [grid[(f, lag)][1] for f in finishes]
+            assert starts == sorted(starts), (lag, starts)
+        for f in finishes:
+            starts = [grid[(f, lag)][1] for lag in lags]
+            assert starts == sorted(starts), (f, starts)
+        b_starts = {b for _, b in grid.values()}
+        assert min(b_starts) >= date(2026, 3, 9)
+        assert max(b_starts) == date(2026, 3, 11)
+
     def test_monte_carlo_agrees_with_cpm(self) -> None:
         """Zero variance lands on the CPM finish with the out-of-sequence close."""
         a = Task(

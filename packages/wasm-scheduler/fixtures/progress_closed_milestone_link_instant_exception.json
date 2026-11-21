@@ -1,0 +1,112 @@
+{
+  "id": "p-progress-closed-milestone-link-instant-exception",
+  "name": "#5017 accepted exception (#4690 link instant; pin-only link instant is #5089): A (1d, closed) -FS+lag-> M (signed off Mon 2026-03-09, no hand-back) -FS+2d-> B (1d) on a Mon-Fri calendar. The pin puts M at the start of Monday on every row (milestone_at_day_end false); a calendar-day lag out of M counts from the earliest midnight equivalent to Mon 00:00 that a completed predecessor proposes. Hand-computed: row 1 (A Fri, lag 0) B Mon 03-09; row 2 (A Fri, lag 1) B Tue 03-10; row 3 (A Mon, lag 0) B Wed 03-11. A later A finish or a larger lag moves B later, never earlier. Project finish Wed 03-11.",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {
+      "id": "A1",
+      "name": "Closed predecessor, 1 day, actual_finish 2026-03-06, FS+0d into M1",
+      "duration": 86400.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-06",
+      "actual_finish": "2026-03-06"
+    },
+    {
+      "id": "M1",
+      "name": "Milestone signed off Mon 03-09, nothing handed back: start of Mon (the pin)",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-09",
+      "actual_finish": "2026-03-09"
+    },
+    {
+      "id": "B1",
+      "name": "FS+2d successor, 1 day: Mon 03-09 (A ends Fri 03-06; +0 days is Sat 00:00, equivalent to Mon 00:00, so M links from Sat 00:00 and +2 calendar days is Mon 00:00)",
+      "duration": 86400.0
+    },
+    {
+      "id": "A2",
+      "name": "Closed predecessor, 1 day, actual_finish 2026-03-06, FS+1d into M2",
+      "duration": 86400.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-06",
+      "actual_finish": "2026-03-06"
+    },
+    {
+      "id": "M2",
+      "name": "Milestone signed off Mon 03-09, nothing handed back: start of Mon (the pin)",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-09",
+      "actual_finish": "2026-03-09"
+    },
+    {
+      "id": "B2",
+      "name": "FS+2d successor, 1 day: Tue 03-10 (A ends Fri 03-06; +1 day is Sun 00:00, equivalent to Mon 00:00, so M links from Sun 00:00 and +2 calendar days is Tue 00:00)",
+      "duration": 86400.0
+    },
+    {
+      "id": "A3",
+      "name": "Closed predecessor, 1 day, actual_finish 2026-03-09, FS+0d into M3",
+      "duration": 86400.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-09",
+      "actual_finish": "2026-03-09"
+    },
+    {
+      "id": "M3",
+      "name": "Milestone signed off Mon 03-09, nothing handed back: start of Mon (the pin)",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_start": "2026-03-09",
+      "actual_finish": "2026-03-09"
+    },
+    {
+      "id": "B3",
+      "name": "FS+2d successor, 1 day: Wed 03-11 (A ends Mon 03-09, on the sign-off day: its proposal is shown after Mon 00:00, so M links from Mon 00:00 and +2 calendar days is Wed 00:00; a later A finish moved B later, never earlier)",
+      "duration": 86400.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "A1",
+      "successor_id": "M1",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M1",
+      "successor_id": "B1",
+      "dep_type": "FS",
+      "lag": 172800.0
+    },
+    {
+      "predecessor_id": "A2",
+      "successor_id": "M2",
+      "dep_type": "FS",
+      "lag": 86400.0
+    },
+    {
+      "predecessor_id": "M2",
+      "successor_id": "B2",
+      "dep_type": "FS",
+      "lag": 172800.0
+    },
+    {
+      "predecessor_id": "A3",
+      "successor_id": "M3",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "M3",
+      "successor_id": "B3",
+      "dep_type": "FS",
+      "lag": 172800.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  }
+}

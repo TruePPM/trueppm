@@ -519,9 +519,13 @@ def _live_milestone_edge(
     raising the lag of an unrelated completed link flipped the edge with no date
     change (#5017). The pin is a fact about the milestone alone, so nothing about
     its predecessors — a correction to closed work, a deleted link, a lag edit,
-    open work's forecast — moves a signed-off gate's successors. The cost is that a
-    caller that does not hand ``live_day_end_on`` back always gets the start of the
-    recorded day.
+    open work's forecast — flips the edge. The edge is the pin; a calendar-day lag
+    out of a milestone closed at the start of its day can still count from an
+    earlier equivalent midnight read from completed predecessors
+    (:func:`_closed_milestone_link`, #4690), so a completed predecessor's change can
+    move lagged successors later, never earlier — an exception the owner accepted;
+    a pin-only link instant is #5089. The cost is that a caller that does not hand
+    ``live_day_end_on`` back always gets the start of the recorded day.
 
     The predecessor-graph arguments are unused; the signature is kept because the
     name is part of the 0.4 ``trueppm_scheduler.engine`` import surface (#4550).
