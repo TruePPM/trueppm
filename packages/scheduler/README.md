@@ -921,11 +921,7 @@ release it is scheduled for:
   ([#5043](https://gitlab.com/trueppm/trueppm/-/issues/5043)); a started task
   with zero remaining work has no explicit input, so an SS/SF link out of it
   loses the recorded start
-  ([#5070](https://gitlab.com/trueppm/trueppm/-/issues/5070)); a closed
-  predecessor whose `actual_finish` lands on a signed-off milestone's day pushes
-  successors a day later than any other date does, and raising a lag into a
-  completed milestone flips `milestone_at_day_end` with no date change
-  ([#5017](https://gitlab.com/trueppm/trueppm/-/issues/5017)). Moving the
+  ([#5070](https://gitlab.com/trueppm/trueppm/-/issues/5070)). Moving the
   project start later can still move a floored milestone's successors earlier
   ([#5055](https://gitlab.com/trueppm/trueppm/-/issues/5055)), and an FF/SF link
   into a parent breaks recalculation when a backlog, epic or recurring child
