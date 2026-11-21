@@ -127,7 +127,9 @@ describe('ProgramOverviewPage (#713)', () => {
   it('shows a deferred KPI muted with its reason rather than hiding it', async () => {
     mockApi(
       rollup({
-        kpis: { cost_variance: { available: false, reason: 'missing_rates', missing_rate_count: 3 } },
+        kpis: {
+          cost_variance: { available: false, reason: 'missing_rates', missing_rate_count: 3 },
+        },
       }),
     );
     renderPage();
@@ -136,7 +138,7 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(screen.getByText('3 people have no rate')).toBeInTheDocument();
   });
 
-  it('names projects whose earned value has no duration basis (ADR-1447)', async () => {
+  it('names the unscheduled projects when no project has an earned value (ADR-1447)', async () => {
     mockApi(
       rollup({
         kpis: {
@@ -150,7 +152,25 @@ describe('ProgramOverviewPage (#713)', () => {
     );
     renderPage();
     expect(await screen.findByText('Cost variance')).toBeInTheDocument();
-    expect(screen.getByText('2 projects have no task durations')).toBeInTheDocument();
+    expect(screen.getByText('2 projects not yet scheduled')).toBeInTheDocument();
+  });
+
+  it('counts unscheduled projects left out of a computed cost variance (ADR-1447)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          cost_variance: {
+            available: true,
+            value: '-1500.00',
+            unit: 'USD',
+            projects_without_planned_duration: 1,
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('Cost variance')).toBeInTheDocument();
+    expect(screen.getByText('over budget · 1 project not yet scheduled')).toBeInTheDocument();
   });
 
   it('names projects without a budget, and hides cost from a non-manager', async () => {
@@ -183,7 +203,9 @@ describe('ProgramOverviewPage (#713)', () => {
   });
 
   it('renders the deferred-KPI reason as readable copy, not a sub-AA disabled token (rule 169, #3477)', async () => {
-    mockApi(rollup({ kpis: { p80_completion: { available: false, reason: 'no_montecarlo_store' } } }));
+    mockApi(
+      rollup({ kpis: { p80_completion: { available: false, reason: 'no_montecarlo_store' } } }),
+    );
     renderPage();
     const reason = await screen.findByText('Needs a saved Monte Carlo run');
     expect(reason.className).toMatch(/text-neutral-text-secondary/);
@@ -196,7 +218,8 @@ describe('ProgramOverviewPage (#713)', () => {
     mockApi(rollup({ kpis: { critical_tasks: { available: true, value: 12 } } }));
     renderPage();
     await screen.findByText('12');
-    const grid = screen.getByRole('region', { name: 'Program KPIs' }).firstElementChild as HTMLElement;
+    const grid = screen.getByRole('region', { name: 'Program KPIs' })
+      .firstElementChild as HTMLElement;
     expect(grid.className).toMatch(/lg:grid-cols-4/);
     expect(grid.className).toMatch(/2xl:grid-cols-6/);
     expect(grid.className).not.toMatch(/lg:grid-cols-6/);
@@ -394,7 +417,11 @@ describe('kpiDrillTarget (#2155)', () => {
   });
 
   it('never drills a deferred KPI or an unrelated metric', () => {
-    expect(kpiDrillTarget('critical_tasks', { available: false, reason: 'no_budget' }, 'pg')).toBeUndefined();
-    expect(kpiDrillTarget('baseline_variance', { available: true, value: 9 }, 'pg')).toBeUndefined();
+    expect(
+      kpiDrillTarget('critical_tasks', { available: false, reason: 'no_budget' }, 'pg'),
+    ).toBeUndefined();
+    expect(
+      kpiDrillTarget('baseline_variance', { available: true, value: 9 }, 'pg'),
+    ).toBeUndefined();
   });
 });

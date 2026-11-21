@@ -47,6 +47,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from django.db.models import F, FloatField, Q, Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 CENT = Decimal("0.01")
@@ -70,9 +71,9 @@ REASON_BUDGET_EXHAUSTED = "budget_exhausted"  # AC >= BAC: TCPI's denominator is
 #: The computing function and response contract named in the ``provenance`` block, so a
 #: figure someone quotes can be traced to the code and shape that produced it.
 COST_COMPUTED_BY = "trueppm_api.apps.projects.cost.project_cost_facts"
-# "2" (ADR-1447): EV is duration-weighted and percent_complete can be null. A figure
-# quoted under "1" used the unweighted mean.
-COST_CONTRACT_VERSION = "2"
+# Still "1" under ADR-1447: the cost summary has not shipped in a release, so no figure
+# was ever quoted under the unweighted basis. Bump it on the first change after it ships.
+COST_CONTRACT_VERSION = "1"
 
 #: One-sentence derivation per published cost field, served on the cost summary so an
 #: agent (or a PM) can say *why* a number is what it is rather than restate it.
@@ -89,8 +90,10 @@ COST_DEFINITIONS: dict[str, str] = {
     "percent_complete": (
         "The percent complete earned value is computed from: each leaf work task's "
         "percent complete weighted by its current duration in working days, "
-        "sum(percent x duration) / sum(duration). Phases, subtasks, backlog, epics, "
-        "recurring and zero-duration tasks (milestones) are left out. A 100-day task "
+        "sum(percent x duration) / sum(duration). A task with subtasks counts at the "
+        "percent its subtasks roll up to, as the task shows it. Phases, subtasks, "
+        "backlog, epics, recurring and zero-duration tasks (milestones) are left out "
+        "as rows of their own. A 100-day task "
         "counts 100 times as much as a 1-day task. This is not the project list's "
         "percent complete, which is an unweighted mean. Null when the leaf work plans "
         "0 days in total."
@@ -320,6 +323,15 @@ def project_percent_complete(project_ids: Collection[Any]) -> dict[Any, float]:
     phases (their percent is a rollup of their children, ADR-0293, so counting them
     would count the children twice) and subtasks (ADR-0060: the parent leaf's span and
     progress already cover them — the same leaf set ``percent_complete_rollup`` reads).
+    A phase here is a row with a *committed* structural child
+    (:func:`task_has_committed_child_expr`): a task whose only children are BACKLOG or
+    EPIC rows is still leaf work, or its own work would drop out with no committed row
+    standing in for it.
+
+    A leaf's percent is the one the task API shows for it: the subtask-weighted rollup
+    when it has live subtasks, else its stored ``percent_complete``. The rollup is never
+    written back to the parent row, so reading the stored column would weight a value no
+    screen shows (:func:`task_percent_complete_rollup_expr`).
     A task with ``duration`` 0 adds nothing to either sum: it plans no work, so it
     carries no share of the budget — completing a milestone earns nothing beyond the
     work that led to it.
@@ -331,18 +343,28 @@ def project_percent_complete(project_ids: Collection[Any]) -> dict[Any, float]:
     over every non-deleted task, ADR-0171); the two may differ.
     """
     from trueppm_api.apps.projects.models import Task
-    from trueppm_api.apps.projects.program_rollup import task_is_phase_expr
+    from trueppm_api.apps.projects.program_rollup import (
+        task_has_committed_child_expr,
+        task_percent_complete_rollup_expr,
+    )
 
     if not project_ids:
         return {}
     rows = (
         Task.committed.filter(project_id__in=list(project_ids), is_subtask=False, duration__gt=0)
-        .annotate(_ev_is_phase=task_is_phase_expr())
+        .annotate(_ev_is_phase=task_has_committed_child_expr())
         .filter(_ev_is_phase=False)
+        .annotate(
+            _ev_pct=Coalesce(
+                task_percent_complete_rollup_expr(subtasks_only=True),
+                F("percent_complete"),
+                output_field=FloatField(),
+            )
+        )
         .order_by()
         .values("project_id")
         .annotate(
-            earned_days=Sum(F("percent_complete") * F("duration"), output_field=FloatField()),
+            earned_days=Sum(F("_ev_pct") * F("duration"), output_field=FloatField()),
             planned_days=Sum("duration"),
         )
     )
@@ -726,12 +748,19 @@ def program_cost_kpis(costs: Collection[ProjectCost], currency: str) -> dict[str
 
     Both are policy-independent totals: Σ CV, and ΣAC / ΣBAC (a ratio of sums — a mean
     of per-project ratios would overweight a tiny project). Unavailable if ANY
-    contributing project is: a partial sum would be a confident wrong number. CV also
-    needs every project's EV, so a project whose leaf work plans 0 days makes CV (not
-    utilization) unavailable with ``no_planned_duration`` (ADR-1447). The detail counts
-    (``projects_without_budget``, program-distinct ``missing_rate_count``,
-    ``projects_without_planned_duration``) ride along either way so the reason is
-    actionable.
+    contributing project lacks a budget or a rate: a partial sum would be a confident
+    wrong number.
+
+    A project whose leaf work plans 0 days (``no_planned_duration``, ADR-1447) is the
+    one exception, and only for CV: it is **left out** of Σ CV and **counted** in
+    ``projects_without_planned_duration``, so the tile can say how many projects the
+    total does not cover yet. Such a project has no work to have earned a share of the
+    budget — it is not yet scheduled — so leaving it out is not an understated overrun
+    the way a missing rate is; its spend still reaches ΣAC / ΣBAC. CV goes unavailable
+    with that reason only when *every* contributing project is in that state, since a
+    sum over none is no total. The detail counts (``projects_without_budget``,
+    program-distinct ``missing_rate_count``, ``projects_without_planned_duration``)
+    ride along either way so the reason is actionable.
     """
     costs = list(costs)
     no_budget = sum(1 for c in costs if not c.has_budget)
@@ -752,11 +781,12 @@ def program_cost_kpis(costs: Collection[ProjectCost], currency: str) -> dict[str
     util_reason = (
         REASON_NO_BUDGET if no_budget else REASON_MISSING_RATES if missing_people else None
     )
-    # CV also needs EV on every project; utilization (ΣAC / ΣBAC) does not (ADR-1447).
-    cv_reason = util_reason or (REASON_NO_PLANNED_DURATION if no_duration else None)
+    # Past util_reason every project is budgeted and fully priced, so a CV of None means
+    # no_planned_duration: left out of the sum and counted, unless that is every project.
+    cv_reason = util_reason or (REASON_NO_PLANNED_DURATION if no_duration == len(costs) else None)
     if cv_reason is None:
-        # Every cost here has a value: unavailable_reason() is None for all of them.
-        total_cv = sum((c.cost_variance or Decimal("0") for c in costs), Decimal("0"))
+        cvs = [c.cost_variance for c in costs]
+        total_cv = sum((cv for cv in cvs if cv is not None), Decimal("0"))
         cv_entry = kpi_entry(str(money(total_cv)), None, unit=currency, **detail)
     else:
         cv_entry = kpi_entry(None, cv_reason, **detail)

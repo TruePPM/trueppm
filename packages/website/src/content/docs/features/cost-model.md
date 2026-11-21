@@ -60,8 +60,8 @@ Earned value is the share of the budget that the work done so far is worth, if t
 
 Only **leaf tasks** count: the scheduled work the project is made of.
 
-- **Phases are left out.** A phase's percent complete is a rollup of its children, so counting it would count the same work twice.
-- **Subtasks are left out.** Their work is inside the duration of the task they belong to.
+- **Phases are left out.** A phase's percent complete is a rollup of its children, so counting it would count the same work twice. Only children that are scheduled work make a task a phase: a task whose only children are backlog items or epics still counts as a leaf task.
+- **Subtasks are left out** as tasks of their own. Their work is inside the duration of the task they belong to, and that task counts at the percent complete its subtasks roll up to: the figure the task shows, not a percent stored on it earlier.
 - **Backlog items, epics and recurring tasks are left out**, the same set the schedule leaves out.
 - **Milestones and other zero-duration tasks add nothing.** They plan no work, so they carry no share of the budget. Reaching a milestone earns nothing beyond the work that led to it.
 
@@ -124,7 +124,7 @@ A cost figure that is missing an input says which input is missing instead of sh
 |---|---|---|
 | **N projects have no budget** | A project, or one of the program's projects, has no budget, or a budget of 0 | A Project Manager sets `budget` on the project with `PATCH /api/v1/projects/{id}/` |
 | **N people have no rate** | Someone who logged time on the project, or who is assigned to one of its tasks, has no rate. Their hours cannot be priced | A workspace admin sets each person's rate with `POST /api/v1/resources/{id}/rate/`. This works for a deactivated resource too. If the person has **no resource at all** (their entry in the breakdown has no `resource_id`), first create one with their email address (`POST /api/v1/resources/`), then rate it. TruePPM matches a resource with no linked account to the person by email |
-| **No task durations** (`no_planned_duration`) | The project has no leaf tasks, or only milestones and other zero-duration tasks, so earned value has nothing to weight by. Cost variance and the forecasts are unavailable; budget utilization still computes. In the program rollup, the tile names how many projects this applies to | Add the project's tasks with their durations |
+| **No task durations** (`no_planned_duration`) | The project has no leaf tasks, or only milestones and other zero-duration tasks, so earned value has nothing to weight by. Cost variance and the forecasts are unavailable; budget utilization still computes. In the program rollup, cost variance leaves the project out of its total and counts it as not yet scheduled | Add the project's tasks with their durations |
 | **Restricted to managers of every project** | You are not Program Manager or above on the program, or not Project Manager or above on every project in it | Nothing; cost is restricted |
 
 Actual cost is still shown while rates are missing, but it covers only the priced hours. The cost breakdown lists the unpriced hours and names the people who have no rate.
@@ -169,14 +169,16 @@ Below Project Manager the tool answers `cost_restricted` with a reason and no fi
 
 When cost data is complete, the program rollup's two cost KPIs compute as program **totals**:
 
-- **Cost variance** is the sum of every project's CV.
+- **Cost variance** is the sum of every project's CV, leaving out projects that are not yet scheduled (below).
 - **Budget utilization** is total actual cost ÷ total budget. A large project counts in proportion to its budget; small projects do not each count equally.
 
-Both are unavailable if **any** project in the program is missing a budget or a rate, because a partial total would understate the program. Cost variance is also unavailable if any project has no task durations (`no_planned_duration`), because that project has no earned value to subtract from; budget utilization does not need earned value. The tile names how many projects or people are missing.
+Both are unavailable if **any** project in the program is missing a budget or a rate, because a partial total would understate the program. The tile names how many projects or people are missing.
+
+A project whose leaf tasks have no duration in total has no earned value, so it has no cost variance to add. Cost variance **leaves it out** of the total and **counts** it: the tile reads, for example, "−$1,500 · 2 projects not yet scheduled" (`projects_without_planned_duration`). Cost variance is unavailable (`no_planned_duration`) only when **every** project in the program is in that state. Such a project's spend still counts in budget utilization, which does not need earned value.
 
 The **Budget-weighted** aggregation policy weights each project by its budget. If any project has no budget, the rollup uses the average instead and says why. Budget weighting is applied only for someone who may see every project's budget, under the same rule as the cost KPIs, because a weighted figure reveals how the budgets compare. Everyone else sees the plain average, with a note that budget weighting is unavailable.
 
-A project that has spent hours but has no remaining tasks has no earned value: with no leaf tasks there is nothing to weight by, so its cost variance reports `no_planned_duration` rather than a figure computed from an assumed 0 %. Its spend still shows in budget utilization. See [Program rollup KPIs](/features/settings/program-rollup/).
+A project that has spent hours but has no remaining tasks has no earned value: with no leaf tasks there is nothing to weight by, so its cost variance reports `no_planned_duration` rather than a figure computed from an assumed 0 %. The program's cost variance therefore leaves that spend out and counts the project as not yet scheduled; the spend still shows in budget utilization. See [Program rollup KPIs](/features/settings/program-rollup/).
 
 ## In the weekly digest
 

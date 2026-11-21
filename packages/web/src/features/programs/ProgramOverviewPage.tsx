@@ -48,8 +48,8 @@ interface AvailableKpi {
 /**
  * A KPI with no value: not built yet (none today; `no_montecarlo_store` is the
  * pre-#4779 server's reason for `p80_completion`), missing per-project cost data
- * (`no_budget` / `missing_rates`), a project whose leaf work plans no days so its
- * earned value has no basis (`no_planned_duration`, cost variance only, ADR-1447), or
+ * (`no_budget` / `missing_rates`), every project's leaf work planning no days so no
+ * earned value has a basis (`no_planned_duration`, cost variance only, ADR-1447), or
  * hidden from a caller below program Admin (`cost_restricted`, ADR-1324 §4).
  */
 interface UnavailableKpi {
@@ -134,7 +134,7 @@ const DEFERRED_REASON_LABEL: Record<UnavailableKpi['reason'], string> = {
   no_montecarlo_store: 'Needs a saved Monte Carlo run',
   no_budget: 'Needs a budget on every project',
   missing_rates: 'Needs a rate for everyone on the project',
-  no_planned_duration: 'Needs task durations on every project',
+  no_planned_duration: 'No project is scheduled yet',
   cost_restricted: 'Restricted to managers of every project',
 };
 
@@ -154,6 +154,11 @@ export function noValueReason(reason: string | undefined): string | undefined {
   return reason === undefined ? undefined : (NO_VALUE_REASON_LABEL[reason] ?? 'No data yet');
 }
 
+/** "2 projects not yet scheduled": projects with no planned duration (ADR-1447). */
+function notYetScheduled(n: number): string {
+  return `${n} ${n === 1 ? 'project' : 'projects'} not yet scheduled`;
+}
+
 /** The reason line, naming how much is missing when the server says (ADR-1324 §3). */
 function unavailableSub(entry: UnavailableKpi): string {
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -164,7 +169,7 @@ function unavailableSub(entry: UnavailableKpi): string {
     return `${plural(entry.missing_rate_count, 'person has', 'people have')} no rate`;
   }
   if (entry.reason === 'no_planned_duration' && entry.projects_without_planned_duration) {
-    return `${plural(entry.projects_without_planned_duration, 'project has', 'projects have')} no task durations`;
+    return notYetScheduled(entry.projects_without_planned_duration);
   }
   return DEFERRED_REASON_LABEL[entry.reason] ?? 'Not available';
 }
@@ -251,7 +256,9 @@ function KpiCard({
           readable copy — a deferred KPI's plain-language reason, or a
           variance card's "vs baseline" — never an inert control, and
           `-disabled` falls below the WCAG AA contrast floor for text. */}
-      {sub && <span className="text-xs text-neutral-text-secondary tppm-mono break-words">{sub}</span>}
+      {sub && (
+        <span className="text-xs text-neutral-text-secondary tppm-mono break-words">{sub}</span>
+      )}
     </>
   );
 
@@ -370,8 +377,12 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
   }
 
   if (key === 'cost_variance') {
-    // Negative = over budget (EV − AC, ADR-1324).
+    // Negative = over budget (EV − AC, ADR-1324). Projects with no planned duration
+    // have no earned value; the server leaves them out of the total and counts them
+    // (ADR-1447), so the card says what the total does not cover.
     const amount = entry.value === null ? null : Number(entry.value);
+    const unscheduled = entry.projects_without_planned_duration ?? 0;
+    const direction = amount !== null && amount < 0 ? 'over budget' : 'under budget';
     return {
       key,
       label,
@@ -379,9 +390,9 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       sub:
         amount === null
           ? noValueReason(entry.reason)
-          : amount < 0
-            ? 'over budget'
-            : 'under budget',
+          : unscheduled > 0
+            ? `${direction} · ${notYetScheduled(unscheduled)}`
+            : direction,
       variant: amount !== null && amount < 0 ? 'at-risk' : 'neutral',
       muted: false,
     };

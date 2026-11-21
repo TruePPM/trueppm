@@ -1314,7 +1314,13 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
         The rollup carries the cost KPIs (``cost_variance``, ``budget_utilization``).
         A caller below program Admin sees each as ``{"available": false, "reason":
-        "cost_restricted"}``, not a top-level flag, and never a cost value.
+        "cost_restricted"}``, not a top-level flag, and never a cost value. Otherwise
+        either is unavailable with ``no_budget`` or ``missing_rates`` when any project
+        lacks a budget or a rate (``projects_without_budget`` / ``missing_rate_count``
+        say how many). ``cost_variance`` leaves out projects with no planned duration
+        (not yet scheduled, so no earned value) and counts them in
+        ``projects_without_planned_duration``; quote that count with the total. It is
+        unavailable with ``no_planned_duration`` only when every project is in that state.
 
         Args:
             program_id: The program's UUID.

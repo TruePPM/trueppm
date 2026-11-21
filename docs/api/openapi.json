@@ -75207,7 +75207,7 @@
                     "reason": {
                         "type": "string",
                         "readOnly": true,
-                        "description": "Why the KPI has no value. On an unavailable entry (available false): no_budget (a contributing project has no budget), missing_rates (someone in scope has no rate), no_planned_duration (cost_variance only: a contributing project's leaf work plans 0 days, so its earned value has no basis; ADR-1447), or cost_restricted (the caller is not program Admin+ and project Admin+ on every contributing project, so may not see cost; ADR-1324). On an available entry whose value is null or unknown (rule 119, ADR-1314): no_projects (no contributing project), no_planned_work (schedule_health: no project has work planned by today), no_milestones (milestone_health), no_baseline (the day variances: no project has an active baseline with dates), no_completed_work (schedule_variance: no baselined task is complete yet), or no_forecast (p80_completion: no project has a Monte Carlo forecast with a P80)."
+                        "description": "Why the KPI has no value. On an unavailable entry (available false): no_budget (a contributing project has no budget), missing_rates (someone in scope has no rate), no_planned_duration (cost_variance only: no contributing project's leaf work plans any days, so no project has an earned value; ADR-1447), or cost_restricted (the caller is not program Admin+ and project Admin+ on every contributing project, so may not see cost; ADR-1324). On an available entry whose value is null or unknown (rule 119, ADR-1314): no_projects (no contributing project), no_planned_work (schedule_health: no project has work planned by today), no_milestones (milestone_health), no_baseline (the day variances: no project has an active baseline with dates), no_completed_work (schedule_variance: no baselined task is complete yet), or no_forecast (p80_completion: no project has a Monte Carlo forecast with a P80)."
                     },
                     "projects_without_budget": {
                         "type": "integer",
@@ -75219,7 +75219,8 @@
                     },
                     "projects_without_planned_duration": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "Contributing projects whose leaf work plans 0 days (not yet scheduled), so they have no earned value. cost_variance leaves them out of its total and is unavailable (no_planned_duration) only when every project is one of them."
                     },
                     "as_of": {
                         "type": "string",

@@ -192,6 +192,7 @@ from trueppm_api.apps.projects.program_rollup import (
     spi_counts_by_project,
     spi_health_band,
     task_is_phase_expr,
+    task_percent_complete_rollup_expr,
 )
 from trueppm_api.apps.projects.refusal_codes import (
     CAPABILITY_DEPENDENCIES,
@@ -5083,9 +5084,9 @@ def annotate_tasks_queryset(
     # percent_complete_rollup = duration-weighted average of direct children's
     #   percent_complete (NULL for leaf tasks, avoids per-row raw query in serializer).
     # Uses ltree operators via RawSQL for PostgreSQL-native performance.
-    # All three RawSQL annotations below are static SQL literals with empty params
-    # lists (no user input interpolated); the ltree/CTE expressions can't be
-    # expressed in the ORM.
+    # The RawSQL annotations below (and the shared rollup helper) are static SQL
+    # literals with empty params lists (no user input interpolated); the ltree/CTE
+    # expressions can't be expressed in the ORM.
     qs = qs.annotate(
         # nosemgrep: avoid-raw-sql
         is_summary=RawSQL(
@@ -5192,49 +5193,8 @@ def annotate_tasks_queryset(
         # Leaf selection: all descendants at any depth ('.*{1,}') minus any that
         # themselves have children (non-leaf), so only leaves contribute — fixes the
         # 3-level grandparent-reads-zero case (intermediate summaries aren't persisted).
-        # nosemgrep: avoid-raw-sql
-        percent_complete_rollup=RawSQL(
-            "("
-            "  SELECT CASE WHEN SUM(w.weight) > 0"
-            "              THEN SUM(w.weight * w.pct) / SUM(w.weight)"
-            "              ELSE NULL END"
-            "  FROM ("
-            "    SELECT"
-            "      CASE c.delivery_mode"
-            "        WHEN 'scrum' THEN COALESCE(c.story_points, c.duration)"
-            "        WHEN 'kanban' THEN 1"
-            "        WHEN 'milestone' THEN 0"
-            "        ELSE c.duration"
-            "      END AS weight,"
-            "      CASE c.delivery_mode"
-            "        WHEN 'scrum' THEN"
-            "          CASE WHEN c.status = 'COMPLETE' THEN 100.0"
-            "               WHEN COALESCE(c.story_points, 0) > 0"
-            "                 THEN (1.0 - COALESCE(c.remaining_points, c.story_points)::float"
-            "                              / c.story_points) * 100.0"
-            "               ELSE c.percent_complete END"
-            "        WHEN 'kanban' THEN"
-            "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
-            "        WHEN 'milestone' THEN"
-            "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
-            "        ELSE c.percent_complete"
-            "      END AS pct"
-            "    FROM projects_task c"
-            "    WHERE c.project_id = projects_task.project_id"
-            "      AND c.is_deleted = false"
-            "      AND projects_task.wbs_path IS NOT NULL"
-            "      AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1,}')::lquery"
-            "      AND NOT EXISTS ("
-            "        SELECT 1 FROM projects_task gc"
-            "        WHERE gc.project_id = projects_task.project_id"
-            "          AND gc.is_deleted = false"
-            "          AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
-            "      )"
-            "  ) w"
-            ")",
-            [],
-            output_field=db_models.FloatField(),
-        ),
+        # The SQL lives in program_rollup so earned value (ADR-1447) reads the same value.
+        percent_complete_rollup=task_percent_complete_rollup_expr(),
     )
 
     # Readiness annotation: has_predecessors = task has at least one incoming

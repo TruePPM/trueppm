@@ -35,9 +35,12 @@ Options considered in #4853:
 ```
 leaf work   = Task.committed (not deleted, not BACKLOG, not EPIC, not recurring)
               AND NOT is_subtask
-              AND NOT a phase (no structural, non-subtask child; task_is_phase_expr)
+              AND NOT a phase (no committed structural child;
+                               task_has_committed_child_expr)
               AND duration > 0
-pc_EV       = Σ(percent_complete × duration) / Σ(duration)      over leaf work, 0–100
+pct(t)      = t's subtask rollup when it has live subtasks, else t.percent_complete
+              (the value the task API shows for t; task_percent_complete_rollup_expr)
+pc_EV       = Σ(pct × duration) / Σ(duration)                  over leaf work, 0–100
 EV          = BAC × pc_EV / 100
 ```
 
@@ -49,14 +52,22 @@ EAC, ETC, VAC and TCPI keep their ADR-1324 formulas. They change only because EV
 
 - **Phases.** A phase's percent is a rollup of its children (ADR-0293). With the phase
   counted next to its leaves, the same work would carry weight twice. Phase detection
-  is the same `task_is_phase_expr()` ltree probe the program rollup's leaf counts use
-  (#4238, #4276), so "leaf" means one thing across the API.
+  is the ltree probe the program rollup's leaf counts use (`task_is_phase_expr()`,
+  #4238, #4276), narrowed to children in `Task.committed`
+  (`task_has_committed_child_expr()`). A committed task whose only children are BACKLOG
+  or EPIC rows is still leaf work: none of those children is in the sums, so treating
+  the parent as a phase would drop its work with nothing standing in for it.
 - **Subtasks.** A subtask is a drawer item inside its parent leaf (ADR-0060). The
   parent's dates span its subtasks and its progress is their weighted average, so the
   subtask's work is already in the parent row. "Leaf" here is the same set the phase
   status and percent rollups read: non-subtask rows with no live structural descendant
   (`scheduling.services.rollup_phase_statuses_detailed`, `percent_complete_rollup`).
-  Counting the subtask as well would count the work twice.
+  Counting the subtask as well would count the work twice. The parent is weighted at
+  the percent the task API shows for it, which for a row with live subtasks is the
+  subtask rollup, not the stored column. Nothing writes that rollup back to the row, so
+  the stored value can be stale (a parent left at 0 % whose subtasks are all done).
+  The rollup SQL is one helper shared with the task API's annotation, so the two
+  cannot drift.
 - **BACKLOG, EPIC, recurring.** These are the rows `Task.committed` already leaves out
   of every committed-delivery aggregate. The CPM output columns are non-null only on
   that set (ADR-1152), so a "planned duration" exists only there. A backlog item is
@@ -83,10 +94,20 @@ is missing rather than show a confident number (ADR-1324 §3; the forecast reaso
 `no_budget` → `no_planned_duration`.
 
 Budget utilization (AC / BAC) does not use EV, so it still computes. Its preconditions
-are now separate from CV's (`ProjectCost.utilization_reason()`). The program rollup
-follows: `cost_variance` is unavailable with `no_planned_duration` when any
-contributing project has no basis, and it carries a new
-`projects_without_planned_duration` count. `budget_utilization` stays a real total.
+are now separate from CV's (`ProjectCost.utilization_reason()`). On the program rollup,
+a project with no basis is **left out** of the `cost_variance` total and **counted** in
+a new `projects_without_planned_duration` field, which the tile shows as "N projects
+not yet scheduled". `cost_variance` is unavailable with `no_planned_duration` only when
+*every* contributing budgeted project is in that state. `budget_utilization` stays a
+real total over all of them.
+
+This is a different rule from `no_budget` and `missing_rates`, which still make the
+program total unavailable when any one project is affected. A missing rate hides real
+spend, so a partial total would understate an overrun. A project with no planned
+duration has no work yet to have earned a share of its budget: it has not been
+scheduled. Blanking the whole program's CV for it would blank the tile every time a
+project is added, and its spend still reaches `budget_utilization`. The count travels
+with the total, so a reader knows what the total does not cover.
 
 The name is distinct from the program rollup's existing `no_planned_work`
 (schedule health: "nothing planned by today") on purpose. One string meaning two
@@ -98,7 +119,8 @@ whole AC as negative CV, and the program total would not silently drop it. Under
 weighted basis, a 0 there would be an invented number: there is no work to have earned
 a share of. The overrun is not hidden. Utilization still reports the spend (AC / BAC
 reaches 1.0 for an abandoned project that spent its budget), and the program CV tile
-goes unavailable with a count instead of summing a partial total.
+counts the project as not yet scheduled instead of summing an assumed −AC into the
+total.
 
 ### Which duration is "planned": current `duration`, not a baseline
 
@@ -117,9 +139,15 @@ frozen at baseline, so this is a real departure, taken for these reasons:
 
 The cost is stated in the definitions and docs: **re-estimating a task's duration
 re-weights it**, so EV can move without any progress being recorded. The `provenance`
-block says so. Its `percent_complete_source` is now
-`duration_weighted_leaf_task_percent_complete`, and `COST_CONTRACT_VERSION` goes from
-`"1"` to `"2"`, so a figure quoted under the old basis can be told apart.
+block says so. Its `percent_complete_source` is
+`duration_weighted_leaf_task_percent_complete`.
+
+`COST_CONTRACT_VERSION` stays `"1"`. The version exists so a figure someone quoted can
+be traced to the contract that produced it, and the cost summary has not shipped in a
+release (it lands in 0.5, which is underway). No figure was ever quoted under the
+unweighted basis, so there is nothing to tell apart, and a bump would present an
+unreleased draft as a released contract. The first change to the contract after 0.5
+ships bumps it.
 
 ### Why duration rather than effort or cost
 
@@ -179,17 +207,20 @@ are left open for #2139 to decide:
 - EV, CV and the forecasts change for any project whose leaf tasks have unequal
   durations, or that has phases or milestones. A project of equal-duration leaf tasks
   with no phases reads the same as before.
-- A budgeted project with no leaf work (new, or abandoned) now reports
-  `no_planned_duration` for CV and the forecasts instead of `EV = 0`. Through it, the
-  program `cost_variance` tile goes unavailable until every project has leaf work with a
-  duration.
+- A budgeted project with no leaf work (new, or abandoned) reports
+  `no_planned_duration` for CV and the forecasts rather than `EV = 0`. The program
+  `cost_variance` total leaves such projects out and shows how many
+  (`projects_without_planned_duration`, "N projects not yet scheduled"). It goes
+  unavailable only when every contributing budgeted project is in that state. An
+  abandoned project's spend is therefore absent from the program CV total, and is
+  visible in `budget_utilization` and in the count.
 - Response shape: `percent_complete` on the cost summary is nullable. The KPI `reason`
   enum gains `no_planned_duration`. The program rollup KPI gains
   `projects_without_planned_duration`. All of these are additive, or a widening of a
   field that was documented as never null.
-- Performance: still one grouped query for the percent (now a `Sum(percent × duration)`
-  and a `Sum(duration)` per project, with the same ltree `EXISTS` the rollup's leaf
-  counts use). `project_cost_facts` stays at a fixed six queries for any number of
+- Performance: still one grouped query for the percent (now a `Sum(pct × duration)`
+  and a `Sum(duration)` per project, with a committed-child ltree `EXISTS` for the phase
+  test and the task API's correlated rollup subquery for each leaf's percent). `project_cost_facts` stays at a fixed six queries for any number of
   projects.
 
 ## Alternatives considered
