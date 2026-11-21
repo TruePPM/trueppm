@@ -1,0 +1,64 @@
+{
+  "project_id": "p-milestone-inherited-cap-late-start",
+  "project_start": "2026-03-02",
+  "project_finish": "2026-04-17",
+  "tasks": [
+    {
+      "id": "t0",
+      "early_start": "2026-03-02",
+      "early_finish": "2026-04-17",
+      "late_start": "2026-03-02",
+      "late_finish": "2026-04-17",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-03-02"
+    },
+    {
+      "id": "t1",
+      "early_start": "2026-03-02",
+      "early_finish": "2026-03-02",
+      "late_start": "2026-04-16",
+      "late_finish": "2026-04-16",
+      "total_float": 2851200.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-03-02"
+    },
+    {
+      "id": "t2",
+      "early_start": "2026-03-02",
+      "early_finish": "2026-03-02",
+      "late_start": "2026-04-17",
+      "late_finish": "2026-04-17",
+      "total_float": 2937600.0,
+      "free_float": 2937600.0,
+      "is_critical": false,
+      "scheduled_start": "2026-03-02"
+    },
+    {
+      "id": "join",
+      "early_start": "2026-03-02",
+      "early_finish": "2026-03-02",
+      "late_start": "2026-04-16",
+      "late_finish": "2026-04-16",
+      "total_float": 2332800.0,
+      "free_float": 2332800.0,
+      "is_critical": false,
+      "scheduled_start": "2026-03-02"
+    }
+  ],
+  "critical_path": [],
+  "driving_edges": [
+    {
+      "predecessor_id": "t0",
+      "successor_id": "join",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "t1",
+      "successor_id": "join",
+      "dep_type": "FS"
+    }
+  ]
+}

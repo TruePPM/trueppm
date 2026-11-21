@@ -191,6 +191,11 @@
       "issue": "#4180",
       "evidence": "bfc3e91bc: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
+    "expected/milestone_inherited_cap_late_start.json": {
+      "provenance": "regenerated",
+      "issue": "#5092",
+      "evidence": "#5092: REGEN_EXPECTED=1 snapshot of the Python engine; hand-checked total_float == working days [early_start, late_start) for every task (t1: Mon 03-02 -> Thu 04-16, 33 days; join on Mon-Thu is shown Mon 04-20 from the start of Friday, past project_finish Fri 04-17, so t1's float stops at the start of Thursday) and against the slip oracle in tests/test_total_float_shown_span.py (t1 held on Thu 04-16 keeps the finish, on Fri 04-17 moves it to Mon 04-20); fails the pre-fix Python and Rust late_display (t1 late_start Fri 04-17 with total_float 33)"
+    },
     "expected/milestone_instant_links.json": {
       "provenance": "unknown",
       "issue": "#4079",
@@ -760,6 +765,11 @@
       "provenance": "unknown",
       "issue": "#4180",
       "evidence": "bfc3e91bc: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_inherited_cap_late_start.json": {
+      "provenance": "unknown",
+      "issue": "#5092",
+      "evidence": "added for #5092 from the 2026-11-21 scheduler:fuzz-deep counterexample; input fixture, no hand-derivation claimed"
     },
     "milestone_instant_links.json": {
       "provenance": "unknown",
@@ -1352,9 +1362,9 @@
       "evidence": "added with the #4526 fix: the input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES"
     },
     "expected/zero_lag_milestone_chain_into_a_four_day_week.json": {
-      "provenance": "hand-verified",
-      "issue": "#4526",
-      "evidence": "REGEN_EXPECTED=1 with the #4526 fix, then checked against the slip oracle (float_perturbation_violations), which fails the same shape on the pre-fix engine"
+      "provenance": "regenerated",
+      "issue": "#5092",
+      "evidence": "REGEN_EXPECTED=1 with the #4526 fix, then checked against the slip oracle (float_perturbation_violations), which fails the same shape on the pre-fix engine; #5092: regenerated (REGEN_EXPECTED=1); the only change is M1 late_start/late_finish Fri 2026-01-09 -> Thu 2026-01-08, hand-checked against total_float == working days [early_start, late_start) (3 days, unchanged): at the start of Friday M2 (Mon-Thu) is shown Monday, past project_finish Fri 01-09, so the old snapshot showed a late start one working day past M1's float"
     },
     "zero_lag_chain_reading_switched_by_a_narrower_week.json": {
       "provenance": "hand-verified",
@@ -1373,8 +1383,8 @@
     },
     "expected/zero_lag_ss_chain_into_a_closed_week.json": {
       "provenance": "regenerated",
-      "issue": "#4526",
-      "evidence": "bcdf6eb2b: REGEN_EXPECTED=1 from the Python engine with the 199a85cb0/2f84f8d66 (#4526) cap; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines, and bcdf6eb2b states it fails on both merge-base engines"
+      "issue": "#5092",
+      "evidence": "bcdf6eb2b: REGEN_EXPECTED=1 from the Python engine with the 199a85cb0/2f84f8d66 (#4526) cap; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines, and bcdf6eb2b states it fails on both merge-base engines; #5092: regenerated (REGEN_EXPECTED=1); the only change is T1 late_start/late_finish Fri 2026-01-09 -> Thu 2026-01-08, hand-checked against total_float == working days [early_start, late_start) (Tue 01-06 -> Thu 01-08, 2 days, unchanged): at the start of Friday T4 (Mon-Thu, week of 01-12 closed) is shown Mon 01-19, past project_finish Wed 01-14, so the old snapshot showed a late start one working day past T1's float"
     },
     "start_of_day_milestone_past_work_on_its_own_calendar.json": {
       "provenance": "unknown",

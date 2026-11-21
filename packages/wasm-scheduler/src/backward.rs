@@ -428,14 +428,6 @@ pub fn backward_pass(
             }
             let link = milestones.links[i].unwrap_or(early);
             let late = bound.max(link.0);
-            let early_day = tasks[i].early_start.unwrap();
-            let day = late_display(
-                late.max(early.0),
-                early_day,
-                early,
-                node_cal,
-                project_finish,
-            )?;
             late_instants[i] = Some(late);
             // A milestone's own total float is *defined* against the reading that
             // places it early (#4183). The reason is not insertion invariance —
@@ -472,11 +464,18 @@ pub fn backward_pass(
                 }
             }
             // The cap holds on every milestone that takes this one's reading (#4526).
-            float_lates[i] = Some(
+            let float_late =
                 start_read_cap_on(late, early.1, (node_cal, &summary), project_finish)?
-                    .max(early.0),
-            );
+                    .max(early.0);
+            float_lates[i] = Some(float_late);
             inherit[i] = summary;
+            // Shown from the instant the float runs to, not the uncapped one:
+            // `late_display` only keeps a start-of-day reading by the finish on this
+            // milestone's own calendar, so an inheritor on a narrower week (shown
+            // Monday from the start of Friday) put the late start a working day
+            // past the float (#5092). Mirrors the Python `_apply_milestone_late_date`.
+            let early_day = tasks[i].early_start.unwrap();
+            let day = late_display(float_late, early_day, early, node_cal, project_finish)?;
             let t = &mut tasks[i];
             t.late_start = Some(day);
             t.late_finish = Some(day);
