@@ -188,7 +188,7 @@ A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree 
 Adding a `broadcast_board_event()` call is half a feature. If nothing on the client registers a handler for the event type, the broadcast reaches the browser and is discarded, and the surface it was meant to refresh stays stale until something else invalidates it. Three separate audits each found a different slice of exactly that, so the reconciliation is now a gate:
 
 ```bash
-make ws-handler-conformance-check   # same as the lint:ws-handler-conformance CI job
+make ws-handler-conformance-check   # same as the lint:ws-handler-conformance check (in the lint:repo-static CI job)
 ```
 
 It cross-references every event type reaching `broadcast_board_event()` / `abroadcast_board_event()` in `packages/api` — through the same AST sweep that enforces the frozen event set, including one level of wrapper indirection — against the `on(...)` registration table in `packages/web/src/hooks/useProjectWebSocket.ts`. It runs in both directions and also fails on a duplicate registration, because a second `on('task_updated', …)` runs alongside the first (handlers are additive), which doubles the invalidation and is almost certainly a mistake.

@@ -29,7 +29,7 @@
 # happened: an unrelated astro upgrade regenerated the website lockfile, its
 # caret floated 1.58.2 → 1.61.1, and the docs build lost every Mermaid diagram —
 # taking the whole page body with it — for 19 days on green pipelines. The list
-# is now enforced by scripts/check-playwright-pins.sh (job: web:playwright-pins)
+# is now enforced by scripts/check-playwright-pins.sh (check: web:playwright-pins, in the lint:repo-static CI job)
 # rather than by this comment, because a comment cannot fail a pipeline.
 #
 # PLAYWRIGHT_BASE is overridable so CI can build FROM our registry mirror of the

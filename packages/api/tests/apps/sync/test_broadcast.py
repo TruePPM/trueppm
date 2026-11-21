@@ -800,7 +800,8 @@ def test_wrapper_emitted_events_are_discovered_and_frozen() -> None:
 # "broadcast correctly, handled nowhere" because the only mechanism was convention
 # plus review.
 #
-# These tests run the same evaluator as the lint:ws-handler-conformance CI job
+# These tests run the same evaluator as the lint:ws-handler-conformance check
+# (in the lint:repo-static CI job)
 # (scripts/check-ws-handler-conformance.sh), over the same shared scanner. The job
 # exists as well as these tests because api:test is gated on
 # `changes: packages/api/**` — deleting a handler is a WEB-only diff, which these

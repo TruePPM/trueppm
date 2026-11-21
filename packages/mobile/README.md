@@ -21,7 +21,7 @@ number here can only mislead — it read `0.4.0-beta.1` from 2026-07-18 to
 does not ship on the OSS release train until a native app does.
 
 `scripts/check-mobile-version.sh` enforces this — `make pre-push` and the
-`mobile:version-pin` CI job both run it, and it fails on a version other than
+`mobile:version-pin` check (in the `lint:repo-static` CI job) both run it, and it fails on a version other than
 `0.0.0` in the manifest **or** either of the lockfile's two version fields, and
 on `release.sh` growing a `bump_manifest packages/mobile/` line. That is a gate
 rather than a comment on purpose: the version did not come from `release.sh`, so

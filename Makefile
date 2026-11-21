@@ -573,14 +573,14 @@ helm-metric-names-check: ## Fail if the Helm chart's PromQL names a series the a
 	@# publishes. Stdlib Python over two chart files, milliseconds.
 	@python3 scripts/check-helm-metric-names.py .
 
-design-system-check: ## Run the lint:design-system-v2 CI job locally (#2941)
+design-system-check: ## Run the lint:design-system-v2 check (in the lint:repo-static CI job) locally (#2941)
 	@# The gate that polices hardcoded hex against the DS-v2 token ratchet. It was
 	@# the one bespoke CI check with no pre-push mirror, so a breach passed locally
 	@# and failed the pipeline — the exact round trip pre-push exists to prevent.
 	@bash scripts/check-design-system-v2.sh --self-test
 	@bash scripts/check-design-system-v2.sh
 
-adr-status-check: ## Run the docs:adr-status CI job locally (#2941)
+adr-status-check: ## Run the docs:adr-status check (in the docs:static CI job) locally (#2941)
 	@# An ADR cited from shipped source must not say "Proposed", and the ADR index
 	@# statistics on the website must match the tree. Adding any ADR breaks four
 	@# hard-coded figures in architecture/decisions.md, which is a guaranteed red
@@ -588,7 +588,7 @@ adr-status-check: ## Run the docs:adr-status CI job locally (#2941)
 	@bash scripts/check-adr-status.sh --self-test
 	@bash scripts/check-adr-status.sh
 
-version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
+version-status-check: ## Run the docs:version-accuracy check (in the docs:static CI job) locally (#2941)
 	@# Past/present-tense claims about unshipped versions, plus the
 	@# declaration-coverage ratchet over features/, administration/ and
 	@# getting-started/. Editing a non-declaring page breaks its baseline hash, so
@@ -605,26 +605,26 @@ version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
 	@# the only signal that it still works. Same CI job. ~1s, no network.
 	@bash scripts/check-early-promotion.sh --self-test
 
-config-doc-links-check: ## Run the docs:config-links CI job locally (#3190)
+config-doc-links-check: ## Run the docs:config-links check (in the docs:static CI job) locally (#3190)
 	@# Every https://docs.trueppm.com link in packages/helm/values.yaml and
 	@# .env.example must resolve to a page and anchor that exist. Those two files
 	@# had zero links between them; now that they have forty, a link that 404s is
 	@# worse than none, because it reads as authoritative. <1s, no network.
 	@bash scripts/check-config-doc-links.sh
 
-docs-tree-split-check: ## Run the docs:tree-split CI job locally (#2928)
+docs-tree-split-check: ## Run the docs:tree-split check (in the docs:static CI job) locally (#2928)
 	@# No *.md basename may exist in both docs/ and the published website tree,
 	@# and no source pointer may name a docs/<published-tree>/ page that is not
 	@# there. `docs/administration/` was a second, ungated copy of eight pages for
 	@# months while `backup.sh --help` sent operators to the stale half. ~1s.
 	@bash scripts/check-docs-tree-split.sh
 
-ws-event-reachability-check: ## Run the docs:ws-event-reachability CI job locally (#2941)
+ws-event-reachability-check: ## Run the docs:ws-event-reachability check (in the docs:static CI job) locally (#2941)
 	@# Every WS event named in the published taxonomy must be deliverable to a
 	@# client, or carry a `not deliverable` marker. 50ms.
 	@bash scripts/check-ws-event-reachability.sh
 
-ws-handler-conformance-check: ## Run the lint:ws-handler-conformance CI job locally (#3775)
+ws-handler-conformance-check: ## Run the lint:ws-handler-conformance check (in the lint:repo-static CI job) locally (#3775)
 	@# Every event broadcast_board_event() emits must have an on(...) handler in
 	@# useProjectWebSocket.ts, or a waiver naming the issue that removes it — and
 	@# the reverse, since a handler nothing emits is dead code. Three audits each
@@ -633,21 +633,21 @@ ws-handler-conformance-check: ## Run the lint:ws-handler-conformance CI job loca
 	@bash scripts/check-ws-handler-conformance.sh --self-test
 	@bash scripts/check-ws-handler-conformance.sh
 
-docs-internal-links-check: ## Run the docs:internal-links CI job locally (#2869)
+docs-internal-links-check: ## Run the docs:internal-links check (in the docs:static CI job) locally (#2869)
 	@# Every internal docs link must reach a page, heading anchor, asset or repo
 	@# source file that exists. Reads the Markdown source, not dist/, so a
 	@# starlight-versions snapshot cannot trip it. ~1s, no build, no network.
 	@python3 scripts/check-docs-internal-links.py --self-test
 	@python3 scripts/check-docs-internal-links.py
 
-docs-api-routes-check: ## Run the docs:api-routes CI job locally (#3753)
+docs-api-routes-check: ## Run the docs:api-routes check (in the docs:static CI job) locally (#3753)
 	@# Every `METHOD /api/v1/…` the docs name must exist in docs/api/openapi.json,
 	@# and schema operations missing from the API reference are a shrink-only
 	@# ratchet (scripts/docs-api-reference-unlisted.txt). ~1s, no network.
 	@python3 scripts/check-docs-api-routes.py --self-test
 	@python3 scripts/check-docs-api-routes.py
 
-error-codes-documented-check: ## Run the docs:error-codes CI job locally (#4376)
+error-codes-documented-check: ## Run the docs:error-codes check (in the docs:static CI job) locally (#4376)
 	@# Every `code` string literal a Response({...})/warnings[] dict, an
 	@# APIException.default_code, or a `code=` keyword emits under
 	@# packages/api/src must be on errors.md or in the internal allowlist
@@ -656,7 +656,7 @@ error-codes-documented-check: ## Run the docs:error-codes CI job locally (#4376)
 	@python3 scripts/check-error-codes-documented.py --self-test
 	@python3 scripts/check-error-codes-documented.py
 
-helm-walkthrough-drift-check: ## Run the docs:helm-walkthrough-drift CI job locally (#4027)
+helm-walkthrough-drift-check: ## Run the docs:helm-walkthrough-drift check (in the docs:static CI job) locally (#4027)
 	@# scripts/helm-install-drill.sh's walkthrough leg must keep running the SAME
 	@# namespace/Secret/my-values.yaml commands deployment.md documents — see
 	@# scripts/check-helm-walkthrough-drift.py's own docstring for the two bugs
@@ -664,16 +664,16 @@ helm-walkthrough-drift-check: ## Run the docs:helm-walkthrough-drift CI job loca
 	@python3 scripts/check-helm-walkthrough-drift.py --self-test
 	@python3 scripts/check-helm-walkthrough-drift.py
 
-e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
+e2e-catchall-check: ## Run the lint:e2e-catchall check (in the lint:repo-static CI job) locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
 
 .PHONY: negated-closing-keywords-check loading-skeleton-role-check
-negated-closing-keywords-check: ## Run the lint:negated-closing-keywords CI job locally (#4926; commit messages only, no MR description before the MR exists)
+negated-closing-keywords-check: ## Run the lint:negated-closing-keywords check (in the lint:repo-static CI job) locally (#4926; commit messages only, no MR description before the MR exists)
 	@bash scripts/check-negated-closing-keywords.sh --self-test
 	@bash scripts/check-negated-closing-keywords.sh --commits
 
-cost-ledger-check: ## Run the lint:cost-ledger CI job locally (the cost-ledger scripts' --self-test runs)
+cost-ledger-check: ## Run the lint:cost-ledger check (in the lint:repo-static CI job) locally (the cost-ledger scripts' --self-test runs)
 	@python3 scripts/cost-ledger --self-test
 	@python3 scripts/subagent-tokens.py --self-test
 	@python3 scripts/orchestrator-tokens.py --self-test
@@ -683,7 +683,7 @@ cost-ledger-check: ## Run the lint:cost-ledger CI job locally (the cost-ledger s
 	@python3 scripts/mr-cost-means.py --self-test
 	@python3 scripts/lib/ledger_lines.py --self-test
 
-web-types-drift-check: ## Run the lint:web-types-drift CI job locally (#2633)
+web-types-drift-check: ## Run the lint:web-types-drift check (in the lint:repo-static CI job) locally (#2633)
 	@# packages/web/src/api/types.ts is hand-maintained. This fails when a field an
 	@# interface shares with its mapped schema in docs/api/openapi.json disagrees on
 	@# primitive kind — six user-id FKs sat typed `string` against integer PKs with
@@ -691,13 +691,13 @@ web-types-drift-check: ## Run the lint:web-types-drift CI job locally (#2633)
 	@python3 scripts/check-web-types-drift.py --self-test
 	@python3 scripts/check-web-types-drift.py
 
-semgrep-freshness-check: ## Run the lint:semgrep-freshness CI job locally (#3103)
+semgrep-freshness-check: ## Run the lint:semgrep-freshness check (in the lint:repo-static CI job) locally (#3103)
 	@# Exit 77 (a warning in CI) is not a failure of the push, so it is tolerated here.
 	@bash scripts/check-semgrep-freshness.sh --self-test
 	@bash scripts/refresh-semgrep-rules-mr.sh --self-test
 	@bash scripts/check-semgrep-freshness.sh || [ $$? -eq 77 ]
 
-e2e-schema-guard-check: ## Run the lint:e2e-schema-guard CI job locally (#3440)
+e2e-schema-guard-check: ## Run the lint:e2e-schema-guard check (in the lint:repo-static CI job) locally (#3440)
 	@# The e2e mock layer is bound to docs/api/openapi.json by ONE line inside
 	@# setupCatchAll. Delete it and 290 specs go back to asserting the front end
 	@# against their own fixtures — with the whole suite still green, which is the
@@ -725,7 +725,7 @@ gate-selftest-parity-check: ## Fail if a CI gate never proves it can fail, in it
 	@bash scripts/check-gate-selftest-parity.sh --self-test
 	@bash scripts/check-gate-selftest-parity.sh
 
-package-licenses-check: ## Run the lint:package-licenses CI job locally (#3217)
+package-licenses-check: ## Run the lint:package-licenses check (in the lint:repo-static CI job) locally (#3217)
 	@# Every separately-distributed package ships its own license text (#2632).
 	@# Apache-2.0 §4(a) obliges a recipient of a distribution to receive the
 	@# license, and the root LICENSE does not travel with a PyPI wheel, a

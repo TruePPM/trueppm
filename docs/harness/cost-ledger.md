@@ -97,7 +97,7 @@ them. The two readers of a description that do exist leave them alone: `lint:mr-
 (`scripts/check-mr-followups.sh`) only reacts to follow-up wording, and the `/kaizen` gate-yield
 parser matches `gate:` lines only. `/kaizen` reads the cost lines separately (§ 1g, *Cost beside yield*): `subagent-tokens:` from the description through
 `scripts/lib/ledger_lines.py`, and per-MR cost from the `## Cost of this MR` comments through `scripts/mr-cost-means.py`. What is checked is the tooling. The
-`lint:cost-ledger` CI job (and `make cost-ledger-check`, part of `make pre-push`) runs the
+`lint:cost-ledger` check (in the `lint:repo-static` CI job, and `make cost-ledger-check`, part of `make pre-push`) runs the
 `--self-test` of `scripts/cost-ledger`, `scripts/subagent-tokens.py`,
 `scripts/orchestrator-tokens.py`, `scripts/est-cost.py`, `scripts/cost-table.py`,
 `scripts/post-mr-cost.py`, `scripts/mr-cost-means.py` and `scripts/lib/ledger_lines.py`. A description-level validator (one
