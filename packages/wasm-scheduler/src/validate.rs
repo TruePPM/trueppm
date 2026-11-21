@@ -35,7 +35,7 @@ pub const MAX_PROJECT_WORK_DAYS: i64 = MAX_PROJECT_SPAN_DAYS * 10;
 /// validation/graph-build pre-passes and the list's own memory become pathological
 /// for a multi-million-edge payload. Checked from `.len()`, so the guard is O(1).
 /// Mirrors `trueppm_scheduler.engine.limits.MAX_DEPENDENCIES` (#1203).
-pub const MAX_DEPENDENCIES: usize = 100_000;
+pub const MAX_DEPENDENCIES: usize = 250_000;
 /// Ceiling on calendar exception ranges. Mirrors
 /// `trueppm_scheduler.engine.MAX_CALENDAR_EXCEPTIONS` (#1826): a real calendar has
 /// at most a few hundred holidays/closures; a multi-million-entry list is

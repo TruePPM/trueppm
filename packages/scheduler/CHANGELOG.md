@@ -16,6 +16,13 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+### Changed
+
+- **`MAX_DEPENDENCIES` and `MAX_EXPANDED_EDGES` raised from 100,000 to 250,000
+  ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).** A 50,000-task
+  network at two links per task sat exactly on the old cap. The Rust/WASM validator
+  mirrors the new `MAX_DEPENDENCIES`. `MAX_LAG_DELTA_CELLS` is unchanged.
+
 ### Added
 
 - **Public working-day helpers in `trueppm_scheduler.calendar`

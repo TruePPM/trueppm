@@ -667,7 +667,7 @@ The current release (0.4) refuses a project whose task durations and lags **sum*
 | `Calendar.working_days` | An integer bitmask in `[0, 127]` that sets at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
 | Task `duration` (and each PERT estimate) | `0` to `MAX_DURATION_DAYS` (`36_525`, ~100 years); negatives rejected. |
 | `Dependency.lag` | Within `±MAX_LAG_DAYS` (`36_525`). |
-| Dependency count | At most `MAX_DEPENDENCIES` (`100_000`) edges. |
+| Dependency count | At most `MAX_DEPENDENCIES` (`100_000` in 0.4; `250_000` from 0.5) edges. |
 | Project span (longest dependency chain) | The heaviest chain of task worst-case durations plus the lags along it must stay under `MAX_PROJECT_SPAN_DAYS` (`366_000`, ~1000 years). Parallel tasks do not add up, so task count never trips it. |
 | Project work (total) | Σ every task's worst-case duration + Σ every lag magnitude must stay under `MAX_PROJECT_WORK_DAYS` (`3_660_000`, 10x the span cap). This is a CPU bound, not a schedule length: 100 parallel max-duration tasks sit at the cap and take about 2 s. |
 | Agile (scrum) chain span | A scrum task's velocity worst case (`(ceil(story_points / mean velocity) * 4 + 10) * sprint_length_days` working days) is weighed on the same longest dependency chain, so parallel stories do not add up, and that chain must also stay under `MAX_PROJECT_SPAN_DAYS`. |

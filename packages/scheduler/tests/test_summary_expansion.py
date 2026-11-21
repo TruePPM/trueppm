@@ -643,11 +643,11 @@ class TestNestedChainRefusalIsCheap:
 
         monkeypatch.setattr(summary_mod, "_collect_leaves", spy)
         monkeypatch.setattr(graph_mod, "_collect_leaves", spy)
-        children_map, deps = self._chain(400, 400)  # 400 * 400 = 160k > MAX_EXPANDED_EDGES
+        children_map, deps = self._chain(600, 600)  # 600 * 600 = 360k > MAX_EXPANDED_EDGES
 
-        with pytest.raises(InvalidScheduleInput, match="would exceed 100,000 edges"):
+        with pytest.raises(InvalidScheduleInput, match="would exceed 250,000 edges"):
             expand_summary_dependencies([], deps, children_map)
-        with pytest.raises(InvalidScheduleInput, match="would exceed 100,000 edges"):
+        with pytest.raises(InvalidScheduleInput, match="would exceed 250,000 edges"):
             find_cycle([(d.predecessor_id, d.successor_id) for d in deps], children_map)
         assert calls == []
 
@@ -657,15 +657,15 @@ class TestNestedChainRefusalIsCheap:
 
         children_map, deps = self._chain(6000, 6000)
         start = time.monotonic()
-        with pytest.raises(InvalidScheduleInput, match="would exceed 100,000 edges"):
+        with pytest.raises(InvalidScheduleInput, match="would exceed 250,000 edges"):
             expand_summary_dependencies([], deps, children_map)
-        with pytest.raises(InvalidScheduleInput, match="would exceed 100,000 edges"):
+        with pytest.raises(InvalidScheduleInput, match="would exceed 250,000 edges"):
             find_cycle([(d.predecessor_id, d.successor_id) for d in deps], children_map)
         assert time.monotonic() - start < 5.0
 
     def test_message_names_the_bound_as_an_upper_bound(self) -> None:
-        """Two links expanding onto the same 60k pairs sum to 120k, so the cap says so (BACK-6)."""
-        children_map = {"P": [f"p{i}" for i in range(300)], "Q": [f"q{i}" for i in range(200)]}
+        """Two links expanding onto the same 160k pairs sum to 320k, so the cap says so (BACK-6)."""
+        children_map = {"P": [f"p{i}" for i in range(400)], "Q": [f"q{i}" for i in range(400)]}
         deps = [Dependency("P", "Q"), Dependency("P", "Q", DependencyType.FS, timedelta(days=1))]
         with pytest.raises(InvalidScheduleInput, match="an upper bound"):
             expand_summary_dependencies([], deps, children_map)

@@ -664,8 +664,8 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_LAG_DAYS` | `36525` | A single dependency's lag, either direction |
 | `MAX_PROJECT_SPAN_DAYS` | `366000` | Cumulative span in 0.4: every task's worst-case duration plus every lag. From 0.5, longest dependency chain — worst-case task durations plus lags along it plus the furthest pin, data date or actual (~1000 years; see Project span above) |
 | `MAX_PROJECT_WORK_DAYS` | `3660000` | From 0.5 (not in 0.4): total work — the sum of every task's worst-case duration plus every lag's magnitude, parallel or not (10x the span cap; see Project work above) |
-| `MAX_DEPENDENCIES` | `100000` | Raw dependency-edge count, before summary expansion; from 0.5 also the node and the edge count `GraphExport.from_dict` / `from_json` accept |
-| `MAX_EXPANDED_EDGES` | `100000` | Leaf-level edges after expanding a summary↔summary dependency |
+| `MAX_DEPENDENCIES` | `250000` | Raw dependency-edge count, before summary expansion (`100000` in 0.4; `250000` from 0.5); from 0.5 also the node and the edge count `GraphExport.from_dict` / `from_json` accept |
+| `MAX_EXPANDED_EDGES` | `250000` | Leaf-level edges after expanding a summary↔summary dependency (`100000` in 0.4; `250000` from 0.5) |
 | `MAX_CALENDAR_EXCEPTIONS` | `100000` | Exception ranges on one `Calendar` |
 | `MAX_CALENDAR_SCAN_DAYS` | `36600` | Longest run of consecutive non-working days before a calendar is declared degenerate |
 | `MAX_LAG_DELTA_CELLS` | `50000000` | Monte Carlo's `(distinct dep-type/lag combos) x (index span)` precompute. Provisional (see [API stability](#api-stability-and-versioning)) |
@@ -981,9 +981,7 @@ they will ship with 0.5 or that release will slip:
   independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings the engine itself into scope
-  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the supported
-  envelope will be raised toward 50,000 tasks
-  ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
+  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).

@@ -56,7 +56,12 @@ MAX_PROJECT_WORK_DAYS = MAX_PROJECT_SPAN_DAYS * 10
 # edge); a graph that exceeds it is pathological or hostile and is rejected with an
 # actionable error rather than allowed to spin. The cost is checked from leaf
 # *counts* before any cross product is materialised, so the guard itself is cheap.
-MAX_EXPANDED_EDGES = 100_000
+# Raised from 100,000 to 250,000 in 0.5 (#3825) so it no longer binds on the same
+# network as MAX_DEPENDENCIES; kept equal to it. test_bench.py exercises
+# the cap itself only in the opt-in slow benchmarks (TRUEPPM_SLOW_BENCH=1); its default
+# runs reach ~100,000 edges. The expanded edges are then scheduled like raw ones, so the
+# MAX_DEPENDENCIES measurements below bound the cost of a project that sits at it.
+MAX_EXPANDED_EDGES = 250_000
 
 
 # Ceiling on the raw dependency-edge count on the project as submitted, before any
@@ -70,7 +75,23 @@ MAX_EXPANDED_EDGES = 100_000
 # with a dense-but-sane 20 predecessors each) and is checked from the list length
 # before any per-edge work runs, so the guard is O(1). Applies uniformly to schedule()
 # and monte_carlo() because both route through _validate_project.
-MAX_DEPENDENCIES = 100_000
+#
+# Raised from 100,000 to 250,000 in 0.5 (#3825). At 100,000 it bound a 50,000-task
+# network at two links per task, long before the engine ran out of headroom.
+# schedule() on a mixed FS/SS/FF topology with the cap lifted (Apple-silicon laptop,
+# single run, no calendars, actuals or summaries): 50,000 tasks / 99,997 edges 1.21 s
+# and 181 MB peak RSS; 100,000 / 199,997 2.58 s and 311 MB; 100,000 / 299,994 3.53 s
+# and 357 MB; 100,000 / 499,985 4.71 s and 454 MB. Those 300k/500k-edge figures are
+# one-off manual runs, not reproduced by a test; the slow benchmarks run the cap itself
+# (100,000 tasks / 250,000 edges). Cost is linear in edges and the
+# engine is nowhere near memory-bound at 250,000, so the binding limit on a large
+# plan is the embedder's own footprint (the TruePPM API holds ~30 KB per task during a
+# recalculation), not this cap. It adds no unbounded product: MAX_LAG_DELTA_CELLS
+# bounds distinct (type, lag) keys x index span independent of edge count. (The
+# MAX_PROJECT_WORK_DAYS bound is on durations and lags, not on edge count.) The
+# browser WASM engine's memory at this many edges is unmeasured. Mirrored in
+# validate.rs; test_wasm_conformance.py asserts the two values agree.
+MAX_DEPENDENCIES = 250_000
 
 
 # Ceiling on the number of calendar exception ranges (#1206). ``is_working_day`` is

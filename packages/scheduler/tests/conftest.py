@@ -86,3 +86,14 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         terminalreporter.write_sep("-", "generator acceptance rate")
         for line in lines:
             terminalreporter.write_line(line)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register ``slow`` here, not in pyproject.toml (#3825).
+
+    The scheduler pyproject is an input to the ci-api image tag digest, so adding a
+    marker there would force a CI_API_TAG bump for a test-only change.
+    """
+    config.addinivalue_line(
+        "markers", "slow: at-the-cap benchmarks; also need TRUEPPM_SLOW_BENCH=1 to run"
+    )
