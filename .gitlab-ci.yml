@@ -764,7 +764,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh,ci/step.sh,tests/ci-step.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -817,7 +817,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh,ci/step.sh,tests/ci-step.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -860,6 +860,7 @@ scripts:test:
     - bash scripts/tests/check-app-layering.test.sh
     - bash scripts/tests/check-schema-breaking.test.sh
     - bash scripts/tests/pip-floor.test.sh
+    - bash scripts/tests/ci-step.test.sh
 
 boundary:check:
   extends: .fast-job
@@ -951,51 +952,121 @@ chore:release-stale-wip-labels:
         bash scripts/release-stale-wip-labels.sh
       fi
 
-boundary:imports:
+lint:repo-static:
   extends: .fast-job
-  # The source-tree half of the Two-Repo Rule (#2603). boundary:check above
-  # guards the issue tracker; this guards the code — "the community edition
-  # NEVER imports from trueppm-enterprise" was documented in CLAUDE.md,
-  # CONTRIBUTING.md, five skills and ~30 ADRs and enforced by NO CI job. It held
-  # on convention alone. An import in that direction is a licensing defect, not
-  # a style one, so it belongs on a gate rather than in review.
+  # Static, tree-reading lint gates for code, CI config, compose and web.
   #
-  # Unlike boundary:check (main + schedule, because it reads tracker state that
-  # changes outside MRs), this runs on every MR: the violation it catches
-  # arrives in a diff, and catching it after merge to a protected branch is too
-  # late. A grep over packages/; ~1s, no install beyond bash.
+  # Folds 37 single-script gates that each cost a container slot for
+  # seconds of work (#5090): GitLab caps the jobs active across open pipelines,
+  # and 15 of 24 failed MR pipelines in the 2026-11-20 audit window ran ZERO jobs
+  # because of it. Every folded gate keeps its old job name as the CHECK name, so
+  # `=== CHECK <name>` / `=== FAIL <name>` in the log greps to the gate a doc or
+  # an issue cites. scripts/ci/step.sh prints those headers, records a failure
+  # and keeps going; the final `--finish` line fails the job and lists every
+  # failed check, so one red check names itself and does not hide the next.
   #
-  # Prose that names the enterprise package stays legal — the gate matches only
-  # import syntax and quoted module paths, and strips comment lines first. See
-  # the script header for the patterns and scripts/tests/ for the cases proving
-  # it fails on real imports.
+  # Each gate runs its --self-test BEFORE the real scan, in this job's own image
+  # (the #3172 alpine/BusyBox rule), and the script lines stay literal here so
+  # check-gate-selftest-parity.sh and check-prepush-parity.sh still read them.
+  # Rationale for an individual gate lives in its script header and `git log`.
+  # Add a new static gate here ONLY if it needs nothing beyond the apk set below
+  # and runs on main + MRs; a tracker-API reader (fails closed on API errors,
+  # #4400), a different image or a `changes:`-scoped job stays its own job.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  timeout: 15m
   before_script:
-    # grep MUST be GNU grep: both this job's script and the one below filter with
-    # --include / --exclude-dir, and alpine's default BusyBox grep does not
-    # implement them — it rejects the option, the script's `|| true` swallows the
-    # error, and an empty result reads as "no violations". That is how this gate
-    # passed a real `from trueppm_enterprise import ...` for as long as it has
-    # existed (#3172). The script's --self-test now fails closed if that recurs,
-    # but keep the package: the self-test is the alarm, this is the fix.
-    - apk add --no-cache bash grep
+    - apk add --no-cache bash git grep sed gawk coreutils findutils python3 diffutils
   script:
-    # Self-test FIRST: this gate's failure mode is a green pipeline over an
-    # unenforced licensing boundary, so "it passed" is not evidence that it can
-    # still fail. Replays a real import in each pattern family (#3172).
-    - bash scripts/check-enterprise-imports.sh --self-test
-    - bash scripts/check-enterprise-imports.sh
-    # The documentation half (#2859): a doc that tells a contributor to verify
-    # the boundary with the naive grep reports the invariant as broken on a
-    # clean tree. Same job — both halves guard the same rule and both are ~1s.
-    # Same reasoning as the import half above: prove the doc check can still
-    # fail before trusting that it passed (#3195).
-    - bash scripts/check-boundary-doc-command.sh --self-test
-    - bash scripts/check-boundary-doc-command.sh
+    - bash scripts/ci/step.sh boundary:imports bash scripts/check-enterprise-imports.sh --self-test
+    - bash scripts/ci/step.sh boundary:imports bash scripts/check-enterprise-imports.sh
+    - bash scripts/ci/step.sh boundary:imports bash scripts/check-boundary-doc-command.sh --self-test
+    - bash scripts/ci/step.sh boundary:imports bash scripts/check-boundary-doc-command.sh
+    - bash scripts/ci/step.sh ci:gate-selftest-parity bash scripts/check-gate-selftest-parity.sh --self-test
+    - bash scripts/ci/step.sh ci:gate-selftest-parity bash scripts/check-gate-selftest-parity.sh
+    - bash scripts/ci/step.sh ci:prepush-parity bash scripts/check-prepush-parity.sh --self-test
+    - bash scripts/ci/step.sh ci:prepush-parity bash scripts/check-prepush-parity.sh
+    - bash scripts/ci/step.sh api:summary-duration-units bash scripts/check-summary-duration-units.sh --self-test
+    - bash scripts/ci/step.sh api:summary-duration-units bash scripts/check-summary-duration-units.sh
+    - bash scripts/ci/step.sh api:dependency-soft-delete bash scripts/check-dependency-soft-delete.sh --self-test
+    - bash scripts/ci/step.sh api:dependency-soft-delete bash scripts/check-dependency-soft-delete.sh
+    - bash scripts/ci/step.sh api:request-body-guards bash scripts/check-request-body-guards.sh --self-test
+    - bash scripts/ci/step.sh api:request-body-guards bash scripts/check-request-body-guards.sh
+    - bash scripts/ci/step.sh api:extension-signals bash scripts/check-extension-signals.sh --self-test
+    - bash scripts/ci/step.sh api:extension-signals bash scripts/check-extension-signals.sh
+    - bash scripts/ci/step.sh api:ci-api-tag bash scripts/check-ci-api-tag.sh --self-test
+    - bash scripts/ci/step.sh api:ci-api-tag bash scripts/check-ci-api-tag.sh
+    - bash scripts/ci/step.sh api:ci-api-tag bash scripts/check-ci-api-tag.sh --image scheduler
+    - bash scripts/ci/step.sh web:rule-numbers bash scripts/check-web-rule-numbers.sh --self-test
+    - bash scripts/ci/step.sh web:rule-numbers bash scripts/check-web-rule-numbers.sh
+    - bash scripts/ci/step.sh web:playwright-pins bash scripts/check-playwright-pins.sh --self-test
+    - bash scripts/ci/step.sh web:playwright-pins bash scripts/check-playwright-pins.sh
+    - bash scripts/ci/step.sh web:row-vocabulary bash scripts/check-row-vocabulary.sh --self-test
+    - bash scripts/ci/step.sh web:row-vocabulary bash scripts/check-row-vocabulary.sh
+    - bash scripts/ci/step.sh compose:image-pins bash scripts/check-compose-image-pins.sh --self-test
+    - bash scripts/ci/step.sh compose:image-pins bash scripts/check-compose-image-pins.sh
+    - bash scripts/ci/step.sh compose:project-names bash scripts/check-compose-project-names.sh --self-test
+    - bash scripts/ci/step.sh compose:project-names bash scripts/check-compose-project-names.sh
+    - bash scripts/ci/step.sh compose:ports bash scripts/check-compose-ports.sh --self-test
+    - bash scripts/ci/step.sh compose:ports bash scripts/check-compose-ports.sh
+    - bash scripts/ci/step.sh compose:nginx-shutdown bash scripts/check-compose-nginx-shutdown.sh --self-test
+    - bash scripts/ci/step.sh compose:nginx-shutdown bash scripts/check-compose-nginx-shutdown.sh
+    - bash scripts/ci/step.sh mobile:version-pin bash scripts/check-mobile-version.sh --self-test
+    - bash scripts/ci/step.sh mobile:version-pin bash scripts/check-mobile-version.sh
+    - bash scripts/ci/step.sh demo:readonly-posture bash scripts/check-demo-readonly.sh --self-test
+    - bash scripts/ci/step.sh demo:readonly-posture bash scripts/check-demo-readonly.sh
+    - bash scripts/ci/step.sh demo:readonly-posture bash scripts/check-demo-compose-secrets.sh --self-test
+    - bash scripts/ci/step.sh demo:readonly-posture bash scripts/check-demo-compose-secrets.sh
+    - bash scripts/ci/step.sh scripts:sigpipe-readers bash scripts/check-sigpipe-readers.sh --self-test
+    - bash scripts/ci/step.sh scripts:sigpipe-readers bash scripts/check-sigpipe-readers.sh
+    - bash scripts/ci/step.sh lint:sonar-exclusions bash scripts/check-sonar-exclusions.sh
+    - bash scripts/ci/step.sh lint:sonar-exclusions bash scripts/check-sonar-exclusions.sh --self-test
+    - bash scripts/ci/step.sh lint:curl-hardening bash scripts/check-curl-hardening.sh --self-test
+    - bash scripts/ci/step.sh lint:curl-hardening bash scripts/check-curl-hardening.sh
+    - bash scripts/ci/step.sh lint:design-system-v2 bash scripts/check-design-system-v2.sh --self-test
+    - bash scripts/ci/step.sh lint:design-system-v2 bash scripts/check-design-system-v2.sh
+    - bash scripts/ci/step.sh lint:e2e-catchall bash scripts/check-e2e-catchall.sh --self-test
+    - bash scripts/ci/step.sh lint:e2e-catchall bash scripts/check-e2e-catchall.sh
+    - bash scripts/ci/step.sh lint:dropdown-scroll bash scripts/check-dropdown-scroll.sh --self-test
+    - bash scripts/ci/step.sh lint:dropdown-scroll bash scripts/check-dropdown-scroll.sh
+    - bash scripts/ci/step.sh lint:focus-trap-focuskey bash scripts/check-focus-trap-focuskey.sh --self-test
+    - bash scripts/ci/step.sh lint:focus-trap-focuskey bash scripts/check-focus-trap-focuskey.sh
+    - bash scripts/ci/step.sh lint:aria-modal-focus-trap bash scripts/check-aria-modal-focus-trap.sh --self-test
+    - bash scripts/ci/step.sh lint:aria-modal-focus-trap bash scripts/check-aria-modal-focus-trap.sh
+    - bash scripts/ci/step.sh lint:hover-reveal-focus bash scripts/check-hover-reveal-focus.sh --self-test
+    - bash scripts/ci/step.sh lint:hover-reveal-focus bash scripts/check-hover-reveal-focus.sh
+    - bash scripts/ci/step.sh lint:e2e-schema-guard bash scripts/check-e2e-schema-guard.sh --self-test
+    - bash scripts/ci/step.sh lint:e2e-schema-guard bash scripts/check-e2e-schema-guard.sh
+    - bash scripts/ci/step.sh lint:loading-skeleton-role python3 scripts/check-loading-skeleton-role.py --self-test
+    - bash scripts/ci/step.sh lint:loading-skeleton-role python3 scripts/check-loading-skeleton-role.py
+    - bash scripts/ci/step.sh lint:dark-text-white python3 scripts/check-dark-text-white.py --self-test
+    - bash scripts/ci/step.sh lint:dark-text-white python3 scripts/check-dark-text-white.py
+    - bash scripts/ci/step.sh lint:web-types-drift python3 scripts/check-web-types-drift.py --self-test
+    - bash scripts/ci/step.sh lint:web-types-drift python3 scripts/check-web-types-drift.py
+    - bash scripts/ci/step.sh lint:cost-ledger python3 scripts/cost-ledger --self-test
+    - bash scripts/ci/step.sh lint:cost-ledger python3 scripts/subagent-tokens.py --self-test
+    - bash scripts/ci/step.sh lint:cost-ledger python3 scripts/orchestrator-tokens.py --self-test
+    - bash scripts/ci/step.sh lint:cost-ledger python3 scripts/est-cost.py --self-test
+    - bash scripts/ci/step.sh lint:cost-ledger python3 scripts/cost-table.py --self-test
+    - bash scripts/ci/step.sh lint:cost-ledger python3 scripts/post-mr-cost.py --self-test
+    - bash scripts/ci/step.sh lint:cost-ledger python3 scripts/mr-cost-means.py --self-test
+    - bash scripts/ci/step.sh lint:cost-ledger python3 scripts/lib/ledger_lines.py --self-test
+    - bash scripts/ci/step.sh lint:package-licenses bash scripts/check-package-licenses.sh --self-test
+    - bash scripts/ci/step.sh lint:package-licenses bash scripts/check-package-licenses.sh
+    - bash scripts/ci/step.sh lint:ws-handler-conformance bash scripts/check-ws-handler-conformance.sh
+    - bash scripts/ci/step.sh lint:ws-handler-conformance bash scripts/check-ws-handler-conformance.sh --self-test
+    - bash scripts/ci/step.sh lint:nginx-location-parity bash scripts/check-nginx-location-parity.sh --self-test
+    - bash scripts/ci/step.sh lint:nginx-location-parity bash scripts/check-nginx-location-parity.sh
+    - bash scripts/ci/step.sh lint:image-digest-parity bash scripts/check-image-digest-parity.sh --self-test
+    - bash scripts/ci/step.sh lint:image-digest-parity bash scripts/check-image-digest-parity.sh
+    - bash scripts/ci/step.sh lint:api-scheduler-lock bash scripts/check-api-scheduler-lock.sh --self-test
+    - bash scripts/ci/step.sh lint:api-scheduler-lock bash scripts/check-api-scheduler-lock.sh
+    - bash scripts/ci/step.sh lint:nul-bytes bash scripts/check-nul-bytes.sh --self-test
+    - bash scripts/ci/step.sh lint:nul-bytes bash scripts/check-nul-bytes.sh
+    - bash scripts/ci/step.sh --finish
 
 suppressions:check:
   extends: .fast-job
@@ -1135,319 +1206,6 @@ lint:negated-closing-keywords:
     - bash scripts/check-negated-closing-keywords.sh --self-test
     - bash scripts/check-negated-closing-keywords.sh
 
-lint:sonar-exclusions:
-  extends: .fast-job
-  # Sonar exclusion-integrity gate (#2520). Every
-  # `sonar.issue.ignore.multicriteria.*` criterion is a reviewed false positive;
-  # nothing verified its glob still pointed at anything. #2517: the #1749 sweep
-  # renamed useProjectChangelog.ts → .tsx, `activity/*.ts` stopped matching it,
-  # four suppressed findings resurfaced, and the reliability rating fell A → D
-  # with no job going red. This is the job that goes red.
-  #
-  # Pure path matching against `git ls-files` — no network, no SONAR_TOKEN, <1s.
-  # Deliberately NOT tied to the nightly sonar:scan, which is scheduled-only and
-  # allow_failure; this runs on every MR.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash git grep sed
-  script:
-    - bash scripts/check-sonar-exclusions.sh
-    - bash scripts/check-sonar-exclusions.sh --self-test
-
-lint:curl-hardening:
-  extends: .fast-job
-  # curl redirect-hardening gate (#2990). A `curl -L` without --proto-redir '=https'
-  # can be redirected onto plaintext http://, and in the drill scripts the fetched
-  # bytes are later `kubectl apply`d as cluster-admin (#2988). The only thing that
-  # caught it was the scheduled-only sonar:scan, days after merge. Pure text matching
-  # over `git ls-files` — no network, <1s. Waive a deliberate site with a
-  # `# curl-hardening-ok: <reason>` comment on the line above (see the script header).
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash git grep sed
-  script:
-    - bash scripts/check-curl-hardening.sh --self-test
-    - bash scripts/check-curl-hardening.sh
-
-ci:gate-selftest-parity:
-  extends: .fast-job
-  # Every CI gate proves it can still fail, in its own job, or records why it cannot
-  # (#3194). The sibling of ci:prepush-parity, and the same defect shape: a list that
-  # was never asserted to stay complete. boundary:imports passed a real Apache-2.0
-  # violation for its entire existence (#3172) while carrying a test suite that ran on
-  # a different image — so the suite proved something about python:3.11-slim, not about
-  # the gate. Same job is the only way to say same image. ~1s, no network.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep
-  script:
-    # This gate polices "prove you can fail"; running its own self-test first is the
-    # minimum it can ask of itself.
-    - bash scripts/check-gate-selftest-parity.sh --self-test
-    - bash scripts/check-gate-selftest-parity.sh
-
-ci:prepush-parity:
-  extends: .fast-job
-  # Pre-push parity gate (#2941). `pre-push-checks` mirrored eight bespoke CI gates
-  # and `lint:design-system-v2` — a job of exactly that shape — was not among them, so
-  # the one gate policing hardcoded hex against the DS-v2 ratchet was the one a
-  # developer could not run before pushing. A breach passed `make pre-push` cleanly and
-  # failed the pipeline.
-  #
-  # The list was a historical accretion with nothing asserting it stayed complete, so
-  # fixing the one missing entry would have left the next gate to fall behind the same
-  # way. This job derives the CI set from this file rather than restating it.
-  #
-  # Runs in CI as well as in pre-push because the failure it catches is *adding a CI
-  # job* — which the author of that job is the last person to run pre-push against.
-  # Pure text matching over two files, no network, <1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash git grep sed
-  script:
-    # Self-test FIRST: the real tree is compliant, so the detection path never
-    # runs — a disarmed version of this gate prints byte-identical output and
-    # exit 0 until the day someone adds an unmirrored gate (#3195).
-    - bash scripts/check-prepush-parity.sh --self-test
-    - bash scripts/check-prepush-parity.sh
-
-lint:design-system-v2:
-  extends: .fast-job
-  # Design System v2 conformance gate (ADR-0125). Blocks design drift: arbitrary
-  # Tailwind color/shadow value classes (zero tolerance) and new raw hex literals
-  # in component source (ratchet against a committed baseline). This is the
-  # enforcement that makes "all future work inherits the v2 golden standard" real.
-  # See docs/design/v2-golden-standard.md. ~2s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep
-  script:
-    # Self-test FIRST: the DS-v2 ratchet's matcher also sees quoted issue refs as
-    # hex, so both the detection and its carve-out have to be proven live (#3195).
-    - bash scripts/check-design-system-v2.sh --self-test
-    - bash scripts/check-design-system-v2.sh
-
-lint:dropdown-scroll:
-  extends: .fast-job
-  # Floating menu/listbox scroll-safety gate (web-rule 351, #3109). A role="menu"
-  # / role="listbox" panel taller than the viewport with no overflow-y-auto +
-  # height guard spills off-screen with nothing to scroll it into view — the
-  # Schedule "Display" menu bug. Ratchet with reviewed exclusions for panels
-  # that are genuinely safe by construction; each is a `// dropdown-scroll-ok:
-  # <reason>` comment on the role= line itself, so no unrelated edit above it can
-  # invalidate the exemption (#3117). See scripts/check-dropdown-scroll.sh.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep sed
-  script:
-    # Self-test first (#3194) — likewise implemented long ago and never run.
-    - bash scripts/check-dropdown-scroll.sh --self-test
-    - bash scripts/check-dropdown-scroll.sh
-
-lint:focus-trap-focuskey:
-  extends: .fast-job
-  # Focus-trap focusKey gate (web-rule 362, #3352). `useFocusTrap`'s
-  # FOCUSABLE_SELECTOR is `button:not([disabled])`, so a dialog that disables its
-  # own controls while a request is in flight empties the trap: the browser blurs
-  # the just-pressed control to <body>, the Tab handler stops intercepting, and
-  # Tab walks into the page behind the scrim — an aria-modal surface the keyboard
-  # can leave (WCAG 2.4.3 / 2.1.2).
-  #
-  # Rule 362 was written from #3129, stated in prose, and enforced by nothing;
-  # #3298 reintroduced the class seventeen issues later and the #3352 sweep found
-  # 26 live dialogs. This is the guard that did not exist. False positives — the
-  # disabled control is outside the trap, the disable is validation-only — are
-  # paid for by scripts/focus-trap-focuskey-waivers.txt, a ratcheted list that
-  # can only shrink, not by `|| true`. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep sed
-  script:
-    # Self-test FIRST (#3194/#3195): this gate's own failure mode is a green
-    # pipeline on a tree full of unkeyed traps, so a green run has to be backed
-    # by proof it still detects a planted one — in THIS job, on THIS image,
-    # because BusyBox vs GNU is exactly what blinded boundary:imports.
-    - bash scripts/check-focus-trap-focuskey.sh --self-test
-    - bash scripts/check-focus-trap-focuskey.sh
-
-lint:aria-modal-focus-trap:
-  extends: .fast-job
-  # aria-modal pairing gate (#4085, the #2193 class recurring, #4125's lint
-  # half). `role="dialog"`/`role="alertdialog"` + `aria-modal="true"` is a
-  # promise that focus cannot leave the surface; nothing enforced it, so
-  # #2193's ~17 fixed dialogs recurred as 14 fresh instances with no gate to
-  # catch the next one. Flags a file declaring aria-modal="true"/{true} with
-  # none of: a useFocusTrap import, an inline `// focus-trap: <reason>`
-  # waiver, or a <BottomSheet> shell. See scripts/check-aria-modal-focus-trap.sh.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep sed
-  script:
-    # Self-test FIRST (#3194/#3195): a green run has to be backed by proof
-    # it still detects a planted offender, in THIS job, on THIS image.
-    - bash scripts/check-aria-modal-focus-trap.sh --self-test
-    - bash scripts/check-aria-modal-focus-trap.sh
-
-lint:loading-skeleton-role:
-  extends: .fast-job
-  # A loading placeholder with aria-label on a role-less div gives screen readers
-  # no name and no announcement (#4618). See scripts/check-loading-skeleton-role.py.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache python3
-  script:
-    - python3 scripts/check-loading-skeleton-role.py --self-test
-    - python3 scripts/check-loading-skeleton-role.py
-
-lint:dark-text-white:
-  extends: .fast-job
-  # Filled semantic/brand surface + text-white with no dark:text-* override is
-  # 2.3-2.8:1 in dark mode (web-rule 456, #4669). See scripts/check-dark-text-white.py.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache python3
-  script:
-    - python3 scripts/check-dark-text-white.py --self-test
-    - python3 scripts/check-dark-text-white.py
-
-lint:hover-reveal-focus:
-  extends: .fast-job
-  # Hover-only reveal keyboard-reachability gate (web-rule 417, #3619). A
-  # control shown only via `hover:opacity-100`/`group-hover:opacity-100` with
-  # no focus:/focus-within:/focus-visible:/group-focus-within: counterpart is
-  # unreachable by keyboard — Tab lands on it and it never becomes visible.
-  # Point-fixed three times (#1029, #1802, #3619) on three different
-  # components before this gate replaced the fourth point fix. See
-  # scripts/check-hover-reveal-focus.sh.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep sed
-  script:
-    # Self-test first (#3194) — a gate that cannot be shown to fail is
-    # indistinguishable from one that works.
-    - bash scripts/check-hover-reveal-focus.sh --self-test
-    - bash scripts/check-hover-reveal-focus.sh
-
-lint:e2e-catchall:
-  extends: .fast-job
-  # Playwright catch-all gate (#2366). A spec that mocks the API but omits
-  # `setupCatchAll` lets any forgotten endpoint escape the browser-level mocks —
-  # in CI it hits the preview server, and on a dev box with `make up` running it
-  # reaches the real API and 401s, driving the client's token-refresh and
-  # session-teardown path in a race with the page render. That machine-dependent
-  # difference is how wave6-heatmap.spec.ts spent months triaged as an
-  # "environmental flake". ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep
-  script:
-    # Self-test FIRST: a spec that mocks the API without the catch-all reads as
-    # an environmental flake months later, so a green run here has to be backed
-    # by proof the gate can still reject one (#3195).
-    - bash scripts/check-e2e-catchall.sh --self-test
-    - bash scripts/check-e2e-catchall.sh
-
-lint:e2e-schema-guard:
-  extends: .fast-job
-  # The e2e mock layer must stay bound to docs/api/openapi.json (#3440).
-  #
-  # `web:e2e` used to be evidence about the fixtures, not about the API: 1,808
-  # lines of hand-written mocks and every inline page.route payload were authored
-  # independently of the schema, so a renamed serializer field left 295 specs
-  # green. `fixtures/schema-guard.ts` closes that by validating every mocked
-  # response against the schema, and it is wired in by ONE line inside
-  # setupCatchAll. Delete that line and the binding is gone with no red anywhere.
-  #
-  # This job is the structural half — it cannot check a payload (only the suite
-  # can, via e2e/schema-guard.spec.ts), it checks that nothing disarmed the
-  # guard, that CI is not disabling it, and that the drift ledger has not grown.
-  # ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep sed
-  script:
-    # Self-test FIRST, same reason as the catch-all gate above: this gate's own
-    # failure mode is a green pipeline, so a green run has to be backed by proof
-    # it can still reject a disarmed tree (#3194).
-    - bash scripts/check-e2e-schema-guard.sh --self-test
-    - bash scripts/check-e2e-schema-guard.sh
-
-lint:web-types-drift:
-  extends: .fast-job
-  # Hand-maintained web API types vs docs/api/openapi.json (#2633).
-  #
-  # packages/web/src/api/types.ts is written by hand, and `tsc --strict` over it
-  # only proves the interfaces agree with their own consumers. Six user-id FKs
-  # sat typed `string` against integer PKs, so `risk.owner === currentUserId`
-  # could never be true and the "Mine" filter was always empty — green on every
-  # gate. This fails when a field an interface SHARES with its mapped component
-  # schema disagrees on primitive kind. It does not check missing fields,
-  # nullability, enums or formats; see the script's docstring. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache python3
-  script:
-    # Self-test FIRST: a drift gate that cannot fail reads exactly like a clean
-    # tree (#3194).
-    - python3 scripts/check-web-types-drift.py --self-test
-    - python3 scripts/check-web-types-drift.py
-
 lint:semgrep-freshness:
   extends: .fast-job
   # The vendored Semgrep packs under .semgrep/ never update on their own, and a
@@ -1502,32 +1260,6 @@ semgrep:refresh-mr:
     - bash scripts/refresh-semgrep-rules-mr.sh --self-test
     - bash scripts/refresh-semgrep-rules-mr.sh
 
-lint:cost-ledger:
-  extends: .fast-job
-  # The MR cost-ledger tooling (docs/harness/cost-ledger.md). Each script carries its own
-  # --self-test over fixture transcripts and a fake `glab api`; none of them reads a real
-  # transcript or the network, so a green run is evidence about the parsers and the n/a-never-0
-  # rules, not about any MR. scripts/cost-ledger self-tests against a throwaway `git init`, so
-  # git is installed. ~3s. post-mr-cost.py is the PostToolUse hook that auto-posts record 1
-  # (and, with --round, record K); its self-test runs against a stub runner and a fake notes API, and replays the golden
-  # fixture scripts/tests/cost-ledger-golden/ (fake glab, temp git dir) that pins non-overlap (#4865).
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache python3 git
-  script:
-    - python3 scripts/cost-ledger --self-test
-    - python3 scripts/subagent-tokens.py --self-test
-    - python3 scripts/orchestrator-tokens.py --self-test
-    - python3 scripts/est-cost.py --self-test
-    - python3 scripts/cost-table.py --self-test
-    - python3 scripts/post-mr-cost.py --self-test
-    - python3 scripts/mr-cost-means.py --self-test
-    - python3 scripts/lib/ledger_lines.py --self-test
-
 lint:adr-collisions:
   extends: .fast-job
   # ADR number-collision gate (#918). Fails if any two files under docs/adr/
@@ -1565,107 +1297,55 @@ lint:adr-collisions:
     - bash scripts/check-adr-collisions.sh --self-test
     - bash scripts/check-adr-collisions.sh
 
-lint:package-licenses:
+docs:static:
   extends: .fast-job
-  # Every separately-distributed package ships its own license text (#2632).
+  # Static docs-tree gates (links, routes, error codes, version tense, ADR status).
   #
-  # Distinct from license:check:py / license:check:web / wasm:license-check: those
-  # three audit *dependency* licenses (no copyleft third party entered the tree).
-  # None of them asserts that a package we publish carries OUR OWN Apache 2.0 text,
-  # which is why wasm:license-check stayed green while packages/wasm-scheduler
-  # declared `license = "Apache-2.0"` and shipped no LICENSE file.
+  # Folds 8 single-script gates that each cost a container slot for
+  # seconds of work (#5090): GitLab caps the jobs active across open pipelines,
+  # and 15 of 24 failed MR pipelines in the 2026-11-20 audit window ran ZERO jobs
+  # because of it. Every folded gate keeps its old job name as the CHECK name, so
+  # `=== CHECK <name>` / `=== FAIL <name>` in the log greps to the gate a doc or
+  # an issue cites. scripts/ci/step.sh prints those headers, records a failure
+  # and keeps going; the final `--finish` line fails the job and lists every
+  # failed check, so one red check names itself and does not hide the next.
   #
-  # Pure filesystem comparison, no network, no toolchain. ~1s.
-  #
-  # Also checks packages/{api,mcp}/NOTICES + licenses/ against the root NOTICES
-  # (#4413); see the THIRD-PARTY NOTICES block in the script header.
+  # Each gate runs its --self-test BEFORE the real scan, in this job's own image
+  # (the #3172 alpine/BusyBox rule), and the script lines stay literal here so
+  # check-gate-selftest-parity.sh and check-prepush-parity.sh still read them.
+  # Rationale for an individual gate lives in its script header and `git log`.
+  # Add a new static gate here ONLY if it needs nothing beyond the apk set below
+  # and runs on main + MRs; a tracker-API reader (fails closed on API errors,
+  # #4400), a different image or a `changes:`-scoped job stays its own job.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash diffutils
-  script:
-    # Self-test FIRST: Apache-2.0 §4(a) requires the license to travel with each
-    # separately distributed package; a blind gate here is a licensing defect,
-    # not a lint failure (#3195).
-    - bash scripts/check-package-licenses.sh --self-test
-    - bash scripts/check-package-licenses.sh
-
-docs:version-accuracy:
-  extends: .fast-job
-  # Version-status tense gate (#807). A past/present-tense version claim in the
-  # website docs ("shipped in 0.X", "added in 0.X", "In 0.X the Y is …") may
-  # only reference a version that has actually shipped. Referencing an Underway
-  # or Planned version in past/present tense is a user-facing accuracy bug (the
-  # 2026-05-28 "0.2 shipped" regression) — readers hunt for behavior that does
-  # not exist yet.
-  #
-  # Single source of truth for shipped-vs-unshipped is the "## Shipped" section
-  # of packages/website/src/content/docs/overview/roadmap.md. The roadmap page
-  # itself and docs/adr/** are exempt (forward-tense is correct there). See the
-  # CLAUDE.md "Version-status tense" rule. ~2s.
-  #
-  # Scope is the docs tree plus README.md (#3996). The CLAUDE.md rule has always
-  # said "any file under packages/website/src/content/docs/ (and README.md)",
-  # but the scan only ever walked the docs tree — in scope by policy, out of
-  # scope by implementation. That gap shipped a README claiming arm64 was
-  # deferred to 0.5 for two days after multi-arch landed in 0.4, while the four
-  # docs pages making the same claim were corrected in the same window.
-  #
-  # Also self-tests scripts/remove-ships-in-callouts.sh (#2818), the other half
-  # of the same discipline: this gate flags a banner that outlived its release,
-  # and that script deletes them at the tag. Its only other invocation is
-  # release.sh --apply, so without a self-test here a regression in it would
-  # first be discovered mid-release, editing the docs tree by hand. The two are
-  # composed — a banner phrasing must be one both recognize — so they belong in
-  # one job. Needs python3 for the removal script's line-range surgery. ~5s.
-  #
-  # Also runs the declaration-coverage ratchet (#2846): a page under features/,
-  # administration/ or getting-started/ either declares `documentedFor`, or its
-  # contents are hash-recorded in packages/website/docs-declaration-baseline.txt.
-  # Editing a non-declaring page breaks the hash and fails here, so the author
-  # must either name the version the page documents or re-record it with
-  # `bash scripts/check-version-status.sh --update-baseline`. This is the third
-  # occurrence of the class (#807 → #2608 → #2846) and the first time anything
-  # asks the question at all; the tense regex is structurally blind to a page
-  # that describes an unreleased feature and names no version.
-  #
-  # And the sidebar badge pairing (#2908): a page under getting-started/ that
-  # declares an unshipped `documentedFor` must carry a matching version badge on
-  # its packages/website/astro.config.mjs sidebar entry, and — in the other
-  # direction, over EVERY entry in the config — a version badge must be backed
-  # by a matching unshipped declaration. Before this, a reader learned a page
-  # was unreleased only after opening it; the nav that sent them there said
-  # nothing but a comment. The reverse branch is the one that earns its keep: it
-  # reds on the release that ships 0.X, forcing the badge off with the callout
-  # instead of leaving the nav understating the product.
-  #
-  # Finally, self-tests scripts/check-early-promotion.sh (#2824) — the guard on
-  # the roadmap edit that *triggers* the callout removal. Promoting 0.X into
-  # "## Shipped" is what licenses release.sh to delete every "Ships in 0.X"
-  # callout (131 blocks / 78 pages for 0.4), and nothing used to state when that
-  # edit is correct. The guard refuses an ALPHA cut against an already-promoted
-  # version whose callouts are still live. It runs only at release time, so this
-  # self-test is the only pre-merge signal that it still works — keep it here.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
+  timeout: 10m
   before_script:
     - apk add --no-cache bash grep sed findutils python3 perl-utils git
-    # The pinned "latest release" check (#4106) reads tag names. The default
-    # shallow clone carries none, and a tag-only fetch at depth 1 is cheap
-    # (tag refs, not history). Without git the check would skip with a NOTE on
-    # every run and never fail.
     - git fetch --quiet --depth=1 origin '+refs/tags/*:refs/tags/*'
   script:
-    - bash scripts/check-version-status.sh
-    - bash scripts/check-version-status.sh --self-test
-    - bash scripts/remove-ships-in-callouts.sh --self-test
-    - bash scripts/check-early-promotion.sh --self-test
+    - bash scripts/ci/step.sh docs:internal-links python3 scripts/check-docs-internal-links.py --self-test
+    - bash scripts/ci/step.sh docs:internal-links python3 scripts/check-docs-internal-links.py
+    - bash scripts/ci/step.sh docs:api-routes python3 scripts/check-docs-api-routes.py --self-test
+    - bash scripts/ci/step.sh docs:api-routes python3 scripts/check-docs-api-routes.py
+    - bash scripts/ci/step.sh docs:error-codes python3 scripts/check-error-codes-documented.py --self-test
+    - bash scripts/ci/step.sh docs:error-codes python3 scripts/check-error-codes-documented.py
+    - bash scripts/ci/step.sh docs:helm-walkthrough-drift python3 scripts/check-helm-walkthrough-drift.py --self-test
+    - bash scripts/ci/step.sh docs:helm-walkthrough-drift python3 scripts/check-helm-walkthrough-drift.py
+    - bash scripts/ci/step.sh docs:version-accuracy bash scripts/check-version-status.sh
+    - bash scripts/ci/step.sh docs:version-accuracy bash scripts/check-version-status.sh --self-test
+    - bash scripts/ci/step.sh docs:version-accuracy bash scripts/remove-ships-in-callouts.sh --self-test
+    - bash scripts/ci/step.sh docs:version-accuracy bash scripts/check-early-promotion.sh --self-test
+    - bash scripts/ci/step.sh docs:tree-split bash scripts/check-docs-tree-split.sh
+    - bash scripts/ci/step.sh docs:tree-split bash scripts/check-docs-tree-split.sh --self-test
+    - bash scripts/ci/step.sh docs:ws-event-reachability bash scripts/check-ws-event-reachability.sh
+    - bash scripts/ci/step.sh docs:ws-event-reachability bash scripts/check-ws-event-reachability.sh --self-test
+    - bash scripts/ci/step.sh docs:adr-status bash scripts/check-adr-status.sh --self-test
+    - bash scripts/ci/step.sh docs:adr-status bash scripts/check-adr-status.sh
+    - bash scripts/ci/step.sh --finish
 
 docs:known-issues-freshness:
   extends: .fast-job
@@ -1821,228 +1501,6 @@ docs:config-links:
   script:
     - bash scripts/check-config-doc-links.sh
     - bash scripts/check-config-doc-links.sh --self-test
-
-docs:tree-split:
-  extends: .fast-job
-  # Docs tree-split gate (#2928). Two documentation trees exist and only one is
-  # gated: packages/website/src/content/docs/ is the published product docs,
-  # covered by six scripts; docs/ holds ADRs, specs, audits and design records
-  # and is covered by none of them.
-  #
-  # For months docs/administration/ was a second copy of eight published pages.
-  # All eight had diverged, the website copy was 2-5x more complete on every
-  # one, and `scripts/backup.sh --help` pointed operators at the stale half --
-  # the copy missing the warning that restoring onto a fresh cluster silently
-  # orphans every stored SMTP credential and integration PAT. No gate failed,
-  # and none could: every one path-matches the website tree, so the duplicate
-  # was structurally invisible.
-  #
-  # Rule 1: no *.md basename in both trees (basename, not relative path --
-  # mcp-connect.md sat under docs/administration/ and website features/, so a
-  # path comparison saw nothing). Rule 2: a source pointer naming a
-  # docs/<published-tree>/ page must resolve. Artifact subtrees, CHANGELOG.md
-  # and ADRs are exempt as sources: they name planned and historical
-  # deliverables on purpose. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    # git is needed by the #3151 self-test cases, which `git init` a fixture to
-    # prove a gitignored artifact is not scanned (and that the same file,
-    # un-ignored, still fails). Without it those two cases print SELF-TEST
-    # SKIPPED and the job stays green — a test nobody watches run, which is the
-    # exact failure mode this script's self-test exists to prevent. The scan
-    # itself does not need git: a clean CI clone has nothing ignored to skip.
-    - apk add --no-cache bash grep sed findutils git
-  script:
-    - bash scripts/check-docs-tree-split.sh
-    - bash scripts/check-docs-tree-split.sh --self-test
-
-docs:ws-event-reachability:
-  extends: .fast-job
-  # WebSocket event reachability gate (#2846). The published WS event taxonomy
-  # is read by integrators as a subscribable surface. Five program_* events were
-  # listed there for months that no client can receive: they fan out on the
-  # channel group `project_{program_id}`, and neither of the codebase's two
-  # group_add() call sites can produce that group, so a subscriber gets a 4003
-  # close and no debugging on their side fixes it.
-  #
-  # The gate classifies each event by the *type of the id* its
-  # broadcast_board_event() call site fans out on — not by its name — and
-  # requires an undeliverable one to carry a "not deliverable" marker on every
-  # taxonomy bullet and table row. It inverts once routing.py serves
-  # ws/v1/programs/ (#836, 0.8): the markers then become the reversed claim and
-  # must come off, which is the check that turns red on the release that makes
-  # the docs wrong. Also asserts every event named in the taxonomy table exists
-  # in FROZEN_WS_EVENT_TYPES. ~2s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep sed findutils python3
-  script:
-    - bash scripts/check-ws-event-reachability.sh
-    - bash scripts/check-ws-event-reachability.sh --self-test
-
-lint:ws-handler-conformance:
-  extends: .fast-job
-  # WS event → frontend handler conformance gate (#3775, proposed in #2845).
-  # Nothing checked whether a broadcast WS event has a frontend consumer, and
-  # three independent audits each found a DIFFERENT slice of the same class:
-  # #2847 (label_*, task_relation_created, sprint_reranked, project_restored),
-  # #3245 (project_calendar_changed), and the 0.4 pre-release pass
-  # (task_relation_updated/_deleted, the signal-privacy ceiling events, the
-  # velocity-suggestion events). Each found what its grep happened to reach.
-  #
-  # Cross-references every event type reaching broadcast_board_event() against
-  # the on(...) registration table in useProjectWebSocket.ts, both directions,
-  # plus a shrink-only waiver ledger (packages/api/tests/apps/sync/
-  # ws_handler_waivers.py) carrying a reason and an issue per entry. The emitter
-  # half reuses the #1019/#1381 AST sweep from ws_event_scan.py — the same code
-  # the freeze guard runs — so the two can never disagree about what is emitted.
-  #
-  # NOT change-gated, deliberately. api:test runs only on `changes:
-  # packages/api/**`, and deleting a handler is a WEB-only diff — the one edit a
-  # pytest-only gate could not see. ~1s, no toolchain (stdlib python3).
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash python3
-  script:
-    - bash scripts/check-ws-handler-conformance.sh
-    - bash scripts/check-ws-handler-conformance.sh --self-test
-
-docs:internal-links:
-  extends: .fast-job
-  # Internal documentation link gate (#2869). Nothing checked internal links, so
-  # api/reference.md pointed at /features/csv-import/ long after the page became
-  # /features/csv-import-export/ (#2846). Every internal link must reach a page
-  # (or a redirect in astro.config.mjs), a heading anchor derived the way Astro
-  # derives it (github-slugger), an asset, or — for GitLab blob/tree links — a
-  # file in this repository.
-  #
-  # It reads the Markdown source, not dist/, and resolves each link against the
-  # URL its source file publishes at. starlight-versions writes a snapshot and
-  # rewrites that snapshot's links in the same build, so a rewritten link never
-  # exists without its target and the gate cannot fire spuriously during a
-  # release cut — the hazard that deferred this from #2846. Refuses to pass when
-  # it matched no pages, links or anchors. ~1s, no build.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache python3
-  script:
-    - python3 scripts/check-docs-internal-links.py --self-test
-    - python3 scripts/check-docs-internal-links.py
-
-docs:api-routes:
-  extends: .fast-job
-  # API route documentation gate (#3753). The API reference is hand-written and
-  # nothing compared it to docs/api/openapi.json, so api/idempotency.md named
-  # PATCH /api/v1/notifications/{id}/ while the route is /api/v1/me/notifications/.
-  # Forward: every METHOD /api/v1/… the published docs name must be an operation
-  # in the schema, or a path declared removed in scripts/schema-removal-allowlist.txt
-  # (how api/stability.md records removals). Reverse: schema operations the API
-  # reference does not mention are a shrink-only ratchet in
-  # scripts/docs-api-reference-unlisted.txt — a new undocumented operation fails,
-  # and so does a line whose operation is now documented or gone. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache python3
-  script:
-    - python3 scripts/check-docs-api-routes.py --self-test
-    - python3 scripts/check-docs-api-routes.py
-
-docs:error-codes:
-  extends: .fast-job
-  # Error/warning `code` documentation gate (#4376). errors.md is hand-written
-  # and nothing compared its tables to the source, so nine codes
-  # (calendar_has_no_working_day, no_anchor_recorded, not_a_sample,
-  # already_committed, wbs_path_occupied, structure_role_contradicted,
-  # seed_slug_taken, seed_import_concurrency_limit,
-  # assignment_not_unit_tracked) were emitted and undocumented for an unknown
-  # length of time. AST-collects every `code` string literal from a
-  # Response({...})/warnings[] dict, an APIException.default_code, or a
-  # `code=` keyword under packages/api/src: a new emission site not on
-  # errors.md and not in scripts/error-code-internal-allowlist.txt (codes that
-  # never reach the wire — #2550) fails, and so does a documented code with no
-  # emission site left anywhere. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache python3
-  script:
-    - python3 scripts/check-error-codes-documented.py --self-test
-    - python3 scripts/check-error-codes-documented.py
-
-docs:helm-walkthrough-drift:
-  extends: .fast-job
-  # scripts/helm-install-drill.sh's `walkthrough` leg (#4027) drills
-  # deployment.md's "Production install walkthrough" step for step; nothing
-  # enforced that the two stay aligned, which is exactly how #4025's two bugs
-  # shipped (Secret created before its namespace existed; DATABASE_URL supplied
-  # in a shape the chart's render rejects). Checks namespace/Secret creation
-  # order, the datastore-URL secretKeyRef shape, Secret names, and the literal
-  # ALLOWED_HOSTS value stay identical between the doc and the drill script —
-  # see scripts/check-helm-walkthrough-drift.py's own docstring. ~1s, no
-  # cluster, no network — this is the STATIC half; the live walkthrough boot
-  # runs in helm:walkthrough below.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache python3
-  script:
-    - python3 scripts/check-helm-walkthrough-drift.py --self-test
-    - python3 scripts/check-helm-walkthrough-drift.py
-
-docs:adr-status:
-  extends: .fast-job
-  # ADR status-drift gate (#2685). An ADR cited by name from packages/*/src must
-  # not say "Proposed" — citing it from shipped code is the author asserting the
-  # decision is in effect, which is incompatible with "not decided yet".
-  #
-  # Why a gate and not another audit: #2539 was a one-off manual sweep in July
-  # 2026, and within a month twelve ADRs had drifted back to Proposed while fully
-  # implemented. This grep-level check found twenty-two. The ADR corpus is the
-  # project's own record of what shipped; if it says Proposed for shipped work it
-  # misrepresents the release.
-  #
-  # Also checks the four corpus statistics quoted by the published ADR index
-  # (count, span, unused numbers, gap ranges) against the tree — they had drifted
-  # by 13 ADRs and 64 unused numbers. Escape hatch for a genuinely
-  # partially-implemented ADR is ADR_STATUS_ALLOWLIST in the script. ~2s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep sed findutils python3
-  script:
-    # Self-test FIRST: this gate polices ADR status AND the index statistics that
-    # every ADR-adding branch perturbs, so a silent pass is costly (#3195).
-    - bash scripts/check-adr-status.sh --self-test
-    - bash scripts/check-adr-status.sh
 
 security:demo-nginx-allowlist:
   extends: .fast-job
@@ -2422,105 +1880,6 @@ scheduler:lint:
     - ruff check src/ tests/
     - ruff format --check src/ tests/
 
-api:summary-duration-units:
-  extends: .fast-job
-  # A CPM write-back must not assign a summary's `duration` a raw day count
-  # (#3530).
-  #
-  # `_apply_cpm_results()` overwrote every phase row's duration with the
-  # CALENDAR-day span of its children, into a field the model documents as
-  # WORKING days and that the MSPDI exporter, `project_span_days` and
-  # `build_sched_tasks` all read as working days — a ~1.4x inflation on every
-  # recompute, on both the single-project and program paths. 49 of 50 summary
-  # rows in the dev database carried it.
-  #
-  # The comment defending it ("the engine never reads a summary's duration") was
-  # true of the leaf pass and became false when Monte Carlo began feeding summary
-  # rows to the engine (#3527) — a locally-true comment a second consumer made
-  # globally false. The issue asked for the invariant as a check; a database
-  # sweep cannot run here, so this asserts the source shape instead. The rule is
-  # assignment-shaped, not `.days`-shaped, because `.days` is correct for the
-  # float and drift columns in the same modules. Grep; ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep
-  script:
-    # Self-test FIRST: prove the gate still catches a calendar-span assignment
-    # before believing it found none (#3195).
-    - bash scripts/check-summary-duration-units.sh --self-test
-    - bash scripts/check-summary-duration-units.sh
-
-api:request-body-guards:
-  extends: .fast-job
-  # A `request.data` read must be narrowed before it happens (#3280).
-  #
-  # DRF types `Request.data` as `dict | list` because a top-level JSON array is a
-  # legal body. An unguarded `.get`/`[...]` on one raises AttributeError/TypeError
-  # and DRF renders that as a 500 — the caller is told the server broke rather
-  # than that their request was malformed.
-  #
-  # This class was repaired four times (#2126, #2213, #2795, #3278) with a
-  # complete manual sweep each time and nothing to stop the next instance. Unlike
-  # most review findings the predicate is syntactic, so it can simply be checked.
-  #
-  # Membership counts as a READ, not a guard: `"x" in request.data` also tests a
-  # list's ELEMENTS, so it passes for the wrong shape and defers the failure to
-  # the next line — which is exactly how two of #3278's sites got through, one of
-  # them returning a wrong 200 rather than crashing.
-  #
-  # AST walk over packages/api/src; ~1s. Needs python3, not grep.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash python3
-  script:
-    # Self-test FIRST — prove the gate still rejects a bare `.get`, still refuses
-    # to accept `in` as a guard, and still ignores a guard placed AFTER the read,
-    # before believing it found none (#3195).
-    - bash scripts/check-request-body-guards.sh --self-test
-    - bash scripts/check-request-body-guards.sh
-
-api:extension-signals:
-  extends: .fast-job
-  # Every OSS→Enterprise extension signal must dispatch robustly (#2606).
-  #
-  # `Signal.send()` propagates a receiver's exception to the sender, so a bug in
-  # an enterprise receiver breaks the OSS write path that fired it — inverting
-  # the boundary contract that OSS works regardless of what enterprise does.
-  # `history_record_created` is fired from the post_save of every Historical* row
-  # for Project, Task and Dependency, so it was one receiver away from failing
-  # every task save in the product.
-  #
-  # The invariant was documented in five skills and honored at 7 of 15 sites,
-  # which is the case for a gate rather than a convention. The signal set is
-  # discovered from the `= Signal()` declarations rather than hardcoded, so a
-  # NEW extension point written in the old style is caught — that being the
-  # failure mode this actually has to catch.
-  #
-  # A fail-closed veto (a receiver raising IS the mechanism) keeps .send() and is
-  # allowed by a FAIL-CLOSED comment above the call. Grep + sed for Part 1;
-  # Part 2's sender-convention check (#3777) walks the AST with python3.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep sed python3
-  script:
-    # Self-test FIRST: a bare Signal().send() lets an enterprise receiver's
-    # exception break the OSS write path that fired it. Prove the gate still
-    # catches one before believing it found none (#3195).
-    - bash scripts/check-extension-signals.sh --self-test
-    - bash scripts/check-extension-signals.sh
-
 ci:pypi-id-tokens:
   extends: .fast-job
   # Guards the set of jobs allowed to mint a live PyPI OIDC upload token
@@ -2614,37 +1973,6 @@ ci:artifact-assertions:
     - bash scripts/check-artifact-assertions.sh --self-test
     - bash scripts/check-artifact-assertions.sh
 
-api:dependency-soft-delete:
-  extends: .fast-job
-  # Every scheduler-input builder must read dependency edges through the
-  # filtered `Dependency.live` manager (#3532).
-  #
-  # `DependencyViewSet.perform_destroy` soft-deletes the edge and enqueues a
-  # recalculation in the same method. Three of the four builders queried the
-  # unfiltered `Dependency.objects`, so that recalculation fed the engine the
-  # edge the user had just deleted — leaving every persisted CPM date, the
-  # Monte Carlo and what-if forecasts, and the derivation ("why") endpoint bound
-  # to a constraint that no longer existed. Seven calendar days of phantom delay
-  # on a two-task chain.
-  #
-  # Only the merged program pass was correct, which is the case for a gate: the
-  # invariant was honored at one site out of four with nothing asserting the
-  # rest. The rule is manager-shaped, not keyword-shaped, because `is_deleted` is
-  # a column on the table and therefore appears in the SELECT list of every
-  # dependency query — a substring probe reports a false pass. Grep; ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep
-  script:
-    # Self-test FIRST: prove the gate still catches an unfiltered read before
-    # believing it found none (#3195).
-    - bash scripts/check-dependency-soft-delete.sh --self-test
-    - bash scripts/check-dependency-soft-delete.sh
-
 api:membership-live-floor:
   # A membership READ that omits `is_deleted` resolves a REVOKED member as live (#3458).
   #
@@ -2719,383 +2047,6 @@ api:time-bound-comments:
     # Self-test FIRST (#3195): prove the gate still fails before believing it passed.
     - python3 scripts/check-time-bound-comments.py --self-test
     - python3 scripts/check-time-bound-comments.py
-
-demo:readonly-posture:
-  extends: .fast-job
-  # The hosted demo must stay read-only by construction (#2773, gates #2271).
-  #
-  # `try.trueppm.com` has no login-capable account, because `load_sample_project`
-  # runs without `--with-personas` in both deployment manifests. No account means
-  # no token, which means the ungoverned `legacy:full` write path (#2749) is not
-  # reachable from the public internet. That is the whole security argument for
-  # publishing the demo at all.
-  #
-  # It was enforced by the absence of a flag in two YAML files and by nothing
-  # else — no test, no lint, no review checklist. Adding it back is a one-line
-  # change someone makes for a sales walkthrough, at launch, under time pressure,
-  # which is exactly when #2271 is being worked.
-  #
-  # The runtime half (zero login-capable accounts, no registration route, GET-only
-  # public surface) is pytest, in
-  # packages/api/tests/apps/projects/test_demo_readonly_posture.py. This job is
-  # the manifest half, which pytest cannot see because nothing imports those
-  # files. Comments naming the flag are ignored — both manifests document why it
-  # is absent, and that prose is worth keeping. bash + grep; ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep sed gawk
-  script:
-    # Self-test first: a guard nobody has watched fail is indistinguishable from
-    # one with a typo in its pattern.
-    - bash scripts/check-demo-readonly.sh --self-test
-    - bash scripts/check-demo-readonly.sh
-    - bash scripts/check-demo-compose-secrets.sh --self-test
-    - bash scripts/check-demo-compose-secrets.sh
-
-web:playwright-pins:
-  extends: .fast-job
-  # The Playwright npm version must equal the tag of the image the Playwright
-  # jobs run in (#2797).
-  #
-  # The mcr.microsoft.com/playwright image bakes browsers into a version-stamped
-  # path, and a Playwright package only looks in the path matching its own
-  # revision — so a mismatch is a hard "Executable doesn't exist" on launch, not
-  # a soft degrade. In web:e2e that is loud. In website:build it is SILENT:
-  # Astro's content loader catches the throw, drops the whole page body, emits
-  # the HTML anyway, and exits 0. Three docs pages published as bare navigation
-  # chrome for 19 days across green pipelines.
-  #
-  # The version lives in four places with no automatic relationship — the CI
-  # variable, the integration Dockerfile ARG, and two package.json/lock pairs —
-  # so nothing but this job ties them together. It runs in the lint stage rather
-  # than gating website:build because the answer is static: it needs no install,
-  # no build, and no network. python3 for the lockfile JSON; ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep sed python3
-  script:
-    # Self-test first: this gate's failure mode produces a GREEN pipeline, so
-    # "it passed" is not evidence that it can still fail.
-    - bash scripts/check-playwright-pins.sh --self-test
-    - bash scripts/check-playwright-pins.sh
-
-lint:nginx-location-parity:
-  extends: .fast-job
-  # Every SPA-serving nginx surface (baked nginx.conf, three Compose templates,
-  # three Helm server blocks) must carry the same top-level locations (#4392).
-  # #4359 added the /asset-manifest.json 404 sentinel to Helm only. Static parse.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash python3
-  script:
-    - bash scripts/check-nginx-location-parity.sh --self-test
-    - bash scripts/check-nginx-location-parity.sh
-
-lint:image-digest-parity:
-  extends: .fast-job
-  # One digest per name:tag across .gitlab-ci.yml, the CI-image Dockerfiles and the
-  # shipped Dockerfiles (#4623). Renovate bumped packages/web/Dockerfile's node
-  # digest but not the CI `image:` pins, so CI tested on a different base layer
-  # than the one that ships. Static grep: no install, no network.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash git grep findutils python3
-  script:
-    - bash scripts/check-image-digest-parity.sh --self-test
-    - bash scripts/check-image-digest-parity.sh
-
-lint:api-scheduler-lock:
-  extends: .fast-job
-  # packages/api/uv.lock must not pin trueppm-scheduler to an older release line
-  # than the scheduler in this tree (#4080). `api:uv-lock-check` only proves the
-  # lock satisfies pyproject.toml, which a stale >=0.1.0a0 floor let sit at
-  # 0.2.0a1 - a locked install that cannot import the app. Static parse, ~1s.
-  # It reads HEAD and HEAD^ (git): the release commit of a new minor is the one
-  # commit allowed to trail by one line, because the scheduler it bumps to is not
-  # on PyPI until this pipeline is green. Needs clone depth >= 2 (default 20);
-  # with no HEAD^ the exemption fails closed.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep sed gawk coreutils git
-  script:
-    - bash scripts/check-api-scheduler-lock.sh --self-test
-    - bash scripts/check-api-scheduler-lock.sh
-
-lint:nul-bytes:
-  extends: .fast-job
-  # Every tracked file git resolves to `text: set` must contain zero 0x00
-  # bytes (#3601).
-  #
-  # A literal NUL byte sat in a buildSubgraph.ts template literal, and a NUL
-  # makes git classify the WHOLE FILE as binary no matter what .gitattributes
-  # says: `git diff` printed "Binary files a/... and b/... differ" instead of
-  # a line, `git grep` found nothing inside it, and a plain `grep` sweep
-  # across the tree returned a false clean rather than an error — the exact
-  # shape that let it go unnoticed.
-  #
-  # Scope is deliberately narrower than "every tracked file": only files
-  # EXPLICITLY declared text (`text: set`) are scanned. Files declared
-  # `-text`/`binary` (`unset`) are skipped — 37 of them are encoding fixtures
-  # under packages/api/tests/apps/{csvimport,projects}/files/*.csv whose UTF-16
-  # NUL bytes ARE the test (#2892, #2937). Files resolving `auto` (the repo
-  # default, no more specific rule — 128 of them: .rs, .mjs, Dockerfile, .webp,
-  # …) are also skipped: `auto` means "let git's own heuristic decide", so a
-  # NUL there is not a contradicted declaration.
-  #
-  # Needs `git` (unlike web:playwright-pins) to classify each path with
-  # `git check-attr`; enumeration is from the index (`git ls-files`), never a
-  # filesystem walk. python3 does the byte scan. Static, offline; well under
-  # a second even across ~6,500 tracked files.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash git python3
-  script:
-    # Self-test first: this gate's failure mode produces a GREEN pipeline, so
-    # "it passed" is not evidence that it can still fail.
-    - bash scripts/check-nul-bytes.sh --self-test
-    - bash scripts/check-nul-bytes.sh
-
-mobile:version-pin:
-  extends: .fast-job
-  # packages/mobile must stay at 0.0.0 until it ships (#3367).
-  #
-  # It is a scaffold — no native android/ or ios/ projects, no test runner,
-  # nothing published — so a release version on its manifest tells every reader
-  # that a shipping mobile artifact exists. It read "0.4.0-beta.1" for seven
-  # weeks and two internal audits caught it without it being acted on.
-  #
-  # scripts/release.sh was NOT the cause and has never bumped mobile; the cause
-  # was a hand-run "bump every manifest" commit that swept it in beside api and
-  # web. A comment in release.sh therefore cannot prevent a recurrence — it sits
-  # in the file the defect did not come from. This job is the guard that can.
-  #
-  # Runs unconditionally, not on a `changes:` rule: the failure mode is a commit
-  # that edits the manifest as a side effect of touching something else, which is
-  # exactly the diff a mobile-scoped rule would let through. Parse + compare, no
-  # install, no network, ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep python3
-  script:
-    # Self-test first: a gate only ever observed passing is indistinguishable
-    # from one whose pattern stopped matching.
-    - bash scripts/check-mobile-version.sh --self-test
-    - bash scripts/check-mobile-version.sh
-
-api:ci-api-tag:
-  extends: .fast-job
-  # The ci-api image tag must change whenever the image's contents can (#3275).
-  #
-  # `ci-api` was published as a fixed `:py3.11`. Our runners pull
-  # `if-not-present`, so a runner that already held that tag never re-pulled it
-  # and served whatever digest it had cached. Three digests ran the SAME commit
-  # in one batch: `api:type-check` found 41 mypy errors under one and none under
-  # the other two. Which verdict you got was decided by runner cache age, and
-  # nothing in the pipeline said so — the job simply passed, or simply failed.
-  #
-  # CI_API_TAG is therefore stamped with a digest of the image's own inputs, and
-  # this job recomputes it. Same failure and same fix as web:playwright-pins
-  # above (#2825); as there, `pull_policy: always` is not an available
-  # substitute on self-hosted group runners.
-  #
-  # Static answer — no install, no build, no network. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep sed python3 coreutils
-  script:
-    # Self-test first: a gate that silently stopped being able to fail is the
-    # failure mode this whole class of bug is made of.
-    - bash scripts/check-ci-api-tag.sh --self-test
-    - bash scripts/check-ci-api-tag.sh
-    - bash scripts/check-ci-api-tag.sh --image scheduler
-
-web:row-vocabulary:
-  extends: .fast-job
-  # The outline's governed vocabulary, written anywhere but its module (#3031).
-  #
-  # A row in the outline may be a task, a phase, a milestone or a subtask, and
-  # `structure_role` is declared only once something declares it (ADR-0843). On
-  # the surfaces that exist BEFORE the type does — column headers, create
-  # affordances, placeholders, and the name a create path mints — the noun must
-  # be "item", because any other noun is a claim about a row nobody has made.
-  #
-  # This is a CI job rather than a review habit because the rule reaches things
-  # no reviewer thinks of as copy. #3027's instance was `+ Item` creating a row
-  # literally NAMED "New task" — invisible to a sweep looking at button labels,
-  # and it persisted into the plan, the WBS and the rollup if the user pressed
-  # Escape. That was the SECOND hand sweep; web rule 300 says a rule needing a
-  # second one has no working mechanism.
-  #
-  # Note the primary mechanism is the type system, not this job: governed copy
-  # is a branded `VocabularyToken` only `rowVocabulary.ts` can mint, so a literal
-  # in a governed prop does not compile. This covers the residual — a component
-  # that renders a governed surface without going through the module at all.
-  #
-  # Runs in the lint stage: no install, no build, no network. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep python3
-  script:
-    # Self-test first: a passing run looks the same whether the gate works or
-    # its patterns have drifted to match nothing.
-    - bash scripts/check-row-vocabulary.sh --self-test
-    - bash scripts/check-row-vocabulary.sh
-
-web:rule-numbers:
-  extends: .fast-job
-  # Two rules in packages/web/CLAUDE.md sharing a number (#2933).
-  #
-  # Rule numbers are that file's addressing scheme: GanttRenderer.ts and
-  # ADR-0803 both cite "rule 295" and expect one answer. For months there were
-  # two, because two branches in flight each took the next free number, each was
-  # locally correct, and nothing compared them.
-  #
-  # That is the whole reason this is a CI job rather than a review habit: the
-  # duplicate does not exist on either branch — it comes into being on the
-  # MERGED tree, which is the one tree neither author's pipeline ever built.
-  #
-  # Runs in the lint stage: no install, no build, no network. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep
-  script:
-    # Self-test first: a passing run looks the same whether the gate works or
-    # its pattern has drifted to match nothing.
-    - bash scripts/check-web-rule-numbers.sh --self-test
-    - bash scripts/check-web-rule-numbers.sh
-
-compose:image-pins:
-  extends: .fast-job
-  # Every third-party image in a shipped compose file carries a version tag (#3228).
-  #
-  # `certbot/certbot` shipped untagged in docker-compose.prod.yml — the only
-  # unpinned image in the production stack, and the one component that owns TLS
-  # issuance and renewal. It resolved to `latest` on every `compose pull`, so
-  # the version moved under a running install with no diff and no pipeline
-  # event.
-  #
-  # It is a CI job rather than a review habit because it already survived one
-  # deliberate hardening pass (#3189): an `image:` line with no tag reads as an
-  # `image:` line with one unless you go looking for the colon, and reviewers
-  # reliably look past it.
-  #
-  # First-party `${APP_VERSION:-latest}` references are deliberately out of
-  # scope — whether that default should be `latest` is a separate settled
-  # question (#3189 §12); see the SCOPE note in the script.
-  #
-  # Runs in the lint stage: no install, no build, no network. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    # BusyBox grep rejects the GNU-only options this gate does not use, but bash
-    # is not in the base image and the script is bash, not sh (#3194).
-    - apk add --no-cache bash grep
-  script:
-    # Self-test first: a passing run looks the same whether the gate works or
-    # its pattern has drifted to match nothing.
-    - bash scripts/check-compose-image-pins.sh --self-test
-    - bash scripts/check-compose-image-pins.sh
-
-compose:project-names:
-  extends: .fast-job
-  # Every standalone root compose file pins its own, distinct top-level `name:`
-  # (#3928).
-  #
-  # docker-compose.yml and docker-compose.demo.yml pinned none, so on a default
-  # `git clone` (directory `trueppm`) they resolved to docker-compose.prod.yml's
-  # `name: trueppm` (#3189). Dev and prod then shared `trueppm_postgres_data`
-  # (whichever came second met the other's Postgres password, or `make up`
-  # landed on production data guarded only by the dev SECRET_KEY), and demo —
-  # which shares service names with prod — recreated the prod stack's
-  # db/api/nginx containers in place.
-  #
-  # docker-compose.o11y.yml is an overlay and must NOT declare a `name:`.
-  # Runs in the lint stage: no install, no build, no network. ~1s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    # bash is not in the base image and the script is bash, not sh (#3194).
-    - apk add --no-cache bash grep
-  script:
-    - bash scripts/check-compose-project-names.sh --self-test
-    - bash scripts/check-compose-project-names.sh
-
-compose:nginx-shutdown:
-  extends: .fast-job
-  # docker-compose.prod.yml's serving nginx bounds its /ws/ drain with
-  # worker_shutdown_timeout and a longer stop_grace_period (#4366). Text scan.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep gawk
-  script:
-    - bash scripts/check-compose-nginx-shutdown.sh --self-test
-    - bash scripts/check-compose-nginx-shutdown.sh
-
-compose:ports:
-  extends: .fast-job
-  # docker-compose.yml runs settings.dev (DEBUG, AllowAny), so
-  # every published port must bind loopback or ${TRUEPPM_DEV_BIND_ADDR} (#4648).
-  # Text scan only: no install, no build, no docker daemon.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep
-  script:
-    - bash scripts/check-compose-ports.sh --self-test
-    - bash scripts/check-compose-ports.sh
 
 helm:metric-names:
   extends: .fast-job
@@ -3223,36 +2174,6 @@ nginx:syntax:
     # is indistinguishable from one that accepts anything (#3195).
     - bash scripts/check-helm-nginx-syntax.sh --self-test
     - bash scripts/check-helm-nginx-syntax.sh
-
-scripts:sigpipe-readers:
-  extends: .fast-job
-  # No shell script may put an early-exit reader (`grep -q`, `grep -m`, `head`) on
-  # the far side of a pipe (#3942).
-  #
-  # Every script runs under `set -o pipefail`. `git tag | grep -qxF "$TAG" && die`
-  # in release.sh — the script that gates immutable release tags — reads a SIGPIPE
-  # (141) from the writer as "tag not found" and lets a release proceed against an
-  # existing tag. The same pattern already red-flagged this repo twice (#3331,
-  # #3758). It is a race on how much the writer has flushed, so it is invisible in
-  # every small local run and fails once, on a runner, naming the wrong cause.
-  #
-  # This replaces a three-file offender scan that lived inside
-  # check-nginx-security-headers.sh: a hardcoded list covers exactly the files that
-  # have already been bitten, which is how release.sh stayed outside it. This walks
-  # every shell script under scripts/. Grep + find over ~90 files; well under a second.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache bash grep sed
-  script:
-    # Self-test FIRST: prove the gate still rejects the release.sh tag-guard shape,
-    # `head`, and a bare `# sigpipe-ok:` marker, and still accepts a here-string,
-    # before believing it found none (#3195).
-    - bash scripts/check-sigpipe-readers.sh --self-test
-    - bash scripts/check-sigpipe-readers.sh
 
 api:lint:
   extends: .fast-job
@@ -4984,9 +3905,16 @@ scheduler:fuzz-deep:
   # --durations, `other` held 14 properties at ~45 min of calls, so a green run
   # finished past the 50-min timeout (4467d45dd) and only a run that failed early
   # got under it. The file's 6 properties cost ~21 min on their own.
+  #
+  # `derive` and `monte-carlo` took the heaviest remaining files out of `other`
+  # (#5091): `other` had grown to ~46 min of listed slowest calls and hit the
+  # 50-min timeout in 4 of 12 scheduled runs. Read off --durations (2026-11-21):
+  # derive ~17 min (test_derive_oracle, test_milestone_end_of_day_cap),
+  # monte-carlo ~13 min (test_monte_carlo_chunking, _finish_reading), `other`
+  # keeps ~15 min plus its tail. No example count was lowered.
   parallel:
     matrix:
-      - FUZZ_SHARD: [contract, contract-semantic, milestone, oracle, invariants, other]
+      - FUZZ_SHARD: [contract, contract-semantic, milestone, oracle, invariants, derive, monte-carlo, other]
   timeout: 50m
   # Persist Hypothesis's example database across scheduled runs so the search
   # accumulates a shrinking corpus of interesting inputs rather than starting
@@ -5025,7 +3953,9 @@ scheduler:fuzz-deep:
         milestone)         set -- tests/test_milestone_instant.py ;;
         oracle)            set -- tests/test_cpm_oracle.py ;;
         invariants)        set -- tests/test_cpm_invariants.py ;;
-        other)             set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py --ignore=tests/test_cpm_invariants.py ;;
+        derive)            set -- tests/test_derive_oracle.py tests/test_milestone_end_of_day_cap.py ;;
+        monte-carlo)       set -- tests/test_monte_carlo_chunking.py tests/test_monte_carlo_finish_reading.py ;;
+        other)             set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py --ignore=tests/test_cpm_invariants.py --ignore=tests/test_derive_oracle.py --ignore=tests/test_milestone_end_of_day_cap.py --ignore=tests/test_monte_carlo_chunking.py --ignore=tests/test_monte_carlo_finish_reading.py ;;
         *)                 echo "unknown FUZZ_SHARD '$FUZZ_SHARD'"; exit 1 ;;
       esac
       rc=0
@@ -5461,10 +4391,15 @@ api:fuzz:
     - cd packages/api
     - python manage.py migrate --noinput
     - python manage.py seed_integration_fixtures
-    # Start the Django ASGI server in the background.
+    # Start the Django ASGI server in the background. Its output goes to a file,
+    # not the job log (#5091): a fuzz run makes ~100k requests and every 4xx logs
+    # lines, which blew GitLab's 16 MB log limit mid-run and truncated the
+    # Schemathesis summary, so a failed run could not be read. Kept as an
+    # artifact. (cwd is packages/api here.)
     - >
       PYTHONPATH=src uvicorn trueppm_api.asgi:application
-      --host 127.0.0.1 --port 8000 &
+      --host 127.0.0.1 --port 8000
+      --no-access-log > uvicorn-fuzz.log 2>&1 &
     - cd ../..
     # Wait up to 30 s for Django to accept connections.
     - >
@@ -5532,6 +4467,7 @@ api:fuzz:
       junit: packages/api/junit-fuzz.xml
     paths:
       - packages/api/junit-fuzz.xml
+      - packages/api/uvicorn-fuzz.log
     expire_in: 30 days
 
 perf:load:

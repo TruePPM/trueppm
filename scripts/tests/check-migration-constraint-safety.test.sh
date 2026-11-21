@@ -279,13 +279,19 @@ check "a comment missing the colon form is not the marker" "$rc"
 python3 "$GATE" >"$TMP/real" 2>&1 \
   && check "the committed tree passes the gate" 0 \
   || { cat "$TMP/real"; check "the committed tree passes the gate" 1; }
-# The count is pinned on purpose: a site the scanner silently stops seeing would
-# otherwise still read as "clean". It moves with the migration tree — a release
-# squash adds its own AddConstraint copies (#4303 took it 75 -> 83, #4386 to 84, #4583 role-in-band checks and #4772 decision log to 88, and a later site to 89; #4109 widened the scan to AlterField(unique=True) and AlterUniqueTogether, 96; a later site, 97) — and
-# scripts:test runs on schedule only, so bump it in the same MR that adds sites.
-grep -q "97 checked" "$TMP/real" \
-  && check "all 97 unique-constraint sites are accounted for" 0 \
-  || check "all 97 unique-constraint sites are accounted for" 1
+# A FLOOR, not an exact total (#5091). Classification is already asserted above:
+# the gate exits non-zero when any site is unclassified, so a new correctly
+# classified constraint needs no edit here. The floor exists only to catch a
+# scanner that silently stops seeing sites (which would still read as "clean").
+# Sites are only ever added; a release squash adds its own AddConstraint copies.
+# An exact pin reddened scripts:test on every migration with a constraint and
+# was bumped 75 -> 83 -> ... -> 97 by hand. Raise the floor if you like; never
+# lower it.
+MIN_SITES=97
+sites=$(sed -n 's/.*(\([0-9][0-9]*\) checked).*/\1/p' "$TMP/real" | sed -n 1p)
+[[ -n "$sites" && "$sites" -ge "$MIN_SITES" ]] \
+  && check "the scanner still sees at least $MIN_SITES unique-constraint sites (saw ${sites:-none})" 0 \
+  || check "the scanner still sees at least $MIN_SITES unique-constraint sites (saw ${sites:-none})" 1
 
 echo
 if [[ "$fail" -gt 0 ]]; then
