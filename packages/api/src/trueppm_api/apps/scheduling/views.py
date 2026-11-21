@@ -847,15 +847,18 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # through a task run that is certain to fail. Same 402 body and message the
     # engine's SimulationCapExceeded produced when the check ran in the request.
     if n_explicit and cap is not None and n_simulations > cap:
+        run_cap_msg = (
+            f"Requested runs ({n_simulations}) exceeds the configured maximum "
+            f"(max_runs={cap}); raise max_runs (or pass None to disable the "
+            "cap) to allow more iterations."
+        )
         return Response(
             {
                 "error": "simulation_cap_exceeded",
+                "code": "simulation_cap_exceeded",
                 "tier": "team",
-                "message": (
-                    f"Requested runs ({n_simulations}) exceeds the configured maximum "
-                    f"(max_runs={cap}); raise max_runs (or pass None to disable the "
-                    "cap) to allow more iterations."
-                ),
+                "message": run_cap_msg,
+                "detail": run_cap_msg,
             },
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
