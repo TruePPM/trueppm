@@ -210,6 +210,7 @@ slated to fold into the single envelope with the rest of the 1.0 contract cleanu
 | `simulation_cell_cap_exceeded` | 400 | The requested runs x tasks product exceeds the server's `MC_CELL_CAP`. `max_runs` is the largest count this project admits | `max_runs`, `task_count` |
 | `simulation_busy` | 503 | The API process is already running its maximum number of concurrent simulations. Retry after the `Retry-After` header | — |
 | `simulation_time_exceeded` | 503 | The simulation ran past the server's wall-clock budget (`MC_WALL_CLOCK_BUDGET_SECONDS`) and was stopped. No `Retry-After`: retry with a smaller `n_simulations` | — |
+| `simulation_queue_unavailable` | 503 | The simulation could not be queued because the task broker refused it. Delivered on the failed task run's `result_summary` (with `status_code`), not as the `POST` response; run again shortly | `status_code` |
 | `simulation_cap_exceeded` | 402 | The simulation count or task count is above the community-edition cap | `tier` |
 
 `simulation_cap_exceeded` is a **known deviation**: it answers `402 Payment

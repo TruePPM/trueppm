@@ -941,6 +941,7 @@ def _enqueue_monte_carlo_on_commit(
                 completed_at=timezone.now(),
                 result_summary={
                     "error": "simulation_queue_unavailable",
+                    "code": "simulation_queue_unavailable",
                     "detail": "The simulation could not be queued. Try again shortly.",
                     "status_code": 503,
                 },
