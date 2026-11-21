@@ -140,6 +140,7 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // registry, which the single-calendar harness below cannot express (the
   // `describes a fixture cpmEngine.ts can actually schedule` predicate rejects them).
   lagged_fs_into_a_milestone_on_a_closed_week: 'engine gap: per-task calendars not modeled',
+  milestone_inherited_cap_late_start: 'engine gap: per-task calendars not modeled',
   start_of_day_finish_beside_seven_day_work: 'engine gap: per-task calendars not modeled',
   start_of_day_finish_on_a_narrower_calendar: 'engine gap: per-task calendars not modeled',
   start_of_day_milestone_past_work_on_its_own_calendar:
