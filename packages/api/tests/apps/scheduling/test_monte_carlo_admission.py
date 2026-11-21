@@ -304,6 +304,8 @@ class TestWallClockBudget:
         assert r.status_code == 503
         # The rendered wire body, not an attribute: the code must reach the client.
         assert r.json()["error"] == "simulation_time_exceeded"
+        assert r.json()["code"] == "simulation_time_exceeded"
+        assert r.json()["detail"] == r.json()["message"]
         assert "n_simulations" in r.json()["message"]
         assert "Retry-After" not in r.headers
 
@@ -317,6 +319,8 @@ class TestWallClockBudget:
         )
         assert r.status_code == 503
         assert r.json()["error"] == "simulation_time_exceeded"
+        assert r.json()["code"] == "simulation_time_exceeded"
+        assert r.json()["detail"] == r.json()["message"]
 
     def test_within_budget_runs_normally(
         self, client: APIClient, project: Project, tasks: list[Task], settings: object
