@@ -40,9 +40,10 @@ from trueppm_scheduler.models import Project
 
 PKG_DIR = Path(__file__).resolve().parent.parent
 STABILITY_DIR = Path(__file__).resolve().parent / "fixtures" / "stability"
+# Only regeneration reads these; in the mutmut sandbox (packages/scheduler/mutants/) they
+# resolve under the wrong parent, which is harmless because no live check uses them.
 WASM_FIXTURES = PKG_DIR.parent / "wasm-scheduler" / "fixtures"
 ORACLE_CORPUS = WASM_FIXTURES / "oracle" / "corpus.json"
-CHANGELOG_DIR = PKG_DIR.parent.parent / "changelog.d"
 
 MC_RUNS = 40
 MC_SEED = 4686
@@ -218,7 +219,7 @@ def _git(*args: str, cwd: Path = PKG_DIR) -> str | None:
     return r.stdout if r.returncode == 0 else None
 
 
-def _repo_root() -> Path:
+def _repo_root(cwd: Path = PKG_DIR) -> Path:
     """The git toplevel, which is where ``git diff --name-status`` paths are relative to.
 
     Not ``PKG_DIR.parent.parent``: mutmut runs the suite from a copied
@@ -226,8 +227,8 @@ def _repo_root() -> Path:
     fragment read raised OSError, so a legitimate re-stamp with a fragment failed the
     stats pass and the job measured nothing (#5087).
     """
-    top = _git("rev-parse", "--show-toplevel")
-    return Path(top.strip()) if top else PKG_DIR.parent.parent
+    top = _git("rev-parse", "--show-toplevel", cwd=cwd)
+    return Path(top.strip()) if top else cwd.parent.parent
 
 
 def _branch_changes() -> tuple[list[str], list[str]] | None:
@@ -354,7 +355,9 @@ def test_current_stamp_tracks_the_package_version() -> None:
     if "packages/scheduler/" + THIS_FILE_REL in changes[1]:
         return  # the file's first appearance declares the initial stamp; nothing to bump
     version = tomllib.loads((PKG_DIR / "pyproject.toml").read_text())["project"]["version"]
-    msg = stamp_bump_failure(PKG_DIR, THIS_FILE_REL, version)
+    # cwd is the git toplevel and the path repo-relative: inside mutmut's sandbox the
+    # untracked mutants/ copy of this file has no diff, which made the old call vacuous.
+    msg = stamp_bump_failure(_repo_root(), "packages/scheduler/" + THIS_FILE_REL, version)
     assert msg is None, msg
 
 
@@ -366,8 +369,15 @@ class TestFragmentRule:
         subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
         deep = tmp_path / "packages" / "scheduler" / "mutants"
         deep.mkdir(parents=True)
-        top = _git("rev-parse", "--show-toplevel", cwd=deep)
-        assert top is not None and Path(top.strip()).resolve() == tmp_path.resolve()
+        root = _repo_root(deep)
+        assert root.resolve() == tmp_path.resolve()
+        frag = tmp_path / "changelog.d" / "1.changed.md"
+        frag.parent.mkdir()
+        frag.write_text("0.4.0 dates moved (#123)")
+        stamp = "packages/scheduler/tests/fixtures/stability/0.4.0/corpus.json"
+        rel = "changelog.d/1.changed.md"
+        msg = check_restamp_has_fragment([stamp, rel], [rel], read=lambda p: (root / p).read_text())
+        assert msg is None, msg
 
     STAMP = "packages/scheduler/tests/fixtures/stability/0.4.0/corpus.json"
     FRAG = "changelog.d/1.changed.md"
