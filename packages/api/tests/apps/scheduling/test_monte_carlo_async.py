@@ -142,6 +142,8 @@ class TestQueueing:
         run = TaskRun.objects.get(pk=resp.data["task_run_id"])
         assert run.status == TaskRunStatus.FAILED
         assert run.result_summary["error"] == "simulation_queue_unavailable"
+        assert run.result_summary["code"] == "simulation_queue_unavailable"
+        assert run.result_summary["detail"]
         assert run.result_summary["status_code"] == 503
 
     def test_size_cap_refuses_synchronously_and_queues_nothing(

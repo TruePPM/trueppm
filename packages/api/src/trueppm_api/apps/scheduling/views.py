@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -227,7 +228,13 @@ def _simulation_cap_response(exc: Exception) -> Response:
     if message.startswith(_SAMPLE_CELL_CAP_PREFIX):
         return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
     return Response(
-        {"error": "simulation_cap_exceeded", "tier": "team", "message": message},
+        {
+            "error": "simulation_cap_exceeded",
+            "code": "simulation_cap_exceeded",
+            "tier": "team",
+            "message": message,
+            "detail": message,
+        },
         status=status.HTTP_402_PAYMENT_REQUIRED,
     )
 
@@ -586,6 +593,32 @@ def _persist_mc_run_if_authorized(
         result_dict["run_id"] = str(run.id)
 
 
+def _mc_input_seed(sched_project: Any, runs: int) -> int:
+    """Stable RNG seed for ``POST /monte-carlo/`` derived from the engine inputs (#4307).
+
+    Pinning ``status_date`` only freezes the anchor date; without a seed the
+    sampling noise still moves a percentile by a day between two runs of an
+    unchanged project. Hashing everything the simulation reads (project id,
+    tasks, dependencies, calendar, status date, velocity signal, run count)
+    makes identical inputs draw identical samples, while editing any one
+    duration changes the hash and therefore the draw. Order-insensitive on the
+    task/dependency lists so a row-order change alone does not reseed.
+
+    Reproducibility holds for a fixed NumPy version only (#4099); a NumPy upgrade
+    may change the stream. The fuller "reproducible answer stamp" is #1065. The
+    what-if endpoint keeps its own fixed ``WHATIF_MC_SEED``.
+    """
+    doc = sched_project.to_dict()
+    for key in ("tasks", "dependencies"):
+        doc[key] = sorted(json.dumps(item, sort_keys=True, default=str) for item in doc[key])
+    doc["_runs"] = runs
+    doc["_status_date"] = str(sched_project.status_date)
+    doc["_velocity_samples"] = list(sched_project.velocity_samples or [])
+    doc["_sprint_length_days"] = sched_project.sprint_length_days
+    digest = hashlib.sha256(json.dumps(doc, sort_keys=True, default=str).encode()).digest()
+    return int.from_bytes(digest[:8], "big") >> 1  # 63 bits: fits any signed/unsigned seed API
+
+
 def _mc_lag_delta_kwargs() -> dict[str, int]:
     """Request-path ``monte_carlo()`` kwargs bounding the lag-delta table (#4129).
 
@@ -654,8 +687,8 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "result_summary carries this body plus status_code: cyclic dependency, "
                 "invalid input, or out-of-range project span; or "
                 "an explicit n_simulations whose runs x tasks product exceeds "
-                "MC_CELL_CAP (#2839) — body {error: simulation_cell_cap_exceeded, "
-                "message, max_runs, task_count}, where max_runs is the largest count "
+                "MC_CELL_CAP (#2839) — body {error/code: simulation_cell_cap_exceeded, "
+                "message/detail, max_runs, task_count}, where max_runs is the largest count "
                 "this project admits. An omitted n_simulations is never refused for "
                 "size: it runs max_runs iterations and the 200 body's `runs` reports "
                 "the count actually simulated. Also the engine's own sampled-duration "
@@ -667,7 +700,9 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                     "simulation_cell_cap_exceeded",
                     value={
                         "error": "simulation_cell_cap_exceeded",
+                        "code": "simulation_cell_cap_exceeded",
                         "message": "1000 simulation runs over 5000 tasks exceeds ...",
+                        "detail": "1000 simulation runs over 5000 tasks exceeds ...",
                         "max_runs": 500,
                         "task_count": 5000,
                     },
@@ -685,8 +720,10 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                     "simulation_cap_exceeded",
                     value={
                         "error": "simulation_cap_exceeded",
+                        "code": "simulation_cap_exceeded",
                         "tier": "team",
                         "message": "Simulation count exceeds the community-edition cap.",
+                        "detail": "Simulation count exceeds the community-edition cap.",
                     },
                 ),
             ],
@@ -708,11 +745,11 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
             description=(
                 "Asynchronous only, via the failed task run's result_summary (#2273): the "
                 "worker process is already running MC_MAX_CONCURRENT simulations "
-                "and none finished within the wait window (#2839). Body {error: "
-                "simulation_busy, message}; retry later. "
-                "Also {error: simulation_time_exceeded, message} when the simulation ran past "
-                "MC_WALL_CLOCK_BUDGET_SECONDS and was stopped (#4496); retry with "
-                "a smaller n_simulations."
+                "and none finished within the wait window (#2839). Body {error/code: "
+                "simulation_busy, message/detail}; retry later. "
+                "Also {error/code: simulation_time_exceeded, message/detail} when the "
+                "simulation ran past MC_WALL_CLOCK_BUDGET_SECONDS and was stopped (#4496); "
+                "retry with a smaller n_simulations."
             ),
         ),
     },
@@ -810,15 +847,18 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # through a task run that is certain to fail. Same 402 body and message the
     # engine's SimulationCapExceeded produced when the check ran in the request.
     if n_explicit and cap is not None and n_simulations > cap:
+        run_cap_msg = (
+            f"Requested runs ({n_simulations}) exceeds the configured maximum "
+            f"(max_runs={cap}); raise max_runs (or pass None to disable the "
+            "cap) to allow more iterations."
+        )
         return Response(
             {
                 "error": "simulation_cap_exceeded",
+                "code": "simulation_cap_exceeded",
                 "tier": "team",
-                "message": (
-                    f"Requested runs ({n_simulations}) exceeds the configured maximum "
-                    f"(max_runs={cap}); raise max_runs (or pass None to disable the "
-                    "cap) to allow more iterations."
-                ),
+                "message": run_cap_msg,
+                "detail": run_cap_msg,
             },
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
@@ -901,6 +941,7 @@ def _enqueue_monte_carlo_on_commit(
                 completed_at=timezone.now(),
                 result_summary={
                     "error": "simulation_queue_unavailable",
+                    "code": "simulation_queue_unavailable",
                     "detail": "The simulation could not be queued. Try again shortly.",
                     "status_code": 503,
                 },
@@ -974,11 +1015,14 @@ def _mc_size_refusal(project: Project) -> Response | None:
     if task_cap is not None and Task.committed.filter(project=project).count() > task_cap:
         # Same 402 body the engine's SimulationCapExceeded produces below, so the
         # contract is unchanged -- only the cost of reaching it is.
+        task_msg = f"Project has more than {task_cap} committed tasks."
         return Response(
             {
                 "error": "simulation_cap_exceeded",
+                "code": "simulation_cap_exceeded",
                 "tier": "team",
-                "message": f"Project has more than {task_cap} committed tasks.",
+                "message": task_msg,
+                "detail": task_msg,
             },
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
@@ -1139,6 +1183,7 @@ def simulate_and_record_monte_carlo(
                 mc_result = monte_carlo(
                     sched_project,
                     runs=n_simulations,
+                    seed=_mc_input_seed(sched_project, n_simulations),
                     max_runs=cap,
                     max_tasks=settings.MC_TASK_CAP,
                     **_mc_lag_delta_kwargs(),
@@ -1604,7 +1649,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "whose span is rolled up from its children and so cannot be perturbed, "
                     "a cyclic dependency, or an out-of-range project span; or an explicit "
                     "n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — "
-                    "body {error: simulation_cell_cap_exceeded, message, max_runs, "
+                    "body {error/code: simulation_cell_cap_exceeded, message/detail, max_runs, "
                     "task_count}; or the engine's own sampled-duration cell cap (body "
                     "{detail}), reachable only when an operator raises or unsets "
                     "MC_CELL_CAP; no tier raises it, so it is never a 402."
@@ -1622,8 +1667,8 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "No free Monte Carlo slot in this API process (MC_MAX_CONCURRENT, "
-                    "#2839). Body {error: simulation_busy, message}; retry after "
-                    "Retry-After. Also {error: simulation_time_exceeded, message}, "
+                    "#2839). Body {error/code: simulation_busy, message/detail}; retry after "
+                    "Retry-After. Also {error/code: simulation_time_exceeded, message/detail}, "
                     "with no Retry-After, when the two simulations together ran past "
                     "MC_WALL_CLOCK_BUDGET_SECONDS (#4496)."
                 ),

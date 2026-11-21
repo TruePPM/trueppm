@@ -415,7 +415,8 @@ An optional `status_date` field on the project (`GET`/`PATCH
 **Project settings → General → Status date (data date)**, not API-only. When it is left null the forecast
 defaults to today, so an actively-tracked project reads correctly with no extra
 configuration; a PM who wants a reproducible, frozen forecast for a report can
-pin an explicit date. The same progress signals flow through the
+pin an explicit date (from 0.5 the sampling noise is then reproducible too, see
+[Reproducible sampling](#reproducible-sampling); in 0.4 each run still draws fresh noise). The same progress signals flow through the
 deterministic CPM schedule, so the Gantt bars and the Monte Carlo band stay
 consistent.
 
@@ -430,6 +431,26 @@ starts in the future does not drift this way: a data date on or before the
 project start moves nothing ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635)),
 so its percentiles stay the same from day to day until today reaches the start,
 even though each run still records the day it ran as its `status_date`.
+
+### Reproducible sampling
+
+From 0.5 the sampling itself is reproducible too. In 0.4 each run draws fresh noise,
+so an unchanged project can move a percentile by a day between runs even with a pinned
+date. The simulation's random seed is derived
+from the project, its tasks, dependencies and calendar, the data date, the velocity
+history and the run count, so re-running an unchanged project with the same
+`n_simulations` returns the same P50, P80 and P95. Changing any one task's duration
+(or any other input) changes the seed, so the forecast moves for a real reason and not
+because the dice were re-rolled. This holds for a fixed NumPy version: upgrading the
+server's NumPy can change the random stream
+([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099)). A fuller reproducible
+answer stamp is planned ([#1065](https://gitlab.com/trueppm/trueppm/-/issues/1065)).
+The what-if endpoint keeps its own fixed seed.
+
+Two things are not reproducible. With no `status_date` set the data date is today,
+so the seed, and with it the percentiles of an underway project, changes every day.
+And `n_simulations` is part of the seed: a different run count draws different noise,
+not a longer run of the same stream, so 2,000 runs is not 1,000 runs plus 1,000 more.
 
 ## The math
 
@@ -667,7 +688,7 @@ to take longer on a shared or older server; the scheduler's test suite holds it
 under a loose 2 s regression bound
 ([#3859](https://gitlab.com/trueppm/trueppm/-/issues/3859)).
 
-A fixed seed reproduces the same percentiles for the same input **on the same
+From 0.5, the API seeds automatically from the project's inputs, so a run reproduces the same percentiles for the same input **on the same
 numpy and `trueppm-scheduler` versions**. numpy guarantees its random streams only
 within one release, so an upgrade of either can move a seeded forecast
 ([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099)).

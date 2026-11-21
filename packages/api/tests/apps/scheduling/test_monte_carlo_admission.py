@@ -156,6 +156,9 @@ class TestRunEndpointAdmission:
         r = client.post(_run_url(project), {"n_simulations": 31}, format="json")
         assert r.status_code == 400
         assert r.data["error"] == "simulation_cell_cap_exceeded"
+        # #4609: the project-wide envelope keys ride alongside the legacy ones.
+        assert r.data["code"] == r.data["error"]
+        assert r.data["detail"] == r.data["message"]
         assert r.data["max_runs"] == 30
 
     def test_busy_process_returns_503(
@@ -183,6 +186,8 @@ class TestRunEndpointAdmission:
             sem.release()
         assert r.status_code == 503
         assert r.data["error"] == "simulation_busy"
+        assert r.data["code"] == "simulation_busy"
+        assert r.data["detail"] == r.data["message"]
         # The slot is free again: the next run is admitted.
         r2 = client.post(_run_url(project), {"n_simulations": 10}, format="json")
         assert r2.status_code == 200
@@ -299,6 +304,8 @@ class TestWallClockBudget:
         assert r.status_code == 503
         # The rendered wire body, not an attribute: the code must reach the client.
         assert r.json()["error"] == "simulation_time_exceeded"
+        assert r.json()["code"] == "simulation_time_exceeded"
+        assert r.json()["detail"] == r.json()["message"]
         assert "n_simulations" in r.json()["message"]
         assert "Retry-After" not in r.headers
 
@@ -312,6 +319,8 @@ class TestWallClockBudget:
         )
         assert r.status_code == 503
         assert r.json()["error"] == "simulation_time_exceeded"
+        assert r.json()["code"] == "simulation_time_exceeded"
+        assert r.json()["detail"] == r.json()["message"]
 
     def test_within_budget_runs_normally(
         self, client: APIClient, project: Project, tasks: list[Task], settings: object
@@ -369,3 +378,19 @@ class TestWallClockBudget:
 
         assert mc_admission.is_time_exceeded(SimulationTimeExceeded("x"))
         assert not mc_admission.is_time_exceeded(SimulationCapExceeded("x"))
+
+
+def test_openapi_declares_code_and_detail_on_mc_refusals() -> None:
+    """#4609: the published 400/402 examples carry both envelope key pairs."""
+    import json
+    from pathlib import Path
+
+    spec = json.loads(
+        (Path(__file__).resolve().parents[5] / "docs" / "api" / "openapi.json").read_text()
+    )
+    op = spec["paths"]["/api/v1/projects/{id}/monte-carlo/"]["post"]
+    for status_code in ("400", "402"):
+        example = next(
+            iter(op["responses"][status_code]["content"]["application/json"]["examples"].values())
+        )["value"]
+        assert {"error", "code", "message", "detail"} <= set(example)
