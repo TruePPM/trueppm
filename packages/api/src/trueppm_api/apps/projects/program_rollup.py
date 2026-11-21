@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Callable, Collection
+from decimal import Decimal
 from typing import Any
 
 from django.db.models import BooleanField, Count, F, Max, Q, Sum
@@ -454,6 +455,72 @@ def _cost_kpis(
     from trueppm_api.apps.workspace.models import Workspace
 
     return program_cost_kpis(project_cost_facts(project_ids).values(), Workspace.load().currency)
+
+
+#: Why a program's cost health has no band. ``cost_restricted``, ``no_budget`` and
+#: ``missing_rates`` are the cost KPIs' own reasons (ADR-1324 §3); this one is the
+#: program policy: neither cost KPI is in ``rollup_enabled_kpis``.
+REASON_COST_NOT_CONFIGURED = "not_configured"
+
+
+def cost_health_band(kpis: dict[str, dict[str, Any]]) -> str:
+    """Classify a program's cost into a health band from its two cost KPI entries.
+
+    Pure comparison over the values the rollup already returns, so a caller holding
+    the rollup can reproduce it (ADR-1324 digest addendum): ``critical`` when budget utilization is
+    above 1 (actual cost exceeds the budget), ``at_risk`` when cost variance is
+    negative (spend is ahead of earned value), otherwise ``on_track``. No tunable
+    threshold: each band is an inequality the overview's own figures already state.
+    ``unknown`` when either entry is unavailable or the program has no contributing
+    project (a null value).
+    """
+    cv = kpis.get(RollupKpi.COST_VARIANCE.value) or {}
+    util = kpis.get(RollupKpi.BUDGET_UTILIZATION.value) or {}
+    if not (cv.get("available") and util.get("available")):
+        return "unknown"
+    if cv.get("value") is None or util.get("value") is None:
+        return "unknown"
+    if float(util["value"]) > 1.0:
+        return "critical"
+    if Decimal(str(cv["value"])) < 0:
+        return "at_risk"
+    return "on_track"
+
+
+def program_cost_health(program: Program, *, cost_viewer: Any = None) -> dict[str, Any]:
+    """Return ``{"band": str | None, "reason": str | None}`` for *program*'s cost.
+
+    The digest's cost line (ADR-1324 digest addendum, #4850). Same contract as
+    :func:`compute_program_rollup`'s ``cost_viewer``: pass the user only once they are
+    established program Admin+, and they must also be project Admin+ on every
+    contributing project. The checks run in an order that discloses nothing to a
+    recipient who fails one: the program policy first (any program member can read
+    ``rollup_enabled_kpis``), then the cost floor, both before any budget is read.
+    Only a recipient who passes both learns ``no_budget`` / ``missing_rates`` or a band.
+    """
+    enabled = list(program.rollup_enabled_kpis or [])
+    if not _COST_KPIS.intersection(enabled):
+        return {"band": None, "reason": REASON_COST_NOT_CONFIGURED}
+    from trueppm_api.apps.projects.cost import REASON_COST_RESTRICTED
+    from trueppm_api.apps.projects.lifecycle import visible_projects
+
+    if cost_viewer is None:
+        return {"band": None, "reason": REASON_COST_RESTRICTED}
+    project_ids = list(
+        visible_projects(Project.objects.filter(program=program, is_deleted=False)).values_list(
+            "id", flat=True
+        )
+    )
+    if not _sees_cost_of_every_project(cost_viewer, project_ids):
+        return {"band": None, "reason": REASON_COST_RESTRICTED}
+    # Both entries are computed regardless of which one is enabled: the band needs
+    # both, and the recipient is entitled to both (one gate covers the pair, §4).
+    kpis = _cost_kpis(list(_COST_KPIS), project_ids, sees_cost=True)
+    for entry in kpis.values():
+        if not entry.get("available"):
+            return {"band": None, "reason": entry.get("reason")}
+    band = cost_health_band(kpis)
+    return {"band": band, "reason": REASON_NO_PROJECTS if band == "unknown" else None}
 
 
 def top_contributing_project(program: Program) -> dict[str, Any] | None:

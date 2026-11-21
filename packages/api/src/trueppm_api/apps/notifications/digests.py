@@ -36,6 +36,7 @@ from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.projects.program_rollup import (
     compute_program_rollup,
+    program_cost_health,
     top_contributing_project,
 )
 from trueppm_api.apps.projects.utilization import compute_utilization
@@ -71,7 +72,45 @@ DIGEST_EVENT_TYPES = (
     NotificationEventType.RESOURCE_OVERALLOCATION_DIGEST.value,
 )
 
-_HEALTH_LABELS = {"critical": "Critical", "at_risk": "At risk"}
+_HEALTH_LABELS = {
+    "critical": "Critical",
+    "at_risk": "At risk",
+    "on_track": "On track",
+    "unknown": "Schedule health unknown",
+}
+
+# The cost line's whole vocabulary (ADR-1324 digest addendum). A digest is pushed, retained in the
+# inbox and forwardable, so it carries a band or a reason from this closed set and
+# never an amount, a ratio or a count: no rendering of a budget-derived figure can
+# reach a mailbox, whoever the recipient is. The figures stay one click away on the
+# program overview, behind the live cost gate.
+_COST_BAND_TEXT = {
+    "critical": "over budget",
+    "at_risk": "spending ahead of progress",
+    "on_track": "within budget",
+}
+_COST_REASON_TEXT = {
+    "not_configured": "not tracked in this program's rollup",
+    "cost_restricted": "restricted to managers of every project",
+    "no_budget": "unavailable, a project has no budget",
+    "missing_rates": "unavailable, someone has no rate",
+    "no_projects": "no projects yet",
+}
+COST_LINE_VOCABULARY = frozenset(
+    [*_COST_BAND_TEXT.values(), *_COST_REASON_TEXT.values(), "unavailable"]
+)
+
+
+def _cost_text(cost: dict[str, Any]) -> str:
+    """Render ``program_cost_health``'s result from the closed vocabulary only.
+
+    An unrecognized band or reason renders as "unavailable" rather than its raw
+    value, so a reason added upstream can never smuggle a figure into the line.
+    """
+    band = cost.get("band")
+    if band in _COST_BAND_TEXT:
+        return _COST_BAND_TEXT[band]
+    return _COST_REASON_TEXT.get(cost.get("reason") or "", "unavailable")
 
 
 # ---------------------------------------------------------------------------
@@ -115,9 +154,15 @@ def build_program_health_digest(user: Any, local_now: datetime.datetime) -> tupl
     """Build the (subject, body) of *user*'s weekly program-health digest.
 
     Covers only programs the user *currently* belongs to, and only those whose
-    rolled-up health is ``at_risk`` or ``critical``. Each line names the program, its
-    band, and the project contributing most to it, and points at the existing program
-    overview drill-through.
+    rolled-up health is ``at_risk`` or ``critical``, or whose cost band is, for a
+    recipient entitled to it. Each line names the program, its band, the project
+    contributing most to it, and a cost line (ADR-1324 digest addendum), and points at the existing
+    program overview drill-through.
+
+    The cost line is gated on the *recipient*: program Admin+ here and project Admin+
+    on every contributing project (checked in :func:`program_cost_health`), the same
+    floor as the rollup's cost KPIs. Even then it is a band or a reason from a closed
+    vocabulary, never a figure, because the digest outlives the recipient's access.
     """
     # Live-membership floor (#3456). Revoking a program member soft-deletes the
     # ProgramMembership row rather than deleting it, so an unfloored read resolves a
@@ -137,23 +182,36 @@ def build_program_health_digest(user: Any, local_now: datetime.datetime) -> tupl
     # ``program__is_deleted`` term stays here because ``live()`` floors the *membership*
     # only — a live row on a soft-deleted program passes it and confers nothing.
     audience = ProgramMembership.live().filter(user=user, program__is_deleted=False)
-    program_ids = list(
-        audience.values_list("program_id", flat=True).order_by("program_id")[
-            :MAX_PROGRAMS_PER_DIGEST
-        ]
+    role_by_program = dict(
+        audience.values_list("program_id", "role").order_by("program_id")[:MAX_PROGRAMS_PER_DIGEST]
     )
     total_memberships = audience.count()
 
     lines: list[str] = []
-    for program in Program.objects.filter(id__in=program_ids, is_deleted=False).order_by("name"):
+    programs = Program.objects.filter(id__in=list(role_by_program), is_deleted=False)
+    for program in programs.order_by("name"):
+        # The health dot stays viewer-less (the plain average for a budget-weighted
+        # program, ADR-1324 §3). Only the cost line is computed for the recipient.
         rollup = compute_program_rollup(program)
         health = rollup.get("program_health")
-        if health not in AT_RISK_BANDS:
+        role = role_by_program.get(program.id)
+        cost = program_cost_health(
+            program, cost_viewer=user if role is not None and role >= Role.ADMIN else None
+        )
+        # A program over budget but on schedule earns a line too — otherwise a sponsor
+        # never hears of it. Only a recipient entitled to the band can trigger this,
+        # so whether a program is listed reveals nothing to anyone else.
+        if health not in AT_RISK_BANDS and cost["band"] not in AT_RISK_BANDS:
             continue
-        label = _HEALTH_LABELS.get(health, health)
-        contributor = top_contributing_project(program)
+        label = _HEALTH_LABELS.get(str(health), str(health))
+        contributor = top_contributing_project(program) if health in AT_RISK_BANDS else None
         driver = f" — driven by {contributor['name']}" if contributor else ""
-        lines.append(_line(f"{program.name}: {label}{driver}", _program_url(program.id)))
+        lines.append(
+            _line(
+                f"{program.name}: {label}{driver} · Cost: {_cost_text(cost)}",
+                _program_url(program.id),
+            )
+        )
 
     week_of = local_now.date().isoformat()
     if not lines:
@@ -170,7 +228,11 @@ def build_program_health_digest(user: Any, local_now: datetime.datetime) -> tupl
     count = len(lines)
     noun = "program" if count == 1 else "programs"
     subject = f"Program health: {count} {noun} need attention (week of {week_of})"
-    body = f"{count} {noun} at risk or critical this week:\n\n" + "\n".join(lines) + "\n"
+    body = (
+        f"{count} {noun} at risk or critical on schedule or cost this week:\n\n"
+        + "\n".join(lines)
+        + "\n"
+    )
     if total_memberships > MAX_PROGRAMS_PER_DIGEST:
         body += (
             f"\nShowing the first {MAX_PROGRAMS_PER_DIGEST} of {total_memberships} programs "

@@ -171,15 +171,45 @@ clock** rather than in response to an event: a program-health digest (which
 programs are at risk or critical, and what is driving it) and a
 resource-overallocation digest (who is booked over 100% next week, for the
 callers who are Resource Manager or above on the relevant projects). Neither
-computes anything of its own — each links to the same rolled-up numbers the
+computes a health value of its own — each links to the same rolled-up numbers the
 program overview and the resource heat map already show, so a digest line and
-the screen it points to agree, with one exception. For a program that uses the
+the screen it points to agree, with one exception. (The program-health digest's
+cost line is the other difference: it is computed per recipient, as described
+below.) For a program that uses the
 **Budget-weighted** aggregation policy, the program-health digest always uses the
-plain average. A digest is not computed for a particular viewer, and budget
+plain average. The health dot is not computed for a particular viewer, and budget
 weighting is applied only for a viewer allowed to see every project's budget, so
 someone who may see every budget can find the overview showing a different,
 budget-weighted band than their digest. A week with nothing to report
 still sends, with a subject line saying so, rather than going silent.
+
+:::note[Ships in 0.5]
+The program-health digest's cost line ships in 0.5. In the current release a
+digest line names only the program's schedule-health band and the project
+driving it.
+:::
+
+Each program line in the program-health digest also carries a **cost line**.
+What it says depends on the program's settings and on your role:
+
+| The digest says | When |
+|---|---|
+| **Cost: over budget** | Actual cost is above the budget |
+| **Cost: spending ahead of progress** | Within budget, but cost variance is negative: more has been spent than the work done is worth |
+| **Cost: within budget** | Neither of the above |
+| **Cost: unavailable, a project has no budget** / **someone has no rate** | A cost input is missing, so cost cannot be computed |
+| **Cost: no projects yet** | The program has no projects to price |
+| **Cost: unavailable** | A cost state the digest has no wording for; it never shows the raw value |
+| **Cost: restricted to managers of every project** | You are not Program Manager or above on the program, or not Project Manager or above on every project in it |
+| **Cost: not tracked in this program's rollup** | Neither cost KPI is turned on in the program's [rollup settings](/features/settings/program-rollup/) |
+
+A program that is over budget, or spending ahead of progress, is listed even
+when its schedule is on track, but only in the digest of someone allowed to
+see its cost. The digest never contains a cost amount, a percentage, or a
+count. A digest stays in your inbox after your access changes and can be
+forwarded, so it states only the band. The figures are on the program
+overview, which checks your access each time you open it. See
+[Cost model](/features/cost-model/#in-the-weekly-digest).
 
 Both digests are scoped to your **current** memberships. When your access to a
 program or project is revoked, or the program or project itself is deleted, it
