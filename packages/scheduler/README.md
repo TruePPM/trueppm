@@ -842,6 +842,50 @@ of the answer — a seeded Monte Carlo run still returns a probability
 distribution. Do not confuse it with the deterministic single-date output of
 `schedule()`, which is [a different thing entirely](#interpreting-the-output).
 
+## Performance
+
+Measured with the opt-in `pytest-benchmark` suite in `tests/benchmarks/bench_engine.py`
+(library only: no API, database, or network). These are **local-machine numbers**, not
+CI-runner numbers, and the suite asserts no time budget; `tests/test_bench.py` stays the
+hard circuit breaker.
+
+- **Host:** Apple M5 Pro (`arm64`), macOS, one process, nothing else deliberately running.
+- **Software:** CPython 3.12.6, numpy 2.5.5, pytest-benchmark 5.3.1. The CI image runs Python 3.11, so
+  CI-runner numbers will differ from these.
+- **Engine version:** the numbers measure the engine at commit `cc5c7ceb2` (this branch's
+  base on `origin/main`), which already includes the fixes for #1531 (arithmetic duration
+  layout instead of a day-by-day walk) and #2838 (per-task-calendar float computed
+  arithmetically via the exception-mask span count). The suite doubles as before/after
+  evidence for both: run it against an earlier commit to see the difference.
+- **`schedule()`:** 1 warm-up round, then 5 timed rounds of 1 iteration each.
+- **`monte_carlo(runs=1000)`:** 1 warm-up round, then 3 timed rounds, seed 4230.
+- **Shapes:** `chain` is the worst-case single FS spine, every task with a three-point
+  estimate. `mixed` is a seeded branching network (about two predecessors per task within
+  a 30-task window, FS/SS/FF with 0-3 day lags, three-point estimates on a fifth of the
+  tasks, and tasks spread over the project calendar and two per-task calendars).
+
+Wall time in milliseconds, mean of the timed rounds (best round in parentheses). With so
+few rounds the mean carries run-to-run noise; treat differences under about 20% as noise.
+
+| Entry point | Shape | 100 | 500 | 1,000 | 2,000 | 5,000 |
+|---|---|---|---|---|---|---|
+| `schedule()` | chain | 1.7 (1.5) | 13.2 (7.4) | 18.8 (16.1) | 34.4 (33.2) | 109.2 (86.2) |
+| `schedule()` | mixed | 2.7 (2.6) | 12.5 (11.6) | 26.9 (23.9) | 52.5 (48.0) | 145.1 (128.8) |
+| `monte_carlo(runs=1000)` | chain | 13.9 (13.6) | 78.5 (71.4) | 140.6 (124.7) | 231.6 (230.8) | 578.8 (569.2) |
+| `monte_carlo(runs=1000)` | mixed | 7.5 (7.4) | 37.7 (37.6) | 75.5 (73.5) | 167.6 (160.3) | 393.3 (382.5) |
+
+Nothing above 5,000 tasks and no incremental-recompute series has been measured yet. The
+2,000-task `schedule()` target of under 1 s on the CI runner is recorded, not gated: the
+`scheduler:benchmarks` job stores the benchmark JSON as an artifact on every run.
+
+Reproduce:
+
+```bash
+pip install -e "packages/scheduler[dev]"
+cd packages/scheduler
+pytest tests/benchmarks/bench_engine.py --benchmark-only --benchmark-json=bench.json
+```
+
 ## Status and roadmap
 
 **0.4 — the current release.** The CPM pass (all four dependency types,
@@ -910,9 +954,9 @@ release it is scheduled for:
 - **Scale / performance** — from 0.5 the engine will bound the longest dependency chain, not
   the task count, so a 100,000-task project of ordinary parallel work will schedule;
   only the total work ceiling (`MAX_PROJECT_WORK_DAYS`, see Project work above)
-  will apply to it. In 0.4 the span guard sums every task's duration. Scale benchmarks at
-  50,000 and 100,000 tasks are tracked with the benchmark suite
-  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); from 0.5, Monte Carlo
+  will apply to it. In 0.4 the span guard sums every task's duration. Scale benchmarks above
+  5,000 tasks are tracked with the task-envelope work
+  ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)); from 0.5, Monte Carlo
   will run its forward pass over chunks of runs, and above 32M cells (runs × tasks)
   will replay the float64 sampled-duration matrix a row block at a time instead of
   holding it, with seeded results byte-identical. Measured at 50,000 tasks × 1,000
@@ -940,9 +984,6 @@ they will ship with 0.5 or that release will slip:
   ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); and the supported
   envelope will be raised toward 50,000 tasks
   ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).
-- **Performance** — a published `pytest-benchmark` suite at 100–5,000 tasks,
-  with measured numbers in this README
-  ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).

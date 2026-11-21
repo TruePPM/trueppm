@@ -187,6 +187,14 @@ old answer should go. At each release, bump `CURRENT_STAMP`, stamp the new
 directory, and keep the previous one. Pre-1.0 this is a disclosure guarantee, not
 a stability promise.
 
+### Timing suite (pytest-benchmark)
+
+`tests/benchmarks/bench_engine.py` times `schedule()` and `monte_carlo(runs=1000)` at
+100 to 5,000 tasks. It is opt-in (the `bench_*.py` name is not collected by a bare
+`pytest`) and asserts no budget; run it with
+`pytest tests/benchmarks/bench_engine.py --benchmark-only`. CI stores its JSON as an
+artifact from the `scheduler:benchmarks` job.
+
 ### Performance benchmarks
 
 The bench suite asserts hard time budgets. Run it before submitting a MR

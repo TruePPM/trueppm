@@ -94,14 +94,14 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-68c70b31568d"
+  CI_API_TAG: "py3.11-0b846e4a639c"
 
   # Same mechanism for the ci-scheduler image (#4791): `py3.11-<digest>` over
   # scheduler.Dockerfile plus packages/scheduler/pyproject.toml. A fixed tag let
   # dell-03 and nuc-03 run one SHA against different cached pytest versions
   # (#4787). Bump with `bash scripts/check-ci-api-tag.sh --image scheduler
   # --print-expected`; enforced by api:ci-api-tag. See contributing/ci-images.
-  CI_SCHEDULER_TAG: "py3.11-0a72797b3d3d"
+  CI_SCHEDULER_TAG: "py3.11-847ebbb3fd1d"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -4893,6 +4893,27 @@ scheduler:bench:
   artifacts:
     paths:
       - packages/scheduler/bench-output.txt
+    expire_in: 30 days
+
+scheduler:benchmarks:
+  # pytest-benchmark suite (#4230): schedule() and monte_carlo(runs=1000) at
+  # 100/500/1k/2k/5k tasks on a chain and a mixed per-task-calendar network.
+  # Records timings only and asserts no time budget (scheduler:bench is the
+  # circuit breaker); the JSON artifact is the cross-commit comparison. With no
+  # timing threshold it fails only if a case errors, so it is a blocking job.
+  extends: .scheduler
+  stage: test
+  needs:
+    - scheduler:test
+    - job: ci:build-scheduler-image
+      optional: true
+  <<: *rules-scheduler
+  script:
+    - cd packages/scheduler
+    - pytest tests/benchmarks/bench_engine.py --benchmark-only --benchmark-json=benchmark.json
+  artifacts:
+    paths:
+      - packages/scheduler/benchmark.json
     expire_in: 30 days
 
 scheduler:notebooks:

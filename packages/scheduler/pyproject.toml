@@ -73,6 +73,8 @@ dev = [
     # public `item.nodeid`.
     "pytest>=7.0,<9.2",
     "pytest-cov>=4.0,<8.0",
+    # Opt-in performance suite (#4230): tests/benchmarks/bench_engine.py. BSD-2-Clause.
+    "pytest-benchmark>=4.0,<6.0",
     "diff-cover>=9.0,<10.0",
     "hypothesis>=6.0,<7.0",
     # Mutation testing (#2282): proves the suite's assertions actually *catch*
@@ -147,6 +149,7 @@ testpaths = ["tests"]
 addopts = "--strict-markers --tb=short -q"
 markers = [
     "fuzz: property-based contract-fuzzing tests (#1456); run deep via HYPOTHESIS_PROFILE=deep",
+    "perf_suite: pytest-benchmark timing suite (#4230); opt-in, files are bench_*.py so default collection skips them",
 ]
 
 # Mutation testing (#2282). Coverage proves a line ran under test; mutation
