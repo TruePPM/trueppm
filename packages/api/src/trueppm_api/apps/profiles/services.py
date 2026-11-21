@@ -264,6 +264,52 @@ def get_hidden_views(user: Any) -> list[str]:
     return list(profile.hidden_views) if profile is not None else []
 
 
+# Starter rail per methodology for a user's first project (#3713). `hidden_views` is a
+# per-USER preference applied across every project (ADR-0139), so these sets are
+# deliberately conservative: each keeps `overview`/`settings` (always-on, never in the
+# vocabulary) plus four working views, ~6 total instead of 14. Hybrid keeps the
+# schedule-first circuit (schedule, grid) plus board and today and starts without the
+# sprint ceremony views and the reporting/admin-adjacent ones; the user turns them on
+# from the Views menu as the project grows. Views the methodology matrix already hides
+# are omitted so the preference does not silently follow the user to a later project of
+# another methodology. Every key must be in HIDEABLE_VIEW_KEYS (asserted by a test).
+SEED_HIDDEN_VIEWS: dict[str, tuple[str, ...]] = {
+    "HYBRID": (
+        "calendar",
+        "product-backlog",
+        "sprints",
+        "risk",
+        "reports",
+        "activity",
+        "assets",
+        "resources",
+    ),
+    "WATERFALL": ("board", "today", "reports", "activity", "assets", "resources"),
+    "AGILE": ("grid", "risk", "reports", "activity", "assets", "resources"),
+}
+
+
+def seed_hidden_views_for_first_project(user: Any, methodology: str) -> bool:
+    """Seed the creator's ``hidden_views`` from the methodology they just chose.
+
+    Runs at project creation only (a later methodology flip never re-seeds; that needs
+    #3430's chose-vs-never signal). Because the preference is global, it is seeded only
+    when the creator has no membership yet (their first project) and has not already
+    customized the list: an experienced user's rail is never narrowed behind their back.
+    Call it BEFORE the creator's Owner membership is created. Returns whether it seeded.
+    """
+
+    keys = SEED_HIDDEN_VIEWS.get(methodology)
+    if not keys or _has_any_membership(user):
+        return False
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    if profile.hidden_views:
+        return False
+    profile.hidden_views = sorted(keys)
+    profile.save(update_fields=["hidden_views"])
+    return True
+
+
 def get_profile_prefs(user: Any) -> tuple[str, list[str], str, str, str]:
     """All app preferences in one row read — ``(default_landing, hidden_views,
     role_context, timezone, date_format)``.

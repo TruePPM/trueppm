@@ -61,6 +61,17 @@ describe('useCreateProject', () => {
     });
   });
 
+  it('refetches the current user so the server-seeded hidden_views reaches the rail (#3713)', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateProject(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ name: 'New Project', start_date: '2026-05-01' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['current-user'] });
+  });
+
   it('returns the created project id on success', async () => {
     const { result } = renderHook(() => useCreateProject(), { wrapper: makeWrapper(qc) });
     result.current.mutate({ name: 'New Project', start_date: '2026-05-01' });
