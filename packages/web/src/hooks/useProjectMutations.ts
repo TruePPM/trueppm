@@ -93,6 +93,9 @@ export function useCreateProject() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      // The first project seeds the creator's per-user hidden_views server-side (#3713);
+      // /auth/me/ carries it, so refetch or the rail keeps the full set for the 5 min staleTime.
+      void queryClient.invalidateQueries({ queryKey: ['current-user'] });
     },
   });
 }

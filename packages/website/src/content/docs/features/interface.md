@@ -224,6 +224,15 @@ You can tailor the rail with **Customize views** (hide the views you don't use);
 hidden views stay reachable from the command palette. **Dashboard** and **Settings**
 can never be hidden, so your navigation can never end up empty.
 
+:::note[Ships in 0.5]
+The first project you ever create starts with a smaller rail: your hidden-views
+preference is seeded from the methodology you picked, so a Hybrid project opens with
+about six views (Dashboard, Schedule, Grid, Board, Today, Settings) rather than all
+fourteen. Turn the rest on from **Customize views** at any time. The seed applies once,
+at your first project, and never overwrites a rail you have already customized or
+re-applies when you change a project's methodology. Until then, every view starts visible.
+:::
+
 ### Collapsing the rail
 
 Press **⌘B / Ctrl+B**, or use the **≡** in the shell bar, to collapse the rail to a
