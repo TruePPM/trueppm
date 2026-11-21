@@ -1026,6 +1026,9 @@ class ProgramViewSet(
         # calendar of its own, so capture the before-value and fan out a CPM recompute
         # to the inheriting projects only when ``calendar`` actually changes. Other
         # program-field edits (name, methodology, sharing, …) never touch scheduling.
+        # A program ``methodology`` change deliberately sends no surface notice (#3292):
+        # under SUGGEST each project's own NOT-NULL value wins, so no child project's
+        # effective preset moves and there is nothing to announce.
         old_calendar_id = serializer.instance.calendar_id if serializer.instance else None
         instance = serializer.save()
         if instance.calendar_id != old_calendar_id:

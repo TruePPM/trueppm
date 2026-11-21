@@ -259,6 +259,16 @@ Scrum Master and Product Owner and everyone at **Resource Manager or above**, wh
 not they hold a task. Board-lane and board-column notices stay with the people
 whose cards actually moved.
 
+**A workspace-wide change is announced too.** *(ships in 0.5)* Switching the workspace
+**Methodology override policy** to **Inherit**, or changing the workspace default method
+while that lock is on, re-resolves the preset of every project in the workspace at once,
+without touching any project's own settings. Each project whose effective preset actually
+changed gets the same notice, to the same people, naming both presets. Projects whose
+preset did not move get nothing. The notices are queued with the change and delivered by a
+background worker, so a workspace with many projects does not slow the save. A change to a
+*program's* methodology stays silent: under the default policy every existing project keeps
+its own preset, so nothing on screen moves.
+
 Who gets named is deliberate. A preset switch is the act, and the views that
 appear or disappear are its consequence — so the preset clause is attributed and
 the views are simply stated. Hiding a view directly *is* the act, so that clause

@@ -8,6 +8,7 @@ authenticates with a one-time token, not a session.
 from __future__ import annotations
 
 from collections import defaultdict
+from functools import partial
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -38,6 +39,10 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.models import project_role_label
 from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated, SessionOnlyWritesMixin
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.projects.config_notice import (
+    capture_workspace_surfaces,
+    notify_workspace_surface_changes,
+)
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
     AuditEvent,
@@ -270,6 +275,18 @@ def _invite_dict(invite: WorkspaceInvite) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _broadcast_projects_updated(project_ids: list[str]) -> None:
+    """Tell open clients each project's resolved preset moved (best-effort push).
+
+    The notice says the team's views changed; a client that never hears
+    ``project_updated`` would keep rendering the old surface and make it look wrong.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    for project_id in project_ids:
+        broadcast_board_event(project_id, "project_updated", {"id": project_id})
+
+
 class WorkspaceSettingsView(IdempotencyMixin, APIView):
     """GET/PATCH /api/v1/workspace/ — singleton workspace config (#517).
 
@@ -296,7 +313,25 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
         old_calendar_policy = workspace.calendar_override_policy
         serializer = WorkspaceSettingsSerializer(workspace, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        # The methodology default and its override policy are the root of the
+        # methodology chain (ADR-0107): under INHERIT the workspace value wins for
+        # EVERY project, resolved on read, so no project row changes and nothing
+        # else would tell those teams their tabs moved (#3292). Snapshot every
+        # project's effective surface before the save mutates the instance.
+        methodology_keys = {"methodology", "methodology_override_policy"}
+        surface_before = (
+            capture_workspace_surfaces(workspace)
+            if methodology_keys & set(serializer.validated_data)
+            else None
+        )
+        with transaction.atomic():
+            serializer.save()
+            if surface_before is not None:
+                moved = notify_workspace_surface_changes(
+                    workspace, before=surface_before, actor=request.user
+                )
+                if moved:
+                    transaction.on_commit(partial(_broadcast_projects_updated, moved))
         if (
             workspace.calendar_id != old_calendar_id
             or workspace.calendar_override_policy != old_calendar_policy
