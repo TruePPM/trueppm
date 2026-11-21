@@ -181,6 +181,32 @@ someone who may see every budget can find the overview showing a different,
 budget-weighted band than their digest. A week with nothing to report
 still sends, with a subject line saying so, rather than going silent.
 
+:::note[Ships in 0.5]
+The program-health digest's cost line ships in 0.5. In the current release a
+digest line names only the program's schedule-health band and the project
+driving it.
+:::
+
+Each program line in the program-health digest also carries a **cost line**.
+What it says depends on the program's settings and on your role:
+
+| The digest says | When |
+|---|---|
+| **Cost: over budget** | Actual cost is above the budget |
+| **Cost: spending ahead of progress** | Within budget, but cost variance is negative: more has been spent than the work done is worth |
+| **Cost: within budget** | Neither of the above |
+| **Cost: unavailable, a project has no budget** / **someone has no rate** | A cost input is missing, so cost cannot be computed |
+| **Cost: restricted to managers of every project** | You are not Program Manager or above on the program, or not Project Manager or above on every project in it |
+| **Cost: not tracked in this program's rollup** | Neither cost KPI is turned on in the program's [rollup settings](/features/settings/program-rollup/) |
+
+A program that is over budget, or spending ahead of progress, is listed even
+when its schedule is on track, but only in the digest of someone allowed to
+see its cost. The digest never contains a cost amount, a percentage, or a
+count. A digest stays in your inbox after your access changes and can be
+forwarded, so it states only the band. The figures are on the program
+overview, which checks your access each time you open it. See
+[Cost model](/features/cost-model/#in-the-weekly-digest).
+
 Both digests are scoped to your **current** memberships. When your access to a
 program or project is revoked, or the program or project itself is deleted, it
 leaves the digest immediately — it is not named in the next send, and it is not

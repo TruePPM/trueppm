@@ -158,6 +158,16 @@ The **Budget-weighted** aggregation policy weights each project by its budget. I
 
 A project that has spent hours but has no remaining tasks earns nothing, so its percent complete is 0 and its whole actual cost shows as negative cost variance. See [Program rollup KPIs](/features/settings/program-rollup/).
 
+## In the weekly digest
+
+The weekly [program-health digest](/features/notifications/#the-weekly-digests-and-their-schedule) gives each program a cost line, so a sponsor finds out about an overrun without waiting for the PM to report it. The line is a band, worked out from the program rollup's two cost KPIs:
+
+- **over budget**: budget utilization is above 1 (100%)
+- **spending ahead of progress**: cost variance is below 0, but utilization is not above 1
+- **within budget**: neither
+
+The digest shows the band only if a cost KPI is turned on for the program, and only to someone who could read the cost KPIs on the program overview: Program Manager or above on the program, and Project Manager or above on every project in it. Everyone else is told why there is no cost band. Even an allowed reader never gets an amount, a ratio or a count in the digest, because a digest can be kept and forwarded after the reader's access is gone. A program that is over budget or spending ahead of progress is listed even when its schedule is on track.
+
 ## Related
 
 - [Timesheet](/features/timesheet/): logging the time that cost is computed from
