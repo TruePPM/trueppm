@@ -697,6 +697,73 @@ test.describe('Programs — overview rollup (#713)', () => {
     await expect(kpis.getByText('2 people have no rate')).toBeVisible();
   });
 
+  // ADR-1447: a project with no planned duration has no earned value. The server
+  // leaves it out of the program's cost variance and counts it; the KPI goes
+  // unavailable only when every project is in that state. Both mocks are the shapes
+  // `program_cost_kpis` emits (`kpi_entry` + the three detail counts).
+  const costRollup = (costVariance: Record<string, unknown>) => ({
+    ...FIXTURE_ROLLUP,
+    kpis: {
+      cost_variance: costVariance,
+      budget_utilization: {
+        available: true,
+        value: 0.42,
+        unit: 'ratio',
+        projects_without_budget: 0,
+        missing_rate_count: 0,
+        projects_without_planned_duration: 1,
+      },
+    },
+  });
+
+  test('counts unscheduled projects left out of the cost variance total', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          costRollup({
+            available: true,
+            value: '-1500.00',
+            unit: 'USD',
+            projects_without_budget: 0,
+            missing_rate_count: 0,
+            projects_without_planned_duration: 1,
+          }),
+        ),
+      }),
+    );
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+    const kpis = page.getByRole('region', { name: /program kpis/i });
+    await expect(kpis.getByText('Cost variance')).toBeVisible();
+    await expect(kpis.getByText('over budget · 1 project not yet scheduled')).toBeVisible();
+    await expect(kpis.getByText('42%')).toBeVisible(); // utilization still a real total
+  });
+
+  test('shows cost variance unavailable when no project is scheduled yet', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          costRollup({
+            available: false,
+            reason: 'no_planned_duration',
+            projects_without_budget: 0,
+            missing_rate_count: 0,
+            projects_without_planned_duration: 2,
+          }),
+        ),
+      }),
+    );
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+    const kpis = page.getByRole('region', { name: /program kpis/i });
+    await expect(kpis.getByText('Cost variance')).toBeVisible();
+    await expect(kpis.getByText('2 projects not yet scheduled')).toBeVisible();
+  });
+
   test('shows the empty state when the program has no projects', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>

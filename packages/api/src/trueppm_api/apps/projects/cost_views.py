@@ -53,6 +53,7 @@ class CostKpiSerializer(serializers.Serializer[dict[str, Any]]):
         choices=[
             "no_budget",
             "missing_rates",
+            "no_planned_duration",
             "cost_restricted",
             "no_actual_cost",
             "no_earned_value",
@@ -61,7 +62,9 @@ class CostKpiSerializer(serializers.Serializer[dict[str, Any]]):
         read_only=True,
         required=False,
         help_text=(
-            "Why there is no value: no_budget, missing_rates, cost_restricted, "
+            "Why there is no value: no_budget, missing_rates, no_planned_duration "
+            "(cost_variance and the forecasts: the leaf work tasks plan 0 days, so earned "
+            "value has no weighting basis, ADR-1447), cost_restricted, "
             "no_actual_cost (AC is 0, CPI undefined), no_earned_value (EV is 0, EAC "
             "would be infinite) or budget_exhausted (AC has reached BAC, TCPI undefined)."
         ),
@@ -119,8 +122,17 @@ class ProjectCostSerializer(serializers.Serializer[dict[str, Any]]):
     as_of = serializers.DateTimeField(read_only=True)
     budget = _money(allow_null=True)
     actual = _money()
-    # Never null: a project with no live tasks reports 0 (cost.project_cost_facts).
-    percent_complete = serializers.DecimalField(max_digits=5, decimal_places=2, read_only=True)
+    percent_complete = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Duration-weighted percent complete of the leaf work tasks, the basis of "
+            "earned_value (ADR-1447). Not the project list's unweighted percent "
+            "complete. Null when the leaf work plans 0 days (no_planned_duration)."
+        ),
+    )
     earned_value = _money(allow_null=True)
     cost_variance = CostKpiSerializer(read_only=True)
     budget_utilization = CostKpiSerializer(read_only=True)

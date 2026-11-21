@@ -17,7 +17,7 @@ from django.utils import timezone
 from tests.apps.projects import cost_helpers as h
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.services import create_program
-from trueppm_api.apps.projects.cost import project_cost_facts, project_percent_complete
+from trueppm_api.apps.projects.cost import project_cost_facts
 from trueppm_api.apps.projects.models import (
     AggregationPolicy,
     Baseline,
@@ -173,18 +173,204 @@ def test_evm_derivations_match_hand_computation(scenario: dict[str, Any]) -> Non
     assert cost.budget_utilization == 0.121
 
 
-def test_percent_complete_is_the_project_lists_definition(scenario: dict[str, Any]) -> None:
-    """EV reuses the existing project % complete verbatim (#754 decision 2026-11-05)."""
-    from django.db.models import Avg, Q
-
-    p = scenario["p"]
-    listed = (
-        Project.objects.filter(pk=p.pk)
-        .annotate(pc=Avg("tasks__percent_complete", filter=Q(tasks__is_deleted=False)))
-        .get()
-        .pc
+def _leaf(p: Project, path: str, duration: int, percent: float, **kw: Any) -> Task:
+    return Task.objects.create(
+        project=p,
+        name=f"T{path}",
+        wbs_path=path,
+        duration=duration,
+        percent_complete=percent,
+        **kw,
     )
-    assert project_percent_complete([p.pk])[p.pk] == listed
+
+
+def test_ev_weights_percent_complete_by_duration(db: object) -> None:
+    """ADR-1447: a 100-day task counts 100x a 1-day task.
+
+    1 day at 100 % + 100 days at 0 %: Σ(p×d) = 100, Σd = 101 → 0.990099 % → 0.99 %.
+    BAC 10,000 × 0.99 / 100 = 99.00. The unweighted mean would say 50 % → 5,000.
+    Flip the percents: Σ(p×d) = 10,000 → 99.0099 % → 99.01 % → EV 9,901.00.
+    """
+    p = h.project("Weighted", budget="10000.00")
+    short, long_ = _leaf(p, "1", 1, 100), _leaf(p, "2", 100, 0)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete == Decimal("0.99")
+    assert cost.earned_value == Decimal("99.00")
+    Task.objects.filter(pk=short.pk).update(percent_complete=0)
+    Task.objects.filter(pk=long_.pk).update(percent_complete=100)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete == Decimal("99.01")
+    assert cost.earned_value == Decimal("9901.00")
+
+
+def test_ev_excludes_phases_subtasks_and_non_committed_work(db: object) -> None:
+    """Only leaf work counts. Each excluded row would move EV if it were counted.
+
+    Leaves 1.1 (10 d, stored 50 %, read as its 100 % subtask rollup) and 6 (10 d at
+    0 %) → Σ(p×d) = 1,000, Σd = 20 → 50 %, EV = 1,000 × 0.5 = 500.00. Left out: the
+    phase (1, 40 d at 0 % → would read 16.67 %), the subtask as a row of its own
+    (1.1.1, 5 d at 100 % → 60 %), a backlog task, a recurring task, an epic and a
+    soft-deleted task (each 10 d at 100 % → 66.67 %). The epic and the deleted row
+    prove the filter is ``Task.committed``, not just ``is_deleted``.
+    """
+    from trueppm_api.apps.projects.models import TaskStatus, TaskType
+
+    p = h.project("Leaves", budget="1000.00")
+    _leaf(p, "1", 40, 0)  # phase: has a structural child
+    _leaf(p, "1.1", 10, 50)
+    _leaf(p, "1.1.1", 5, 100, is_subtask=True)
+    _leaf(p, "2", 10, 100, status=TaskStatus.BACKLOG)
+    _leaf(p, "3", 10, 100, is_recurring=True)
+    _leaf(p, "4", 10, 100, type=TaskType.EPIC)
+    _leaf(p, "5", 10, 100, is_deleted=True)
+    _leaf(p, "6", 10, 0)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete == Decimal("50.00")
+    assert cost.earned_value == Decimal("500.00")
+
+
+def test_ev_reads_a_parents_subtask_rollup_not_its_stored_percent(db: object) -> None:
+    """A leaf with subtasks earns what the task API shows for it, not the stored column.
+
+    Parent 1 is stored at 0 % (nothing writes the rollup back) with two 100 % subtasks;
+    the task API serves it at 100 %, so EV must be BAC × 100 % = 1,000.00, not 0.
+    """
+    p = h.project("Subtask rollup", budget="1000.00")
+    parent = _leaf(p, "1", 10, 0)
+    _leaf(p, "1.1", 3, 100, is_subtask=True)
+    _leaf(p, "1.2", 7, 100, is_subtask=True)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete == Decimal("100.00")
+    assert cost.earned_value == Decimal("1000.00")
+
+    # Same number the task API shows on the parent row.
+    owner = h.user("rollup-owner")
+    h.member(p, owner, Role.OWNER)
+    shown = h.client(owner).get(f"/api/v1/tasks/{parent.pk}/").json()["percent_complete"]
+    assert shown == 100.0
+
+
+def test_a_task_whose_only_children_are_uncommitted_is_still_leaf_work(db: object) -> None:
+    """A BACKLOG child does not make its parent a phase for EV (ADR-1447).
+
+    Leaf 1 (10 d at 50 %) with a BACKLOG child 1.1 (10 d at 100 %): 1 is the only
+    committed row, so it is leaf work → 50 %. Treating 1 as a phase would leave no
+    leaf work at all (no_planned_duration); counting the backlog child would read 100 %.
+
+    The task API's rollup does count the backlog child, so the task shows 100 % while
+    EV weights it at 50 %: the documented difference ("counting only its subtasks").
+    """
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    p = h.project("Backlog child", budget="1000.00")
+    leaf = _leaf(p, "1", 10, 50)
+    _leaf(p, "1.1", 10, 100, status=TaskStatus.BACKLOG)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete == Decimal("50.00")
+    assert cost.earned_value == Decimal("500.00")
+
+    owner = h.user("backlog-child-owner")
+    h.member(p, owner, Role.OWNER)
+    shown = h.client(owner).get(f"/api/v1/tasks/{leaf.pk}/").json()["percent_complete"]
+    assert shown == 100.0
+
+
+def test_a_subtask_under_an_uncommitted_child_does_not_move_ev(db: object) -> None:
+    """Only the leaf's own subtasks count, not one filed under a BACKLOG child (ADR-1447).
+
+    Leaf 1 (10 d at 50 %) → BACKLOG 1.1 (10 d at 0 %) → subtask 1.1.1 (5 d at 100 %).
+    1.1.1 belongs to the backlog item, not to 1, so 1 has no subtasks of its own and EV
+    reads its stored 50 % → EV 500.00. Counting 1.1.1 because it is a subtask somewhere
+    below 1 would read 100 % → 1,000.00.
+    """
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    p = h.project("Subtask under backlog", budget="1000.00")
+    _leaf(p, "1", 10, 50)
+    _leaf(p, "1.1", 10, 0, status=TaskStatus.BACKLOG)
+    _leaf(p, "1.1.1", 5, 100, is_subtask=True)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete == Decimal("50.00")
+    assert cost.earned_value == Decimal("500.00")
+
+
+def test_zero_duration_tasks_add_nothing_to_either_sum(db: object) -> None:
+    """A milestone plans no work, so it carries no share of the budget (ADR-1447).
+
+    Leaf 5 d at 20 % + milestone 0 d at 100 % → Σ(p×d) = 100, Σd = 5 → 20 %. Were the
+    milestone counted as a row (the old unweighted mean) it would read 60 %.
+    """
+    p = h.project("Milestones", budget="1000.00")
+    _leaf(p, "1", 5, 20)
+    _leaf(p, "2", 0, 100, is_milestone=True)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete == Decimal("20.00")
+    assert cost.earned_value == Decimal("200.00")
+
+
+def test_no_planned_duration_makes_ev_not_computable(db: object) -> None:
+    """Σ duration = 0 → EV, CV and the forecasts carry no_planned_duration, never 0.
+
+    Utilization (AC / BAC) does not need EV, so it still computes: 2 h × 50 = 100.00
+    of 1,000 → 0.1.
+    """
+    from trueppm_api.apps.projects.cost import cost_provenance, program_cost_kpis
+
+    pm = h.user("ms-pm")
+    h.resource("MS PM", pm, "50.00")
+    p = h.project("Only milestones", budget="1000.00")
+    m = _leaf(p, "1", 0, 100, is_milestone=True)
+    h.log(m, pm, 120)
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.percent_complete is None
+    assert cost.earned_value is None
+    assert cost.earned_value_reason() == "no_planned_duration"
+    assert cost.unavailable_reason() == "no_planned_duration"
+    assert cost.cost_variance is None
+    assert cost.budget_utilization == 0.1
+    for result in (cost.cpi_result(), cost.eac_result(), cost.etc_result(), cost.tcpi_result()):
+        assert result == (None, "no_planned_duration")
+    figures = cost_provenance(cost)["figures"]
+    assert figures["earned_value"] == {"status": "restricted", "reason": "no_planned_duration"}
+    assert figures["budget_utilization"] == {"status": "computed"}
+
+    # No budget outranks the missing basis: EV needs a budget first.
+    Project.objects.filter(pk=p.pk).update(budget=None)
+    assert project_cost_facts([p.pk])[p.pk].earned_value_reason() == "no_budget"
+    Project.objects.filter(pk=p.pk).update(budget=Decimal("1000.00"))
+
+    # Program, only this project: a sum over no scheduled project is no total.
+    kpis = program_cost_kpis(project_cost_facts([p.pk]).values(), "USD")
+    assert kpis["cost_variance"]["available"] is False
+    assert kpis["cost_variance"]["reason"] == "no_planned_duration"
+    assert kpis["cost_variance"]["projects_without_planned_duration"] == 1
+    assert kpis["budget_utilization"]["value"] == 0.1
+
+    # Program with a scheduled project too: the unscheduled one is left out of Σ CV and
+    # counted; utilization is still a real total over both. ok: EV = 1,000 × 50 % =
+    # 500.00, AC = 0 → CV 500.00 (p's CV is not computable, so it adds nothing).
+    ok = h.project("Fine", budget="1000.00")
+    _leaf(ok, "1", 4, 50)
+    kpis = program_cost_kpis(project_cost_facts([p.pk, ok.pk]).values(), "USD")
+    assert kpis["cost_variance"]["available"] is True
+    assert kpis["cost_variance"]["value"] == "500.00"
+    assert kpis["cost_variance"]["projects_without_planned_duration"] == 1
+    assert kpis["budget_utilization"]["value"] == 0.05  # 100 / 2,000
+
+
+def test_cost_endpoint_serves_null_percent_without_planned_duration(db: object) -> None:
+    p = h.project("Empty", budget="500.00")
+    owner = h.user("empty-owner")
+    h.member(p, owner, Role.OWNER)
+    d = h.client(owner).get(f"/api/v1/projects/{p.pk}/cost/").json()
+    assert d["percent_complete"] is None
+    assert d["earned_value"] is None
+    assert d["cost_variance"]["available"] is False
+    assert d["cost_variance"]["reason"] == "no_planned_duration"
+    assert d["budget_utilization"]["available"] is True
+    assert d["budget_utilization"]["value"] == 0.0
+    assert "duration" in d["definitions"]["earned_value"]
+    assert "not the project list" in d["definitions"]["percent_complete"]
 
 
 def test_no_budget_reports_no_budget(scenario: dict[str, Any]) -> None:
@@ -331,7 +517,9 @@ def test_cost_endpoint_forecasts_and_provenance(scenario: dict[str, Any]) -> Non
     assert prov["computed_by"].endswith("project_cost_facts")
     assert prov["contract_version"] == "1"
     assert prov["as_of"] == d["as_of"]
-    assert prov["inputs"]["percent_complete_source"] == "unweighted_mean_task_percent_complete"
+    assert (
+        prov["inputs"]["percent_complete_source"] == "duration_weighted_leaf_task_percent_complete"
+    )
     assert prov["inputs"]["rate_source"] == "current_resource_rate"
     assert prov["inputs"]["eac_method"] == "typical_variance"
     assert set(prov["figures"]) == {
@@ -504,7 +692,7 @@ def test_rollup_cost_restricted_below_program_admin(program: tuple[Program, Any]
     viewer = h.user("pviewer")
     ProgramMembership.objects.create(program=prog, user=viewer, role=Role.VIEWER)
     _configure(prog, _COST, AggregationPolicy.WORST.value)
-    h.project("A", budget="1.00", program=prog)
+    h.task(h.project("A", budget="1.00", program=prog))  # a task: EV has a basis (ADR-1447)
     _pm_of_all(prog, owner)
     url = f"/api/v1/programs/{prog.pk}/rollup/"
     restricted = h.client(viewer).get(url).json()["kpis"]
@@ -609,6 +797,7 @@ def test_program_admin_needs_project_admin_on_every_project(
     _configure(prog, _COST, AggregationPolicy.WORST.value)
     a = h.project("A", budget="1000.00", program=prog)
     b = h.project("B", budget="2000.00", program=prog)
+    h.task(a), h.task(b)  # EV needs leaf work with a duration (ADR-1447)
     ProjectMembership.objects.create(project=a, user=owner, role=Role.ADMIN)
     ProjectMembership.objects.create(project=b, user=owner, role=Role.VIEWER)
     url = f"/api/v1/programs/{prog.pk}/rollup/"
@@ -682,8 +871,12 @@ def test_budget_weighting_is_not_an_oracle_for_a_caller_below_the_cost_floor(
     assert again["policy_unavailable_reason"] == "cost_restricted"
 
 
-def test_spent_project_with_no_live_tasks_shows_its_overrun(db: object) -> None:
-    """Round-2 gap 1: no live tasks earns 0, so CV = −AC rather than a null value."""
+def test_spent_project_with_no_live_tasks_reports_no_basis_not_zero(db: object) -> None:
+    """ADR-1447 supersedes round-2 gap 1: with no leaf work left, EV has no basis.
+
+    The spend is still visible as utilization (1,000 / 1,000 = 1.0); CV, which needs
+    EV, says no_planned_duration instead of a CV = −AC computed from an assumed 0 %.
+    """
     from trueppm_api.apps.projects.cost import program_cost_kpis
 
     worker = h.user("abandoner")
@@ -695,12 +888,15 @@ def test_spent_project_with_no_live_tasks_shows_its_overrun(db: object) -> None:
 
     cost = project_cost_facts([p.pk])[p.pk]
     assert cost.actual == Decimal("1000.00")
-    assert cost.percent_complete == Decimal("0.00")
-    assert cost.earned_value == Decimal("0.00")
-    assert cost.cost_variance == Decimal("-1000.00")
+    assert cost.percent_complete is None
+    assert cost.earned_value is None
+    assert cost.cost_variance is None
+    assert cost.unavailable_reason() == "no_planned_duration"
     assert cost.budget_utilization == 1.0
     kpis = program_cost_kpis([cost], "USD")
-    assert kpis["cost_variance"]["value"] == "-1000.00"  # not dropped as 0
+    # The only project, so no total: unavailable, never a silent 0.
+    assert kpis["cost_variance"]["reason"] == "no_planned_duration"
+    assert kpis["budget_utilization"]["value"] == 1.0
 
 
 def test_ambiguous_email_matches_nobody(db: object) -> None:

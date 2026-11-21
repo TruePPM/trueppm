@@ -29,7 +29,10 @@ Design (ADR-0088, amended by ADR-1314 for #4779):
   ΣAC / ΣBAC). They are unavailable with an actionable reason (``no_budget`` /
   ``missing_rates``) when any contributing project cannot price its cost, and
   ``cost_restricted`` for a caller below program Admin — a Member or Viewer never
-  receives a cost value.
+  receives a cost value. A project whose leaf work plans no days has no earned value
+  (ADR-1447): ``cost_variance`` leaves it out of the sum and counts it in
+  ``projects_without_planned_duration``, and is unavailable with
+  ``no_planned_duration`` only when every project is in that state.
 - **The aggregation policy applies where it is meaningful.** ``worst`` / ``average``
   / ``task_weighted`` govern the health bands (``schedule_health``,
   ``milestone_health``), the day-variances (``baseline_variance``,
@@ -57,7 +60,7 @@ from collections.abc import Callable, Collection
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import BooleanField, Count, F, Max, Q, Sum
+from django.db.models import BooleanField, Count, F, FloatField, Max, Q, Sum
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
@@ -628,6 +631,120 @@ def task_is_phase_expr() -> RawSQL:
         ")",
         [],
         output_field=BooleanField(),
+    )
+
+
+def task_has_committed_child_expr() -> RawSQL:
+    """Boolean expression: this task row has a structural child in ``Task.committed``.
+
+    The earned-value phase probe (ADR-1447). :func:`task_is_phase_expr` counts any
+    live structural child, so a committed task whose only children are BACKLOG or EPIC
+    rows reads as a phase there — and earned value, which drops phases as rollups of
+    their children, would then drop that task's own work, while the children it was
+    "rolled up from" are themselves outside the committed set. Here a child counts only
+    if it is committed delivery: the same four exclusions as ``CommittedTaskManager``
+    (not deleted, not BACKLOG, not EPIC, not recurring).
+    """
+    from trueppm_api.apps.projects.models import TaskStatus, TaskType
+
+    # nosemgrep: avoid-raw-sql — static SQL literal; the two params are enum values.
+    return RawSQL(
+        "EXISTS("
+        "  SELECT 1 FROM projects_task c"
+        "  WHERE c.project_id = projects_task.project_id"
+        "    AND c.is_deleted = false"
+        "    AND c.is_subtask = false"
+        "    AND c.is_recurring = false"
+        "    AND c.status != %s"
+        "    AND c.type != %s"
+        "    AND c.id != projects_task.id"
+        "    AND c.wbs_path IS NOT NULL"
+        "    AND projects_task.wbs_path IS NOT NULL"
+        "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+        ")",
+        [TaskStatus.BACKLOG.value, TaskType.EPIC.value],
+        output_field=BooleanField(),
+    )
+
+
+# The leaf-descendant, delivery-mode-aware weighted percent the task API serves as a
+# summary row's ``percent_complete`` (ADR-0108 §1; see the annotation in
+# ``views.TaskViewSet``). ``{scope}`` narrows which descendants count and ``{depth}``
+# how far below the row they may sit (an lquery quantifier).
+_PERCENT_ROLLUP_SQL = (
+    "("
+    "  SELECT CASE WHEN SUM(w.weight) > 0"
+    "              THEN SUM(w.weight * w.pct) / SUM(w.weight)"
+    "              ELSE NULL END"
+    "  FROM ("
+    "    SELECT"
+    "      CASE c.delivery_mode"
+    "        WHEN 'scrum' THEN COALESCE(c.story_points, c.duration)"
+    "        WHEN 'kanban' THEN 1"
+    "        WHEN 'milestone' THEN 0"
+    "        ELSE c.duration"
+    "      END AS weight,"
+    "      CASE c.delivery_mode"
+    "        WHEN 'scrum' THEN"
+    "          CASE WHEN c.status = 'COMPLETE' THEN 100.0"
+    "               WHEN COALESCE(c.story_points, 0) > 0"
+    "                 THEN (1.0 - COALESCE(c.remaining_points, c.story_points)::float"
+    "                              / c.story_points) * 100.0"
+    "               ELSE c.percent_complete END"
+    "        WHEN 'kanban' THEN"
+    "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
+    "        WHEN 'milestone' THEN"
+    "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
+    "        ELSE c.percent_complete"
+    "      END AS pct"
+    "    FROM projects_task c"
+    "    WHERE c.project_id = projects_task.project_id"
+    "      AND c.is_deleted = false"
+    "{scope}"
+    "      AND projects_task.wbs_path IS NOT NULL"
+    "      AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{depth}')::lquery"
+    "      AND NOT EXISTS ("
+    "        SELECT 1 FROM projects_task gc"
+    "        WHERE gc.project_id = projects_task.project_id"
+    "          AND gc.is_deleted = false"
+    "          AND gc.wbs_path ~ (c.wbs_path::text || '.*{{1}}')::lquery"
+    "      )"
+    "  ) w"
+    ")"
+)
+
+
+def task_percent_complete_rollup_expr(*, subtasks_only: bool = False) -> RawSQL:
+    """Float expression: the weighted percent of this row's leaf descendants, or NULL.
+
+    The one definition of the rollup the task API serves in place of a summary row's
+    stored ``percent_complete`` (``TaskSerializer.to_representation``). Nothing writes
+    it back to the row, so any aggregate that reads a parent's progress must read
+    this, not the stored column, or it reads a value no screen shows.
+
+    ``subtasks_only`` restricts the descendants to the row's own subtasks: earned value
+    (ADR-1447) takes a non-phase leaf's progress from its subtasks the way the task API
+    does, without letting an uncommitted structural child (a BACKLOG or EPIC row under
+    the leaf) move it. That needs the *direct* children only, not just
+    ``is_subtask``: a subtask is always created as a direct child of its parent and
+    cannot have subtasks of its own (ADR-0060 depth-1), so a subtask two levels down
+    belongs to an intermediate row — and when that row is a BACKLOG child, counting
+    its subtask would let uncommitted work move the grandparent's EV. NULL when there
+    is no such descendant, or their weights sum to 0 — the caller then falls back to
+    the stored percent, as the serializer does.
+
+    The default (``subtasks_only=False``) renders the exact SQL the task API serves.
+    """
+    if subtasks_only:
+        scope, depth = "      AND c.is_subtask = true", "{1}"
+    else:
+        scope, depth = "", "{1,}"
+    # `scope`/`depth` are picked from two fixed literals above, never user input.
+    # nosemgrep: avoid-raw-sql — static SQL literal, no params interpolated.
+    return RawSQL(
+        _PERCENT_ROLLUP_SQL.format(scope=scope, depth=depth),  # nosec B611
+        [],
+        output_field=FloatField(),
     )
 
 

@@ -49,10 +49,29 @@ All amounts are in the workspace currency. Set it with the `currency` field on `
 | Figure | Formula |
 |---|---|
 | **Actual cost (AC)** | For each person who logged time on the project: hours × the current hourly rate of their resource, summed |
-| **Percent complete** | The project's existing percent complete: the average percent complete of its tasks |
+| **Percent complete** | Each task's percent complete weighted by its duration: Σ(percent × duration) ÷ Σ(duration), over the project's leaf tasks (see [What earned value means](#what-earned-value-means)) |
 | **Earned value (EV)** | budget × percent complete ÷ 100 |
 | **Cost variance (CV)** | EV − AC. **Negative means over budget** |
 | **Budget utilization** | AC ÷ budget. `1.0` (100 %) means the whole budget has been spent |
+
+### What earned value means
+
+Earned value is the share of the budget that the work done so far is worth, if the budget is spread over the work in proportion to each task's duration. A 100-day task counts 100 times as much as a 1-day task. For example, with a budget of 10,000, a 1-day task at 100 % and a 100-day task at 0 % give a percent complete of 100 ÷ 101 = 0.99 %, so EV is 99. A plain average of the two percents would say 50 %, and EV would be 5,000.
+
+Only **leaf tasks** count: the scheduled work the project is made of.
+
+- **Phases are left out.** A phase's percent complete is a rollup of its children, so counting it would count the same work twice. Only children that are scheduled work make a task a phase: a task whose only children are backlog items or epics still counts as a leaf task.
+- **Subtasks are left out** as tasks of their own. Their work is inside the duration of the task they belong to, and that task counts at the percent complete its subtasks roll up to: the figure the task shows, counting only its subtasks, not backlog or epic items filed under it, and not a percent stored on it earlier. A task with a backlog item under it can therefore show a different percent from the one earned value uses.
+- **Backlog items, epics and recurring tasks are left out**, the same set the schedule leaves out.
+- **Milestones and other zero-duration tasks add nothing.** They plan no work, so they carry no share of the budget. Reaching a milestone earns nothing beyond the work that led to it.
+
+What earned value does **not** mean:
+
+- **It is not measured output.** It uses the percent complete people enter on tasks. If a percent is optimistic, EV is too.
+- **It is not the percent complete on the project list.** That figure is a plain average of every task's percent, so the two can differ.
+- **It does not use a baseline.** Durations are the current ones, so re-estimating a task re-weights it, and EV can change with no work done. Budget is not allocated to individual tasks either: each task's share is its duration.
+
+When the project's leaf tasks have no duration in total (the project has no leaf tasks, or only milestones), there is nothing to weight by. Earned value, cost variance and the forecasts then report `no_planned_duration` instead of a number. Budget utilization does not need earned value, so it still computes.
 
 ### Forecast measures
 
@@ -76,14 +95,14 @@ A forecast is never shown as `0` or infinity when it cannot be computed. It repo
 
 | Reason | Applies to | Why |
 |---|---|---|
-| `no_budget`, `missing_rates` | all | Same as the other figures |
+| `no_budget`, `missing_rates`, `no_planned_duration` | all | Same as the other figures |
 | `no_actual_cost` | CPI, EAC, ETC, VAC | No cost yet, so CPI (EV ÷ AC) is undefined |
 | `no_earned_value` | EAC, ETC, VAC | Cost with no progress gives CPI 0, so EAC would be infinite |
 | `budget_exhausted` | TCPI | Actual cost has reached the budget, so the denominator is 0 |
 
-The `provenance` block names what computed each figure: the computing function, a contract version, the rate source (the resource's **current** rate, with no rate history, so a rate change re-costs past hours and `as_of` is the only datum saying when a figure was true), the percent-complete basis (the **unweighted** mean of task percent complete, so every task counts equally), the EAC method, and for each figure whether it was `computed` or `restricted` with its reason. Rate-change history is not recorded, by design: a resource has one current rate (see [One rate per resource, no history](#one-rate-per-resource-no-history)). The program rollup's cost KPIs do not carry this block: they already report `available`/`reason` per KPI with the missing-budget and missing-rate counts, and their inputs are the per-project figures described here.
+The `provenance` block names what computed each figure: the computing function, a contract version, the rate source (the resource's **current** rate, with no rate history, so a rate change re-costs past hours and `as_of` is the only datum saying when a figure was true), the percent-complete basis (each leaf task's percent complete weighted by its **current duration**, with phases, subtasks and zero-duration tasks left out), the EAC method, and for each figure whether it was `computed` or `restricted` with its reason. Rate-change history is not recorded, by design: a resource has one current rate (see [One rate per resource, no history](#one-rate-per-resource-no-history)). The program rollup's cost KPIs do not carry this block: they already report `available`/`reason` per KPI with the missing-budget and missing-rate counts, and their inputs are the per-project figures described here.
 
-Example: a project has a budget of 10,000 and is 50 % complete, so EV is 5,000. Two people have logged 11.5 h at 100/h and 0.75 h at 80.50/h, so AC is 1,150.00 + 60.38 = 1,210.38. CV is 5,000 − 1,210.38 = **3,789.62** (under budget), and utilization is **12 %**.
+Example: a project has a budget of 10,000 and three 1-day tasks at 50 %, 100 % and 0 %, so it is 50 % complete and EV is 5,000. Two people have logged 11.5 h at 100/h and 0.75 h at 80.50/h, so AC is 1,150.00 + 60.38 = 1,210.38. CV is 5,000 − 1,210.38 = **3,789.62** (under budget), and utilization is **12 %**.
 
 Each line is rounded to the cent and the lines are then added together, so the breakdown always adds up to the total.
 
@@ -105,6 +124,7 @@ A cost figure that is missing an input says which input is missing instead of sh
 |---|---|---|
 | **N projects have no budget** | A project, or one of the program's projects, has no budget, or a budget of 0 | A Project Manager sets `budget` on the project with `PATCH /api/v1/projects/{id}/` |
 | **N people have no rate** | Someone who logged time on the project, or who is assigned to one of its tasks, has no rate. Their hours cannot be priced | A workspace admin sets each person's rate with `POST /api/v1/resources/{id}/rate/`. This works for a deactivated resource too. If the person has **no resource at all** (their entry in the breakdown has no `resource_id`), first create one with their email address (`POST /api/v1/resources/`), then rate it. TruePPM matches a resource with no linked account to the person by email |
+| **No task durations** (`no_planned_duration`) | The project has no leaf tasks, or only milestones and other zero-duration tasks, so earned value has nothing to weight by. Cost variance and the forecasts are unavailable; budget utilization still computes. In the program rollup, cost variance leaves the project out of its total and counts it as not yet scheduled | Add the project's tasks with their durations |
 | **Restricted to managers of every project** | You are not Program Manager or above on the program, or not Project Manager or above on every project in it | Nothing; cost is restricted |
 
 Actual cost is still shown while rates are missing, but it covers only the priced hours. The cost breakdown lists the unpriced hours and names the people who have no rate.
@@ -149,14 +169,16 @@ Below Project Manager the tool answers `cost_restricted` with a reason and no fi
 
 When cost data is complete, the program rollup's two cost KPIs compute as program **totals**:
 
-- **Cost variance** is the sum of every project's CV.
+- **Cost variance** is the sum of every project's CV, leaving out projects that are not yet scheduled (below).
 - **Budget utilization** is total actual cost ÷ total budget. A large project counts in proportion to its budget; small projects do not each count equally.
 
 Both are unavailable if **any** project in the program is missing a budget or a rate, because a partial total would understate the program. The tile names how many projects or people are missing.
 
+A project whose leaf tasks have no duration in total has no earned value, so it has no cost variance to add. Cost variance **leaves it out** of the total and **counts** it: the tile shows the total, for example "-$1,500", with "over budget · 2 projects not yet scheduled" beneath it (`projects_without_planned_duration`). Cost variance is unavailable (`no_planned_duration`) only when **every** project in the program is in that state. Such a project's spend still counts in budget utilization, which does not need earned value.
+
 The **Budget-weighted** aggregation policy weights each project by its budget. If any project has no budget, the rollup uses the average instead and says why. Budget weighting is applied only for someone who may see every project's budget, under the same rule as the cost KPIs, because a weighted figure reveals how the budgets compare. Everyone else sees the plain average, with a note that budget weighting is unavailable.
 
-A project that has spent hours but has no remaining tasks earns nothing, so its percent complete is 0 and its whole actual cost shows as negative cost variance. See [Program rollup KPIs](/features/settings/program-rollup/).
+A project that has spent hours but has no remaining tasks has no earned value: with no leaf tasks there is nothing to weight by, so its cost variance reports `no_planned_duration` rather than a figure computed from an assumed 0 %. The program's cost variance therefore leaves that spend out and counts the project as not yet scheduled; the spend still shows in budget utilization. See [Program rollup KPIs](/features/settings/program-rollup/).
 
 ## In the weekly digest
 

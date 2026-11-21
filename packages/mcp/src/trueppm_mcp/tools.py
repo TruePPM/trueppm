@@ -1017,10 +1017,13 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Check ``cost_computable`` before quoting a total: when false, one or more
         people in scope have no hourly rate, ``actual`` covers only the priced part,
         and each KPI reports ``available: false`` with a ``reason`` (``no_budget``,
-        ``missing_rates``, or for the forecasts ``no_actual_cost``, ``no_earned_value``,
-        ``budget_exhausted``) instead of a value. ``provenance`` names the inputs behind
-        every figure (rate source, percent-complete basis, EAC method) and marks each
-        as computed or restricted; quote it when asked where a number came from.
+        ``missing_rates``, ``no_planned_duration``, or for the forecasts
+        ``no_actual_cost``, ``no_earned_value``, ``budget_exhausted``) instead of a value.
+        Earned value weights each leaf task's percent complete by its duration; it is
+        not the project list's percent complete (see ``definitions``). ``provenance``
+        names the inputs behind every figure (rate source, percent-complete basis, EAC
+        method) and marks each as computed or restricted; quote it when asked where a
+        number came from.
         ``missing_rate_count`` and ``missing_rate_resources`` say who is unrated.
         ``lines`` holds one row per person (hours, rate, cost).
 
@@ -1311,7 +1314,13 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
         The rollup carries the cost KPIs (``cost_variance``, ``budget_utilization``).
         A caller below program Admin sees each as ``{"available": false, "reason":
-        "cost_restricted"}``, not a top-level flag, and never a cost value.
+        "cost_restricted"}``, not a top-level flag, and never a cost value. Otherwise
+        either is unavailable with ``no_budget`` or ``missing_rates`` when any project
+        lacks a budget or a rate (``projects_without_budget`` / ``missing_rate_count``
+        say how many). ``cost_variance`` leaves out projects with no planned duration
+        (not yet scheduled, so no earned value) and counts them in
+        ``projects_without_planned_duration``; quote that count with the total. It is
+        unavailable with ``no_planned_duration`` only when every project is in that state.
 
         Args:
             program_id: The program's UUID.

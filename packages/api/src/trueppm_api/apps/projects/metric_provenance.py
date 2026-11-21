@@ -191,8 +191,9 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "combined under the program's aggregation policy; positive means late."
     ),
     "rollup.cost_variance": (
-        "Earned value minus actual cost, summed across the contributing projects, in "
-        "the workspace currency; negative means over budget."
+        "Earned value (budget times the duration-weighted percent complete of the leaf "
+        "tasks) minus actual cost, summed across the contributing projects, in the "
+        "workspace currency; negative means over budget."
     ),
     "rollup.budget_utilization": (
         "Actual cost across the contributing projects divided by their total budget; "
